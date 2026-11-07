@@ -274,12 +274,13 @@ export function clearTaskView<T extends TaskViewSearch>(
   return rest
 }
 
-/** 灵感库列表：筛选进 URL，刷新和后退都还原；`item` 让 ⌘K 能直达某一条。 */
+/** 灵感库列表：筛选和管理页签进 URL，刷新和后退都还原；`item` 让 ⌘K 能直达某一条。 */
 export interface InspirationsSearch {
   status?: InspirationStatus
   kind?: InspirationKind
   q?: string
   item?: string
+  tab?: 'items' | 'categories' | 'skills'
 }
 
 export function parseInspirationsSearch(input: Record<string, unknown>): InspirationsSearch {

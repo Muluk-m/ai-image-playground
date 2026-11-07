@@ -16,6 +16,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { ConfirmDialog } from '@/features/inspirations/ConfirmDialog'
+import { InspirationTabs } from '@/features/inspirations/InspirationTabs'
 import {
   inspirationErrorMessage,
   useCreateInspirationCategory,
@@ -35,23 +36,23 @@ function CategoriesPage() {
   const items = useInspirations()
 
   return (
-    <Page
-      crumbs={[{ label: '灵感库', to: '/inspirations' }, { label: '分类' }]}
-      description="主站探索页的分类与排序"
-    >
-      {categories.isPending ? (
-        <PendingState label="加载分类" />
-      ) : categories.isError ? (
-        <ErrorState label="加载分类失败" error={categories.error} />
-      ) : (
-        <CategoryTable
-          categories={categories.data}
-          usage={(items.data ?? []).reduce<Record<string, number>>((counts, item) => {
-            counts[item.categoryId] = (counts[item.categoryId] ?? 0) + 1
-            return counts
-          }, {})}
-        />
-      )}
+    <Page crumbs={[{ label: '灵感库' }]}>
+      <InspirationTabs />
+      <div className="mt-4">
+        {categories.isPending ? (
+          <PendingState label="加载分类" />
+        ) : categories.isError ? (
+          <ErrorState label="加载分类失败" error={categories.error} />
+        ) : (
+          <CategoryTable
+            categories={categories.data}
+            usage={(items.data ?? []).reduce<Record<string, number>>((counts, item) => {
+              counts[item.categoryId] = (counts[item.categoryId] ?? 0) + 1
+              return counts
+            }, {})}
+          />
+        )}
+      </div>
     </Page>
   )
 }

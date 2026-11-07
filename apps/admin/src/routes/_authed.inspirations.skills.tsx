@@ -6,6 +6,7 @@ import { EmptyState, ErrorState, Page, PendingState } from '@/components/Page'
 import { SegmentedControl } from '@/components/SegmentedControl'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+import { InspirationTabs } from '@/features/inspirations/InspirationTabs'
 import { useAgentSkillCatalog, useInspirations } from '@/lib/inspirations'
 
 export const Route = createFileRoute('/_authed/inspirations/skills')({
@@ -25,7 +26,7 @@ function SkillsPage() {
 
   return (
     <Page
-      crumbs={[{ label: '灵感库', to: '/inspirations' }, { label: '技能目录' }]}
+      crumbs={[{ label: '灵感库' }]}
       description="当前镜像内置技能清单（只读）"
       actions={
         <SegmentedControl
@@ -36,6 +37,7 @@ function SkillsPage() {
         />
       }
     >
+      <InspirationTabs />
       <div className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
         <Lock className="mt-0.5 size-4 shrink-0" />
         <div>

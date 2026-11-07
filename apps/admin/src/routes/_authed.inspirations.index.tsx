@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { InspirationDrawer } from '@/features/inspirations/InspirationDrawer'
 import { InspirationGrid } from '@/features/inspirations/InspirationGrid'
+import { InspirationTabs } from '@/features/inspirations/InspirationTabs'
 import { useInspirationCategories, useInspirations } from '@/lib/inspirations'
 import { clearInspirationItem, parseInspirationsSearch } from '@/lib/search-params'
 
@@ -87,6 +88,7 @@ function InspirationsPage() {
           </Button>
         }
       >
+        <InspirationTabs />
         <div className="flex flex-wrap items-center gap-3">
           <SegmentedControl
             label="按状态筛选"
