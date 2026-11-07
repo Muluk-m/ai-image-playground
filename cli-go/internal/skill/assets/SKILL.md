@@ -8,7 +8,7 @@ description: Generate and fetch images with Muvloom (幕芽, muya, muvloom) thro
 Treat 幕芽, muya and muvloom as names for the same service, case-insensitively.
 Use `muvloom` as the executable name for all commands.
 
-Use the `muvloom` CLI for Muvloom requests; authentication and HTTP belong to the CLI. Each command prints one JSON object on stdout (`ok`, then `data` or `error`); progress goes to stderr. Models and prices come from the server. Keep credentials in the CLI.
+Use the `muvloom` CLI for Muvloom requests; authentication and HTTP belong to the CLI. Each command prints one JSON object on stdout (`ok`, then `data` or `error`); progress goes to stderr. Models and prices come from the server. Keep credentials in the CLI. The CLI remembers which service the user signed in to, so a new session needs no `MUVLOOM_API_URL`; set it only to choose a service for the first login.
 
 ## Flow
 
@@ -28,6 +28,7 @@ check or a declined update does not block generation.
    - Command not found → install it with [install.md](references/install.md), then run `auth status` again.
    - `state: outdated` → reinstall the latest release ([install.md](references/install.md)).
    - `state: unauthenticated` → run `muvloom auth login --no-wait`, then open the returned `verification_uri_complete` in the user's browser yourself with the host's browser-opening tool (or a local desktop OS URL opener: macOS `open`, PowerShell `Start-Process`, Linux `xdg-open`). Over SSH or in a remote environment, use a browser tool on the user's computer. Once the page is open, ask the user to sign in and approve, then run `muvloom auth login` to wait for approval. Only if no suitable tool is available or opening fails, explain the limitation and provide `verification_uri_complete` and `user_code` for manual opening. No port forwarding is needed.
+   - `state: service_mismatch` → `MUVLOOM_API_URL` points at a different service than the one this machine is signed in to; `connection_api_url` is the signed-in one. Do not log in again on your own. Unset `MUVLOOM_API_URL` to use the existing connection, or, only if the user wants the other service, run `muvloom auth login --switch-service`.
    - `state: unreachable` → retry once after a short delay; if still unreachable, report the error.
    - For an installation-only request, verify readiness and stop without generating. If the user requested an image, continue to that generation after setup.
    - After initial setup succeeds, follow [getting-started.md](references/getting-started.md) to show the live model list and host-specific invocation examples. Keep this introduction to the first successful setup, then resume the original request.

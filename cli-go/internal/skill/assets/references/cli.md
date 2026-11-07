@@ -6,8 +6,8 @@ All commands print exactly one JSON line on stdout: `{"schema_version":1,"ok":tr
 | --- | --- |
 | `muvloom version` | CLI version and platform |
 | `muvloom update check` | Daily cached stable-release check; `should_prompt` controls offering an authorized upgrade |
-| `muvloom auth status` | `state`: ready / unauthenticated / outdated / unreachable; account, credits, membership, installed Skill |
-| `muvloom auth login [--no-wait] [--timeout S]` | Browser device login; `--no-wait` prints the link and returns |
+| `muvloom auth status` | `state`: ready / unauthenticated / outdated / unreachable / service_mismatch; the effective `api_url` and its `api_url_source` (environment / connection / pending_login / default); account, credits, membership, installed Skill |
+| `muvloom auth login [--no-wait] [--timeout S] [--switch-service]` | Browser device login; `--no-wait` prints the link and returns; `--switch-service` signs in to `MUVLOOM_API_URL` even though this machine is signed in to another service |
 | `muvloom auth logout` | Revoke this CLI connection and forget it |
 | `muvloom capabilities` | Models, aspect ratios, image sizes, qualities, base-price estimates, limits for this account |
 | `muvloom images validate --prompt T [flags]` | Optional request validation or a cost quote when the user asks; creates nothing |
@@ -32,7 +32,7 @@ request's size/quality multiplier. Keep pricing internal unless the user asks.
 | 0 | Success | Read `data` |
 | 2 | Invalid command or request | Fix the flags or ask the user for the missing input |
 | 3 | Not signed in / login pending, denied or expired | Run the login flow |
-| 4 | Rejected (membership, not found, conflict, model unavailable, file exists) or the waited job failed / was canceled | Explain to the user; see errors.md |
+| 4 | Rejected (membership, not found, conflict, model unavailable, file exists, service mismatch) or the waited job failed / was canceled | Explain to the user; see errors.md |
 | 5 | Credits (insufficient, or above `--max-credits`) | Report insufficient credits or the exceeded user-supplied limit; stop |
 | 6 | Temporary (network, rate limit, server busy) | Retry later with the same idempotency key |
 | 7 | CLI too old | Upgrade with install.md |
