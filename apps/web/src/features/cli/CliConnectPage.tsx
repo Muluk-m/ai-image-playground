@@ -15,6 +15,7 @@ import {
   type ConnectAgentId,
   type ConnectPlatform,
   detectPlatform,
+  guideUrl,
   manualCommands,
   WORKBUDDY_SETUP_PATH,
   WORKBUDDY_SKILL_PATH,
@@ -130,10 +131,10 @@ export default function CliConnectPage() {
 
   const prompt = t(agent === 'workbuddy' ? 'cliConnect.workbuddyPrompt' : 'cliConnect.prompt', {
     agent: agent === 'other' ? t('cliConnect.currentAgent') : t(AGENT_LABEL[agent]),
-    setupUrl: new URL(
+    setupUrl: guideUrl(
       agent === 'workbuddy' ? WORKBUDDY_SETUP_PATH : AGENT_SETUP_PATH,
       window.location.origin,
-    ).href,
+    ),
   })
   const manual = useMemo(() => manualCommands(agent, platform), [agent, platform])
 
