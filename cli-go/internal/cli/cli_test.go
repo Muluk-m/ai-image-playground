@@ -483,14 +483,103 @@ func TestPendingLoginDoesNotReuseUnrelatedCredentials(t *testing.T) {
 			if err := app.Store.Save(creds); err != nil {
 				t.Fatal(err)
 			}
-			execute(t, app, "auth", "login", "--no-wait")
+			execute(t, app, "auth", "login", "--switch-service", "--no-wait")
 			f.mu.Lock()
 			f.deviceError = "authorization_pending"
 			f.mu.Unlock()
-			r := execute(t, app, "auth", "login", "--timeout", "0")
+			r := execute(t, app, "auth", "login", "--switch-service", "--timeout", "0")
 			if r.code != ExitAuth || r.out["error"].(map[string]any)["code"] != "AUTH_PENDING" {
 				t.Fatalf("unrelated login reused: %s", r.stdout)
 			}
 		})
+	}
+}
+
+// A new agent session has no MUVLOOM_API_URL; the connection already knows its service.
+func TestServiceFollowsTheStoredConnectionWithoutAnOverride(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	login(t, newApp(t, f, dir))
+
+	fresh := newApp(t, f, dir)
+	fresh.APIURL = ""
+	r := execute(t, fresh, "auth", "status")
+	data := r.out["data"].(map[string]any)
+	if r.code != ExitOK || data["state"] != "ready" {
+		t.Fatalf("status = %d %s", r.code, r.stdout)
+	}
+	if data["api_url"] != f.server.URL || data["api_url_source"] != "connection" {
+		t.Fatalf("service = %v (%v), want the stored connection", data["api_url"], data["api_url_source"])
+	}
+	if r := execute(t, fresh, "jobs", "get", "job-1"); r.code != ExitOK {
+		t.Fatalf("a command without an override = %d %s", r.code, r.stdout)
+	}
+}
+
+func TestServiceDefaultsWhenNothingIsStoredAndNothingIsSet(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	app.APIURL = ""
+	r := execute(t, app, "auth", "status")
+	data := r.out["data"].(map[string]any)
+	if data["state"] != "unauthenticated" || data["api_url"] != DefaultAPIURL || data["api_url_source"] != "default" {
+		t.Fatalf("status = %s", r.stdout)
+	}
+}
+
+func TestExplicitOverrideConflictingWithTheConnectionReportsAMismatch(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	login(t, newApp(t, f, dir))
+
+	other := newApp(t, f, dir)
+	other.APIURL = "https://other.example"
+	r := execute(t, other, "auth", "status")
+	data := r.out["data"].(map[string]any)
+	if r.code != ExitOK || data["state"] != "service_mismatch" {
+		t.Fatalf("status = %d %s", r.code, r.stdout)
+	}
+	if data["api_url"] != "https://other.example" || data["api_url_source"] != "environment" || data["connection_api_url"] != f.server.URL {
+		t.Fatalf("mismatch details = %s", r.stdout)
+	}
+	// The connection is neither used against the wrong service nor dropped.
+	if r := execute(t, other, "jobs", "get", "job-1"); r.code != ExitRejected || r.out["error"].(map[string]any)["code"] != "SERVICE_MISMATCH" {
+		t.Fatalf("a command under a mismatch = %d %s", r.code, r.stdout)
+	}
+	if _, err := other.Store.Load(); err != nil {
+		t.Fatalf("the stored connection was removed: %v", err)
+	}
+}
+
+func TestLoginRefusesToReplaceAConnectionOnAnotherServiceUnlessAsked(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	creds, err := app.Store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	creds.BaseURL = "https://old.example" // the connection belongs to another service
+	if err := app.Store.Save(creds); err != nil {
+		t.Fatal(err)
+	}
+
+	r := execute(t, app, "auth", "login", "--no-wait")
+	if r.code != ExitRejected || r.out["error"].(map[string]any)["code"] != "SERVICE_MISMATCH" {
+		t.Fatalf("login under a mismatch = %d %s", r.code, r.stdout)
+	}
+	if _, err := app.Store.LoadPending(); err != auth.ErrNotFound {
+		t.Fatalf("a login was started anyway: %v", err)
+	}
+
+	// The user can still move to the other service on purpose.
+	r = execute(t, app, "auth", "login", "--switch-service", "--no-wait")
+	if r.code != ExitOK || r.out["data"].(map[string]any)["state"] != "pending" {
+		t.Fatalf("--switch-service = %d %s", r.code, r.stdout)
+	}
+	login(t, app)
+	if got, _ := app.Store.Load(); got.BaseURL != f.server.URL {
+		t.Fatalf("connection service after switching = %q", got.BaseURL)
 	}
 }

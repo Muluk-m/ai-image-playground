@@ -47,6 +47,7 @@ const (
 
 var exitByCode = map[string]int{
 	"INVALID_REQUEST":         ExitInvalid,
+	"SERVICE_MISMATCH":        ExitRejected,
 	"USAGE":                   ExitInvalid,
 	"UNAUTHENTICATED":         ExitAuth,
 	"AUTH_REQUIRED":           ExitAuth,
@@ -89,12 +90,23 @@ func fail(code, format string, args ...any) *Failure {
 	return &Failure{Code: code, Message: fmt.Sprintf(format, args...)}
 }
 
+// Where the effective service address came from, reported by `auth status`.
+const (
+	sourceEnvironment = "environment"
+	sourceConnection  = "connection"
+	sourceDefault     = "default"
+)
+
 type App struct {
+	// APIURL is the explicit override (MUVLOOM_API_URL). When empty, Run resolves it from
+	// the stored connection and then the built-in default.
 	APIURL string
-	Store  auth.Store
-	Out    io.Writer
-	Err    io.Writer
-	HTTP   *http.Client
+	// apiURLSource records how APIURL was resolved for this invocation.
+	apiURLSource string
+	Store        auth.Store
+	Out          io.Writer
+	Err          io.Writer
+	HTTP         *http.Client
 	// Home and CWD override the Skill install roots in tests.
 	Home string
 	CWD  string
@@ -104,7 +116,7 @@ type App struct {
 
 func New(out, errOut io.Writer) *App {
 	return &App{
-		APIURL: envOr("MUVLOOM_API_URL", DefaultAPIURL),
+		APIURL: envOr("MUVLOOM_API_URL", ""),
 		Store:  auth.Default(),
 		Out:    out,
 		Err:    errOut,
@@ -225,11 +237,35 @@ func (a *App) Run(args []string) int {
 		}
 		rest = rest[1:]
 	}
+	if needsService[args[0]] {
+		a.resolveAPIURL()
+	}
 	if err := validateAPIURL(a.APIURL); err != nil {
 		return a.render(nil, err)
 	}
 	data, err := cmd.run(ctx, a, rest)
 	return a.render(data, err)
+}
+
+// needsService lists the commands that talk to the service. The others never touch the
+// credential store, so they cannot trip a keychain prompt just to print a version.
+var needsService = map[string]bool{
+	"auth": true, "capabilities": true, "images": true, "jobs": true, "media": true, "artifacts": true,
+}
+
+// resolveAPIURL picks the service for this invocation: an explicit MUVLOOM_API_URL, else the
+// service the stored connection was issued by, else the default. A new agent session has no
+// environment variable, and must not be taken for signed out because of that.
+func (a *App) resolveAPIURL() {
+	if a.APIURL != "" {
+		a.apiURLSource = sourceEnvironment
+		return
+	}
+	if creds, err := a.Store.Load(); err == nil && creds.RefreshToken != "" && creds.BaseURL != "" {
+		a.APIURL, a.apiURLSource = strings.TrimRight(creds.BaseURL, "/"), sourceConnection
+		return
+	}
+	a.APIURL, a.apiURLSource = DefaultAPIURL, sourceDefault
 }
 
 type outputError struct {
