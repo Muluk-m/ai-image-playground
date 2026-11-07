@@ -16,10 +16,8 @@ import {
   RefreshCw,
   ScrollText,
   Settings,
-  Shapes,
   SlidersHorizontal,
   Sparkles,
-  Tags,
   Users,
 } from 'lucide-react'
 import {
@@ -94,8 +92,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     label: '运营内容',
     entries: [
       { to: '/inspirations', icon: Sparkles, label: '灵感库', exact: true },
-      { to: '/inspirations/skills', icon: Shapes, label: '技能目录', exact: true },
-      { to: '/inspirations/categories', icon: Tags, label: '分类', exact: true },
       { to: '/announcements', icon: Megaphone, label: '版本公告' },
     ],
   },

@@ -432,16 +432,15 @@ describe('sidebar navigation', () => {
     renderAt('/overview')
     const content = await navGroup('运营内容')
     expect(content.getByRole('link', { name: '灵感库' })).toBeInTheDocument()
-    expect(content.getByRole('link', { name: '技能目录' })).toBeInTheDocument()
-    expect(content.getByRole('link', { name: '分类' })).toBeInTheDocument()
+    expect(content.queryByRole('link', { name: '技能目录' })).not.toBeInTheDocument()
+    expect(content.queryByRole('link', { name: '分类' })).not.toBeInTheDocument()
     const settings = await navGroup('设置')
     expect(settings.getByRole('link', { name: '审计' })).toBeInTheDocument()
   })
 
-  it('marks only the exact inspiration module as active', async () => {
+  it('keeps the consolidated inspiration entry exact in the sidebar', async () => {
     renderAt('/inspirations/categories')
     const content = await navGroup('运营内容')
-    expect(content.getByRole('link', { name: '分类' })).toHaveAttribute('data-active', 'true')
     expect(content.getByRole('link', { name: '灵感库' })).toHaveAttribute('data-active', 'false')
   })
 
