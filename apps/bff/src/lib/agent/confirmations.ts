@@ -263,6 +263,7 @@ export async function confirmAgentGeneration(
         if (rejected) return { kind: 'refused', code: rejected.code }
       }
       const submitted = await createQueueTask({
+        entry: 'agent',
         tx,
         provider: draft.provider,
         model: draft.model,

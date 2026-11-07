@@ -84,12 +84,20 @@ function withMember(member: boolean) {
   })
 }
 
+const SUBMIT_ENTRY: Record<Entry, Input['entry']> = {
+  'web-direct': 'web-direct',
+  'cli-strict': 'cli-strict',
+  tx: 'agent',
+  prepared: 'batch',
+}
+
 function baseInput(model: 'gpt' | 'gemini'): Input {
   const request: Omit<SubmitRequest, 'video'> =
     model === 'gpt'
       ? { prompt: 'tier entry', device_id: 'device-abcdefgh', size: '3840x2160', quality: 'high' }
       : { prompt: 'tier entry', device_id: 'device-abcdefgh', image_size: '4K' }
   return {
+    entry: 'web-direct',
     provider: model === 'gpt' ? 'openai-compat' : 'gemini',
     model: model === 'gpt' ? 'gpt-image-2.5-flare' : 'gemini-3-pro-image',
     userId: USER,
@@ -97,7 +105,8 @@ function baseInput(model: 'gpt' | 'gemini'): Input {
   }
 }
 
-async function submitVia(entry: Entry, input: Input): Promise<Outcome> {
+async function submitVia(entry: Entry, base: Input): Promise<Outcome> {
+  const input: Input = { ...base, entry: SUBMIT_ENTRY[entry] }
   switch (entry) {
     case 'web-direct':
       return createQueueTask(input)
@@ -174,4 +183,49 @@ describe('Gemini 4K request by entry', () => {
       })
     }
   }
+})
+
+describe('metering.tier snapshot', () => {
+  async function tierOf(outcome: Outcome) {
+    expect(outcome.kind).toBe('created')
+    if (outcome.kind !== 'created') throw new Error('expected a task')
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, outcome.taskId))
+    return task!.metering?.tier
+  }
+
+  it('records the entry, the member lookup and what the request requires', async () => {
+    withMember(true)
+    expect(await tierOf(await submitVia('web-direct', baseInput('gpt')))).toEqual({
+      entry: 'web-direct',
+      member: true,
+      requires: { membership: true, directRoute: false },
+    })
+  })
+
+  it('records a clamped non-member as asking for nothing', async () => {
+    withMember(false)
+    expect(await tierOf(await submitVia('web-direct', baseInput('gpt')))).toEqual({
+      entry: 'web-direct',
+      member: false,
+      requires: { membership: false, directRoute: false },
+    })
+  })
+
+  it('does not look up membership for a GPT ceiling entry', async () => {
+    withMember(true)
+    expect(await tierOf(await submitVia('prepared', baseInput('gpt')))).toEqual({
+      entry: 'batch',
+      member: false,
+      requires: { membership: false, directRoute: false },
+    })
+  })
+
+  it('records a strict CLI request with the direct route it needs', async () => {
+    withMember(true)
+    expect(await tierOf(await submitVia('cli-strict', baseInput('gpt')))).toEqual({
+      entry: 'cli-strict',
+      member: false,
+      requires: { membership: true, directRoute: true },
+    })
+  })
 })
