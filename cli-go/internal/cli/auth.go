@@ -52,9 +52,19 @@ func (a *App) loadCredentials() (auth.Credentials, error) {
 		return auth.Credentials{}, fail("AUTH_REQUIRED", "Stored credentials are unreadable; run `muvloom auth login` (%v)", err)
 	}
 	if creds.BaseURL != "" && creds.BaseURL != a.APIURL {
-		return auth.Credentials{}, fail("AUTH_REQUIRED", "Signed in to %s, not %s; run `muvloom auth login`", creds.BaseURL, a.APIURL)
+		return auth.Credentials{}, a.serviceMismatch(creds.BaseURL)
 	}
 	return creds, nil
+}
+
+// serviceMismatch is an explicit MUVLOOM_API_URL that disagrees with the service the stored
+// connection was issued by. The connection is kept: the caller decides which service is meant.
+func (a *App) serviceMismatch(connectionURL string) *Failure {
+	return &Failure{
+		Code:    "SERVICE_MISMATCH",
+		Message: "MUVLOOM_API_URL points at " + a.APIURL + ", but this machine is signed in to " + connectionURL + ". Unset MUVLOOM_API_URL to use the connection, or run `muvloom auth login --switch-service` to sign in to " + a.APIURL + " instead",
+		Details: map[string]string{"api_url": a.APIURL, "connection_api_url": connectionURL},
+	}
 }
 
 // apiClient returns a client that refreshes the access token once on a 401.
@@ -146,6 +156,7 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	status := map[string]any{
 		"cli_version":      Version,
 		"api_url":          a.APIURL,
+		"api_url_source":   a.apiURLSource,
 		"credential_store": a.Store.Backend(),
 		"skills":           skills,
 	}
@@ -158,6 +169,11 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	}
 	c, err := a.apiClient()
 	if err != nil {
+		if failure := asFailure(err); failure.Code == "SERVICE_MISMATCH" {
+			status["state"] = "service_mismatch"
+			status["connection_api_url"] = failure.Details.(map[string]string)["connection_api_url"]
+			return status, nil
+		}
 		status["state"] = "unauthenticated"
 		return status, nil
 	}
@@ -205,10 +221,19 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 	fs := newFlags("auth login")
 	noWait := fs.Bool("no-wait", false, "print the approval link and return without waiting")
 	timeout := fs.Int("timeout", 600, "seconds to wait for approval")
+	switchService := fs.Bool("switch-service", false, "sign in to MUVLOOM_API_URL even though this machine is signed in to another service")
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
 	}
 	pending, err := a.Store.LoadPending()
+	// Starting a login against another service would replace the working connection on
+	// approval. Do that only when asked; a login already started for this service (the
+	// `--no-wait` then resume flow) was asked for once and is not asked for again.
+	resuming := err == nil && pending.BaseURL == a.APIURL && time.Now().Before(pending.ExpiresAt)
+	if existing, loadErr := a.Store.Load(); loadErr == nil && !*switchService && !resuming &&
+		existing.RefreshToken != "" && existing.BaseURL != "" && existing.BaseURL != a.APIURL {
+		return nil, a.serviceMismatch(existing.BaseURL)
+	}
 	// A host may replay the whole command after blocking cleanup. Never redeem a
 	// consumed code when its credentials were already saved, even after code expiry.
 	if err == nil && completedLogin(a, pending) {
