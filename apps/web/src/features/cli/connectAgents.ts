@@ -19,12 +19,22 @@ export const WORKBUDDY_SKILL_PATH = '/cli/muvloom-workbuddy.zip'
 const SKILL_HOSTS = new Set<ConnectAgentId>(['claude-code', 'codex'])
 
 /**
+ * 给智能体的指南网址。`v` 是两份指南内容的哈希：宿主抓取网页时会缓存，网址不变就可能一直读到旧指南
+ * （旧指南里固定着旧的安装版本）；内容一变网址就变，旧缓存自然失效。
+ */
+export function guideUrl(path: string, origin: string): string {
+  const url = new URL(path, origin)
+  url.searchParams.set('v', __CLI_GUIDE_REV__)
+  return url.href
+}
+
+/**
  * 官方安装脚本固定到 CLI 发布对应的公开提交，而不是可移动的 `main` 或可重指向的 tag：用户复制的
  * 是已发布版本的脚本，之后分支上的改动不会悄悄变成别人电脑上的命令。脚本再校验下载的 CLI
  * SHA-256；发新版 CLI 时同时更新这两个常量。
  */
-export const CLI_VERSION = '0.1.3'
-export const CLI_RELEASE_REF = 'ac156ba55e3f6238120a5b7629ff4d61c03f81ff'
+export const CLI_VERSION = '0.1.4'
+export const CLI_RELEASE_REF = '7033a6f79bb679f0cf7baf565ffe491b801f4a3d'
 const INSTALL_BASE = `https://raw.githubusercontent.com/Muluk-m/ai-image-playground/${CLI_RELEASE_REF}/cli-go/install`
 export const INSTALL_COMMAND: Record<ConnectPlatform, string> = {
   unix: `curl -fsSL ${INSTALL_BASE}/install.sh | MUVLOOM_VERSION=${CLI_VERSION} sh`,
