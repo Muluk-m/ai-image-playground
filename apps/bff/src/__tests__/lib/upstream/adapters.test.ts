@@ -178,6 +178,27 @@ describe('image adapters plan platform requests into upstream calls', () => {
     })
     expect(plan.applied).toMatchObject({ image_size: '1K', aspect_ratio: '16:9' })
   })
+  it.each([false, true])('uses the canonical extra image size for %s Gemini routing', (vertex) => {
+    const plan = geminiAdapter.plan(
+      { prompt: 'a cup', resolution: '1K', ratio: '16:9', count: 1 },
+      'gemini-3-pro-image',
+      {
+        ...member,
+        vertex,
+        imageSizes: ['1K', '2K'],
+        request: {
+          prompt: 'a cup',
+          image_size: '1K',
+          extra: { generationConfig: { imageConfig: { imageSize: '4K' } } },
+        },
+      },
+    )
+    expect(plan.calls[0]!.body).toMatchObject({
+      generationConfig: { imageConfig: { imageSize: '2K' } },
+    })
+    expect(plan.applied.image_size).toBe('2K')
+    expect(plan.dropped).toEqual([{ param: 'image_size', reason: '模型未开放 4K，已降到 2K' }])
+  })
 
   it('grok 2.0 maps a 16:9 size into aspect_ratio and fans out count', () => {
     const plan = grokAdapter.plan(
