@@ -216,6 +216,7 @@ export const submitRoutes = new Elysia()
           ? { ...rest, client_request_id: crypto.randomUUID() }
           : rest
       const outcome = await createQueueTask({
+        entry: stageAuthorization ? 'stage' : 'web-direct',
         provider: queueProvider,
         model,
         request: inputImages ? { ...commandRequest, input_images: inputImages } : commandRequest,

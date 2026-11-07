@@ -466,6 +466,7 @@ describe('唤醒', () => {
 
     // 用户自己点的重试：同一个会话、同一轮，但不是智能体的工具提交的，没有后台任务登记。
     const retried = await createQueueTask({
+      entry: 'agent',
       provider: agentTask!.provider,
       model: agentTask!.model,
       request: { prompt: '一只橘猫', device_id: DEVICE },

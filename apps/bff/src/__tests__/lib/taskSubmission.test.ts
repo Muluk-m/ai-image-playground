@@ -70,6 +70,7 @@ async function ensureBillingUser() {
 
 async function submit4k(userId: string | null = BILLING_USER) {
   return createQueueTask({
+    entry: 'web-direct',
     provider: 'openai-compat',
     model: 'gpt-image-2.5-flare',
     request: request({ image_size: '4K', input_images: undefined }),
@@ -117,6 +118,7 @@ it('rejects a 768×16 GIF before creating a task or invoking billing', async () 
   })
   try {
     const result = await createQueueTask({
+      entry: 'web-direct',
       provider: 'openai-compat',
       model: 'gpt-image-2.6-flare',
       userId: null,
@@ -195,6 +197,7 @@ describe('non-member resolution ceiling', () => {
     withMember(false)
     const payload = await storedRequest(
       await createQueueTask({
+        entry: 'web-direct',
         provider: 'openai-compat',
         model: 'gpt-image-2.5-flare',
         userId: BILLING_USER,
@@ -214,6 +217,7 @@ describe('non-member resolution ceiling', () => {
     withMember(true)
     const payload = await storedRequest(
       await createQueueTask({
+        entry: 'web-direct',
         provider: 'openai-compat',
         model: 'gpt-image-2.5-flare',
         userId: BILLING_USER,
@@ -228,6 +232,7 @@ describe('non-member resolution ceiling', () => {
     withMember(false)
     for (const extra of [{ size: '3840x2160' }, { size: '1024x1024', quality: 'high' as const }]) {
       const denied = await createQueueTask({
+        entry: 'cli-strict',
         provider: 'openai-compat',
         model: 'gpt-image-2.5-flare',
         userId: BILLING_USER,
@@ -238,6 +243,7 @@ describe('non-member resolution ceiling', () => {
     }
     const allowed = await storedRequest(
       await createQueueTask({
+        entry: 'cli-strict',
         provider: 'openai-compat',
         model: 'gpt-image-2.5-flare',
         userId: BILLING_USER,
@@ -254,6 +260,7 @@ describe('non-member resolution ceiling', () => {
     withMember(false)
     const website = await storedRequest(
       await createQueueTask({
+        entry: 'web-direct',
         provider: 'gemini',
         model: 'gemini-3-pro-image',
         userId: BILLING_USER,
@@ -263,6 +270,7 @@ describe('non-member resolution ceiling', () => {
     expect(website.image_size).toBe('2K')
 
     const cli = await createQueueTask({
+      entry: 'cli-strict',
       provider: 'gemini',
       model: 'gemini-3-pro-image',
       userId: BILLING_USER,
@@ -276,6 +284,7 @@ describe('non-member resolution ceiling', () => {
     withMember(false)
     const payload = await storedRequest(
       await createQueueTask({
+        entry: 'web-direct',
         provider: 'gemini',
         model: 'gemini-3-pro-image',
         userId: BILLING_USER,
@@ -300,6 +309,7 @@ describe('non-member resolution ceiling', () => {
     withMember(false)
     const payload = await storedRequest(
       await createQueueTask({
+        entry: 'web-direct',
         provider: 'gemini',
         model: 'gemini-3-pro-image',
         userId: BILLING_USER,
@@ -323,6 +333,7 @@ describe('non-member resolution ceiling', () => {
     })
     const payload = await storedRequest(
       await createQueueTask({
+        entry: 'web-direct',
         provider: 'gemini',
         model: 'gemini-3-pro-image',
         userId: BILLING_USER,
@@ -342,6 +353,7 @@ describe('non-member resolution ceiling', () => {
     await ensureBillingUser()
     withMember(true)
     const input = {
+      entry: 'web-direct' as const,
       provider: 'gemini' as const,
       model: 'gemini-3-pro-image',
       userId: BILLING_USER,
@@ -387,6 +399,7 @@ describe('non-member resolution ceiling', () => {
     if (estimate.generation.status !== 'available') throw new Error('expected a quote')
     expect(estimate.generation.snapshots[0]!.unitMultiplier).toBe(multiplier)
     const input = {
+      entry: 'batch' as const,
       provider: 'gemini' as const,
       model: 'gemini-nano-banana-2.1',
       userId: BILLING_USER,
@@ -402,6 +415,7 @@ describe('non-member resolution ceiling', () => {
 })
 it('ignores a strict flag supplied inside a website request body', async () => {
   const outcome = await createQueueTask({
+    entry: 'web-direct',
     provider: 'openai-compat',
     model: 'gpt-image-2.5-flare',
     userId: null,
@@ -416,6 +430,7 @@ it('ignores a strict flag supplied inside a website request body', async () => {
 it('replays an existing command when strict execution policy is introduced', async () => {
   await ensureBillingUser()
   const input = {
+    entry: 'web-direct' as const,
     provider: 'openai-compat' as const,
     model: 'gpt-image-2.5-flare',
     userId: BILLING_USER,
@@ -423,7 +438,7 @@ it('replays an existing command when strict execution policy is introduced', asy
   }
   const original = await createQueueTask(input)
   expect(original.kind).toBe('created')
-  const replay = await createQueueTask({ ...input, strictImageRequest: true })
+  const replay = await createQueueTask({ ...input, entry: 'cli-strict', strictImageRequest: true })
   expect(replay).toEqual(original)
   const rollbackReplay = await createQueueTask(input)
   expect(rollbackReplay).toEqual(original)
@@ -454,6 +469,7 @@ interface Submission {
 
 async function submit(input: Submission) {
   const outcome = await createQueueTask({
+    entry: 'agent',
     provider: 'openai-compat',
     // 自定义尺寸的那一支，原尺寸局部编辑才走得通。
     model: input.video ? 'veo-3.1-fast-generate-preview' : 'gpt-image-2.5-flare',

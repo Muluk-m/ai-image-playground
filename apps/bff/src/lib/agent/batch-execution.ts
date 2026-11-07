@@ -272,6 +272,7 @@ async function prepareItem(
   if (preparedBytes > visualByteLimit()) throw new BatchPlanError('batch_input_limit', 422)
   const params = queueParamsFor(item.params.provider, item.params)
   return {
+    entry: 'batch',
     provider: item.params.provider,
     model: item.params.model,
     userId: batch.user_id,

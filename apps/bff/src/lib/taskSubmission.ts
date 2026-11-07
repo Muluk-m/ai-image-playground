@@ -1,8 +1,12 @@
 import { createHash } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
+import { isDeepStrictEqual } from 'node:util'
 import type { AgentJobPlan } from '@image-playground/db'
 import type {
   AgentBatchPriceSnapshot,
+  ImageTierDecision,
+  ImageTierEntry,
+  ImageTierSnapshot,
   PersistedSubmitRequest,
   PersistedVideoRequest,
   QueueProvider,
@@ -14,19 +18,14 @@ import type {
 import {
   applyPromptRewriteGuard,
   billedStageQuantity,
-  clampGeminiNonMemberRequest,
-  clampGptNonMemberRequest,
   DEFAULT_IMAGE_MODERATION,
   gptImage26Rejection,
-  imageRateMultiplier,
   imageSizeTier,
   isBlankPrompt,
-  isGptDirectModel,
   isGptImage26Model,
-  isGptNonMemberRequest,
-  isGptSub2apiDeliverable,
   nearestImageSize,
   QUEUE_TIMEOUTS,
+  resolveImageTier,
   stageAuthorizedVideoDuration,
   videoModelSupportOf,
   videoRateMultiplier,
@@ -41,7 +40,7 @@ import { canonicalJson } from './canonicalJson'
 import { isCapabilityEnabled } from './capabilities'
 import { declaredImageSizes } from './channels'
 import { describeEmptyResult, type ExtractedResult, extractMeta } from './extractImages'
-import { alignGptRequestToMembership, isActiveMember } from './gpt-membership'
+import { isActiveMember } from './gpt-membership'
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './imageArchive'
 import { meteringDecisionOrDenied } from './metering-decision'
 import { modelUnavailable } from './model-availability'
@@ -62,6 +61,11 @@ export interface PreparedQueueTask {
 }
 
 export interface CreateQueueTaskInput {
+  /**
+   * 从哪个入口提交，决定图片档位怎么收口（见 `resolveImageTier`）。调用方显式给出；
+   * `prepareQueueTask` 与之后的 `createQueueTask` 必须用同一个入口，否则准备和提交的哈希对不上。
+   */
+  readonly entry: ImageTierEntry
   readonly stageAuthorization?: StageAuthorizationSubmission
   /** Server-only preparation; its caller owns cleanup after its transaction commits or rolls back. */
   readonly prepared?: PreparedQueueTask
@@ -96,7 +100,8 @@ export interface CreateQueueTaskInput {
    * 其他入口（批量套用、智能体等）一批里本就可能有内容相同的几条，不开。
    */
   readonly dedupeRepeats?: true
-  /** CLI preserves the requested tier/quality and rejects unavailable membership tiers instead of downgrading. */
+  /** CLI preserves the requested tier/quality and rejects unavailable membership tiers instead of downgrading.
+   * 与 `entry: 'cli-strict'` 同进同出，不一致直接抛错。 */
   readonly strictImageRequest?: true
   /**
    * 调用方给的积分上限（CLI 的 `max_credits`）。只在积分计费开着时生效；先按事务内报价
@@ -148,17 +153,16 @@ export async function findTaskByIdempotencyKey(clientRequestId: string, userId: 
  * 计价单位数：图片是张数，视频是秒数；倍率跟着清晰度走。
  * 免费部署的每日配额按输出计数，所以一条视频算一次，不按秒数放大。
  */
-function pricingOf(input: CreateQueueTaskInput) {
+function pricingOf(
+  input: CreateQueueTaskInput,
+  tier: ImageTierDecision<SubmitRequest> | undefined,
+) {
   const n = input.request.n ?? 1
   if (!input.video)
     return {
       quantity: n,
-      // 按即将落库的请求计价：GPT 看档位与画质，Gemini 看可出的 image_size，其余为 1。
-      unitMultiplier: imageRateMultiplier(
-        input.model,
-        input.request,
-        declaredImageSizes(input.model),
-      ),
+      // 按即将落库的请求计价：倍率来自档位决定，提案、提交、结算共用同一份。
+      unitMultiplier: tier?.rateMultiplier ?? 1,
       quotaUnits: n,
     }
   return {
@@ -168,7 +172,7 @@ function pricingOf(input: CreateQueueTaskInput) {
   }
 }
 
-function commandHash(input: CreateQueueTaskInput) {
+function commandHash(input: Omit<CreateQueueTaskInput, 'entry'>) {
   const { device_id: _device, client_request_id: _command, ...request } = input.request
   return createHash('sha256')
     .update(
@@ -380,13 +384,10 @@ async function prepareMaskedSubmission(input: CreateQueueTaskInput) {
 
 /**
  * Read, transform and archive image bytes before acquiring caller transaction locks.
- * 预先准备的入口（批量执行、自动提交、灵感套用）一律收到非会员上限，见 {@link alignGptSubmission}。
+ * 预先准备的入口（批量执行、自动提交、灵感套用）的 `entry` 一律让 GPT 收到非会员上限，见 `resolveImageTier`。
  */
 export async function prepareQueueTask(input: CreateQueueTaskInput) {
-  const aligned = input.strictImageRequest
-    ? await alignGptSubmission(input)
-    : await alignNonStrictImageInput(input, true)
-  return prepareAlignedQueueTask(aligned)
+  return prepareAlignedQueueTask((await alignImageTier(input)).input)
 }
 
 async function prepareAlignedQueueTask(input: CreateQueueTaskInput) {
@@ -494,24 +495,22 @@ export async function strictImageRequestAllowed(
   if (provider === 'gemini' && effectiveSize === '4K' && geminiSizes?.length) {
     if (!geminiSizes.includes('4K')) return false
   }
-  if (isGptDirectModel(model) && !isGptSub2apiDeliverable(request)) {
+  const { requires } = resolveImageTier({
+    model,
+    provider,
+    request,
+    entry: 'cli-strict',
+    member: false,
+    directAvailable: true,
+  })
+  if (requires.directRoute) {
     if (!gptDirectConfigured(model)) return false
-    if (isGptNonMemberRequest(request)) return true
+    if (!requires.membership) return true
     // 4K 与高画质跟网站的 4K 用同一道订阅门。没有这道钩子的旧 overlay 不能授权严格请求。
     if (!(await loadPrivateBffOverlay()).taskHooks.canSubmitTask) return false
     return premiumRequestAllowed(tx, userId, model, request)
   }
-  return (
-    !premiumTierRequested(provider, request) ||
-    (await premiumRequestAllowed(tx, userId, model, request))
-  )
-}
-
-/** GPT 直连模型收到非会员上限（≤2K、非高画质）。收法确定，重复收结果不变。 */
-function clampGptInput(input: CreateQueueTaskInput): CreateQueueTaskInput {
-  if (input.video) return input
-  const request = clampGptNonMemberRequest(input.model, input.request)
-  return request === input.request ? input : { ...input, request }
+  return !requires.membership || (await premiumRequestAllowed(tx, userId, model, request))
 }
 
 /**
@@ -565,59 +564,68 @@ function normalizeGeminiImageSize(model: string, request: SubmitRequest): Submit
 }
 
 /**
- * 非严格入口里，非会员的 Gemini 4K 静默改成 2K；会员保持 4K。
- * 会员判断和渠道档位规整都在这里完成，后面的计价和上游只看规整后的请求。
+ * 会员收口之后的 Gemini 请求形状整理：把最终档位写回扁平字段与 extra.imageConfig，再按渠道开放的档位取最近档。
+ * 后面的计价和上游只看规整后的请求。
  */
-async function downgradeGeminiForNonMember(
-  input: CreateQueueTaskInput,
-): Promise<CreateQueueTaskInput> {
-  if (input.provider !== 'gemini') return input
-  const canonical = canonicalizeGeminiImageSize(input.request)
-  const requested = effectiveGeminiImageSize(canonical)
-  const member = requested === '4K' ? await isActiveMember(input.userId) : false
-  const membershipAligned = clampGeminiNonMemberRequest(canonical, member)
+function shapeGeminiAligned(model: string, membershipAligned: SubmitRequest): SubmitRequest {
   const alignedSize = membershipAligned.image_size ?? effectiveGeminiImageSize(membershipAligned)
   const canonicalAligned = alignedSize
     ? withGeminiImageSize(membershipAligned, alignedSize)
     : membershipAligned
-  const request = normalizeGeminiImageSize(input.model, canonicalAligned)
+  const request = normalizeGeminiImageSize(model, canonicalAligned)
   const finalSize = request.image_size ?? effectiveGeminiImageSize(request)
-  const finalRequest =
-    finalSize && effectiveGeminiImageSize(request) !== finalSize
-      ? withGeminiImageSize(request, finalSize)
-      : request
-  return finalRequest === input.request ? input : { ...input, request: finalRequest }
+  return finalSize && effectiveGeminiImageSize(request) !== finalSize
+    ? withGeminiImageSize(request, finalSize)
+    : request
+}
+
+function tierSnapshot(
+  entry: ImageTierEntry,
+  member: boolean,
+  decision: ImageTierDecision<SubmitRequest>,
+): ImageTierSnapshot {
+  return { entry, memberApplied: member, requires: decision.requires }
 }
 
 /**
- * 网站直接提交：GPT 的 4K / 高画质开给会员，非会员静默收到 ≤2K、非高画质。
- * CLI 严格保留参数，在提交事务内重新授权；不能兑现就拒绝。
- * 智能体、阶段授权、调用方自带事务与预先准备的提交，GPT 一律收到非会员上限
- * （准备时与提交时用同一套收法，哈希才对得上）。Gemini 4K 只在非会员时降到 2K。
+ * 图片档位对齐的唯一入口，包住 `resolveImageTier`：
+ * - 会员身份在这里查，且只在会员与否会改变结果时才查一次。
+ * - Gemini 先规整 extra.imageConfig 与扁平档位，会员收口后再整理成上游要的形状（严格入口只规整，不降级）。
+ * - 对整理后的最终请求再解一次，让 `requires` 与倍率对应真正落库的请求。
+ * 视频没有档位决定，原样返回。
  */
-async function alignNonStrictImageInput(
-  input: CreateQueueTaskInput,
-  ceiling: boolean,
-): Promise<CreateQueueTaskInput> {
-  if (input.video) return input
-  const gptAligned = ceiling
-    ? clampGptInput(input)
-    : await (async () => {
-        const request = await alignGptRequestToMembership(input.model, input.request, input.userId)
-        return request === input.request ? input : { ...input, request }
-      })()
-  return downgradeGeminiForNonMember(gptAligned)
-}
-
-async function alignGptSubmission(input: CreateQueueTaskInput): Promise<CreateQueueTaskInput> {
-  if (input.video) return input
-  if (input.strictImageRequest) {
-    if (input.provider !== 'gemini') return input
-    const request = canonicalizeGeminiImageSize(input.request)
-    return request === input.request ? input : { ...input, request }
+async function alignImageTier(input: CreateQueueTaskInput): Promise<{
+  readonly input: CreateQueueTaskInput
+  readonly decision?: ImageTierDecision<SubmitRequest>
+  readonly member: boolean
+}> {
+  if ((input.entry === 'cli-strict') !== (input.strictImageRequest === true))
+    throw new TypeError('strict_image_request_entry_mismatch')
+  if (input.video) return { input, member: false }
+  const gemini = input.provider === 'gemini'
+  const canonical = gemini ? canonicalizeGeminiImageSize(input.request) : input.request
+  const base = {
+    model: input.model,
+    provider: input.provider,
+    entry: input.entry,
+    directAvailable: gptDirectConfigured(input.model),
+    supportedTiers: declaredImageSizes(input.model),
   }
-  const ceiling = Boolean(input.prepared || input.tx || input.agent || input.stageAuthorization)
-  return alignNonStrictImageInput(input, ceiling)
+  const needsMember = !isDeepStrictEqual(
+    resolveImageTier({ ...base, request: canonical, member: true }).effectiveRequest,
+    resolveImageTier({ ...base, request: canonical, member: false }).effectiveRequest,
+  )
+  const member = needsMember ? await isActiveMember(input.userId) : false
+  let request: SubmitRequest = resolveImageTier({
+    ...base,
+    request: canonical,
+    member,
+  }).effectiveRequest
+  if (gemini && input.entry !== 'cli-strict') request = shapeGeminiAligned(input.model, request)
+  // 对整理后的最终请求只取 requires 与倍率：会员位拉满，避免再收一次口把 Gemini 降回 2K，
+  // 而 extra.imageConfig 与渠道取最近档的结果仍是 4K，落库、计价与上游发出的档位就错位了。
+  const decision = resolveImageTier({ ...base, request, member: true })
+  return { input: request === input.request ? input : { ...input, request }, decision, member }
 }
 
 const GPT_IMAGE_26_REJECTION_MESSAGE = {
@@ -643,7 +651,8 @@ function gptImage26RequestProblem(
 }
 
 export async function createQueueTask(raw: CreateQueueTaskInput): Promise<CreateQueueTaskOutcome> {
-  const input = await alignGptSubmission(alignStageSubmission(raw))
+  const aligned = await alignImageTier(alignStageSubmission(raw))
+  const input = aligned.input
   if (
     input.maxCredits !== undefined &&
     (!Number.isFinite(input.maxCredits) || input.maxCredits < 0)
@@ -692,7 +701,7 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
   if (requestHash !== hash) throw new TypeError('prepared_queue_request_mismatch')
 
   const now = Date.now()
-  const pricing = pricingOf(input)
+  const pricing = pricingOf(input, aligned.decision)
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
   const dailyQuotaEnabled = isCapabilityEnabled('quota:daily')
   const dailyImageQuota = config.operator.quotas['generation:daily-images']
@@ -703,11 +712,15 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
       quantity: number
       unitMultiplier: number
       pricing?: AgentBatchPriceSnapshot
+      tier?: ImageTierSnapshot
     } = {
       mode: isCapabilityEnabled('billing:credits') ? 'credits' : 'none',
       model: input.model,
       quantity: pricing.quantity,
       unitMultiplier: pricing.unitMultiplier,
+      ...(aligned.decision
+        ? { tier: tierSnapshot(input.entry, aligned.member, aligned.decision) }
+        : {}),
     }
     let unmeteredByDecision = false
     const projectOutput =
@@ -736,7 +749,11 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
         ))
       )
         return { kind: 'private_billing_denied' as const }
-    } else if (premiumTierRequested(input.provider, input.request)) {
+    } else if (
+      aligned.decision
+        ? aligned.decision.requires.membership
+        : premiumTierRequested(input.provider, input.request)
+    ) {
       if (!input.userId) return { kind: 'authentication_required' as const }
       if (!(await premiumRequestAllowed(tx, input.userId, input.model, input.request)))
         return { kind: 'private_billing_denied' as const }
