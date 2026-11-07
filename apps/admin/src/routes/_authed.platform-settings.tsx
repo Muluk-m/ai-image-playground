@@ -22,6 +22,7 @@ function PlatformSettingsPage() {
   const modelsQuery = useQuery({
     queryKey: modelsQueryKey,
     queryFn: () => apiClient.get<ManagedModelsView>('/api/models'),
+    enabled: tab === 'models',
   })
   const generation = (modelsQuery.data?.models ?? []).filter((model) => model.kind !== 'chat')
   return (
