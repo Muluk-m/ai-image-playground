@@ -73,11 +73,7 @@ export function preparedComposerNeedsMembership(
   const requested4K = request.image_size === '4K' || request.gemini_image_size === '4K'
   const supported = declaredImageSizesForModel(model)
   const isGemini = model.trim().toLowerCase().startsWith('gemini')
-  if (
-    requested4K &&
-    (isGemini || isGptImage26Model(model)) &&
-    (!supported?.length || supported.includes('4K'))
-  )
+  if (requested4K && ((isGemini && supported?.includes('4K') === true) || isGptImage26Model(model)))
     return true
   if (
     (isGptDirectModel(model) || isGptImage26Model(model)) &&

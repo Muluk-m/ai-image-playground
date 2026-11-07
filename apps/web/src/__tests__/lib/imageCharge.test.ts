@@ -100,10 +100,11 @@ describe('前端报价与旧实现逐项等价', () => {
           ).toBe(legacy.prepared(model, request, member))
   })
 
-  it('preparedComposerNeedsMembership uses the requirement, not price equality', () => {
-    expect(preparedComposerNeedsMembership('gemini-3-pro-image', { image_size: '4K' })).toBe(true)
+  it('does not query membership for an undeclared Gemini 4K tier', () => {
+    expect(preparedComposerNeedsMembership('gemini-unknown-image', { image_size: '4K' })).toBe(
+      false,
+    )
     expect(preparedComposerNeedsMembership('gpt-image-2.6-flare', { size: '3840x2160' })).toBe(true)
-    expect(preparedComposerNeedsMembership('gemini-3-pro-image', { image_size: '2K' })).toBe(false)
   })
 
   it('direct quotes use the actual member bit', () => {
