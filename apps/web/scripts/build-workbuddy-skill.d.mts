@@ -1,1 +1,2 @@
-export function createWorkBuddySkillZip(): Uint8Array
+export function createWorkBuddySkillZip(options?: { sourceDirectory?: string }): Uint8Array
+export function writeWorkBuddySkillZip(): void

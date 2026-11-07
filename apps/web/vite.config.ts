@@ -6,6 +6,7 @@ import type { Plugin } from 'vite'
 import { defineConfig } from 'vitest/config'
 import { parseCLI } from 'vitest/node'
 import { vitestGuard } from '../../scripts/test-guard'
+import { writeWorkBuddySkillZip } from './scripts/build-workbuddy-skill.mjs'
 import { appPreloadPlugin } from './src/boot/appPreload'
 import { startupGuardPlugin } from './src/boot/vitePlugin'
 import { chunkCycleGuardPlugin, vendorChunk } from './src/lib/buildChunks'
@@ -55,6 +56,11 @@ function injectSwBuildVersion(): Plugin {
 export default defineConfig(() => {
   return {
     plugins: [
+      {
+        name: 'workbuddy-skill',
+        apply: (_, { mode }) => mode !== 'test',
+        configResolved: writeWorkBuddySkillZip,
+      },
       optionalFontsPlugin(),
       appPreloadPlugin(),
       startupGuardPlugin(),

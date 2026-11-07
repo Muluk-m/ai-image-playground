@@ -7,7 +7,7 @@
     "dev": "vite",
     "gen:hero-seed": "node scripts/build-hero-seed.mjs",
     "gen:workbuddy-skill": "node scripts/build-workbuddy-skill.mjs",
-    "build": "pnpm gen:hero-seed && pnpm gen:workbuddy-skill && tsc -b && vite build && pnpm --filter @image-playground/website build:site && node ../website/compose.mjs",
+    "build": "pnpm gen:hero-seed && tsc -b && vite build && pnpm --filter @image-playground/website build:site && node ../website/compose.mjs",
     "build:static-host": "pnpm build && node scripts/write-runtime-config.mjs && node scripts/write-version-manifest.mjs",
     "typecheck": "pnpm gen:hero-seed && tsc -b",
     "preview": "vite preview",
