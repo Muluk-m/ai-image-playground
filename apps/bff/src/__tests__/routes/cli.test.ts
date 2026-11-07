@@ -544,11 +544,26 @@ describe('loopback sign-in', () => {
     await approveLoopback(user, device.user_code)
     // 浏览器正带着授权码回本机：设备码不能抢先完成，否则 CLI 退出、浏览器回到关掉的端口。
     expect((await pollToken(device.device_code)).json).toEqual({ error: 'authorization_pending' })
-    await db
-      .update(schema.device_authorizations)
-      .set({ authorization_code_expires_at: Date.now() - 1, last_polled_at: null })
+    // 三十秒内没回来，多半回不到本机：轮询接手，授权码仍在有效期内。
+    await db.update(schema.device_authorizations).set({
+      authorization_code_expires_at: Date.now() + 2 * 60 * 1000 - 31_000,
+      last_polled_at: null,
+    })
     const issued = await pollToken(device.device_code)
     expect(issued.status).toBe(200)
+  })
+
+  it('still lets polling finish a login approved just before the device code expired', async () => {
+    const user = await createUser('loopback-late')
+    const { challenge } = pkcePair()
+    const device = (await startLoopback(challenge)).json
+    await approveLoopback(user, device.user_code)
+    await db.update(schema.device_authorizations).set({
+      expires_at: Date.now() - 1_000,
+      authorization_code_expires_at: Date.now() + 2 * 60 * 1000 - 31_000,
+      last_polled_at: null,
+    })
+    expect((await pollToken(device.device_code)).status).toBe(200)
   })
 
   it('completes by polling at once when the approval page will not hand back a code', async () => {
