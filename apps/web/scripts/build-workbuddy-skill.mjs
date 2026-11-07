@@ -6,7 +6,7 @@ import { zipSync } from 'fflate'
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const sourceRoot = resolve(webRoot, '../../cli-go/internal/skill/assets')
 
-export function createWorkBuddySkillZip() {
+export function createWorkBuddySkillZip({ sourceDirectory = sourceRoot } = {}) {
   const files = {}
   function collect(directory, prefix = '') {
     for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) =>
@@ -20,7 +20,7 @@ export function createWorkBuddySkillZip() {
         files[`muvloom/${relative}`] = readFileSync(join(directory, entry.name))
     }
   }
-  collect(sourceRoot)
+  collect(sourceDirectory)
   const source = files['muvloom/SKILL.md'].toString('utf8')
   const end = source.indexOf('\n---\n', 4)
   if (!source.startsWith('---\n') || end < 0) throw new Error('Missing Skill frontmatter')
@@ -32,12 +32,13 @@ export function createWorkBuddySkillZip() {
     'version: 1.0.0',
     'author: Muvloom',
   ].join('\n')
-  const body = source
-    .slice(end + 5)
-    .replace(
-      '## Flow',
-      '## WorkBuddy\n\nFor installation, account connection or local permission errors, first follow [WorkBuddy setup](references/workbuddy.md). When it asks you to wait for the user, end the turn before continuing.\n\n## Flow',
-    )
+  const sourceBody = source.slice(end + 5)
+  const flowHeading = '\n## Flow\n'
+  if (!sourceBody.includes(flowHeading)) throw new Error('Missing required Skill Flow section')
+  const body = sourceBody.replace(
+    flowHeading,
+    '\n## WorkBuddy\n\nFor installation, account connection or local permission errors, first follow [WorkBuddy setup](references/workbuddy.md). When it asks you to wait for the user, end the turn before continuing.\n\n## Flow\n',
+  )
   files['muvloom/SKILL.md'] = Buffer.from(`${source.slice(0, end)}\n${metadata}\n---\n${body}`)
   files['muvloom/references/workbuddy.md'] = readFileSync(
     resolve(webRoot, 'workbuddy-skill/workbuddy.md'),
@@ -53,8 +54,12 @@ export function createWorkBuddySkillZip() {
   )
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+export function writeWorkBuddySkillZip() {
   const output = resolve(webRoot, 'public/cli/muvloom-workbuddy.zip')
   mkdirSync(dirname(output), { recursive: true })
   writeFileSync(output, createWorkBuddySkillZip())
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  writeWorkBuddySkillZip()
 }

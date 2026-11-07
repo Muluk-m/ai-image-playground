@@ -1,4 +1,6 @@
-import { posix } from 'node:path'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, posix } from 'node:path'
 import { strFromU8, unzipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 import { createWorkBuddySkillZip } from '../../../scripts/build-workbuddy-skill.mjs'
@@ -24,6 +26,7 @@ describe('WorkBuddy Skill package', () => {
       'muvloom/SKILL.md',
     ])
     expect(files['muvloom/references/workbuddy.md']).toBeDefined()
+    expect(skill).toContain('[WorkBuddy setup](references/workbuddy.md)')
     for (const [name, bytes] of Object.entries(files)) {
       expect(name.startsWith('muvloom/')).toBe(true)
       if (!name.endsWith('.md')) continue
@@ -39,5 +42,20 @@ describe('WorkBuddy Skill package', () => {
 
   it('produces identical bytes from the same checked-in source', () => {
     expect(createWorkBuddySkillZip()).toEqual(createWorkBuddySkillZip())
+  })
+
+  it('rejects a source whose workflow heading no longer accepts the WorkBuddy instructions', () => {
+    const sourceDirectory = mkdtempSync(join(tmpdir(), 'workbuddy-skill-source-'))
+    try {
+      writeFileSync(
+        join(sourceDirectory, 'SKILL.md'),
+        '---\nname: muvloom\ndescription: Fixture\n---\n\n## Renamed workflow\n\nGenerate an image.\n',
+      )
+      expect(() => createWorkBuddySkillZip({ sourceDirectory })).toThrow(
+        'Missing required Skill Flow section',
+      )
+    } finally {
+      rmSync(sourceDirectory, { recursive: true, force: true })
+    }
   })
 })
