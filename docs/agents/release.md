@@ -8,18 +8,19 @@ Agent 从 PR 到上线的完整链路，以及每一步谁能拍板。命令与�
 - [智能体上线手册](../deploy/agent-rollout.md)：改 `app.env` / `operator-config.json`、单价、冒烟
 - [生产只读排查](prod-readonly.md)：Sentry、日志、配置名，以及禁止的写操作
 
-## 需要 Nain 批准的步骤
+## 谁拍板
 
-下表的「需 Nain 批准」指 Nain 本人在对话或 PR 里明确说可以。Agent 自己的判断、测试通过或 CI 全绿都不能代替。
+经发布流水线上线的步骤由 Agent 自己推进，**不等 Nain 批准**（2026-11-08 Nain 决定）：检查齐了就合并，合并后跟进部署，**上线后必须冒烟**（见「四、上线核对」），冒烟不过就修复或按「五、回滚」处理，并在汇报里说明。只有绕过流水线、直接动生产服务器或生产数据的手工操作仍要 Nain 批准，因为它们没有检查、也没有自动回滚。
 
 | 步骤 | 谁拍板 | 说明 |
 | --- | --- | --- |
-| 修 bug 的 PR 合并 main（会发生产） | Agent，检查齐了即可 | 检查见「合并前检查」；涉及成本的要在描述和汇报里写清成本影响 |
-| 功能或行为变更的 PR 合并 main（会发生产） | **需 Nain 批准** | 用户能感知的新功能、交互或默认行为变化，都算 |
-| 带数据库迁移的 PR 合并 main | **需 Nain 批准** | 合并即在生产跑迁移，数据库不会自动回滚 |
-| 私有 overlay 仓合并 | **需 Nain 批准** | 合并即发生产，并跑私有迁移 |
-| 生产回滚（镜像回滚、前端回滚、revert PR） | **需 Nain 批准** | 紧急时先报告现象和建议的回滚目标，再等批准 |
-| 手动触发 Deploy production、手动发布 | **需 Nain 批准** | 正常路径是合并 main 自动发布 |
+| 修 bug、功能或行为变更的 PR 合并 main（会发生产） | Agent，检查齐了即可 | 检查见「合并前检查」；涉及成本的要在描述和汇报里写清成本影响 |
+| 带数据库迁移的 PR 合并 main | Agent，检查齐了即可 | 迁移必须兼容新旧两代后端并带回滚 SQL；改编号前按 AGENTS.md 先查两个库已跑过的迁移 |
+| 私有 overlay 仓合并 | Agent，检查齐了即可 | 合并即发生产，并跑私有迁移 |
+| 发布 CLI（打 `cli-vX.Y.Z` 标签） | Agent，检查齐了即可 | 见 [CLI 发布](cli-release.md)；发布后先用官方安装脚本试装，再改接入页钉的版本 |
+| 生产回滚（revert PR、前端回滚） | Agent | 冒烟不过或出事故时直接回滚，事后在汇报里写清现象、影响和回滚目标 |
+| 重跑失败的 Deploy production job | Agent | 只按失败 job 重跑，不重跑整单 |
+| 绕过流水线手动发布 | **需 Nain 批准** | 正常路径是合并 main 自动发布 |
 | 改服务器上的 `app.env` / `operator-config.json` | **需 Nain 批准** | 手工改，先备份，见下文 |
 | 重启、重建、停止生产容器 | **需 Nain 批准** | 包括 `app-compose.sh up` |
 | 共享 segmenter 的 `up` / `rollback` / `detach` | **需 Nain 批准** | 全部部署共用一个实例 |
@@ -34,7 +35,7 @@ Agent 从 PR 到上线的完整链路，以及每一步谁能拍板。命令与�
    - **CI 全绿**：`Web checks` 等 PR 上的检查都通过（`Cost impact` 只打标签提示，不拦合并）。main 没有分支保护和必需检查（2026-10-27 已定先不加：`overlay-bump.yml` 直接往 main 推 overlay 指针，必需检查会把它拦下），所以这条只靠流程守，紧急修复也要等 CI 全绿。
    - **`/review`**：在 PR 评论 `/review` 触发 AI Code Review（`.github/workflows/ai-review.yml`，不阻断合并），处理其中的有效意见。
    - **`@codex review`**：在 PR 评论 `@codex review`，处理有效意见。评论后 30 分钟仍没有回复就继续，并在 PR 里注明「Codex 30 分钟未回复」。
-5. 用 squash merge 合并，合并说明用中文。修 bug 的 PR 检查齐了即可合并；功能或行为变更、带迁移的 PR 要先等 Nain 批准（见上表）。
+5. 用 squash merge 合并，合并说明用中文。检查齐了即可合并，不等 Nain 批准（见上表）；合并后跟进部署并冒烟。
 
 ## 二、测试环境（test 分支）
 
@@ -66,15 +67,15 @@ git push origin HEAD:test
 4. `pages-muvloom`（显示名 `Pages (muvloom project, every product domain)`）只发布一个 muvloom Pages 项目：一个项目、多个域名（`muvloom.online`、`image.nainma.online`、企业域名 `image-playground.qiliangjia.one`）。`pages-release.sh muvloom` 把 `ENTERPRISE_PUBLIC_ORIGIN → ENTERPRISE_BFF_BASE_URL` 并入 `baseUrlsByOrigin`，并给企业域名加 host 级 `X-Robots-Tag: noindex`。API 本次发布时，先等共享 muvloom API 与企业 API hostname `/health` 报出新版本，再发布并跑 Chromium 验收；企业域名在 muvloom 项目的 Cloudflare 自定义域名列表中时同样验收且失败即失败，未绑定只告警，不能据此宣称企业站已交付。`admin-pages` 保留对 `pages-muvloom` 的成功 / 跳过依赖。
    - 企业站使用 `ENTERPRISE_BFF_BASE_URL` 的第一方 hostname，不能直接配置为跨站 muvloom API，否则 `SameSite=Lax` cookie 登录失效。登录方式由后端 `AUTH_LOGIN_METHODS_BY_ORIGIN` 按 origin 决定（企业域名只飞书，muvloom 邮箱 + Google），前端不按域名分支。
    - 只改前端时，`pages-muvloom` 允许 backend job 跳过；只改后端时，backend 直接发布共享 muvloom API。Pages 与 Admin 都使用 muvloom 令牌。GitHub `PAGES_ENV`、仓库外 `pages.env` 的企业键名，以及 VPS 固定 receiver/runtime 必须配套更新，见[部署手册](../deploy/image-release.md#仓库外更新前提)。域名与 API 别名的维护及真实登录验收见[企业域名与 API 别名](../deploy/image-release.md#企业域名与-api-别名)。浏览器启动冒烟不替代真实登录与业务验收。
-   - 失败后的重跑：同一发布 ID 已接收后只能按失败 job 重跑，不能重跑整单，避免同一发布目录冲突。重跑本身需 Nain 批准。
+   - 失败后的重跑：同一发布 ID 已接收后只能按失败 job 重跑，不能重跑整单，避免同一发布目录冲突。
 
-Agent 合并后只跟进这个 workflow 的结果，失败就看日志处理，不手动补发。手动重跑 Deploy production 或走应急手动发布要 Nain 批准。
+Agent 合并后只跟进这个 workflow 的结果，失败就看日志处理（可按失败 job 重跑），不手动补发。走应急手动发布要 Nain 批准。
 
 ### 私有 overlay 发布
 
 私有 overlay 仓合并后，overlay CI 全绿就把 `verified` 指针前移；`.github/workflows/overlay-bump.yml` 每 10 分钟检查一次，构建「公开 main + 新 overlay」通过后把 `private.lock` 提交到 `main`，并直接触发 Deploy production。所以：
 
-- **合并私有 overlay 就会发生产，并在发布里跑私有迁移。** 合并前要 Nain 批准。
+- **合并私有 overlay 就会发生产，并在发布里跑私有迁移。** 检查齐了即可合并，上线后冒烟。
 - overlay 需要新的宿主面成员时，先把公开树的改动合进 `main`，再合 overlay，顺序反了 overlay CI 会红，`verified` 停在旧版。细节见[私有 overlay 与版本](private-overlay.md)。
 
 ## 四、上线核对
@@ -96,11 +97,11 @@ curl -fsS https://test.muvloom.online/version.json
 
 这些只读请求不需要审批。版本对上之后，再在浏览器里实测改到的功能；关键流程用测试账号，按 PR 模板留证据。
 
-## 五、回滚（需 Nain 批准）
+## 五、回滚
 
-先报告现象、影响范围和建议回滚到的提交或镜像，Nain 批准后再动手。
+冒烟不过或出事故时由 Agent 直接回滚，事后在汇报里写清现象、影响范围和回滚到的提交或镜像。需要在服务器上手工操作的（改 `operator-config.json`、`app-compose.sh up`、VPS 上的镜像回滚）仍要 Nain 批准。
 
-**先止血，再回滚。** 出问题的是单个功能或单个模型时，先关掉它，往往比回滚整个版本更快、波及更小。止血同样要 Nain 批准：
+**先止血，再回滚。** 出问题的是单个功能或单个模型时，先关掉它，往往比回滚整个版本更快、波及更小：
 
 - **关能力开关**：能力在服务器上的 `operator-config.json` 的 `capabilities` 里（求值见 `apps/bff/src/lib/capabilities.ts`），一律 deny by default。把出问题的能力改成 `false`，按[智能体上线手册「十、回滚」](../deploy/agent-rollout.md)的方式先备份再 `scripts/app-compose.sh up <project>`。配置写坏服务会拒绝启动而不是降级（[ADR 0001](../adr/0001-capability-config-fails-closed.md)），改完先校验 JSON。
 - **下架模型**：在 Admin 的「模型」页把出问题的模型切到下架，写进公开库 `model_availability`（`apps/bff/src/lib/model-availability.ts`），页面和服务端都不再提供它，不用重新发布。
