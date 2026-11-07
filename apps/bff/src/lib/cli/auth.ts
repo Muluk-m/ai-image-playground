@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomBytes, randomInt, randomUUID } from 'node:crypto'
 import { type AccountProfileView, isSessionRefreshRequestKey } from '@image-playground/shared'
-import { and, eq, gt, inArray, isNotNull, isNull, lt, or } from 'drizzle-orm'
+import { and, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { accountProfileView } from '../account-profile-view'
 import { log } from '../logger'
@@ -20,6 +20,8 @@ const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const LAST_USED_TOUCH_MS = 60 * 1000
 /** 已兑换的设备码在到期后这么久内还能带同一请求标识重发同一组令牌，够用户修好凭据目录再重跑。 */
 const DEVICE_REPLAY_GRACE_MS = 60 * 60 * 1000
+/** 批准后交给本机回调的一次性授权码：CLI 就在本机等着，几秒内就会来换。 */
+const AUTHORIZATION_CODE_TTL_MS = 2 * 60 * 1000
 /** 过期设备码留一天供排查，之后在下一次创建时顺手删掉。 */
 const DEVICE_ROW_RETENTION_MS = 24 * 60 * 60 * 1000
 
@@ -57,7 +59,7 @@ function requestMarker(key: CliRequestKey): string {
 function successorRefresh(
   predecessor: string,
   key: CliRequestKey,
-  domain: 'refresh' | 'device',
+  domain: 'refresh' | 'device' | 'code',
   ownerId: string,
 ): string {
   const secret = createHmac('sha256', predecessor)
@@ -107,6 +109,41 @@ async function audit(
   })
 }
 
+/**
+ * 本机回调登录（RFC 8252 §7.3）：回调地址只能是回环 IP 字面量上的 `/callback`，端口由 CLI
+ * 临时监听决定。不接受 `localhost`，免得被 hosts 或代理改写到别处。
+ */
+export function parseLoopbackRedirect(value: string): string | null {
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    return null
+  }
+  const host = url.hostname
+  if (url.protocol !== 'http:' || (host !== '127.0.0.1' && host !== '[::1]')) return null
+  if (!url.port || url.pathname !== '/callback' || url.search || url.hash) return null
+  if (url.username || url.password) return null
+  return url.toString()
+}
+
+const PKCE_CHALLENGE = /^[A-Za-z0-9_-]{43}$/
+const PKCE_VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/
+
+export function isPkceChallenge(value: string): boolean {
+  return PKCE_CHALLENGE.test(value)
+}
+
+function pkceMatches(verifier: string, challenge: string | null): boolean {
+  if (!challenge || !PKCE_VERIFIER.test(verifier)) return false
+  return createHash('sha256').update(verifier).digest('base64url') === challenge
+}
+
+export interface LoopbackRegistration {
+  readonly redirectUri: string
+  readonly codeChallenge: string
+}
+
 export interface DeviceAuthorization {
   readonly device_code: string
   readonly user_code: string
@@ -119,6 +156,7 @@ export interface DeviceAuthorization {
 export async function createDeviceAuthorization(
   clientId: string,
   verificationUri: string,
+  loopback: LoopbackRegistration | null = null,
 ): Promise<DeviceAuthorization | null> {
   const [client] = await db
     .select({ id: schema.oauth_clients.id })
@@ -164,6 +202,8 @@ export async function createDeviceAuthorization(
         interval_seconds: DEVICE_POLL_INTERVAL_SECONDS,
         last_polled_at: null,
         created_at: now,
+        redirect_uri: loopback?.redirectUri ?? null,
+        code_challenge: loopback?.codeChallenge ?? null,
       })
     } catch (error) {
       if (isUniqueViolation(error)) continue
@@ -226,16 +266,36 @@ export async function describeDeviceAuthorization(
     : null
 }
 
+export type DeviceDecision =
+  | { readonly ok: false }
+  | {
+      readonly ok: true
+      /** 本机回调登录：确认页带着一次性授权码跳回这里，CLI 立刻完成，不用等轮询。 */
+      readonly redirectTo: string | null
+    }
+
 export async function decideDeviceAuthorization(
   code: string,
   userId: string,
   decision: 'approved' | 'denied',
-): Promise<boolean> {
+): Promise<DeviceDecision> {
   const normalized = normalizeUserCode(code)
-  if (!normalized) return false
+  if (!normalized) return { ok: false }
+  const authorizationCode = token()
+  const now = Date.now()
   const [changed] = await db
     .update(schema.device_authorizations)
-    .set({ status: decision, user_id: userId })
+    .set({
+      status: decision,
+      user_id: userId,
+      // 只有登记了回调地址的授权才发授权码；没登记的照旧等 CLI 轮询。
+      ...(decision === 'approved'
+        ? {
+            authorization_code_hash: sql`CASE WHEN ${schema.device_authorizations.redirect_uri} IS NOT NULL THEN ${hashCliSecret(authorizationCode)}::text END`,
+            authorization_code_expires_at: sql`CASE WHEN ${schema.device_authorizations.redirect_uri} IS NOT NULL THEN ${new Date(now + AUTHORIZATION_CODE_TTL_MS).toISOString()}::timestamptz END`,
+          }
+        : {}),
+    })
     .where(
       and(
         eq(schema.device_authorizations.user_code_hash, hashCliSecret(normalized)),
@@ -246,16 +306,20 @@ export async function decideDeviceAuthorization(
     .returning({
       id: schema.device_authorizations.id,
       clientId: schema.device_authorizations.client_id,
+      redirectUri: schema.device_authorizations.redirect_uri,
     })
-  if (!changed) return false
+  if (!changed) return { ok: false }
   await audit(db, {
     action: `device_authorization.${decision}`,
     operatorId: userId,
     targetType: 'cli_device_authorization',
     targetId: changed.id,
-    details: { client_id: changed.clientId },
+    details: { client_id: changed.clientId, loopback: changed.redirectUri !== null },
   })
-  return true
+  if (decision !== 'approved' || !changed.redirectUri) return { ok: true, redirectTo: null }
+  const target = new URL(changed.redirectUri)
+  target.searchParams.set('code', authorizationCode)
+  return { ok: true, redirectTo: target.toString() }
 }
 
 export interface CliTokenResponse {
@@ -389,34 +453,94 @@ export async function exchangeDeviceCode(
       return { ok: false, error: tooSoon ? 'slow_down' : 'authorization_pending' }
     }
     if (!row.user_id) return { ok: false, error: 'invalid_grant' }
-    await tx
-      .update(schema.device_authorizations)
-      .set({ status: 'consumed', last_polled_at: now })
-      .where(eq(schema.device_authorizations.id, row.id))
-    const issued = issueTokens(
-      row.scopes,
+    return createConnection(
+      tx,
+      row,
+      row.user_id,
       now,
       requestKey ? successorRefresh(deviceCode, requestKey, 'device', row.id) : undefined,
+      'device_code',
     )
-    const connectionId = randomUUID()
-    await tx.insert(schema.cli_connections).values({
-      id: connectionId,
-      user_id: row.user_id,
-      client_id: row.client_id,
-      scopes: row.scopes,
-      ...issued.columns,
-      created_at: now,
-      last_used_at: now,
-      revoked_at: null,
-    })
-    await audit(tx, {
-      action: 'token.issued',
-      operatorId: row.user_id,
-      targetType: 'cli_connection',
-      targetId: connectionId,
-      details: { client_id: row.client_id, scopes: row.scopes },
-    })
-    return { ok: true, tokens: issued.response }
+  })
+}
+
+/** 同一次设备授权换出的连接：设备码轮询与本机回调授权码两条路共用这一段。 */
+async function createConnection(
+  tx: Transaction,
+  row: typeof schema.device_authorizations.$inferSelect,
+  userId: string,
+  now: number,
+  refresh: string | undefined,
+  via: 'device_code' | 'authorization_code',
+): Promise<TokenGrantResult> {
+  await tx
+    .update(schema.device_authorizations)
+    .set({ status: 'consumed', last_polled_at: now })
+    .where(eq(schema.device_authorizations.id, row.id))
+  const issued = issueTokens(row.scopes, now, refresh)
+  const connectionId = randomUUID()
+  await tx.insert(schema.cli_connections).values({
+    id: connectionId,
+    user_id: userId,
+    client_id: row.client_id,
+    scopes: row.scopes,
+    ...issued.columns,
+    created_at: now,
+    last_used_at: now,
+    revoked_at: null,
+  })
+  await audit(tx, {
+    action: 'token.issued',
+    operatorId: userId,
+    targetType: 'cli_connection',
+    targetId: connectionId,
+    details: { client_id: row.client_id, scopes: row.scopes, grant: via },
+  })
+  return { ok: true, tokens: issued.response }
+}
+
+/**
+ * 本机回调登录的授权码兑换（RFC 6749 §4.1.3 + RFC 7636）。授权码一次性、两分钟有效，绑定
+ * 登记时的回调地址与 PKCE challenge；带请求标识时令牌由 verifier 与标识推导，响应丢失后同一
+ * 授权码、verifier 与标识重试重发同一组令牌。
+ */
+export async function exchangeAuthorizationCode(
+  code: string,
+  codeVerifier: string,
+  redirectUri: string,
+  clientId: string,
+  requestKey: CliRequestKey | null = null,
+): Promise<TokenGrantResult> {
+  const now = Date.now()
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(schema.device_authorizations)
+      .where(
+        and(
+          eq(schema.device_authorizations.authorization_code_hash, hashCliSecret(code)),
+          eq(schema.device_authorizations.client_id, clientId),
+        ),
+      )
+      .for('update')
+      .limit(1)
+    if (
+      !row ||
+      row.redirect_uri !== redirectUri ||
+      row.authorization_code_expires_at === null ||
+      !pkceMatches(codeVerifier, row.code_challenge)
+    )
+      return { ok: false, error: 'invalid_grant' }
+    const refresh = requestKey
+      ? successorRefresh(codeVerifier, requestKey, 'code', row.id)
+      : undefined
+    if (row.status === 'consumed')
+      return refresh && row.authorization_code_expires_at + DEVICE_REPLAY_GRACE_MS > now
+        ? replaySuccessor(tx, refresh, clientId, now)
+        : { ok: false, error: 'invalid_grant' }
+    if (row.status !== 'approved' || !row.user_id || row.authorization_code_expires_at <= now)
+      return { ok: false, error: 'invalid_grant' }
+    return createConnection(tx, row, row.user_id, now, refresh, 'authorization_code')
   })
 }
 

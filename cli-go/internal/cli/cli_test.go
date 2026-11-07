@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -54,6 +56,11 @@ type fakeServer struct {
 	ignoreRequestID bool
 	// expiredOnce answers the next refresh with an access token that has no lifetime left.
 	expiredOnce bool
+	// Loopback sign-in as the service sees it: what the CLI registered, and the code it issued.
+	redirectURI   string
+	codeChallenge string
+	issuedCode    string
+	codeExchanges int
 }
 
 const secretDeviceCode = "device-secret-value"
@@ -62,9 +69,11 @@ func newFakeServer(t *testing.T) *fakeServer {
 	f := &fakeServer{t: t, approveAfter: 2, access: "access-1", refresh: "refresh-1", submissions: map[string]string{}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/oauth/device_authorization", func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
 		f.mu.Lock()
 		f.deviceRedeemed = false
 		f.deviceAuthCalls++
+		f.redirectURI, f.codeChallenge = r.Form.Get("redirect_uri"), r.Form.Get("code_challenge")
 		f.mu.Unlock()
 		writeJSON(w, 200, map[string]any{
 			"device_code": secretDeviceCode, "user_code": "BCDF-GHJK",
@@ -77,6 +86,17 @@ func newFakeServer(t *testing.T) *fakeServer {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		switch r.Form.Get("grant_type") {
+		case "authorization_code":
+			f.codeExchanges++
+			sum := sha256.Sum256([]byte(r.Form.Get("code_verifier")))
+			if f.issuedCode == "" || r.Form.Get("code") != f.issuedCode || f.deviceRedeemed ||
+				r.Form.Get("redirect_uri") != f.redirectURI ||
+				base64.RawURLEncoding.EncodeToString(sum[:]) != f.codeChallenge {
+				writeJSON(w, 400, map[string]string{"error": "invalid_grant"})
+				return
+			}
+			f.deviceRedeemed = true
+			writeJSON(w, 200, f.tokens())
 		case "urn:ietf:params:oauth:grant-type:device_code":
 			f.polls++
 			f.deviceRequestIDs = append(f.deviceRequestIDs, r.Form.Get("request_id"))
@@ -248,7 +268,30 @@ func newApp(t *testing.T, f *fakeServer, dir string) *App {
 		Home:   t.TempDir(),
 		CWD:    t.TempDir(),
 		Sleep:  func(context.Context, time.Duration) error { return nil },
+		// No browser in tests unless one opts in: the link is printed instead.
+		OpenBrowser: func(string) error { return errors.New("no browser") },
 	}
+}
+
+// approveInBrowser plays the user's browser: the page approves, then sends the browser back to
+// the CLI's callback with the code the service issued. It returns where the CLI sent it next.
+func (f *fakeServer) approveInBrowser(t *testing.T, opened string) string {
+	t.Helper()
+	target, err := url.Parse(opened)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.issuedCode = "one-time-code"
+	redirect := f.redirectURI
+	f.mu.Unlock()
+	browser := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	res, err := browser.Get(redirect + "?code=one-time-code&state=" + url.QueryEscape(target.Query().Get("state")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	return res.Header.Get("Location")
 }
 
 func execute(t *testing.T, app *App, args ...string) run {
@@ -1440,5 +1483,146 @@ func TestABusyServiceKeepsARecoverableLogin(t *testing.T) {
 	kept, _ := app.Store.LoadPending()
 	if kept.RequestID != pending.RequestID || kept.DeviceCode != pending.DeviceCode || f.deviceAuthCalls != 1 {
 		t.Fatalf("the recoverable login was replaced: %d authorizations", f.deviceAuthCalls)
+	}
+}
+
+func slowSleep(ctx context.Context, d time.Duration) error {
+	select {
+	case <-time.After(10 * time.Millisecond):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// One command: it opens the browser itself, and the approval brings the browser straight back,
+// so the login finishes without polling or a reply from the user.
+func TestLoginOpensTheBrowserAndFinishesFromTheCallback(t *testing.T) {
+	f := newFakeServer(t)
+	f.approveAfter = 1 << 30 // the device code never completes: only the callback can
+	app := newApp(t, f, t.TempDir())
+	app.Sleep = slowSleep
+	landed := make(chan string, 1)
+	var opened string
+	app.OpenBrowser = func(u string) error {
+		opened = u
+		go func() { landed <- f.approveInBrowser(t, u) }()
+		return nil
+	}
+	r := execute(t, app, "auth", "login")
+	if r.code != ExitOK || r.out["data"].(map[string]any)["state"] != "ready" {
+		t.Fatalf("login = %d %s", r.code, r.stdout)
+	}
+	if !strings.Contains(opened, "user_code=BCDF-GHJK") || !strings.Contains(opened, "state=") {
+		t.Fatalf("opened %q", opened)
+	}
+	if strings.Contains(r.stderr, f.server.URL+"/device") {
+		t.Fatalf("printed the link although the browser opened: %s", r.stderr)
+	}
+	if got := <-landed; got != f.server.URL+"/device?status=connected" {
+		t.Fatalf("browser sent to %q", got)
+	}
+	if !strings.HasPrefix(f.redirectURI, "http://127.0.0.1:") || f.codeChallenge == "" || f.codeExchanges != 1 {
+		t.Fatalf("registered %q %q, exchanges %d", f.redirectURI, f.codeChallenge, f.codeExchanges)
+	}
+	assertNoSecrets(t, r, "one-time-code", secretDeviceCode, "refresh-1")
+}
+
+func TestACallbackForAnotherLoginIsTurnedAway(t *testing.T) {
+	f := newFakeServer(t)
+	f.approveAfter = 5
+	app := newApp(t, f, t.TempDir())
+	app.Sleep = slowSleep
+	status := make(chan int, 1)
+	app.OpenBrowser = func(string) error {
+		go func() {
+			f.mu.Lock()
+			redirect := f.redirectURI
+			f.mu.Unlock()
+			res, err := http.Get(redirect + "?code=forged&state=not-this-login")
+			if err == nil {
+				res.Body.Close()
+				status <- res.StatusCode
+			}
+		}()
+		return nil
+	}
+	r := execute(t, app, "auth", "login")
+	if r.code != ExitOK {
+		t.Fatalf("login = %d %s", r.code, r.stdout)
+	}
+	if got := <-status; got != http.StatusBadRequest {
+		t.Fatalf("forged callback = %d", got)
+	}
+	if f.codeExchanges != 0 {
+		t.Fatal("exchanged a code from a callback that did not belong to this login")
+	}
+}
+
+// A port that cannot be opened leaves the device code alone: the same command still opens the
+// browser and completes once the user approves.
+func TestLoginFallsBackToTheDeviceCodeWhenItCannotListen(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	app.Listen = func(string, string) (net.Listener, error) { return nil, errors.New("blocked") }
+	var opened string
+	app.OpenBrowser = func(u string) error { opened = u; return nil }
+	r := execute(t, app, "auth", "login")
+	if r.code != ExitOK || r.out["data"].(map[string]any)["state"] != "ready" {
+		t.Fatalf("login = %d %s", r.code, r.stdout)
+	}
+	if f.redirectURI != "" || f.codeChallenge != "" {
+		t.Fatalf("registered a callback it could not serve: %q", f.redirectURI)
+	}
+	if opened != f.server.URL+"/device?user_code=BCDF-GHJK" {
+		t.Fatalf("opened %q", opened)
+	}
+}
+
+func TestLoginPrintsTheLinkWhenTheBrowserCannotOpen(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	r := execute(t, app, "auth", "login")
+	if r.code != ExitOK || !strings.Contains(r.stderr, f.server.URL+"/device?user_code=BCDF-GHJK") {
+		t.Fatalf("login = %d, stderr %q", r.code, r.stderr)
+	}
+}
+
+// Waiting timed out; running the command again continues the same login: no new approval page,
+// and the page already open still brings the browser back to this machine.
+func TestAResumedLoginReusesTheOpenPage(t *testing.T) {
+	f := newFakeServer(t)
+	f.approveAfter = 1 << 30
+	app := newApp(t, f, t.TempDir())
+	app.OpenBrowser = func(string) error { return nil }
+	if r := execute(t, app, "auth", "login", "--timeout", "0"); r.out["error"].(map[string]any)["code"] != "AUTH_PENDING" {
+		t.Fatalf("first login = %s", r.stdout)
+	}
+	pending, _ := app.Store.LoadPending()
+	opens := 0
+	landed := make(chan string, 1)
+	app.Sleep = slowSleep
+	app.OpenBrowser = func(string) error { opens++; return nil }
+	var addr string
+	app.Listen = func(network, a string) (net.Listener, error) {
+		addr = a
+		l, err := net.Listen(network, a)
+		if err == nil {
+			go func() { landed <- f.approveInBrowser(t, approvalURL(pending)) }()
+		}
+		return l, err
+	}
+	r := execute(t, app, "auth", "login")
+	if r.code != ExitOK || r.out["data"].(map[string]any)["state"] != "ready" {
+		t.Fatalf("resumed login = %d %s", r.code, r.stdout)
+	}
+	if opens != 0 || f.deviceAuthCalls != 1 {
+		t.Fatalf("opened %d pages, %d authorizations", opens, f.deviceAuthCalls)
+	}
+	if !strings.HasSuffix(pending.RedirectURI, addr+"/callback") {
+		t.Fatalf("listened on %q, registered %q", addr, pending.RedirectURI)
+	}
+	if got := <-landed; got != f.server.URL+"/device?status=connected" {
+		t.Fatalf("browser sent to %q", got)
 	}
 }

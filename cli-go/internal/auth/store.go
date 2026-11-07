@@ -81,6 +81,12 @@ type PendingLogin struct {
 	// Redeemed records that the server already issued tokens for this code. The next login
 	// redeems it again with RequestID, even after the code itself expired.
 	Redeemed bool `json:"redeemed,omitempty"`
+	// Loopback sign-in: the callback registered with the authorization, the PKCE verifier and
+	// state that bind it to this login, and the one-time code once the callback brought one.
+	RedirectURI       string `json:"redirect_uri,omitempty"`
+	CodeVerifier      string `json:"code_verifier,omitempty"`
+	State             string `json:"state,omitempty"`
+	AuthorizationCode string `json:"authorization_code,omitempty"`
 }
 
 type Store struct {
