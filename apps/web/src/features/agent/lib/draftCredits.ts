@@ -1,5 +1,4 @@
-import { preparedImageRateMultiplier } from '@image-playground/shared'
-import { declaredImageSizesForModel } from '../../../lib/imageCharge'
+import { preparedComposerImageRate } from '../../../lib/imageCharge'
 import type { PrivateSubmissionInput } from '../../../lib/privateOverlay'
 import { getPrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import type { AgentToolMessage } from '../types'
@@ -20,14 +19,13 @@ export function agentDraftCreditEstimate(
   const estimated = quote({
     model,
     quantity: agentDraftOutputCount(message),
-    unitMultiplier: preparedImageRateMultiplier(
+    unitMultiplier: preparedComposerImageRate(
       model,
       {
         size: params?.size,
         quality: params?.quality,
         gemini_image_size: params?.gemini_image_size,
       },
-      declaredImageSizesForModel(model),
       member,
     ),
   })
