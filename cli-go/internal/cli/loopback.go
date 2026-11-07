@@ -67,7 +67,12 @@ func (a *App) openBrowser(target string) error {
 		}
 		cmd = exec.Command("xdg-open", target)
 	}
-	return cmd.Run()
+	// Start, do not wait: a browser that runs in the foreground would hold the login.
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
 
 // startLoopback listens for the callback. A login resumed in a new process listens on the port
@@ -97,6 +102,24 @@ func (a *App) startLoopback(pending *auth.PendingLogin) (net.Listener, error) {
 type callback struct {
 	code  string
 	reply chan bool
+	// sent is closed once the browser has its answer, so the CLI does not exit before then.
+	sent chan struct{}
+}
+
+// answer tells the waiting browser how the login ended and waits, briefly, until it is told.
+func (c *callback) answer(ok bool) {
+	if c == nil || c.reply == nil {
+		return
+	}
+	select {
+	case c.reply <- ok:
+	default:
+		return
+	}
+	select {
+	case <-c.sent:
+	case <-time.After(3 * time.Second):
+	}
 }
 
 // serveCallback answers the callback of this login only: a visit whose state does not match is
@@ -118,7 +141,8 @@ func (a *App) serveCallback(listener net.Listener, pending auth.PendingLogin, do
 			http.Error(w, "This sign-in link does not belong to the waiting muvloom login.", http.StatusBadRequest)
 			return
 		}
-		visit := callback{code: code, reply: make(chan bool, 1)}
+		visit := callback{code: code, reply: make(chan bool, 1), sent: make(chan struct{})}
+		defer close(visit.sent)
 		select {
 		case codes <- visit:
 		case <-done:
@@ -128,7 +152,7 @@ func (a *App) serveCallback(listener net.Listener, pending auth.PendingLogin, do
 		ok := false
 		select {
 		case ok = <-visit.reply:
-		case <-time.After(30 * time.Second):
+		case <-time.After(2 * time.Minute):
 		case <-done:
 		}
 		status := "failed"
@@ -166,12 +190,13 @@ func (a *App) redeemAuthorizationCode(ctx context.Context, pending auth.PendingL
 }
 
 // redeem finishes with whatever the login holds: the callback's one-time code when one arrived,
-// otherwise the device code. A code the service no longer accepts falls back to the device code.
+// otherwise the device code. Whenever the service turns the code down, for whatever reason, the
+// device code decides.
 func (a *App) redeem(ctx context.Context, pending auth.PendingLogin) (tokenResponse, error) {
 	if pending.AuthorizationCode != "" && pending.CodeVerifier != "" {
 		tokens, err := a.redeemAuthorizationCode(ctx, pending)
 		var oauthErr *client.OAuthError
-		if err == nil || !errors.As(err, &oauthErr) || oauthErr.Code != "invalid_grant" {
+		if err == nil || !errors.As(err, &oauthErr) {
 			return tokens, err
 		}
 	}

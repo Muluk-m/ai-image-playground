@@ -103,9 +103,9 @@ export function frontendOrigin(request: Request, requested?: unknown): string {
   return (allowed[0] ?? bffOrigin(request)).replace(/\/+$/, '')
 }
 
-function registrableDomain(origin: string): string {
+function hostOf(origin: string): string {
   try {
-    return new URL(origin).hostname.split('.').slice(-2).join('.')
+    return new URL(origin).hostname
   } catch {
     return ''
   }
@@ -113,13 +113,20 @@ function registrableDomain(origin: string): string {
 
 /**
  * Where a CLI's approval page lives. The CLI sends no Origin, so the page is the configured
- * frontend that shares the API host's registrable domain: every product domain already has to,
- * or its SameSite=Lax session cookie would not reach the API. An enterprise CLI then lands on
- * the enterprise page, which offers that domain's sign-in methods.
+ * frontend under the API host's parent domain (`image-api.example.com` → `*.example.com` or
+ * `example.com`): every product domain already shares one with its API, or its SameSite=Lax
+ * session cookie would not reach it. An enterprise CLI then lands on the enterprise page, which
+ * offers that domain's sign-in methods. No match keeps the primary frontend.
  */
 export function cliVerificationOrigin(request: Request): string {
-  const api = registrableDomain(bffOrigin(request))
-  const match = allowedFrontendOrigins(request).find((origin) => registrableDomain(origin) === api)
+  const labels = hostOf(bffOrigin(request)).split('.')
+  const parent = labels.length > 2 ? labels.slice(1).join('.') : labels.join('.')
+  const match = parent
+    ? allowedFrontendOrigins(request).find((origin) => {
+        const host = hostOf(origin)
+        return host === parent || host.endsWith(`.${parent}`)
+      })
+    : undefined
   return (match ?? frontendOrigin(request)).replace(/\/+$/, '')
 }
 

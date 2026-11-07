@@ -311,7 +311,7 @@ type deviceAuthorization struct {
 func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 	fs := newFlags("auth login")
 	noWait := fs.Bool("no-wait", false, "print the approval link and return without waiting (no browser, device code only)")
-	timeout := fs.Int("timeout", 600, "seconds to wait for approval")
+	timeout := fs.Int("timeout", -1, "seconds to wait for approval (default: as long as the code is valid)")
 	switchService := fs.Bool("switch-service", false, "sign in to MUVLOOM_API_URL even though this machine is signed in to another service")
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
@@ -457,16 +457,28 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 	}
 	done := make(chan struct{})
 	defer close(done)
+	// A browser that came back while the code exchange hit a temporary error waits for the
+	// final outcome, so it is never told "failed" when polling then signs in.
+	var waiting *callback
+	defer func() { waiting.answer(false) }()
 	var callbacks <-chan callback
 	if listener != nil && pending.State != "" {
 		callbacks = a.serveCallback(listener, pending, done)
 	}
-	deadline := time.Now().Add(seconds(*timeout, 0, 3600))
+	// By default the CLI waits as long as the code is valid: an approval page left open keeps
+	// somewhere to come back to.
+	deadline := pending.ExpiresAt
+	if *timeout >= 0 || !time.Now().Before(deadline) {
+		deadline = time.Now().Add(seconds(*timeout, 0, 3600))
+	}
 	interval := seconds(pending.IntervalSeconds, 1, 60)
 	for {
 		tokens, err := a.redeem(ctx, pending)
 		if err == nil {
-			return a.finishLogin(ctx, pending, tokens)
+			result, err := a.finishLogin(ctx, pending, tokens)
+			waiting.answer(err == nil)
+			waiting = nil
+			return result, err
 		}
 		var oauthErr *client.OAuthError
 		if !errors.As(err, &oauthErr) {
@@ -488,7 +500,10 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 				_ = a.Store.ClearPending()
 				return nil, fail("AUTH_EXPIRED", "The login code expired; run `muvloom auth login` again")
 			default:
-				return nil, oauthFailure(err)
+				// A busy or rate-limited service is not an answer: keep waiting.
+				if oauthErr.Status < 500 && oauthErr.Status != http.StatusTooManyRequests {
+					return nil, oauthFailure(err)
+				}
 			}
 		}
 		if time.Now().Add(interval).After(deadline) {
@@ -501,7 +516,10 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 		if visit, ok, err := a.waitForCallback(ctx, interval, callbacks); err != nil {
 			return nil, err
 		} else if ok {
-			if result, err := a.completeCallback(ctx, &pending, visit); err == nil {
+			waiting.answer(false)
+			waiting = &visit
+			if result, err := a.completeCallback(ctx, &pending, waiting); err == nil {
+				waiting = nil
 				return result, nil
 			} else if exitByCode[asFailure(err).Code] == ExitRejected {
 				return nil, err
@@ -530,19 +548,17 @@ func (a *App) waitForCallback(ctx context.Context, interval time.Duration, callb
 
 // completeCallback redeems the code the browser brought back. The code is stored first: if the
 // response is lost, running the command again repeats this exchange with the same identity.
-func (a *App) completeCallback(ctx context.Context, pending *auth.PendingLogin, visit callback) (any, error) {
+func (a *App) completeCallback(ctx context.Context, pending *auth.PendingLogin, visit *callback) (any, error) {
 	pending.AuthorizationCode = visit.code
 	if err := a.Store.SavePending(*pending); err != nil {
-		visit.reply <- false
 		return nil, fail("CREDENTIAL_STORE_UNWRITABLE", "Could not store the pending login (%s); check that the muvloom config directory is writable", auth.Reason(err))
 	}
 	tokens, err := a.redeemAuthorizationCode(ctx, *pending)
 	if err != nil {
-		visit.reply <- false
 		return nil, oauthFailure(err)
 	}
 	result, err := a.finishLogin(ctx, *pending, tokens)
-	visit.reply <- err == nil
+	visit.answer(err == nil)
 	return result, err
 }
 
