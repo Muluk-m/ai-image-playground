@@ -9,7 +9,6 @@ import {
   KeyRound,
   LogOut,
   type LucideIcon,
-  Megaphone,
   MessageSquareText,
   MonitorSmartphone,
   ReceiptText,
@@ -90,10 +89,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   },
   {
     label: '运营内容',
-    entries: [
-      { to: '/inspirations', icon: Sparkles, label: '灵感库', exact: true },
-      { to: '/announcements', icon: Megaphone, label: '版本公告' },
-    ],
+    entries: [{ to: '/inspirations', icon: Sparkles, label: '灵感库' }],
   },
   {
     label: '运维',

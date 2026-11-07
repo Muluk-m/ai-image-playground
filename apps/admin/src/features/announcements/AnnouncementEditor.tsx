@@ -15,6 +15,7 @@ import { SegmentedControl } from '@/components/SegmentedControl'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { ContentTabs } from '@/features/content/ContentTabs'
 import {
   AUDIENCE_LABEL,
   announcementErrorMessage,
@@ -225,6 +226,7 @@ export function AnnouncementEditor({ id }: { id: string }) {
         </>
       }
     >
+      <ContentTabs />
       {id !== 'new' && loaded.isPending ? <PendingState label="正在加载公告" /> : null}
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
         <form
