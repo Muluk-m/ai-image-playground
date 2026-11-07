@@ -26,8 +26,8 @@ CLI 0.1.4 不支持 `muvloom skill install --host workbuddy`，不要发明这�
 按包内 `references/workbuddy.md` 执行账号连接与本地权限错误处理。用户点完授权你就自动继续，不需要用户再回复你。关键顺序：
 
 1. 前台运行 `muvloom auth status`，已经 `ready` 就保留连接。
-2. 未登录时前台执行 `muvloom auth login --no-wait`，自己打开授权链接，并在这一条回复里告诉用户「我在这里等，你点完授权我会自动继续，不需要回复我」；**不要结束本回合**。
-3. 紧接着前台执行 `muvloom auth login --timeout 60` 等待；返回 `AUTH_PENDING` 就再执行一次，直到 `ready`、`AUTH_DENIED` 或 `AUTH_EXPIRED`（授权码 20 分钟有效）。
+2. 未登录时，先在这一条回复里告诉用户「授权页马上打开，你点完授权我会自动继续，不需要回复我」；**不要结束本回合**。
+3. 紧接着前台执行 `muvloom auth login`：它自己打开授权页并等待，点完授权即返回 `ready`。返回 `AUTH_PENDING` 或被宿主截断时再执行一次，它会接着同一次登录、不再打开新页面，直到 `ready`、`AUTH_DENIED` 或 `AUTH_EXPIRED`（授权码 20 分钟有效）。
 4. 只有等待被宿主连续两次打断时，才退回到让用户点完授权后回复一句，再用 `muvloom auth login --timeout 15` 收尾。
 5. 遇到本地写入失败时，暂停并说明必要权限；不要将其说成授权码过期，也不要循环发码。
 
