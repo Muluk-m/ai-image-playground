@@ -1,6 +1,6 @@
 ---
 name: muvloom
-description: Generate and fetch images with Muvloom (幕芽, muya, muvloom) through the native `muvloom` CLI — text-to-image, image-to-image from local reference files, job status and downloads. Use when the user asks to create images with 幕芽, muya or muvloom, or check their generation jobs; including editing local reference images with Muvloom. Purely local image processing uses the host's local tools.
+description: Generate and fetch images with Muvloom (幕芽, muya, muvloom) through the native `muvloom` CLI — text-to-image, image-to-image and edits from local reference images, coordinated sets such as e-commerce galleries, and native animated GIF and SVG vector output on models that support it; job status and downloads. Use when the user asks to create images, stickers, GIFs, animations, icons or vector graphics with 幕芽, muya or muvloom, or to check their generation jobs. Purely local image processing uses the host's local tools.
 ---
 
 # Muvloom
@@ -33,11 +33,12 @@ check or a declined update does not block generation.
    - For an installation-only request, verify readiness and stop without generating. If the user requested an image, continue to that generation after setup.
    - After initial setup succeeds, follow [getting-started.md](references/getting-started.md) to show the live model list and host-specific invocation examples. Keep this introduction to the first successful setup, then resume the original request.
 2. **Read capabilities**: `muvloom capabilities` once for the task; refresh if the server rejects a capability. Use the requested model, ratio and size when supported; otherwise omit unspecified flags for server defaults. Preserve explicit user requirements when handling an unavailable option.
-   - For a coordinated image set or e-commerce gallery, read [image-sets.md](references/image-sets.md) before submission. For GIF or animated-image requests, read [animation.md](references/animation.md) before choosing the output workflow.
+   - Each model lists its `output_formats`: `image` is a regular image; `gif` and `svg` mean the model outputs an animated GIF or an SVG vector directly, with the limits in its `gif` / `svg` entry. Pick the model by what the request needs, not by name alone.
+   - For a coordinated image set or e-commerce gallery, read [image-sets.md](references/image-sets.md) before submission. For GIF, animated-image or SVG/vector requests, read [animation.md](references/animation.md) before choosing the model and output.
 3. **Create**: choose and keep a unique idempotency key (8–64 characters: letters, digits, `_ . : -`) before submission. Run `muvloom images create --prompt "…" [flags] --idempotency-key KEY --wait 300 --download ./muvloom-output`. Add `--max-credits N` only for an explicit user-supplied credit limit. Keep `data.job.job_id` from the output; reuse the key only to recover the same request. Local reference images go directly in repeatable `--ref` flags. For a multiline prompt or shell-sensitive text, use a UTF-8 prompt file with `--prompt-file`.
 4. **Finish and deliver**: a `wait_timed_out: true` response means the job is still running. Continue `muvloom jobs wait <job_id> --timeout 300` until it finishes, unless the user requested background submission. Once succeeded, download any remaining artifacts ([jobs.md](references/jobs.md)), show the images with the host's preview tools, and give the saved paths. A failed download only needs another download. Handle failed jobs with [errors.md](references/errors.md); explain a concrete blocker if completion is impossible.
 
-Flags shared by `validate` and `create`: `--model`, `--aspect-ratio`, `--image-size`, `--quality`, `--ref <file-or-media_id>` (repeatable; local files upload automatically), `--prompt-file`.
+Flags shared by `validate` and `create`: `--model`, `--aspect-ratio`, `--image-size`, `--quality`, `--ref <file-or-media_id>` (repeatable; local files upload automatically), `--prompt-file`, and for native formats `--output-format gif|svg`, `--frames N`, `--frame-duration-ms MS`, `--frame-size WxH` (GIF only).
 
 If the host interrupts login for a permission approval or replays the command, run
 `muvloom auth status` before starting another login. A `ready` state means the
