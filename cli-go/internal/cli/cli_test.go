@@ -1069,3 +1069,27 @@ func TestAnUnreadableCredentialFileDoesNotEchoItsOwnText(t *testing.T) {
 		t.Fatalf("unreadable credentials = %d %s", r.code, r.stdout)
 	}
 }
+
+// Everyone tries `-v` and `--version` first; the answer must be the version, not a usage error.
+func TestVersionFlagsAreAliasesOfTheVersionCommand(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	want := execute(t, app, "version").out["data"]
+	for _, flag := range []string{"-v", "-V", "--version"} {
+		r := execute(t, app, flag)
+		if r.code != ExitOK || r.out["ok"] != true {
+			t.Fatalf("%s = %d %s", flag, r.code, r.stdout)
+		}
+		got := r.out["data"].(map[string]any)
+		if got["version"] != Version || got["version"] != want.(map[string]any)["version"] {
+			t.Fatalf("%s reported %v, want %v", flag, got, want)
+		}
+	}
+	// Anything else is still a usage error, and `-v` is only the version when it stands alone.
+	if r := execute(t, app, "-x"); r.code != ExitInvalid {
+		t.Fatalf("an unknown flag = %d %s", r.code, r.stdout)
+	}
+	if r := execute(t, app, "jobs", "-v"); r.code == ExitOK {
+		t.Fatalf("`jobs -v` was accepted: %s", r.stdout)
+	}
+}
