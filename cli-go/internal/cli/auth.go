@@ -51,7 +51,7 @@ func (a *App) loadCredentials() (auth.Credentials, error) {
 	if err != nil {
 		return auth.Credentials{}, fail("AUTH_REQUIRED", "Stored credentials are unreadable; run `muvloom auth login` (%v)", err)
 	}
-	if creds.BaseURL != "" && creds.BaseURL != a.APIURL {
+	if creds.BaseURL != "" && !sameService(creds.BaseURL, a.APIURL) {
 		return auth.Credentials{}, a.serviceMismatch(creds.BaseURL)
 	}
 	return creds, nil
@@ -171,7 +171,8 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	if err != nil {
 		if failure := asFailure(err); failure.Code == "SERVICE_MISMATCH" {
 			status["state"] = "service_mismatch"
-			status["connection_api_url"] = failure.Details.(map[string]string)["connection_api_url"]
+			details, _ := failure.Details.(map[string]string)
+			status["connection_api_url"] = details["connection_api_url"]
 			return status, nil
 		}
 		status["state"] = "unauthenticated"
@@ -231,8 +232,13 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 	// `--no-wait` then resume flow) was asked for once and is not asked for again.
 	resuming := err == nil && pending.BaseURL == a.APIURL && time.Now().Before(pending.ExpiresAt)
 	if existing, loadErr := a.Store.Load(); loadErr == nil && !*switchService && !resuming &&
-		existing.RefreshToken != "" && existing.BaseURL != "" && existing.BaseURL != a.APIURL {
+		existing.RefreshToken != "" && existing.BaseURL != "" && !sameService(existing.BaseURL, a.APIURL) {
 		return nil, a.serviceMismatch(existing.BaseURL)
+	}
+	// Without an explicit service, an unreadable connection must not be answered with a guess:
+	// the default service may not be the one this user can sign in to.
+	if a.storeErr != nil && !*switchService && !resuming {
+		return nil, fail("INTERNAL_ERROR", "The stored connection is unreadable (%v), so the service it belongs to is unknown. Fix the credential store, or set MUVLOOM_API_URL to the service to sign in to", a.storeErr)
 	}
 	// A host may replay the whole command after blocking cleanup. Never redeem a
 	// consumed code when its credentials were already saved, even after code expiry.

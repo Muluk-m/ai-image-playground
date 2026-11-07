@@ -583,3 +583,59 @@ func TestLoginRefusesToReplaceAConnectionOnAnotherServiceUnlessAsked(t *testing.
 		t.Fatalf("connection service after switching = %q", got.BaseURL)
 	}
 }
+
+// The real entry point, with no MUVLOOM_API_URL: commands that never talk to the service
+// must not depend on a service address.
+func TestCommandsThatSkipTheServiceWorkWithoutAnAPIURL(t *testing.T) {
+	t.Setenv("MUVLOOM_API_URL", "")
+	t.Setenv("MUVLOOM_CONFIG_DIR", t.TempDir())
+	t.Setenv("MUVLOOM_CREDENTIALS_STORE", "file")
+	for _, args := range [][]string{{"version"}, {"skill", "status"}} {
+		var stdout, stderr bytes.Buffer
+		app := New(&stdout, &stderr)
+		app.Home, app.CWD = t.TempDir(), t.TempDir()
+		if code := app.Run(args); code != ExitOK {
+			t.Fatalf("muvloom %s = %d %s", strings.Join(args, " "), code, stdout.String())
+		}
+	}
+}
+
+// An unreadable store hides which service the user signed in to. Guessing the default would
+// send an enterprise user to a sign-in page they cannot use.
+func TestLoginDoesNotGuessTheServiceWhenTheStoredConnectionIsUnreadable(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "credentials.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app := newApp(t, f, dir)
+	app.APIURL = ""
+	r := execute(t, app, "auth", "login", "--no-wait")
+	if r.code == ExitOK || !strings.Contains(r.stdout, "unreadable") {
+		t.Fatalf("login with an unreadable store = %d %s", r.code, r.stdout)
+	}
+	if _, err := app.Store.LoadPending(); err != auth.ErrNotFound {
+		t.Fatalf("a login was started against a guessed service: %v", err)
+	}
+
+	// An explicit service is a deliberate choice, so signing in again is fine.
+	chosen := newApp(t, f, dir)
+	if r := execute(t, chosen, "auth", "login", "--no-wait"); r.code != ExitOK {
+		t.Fatalf("login with an explicit service = %d %s", r.code, r.stdout)
+	}
+}
+
+func TestATrailingSlashOnTheStoredServiceIsNotAMismatch(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	creds, _ := app.Store.Load()
+	creds.BaseURL += "/"
+	if err := app.Store.Save(creds); err != nil {
+		t.Fatal(err)
+	}
+	if r := execute(t, app, "auth", "status"); r.out["data"].(map[string]any)["state"] != "ready" {
+		t.Fatalf("status = %s", r.stdout)
+	}
+}
