@@ -6,6 +6,11 @@ Keep the conversation in the user's language. Run the steps yourself, including
 opening the authorization page; the user signs in and approves the connection.
 Do not generate images during setup.
 
+When this guide points to another guide in the same folder (for example
+`workbuddy.md`), fetch it from the same address as this page with its file name
+replaced, keeping this page's `?v=` query. That value changes whenever the guides
+change, so a cached older copy is never used.
+
 ## 1. Install CLI 0.1.4
 
 Run `muvloom version` first. If the command is missing, or `data.version` is lower
