@@ -23,6 +23,10 @@ const (
 // ErrNotFound means no credentials are stored.
 var ErrNotFound = errors.New("no stored credentials")
 
+// ErrLockTimeout means another muvloom process held the credential lock for the whole wait.
+// Any other Lock error is a storage problem, not contention.
+var ErrLockTimeout = errors.New("timed out waiting for another muvloom process to refresh credentials")
+
 type Credentials struct {
 	AccessToken         string    `json:"access_token"`
 	RefreshToken        string    `json:"refresh_token"`
@@ -304,7 +308,7 @@ func (s Store) Lock(timeout time.Duration) (func(), error) {
 			continue
 		}
 		if time.Now().After(deadline) {
-			return nil, errors.New("timed out waiting for another muvloom process to refresh credentials")
+			return nil, ErrLockTimeout
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
