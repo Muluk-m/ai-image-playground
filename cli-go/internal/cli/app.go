@@ -23,7 +23,7 @@ import (
 )
 
 // Version is overridden at release time with -ldflags "-X .../cli.Version=x.y.z".
-var Version = "0.1.2"
+var Version = "0.1.4"
 
 const (
 	DefaultAPIURL  = "https://api.muvloom.online"
