@@ -214,10 +214,11 @@ func completedLogin(a *App, pending auth.PendingLogin) bool {
 	return pending.DeviceCode != "" && creds.LoginDeviceCodeHash == deviceCodeHash(pending.DeviceCode)
 }
 
-// recoverable is a login the service already approved and redeemed, whose credentials could not
-// be stored: it can still be finished without a new approval.
+// recoverable is an expired login that carries a request identity, still inside the hour the
+// service repeats a redemption for. Whether the code was redeemed is not trusted to the local
+// record, which may not have been written after the failure: the service decides.
 func recoverable(pending auth.PendingLogin) bool {
-	return pending.Redeemed && pending.RequestID != "" && time.Now().Before(pending.ExpiresAt.Add(time.Hour))
+	return pending.RequestID != "" && !time.Now().Before(pending.ExpiresAt) && time.Now().Before(pending.ExpiresAt.Add(time.Hour))
 }
 
 func deviceCodeHash(code string) string {
@@ -248,7 +249,7 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	if leftovers := a.Store.Leftovers(); len(leftovers) > 0 {
 		status["leftover_temp_files"] = len(leftovers)
 	}
-	if pending, err := a.Store.LoadPending(); err == nil && (time.Now().Before(pending.ExpiresAt) || recoverable(pending)) && !completedLogin(a, pending) {
+	if pending, err := a.Store.LoadPending(); err == nil && (time.Now().Before(pending.ExpiresAt) || pending.Redeemed && recoverable(pending)) && !completedLogin(a, pending) {
 		status["pending_login"] = map[string]any{
 			"user_code":                 pending.UserCode,
 			"verification_uri_complete": pending.VerificationURIComplete,
@@ -315,9 +316,9 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 		return nil, err
 	}
 	pending, err := a.Store.LoadPending()
-	// A code the server already redeemed, whose tokens never reached the credential store, is
-	// redeemed again with the same request identity, even after the code expired: the service
-	// answers with the same tokens for an hour past expiry.
+	// A code the server may already have redeemed, whose tokens never reached the credential
+	// store, is redeemed again with the same request identity even after the code expired: the
+	// service answers with the same tokens for an hour past expiry, or says no.
 	redeemed := err == nil && sameService(pending.BaseURL, a.APIURL) && recoverable(pending)
 	// Starting a login against another service would replace the working connection on
 	// approval. Do that only when asked; a login already started for this service (the
@@ -348,6 +349,18 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 			return nil, fail("TEMPORARILY_UNAVAILABLE", "Another muvloom process is writing credentials; retry shortly")
 		}
 		return nil, fail("CREDENTIAL_STORE_UNWRITABLE", "Credentials cannot be stored (%s); make the muvloom config directory writable, or set MUVLOOM_CONFIG_DIR to a writable directory, then run `muvloom auth login` again", auth.Reason(err))
+	}
+	if redeemed && !fresh {
+		tokens, err := a.redeemDeviceCode(ctx, pending)
+		if err == nil {
+			return a.finishLogin(ctx, pending, tokens)
+		}
+		var oauthErr *client.OAuthError
+		if !errors.As(err, &oauthErr) {
+			return nil, err
+		}
+		// The service cannot repeat it (never redeemed, or no longer): start a new login.
+		resuming = false
 	}
 	if !resuming {
 		var device deviceAuthorization
@@ -393,26 +406,9 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 	deadline := time.Now().Add(seconds(*timeout, 0, 3600))
 	interval := seconds(pending.IntervalSeconds, 1, 60)
 	for {
-		var tokens tokenResponse
-		err := a.anonymousClient().PostForm(ctx, "/v1/oauth/token", url.Values{
-			"client_id":   {oauthClientID},
-			"grant_type":  {"urn:ietf:params:oauth:grant-type:device_code"},
-			"device_code": {pending.DeviceCode},
-			"request_id":  {pending.RequestID},
-		}, &tokens)
+		tokens, err := a.redeemDeviceCode(ctx, pending)
 		if err == nil {
-			creds := a.credentialsFrom(tokens)
-			creds.LoginDeviceCodeHash = deviceCodeHash(pending.DeviceCode)
-			if err := a.Store.Save(creds); err != nil {
-				// The server issued the tokens; the pending login keeps what it takes to get the
-				// same ones again, so running the command again finishes without a new approval.
-				pending.Redeemed = true
-				_ = a.Store.SavePending(pending)
-				return nil, fail("CREDENTIAL_STORE_UNWRITABLE", "Signed in, but the credentials could not be stored (%s); make the muvloom config directory writable, then run `muvloom auth login` again: it finishes without a new approval when the service supports it, otherwise it asks for one", auth.Reason(err))
-			}
-			_ = a.Store.ClearPending()
-			a.progress("Signed in.")
-			return cmdAuthStatus(ctx, a, nil)
+			return a.finishLogin(ctx, pending, tokens)
 		}
 		var oauthErr *client.OAuthError
 		if !errors.As(err, &oauthErr) {
@@ -448,6 +444,32 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 			return nil, err
 		}
 	}
+}
+
+func (a *App) redeemDeviceCode(ctx context.Context, pending auth.PendingLogin) (tokenResponse, error) {
+	var tokens tokenResponse
+	err := a.anonymousClient().PostForm(ctx, "/v1/oauth/token", url.Values{
+		"client_id":   {oauthClientID},
+		"grant_type":  {"urn:ietf:params:oauth:grant-type:device_code"},
+		"device_code": {pending.DeviceCode},
+		"request_id":  {pending.RequestID},
+	}, &tokens)
+	return tokens, err
+}
+
+func (a *App) finishLogin(ctx context.Context, pending auth.PendingLogin, tokens tokenResponse) (any, error) {
+	creds := a.credentialsFrom(tokens)
+	creds.LoginDeviceCodeHash = deviceCodeHash(pending.DeviceCode)
+	if err := a.Store.Save(creds); err != nil {
+		// The pending login keeps its request identity, which is what it takes to get the same
+		// tokens again; marking it redeemed only spares the user a stale approval prompt.
+		pending.Redeemed = true
+		_ = a.Store.SavePending(pending)
+		return nil, fail("CREDENTIAL_STORE_UNWRITABLE", "Signed in, but the credentials could not be stored (%s); make the muvloom config directory writable, then run `muvloom auth login` again: it finishes without a new approval when the service supports it, otherwise it asks for one", auth.Reason(err))
+	}
+	_ = a.Store.ClearPending()
+	a.progress("Signed in.")
+	return cmdAuthStatus(ctx, a, nil)
 }
 
 func oauthFailure(err error) error {
