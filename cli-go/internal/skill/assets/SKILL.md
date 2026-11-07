@@ -25,7 +25,7 @@ after authorization, following [updates.md](references/updates.md). An unavailab
 check or a declined update does not block generation.
 
 1. **Check setup**: `muvloom auth status` once at the start of the task; reuse ready state until an authentication error.
-   - Command not found → install it with [install.md](references/install.md), then run `auth status` again.
+   - Command not found → the CLI may be installed but missing from this shell's PATH: look for it in the default locations ([install.md](references/install.md), "Finding an installed CLI") first, and install only if none exists. Then run `auth status` again.
    - `state: outdated` → reinstall the latest release ([install.md](references/install.md)).
    - `state: unauthenticated` → run `muvloom auth login --no-wait`, then open the returned `verification_uri_complete` in the user's browser yourself with the host's browser-opening tool (or a local desktop OS URL opener: macOS `open`, PowerShell `Start-Process`, Linux `xdg-open`). Over SSH or in a remote environment, use a browser tool on the user's computer. Once the page is open, ask the user to sign in and approve, then run `muvloom auth login` to wait for approval. Only if no suitable tool is available or opening fails, explain the limitation and provide `verification_uri_complete` and `user_code` for manual opening. No port forwarding is needed.
    - `state: service_mismatch` → `MUVLOOM_API_URL` points at a different service than the one this machine is signed in to; `connection_api_url` is the signed-in one. Do not log in again on your own. Unset `MUVLOOM_API_URL` to use the existing connection, or, only if the user wants the other service, run `muvloom auth login --switch-service`.
