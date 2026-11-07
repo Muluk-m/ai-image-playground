@@ -141,6 +141,16 @@ describe('CliDevicePage', () => {
     expect(host.querySelector('[role="status"]')?.textContent).toBe('已授权。')
   })
 
+  it('says when the CLI could not finish, without offering to authorize again', async () => {
+    window.history.replaceState(null, '', '/device?status=failed')
+    vi.stubGlobal('fetch', vi.fn())
+    await render()
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe(
+      '连接没有完成，请回到原来的应用查看。',
+    )
+    expect(host.querySelectorAll('button')).toHaveLength(0)
+  })
+
   it('shows that the CLI finished connecting', async () => {
     window.history.replaceState(null, '', '/device?status=connected')
     const fetcher = vi.fn()
