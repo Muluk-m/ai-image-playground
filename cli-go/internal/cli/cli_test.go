@@ -38,8 +38,18 @@ type fakeServer struct {
 	deviceError    string
 	deviceRedeemed bool
 	// refreshMode makes the refresh endpoint misbehave: "drop" closes the connection,
-	// "5xx" answers 503 with no envelope, "429" answers a rate limit. Empty is healthy.
+	// "5xx" answers 503 with no envelope, "429" answers a rate limit, "lose" rotates and then
+	// closes the connection, as if the response were lost. Empty is healthy.
 	refreshMode string
+	// Request identities the CLI sent, in order, and what the server remembers to replay.
+	deviceRequestIDs  []string
+	refreshRequestIDs []string
+	redeemedWith      string
+	lastRefreshID     string
+	retiredRefresh    string
+	deviceAuthCalls   int
+	// onRedeem runs after the server issued tokens for the device code, before it answers.
+	onRedeem func()
 }
 
 const secretDeviceCode = "device-secret-value"
@@ -50,6 +60,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 	mux.HandleFunc("POST /v1/oauth/device_authorization", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		f.deviceRedeemed = false
+		f.deviceAuthCalls++
 		f.mu.Unlock()
 		writeJSON(w, 200, map[string]any{
 			"device_code": secretDeviceCode, "user_code": "BCDF-GHJK",
@@ -64,11 +75,16 @@ func newFakeServer(t *testing.T) *fakeServer {
 		switch r.Form.Get("grant_type") {
 		case "urn:ietf:params:oauth:grant-type:device_code":
 			f.polls++
+			f.deviceRequestIDs = append(f.deviceRequestIDs, r.Form.Get("request_id"))
 			if f.deviceError != "" {
 				writeJSON(w, 400, map[string]string{"error": f.deviceError})
 				return
 			}
 			if f.deviceRedeemed {
+				if id := r.Form.Get("request_id"); id != "" && id == f.redeemedWith {
+					writeJSON(w, 200, f.tokens())
+					return
+				}
 				writeJSON(w, 400, map[string]string{"error": "invalid_grant"})
 				return
 			}
@@ -81,9 +97,21 @@ func newFakeServer(t *testing.T) *fakeServer {
 				return
 			}
 			f.deviceRedeemed = true
+			f.redeemedWith = r.Form.Get("request_id")
+			if f.onRedeem != nil {
+				f.mu.Unlock()
+				f.onRedeem()
+				f.mu.Lock()
+			}
 			writeJSON(w, 200, f.tokens())
 		case "refresh_token":
 			f.refreshCalls++
+			id := r.Form.Get("request_id")
+			f.refreshRequestIDs = append(f.refreshRequestIDs, id)
+			if r.Form.Get("refresh_token") == f.retiredRefresh && id != "" && id == f.lastRefreshID && f.refreshMode == "" {
+				writeJSON(w, 200, f.tokens())
+				return
+			}
 			switch f.refreshMode {
 			case "drop":
 				if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
@@ -101,8 +129,15 @@ func newFakeServer(t *testing.T) *fakeServer {
 				writeJSON(w, 400, map[string]string{"error": "invalid_grant"})
 				return
 			}
+			f.retiredRefresh, f.lastRefreshID = f.refresh, id
 			f.access = "access-" + f.refresh
 			f.refresh = f.refresh + "-next"
+			if f.refreshMode == "lose" {
+				if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+					_ = conn.Close()
+				}
+				return
+			}
 			writeJSON(w, 200, f.tokens())
 		}
 	})
@@ -453,6 +488,8 @@ func TestCredentialSaveFailurePreservesPendingLogin(t *testing.T) {
 	app := newApp(t, f, t.TempDir())
 	execute(t, app, "auth", "login", "--no-wait")
 	path := filepath.Join(app.Store.Dir, "credentials.json")
+	// The store then becomes unwritable: the empty file left by the write check gives way.
+	_ = os.Remove(path)
 	if err := os.Mkdir(path, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -460,13 +497,164 @@ func TestCredentialSaveFailurePreservesPendingLogin(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := execute(t, app, "auth", "login")
-	if r.out["error"].(map[string]any)["code"] != "INTERNAL_ERROR" {
-		t.Fatalf("login = %s", r.stdout)
+	if r.code != ExitRejected || r.out["error"].(map[string]any)["code"] != "CREDENTIAL_STORE_UNWRITABLE" {
+		t.Fatalf("login = %d %s", r.code, r.stdout)
+	}
+	f.mu.Lock()
+	polls := f.polls
+	f.mu.Unlock()
+	if polls != 0 {
+		t.Fatalf("redeemed the device code although nothing could be stored: %d polls", polls)
 	}
 	if _, err := app.Store.LoadPending(); err != nil {
 		t.Fatalf("pending login lost before save: %v", err)
 	}
 	assertNoSecrets(t, r, secretDeviceCode, "access-1", "refresh-1")
+}
+
+func TestLoginChecksTheCredentialStoreBeforeAskingForApproval(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	if err := os.Mkdir(filepath.Join(app.Store.Dir, "credentials.json"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r := execute(t, app, "auth", "login")
+	if r.code != ExitRejected || r.out["error"].(map[string]any)["code"] != "CREDENTIAL_STORE_UNWRITABLE" {
+		t.Fatalf("login = %d %s", r.code, r.stdout)
+	}
+	if f.deviceAuthCalls != 0 || f.polls != 0 {
+		t.Fatalf("asked for approval anyway: %d authorizations, %d polls", f.deviceAuthCalls, f.polls)
+	}
+}
+
+// The code is redeemed, but the credentials cannot be written. Fixing the directory and running
+// the same command again finishes the login with the same tokens, without a new approval.
+func TestLoginFinishesAfterAFailedSaveWithoutApprovingAgain(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	creds := filepath.Join(app.Store.Dir, "credentials.json")
+	f.onRedeem = func() {
+		_ = os.Remove(creds)
+		_ = os.Mkdir(creds, 0o700)
+		_ = os.WriteFile(filepath.Join(creds, "block"), []byte("block"), 0o600)
+	}
+	r := execute(t, app, "auth", "login")
+	if r.code != ExitRejected || r.out["error"].(map[string]any)["code"] != "CREDENTIAL_STORE_UNWRITABLE" {
+		t.Fatalf("login = %d %s", r.code, r.stdout)
+	}
+	assertNoSecrets(t, r, secretDeviceCode, "access-1", "refresh-1")
+
+	f.mu.Lock()
+	f.onRedeem = nil
+	f.mu.Unlock()
+	if err := os.RemoveAll(creds); err != nil {
+		t.Fatal(err)
+	}
+	// Even after the code itself expired.
+	pending, err := app.Store.LoadPending()
+	if err != nil || !pending.Redeemed {
+		t.Fatalf("pending login after a failed save = %+v %v", pending, err)
+	}
+	pending.ExpiresAt = time.Now().Add(-time.Minute)
+	if err := app.Store.SavePending(pending); err != nil {
+		t.Fatal(err)
+	}
+	r = execute(t, app, "auth", "login")
+	if r.code != ExitOK || r.out["data"].(map[string]any)["state"] != "ready" {
+		t.Fatalf("second login = %d %s", r.code, r.stdout)
+	}
+	if strings.Contains(r.stderr, "BCDF-GHJK") {
+		t.Fatalf("asked for approval again: %s", r.stderr)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.deviceAuthCalls != 1 {
+		t.Fatalf("started a new device authorization: %d", f.deviceAuthCalls)
+	}
+	ids := f.deviceRequestIDs
+	if len(ids) < 2 || ids[0] == "" || ids[len(ids)-1] != ids[0] {
+		t.Fatalf("redemptions did not share one request identity: %q", ids)
+	}
+	stored, err := app.Store.Load()
+	if err != nil || stored.RefreshToken != "refresh-1" {
+		t.Fatalf("stored credentials = %q %v", stored.RefreshToken, err)
+	}
+}
+
+// The refresh went through on the server but its response was lost. The next refresh presents
+// the same old token with the same stored request identity and gets the same tokens back.
+func TestALostRefreshResponseIsRecoveredWithTheSameRequestID(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	login(t, app)
+	f.mu.Lock()
+	f.access, f.refreshMode = "rotated-elsewhere", "lose"
+	f.mu.Unlock()
+
+	r := execute(t, app, "jobs", "get", "job-1")
+	if r.code != ExitTemporary || r.out["error"].(map[string]any)["code"] != "NETWORK_ERROR" {
+		t.Fatalf("command during the lost response = %d %s", r.code, r.stdout)
+	}
+	pendingID := ""
+	if creds, err := app.Store.Load(); err != nil || creds.RefreshToken != "refresh-1" || creds.RefreshRequestID == "" {
+		t.Fatalf("the request identity was not kept: %+v %v", creds, err)
+	} else {
+		pendingID = creds.RefreshRequestID
+	}
+
+	f.mu.Lock()
+	f.refreshMode = ""
+	f.mu.Unlock()
+	if r := execute(t, app, "jobs", "get", "job-1"); r.code != ExitOK {
+		t.Fatalf("command after the lost response = %d %s", r.code, r.stdout)
+	}
+	f.mu.Lock()
+	ids := append([]string(nil), f.refreshRequestIDs...)
+	f.mu.Unlock()
+	if len(ids) != 2 || ids[0] != pendingID || ids[1] != pendingID {
+		t.Fatalf("the retry did not carry the same identity: %q", ids)
+	}
+	creds, err := app.Store.Load()
+	if err != nil || creds.RefreshToken != "refresh-1-next" || creds.RefreshRequestID != "" {
+		t.Fatalf("recovered credentials = %+v %v", creds, err)
+	}
+	assertNoSecrets(t, r, "refresh-1-next", pendingID)
+}
+
+func TestACompletedRefreshRequestIDIsReplacedAndRetried(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	login(t, app)
+	creds, _ := app.Store.Load()
+	creds.RefreshRequestID = "11111111-1111-4111-8111-111111111111"
+	if err := app.Store.Save(creds); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.access = "rotated-elsewhere"
+	f.mu.Unlock()
+	completed := true
+	f.mu.Lock()
+	f.refreshMode = ""
+	f.mu.Unlock()
+	// Answer the stale identity as the service does, once.
+	mux := f.server.Config.Handler
+	f.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		if completed && r.URL.Path == "/v1/oauth/token" && r.Form.Get("request_id") == creds.RefreshRequestID {
+			completed = false
+			writeJSON(w, 400, map[string]string{"error": "refresh_request_completed"})
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
+	if r := execute(t, app, "jobs", "get", "job-1"); r.code != ExitOK {
+		t.Fatalf("command = %d %s", r.code, r.stdout)
+	}
+	stored, _ := app.Store.Load()
+	if stored.RefreshToken != "refresh-1-next" || stored.RefreshRequestID != "" {
+		t.Fatalf("stored = %+v", stored)
+	}
 }
 
 func TestDeviceGrantErrorsDistinguishConsumedFromExpired(t *testing.T) {

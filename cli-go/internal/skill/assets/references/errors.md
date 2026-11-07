@@ -7,6 +7,7 @@
 | `AUTH_EXPIRED` | The server reports the login code expired | Start a new login flow |
 | `AUTH_PENDING` | Browser approval not done yet | Keep waiting with `muvloom auth login`; ask the user to sign in and approve only if they have not yet been told |
 | `AUTH_DENIED` | User denied in the browser | Stop unless the user wants to retry |
+| `CREDENTIAL_STORE_UNWRITABLE` | The CLI cannot write its credential store (config directory or keychain). Login stops before the code is redeemed; a login already approved stays resumable | Tell the user the muvloom config directory must be writable (or set `MUVLOOM_CONFIG_DIR` to a writable one), then run the same `muvloom auth login` again; do not start a new approval |
 | `PLAN_REQUIRED` | The request (e.g. 4K) needs an active membership | Offer a smaller image size, or tell the user membership is required |
 | `INSUFFICIENT_CREDITS` | Not enough credits; `details.required`, `details.available` | Tell the user; do not retry |
 | `MAX_CREDITS_EXCEEDED` | Quote above `--max-credits`; `details.required` | Report that the user's explicit credit limit was exceeded and stop; keep the limit |
