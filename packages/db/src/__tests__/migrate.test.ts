@@ -492,10 +492,17 @@ describe('runMigrations', () => {
             (row: { created_at: string | number }) => Number(row.created_at) === 1794250000000,
           ),
         ).toBe(false)
-        expect(rows.at(-1)).toMatchObject({
+        expect(
+          rows.find(
+            (row: { created_at: string | number }) => Number(row.created_at) === 1794400000000,
+          ),
+        ).toMatchObject({
           hash: await migrationFileHash('0094_web_refresh_request_identity_forward'),
           created_at: '1794400000000',
         })
+        const [cliColumn] =
+          await client`SELECT is_nullable FROM information_schema.columns WHERE table_name = 'cli_retired_refresh_tokens' AND column_name = 'request_key_hash'`
+        expect(cliColumn.is_nullable).toBe('YES')
         const [column] =
           await client`SELECT is_nullable FROM information_schema.columns WHERE table_name = 'user_retired_refresh_tokens' AND column_name = 'request_key_hash'`
         expect(column.is_nullable).toBe('YES')
