@@ -32,7 +32,9 @@ import {
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
+import { useGptPremiumLocked } from '../../../lib/gptPremium'
 import { composerImageRate } from '../../../lib/imageCharge'
+import { getParamCapabilities } from '../../../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import type { NodeCanvasDocument } from '../lib/nodeCanvasDocument'
@@ -134,11 +136,14 @@ function StoryboardEditor({
   const settings = useStore((s) => s.settings)
   const params = useStore((s) => s.params)
   const profile = getActiveApiProfile(settings)
-  const model = clientProfileToApiProfile(profile).model
+  const view = clientProfileToApiProfile(profile)
+  const directAvailable = getParamCapabilities(profile, params?.output_format ?? 'png').size
+  const premium = useGptPremiumLocked(view.model, directAvailable)
+  const model = view.model
   const guard = usePrivateSubmissionGuard({
     model,
     quantity: node.data.shots.length,
-    unitMultiplier: composerImageRate(model, params),
+    unitMultiplier: composerImageRate(model, params, premium.member, directAvailable),
   })
   const shots = node.data.shots
   const fingerprint = storyboardFingerprint(shots)
