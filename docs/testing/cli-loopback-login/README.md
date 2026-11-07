@@ -17,3 +17,7 @@ Signed in.
 ![已连接](connected.png)
 
 第一次实测（修复前）浏览器停在 `127.0.0.1:<port>/callback` 的 ERR_CONNECTION_REFUSED：设备码轮询抢在页面跳转前拿到令牌，CLI 退出。修复为确认页声明会跳回本机时，授权码有效期内设备码按等待处理（见 ae9cb97e0 之前的两个提交）。
+
+测试环境 test @ 81d14d0b0（含本修复）：已连接状态不再显示返回按钮（CLI 用系统命令打开的标签页脚本关不掉，按钮点了没反应）。
+
+![已连接，无按钮](connected-no-button.jpg)
