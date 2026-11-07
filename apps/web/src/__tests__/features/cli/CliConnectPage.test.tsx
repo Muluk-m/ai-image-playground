@@ -204,6 +204,8 @@ describe('CliConnectPage', () => {
     expect(guide).toContain('muvloom auth login --no-wait')
     expect(guide).toContain('muvloom auth status')
     expect(guide).toContain('service_mismatch')
+    // An older CLI already on the machine must be upgraded, not reused.
+    expect(guide.replace(/\s+/g, ' ')).toContain(`lower than ${CLI_VERSION}`)
     expect(guide).toContain('--switch-service')
     expect(guide).toContain('muvloom capabilities')
     expect(guide).toContain('https://test-api.muvloom.online')
