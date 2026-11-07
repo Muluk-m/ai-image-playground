@@ -10,7 +10,8 @@ export const CLI_CLIENT_ID = 'muvloom-cli'
 export const CLI_SCOPES = ['images:read', 'images:write', 'media:read', 'media:write'] as const
 export type CliScope = (typeof CLI_SCOPES)[number]
 
-const DEVICE_CODE_TTL_MS = 10 * 60 * 1000
+/** 用户要先去浏览器登录，再回到对话里说一声，十分钟常常不够；设备码一次性、只存哈希，放宽到 20 分钟。 */
+const DEVICE_CODE_TTL_MS = 20 * 60 * 1000
 const DEVICE_POLL_INTERVAL_SECONDS = 5
 const SLOW_DOWN_STEP_SECONDS = 5
 const ACCESS_TOKEN_TTL_MS = 2 * 60 * 60 * 1000
