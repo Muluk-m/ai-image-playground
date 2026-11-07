@@ -203,6 +203,8 @@ describe('CliConnectPage', () => {
     }
     expect(guide).toContain('muvloom auth login --no-wait')
     expect(guide).toContain('muvloom auth status')
+    expect(guide).toContain('service_mismatch')
+    expect(guide).toContain('--switch-service')
     expect(guide).toContain('muvloom capabilities')
     expect(guide).toContain('https://test-api.muvloom.online')
     expect(guide).not.toMatch(/--host (workbuddy|doubao)/)

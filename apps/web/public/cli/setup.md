@@ -6,7 +6,7 @@ Keep the conversation in the user's language. Run the steps yourself, including
 opening the authorization page; the user signs in and approves the connection.
 Do not generate images during setup.
 
-## 1. Install CLI 0.1.3
+## 1. Install CLI 0.1.4
 
 Use the matching platform below. The scripts are pinned to the released source
 commit and verify the downloaded binary's SHA-256. If installation fails, report
@@ -15,14 +15,14 @@ the error; do not bypass verification.
 ### macOS / Linux
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/ac156ba55e3f6238120a5b7629ff4d61c03f81ff/cli-go/install/install.sh | MUVLOOM_VERSION=0.1.3 sh
+curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/7033a6f79bb679f0cf7baf565ffe491b801f4a3d/cli-go/install/install.sh | MUVLOOM_VERSION=0.1.4 sh
 export PATH="${MUVLOOM_INSTALL_DIR:-$HOME/.local/bin}:$PATH"
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-$env:MUVLOOM_VERSION = "0.1.3"; irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/ac156ba55e3f6238120a5b7629ff4d61c03f81ff/cli-go/install/install.ps1 | iex
+$env:MUVLOOM_VERSION = "0.1.4"; irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/7033a6f79bb679f0cf7baf565ffe491b801f4a3d/cli-go/install/install.ps1 | iex
 $env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")
 ```
 
@@ -41,11 +41,13 @@ Use the origin of the setup URL supplied by the user:
 
 The CLI defaults to `https://api.muvloom.online`. For that service, use the default;
 clear any conflicting `MUVLOOM_API_URL` override in the current agent session.
-Only for a non-default service, set `MUVLOOM_API_URL` for subsequent commands in
-the session: `export MUVLOOM_API_URL="<matching URL>"` on macOS / Linux, or
-`$env:MUVLOOM_API_URL = "<matching URL>"` in PowerShell. Manage this internally;
-the user does not need to configure or remember environment variables. If the
-origin is not listed, ask which service to connect to instead of guessing.
+Only for a non-default service, set `MUVLOOM_API_URL` for the sign-in commands
+(step 4): `export MUVLOOM_API_URL="<matching URL>"` on macOS / Linux, or
+`$env:MUVLOOM_API_URL = "<matching URL>"` in PowerShell. Once signed in, the CLI
+remembers which service the connection belongs to, so later sessions need no
+variable. Manage this internally; the user does not need to configure or remember
+environment variables. If the origin is not listed, ask which service to connect
+to instead of guessing.
 
 ## 3. Install host instructions when supported
 
@@ -65,7 +67,7 @@ For WorkBuddy, follow [the WorkBuddy guide](workbuddy.md) to install the officia
 skill from the conversation and connect the account. Confirm that the skill appears in WorkBuddy
 before reporting setup complete.
 
-For 豆包工作 and other hosts, skip this step. CLI 0.1.3 only
+For 豆包工作 and other hosts, skip this step. CLI 0.1.4 only
 accepts `claude-code` and `codex` as skill hosts. Use `muvloom --help` and
 subcommand help to learn the CLI; do not invent a `--host` value or write into
 an unverified host configuration directory.
@@ -73,7 +75,11 @@ an unverified host configuration directory.
 ## 4. Connect the account
 
 Run `muvloom auth status` first. If its `data.state` is `ready`, keep the existing
-connection and proceed to step 5. Otherwise:
+connection and proceed to step 5. If it is `service_mismatch`, `MUVLOOM_API_URL`
+points at a different service than the one this machine is signed in to
+(`data.connection_api_url`): do not log in again on your own. Unset the variable to
+use the existing connection, or run `muvloom auth login --switch-service` only if
+the user wants the service named by this page. Otherwise:
 
 1. Run `muvloom auth login --no-wait`.
 2. Open the returned `verification_uri_complete` in the user's browser yourself,
