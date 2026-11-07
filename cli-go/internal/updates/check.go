@@ -91,7 +91,7 @@ func save(path string, value record) error {
 	if err != nil {
 		return err
 	}
-	return auth.WriteFileAtomic(path, body)
+	return auth.WriteFileInPlace(path, body)
 }
 
 func resultFor(current string, saved record, cached bool) Result {

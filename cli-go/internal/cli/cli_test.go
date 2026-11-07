@@ -6,10 +6,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -34,6 +37,9 @@ type fakeServer struct {
 	failJob        bool
 	deviceError    string
 	deviceRedeemed bool
+	// refreshMode makes the refresh endpoint misbehave: "drop" closes the connection,
+	// "5xx" answers 503 with no envelope, "429" answers a rate limit. Empty is healthy.
+	refreshMode string
 }
 
 const secretDeviceCode = "device-secret-value"
@@ -78,6 +84,19 @@ func newFakeServer(t *testing.T) *fakeServer {
 			writeJSON(w, 200, f.tokens())
 		case "refresh_token":
 			f.refreshCalls++
+			switch f.refreshMode {
+			case "drop":
+				if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+					_ = conn.Close()
+				}
+				return
+			case "5xx":
+				w.WriteHeader(503)
+				return
+			case "429":
+				writeJSON(w, 429, map[string]string{"error": "slow_down"})
+				return
+			}
 			if r.Form.Get("refresh_token") != f.refresh {
 				writeJSON(w, 400, map[string]string{"error": "invalid_grant"})
 				return
@@ -483,14 +502,570 @@ func TestPendingLoginDoesNotReuseUnrelatedCredentials(t *testing.T) {
 			if err := app.Store.Save(creds); err != nil {
 				t.Fatal(err)
 			}
-			execute(t, app, "auth", "login", "--no-wait")
+			execute(t, app, "auth", "login", "--switch-service", "--no-wait")
 			f.mu.Lock()
 			f.deviceError = "authorization_pending"
 			f.mu.Unlock()
-			r := execute(t, app, "auth", "login", "--timeout", "0")
+			r := execute(t, app, "auth", "login", "--switch-service", "--timeout", "0")
 			if r.code != ExitAuth || r.out["error"].(map[string]any)["code"] != "AUTH_PENDING" {
 				t.Fatalf("unrelated login reused: %s", r.stdout)
 			}
 		})
+	}
+}
+
+// A new agent session has no MUVLOOM_API_URL; the connection already knows its service.
+func TestServiceFollowsTheStoredConnectionWithoutAnOverride(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	login(t, newApp(t, f, dir))
+
+	fresh := newApp(t, f, dir)
+	fresh.APIURL = ""
+	r := execute(t, fresh, "auth", "status")
+	data := r.out["data"].(map[string]any)
+	if r.code != ExitOK || data["state"] != "ready" {
+		t.Fatalf("status = %d %s", r.code, r.stdout)
+	}
+	if data["api_url"] != f.server.URL || data["api_url_source"] != "connection" {
+		t.Fatalf("service = %v (%v), want the stored connection", data["api_url"], data["api_url_source"])
+	}
+	if r := execute(t, fresh, "jobs", "get", "job-1"); r.code != ExitOK {
+		t.Fatalf("a command without an override = %d %s", r.code, r.stdout)
+	}
+}
+
+func TestServiceDefaultsWhenNothingIsStoredAndNothingIsSet(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	app.APIURL = ""
+	r := execute(t, app, "auth", "status")
+	data := r.out["data"].(map[string]any)
+	if data["state"] != "unauthenticated" || data["api_url"] != DefaultAPIURL || data["api_url_source"] != "default" {
+		t.Fatalf("status = %s", r.stdout)
+	}
+}
+
+func TestExplicitOverrideConflictingWithTheConnectionReportsAMismatch(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	login(t, newApp(t, f, dir))
+
+	other := newApp(t, f, dir)
+	other.APIURL = "https://other.example"
+	r := execute(t, other, "auth", "status")
+	data := r.out["data"].(map[string]any)
+	if r.code != ExitOK || data["state"] != "service_mismatch" {
+		t.Fatalf("status = %d %s", r.code, r.stdout)
+	}
+	if data["api_url"] != "https://other.example" || data["api_url_source"] != "environment" || data["connection_api_url"] != f.server.URL {
+		t.Fatalf("mismatch details = %s", r.stdout)
+	}
+	// The connection is neither used against the wrong service nor dropped.
+	if r := execute(t, other, "jobs", "get", "job-1"); r.code != ExitRejected || r.out["error"].(map[string]any)["code"] != "SERVICE_MISMATCH" {
+		t.Fatalf("a command under a mismatch = %d %s", r.code, r.stdout)
+	}
+	if _, err := other.Store.Load(); err != nil {
+		t.Fatalf("the stored connection was removed: %v", err)
+	}
+}
+
+func TestLoginRefusesToReplaceAConnectionOnAnotherServiceUnlessAsked(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	creds, err := app.Store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	creds.BaseURL = "https://old.example" // the connection belongs to another service
+	if err := app.Store.Save(creds); err != nil {
+		t.Fatal(err)
+	}
+
+	r := execute(t, app, "auth", "login", "--no-wait")
+	if r.code != ExitRejected || r.out["error"].(map[string]any)["code"] != "SERVICE_MISMATCH" {
+		t.Fatalf("login under a mismatch = %d %s", r.code, r.stdout)
+	}
+	if _, err := app.Store.LoadPending(); err != auth.ErrNotFound {
+		t.Fatalf("a login was started anyway: %v", err)
+	}
+
+	// The user can still move to the other service on purpose.
+	r = execute(t, app, "auth", "login", "--switch-service", "--no-wait")
+	if r.code != ExitOK || r.out["data"].(map[string]any)["state"] != "pending" {
+		t.Fatalf("--switch-service = %d %s", r.code, r.stdout)
+	}
+	login(t, app)
+	if got, _ := app.Store.Load(); got.BaseURL != f.server.URL {
+		t.Fatalf("connection service after switching = %q", got.BaseURL)
+	}
+}
+
+// The real entry point, with no MUVLOOM_API_URL: commands that never talk to the service
+// must not depend on a service address.
+func TestCommandsThatSkipTheServiceWorkWithoutAnAPIURL(t *testing.T) {
+	t.Setenv("MUVLOOM_API_URL", "")
+	t.Setenv("MUVLOOM_CONFIG_DIR", t.TempDir())
+	t.Setenv("MUVLOOM_CREDENTIALS_STORE", "file")
+	for _, args := range [][]string{{"version"}, {"skill", "status"}} {
+		var stdout, stderr bytes.Buffer
+		app := New(&stdout, &stderr)
+		app.Home, app.CWD = t.TempDir(), t.TempDir()
+		if code := app.Run(args); code != ExitOK {
+			t.Fatalf("muvloom %s = %d %s", strings.Join(args, " "), code, stdout.String())
+		}
+	}
+}
+
+// An unreadable store hides which service the user signed in to. Guessing the default would
+// send an enterprise user to a sign-in page they cannot use.
+func TestLoginDoesNotGuessTheServiceWhenTheStoredConnectionIsUnreadable(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "credentials.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app := newApp(t, f, dir)
+	app.APIURL = ""
+	r := execute(t, app, "auth", "login", "--no-wait")
+	if r.code == ExitOK || !strings.Contains(r.stdout, "could not be read") {
+		t.Fatalf("login with an unreadable store = %d %s", r.code, r.stdout)
+	}
+	if _, err := app.Store.LoadPending(); err != auth.ErrNotFound {
+		t.Fatalf("a login was started against a guessed service: %v", err)
+	}
+
+	// An explicit service is a deliberate choice, so signing in again is fine.
+	chosen := newApp(t, f, dir)
+	if r := execute(t, chosen, "auth", "login", "--no-wait"); r.code != ExitOK {
+		t.Fatalf("login with an explicit service = %d %s", r.code, r.stdout)
+	}
+}
+
+func TestATrailingSlashOnTheStoredServiceIsNotAMismatch(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	creds, _ := app.Store.Load()
+	creds.BaseURL += "/"
+	if err := app.Store.Save(creds); err != nil {
+		t.Fatal(err)
+	}
+	if r := execute(t, app, "auth", "status"); r.out["data"].(map[string]any)["state"] != "ready" {
+		t.Fatalf("status = %s", r.stdout)
+	}
+}
+
+// guardNetwork lets an app reach only the fake server, so a test that fails by choosing the
+// wrong service cannot touch a real one.
+func guardNetwork(app *App, f *fakeServer) {
+	host := strings.TrimPrefix(f.server.URL, "http://")
+	app.HTTP = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != host {
+			return nil, &net.DNSError{Err: "blocked by the test: " + r.URL.Host, Name: r.URL.Host}
+		}
+		return http.DefaultTransport.RoundTrip(r)
+	})}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// `login --no-wait` with the service chosen once, then a new session without the variable.
+func TestAPendingLoginKeepsItsServiceAcrossSessions(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	first := newApp(t, f, dir)
+	if r := execute(t, first, "auth", "login", "--no-wait"); r.code != ExitOK {
+		t.Fatalf("no-wait = %d %s", r.code, r.stdout)
+	}
+
+	next := newApp(t, f, dir)
+	next.APIURL = ""
+	guardNetwork(next, f)
+	r := execute(t, next, "auth", "login")
+	data, _ := r.out["data"].(map[string]any)
+	if r.code != ExitOK || data["state"] != "ready" || data["api_url"] != f.server.URL || data["api_url_source"] != "pending_login" {
+		t.Fatalf("resumed login = %d %s", r.code, r.stdout)
+	}
+}
+
+// The keychain may refuse a read while the connection still exists. The service address holds
+// no secret and is kept apart, so an unreadable secret never makes the CLI guess the service.
+func TestTheServiceIsKnownEvenWhenTheStoredSecretCannotBeRead(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	login(t, newApp(t, f, dir))
+	if err := os.WriteFile(filepath.Join(dir, "credentials.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	app := newApp(t, f, dir)
+	app.APIURL = ""
+	guardNetwork(app, f)
+	status := execute(t, app, "auth", "status")
+	data := status.out["data"].(map[string]any)
+	if data["api_url"] != f.server.URL || data["api_url_source"] != "connection" || data["state"] != "unauthenticated" {
+		t.Fatalf("status = %s", status.stdout)
+	}
+	if r := execute(t, app, "auth", "login", "--no-wait"); r.code != ExitOK {
+		t.Fatalf("login for the known service = %d %s", r.code, r.stdout)
+	}
+	if pending, err := app.Store.LoadPending(); err != nil || pending.BaseURL != f.server.URL {
+		t.Fatalf("pending login service = %q (%v)", pending.BaseURL, err)
+	}
+
+	// Signing out forgets the service as well.
+	_ = execute(t, newApp(t, f, dir), "auth", "logout")
+	gone := newApp(t, f, dir)
+	gone.APIURL = ""
+	if r := execute(t, gone, "auth", "status"); r.out["data"].(map[string]any)["api_url_source"] != "default" {
+		t.Fatalf("service kept after logout: %s", r.stdout)
+	}
+}
+
+// The store's own failure text can carry local paths; the answer must stay generic.
+func TestUnreadableStoreMessageDoesNotEchoTheStoreError(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "credentials.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app := newApp(t, f, dir)
+	app.APIURL = ""
+	guardNetwork(app, f)
+	r := execute(t, app, "auth", "login", "--no-wait")
+	if r.code == ExitOK || strings.Contains(r.stdout, "credentials.json") || strings.Contains(r.stdout, dir) {
+		t.Fatalf("refusal = %d %s", r.code, r.stdout)
+	}
+}
+
+// Switching service takes two sessions: start it, then finish it without the variable. Only the
+// login resumes the switch; every other command keeps using the working connection meanwhile.
+func TestAnOngoingServiceSwitchIsResumedByLoginOnly(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	creds, _ := app.Store.Load()
+	creds.BaseURL = "https://old.example" // the working connection belongs to another service
+	if err := app.Store.Save(creds); err != nil {
+		t.Fatal(err)
+	}
+	if r := execute(t, app, "auth", "login", "--switch-service", "--no-wait"); r.code != ExitOK {
+		t.Fatalf("start of the switch = %d %s", r.code, r.stdout)
+	}
+
+	other := newApp(t, f, dir)
+	other.APIURL = ""
+	guardNetwork(other, f)
+	if r := execute(t, other, "auth", "status"); r.out["data"].(map[string]any)["api_url_source"] != "connection" {
+		t.Fatalf("a command other than login left the working connection: %s", r.stdout)
+	}
+
+	next := newApp(t, f, dir)
+	next.APIURL = ""
+	guardNetwork(next, f)
+	r := execute(t, next, "auth", "login")
+	data, _ := r.out["data"].(map[string]any)
+	if r.code != ExitOK || data["state"] != "ready" || data["api_url"] != f.server.URL || data["api_url_source"] != "pending_login" {
+		t.Fatalf("the switch was not resumed = %d %s", r.code, r.stdout)
+	}
+	if got, _ := next.Store.Load(); got.BaseURL != f.server.URL {
+		t.Fatalf("connection service after the switch = %q", got.BaseURL)
+	}
+}
+
+// A transient refresh failure must never be reported as being signed out: the agent would
+// start another login and open another approval page.
+func TestRefreshOutageIsTemporaryAndKeepsTheConnection(t *testing.T) {
+	for mode, want := range map[string]string{"drop": "NETWORK_ERROR", "5xx": "TEMPORARILY_UNAVAILABLE", "429": "RATE_LIMITED"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newFakeServer(t)
+			app := newApp(t, f, t.TempDir())
+			login(t, app)
+			f.mu.Lock()
+			f.access, f.refreshMode = "rotated-elsewhere", mode
+			f.mu.Unlock()
+
+			r := execute(t, app, "jobs", "get", "job-1")
+			if r.code != ExitTemporary || r.out["error"].(map[string]any)["code"] != want {
+				t.Fatalf("command during a refresh outage = %d %s, want %s", r.code, r.stdout, want)
+			}
+			status := execute(t, app, "auth", "status")
+			data := status.out["data"].(map[string]any)
+			if status.code != ExitOK || data["state"] != "unreachable" || data["error"].(map[string]any)["code"] != want {
+				t.Fatalf("status during a refresh outage = %s", status.stdout)
+			}
+			if creds, err := app.Store.Load(); err != nil || creds.RefreshToken != "refresh-1" {
+				t.Fatalf("the connection was not kept: %v %q", err, creds.RefreshToken)
+			}
+
+			f.mu.Lock()
+			f.refreshMode = ""
+			f.mu.Unlock()
+			if r := execute(t, app, "jobs", "get", "job-1"); r.code != ExitOK {
+				t.Fatalf("command after the outage = %d %s", r.code, r.stdout)
+			}
+		})
+	}
+}
+
+func TestRefreshLockTimeoutIsTemporary(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	f.mu.Lock()
+	f.access = "rotated-elsewhere"
+	f.mu.Unlock()
+	// Another process is in the middle of refreshing: it holds the credential lock.
+	release, err := app.Store.Lock(time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	app.RefreshLockWait = 50 * time.Millisecond
+
+	r := execute(t, app, "jobs", "get", "job-1")
+	if r.code != ExitTemporary || r.out["error"].(map[string]any)["code"] != "TEMPORARILY_UNAVAILABLE" {
+		t.Fatalf("command while another process refreshes = %d %s", r.code, r.stdout)
+	}
+	if f.refreshCalls != 0 {
+		t.Fatalf("refreshed without holding the lock: %d calls", f.refreshCalls)
+	}
+}
+
+func TestRevokedConnectionAsksToSignInAgainAndForgetsIt(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	login(t, app)
+	f.mu.Lock()
+	f.access, f.refresh = "rotated-elsewhere", "server-rotated-away"
+	f.mu.Unlock()
+
+	r := execute(t, app, "jobs", "get", "job-1")
+	if r.code != ExitAuth || r.out["error"].(map[string]any)["code"] != "AUTH_REQUIRED" {
+		t.Fatalf("revoked connection = %d %s", r.code, r.stdout)
+	}
+	if _, err := app.Store.Load(); err != auth.ErrNotFound {
+		t.Fatalf("the dead connection was kept: %v", err)
+	}
+	if status := execute(t, app, "auth", "status"); status.out["data"].(map[string]any)["state"] != "unauthenticated" {
+		t.Fatalf("status after revocation = %s", status.stdout)
+	}
+}
+
+// A lock that cannot be created is a broken credential directory, not a busy refresh: telling
+// the agent to retry would hide the real problem.
+func TestUnwritableCredentialDirectoryIsNotReportedAsABusyRefresh(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("directory permissions are not enforced here")
+	}
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	f.mu.Lock()
+	f.access = "rotated-elsewhere"
+	f.mu.Unlock()
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	r := execute(t, app, "jobs", "get", "job-1")
+	errBody := r.out["error"].(map[string]any)
+	if errBody["code"] == "TEMPORARILY_UNAVAILABLE" || strings.Contains(errBody["message"].(string), "refreshing") {
+		t.Fatalf("a permission error was reported as a busy refresh: %s", r.stdout)
+	}
+	if strings.Contains(r.stdout, dir) {
+		t.Fatalf("the raw filesystem error leaked: %s", r.stdout)
+	}
+	if f.refreshCalls != 0 {
+		t.Fatalf("refreshed without the lock: %d", f.refreshCalls)
+	}
+}
+
+func fileIdentity(t *testing.T, path string) os.FileInfo {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("%s: %v", filepath.Base(path), err)
+	}
+	return info
+}
+
+func assertSameFile(t *testing.T, path string, before os.FileInfo, what string) {
+	t.Helper()
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("%s: %s deleted %s", what, filepath.Base(path), err)
+	}
+	if !os.SameFile(before, after) {
+		t.Fatalf("%s: %s was replaced instead of updated in place", what, filepath.Base(path))
+	}
+}
+
+// A sandbox that asks before deleting or replacing files must have nothing to ask about
+// while a user signs in, refreshes or signs out.
+func TestSigningInRefreshingAndOutNeverReplaceOrDeleteFiles(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	creds := filepath.Join(dir, "credentials.json")
+	service := filepath.Join(dir, "connection.json")
+	credsID, serviceID := fileIdentity(t, creds), fileIdentity(t, service)
+
+	for round := 1; round <= 2; round++ {
+		f.mu.Lock()
+		f.access = "rotated-elsewhere"
+		f.mu.Unlock()
+		if r := execute(t, app, "jobs", "get", "job-1"); r.code != ExitOK {
+			t.Fatalf("refresh round %d = %d %s", round, r.code, r.stdout)
+		}
+		assertSameFile(t, creds, credsID, "refresh")
+		assertSameFile(t, service, serviceID, "refresh")
+	}
+	lockID := fileIdentity(t, filepath.Join(dir, "credentials.lock"))
+	f.mu.Lock()
+	f.access = "rotated-elsewhere"
+	f.mu.Unlock()
+	execute(t, app, "jobs", "get", "job-1")
+	assertSameFile(t, filepath.Join(dir, "credentials.lock"), lockID, "second refresh")
+
+	if r := execute(t, app, "auth", "logout"); r.code != ExitOK {
+		t.Fatalf("logout = %d %s", r.code, r.stdout)
+	}
+	assertSameFile(t, creds, credsID, "logout")
+	if _, err := app.Store.Load(); err != auth.ErrNotFound {
+		t.Fatalf("still signed in after logout: %v", err)
+	}
+	if status := execute(t, app, "auth", "status"); status.out["data"].(map[string]any)["state"] != "unauthenticated" {
+		t.Fatalf("status after logout = %s", status.stdout)
+	}
+
+	login(t, app)
+	assertSameFile(t, creds, credsID, "second login")
+	if left, _ := filepath.Glob(filepath.Join(dir, ".tmp-*")); len(left) != 0 {
+		t.Fatalf("temporary files left behind: %v", left)
+	}
+}
+
+// Deleting is what a sandbox asks about, so signing in never deletes. Leftovers from earlier
+// versions are counted by `auth status` and removed by an explicit `auth logout`.
+func TestLeftoverTemporaryFilesAreReportedAndRemovedOnlyByLogout(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	leftovers := []string{filepath.Join(dir, ".tmp-1111"), filepath.Join(dir, ".tmp-2222")}
+	for _, path := range leftovers {
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app := newApp(t, f, dir)
+	login(t, app)
+	for _, path := range leftovers {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("signing in deleted %s", filepath.Base(path))
+		}
+	}
+	if data := execute(t, app, "auth", "status").out["data"].(map[string]any); data["leftover_temp_files"] != float64(2) {
+		t.Fatalf("status = %v", data)
+	}
+	execute(t, app, "auth", "logout")
+	if left, _ := filepath.Glob(filepath.Join(dir, ".tmp-*")); len(left) != 0 {
+		t.Fatalf("leftovers remain after logout: %v", left)
+	}
+	if data := execute(t, app, "auth", "status").out["data"].(map[string]any); data["leftover_temp_files"] != nil {
+		t.Fatalf("status still reports leftovers: %v", data)
+	}
+}
+
+func TestStatusSaysWhyTheKeychainIsNotUsed(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	app.Store = auth.Store{Dir: app.Store.Dir, UseKeyring: true, Keychain: refusingKeychain{}}
+	login(t, app)
+	data := execute(t, app, "auth", "status").out["data"].(map[string]any)
+	if data["credential_store"] != "file" || data["credential_store_issue"] != "unavailable" || data["state"] != "ready" {
+		t.Fatalf("status = %v", data)
+	}
+}
+
+type refusingKeychain struct{}
+
+func (refusingKeychain) Get(string, string) (string, error) { return "", errors.New("denied") }
+func (refusingKeychain) Set(string, string, string) error   { return errors.New("denied") }
+func (refusingKeychain) Delete(string, string) error        { return errors.New("denied") }
+
+func TestTheSubmissionRecordIsUpdatedInPlace(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	args := []string{"images", "create", "--prompt", "a fox", "--idempotency-key", "same-key-12345"}
+	if r := execute(t, app, args...); r.code != ExitOK {
+		t.Fatalf("create = %d %s", r.code, r.stdout)
+	}
+	records, _ := filepath.Glob(filepath.Join(dir, "submissions", "*.json"))
+	if len(records) != 1 {
+		t.Fatalf("records = %v", records)
+	}
+	before := fileIdentity(t, records[0])
+	if r := execute(t, app, args...); r.code != ExitOK {
+		t.Fatalf("second create = %d %s", r.code, r.stdout)
+	}
+	assertSameFile(t, records[0], before, "a repeated submission")
+}
+
+// A keychain error that carries a local path.
+type leakyKeychain struct{ holds bool }
+
+func (k leakyKeychain) Get(string, string) (string, error) {
+	if k.holds {
+		return `{"access_token":"a","refresh_token":"r","base_url":"http://x"}`, nil
+	}
+	return "", errors.New("User interaction is not allowed: /Users/someone/Library/Keychains/login.keychain")
+}
+func (leakyKeychain) Set(string, string, string) error {
+	return errors.New("User interaction is not allowed: /Users/someone/Library/Keychains/login.keychain")
+}
+func (leakyKeychain) Delete(string, string) error {
+	return errors.New("User interaction is not allowed: /Users/someone/Library/Keychains/login.keychain")
+}
+
+func TestStoreFailuresNeverEchoTheStoresOwnText(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	// The keychain still holds the login but refuses to let go of it.
+	app.Store = auth.Store{Dir: dir, UseKeyring: true, Keychain: leakyKeychain{holds: true}}
+	r := execute(t, app, "auth", "logout")
+	if r.code == ExitOK {
+		t.Fatalf("logout succeeded although the keychain kept the login: %s", r.stdout)
+	}
+	if strings.Contains(r.stdout, "someone") || strings.Contains(r.stdout, "keychain") && strings.Contains(r.stdout, "/Users") {
+		t.Fatalf("the store's own error text leaked: %s", r.stdout)
+	}
+}
+
+func TestAnUnreadableCredentialFileDoesNotEchoItsOwnText(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	if err := os.WriteFile(filepath.Join(dir, "credentials.json"), []byte(`{"refresh_token":"x","checksum":"bad"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := execute(t, app, "jobs", "get", "job-1")
+	if r.code != ExitAuth || strings.Contains(r.stdout, "credentials.json") || strings.Contains(r.stdout, dir) {
+		t.Fatalf("unreadable credentials = %d %s", r.code, r.stdout)
 	}
 }
