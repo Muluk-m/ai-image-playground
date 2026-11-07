@@ -163,14 +163,17 @@ describe('non-member resolution ceiling', () => {
     else process.env.OPENAI_API_KEY = direct.apiKey
   })
 
-  function withMember(member: boolean) {
+  function withMember(member: boolean, onLookup?: () => void) {
     _setPrivateBffOverlayForTesting({
       ...EMPTY_PRIVATE_BFF_OVERLAY,
       present: true,
       taskHooks: {
         ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks,
         canSubmitTask: async () => member,
-        isActiveMember: async () => member,
+        isActiveMember: async () => {
+          onLookup?.()
+          return member
+        },
       },
     })
   }
@@ -267,6 +270,72 @@ describe('non-member resolution ceiling', () => {
       request: request({ image_size: '4K', input_images: undefined }),
     })
     expect(cli.kind).toBe('private_billing_denied')
+  })
+  it('canonicalizes a Gemini extra image size before membership alignment', async () => {
+    await ensureBillingUser()
+    withMember(false)
+    const payload = await storedRequest(
+      await createQueueTask({
+        provider: 'gemini',
+        model: 'gemini-3-pro-image',
+        userId: BILLING_USER,
+        request: request({
+          image_size: '1K',
+          input_images: undefined,
+          extra: {
+            generationConfig: {
+              imageConfig: { imageSize: '4K', aspectRatio: '16:9' },
+            },
+          },
+        }),
+      }),
+    )
+    expect(payload.image_size).toBe('2K')
+    expect(payload.extra).toMatchObject({
+      generationConfig: { imageConfig: { imageSize: '2K', aspectRatio: '16:9' } },
+    })
+  })
+  it('writes the flat Gemini image size into an extra imageConfig that omits it', async () => {
+    await ensureBillingUser()
+    withMember(false)
+    const payload = await storedRequest(
+      await createQueueTask({
+        provider: 'gemini',
+        model: 'gemini-3-pro-image',
+        userId: BILLING_USER,
+        request: request({
+          image_size: '2K',
+          input_images: undefined,
+          extra: { generationConfig: { imageConfig: { aspectRatio: '16:9' } } },
+        }),
+      }),
+    )
+    expect(payload.image_size).toBe('2K')
+    expect(payload.extra).toMatchObject({
+      generationConfig: { imageConfig: { imageSize: '2K', aspectRatio: '16:9' } },
+    })
+  })
+  it('checks membership before normalizing a Gemini 4K request', async () => {
+    await ensureBillingUser()
+    let lookedUp = false
+    withMember(true, () => {
+      lookedUp = true
+    })
+    const payload = await storedRequest(
+      await createQueueTask({
+        provider: 'gemini',
+        model: 'gemini-3-pro-image',
+        userId: BILLING_USER,
+        request: request({
+          image_size: '1K',
+          input_images: undefined,
+          extra: { generationConfig: { imageConfig: { imageSize: '4K' } } },
+        }),
+      }),
+    )
+    expect(lookedUp).toBe(true)
+    expect(payload.image_size).toBe('4K')
+    expect(payload.extra).toMatchObject({ generationConfig: { imageConfig: { imageSize: '4K' } } })
   })
 
   it('keeps a member Gemini 4K submission and matches the prepared hash', async () => {

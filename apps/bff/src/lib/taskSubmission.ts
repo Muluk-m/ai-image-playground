@@ -25,6 +25,7 @@ import {
   isGptImage26Model,
   isGptNonMemberRequest,
   isGptSub2apiDeliverable,
+  nearestImageSize,
   QUEUE_TIMEOUTS,
   stageAuthorizedVideoDuration,
   videoModelSupportOf,
@@ -51,6 +52,7 @@ import { lockMediaOwner } from './projectMedia'
 import { publicTaskErrorMessage } from './public-task-error'
 import { asQueueProvider } from './queueProvider'
 import { type QuotaConsumeResult, tryConsumeQuotaInTransaction } from './quota'
+import { isObject } from './type-guards'
 import { gptDirectConfigured, gptImage26Configured } from './upstream/gpt-routing'
 
 export interface PreparedQueueTask {
@@ -381,7 +383,9 @@ async function prepareMaskedSubmission(input: CreateQueueTaskInput) {
  * 预先准备的入口（批量执行、自动提交、灵感套用）一律收到非会员上限，见 {@link alignGptSubmission}。
  */
 export async function prepareQueueTask(input: CreateQueueTaskInput) {
-  const aligned = input.strictImageRequest ? input : await alignNonStrictImageInput(input, true)
+  const aligned = input.strictImageRequest
+    ? await alignGptSubmission(input)
+    : await alignNonStrictImageInput(input, true)
   return prepareAlignedQueueTask(aligned)
 }
 
@@ -485,6 +489,11 @@ export async function strictImageRequestAllowed(
   model: string,
   request: SubmitRequest,
 ): Promise<boolean> {
+  const effectiveSize = provider === 'gemini' ? effectiveGeminiImageSize(request) : undefined
+  const geminiSizes = provider === 'gemini' ? declaredImageSizes(model) : undefined
+  if (provider === 'gemini' && effectiveSize === '4K' && geminiSizes?.length) {
+    if (!geminiSizes.includes('4K')) return false
+  }
   if (isGptDirectModel(model) && !isGptSub2apiDeliverable(request)) {
     if (!gptDirectConfigured(model)) return false
     if (isGptNonMemberRequest(request)) return true
@@ -506,17 +515,78 @@ function clampGptInput(input: CreateQueueTaskInput): CreateQueueTaskInput {
 }
 
 /**
- * 非严格入口里，非会员的 Gemini `image_size: 4K` 静默改成 2K。
- * 会员保持 4K，后面的订阅门照旧。CLI 不走这里。
- * Gemini 不收其余档位，按请求的 image_size 取倍率；提案侧用 preparedImageRateMultiplier，
- * 与这里之后的 pricingOf 一致。
+ * Gemini 的最终有效档位来自扁平字段与 extra.generationConfig.imageConfig 的合并结果。
+ * 提交边界先把它写回两处，避免报价、落库和上游构造各读不同的字段。
+ */
+function effectiveGeminiImageSize(request: SubmitRequest): string | undefined {
+  const generationConfig = request.extra?.generationConfig
+  if (!isObject(generationConfig) || !isObject(generationConfig.imageConfig))
+    return request.image_size
+  const imageSize = generationConfig.imageConfig.imageSize
+  return typeof imageSize === 'string' ? imageSize : request.image_size
+}
+
+function withGeminiImageSize(request: SubmitRequest, imageSize: string): SubmitRequest {
+  const generationConfig = request.extra?.generationConfig
+  if (!isObject(generationConfig) || !isObject(generationConfig.imageConfig))
+    return request.image_size === imageSize ? request : { ...request, image_size: imageSize }
+  return {
+    ...request,
+    image_size: imageSize,
+    extra: {
+      ...(request.extra ?? {}),
+      generationConfig: {
+        ...generationConfig,
+        imageConfig: { ...generationConfig.imageConfig, imageSize },
+      },
+    },
+  }
+}
+
+function canonicalizeGeminiImageSize(request: SubmitRequest): SubmitRequest {
+  const generationConfig = request.extra?.generationConfig
+  if (!isObject(generationConfig) || !isObject(generationConfig.imageConfig)) return request
+  const imageSize = generationConfig.imageConfig.imageSize
+  if (typeof imageSize === 'string')
+    return request.image_size !== imageSize ? withGeminiImageSize(request, imageSize) : request
+  // extra.imageConfig 会整个替换扁平参数推导出的 imageConfig；不带 imageSize 时上游就丢了扁平档位，
+  // 计价却仍按扁平档位。把扁平档位写进 extra，让上游发出的就是计价的那一档。
+  return request.image_size ? withGeminiImageSize(request, request.image_size) : request
+}
+
+function normalizeGeminiImageSize(model: string, request: SubmitRequest): SubmitRequest {
+  const canonical = canonicalizeGeminiImageSize(request)
+  const requested = effectiveGeminiImageSize(canonical)
+  if (requested === undefined) return canonical
+  const declared = declaredImageSizes(model)
+  const supported = declared?.length ? nearestImageSize(requested, declared) : requested
+  if (!supported) return canonical
+  return withGeminiImageSize(canonical, supported)
+}
+
+/**
+ * 非严格入口里，非会员的 Gemini 4K 静默改成 2K；会员保持 4K。
+ * 会员判断和渠道档位规整都在这里完成，后面的计价和上游只看规整后的请求。
  */
 async function downgradeGeminiForNonMember(
   input: CreateQueueTaskInput,
 ): Promise<CreateQueueTaskInput> {
-  if (input.provider !== 'gemini' || input.request.image_size !== '4K') return input
-  const request = clampGeminiNonMemberRequest(input.request, await isActiveMember(input.userId))
-  return request === input.request ? input : { ...input, request }
+  if (input.provider !== 'gemini') return input
+  const canonical = canonicalizeGeminiImageSize(input.request)
+  const requested = effectiveGeminiImageSize(canonical)
+  const member = requested === '4K' ? await isActiveMember(input.userId) : false
+  const membershipAligned = clampGeminiNonMemberRequest(canonical, member)
+  const alignedSize = membershipAligned.image_size ?? effectiveGeminiImageSize(membershipAligned)
+  const canonicalAligned = alignedSize
+    ? withGeminiImageSize(membershipAligned, alignedSize)
+    : membershipAligned
+  const request = normalizeGeminiImageSize(input.model, canonicalAligned)
+  const finalSize = request.image_size ?? effectiveGeminiImageSize(request)
+  const finalRequest =
+    finalSize && effectiveGeminiImageSize(request) !== finalSize
+      ? withGeminiImageSize(request, finalSize)
+      : request
+  return finalRequest === input.request ? input : { ...input, request: finalRequest }
 }
 
 /**
@@ -540,7 +610,12 @@ async function alignNonStrictImageInput(
 }
 
 async function alignGptSubmission(input: CreateQueueTaskInput): Promise<CreateQueueTaskInput> {
-  if (input.video || input.strictImageRequest) return input
+  if (input.video) return input
+  if (input.strictImageRequest) {
+    if (input.provider !== 'gemini') return input
+    const request = canonicalizeGeminiImageSize(input.request)
+    return request === input.request ? input : { ...input, request }
+  }
   const ceiling = Boolean(input.prepared || input.tx || input.agent || input.stageAuthorization)
   return alignNonStrictImageInput(input, ceiling)
 }
