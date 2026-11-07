@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -309,7 +310,7 @@ type deviceAuthorization struct {
 // `--no-wait` and a later resume; only the user code and URL are ever printed.
 func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 	fs := newFlags("auth login")
-	noWait := fs.Bool("no-wait", false, "print the approval link and return without waiting")
+	noWait := fs.Bool("no-wait", false, "print the approval link and return without waiting (no browser, device code only)")
 	timeout := fs.Int("timeout", 600, "seconds to wait for approval")
 	switchService := fs.Bool("switch-service", false, "sign in to MUVLOOM_API_URL even though this machine is signed in to another service")
 	if _, err := parse(fs, args, 0); err != nil {
@@ -351,7 +352,7 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 		return nil, fail("CREDENTIAL_STORE_UNWRITABLE", "Credentials cannot be stored (%s); make the muvloom config directory writable, or set MUVLOOM_CONFIG_DIR to a writable directory, then run `muvloom auth login` again", auth.Reason(err))
 	}
 	if redeemed && !fresh {
-		tokens, err := a.redeemDeviceCode(ctx, pending)
+		tokens, err := a.redeem(ctx, pending)
 		if err == nil {
 			return a.finishLogin(ctx, pending, tokens)
 		}
@@ -371,10 +372,41 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 			return nil, fail("TEMPORARILY_UNAVAILABLE", "The service could not finish the login (%s); run `muvloom auth login` again shortly", oauthErr.Code)
 		}
 	}
+	// Waiting in the foreground listens for the browser to come back; a port that cannot be
+	// opened leaves the device code alone to finish the login.
+	var listener net.Listener
+	if !*noWait && (!resuming || pending.RedirectURI != "") {
+		next := pending
+		if !resuming {
+			next = auth.PendingLogin{}
+		}
+		if l, err := a.startLoopback(&next); err == nil {
+			listener = l
+			pending.RedirectURI = next.RedirectURI
+		} else if !resuming {
+			pending.RedirectURI = ""
+		}
+	}
+	if listener != nil {
+		defer listener.Close()
+	}
 	if !resuming {
+		form := url.Values{"client_id": {oauthClientID}}
+		var verifier, state string
+		if listener != nil {
+			var err1, err2 error
+			verifier, err1 = randomToken(32)
+			state, err2 = randomToken(24)
+			if err1 != nil || err2 != nil {
+				return nil, fail("INTERNAL_ERROR", "Could not create a login challenge")
+			}
+			form.Set("redirect_uri", pending.RedirectURI)
+			form.Set("code_challenge", pkceChallenge(verifier))
+			form.Set("code_challenge_method", "S256")
+		}
+		redirectURI := pending.RedirectURI
 		var device deviceAuthorization
-		if err := a.anonymousClient().PostForm(ctx, "/v1/oauth/device_authorization",
-			url.Values{"client_id": {oauthClientID}}, &device); err != nil {
+		if err := a.anonymousClient().PostForm(ctx, "/v1/oauth/device_authorization", form, &device); err != nil {
 			return nil, oauthFailure(err)
 		}
 		pending = auth.PendingLogin{
@@ -384,6 +416,9 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 			ExpiresAt:               time.Now().Add(seconds(device.ExpiresIn, 0, 3600)),
 			IntervalSeconds:         min(max(device.Interval, 1), 60),
 			BaseURL:                 a.APIURL,
+		}
+		if listener != nil {
+			pending.RedirectURI, pending.CodeVerifier, pending.State = redirectURI, verifier, state
 		}
 	}
 	// A login started by an older version has no identity yet; it gets one before the code
@@ -407,15 +442,29 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 		"expires_at":                pending.ExpiresAt,
 	}
 	if !pending.Redeemed {
-		a.progress("Open %s and confirm code %s", pending.VerificationURIComplete, pending.UserCode)
 		if *noWait {
+			a.progress("Open %s and confirm code %s", pending.VerificationURIComplete, pending.UserCode)
 			return prompt, nil
 		}
+		// A resumed login does not open another page: the one already open still works.
+		if resuming {
+			a.progress("Waiting for approval of code %s at %s", pending.UserCode, pending.VerificationURIComplete)
+		} else if err := a.openBrowser(approvalURL(pending)); err == nil {
+			a.progress("Opened the browser to approve this connection (code %s). Waiting…", pending.UserCode)
+		} else {
+			a.progress("Open %s and confirm code %s", pending.VerificationURIComplete, pending.UserCode)
+		}
+	}
+	done := make(chan struct{})
+	defer close(done)
+	var callbacks <-chan callback
+	if listener != nil && pending.State != "" {
+		callbacks = a.serveCallback(listener, pending, done)
 	}
 	deadline := time.Now().Add(seconds(*timeout, 0, 3600))
 	interval := seconds(pending.IntervalSeconds, 1, 60)
 	for {
-		tokens, err := a.redeemDeviceCode(ctx, pending)
+		tokens, err := a.redeem(ctx, pending)
 		if err == nil {
 			return a.finishLogin(ctx, pending, tokens)
 		}
@@ -449,10 +498,68 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 				Details: prompt,
 			}
 		}
-		if err := a.Sleep(ctx, interval); err != nil {
+		if visit, ok, err := a.waitForCallback(ctx, interval, callbacks); err != nil {
 			return nil, err
+		} else if ok {
+			if result, err := a.completeCallback(ctx, &pending, visit); err == nil {
+				return result, nil
+			} else if exitByCode[asFailure(err).Code] == ExitRejected {
+				return nil, err
+			}
+			// The code did not work; the device code may still, so keep polling.
 		}
 	}
+}
+
+// waitForCallback sleeps until the next poll, or returns early when the browser comes back.
+func (a *App) waitForCallback(ctx context.Context, interval time.Duration, callbacks <-chan callback) (callback, bool, error) {
+	if callbacks == nil {
+		return callback{}, false, a.Sleep(ctx, interval)
+	}
+	sleepCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	slept := make(chan error, 1)
+	go func() { slept <- a.Sleep(sleepCtx, interval) }()
+	select {
+	case visit := <-callbacks:
+		return visit, true, nil
+	case err := <-slept:
+		return callback{}, false, err
+	}
+}
+
+// completeCallback redeems the code the browser brought back. The code is stored first: if the
+// response is lost, running the command again repeats this exchange with the same identity.
+func (a *App) completeCallback(ctx context.Context, pending *auth.PendingLogin, visit callback) (any, error) {
+	pending.AuthorizationCode = visit.code
+	if err := a.Store.SavePending(*pending); err != nil {
+		visit.reply <- false
+		return nil, fail("CREDENTIAL_STORE_UNWRITABLE", "Could not store the pending login (%s); check that the muvloom config directory is writable", auth.Reason(err))
+	}
+	tokens, err := a.redeemAuthorizationCode(ctx, *pending)
+	if err != nil {
+		visit.reply <- false
+		return nil, oauthFailure(err)
+	}
+	result, err := a.finishLogin(ctx, *pending, tokens)
+	visit.reply <- err == nil
+	return result, err
+}
+
+// approvalURL is the page the CLI opens: the device page for this code, carrying the state the
+// page hands back with the one-time code.
+func approvalURL(pending auth.PendingLogin) string {
+	if pending.State == "" {
+		return pending.VerificationURIComplete
+	}
+	target, err := url.Parse(pending.VerificationURIComplete)
+	if err != nil {
+		return pending.VerificationURIComplete
+	}
+	query := target.Query()
+	query.Set("state", pending.State)
+	target.RawQuery = query.Encode()
+	return target.String()
 }
 
 func (a *App) redeemDeviceCode(ctx context.Context, pending auth.PendingLogin) (tokenResponse, error) {
