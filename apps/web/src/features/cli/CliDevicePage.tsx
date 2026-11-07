@@ -6,6 +6,7 @@ import { Input } from '../../components/ui/input'
 import { i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
 import { authenticatedBffFetch } from '../../lib/authClient'
 import { bffBaseUrl } from '../../lib/runtimeConfig'
+import { leaveTo, loopbackStateFromAddress, loopbackTarget } from './loopbackRedirect'
 
 interface PendingAuthorization {
   client_name: string
@@ -18,8 +19,16 @@ type Phase =
   | { kind: 'pending'; authorization: PendingAuthorization }
   | { kind: 'invalid' }
   | { kind: 'approved' }
+  | { kind: 'returning' }
   | { kind: 'denied' }
   | { kind: 'failed' }
+
+/** CLI 换完令牌后把浏览器带回这里：`connected` 已连接，`failed` 没完成、结果在 CLI 那边。 */
+function outcomeFromAddress(): 'connected' | 'failed' | null {
+  if (typeof window === 'undefined') return null
+  const status = new URL(window.location.href).searchParams.get('status')
+  return status === 'connected' || status === 'failed' ? status : null
+}
 
 function codeFromAddress(): string {
   if (typeof window === 'undefined') return ''
@@ -40,6 +49,9 @@ export default function CliDevicePage() {
   const request = useRef<AbortController | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [closeBlocked, setCloseBlocked] = useState(false)
+  const [outcome] = useState(outcomeFromAddress)
+  // 只有 CLI 在本机打开的链接带 state；手输授权码（可能在另一台设备上）照旧等 CLI 轮询。
+  const [loopbackState] = useState(loopbackStateFromAddress)
   const scopeLabels: Record<string, string> = {
     'images:read': t('cliDevice.scopes.imagesRead'),
     'images:write': t('cliDevice.scopes.imagesWrite'),
@@ -110,14 +122,32 @@ export default function CliDevicePage() {
         body: JSON.stringify({ user_code: code, decision }),
       })
       if (controller.signal.aborted) return
-      if (res.ok) setPhase({ kind: decision === 'approve' ? 'approved' : 'denied' })
-      else setPhase({ kind: res.status === 404 ? 'invalid' : 'failed' })
+      if (!res.ok) {
+        setPhase({ kind: res.status === 404 ? 'invalid' : 'failed' })
+        return
+      }
+      const result: { redirect_to?: unknown } = await res.json().catch(() => ({}))
+      const target =
+        decision === 'approve' && loopbackState
+          ? loopbackTarget(result.redirect_to, loopbackState)
+          : null
+      if (target) {
+        setPhase({ kind: 'returning' })
+        leaveTo(target)
+        return
+      }
+      setPhase({ kind: decision === 'approve' ? 'approved' : 'denied' })
     } catch {
       if (!controller.signal.aborted) setPhase({ kind: 'failed' })
     } finally {
       // 旧请求不能解锁新授权码的提交。
       if (!controller.signal.aborted) deciding.current = false
     }
+  }
+
+  function closePage() {
+    window.close()
+    if (!window.closed) setCloseBlocked(true)
   }
 
   function submitCode(event: FormEvent) {
@@ -138,7 +168,28 @@ export default function CliDevicePage() {
           <h1 className="text-title-lg">{t('cliDevice.title')}</h1>
         </header>
 
-        {!code ? (
+        {outcome && !code ? (
+          <div className="space-y-3">
+            <p
+              className={
+                outcome === 'connected' ? 'text-title-md' : 'text-body-sm text-destructive'
+              }
+              role={outcome === 'connected' ? 'status' : 'alert'}
+            >
+              {t(outcome === 'connected' ? 'cliDevice.connected' : 'cliDevice.notFinished')}
+            </p>
+            {outcome === 'connected' ? (
+              <Button type="button" className="w-full" onClick={closePage}>
+                {t('cliDevice.return')}
+              </Button>
+            ) : null}
+            {closeBlocked ? (
+              <p className="text-body-sm text-muted-foreground" aria-live="polite">
+                {t('cliDevice.closeManually')}
+              </p>
+            ) : null}
+          </div>
+        ) : !code ? (
           <form className="space-y-3" onSubmit={submitCode}>
             <Input
               value={draft}
@@ -156,7 +207,7 @@ export default function CliDevicePage() {
           <p className="font-mono text-headline tracking-widest">{code.toUpperCase()}</p>
         )}
 
-        {code && !user ? (
+        {code && !user && !outcome ? (
           <Button type="button" className="w-full" onClick={() => promptLogin('gated-action')}>
             {t('cliDevice.signIn')}
           </Button>
@@ -188,7 +239,7 @@ export default function CliDevicePage() {
           </div>
         ) : null}
 
-        {phase.kind === 'loading' ? (
+        {phase.kind === 'loading' || phase.kind === 'returning' ? (
           <p className="text-body-sm text-muted-foreground" aria-live="polite">
             {t('cliDevice.working')}
           </p>
@@ -198,14 +249,7 @@ export default function CliDevicePage() {
             <p className="text-title-md" role="status">
               {t('cliDevice.approved')}
             </p>
-            <Button
-              type="button"
-              className="w-full"
-              onClick={() => {
-                window.close()
-                if (!window.closed) setCloseBlocked(true)
-              }}
-            >
+            <Button type="button" className="w-full" onClick={closePage}>
               {t('cliDevice.return')}
             </Button>
             {closeBlocked ? (
