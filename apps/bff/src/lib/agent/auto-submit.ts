@@ -95,6 +95,7 @@ export async function submitAgentGeneration(input: AutoSubmitInput): Promise<Aut
         })
       : input.request.prompt
   const createInput: CreateQueueTaskInput = {
+    entry: 'agent',
     provider: input.provider,
     model: input.model,
     request: {

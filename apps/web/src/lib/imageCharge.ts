@@ -22,7 +22,7 @@ export function composerImageRate(
   return imageRateMultiplier(model, request, declaredImageSizesForModel(model))
 }
 
-/** 阶段授权等「先收基础档再提交」的入口：和服务端 alignGptSubmission 之后的 pricingOf 一致。 */
+/** 阶段授权等「先收基础档再提交」的入口：和服务端 resolveImageTier 之后的倍率一致。 */
 export function preparedComposerImageRate(
   model: string,
   request: ImageRateRequest | null | undefined,

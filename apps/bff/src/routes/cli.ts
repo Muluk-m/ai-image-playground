@@ -295,6 +295,7 @@ export const cliApiRoutes = new Elysia()
         }),
       )
       const outcome = await createQueueTask({
+        entry: 'cli-strict',
         provider: prepared.model.provider,
         model: prepared.model.id,
         userId: cli.user.id,
