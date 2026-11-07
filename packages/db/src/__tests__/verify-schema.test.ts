@@ -15,6 +15,27 @@ describe('verifySchema', () => {
     })
   })
 
+  it('accepts a verified forward equivalent without fabricating its original history', async () => {
+    const handle = createDb(databaseUrl)
+    const [original] =
+      await handle.client`DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1794250000000 RETURNING *`
+    const [forward] =
+      await handle.client`SELECT * FROM drizzle.__drizzle_migrations WHERE created_at = 1794400000000`
+    try {
+      await expect(verifySchema(databaseUrl)).resolves.toMatchObject({
+        migrations: journal.entries.length - 1,
+      })
+      await handle.client`UPDATE drizzle.__drizzle_migrations SET hash = 'wrong-hash' WHERE id = ${forward.id}`
+      await expect(verifySchema(databaseUrl)).rejects.toThrow(
+        'Applied migration supersession hash mismatch: 0094_web_refresh_request_identity_forward',
+      )
+    } finally {
+      await handle.client`UPDATE drizzle.__drizzle_migrations SET hash = ${forward.hash} WHERE id = ${forward.id}`
+      await handle.client`INSERT INTO drizzle.__drizzle_migrations (id, hash, created_at) VALUES (${original.id}, ${original.hash}, ${original.created_at})`
+      await handle.close()
+    }
+  })
+
   it('rejects an incomplete migration ledger even when tables and indexes exist', async () => {
     const handle = createDb(databaseUrl)
     const [last] = await handle.client.unsafe(
