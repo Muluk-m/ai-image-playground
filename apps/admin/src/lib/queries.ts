@@ -38,10 +38,11 @@ export const ADMIN_REFRESH_EVENT = 'admin:refresh'
 
 export const gptDirectQueryKey = ['gpt-direct'] as const
 
-export function useGptDirect(days: 7 | 30) {
+export function useGptDirect(days: 7 | 30, enabled = true) {
   return useQuery({
     queryKey: [...gptDirectQueryKey, days],
     queryFn: () => apiClient.get<GptDirectAdminView>(`/api/gpt-direct?days=${days}`),
+    enabled,
   })
 }
 
