@@ -78,8 +78,12 @@ func (a *App) refresh(ctx context.Context, rejected string) (string, error) {
 		wait = 45 * time.Second
 	}
 	unlock, err := a.Store.Lock(wait)
-	if err != nil {
+	if errors.Is(err, auth.ErrLockTimeout) {
 		return "", fail("TEMPORARILY_UNAVAILABLE", "Another muvloom process is refreshing the connection; retry shortly")
+	}
+	if err != nil {
+		// A storage fault will not clear by retrying, and the raw error carries local paths.
+		return "", fail("INTERNAL_ERROR", "Could not lock the credential store; check that the muvloom config directory is writable")
 	}
 	defer unlock()
 	creds, err := a.loadCredentials()

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -585,5 +586,36 @@ func TestRevokedConnectionAsksToSignInAgainAndForgetsIt(t *testing.T) {
 	}
 	if status := execute(t, app, "auth", "status"); status.out["data"].(map[string]any)["state"] != "unauthenticated" {
 		t.Fatalf("status after revocation = %s", status.stdout)
+	}
+}
+
+// A lock that cannot be created is a broken credential directory, not a busy refresh: telling
+// the agent to retry would hide the real problem.
+func TestUnwritableCredentialDirectoryIsNotReportedAsABusyRefresh(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("directory permissions are not enforced here")
+	}
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	f.mu.Lock()
+	f.access = "rotated-elsewhere"
+	f.mu.Unlock()
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	r := execute(t, app, "jobs", "get", "job-1")
+	errBody := r.out["error"].(map[string]any)
+	if errBody["code"] == "TEMPORARILY_UNAVAILABLE" || strings.Contains(errBody["message"].(string), "refreshing") {
+		t.Fatalf("a permission error was reported as a busy refresh: %s", r.stdout)
+	}
+	if strings.Contains(r.stdout, dir) {
+		t.Fatalf("the raw filesystem error leaked: %s", r.stdout)
+	}
+	if f.refreshCalls != 0 {
+		t.Fatalf("refreshed without the lock: %d", f.refreshCalls)
 	}
 }
