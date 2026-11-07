@@ -8,6 +8,12 @@ Do not generate images during setup.
 
 ## 1. Install CLI 0.1.4
 
+Run `muvloom version` first. If the command is missing, or `data.version` is lower
+than 0.1.4, install 0.1.4 with the commands below: the installer replaces the
+existing CLI in place and keeps the user's sign-in. An older CLI must not be reused,
+because it lacks fixes this guide relies on. Skip this step only when the installed
+version is already 0.1.4 or newer.
+
 Use the matching platform below. The scripts are pinned to the released source
 commit and verify the downloaded binary's SHA-256. If installation fails, report
 the error; do not bypass verification.
