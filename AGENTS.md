@@ -95,7 +95,7 @@ CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）把 `pnpm lint`
 
 **关键流程证据。** 改到注册/登录、支付/计费、生成（出图、出视频）流程的 PR，必须附测试账号在测试环境（https://test.muvloom.online）走通该流程的截图或录屏，写明账号类型、环境和提交。证据里不能出现密码、验证码、token 或真实用户数据。`scripts/agent-smoke.ts`（[智能体上线手册](docs/deploy/agent-rollout.md)第七节）、`scripts/pages-browser-smoke.sh`（[部署手册](docs/deploy/image-release.md)「前端启动验收」）和[云端测试](docs/agents/cloud-tests.md)只能作补充：它们不走真实登录、付款或生成，不能代替证据。
 
-**成本与影响说明。** 改到模型调用、模型/供应商切换、定价、额度、计费，或任何会改变推理成本的改动（更贵的默认模型、更多调用次数、更长上下文、更大输出、放宽限额），必须在 PR 描述的「成本与影响」和给 Nain 的汇报里写清楚改了什么、对成本的影响。`.github/workflows/cost-impact.yml` 按 `scripts/cost-impact.mjs` 的路径清单检查，命中时打 `cost-impact` 标签提醒，只提示、不拦合并；清单外的成本改动同样要写。其中属于功能或行为变更的，仍按上面「默认交付到生产」要 Nain 确认。
+**成本与影响说明。** 改到模型调用、模型/供应商切换、定价、额度、计费，或任何会改变推理成本的改动（更贵的默认模型、更多调用次数、更长上下文、更大输出、放宽限额），必须在 PR 描述的「成本与影响」和给 Nain 的汇报里写清楚改了什么、对成本的影响。`.github/workflows/cost-impact.yml` 按 `scripts/cost-impact.mjs` 的路径清单检查，命中时打 `cost-impact` 标签提醒，只提示、不拦合并；清单外的成本改动同样要写。成本与扣费本身不需要 Nain 确认（预算充足）：只要改动不是用户可感知的功能或行为变更，写清楚影响即可按常规流程合并；同时属于功能或行为变更的，仍按上面「默认交付到生产」要 Nain 确认。
 
 **安全扫描（已定，2026-10-27）。** CodeQL（`.github/workflows/codeql.yml`）只报告、不拦合并；落在本 PR 改动上的高危告警按 REVIEW.md 当严重问题处理。Dependabot 只开 `.github/dependabot.yml` 里的版本更新，不开 Dependabot security updates（自动开安全修复 PR）。这是决定，不是待办。
 
