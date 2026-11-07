@@ -154,6 +154,16 @@ describe('CliConnectPage', () => {
     expect(setup.replace(/\s+/g, ' ')).toContain('do not end your turn')
   })
 
+  // 机器已连着测试或企业服务时打开生产页面：不显式指定服务，CLI 会沿用已存连接，接入静默"成功"在错误环境上。
+  it('指南对每个服务（含生产）都显式指定 API 地址，让 CLI 能发现与已存连接不一致', () => {
+    const dir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../public/cli')
+    const setup = readFileSync(resolve(dir, 'setup.md'), 'utf8').replace(/\s+/g, ' ')
+    expect(setup).not.toContain('use the default')
+    expect(setup).not.toContain('clear any conflicting')
+    expect(setup).toContain('including the production service')
+    expect(setup).toContain('service_mismatch')
+  })
+
   it('两份指南都要求抓取同目录的另一份时沿用同一个 v 参数', () => {
     const dir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../public/cli')
     for (const name of ['setup.md', 'workbuddy.md']) {
