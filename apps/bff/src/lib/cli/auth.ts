@@ -22,6 +22,11 @@ const LAST_USED_TOUCH_MS = 60 * 1000
 const DEVICE_REPLAY_GRACE_MS = 60 * 60 * 1000
 /** 批准后交给本机回调的一次性授权码：CLI 就在本机等着，几秒内就会来换。 */
 const AUTHORIZATION_CODE_TTL_MS = 2 * 60 * 1000
+/**
+ * 批准后这段时间内设备码让路给回调；过了还没换，多半回不到本机，轮询接手。已批准的设备码
+ * 到期后也再留这么久，临近到期才批准的登录仍有轮询窗口。
+ */
+const HANDBACK_MS = 30 * 1000
 /** 过期设备码留一天供排查，之后在下一次创建时顺手删掉。 */
 const DEVICE_ROW_RETENTION_MS = 24 * 60 * 60 * 1000
 
@@ -441,7 +446,8 @@ export async function exchangeDeviceCode(
             now,
           )
         : { ok: false, error: 'invalid_grant' }
-    if (row.expires_at <= now) return { ok: false, error: 'expired_token' }
+    const approvedGrace = row.status === 'approved' && row.expires_at + HANDBACK_MS > now
+    if (row.expires_at <= now && !approvedGrace) return { ok: false, error: 'expired_token' }
     if (row.status === 'denied') return { ok: false, error: 'access_denied' }
     // 确认页正带着授权码回本机：回调优先，设备码在授权码有效期内仍按等待处理，否则 CLI
     // 轮询先拿到令牌退出，浏览器回到的就是已经关掉的端口。授权码过期没人用，轮询照常兜底。
@@ -449,7 +455,7 @@ export async function exchangeDeviceCode(
       row.status === 'approved' &&
       row.authorization_code_hash !== null &&
       row.authorization_code_expires_at !== null &&
-      row.authorization_code_expires_at > now
+      row.authorization_code_expires_at - AUTHORIZATION_CODE_TTL_MS + HANDBACK_MS > now
     if (row.status === 'pending' || handingBack) {
       const tooSoon =
         row.last_polled_at !== null && now - row.last_polled_at < row.interval_seconds * 1000

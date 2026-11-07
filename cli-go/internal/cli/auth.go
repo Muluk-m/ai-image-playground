@@ -467,7 +467,8 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 	}
 	// By default the CLI waits as long as the code is valid: an approval page left open keeps
 	// somewhere to come back to.
-	deadline := pending.ExpiresAt
+	// The service still redeems an approved code briefly after it expires.
+	deadline := pending.ExpiresAt.Add(time.Minute)
 	if *timeout >= 0 || !time.Now().Before(deadline) {
 		deadline = time.Now().Add(seconds(*timeout, 0, 3600))
 	}
