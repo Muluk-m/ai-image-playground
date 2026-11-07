@@ -19,11 +19,11 @@
 用户点完授权，你应当自动继续，**不需要用户再回复你**。
 
 1. 先运行 `muvloom auth status`。确认 `api_url` 对应本次接入的服务，`state: ready` 时直接验证 `muvloom capabilities`，保留已有连接。
-2. 未登录时，前台运行 `muvloom auth login --no-wait`，取得返回的 `verification_uri_complete`，**自己打开授权页**，并在这一条回复里告诉用户：授权页已打开，请登录并点「授权」；你会在这里等，点完会自动继续，不需要回复我。**不要结束本回合。**
-3. 紧接着前台运行 `muvloom auth login --timeout 60` 等待授权。返回 `AUTH_PENDING`（退出码 3）只表示用户还没点，不是失败：直接再运行一次，直到出现下面三种结果之一。等待期间不要反复提示用户，也不要重新打开授权页：
+2. 未登录时，先在这一条回复里告诉用户：授权页马上在浏览器里打开，请登录并点「授权」；你会在这里等，点完会自动继续，不需要回复我。**不要结束本回合。**
+3. 紧接着前台运行 `muvloom auth login`（命令超时设为宿主允许的最长值）。它会自己打开授权页并等待，用户点完授权，浏览器跳回本机，命令就返回 `state: ready`。返回 `AUTH_PENDING`（退出码 3），或命令被宿主截断，只表示用户还没点完，不是失败：直接再运行一次 `muvloom auth login`，它会接着同一次登录，不会再打开新页面。等待期间不要反复提示用户：
    - `state: ready`：授权完成，继续第 4 步。
    - `AUTH_DENIED`：用户拒绝了，停止并说明。
-   - `AUTH_EXPIRED`：授权码已过期（有效期 20 分钟），这时才重新运行 `muvloom auth login --no-wait` 发一个新码，再次打开页面并提示用户。
+   - `AUTH_EXPIRED`：授权码已过期（有效期 20 分钟），这时才重新运行 `muvloom auth login`，并再次提示用户。
 4. 运行 `muvloom auth status` 确认 `ready`，再运行 `muvloom capabilities`。
 5. 宿主打断等待时的兜底：如果等待命令被宿主中断（超时被终止，或为权限确认而重放），先运行 `muvloom auth status`，`ready` 就是成功；仍未就绪就再等一次。同一次授权里等待命令**连续两次**都被中断，才退回到让用户确认：告诉用户点完授权后回复一句，收到后先查 `auth status`，仍未就绪再前台运行 `muvloom auth login --timeout 15` 收尾。
 
