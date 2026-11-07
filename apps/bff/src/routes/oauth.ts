@@ -103,6 +103,33 @@ export function frontendOrigin(request: Request, requested?: unknown): string {
   return (allowed[0] ?? bffOrigin(request)).replace(/\/+$/, '')
 }
 
+function hostOf(origin: string): string {
+  try {
+    return new URL(origin).hostname
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Where a CLI's approval page lives. The CLI sends no Origin, so the page is the configured
+ * frontend under the API host's parent domain (`image-api.example.com` → `*.example.com` or
+ * `example.com`): every product domain already shares one with its API, or its SameSite=Lax
+ * session cookie would not reach it. An enterprise CLI then lands on the enterprise page, which
+ * offers that domain's sign-in methods. No match keeps the primary frontend.
+ */
+export function cliVerificationOrigin(request: Request): string {
+  const labels = hostOf(bffOrigin(request)).split('.')
+  const parent = labels.length > 2 ? labels.slice(1).join('.') : labels.join('.')
+  const match = parent
+    ? allowedFrontendOrigins(request).find((origin) => {
+        const host = hostOf(origin)
+        return host === parent || host.endsWith(`.${parent}`)
+      })
+    : undefined
+  return (match ?? frontendOrigin(request)).replace(/\/+$/, '')
+}
+
 /** Navigation cannot rely on Origin being present; the allowlisted selector is state-bound. */
 function loginNavigationOrigin(request: Request, requested?: string): string | null {
   if (config.auth.loginMethodsByOrigin.length > 0) {
