@@ -9,16 +9,16 @@ import {
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 /**
- * 特征测试：钉住「提交入口 × 模型系列 × 会员」现在实际落库的请求与拒绝结果。
- * 图片档位策略 module 重构（resolveImageTier）期间这张表不能变；改动它就是行为变更。
+ * 特征测试：钉住「提交入口 × 模型系列 × 会员」落库的请求与拒绝结果，以及 `metering.tier` 快照。
+ * 图片档位策略重构（resolveImageTier）期间这张表不能变；改动它就是行为变更。
  *
- * 入口取自 createQueueTask / prepareQueueTask 现有字段：
- * - web-direct：不带任何标记
- * - cli-strict：strictImageRequest
- * - tx：调用方自带事务（目前只有确认生成，且它同时带 agent）
- * - prepared：先 prepareQueueTask 再在事务里提交（自动提交、批次执行、灵感套用）
+ * `Entry` 是测试里的提交形态，对应 createQueueTask 的 `entry`：
+ * - web-direct：网站直接提交
+ * - cli-strict：CLI（strictImageRequest）
+ * - tx：调用方自带事务（确认生成），entry 为 agent
+ * - prepared：先 prepareQueueTask 再在事务里提交（批次执行、自动提交、灵感套用），entry 为 batch
  * 智能体与阶段授权入口走同一条 ceiling 分支，由 chat-task / agent-stage-authorizations 测试覆盖。
- * 本文件是 resolveImageTier 落地前的过渡脚手架：落地后这张表并入该 module 的测试，届时删除本文件。
+ * 与 taskSubmission.test.ts 的 `non-member resolution ceiling` 有部分重叠，这里独立钉住全矩阵。
  */
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test-key'
@@ -84,12 +84,20 @@ function withMember(member: boolean) {
   })
 }
 
+const SUBMIT_ENTRY: Record<Entry, Input['entry']> = {
+  'web-direct': 'web-direct',
+  'cli-strict': 'cli-strict',
+  tx: 'agent',
+  prepared: 'batch',
+}
+
 function baseInput(model: 'gpt' | 'gemini'): Input {
   const request: Omit<SubmitRequest, 'video'> =
     model === 'gpt'
       ? { prompt: 'tier entry', device_id: 'device-abcdefgh', size: '3840x2160', quality: 'high' }
       : { prompt: 'tier entry', device_id: 'device-abcdefgh', image_size: '4K' }
   return {
+    entry: 'web-direct',
     provider: model === 'gpt' ? 'openai-compat' : 'gemini',
     model: model === 'gpt' ? 'gpt-image-2.5-flare' : 'gemini-3-pro-image',
     userId: USER,
@@ -97,7 +105,8 @@ function baseInput(model: 'gpt' | 'gemini'): Input {
   }
 }
 
-async function submitVia(entry: Entry, input: Input): Promise<Outcome> {
+async function submitVia(entry: Entry, base: Input): Promise<Outcome> {
+  const input: Input = { ...base, entry: SUBMIT_ENTRY[entry] }
   switch (entry) {
     case 'web-direct':
       return createQueueTask(input)
@@ -174,4 +183,49 @@ describe('Gemini 4K request by entry', () => {
       })
     }
   }
+})
+
+describe('metering.tier snapshot', () => {
+  async function tierOf(outcome: Outcome) {
+    expect(outcome.kind).toBe('created')
+    if (outcome.kind !== 'created') throw new Error('expected a task')
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, outcome.taskId))
+    return task!.metering?.tier
+  }
+
+  it('records the entry, the member lookup and what the request requires', async () => {
+    withMember(true)
+    expect(await tierOf(await submitVia('web-direct', baseInput('gpt')))).toEqual({
+      entry: 'web-direct',
+      memberApplied: true,
+      requires: { membership: true, directRoute: false },
+    })
+  })
+
+  it('records a clamped non-member as asking for nothing', async () => {
+    withMember(false)
+    expect(await tierOf(await submitVia('web-direct', baseInput('gpt')))).toEqual({
+      entry: 'web-direct',
+      memberApplied: false,
+      requires: { membership: false, directRoute: false },
+    })
+  })
+
+  it('does not look up membership for a GPT ceiling entry', async () => {
+    withMember(true)
+    expect(await tierOf(await submitVia('prepared', baseInput('gpt')))).toEqual({
+      entry: 'batch',
+      memberApplied: false,
+      requires: { membership: false, directRoute: false },
+    })
+  })
+
+  it('records a strict CLI request with the direct route it needs', async () => {
+    withMember(true)
+    expect(await tierOf(await submitVia('cli-strict', baseInput('gpt')))).toEqual({
+      entry: 'cli-strict',
+      memberApplied: false,
+      requires: { membership: true, directRoute: true },
+    })
+  })
 })
