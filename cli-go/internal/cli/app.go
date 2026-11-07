@@ -246,7 +246,7 @@ func (a *App) Run(args []string) int {
 			a.APIURL, a.apiURLSource = DefaultAPIURL, sourceDefault
 		}
 	} else {
-		a.resolveAPIURL()
+		a.resolveAPIURL(args[0] == "auth" && len(args) > 1 && args[1] == "login")
 	}
 	if err := validateAPIURL(a.APIURL); err != nil {
 		return a.render(nil, err)
@@ -263,10 +263,20 @@ var skipsService = map[string]bool{"version": true, "update": true, "skill": tru
 // resolveAPIURL picks the service for this invocation: an explicit MUVLOOM_API_URL, else the
 // service the stored connection was issued by, else the default. A new agent session has no
 // environment variable, and must not be taken for signed out because of that.
-func (a *App) resolveAPIURL() {
+//
+// resumingLogin is true for `auth login`: a login started earlier (possibly a deliberate
+// switch to another service) is finished against the service it was started for. Other commands
+// keep using the working connection while the switch is pending.
+func (a *App) resolveAPIURL(resumingLogin bool) {
 	if a.APIURL != "" {
 		a.apiURLSource = sourceEnvironment
 		return
+	}
+	if resumingLogin {
+		if pending, err := a.Store.LoadPending(); err == nil && pending.BaseURL != "" && time.Now().Before(pending.ExpiresAt) {
+			a.APIURL, a.apiURLSource = strings.TrimRight(pending.BaseURL, "/"), sourcePending
+			return
+		}
 	}
 	creds, loadErr := a.Store.Load()
 	if loadErr == nil && creds.RefreshToken != "" && creds.BaseURL != "" {
