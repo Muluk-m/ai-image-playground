@@ -61,6 +61,7 @@ type fakeServer struct {
 	codeChallenge string
 	issuedCode    string
 	codeExchanges int
+	codeBusy      bool
 }
 
 const secretDeviceCode = "device-secret-value"
@@ -88,6 +89,10 @@ func newFakeServer(t *testing.T) *fakeServer {
 		switch r.Form.Get("grant_type") {
 		case "authorization_code":
 			f.codeExchanges++
+			if f.codeBusy {
+				writeJSON(w, 503, map[string]string{"error": "temporarily_unavailable"})
+				return
+			}
 			sum := sha256.Sum256([]byte(r.Form.Get("code_verifier")))
 			if f.issuedCode == "" || r.Form.Get("code") != f.issuedCode || f.deviceRedeemed ||
 				r.Form.Get("redirect_uri") != f.redirectURI ||
@@ -1621,6 +1626,37 @@ func TestAResumedLoginReusesTheOpenPage(t *testing.T) {
 	}
 	if !strings.HasSuffix(pending.RedirectURI, addr+"/callback") {
 		t.Fatalf("listened on %q, registered %q", addr, pending.RedirectURI)
+	}
+	if got := <-landed; got != f.server.URL+"/device?status=connected" {
+		t.Fatalf("browser sent to %q", got)
+	}
+}
+
+// The code exchange hit a temporary error, and polling then signed in: the browser waits for
+// that outcome and is told it connected, not that it failed.
+func TestABrowserWaitsForTheLoginWhenTheCodeExchangeIsBusy(t *testing.T) {
+	f := newFakeServer(t)
+	f.approveAfter = 1 << 30
+	f.codeBusy = true
+	app := newApp(t, f, t.TempDir())
+	landed := make(chan string, 1)
+	polls := 0
+	app.Sleep = func(ctx context.Context, d time.Duration) error {
+		polls++
+		if polls == 20 {
+			f.mu.Lock()
+			f.approveAfter = 0
+			f.mu.Unlock()
+		}
+		return slowSleep(ctx, d)
+	}
+	app.OpenBrowser = func(u string) error {
+		go func() { landed <- f.approveInBrowser(t, u) }()
+		return nil
+	}
+	r := execute(t, app, "auth", "login")
+	if r.code != ExitOK || r.out["data"].(map[string]any)["state"] != "ready" {
+		t.Fatalf("login = %d %s", r.code, r.stdout)
 	}
 	if got := <-landed; got != f.server.URL+"/device?status=connected" {
 		t.Fatalf("browser sent to %q", got)
