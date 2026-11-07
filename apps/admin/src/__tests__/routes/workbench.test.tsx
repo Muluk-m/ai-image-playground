@@ -444,6 +444,11 @@ describe('sidebar navigation', () => {
     const content = await navGroup('运营内容')
     expect(content.getByRole('link', { name: '灵感库' })).toHaveAttribute('data-active', 'true')
   })
+  it('keeps the content workspace active on announcement routes', async () => {
+    renderAt('/announcements')
+    const content = await navGroup('运营内容')
+    expect(content.getByRole('link', { name: '灵感库' })).toHaveAttribute('data-active', 'true')
+  })
 
   it('keeps 刷新 and 退出登录 in the sidebar footer', async () => {
     renderAt('/overview')
