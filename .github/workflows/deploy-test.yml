@@ -333,17 +333,10 @@ jobs:
           printf '%s\n' "$VPS_SSH_KEY" > "$RUNNER_TEMP/vps-key"
           printf '%s\n' "$VPS_SSH_KNOWN_HOSTS" > "$RUNNER_TEMP/vps-known-hosts"
           # The key is bound to scripts/ci-receive.sh on the VPS; the command below is all it accepts.
-          status=0
-          tar -C "$RUNNER_TEMP/$RELEASE_ID" -czf - . |
-            ssh -i "$RUNNER_TEMP/vps-key" -o IdentitiesOnly=yes -o BatchMode=yes \
-              -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/vps-known-hosts" \
-              -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
-              "$VPS_SSH_USER@$VPS_SSH_HOST" "deploy $RELEASE_ID test $GITHUB_RUN_ID" || status=$?
-          # 75: another deploy holds the host lock; nothing was changed. Not a release fault.
-          if [ "$status" -eq 75 ]; then
-            echo "::error::VPS deploy lock is held by another rollout (test and production share one host lock). Nothing was changed; re-run this workflow once that deploy finishes."
-          fi
-          exit "$status"
+          # 75 = the host deploy lock is busy and nothing was changed. The script waits only while
+          # the other environment's CI deploy holds it; any other holder still fails at once.
+          VPS_KEY_FILE="$RUNNER_TEMP/vps-key" VPS_KNOWN_HOSTS_FILE="$RUNNER_TEMP/vps-known-hosts" \
+            ./scripts/ci-ship-release.sh "$RUNNER_TEMP/$RELEASE_ID" test "$GITHUB_RUN_ID"
       - name: Remove the SSH key
         if: always()
         run: rm -f "$RUNNER_TEMP/vps-key"
