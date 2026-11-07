@@ -50,15 +50,17 @@ Use the origin of the setup URL supplied by the user:
 | https://image-playground.qiliangjia.one | https://image-api.qiliangjia.one |
 | https://test.muvloom.online | https://test-api.muvloom.online |
 
-The CLI defaults to `https://api.muvloom.online`. For that service, use the default;
-clear any conflicting `MUVLOOM_API_URL` override in the current agent session.
-Only for a non-default service, set `MUVLOOM_API_URL` for the sign-in commands
-(step 4): `export MUVLOOM_API_URL="<matching URL>"` on macOS / Linux, or
-`$env:MUVLOOM_API_URL = "<matching URL>"` in PowerShell. Once signed in, the CLI
-remembers which service the connection belongs to, so later sessions need no
-variable. Manage this internally; the user does not need to configure or remember
-environment variables. If the origin is not listed, ask which service to connect
-to instead of guessing.
+Set `MUVLOOM_API_URL` to the matching URL for the `muvloom` commands in this guide,
+including the production service (`https://api.muvloom.online`):
+`export MUVLOOM_API_URL="<matching URL>"` on macOS / Linux, or
+`$env:MUVLOOM_API_URL = "<matching URL>"` in PowerShell. Naming the service
+explicitly lets the CLI notice when this machine is signed in to a different one
+(`service_mismatch`, step 4) instead of quietly reusing that connection: the user
+may have a test or enterprise connection and opened the production page, or the
+other way round. Once signed in, the CLI remembers which service the connection
+belongs to, so later sessions need no variable. Manage this internally; the user
+does not need to configure or remember environment variables. If the origin is not
+listed, ask which service to connect to instead of guessing.
 
 ## 3. Install host instructions when supported
 
