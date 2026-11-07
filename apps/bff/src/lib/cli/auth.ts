@@ -18,6 +18,8 @@ const ACCESS_TOKEN_TTL_MS = 2 * 60 * 60 * 1000
 /** 滚动有效期：每次刷新从当下重新算 30 天，连续使用就不会被迫重新授权。 */
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
 const LAST_USED_TOUCH_MS = 60 * 1000
+/** 已兑换的设备码在到期后这么久内还能带同一请求标识重发同一组令牌，够用户修好凭据目录再重跑。 */
+const DEVICE_REPLAY_GRACE_MS = 60 * 60 * 1000
 /** 过期设备码留一天供排查，之后在下一次创建时顺手删掉。 */
 const DEVICE_ROW_RETENTION_MS = 24 * 60 * 60 * 1000
 
@@ -364,7 +366,7 @@ export async function exchangeDeviceCode(
       .limit(1)
     if (!row) return { ok: false, error: 'invalid_grant' }
     if (row.status === 'consumed')
-      return requestKey
+      return requestKey && row.expires_at + DEVICE_REPLAY_GRACE_MS > now
         ? replaySuccessor(
             tx,
             successorRefresh(deviceCode, requestKey, 'device', row.id),
@@ -467,34 +469,55 @@ export async function refreshCliToken(
       .for('update')
       .limit(1)
     if (!row) {
+      // 不锁退休行：轮换事务先锁连接再清理退休行，这里也只锁连接，加锁顺序一致。
       const [retired] = await tx
         .select({
           requestKeyHash: schema.cli_retired_refresh_tokens.request_key_hash,
-          connection: schema.cli_connections,
+          connectionId: schema.cli_retired_refresh_tokens.connection_id,
         })
         .from(schema.cli_retired_refresh_tokens)
-        .innerJoin(
-          schema.cli_connections,
-          eq(schema.cli_connections.id, schema.cli_retired_refresh_tokens.connection_id),
-        )
+        .where(eq(schema.cli_retired_refresh_tokens.token_hash, hash))
+        .limit(1)
+      if (!retired) return { ok: false, error: 'invalid_grant' }
+      const [connection] = await tx
+        .select()
+        .from(schema.cli_connections)
         .where(
           and(
-            eq(schema.cli_retired_refresh_tokens.token_hash, hash),
+            eq(schema.cli_connections.id, retired.connectionId),
             eq(schema.cli_connections.client_id, clientId),
           ),
         )
         .for('update')
         .limit(1)
-      if (!retired) return { ok: false, error: 'invalid_grant' }
-      if (requestKey)
-        return replaySuccessor(
+      if (!connection) return { ok: false, error: 'invalid_grant' }
+      if (requestKey) {
+        const replayed = await replaySuccessor(
           tx,
-          successorRefresh(refreshToken, requestKey, 'refresh', retired.connection.id),
+          successorRefresh(refreshToken, requestKey, 'refresh', connection.id),
           clientId,
           now,
         )
-      if (retired.requestKeyHash === null && retired.connection.revoked_at === null)
-        await revokeConnection(tx, retired.connection, 'cli', 'refresh_token_reuse')
+        if (replayed.ok) return replayed
+      }
+      // 退休行没有标识，说明作废它的那次轮换不是新 CLI 做的；新 CLI 自己的重试总带标识。
+      // 这正是令牌被复制的信号，吊销整条连接。退休行有标识而这次证明不了的，只拒绝：
+      // 持有旧令牌的一方不能借此踢掉健康连接。
+      if (retired.requestKeyHash === null && connection.revoked_at === null) {
+        await revokeConnection(tx, connection, 'cli', 'refresh_token_reuse')
+      } else if (connection.revoked_at === null) {
+        await audit(tx, {
+          action: 'token.retired_rejected',
+          operatorId: 'cli',
+          targetType: 'cli_connection',
+          targetId: connection.id,
+          details: { client_id: connection.client_id, with_request_id: requestKey !== null },
+        })
+        log.warn(
+          { event: 'cli.refresh.retired_rejected', connectionId: connection.id },
+          'retired cli refresh rejected',
+        )
+      }
       return { ok: false, error: 'invalid_grant' }
     }
     if (row.revoked_at !== null || row.refresh_expires_at <= now)
