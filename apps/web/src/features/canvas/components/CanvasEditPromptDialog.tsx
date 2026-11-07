@@ -6,7 +6,9 @@ import { Button } from '../../../components/ui/button'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
+import { useGptPremiumLocked } from '../../../lib/gptPremium'
 import { composerImageRate } from '../../../lib/imageCharge'
+import { getParamCapabilities } from '../../../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import type { ImageEl } from '../lib/canvasDoc'
@@ -28,11 +30,14 @@ export default function CanvasEditPromptDialog({
   const [prompt, setPrompt] = useState('')
   const settings = useStore((state) => state.settings)
   const params = useStore((state) => state.params)
-  const model = clientProfileToApiProfile(getActiveApiProfile(settings)).model
+  const profile = getActiveApiProfile(settings)
+  const view = clientProfileToApiProfile(profile)
+  const directAvailable = getParamCapabilities(profile, params.output_format).size
+  const premium = useGptPremiumLocked(view.model, directAvailable)
   const guard = usePrivateSubmissionGuard({
-    model,
+    model: view.model,
     quantity: 1,
-    unitMultiplier: composerImageRate(model, params),
+    unitMultiplier: composerImageRate(view.model, params, premium.member, directAvailable),
   })
 
   const submit = () => {
