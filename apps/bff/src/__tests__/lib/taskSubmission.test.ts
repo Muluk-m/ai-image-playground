@@ -295,6 +295,26 @@ describe('non-member resolution ceiling', () => {
       generationConfig: { imageConfig: { imageSize: '2K', aspectRatio: '16:9' } },
     })
   })
+  it('writes the flat Gemini image size into an extra imageConfig that omits it', async () => {
+    await ensureBillingUser()
+    withMember(false)
+    const payload = await storedRequest(
+      await createQueueTask({
+        provider: 'gemini',
+        model: 'gemini-3-pro-image',
+        userId: BILLING_USER,
+        request: request({
+          image_size: '2K',
+          input_images: undefined,
+          extra: { generationConfig: { imageConfig: { aspectRatio: '16:9' } } },
+        }),
+      }),
+    )
+    expect(payload.image_size).toBe('2K')
+    expect(payload.extra).toMatchObject({
+      generationConfig: { imageConfig: { imageSize: '2K', aspectRatio: '16:9' } },
+    })
+  })
   it('checks membership before normalizing a Gemini 4K request', async () => {
     await ensureBillingUser()
     let lookedUp = false
