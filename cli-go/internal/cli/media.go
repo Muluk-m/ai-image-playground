@@ -240,6 +240,10 @@ func preferredExt(contentType string, exts []string) string {
 		return ".png"
 	case "image/webp":
 		return ".webp"
+	case "image/gif":
+		return ".gif"
+	case "image/svg+xml":
+		return ".svg"
 	}
 	return exts[0]
 }
