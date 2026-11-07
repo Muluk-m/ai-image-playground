@@ -164,6 +164,13 @@ describe('ci-deploy-target.sh', () => {
     expect(log).toContain(`admin bundle (Admin site) unchanged since ${previous}`)
   })
 
+  it('ships the WorkBuddy download when the canonical CLI Skill changes', () => {
+    const previous = commits[2]
+    const tip = commitOnTip('cli-go/internal/skill/assets/SKILL.md', '# Updated Skill\n')
+    serveSides({ api: previous, web: previous, admin: previous })
+    expect(decide(tip).decision).toBe(result(false, true, false))
+  })
+
   it('ships the API when the VPS deployment protocol changes', () => {
     const previous = commits[2]
     const tip = commitOnTip('scripts/vps-deploy.sh', '#!/bin/sh\n')
