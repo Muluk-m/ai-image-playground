@@ -5,9 +5,13 @@ import {
   createDeviceAuthorization,
   decideDeviceAuthorization,
   describeDeviceAuthorization,
+  exchangeAuthorizationCode,
   exchangeDeviceCode,
+  isPkceChallenge,
+  type LoopbackRegistration,
   listCliConnections,
   parseCliRequestKey,
+  parseLoopbackRedirect,
   refreshCliToken,
   revokeCliConnection,
   revokeCliToken,
@@ -46,7 +50,7 @@ import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { createQueueTask } from '../lib/taskSubmission'
 import { requireUser } from '../lib/user-auth'
 import { sessionClientFromRequest } from '../lib/user-session'
-import { frontendOrigin } from './oauth'
+import { cliVerificationOrigin, frontendOrigin } from './oauth'
 
 /** CLI 低于这个版本时 `auth status` 报需要升级。 */
 export const CLI_MIN_VERSION = '0.1.0'
@@ -100,13 +104,33 @@ export const cliOAuthRoutes = new Elysia()
       )
       if (blocked) return blocked
       if (body.client_id !== CLI_CLIENT_ID) return oauthJson({ error: 'invalid_client' }, 401)
+      // 本机回调登录：回调地址与 PKCE challenge 一起登记，缺一个或格式不对就拒绝。
+      let loopback: LoopbackRegistration | null = null
+      if (body.redirect_uri !== undefined || body.code_challenge !== undefined) {
+        const redirectUri = parseLoopbackRedirect(body.redirect_uri ?? '')
+        const challenge = body.code_challenge ?? ''
+        if (!redirectUri || !isPkceChallenge(challenge) || body.code_challenge_method !== 'S256')
+          return oauthJson({ error: 'invalid_request' }, 400)
+        loopback = { redirectUri, codeChallenge: challenge }
+      }
       const result = await createDeviceAuthorization(
         CLI_CLIENT_ID,
-        `${frontendOrigin(request)}/device`,
+        `${cliVerificationOrigin(request)}/device`,
+        loopback,
       )
       return result ? oauthJson({ ...result }) : oauthJson({ error: 'invalid_client' }, 401)
     },
-    { body: formClient },
+    {
+      body: t.Object(
+        {
+          client_id: t.String({ maxLength: 64 }),
+          redirect_uri: t.Optional(t.String({ maxLength: 128 })),
+          code_challenge: t.Optional(t.String({ maxLength: 128 })),
+          code_challenge_method: t.Optional(t.String({ maxLength: 16 })),
+        },
+        { additionalProperties: true },
+      ),
+    },
   )
   .post(
     '/v1/oauth/token',
@@ -128,7 +152,18 @@ export const cliOAuthRoutes = new Elysia()
           ? await exchangeDeviceCode(body.device_code, CLI_CLIENT_ID, requestKey)
           : body.grant_type === 'refresh_token' && body.refresh_token
             ? await refreshCliToken(body.refresh_token, CLI_CLIENT_ID, requestKey)
-            : null
+            : body.grant_type === 'authorization_code' &&
+                body.code &&
+                body.code_verifier &&
+                body.redirect_uri
+              ? await exchangeAuthorizationCode(
+                  body.code,
+                  body.code_verifier,
+                  body.redirect_uri,
+                  CLI_CLIENT_ID,
+                  requestKey,
+                )
+              : null
       if (!result) return oauthJson({ error: 'unsupported_grant_type' }, 400)
       return result.ok ? oauthJson({ ...result.tokens }) : oauthJson({ error: result.error }, 400)
     },
@@ -139,6 +174,9 @@ export const cliOAuthRoutes = new Elysia()
         device_code: t.Optional(t.String({ maxLength: 256 })),
         refresh_token: t.Optional(t.String({ maxLength: 256 })),
         request_id: t.Optional(t.String({ maxLength: 64 })),
+        code: t.Optional(t.String({ maxLength: 128 })),
+        code_verifier: t.Optional(t.String({ maxLength: 128 })),
+        redirect_uri: t.Optional(t.String({ maxLength: 128 })),
       }),
     },
   )
@@ -203,7 +241,8 @@ export const cliAccountRoutes = new Elysia()
         authUser.id,
         body.decision === 'approve' ? 'approved' : 'denied',
       )
-      return changed ? { ok: true } : status(404, { error: 'invalid_code' })
+      if (!changed.ok) return status(404, { error: 'invalid_code' })
+      return changed.redirectTo ? { ok: true, redirect_to: changed.redirectTo } : { ok: true }
     },
     {
       body: t.Object({

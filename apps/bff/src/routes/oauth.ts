@@ -103,6 +103,26 @@ export function frontendOrigin(request: Request, requested?: unknown): string {
   return (allowed[0] ?? bffOrigin(request)).replace(/\/+$/, '')
 }
 
+function registrableDomain(origin: string): string {
+  try {
+    return new URL(origin).hostname.split('.').slice(-2).join('.')
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Where a CLI's approval page lives. The CLI sends no Origin, so the page is the configured
+ * frontend that shares the API host's registrable domain: every product domain already has to,
+ * or its SameSite=Lax session cookie would not reach the API. An enterprise CLI then lands on
+ * the enterprise page, which offers that domain's sign-in methods.
+ */
+export function cliVerificationOrigin(request: Request): string {
+  const api = registrableDomain(bffOrigin(request))
+  const match = allowedFrontendOrigins(request).find((origin) => registrableDomain(origin) === api)
+  return (match ?? frontendOrigin(request)).replace(/\/+$/, '')
+}
+
 /** Navigation cannot rely on Origin being present; the allowlisted selector is state-bound. */
 function loginNavigationOrigin(request: Request, requested?: string): string | null {
   if (config.auth.loginMethodsByOrigin.length > 0) {
