@@ -280,6 +280,19 @@ describe('CLI API capability gate', () => {
 })
 
 describe('device authorization', () => {
+  // 用户要先去浏览器登录，再在对话里回一句，十分钟不够。
+  it('keeps a device code usable for 20 minutes, and says so', async () => {
+    const before = Date.now()
+    const res = await call('POST', '/v1/oauth/device_authorization', {
+      form: { client_id: 'muvloom-cli' },
+    })
+    expect(res.status).toBe(200)
+    expect(res.json).toMatchObject({ expires_in: 1200 })
+    const [row] = await db.select().from(schema.device_authorizations)
+    expect(row!.expires_at - before).toBeGreaterThanOrEqual(1200_000)
+    expect(row!.expires_at - Date.now()).toBeLessThanOrEqual(1200_000)
+  })
+
   it('walks pending, slow_down, approval and single-use exchange, storing only hashes', async () => {
     const user = await createUser('device-owner')
     const device = await startDevice()
