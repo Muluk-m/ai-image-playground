@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -118,6 +119,30 @@ describe('CliConnectPage', () => {
     await click('Codex')
     expect(host.querySelector(`a[href="${WORKBUDDY_SKILL_PATH}"]`)).toBeNull()
     expect(promptText()).toContain(new URL(AGENT_SETUP_PATH, window.location.origin).href)
+  })
+
+  // WorkBuddy 的抓取工具会缓存网页：换了指南内容而网址不变，用户拿到的还是旧的固定版本命令。
+  it('提示词里的指南网址带着指南内容的哈希，内容一变网址就变', async () => {
+    const dir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../public/cli')
+    const guides = ['setup.md', 'workbuddy.md'].map((name) =>
+      readFileSync(resolve(dir, name), 'utf8'),
+    )
+    const rev = createHash('sha256').update(guides.join('\n')).digest('hex').slice(0, 10)
+    await render()
+    expect(promptText()).toContain(
+      `${new URL(WORKBUDDY_SETUP_PATH, window.location.origin).href}?v=${rev}`,
+    )
+    await click('Codex')
+    expect(promptText()).toContain(
+      `${new URL(AGENT_SETUP_PATH, window.location.origin).href}?v=${rev}`,
+    )
+  })
+
+  it('两份指南都要求抓取同目录的另一份时沿用同一个 v 参数', () => {
+    const dir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../public/cli')
+    for (const name of ['setup.md', 'workbuddy.md']) {
+      expect(readFileSync(resolve(dir, name), 'utf8'), name).toContain('?v=')
+    }
   })
 
   it('各插件都只复制简短的接入请求和指南地址，隐藏安装细节', async () => {
