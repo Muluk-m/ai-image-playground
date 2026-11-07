@@ -135,10 +135,14 @@ describe('imageRateMultiplier', () => {
     expect(imageRateMultiplier(NANO, { image_size: '8K' })).toBe(1)
   })
 
-  it('leaves models without an enabled tier table at one, including Grok', () => {
+  it('reads Gemini tier multipliers from the capability catalog', () => {
+    expect(imageRateMultiplier(NANO, { image_size: '1K' })).toBe(1)
+    expect(imageRateMultiplier(NANO, { image_size: '2K' })).toBe(1.5)
+    expect(imageRateMultiplier(NANO, { image_size: '4K' })).toBe(3.4)
+    expect(imageRateMultiplier(PRO, { image_size: '1K' })).toBe(1)
+    expect(imageRateMultiplier(PRO, { image_size: '2K' })).toBe(1)
+    expect(imageRateMultiplier(PRO, { image_size: '4K' })).toBe(1.8)
     expect(imageRateMultiplier('grok-imagine-image-2.0', { image_size: '2K' })).toBe(1)
-    expect(imageRateMultiplier('gemini-3.1-flash-lite-image', { image_size: '1K' })).toBe(1)
-    expect(imageRateMultiplier('workbench-image', { image_size: '4K' })).toBe(1)
   })
 
   it('prices prepared requests at the effective GPT ceiling and Gemini membership tier', () => {

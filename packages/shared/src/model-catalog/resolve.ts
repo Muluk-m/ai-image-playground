@@ -63,7 +63,7 @@ export function nearestCatalogRatio(
 export function nearestImageTier(tier: ImageTier, supported: readonly ImageTier[]): ImageTier {
   const sorted = [...supported].sort((a, b) => TIER_RANK[a] - TIER_RANK[b])
   const atOrBelow = sorted.filter((one) => TIER_RANK[one] <= TIER_RANK[tier])
-  return atOrBelow.at(-1) ?? sorted[0] ?? tier
+  return atOrBelow[atOrBelow.length - 1] ?? sorted[0] ?? tier
 }
 
 export interface ImageRequestInput {

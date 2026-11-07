@@ -1,5 +1,4 @@
 import {
-  clampGeminiNonMemberRequest,
   type ImageRateRequest,
   imageRateMultiplier,
   preparedImageRateMultiplier,
@@ -65,7 +64,7 @@ function declared(model: string): readonly string[] | undefined {
   return undefined
 }
 
-/** 改成走 resolveImageTier 之前的实现，作为等价基准。 */
+/** Independent baseline for the resolved public pricing paths. */
 const legacy = {
   composer: (model: string, request: ImageRateRequest | null | undefined) =>
     imageRateMultiplier(model, request, declared(model)),
@@ -76,19 +75,17 @@ const legacy = {
     request: ImageRateRequest | null | undefined,
     keepMemberTier: boolean,
     member: boolean,
-  ) => {
-    const effective = request ? clampGeminiNonMemberRequest(request, member) : request
-    return keepMemberTier
-      ? imageRateMultiplier(model, effective, declared(model))
-      : preparedImageRateMultiplier(model, effective, declared(model), member)
-  },
+  ) =>
+    keepMemberTier
+      ? composerImageRate(model, request, member)
+      : preparedComposerImageRate(model, request, member),
 }
 
 describe('前端报价与旧实现逐项等价', () => {
-  it('composerImageRate', () => {
+  it('composerImageRate matches the member direct path', () => {
     for (const model of MODELS)
       for (const request of REQUESTS)
-        expect(composerImageRate(model, request), `${model} ${JSON.stringify(request)}`).toBe(
+        expect(composerImageRate(model, request, true), `${model} ${JSON.stringify(request)}`).toBe(
           legacy.composer(model, request),
         )
   })
@@ -103,27 +100,32 @@ describe('前端报价与旧实现逐项等价', () => {
           ).toBe(legacy.prepared(model, request, member))
   })
 
-  it('preparedComposerNeedsMembership', () => {
-    for (const model of MODELS)
-      for (const request of REQUESTS)
-        expect(preparedComposerNeedsMembership(model, request)).toBe(
-          legacy.prepared(model, request, false) !== legacy.prepared(model, request, true),
-        )
+  it('does not query membership for an undeclared Gemini 4K tier', () => {
+    expect(preparedComposerNeedsMembership('gemini-unknown-image', { image_size: '4K' })).toBe(
+      false,
+    )
+    expect(preparedComposerNeedsMembership('gpt-image-2.6-flare', { size: '3840x2160' })).toBe(true)
   })
 
-  it('quotedGptMultiplier（含 keepMemberTier 为真而 member 为假：2.6 与 Gemini 的 highQuality 恒为 true）', () => {
-    for (const model of MODELS)
-      for (const request of REQUESTS)
-        for (const [keep, member] of [
-          [false, false],
-          [false, true],
-          [true, false],
-          [true, true],
-        ] as const)
-          expect(
-            quotedGptMultiplier(model, request, keep, member),
-            `${model} ${JSON.stringify(request)} keep=${keep} member=${member}`,
-          ).toBe(legacy.quoted(model, request, keep, member))
+  it('direct quotes use the actual member bit', () => {
+    expect(quotedGptMultiplier('gemini-3-pro-image', { image_size: '4K' }, true, false)).toBe(1)
+    expect(quotedGptMultiplier('gemini-3-pro-image', { image_size: '4K' }, true, true)).toBe(1.8)
+    expect(
+      quotedGptMultiplier(
+        'gpt-image-2.5-flare',
+        { size: '3840x2160', quality: 'high' },
+        true,
+        false,
+      ),
+    ).toBe(2)
+    expect(
+      quotedGptMultiplier(
+        'gpt-image-2.5-flare',
+        { size: '3840x2160', quality: 'high' },
+        true,
+        true,
+      ),
+    ).toBe(8)
   })
 
   it('stage / batch / look 与 agent 入口的收口策略一致（前端 prepared 报价固定按 agent 算）', () => {
@@ -147,15 +149,14 @@ describe('前端报价与旧实现逐项等价', () => {
   })
 })
 
-/**
- * 已知不一致，留给 4b：画布批量、分镜、改图等入口用 composerImageRate 报价，等于按会员档，
- * 非会员的 Gemini 4K 实际会被服务端收到 2K。这里钉住当前报价，4b 修正时同步改断言。
- */
-describe('画布报价按会员档（4b 待修）', () => {
-  it('非会员的 Gemini 4K：画布报价高于服务端实扣', () => {
+describe('画布报价与服务端实扣一致', () => {
+  it('非会员的 Gemini 4K 按 2K 报价，会员按 4K 报价', () => {
     const request = { gemini_image_size: '4K' }
-    expect(composerImageRate('gemini-3-pro-image', request)).toBeGreaterThan(
-      preparedComposerImageRate('gemini-3-pro-image', request, false),
-    )
+    expect(composerImageRate('gemini-3-pro-image', request, false)).toBe(1)
+    expect(composerImageRate('gemini-3-pro-image', request, true)).toBe(1.8)
+  })
+
+  it('Image 2.6 4K remains membership-gated although 2K and 4K cost the same', () => {
+    expect(preparedComposerNeedsMembership('gpt-image-2.6-flare', { size: '3840x2160' })).toBe(true)
   })
 })

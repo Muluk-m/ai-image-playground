@@ -7,7 +7,7 @@ import {
 } from '../../../lib/channels/profileSelectors'
 import { getPublicChannels } from '../../../lib/channels/publicChannels'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
-import { composerImageRate } from '../../../lib/imageCharge'
+import { composerImageRate, directAvailableForModel } from '../../../lib/imageCharge'
 import { getPrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { calculateImageSize } from '../../../lib/size'
 import { useStore } from '../../../store'
@@ -33,12 +33,21 @@ const OUTPAINT_DEFAULT_INSTRUCTION =
   '自然延伸原图的画面内容、光线、透视与构图，让新增区域与已有部分无缝衔接；' +
   '不要改动原有区域，也不要添加与原图无关的新主体。'
 
-function submissionBlocked(settings: AppSettings): string | null {
+function submissionBlocked(
+  settings: AppSettings,
+  member = true,
+  directAvailable?: boolean,
+): string | null {
   const model = clientProfileToApiProfile(getActiveApiProfile(settings)).model
   const guard = getPrivateSubmissionGuard({
     model,
     quantity: 1,
-    unitMultiplier: composerImageRate(model, useStore.getState().params),
+    unitMultiplier: composerImageRate(
+      model,
+      useStore.getState().params,
+      member,
+      directAvailable ?? directAvailableForModel(model),
+    ),
   })
   if (!guard.blocked) return null
   return guard.disabledReason ?? i18next.t('submit.blocked', { ns: 'canvas' })
@@ -200,8 +209,13 @@ export async function submitCanvasOutpaint(
 // ===== 编辑图片 =====
 
 /** 能不能整图编辑：模型接不住输入图就谈不上在原图上改。 */
-export function imageEditRefusal(image: ImageEl, settings: AppSettings): string | null {
-  const blocked = submissionBlocked(settings)
+export function imageEditRefusal(
+  image: ImageEl,
+  settings: AppSettings,
+  member = true,
+  directAvailable = true,
+): string | null {
+  const blocked = submissionBlocked(settings, member, directAvailable)
   if (blocked) return blocked
   if (image.video) return i18next.t('imageEdit.videoUnsupported', { ns: 'canvas' })
   if (!modelSupportsEdit(getActiveApiProfile(settings), getPublicChannels()))
@@ -270,8 +284,13 @@ function resizeInstruction(ratio: ResizeRatio): string {
 }
 
 /** 能不能换比例：与整图编辑同一道闸——都是拿原图当输入重画一张。 */
-export function resizeRefusal(image: ImageEl, settings: AppSettings): string | null {
-  return imageEditRefusal(image, settings)
+export function resizeRefusal(
+  image: ImageEl,
+  settings: AppSettings,
+  member = true,
+  directAvailable = true,
+): string | null {
+  return imageEditRefusal(image, settings, member, directAvailable)
 }
 
 /**
