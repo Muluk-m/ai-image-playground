@@ -137,7 +137,7 @@ func (a *App) saveSubmission(record submission) {
 		// Hash the key: every allowed key maps to a distinct, portable file name.
 		sum := sha256.Sum256([]byte(record.IdempotencyKey))
 		path := filepath.Join(a.Store.Dir, "submissions", hex.EncodeToString(sum[:])+".json")
-		if err := auth.WriteFileAtomic(path, data); err != nil {
+		if err := auth.WriteFileInPlace(path, data); err != nil {
 			a.progress("Could not record the submission locally: %v", err)
 		}
 	}

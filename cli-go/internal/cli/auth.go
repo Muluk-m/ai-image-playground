@@ -49,12 +49,22 @@ func (a *App) loadCredentials() (auth.Credentials, error) {
 		return auth.Credentials{}, fail("AUTH_REQUIRED", "Not signed in; run `muvloom auth login`")
 	}
 	if err != nil {
-		return auth.Credentials{}, fail("AUTH_REQUIRED", "Stored credentials are unreadable; run `muvloom auth login` (%v)", err)
+		return auth.Credentials{}, fail("AUTH_REQUIRED", "Stored credentials are unreadable (%s); run `muvloom auth login`", auth.Reason(err))
 	}
-	if creds.BaseURL != "" && creds.BaseURL != a.APIURL {
-		return auth.Credentials{}, fail("AUTH_REQUIRED", "Signed in to %s, not %s; run `muvloom auth login`", creds.BaseURL, a.APIURL)
+	if creds.BaseURL != "" && !sameService(creds.BaseURL, a.APIURL) {
+		return auth.Credentials{}, a.serviceMismatch(creds.BaseURL)
 	}
 	return creds, nil
+}
+
+// serviceMismatch is an explicit MUVLOOM_API_URL that disagrees with the service the stored
+// connection was issued by. The connection is kept: the caller decides which service is meant.
+func (a *App) serviceMismatch(connectionURL string) *Failure {
+	return &Failure{
+		Code:    "SERVICE_MISMATCH",
+		Message: "MUVLOOM_API_URL points at " + a.APIURL + ", but this machine is signed in to " + connectionURL + ". Unset MUVLOOM_API_URL to use the connection, or run `muvloom auth login --switch-service` to sign in to " + a.APIURL + " instead",
+		Details: map[string]string{"api_url": a.APIURL, "connection_api_url": connectionURL},
+	}
 }
 
 // apiClient returns a client that refreshes the access token once on a 401.
@@ -73,9 +83,17 @@ func (a *App) apiClient() (*client.HTTPClient, error) {
 // rotated it, the stored access token differs from the rejected one and is reused, so
 // the old refresh token is never presented twice (a replay revokes the connection).
 func (a *App) refresh(ctx context.Context, rejected string) (string, error) {
-	unlock, err := a.Store.Lock(45 * time.Second)
+	wait := a.RefreshLockWait
+	if wait <= 0 {
+		wait = 45 * time.Second
+	}
+	unlock, err := a.Store.Lock(wait)
+	if errors.Is(err, auth.ErrLockTimeout) {
+		return "", fail("TEMPORARILY_UNAVAILABLE", "Another muvloom process is refreshing the connection; retry shortly")
+	}
 	if err != nil {
-		return "", err
+		// A storage fault will not clear by retrying, and the raw error carries local paths.
+		return "", fail("INTERNAL_ERROR", "Could not lock the credential store; check that the muvloom config directory is writable")
 	}
 	defer unlock()
 	creds, err := a.loadCredentials()
@@ -98,13 +116,20 @@ func (a *App) refresh(ctx context.Context, rejected string) (string, error) {
 		_ = a.Store.Clear()
 		return "", fail("AUTH_REQUIRED", "The CLI connection expired or was revoked; run `muvloom auth login`")
 	}
+	if errors.As(err, &oauthErr) {
+		// The connection is intact: only the service is busy or misbehaving.
+		if oauthErr.Status == http.StatusTooManyRequests {
+			return "", fail("RATE_LIMITED", "Too many refresh attempts; wait a minute and retry")
+		}
+		return "", fail("TEMPORARILY_UNAVAILABLE", "The service could not refresh the connection (%s); retry shortly", oauthErr.Code)
+	}
 	if err != nil {
 		return "", err
 	}
 	next := a.credentialsFrom(tokens)
 	next.LoginDeviceCodeHash = creds.LoginDeviceCodeHash
 	if err := a.Store.Save(next); err != nil {
-		return "", fail("INTERNAL_ERROR", "Could not store refreshed credentials: %v", err)
+		return "", fail("INTERNAL_ERROR", "Could not store refreshed credentials (%s)", auth.Reason(err))
 	}
 	return next.AccessToken, nil
 }
@@ -123,7 +148,7 @@ type account struct {
 
 func completedLogin(a *App, pending auth.PendingLogin) bool {
 	creds, err := a.Store.Load()
-	if err != nil || creds.BaseURL != a.APIURL || pending.BaseURL != a.APIURL || creds.RefreshToken == "" {
+	if err != nil || !sameService(creds.BaseURL, a.APIURL) || !sameService(pending.BaseURL, a.APIURL) || creds.RefreshToken == "" {
 		return false
 	}
 	return pending.DeviceCode != "" && creds.LoginDeviceCodeHash == deviceCodeHash(pending.DeviceCode)
@@ -143,11 +168,19 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 		return nil, err
 	}
 	skills, _ := skill.Installed(a.Home, a.CWD)
+	store := a.Store.Describe()
 	status := map[string]any{
 		"cli_version":      Version,
 		"api_url":          a.APIURL,
-		"credential_store": a.Store.Backend(),
+		"api_url_source":   a.apiURLSource,
+		"credential_store": store.Backend,
 		"skills":           skills,
+	}
+	if store.KeychainIssue != "" {
+		status["credential_store_issue"] = store.KeychainIssue
+	}
+	if leftovers := a.Store.Leftovers(); len(leftovers) > 0 {
+		status["leftover_temp_files"] = len(leftovers)
 	}
 	if pending, err := a.Store.LoadPending(); err == nil && time.Now().Before(pending.ExpiresAt) && !completedLogin(a, pending) {
 		status["pending_login"] = map[string]any{
@@ -158,6 +191,12 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	}
 	c, err := a.apiClient()
 	if err != nil {
+		if failure := asFailure(err); failure.Code == "SERVICE_MISMATCH" {
+			status["state"] = "service_mismatch"
+			details, _ := failure.Details.(map[string]string)
+			status["connection_api_url"] = details["connection_api_url"]
+			return status, nil
+		}
 		status["state"] = "unauthenticated"
 		return status, nil
 	}
@@ -205,16 +244,31 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 	fs := newFlags("auth login")
 	noWait := fs.Bool("no-wait", false, "print the approval link and return without waiting")
 	timeout := fs.Int("timeout", 600, "seconds to wait for approval")
+	switchService := fs.Bool("switch-service", false, "sign in to MUVLOOM_API_URL even though this machine is signed in to another service")
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
 	}
 	pending, err := a.Store.LoadPending()
+	// Starting a login against another service would replace the working connection on
+	// approval. Do that only when asked; a login already started for this service (the
+	// `--no-wait` then resume flow) was asked for once and is not asked for again.
+	resuming := err == nil && sameService(pending.BaseURL, a.APIURL) && time.Now().Before(pending.ExpiresAt)
+	if existing, loadErr := a.Store.Load(); loadErr == nil && !*switchService && !resuming &&
+		existing.RefreshToken != "" && existing.BaseURL != "" && !sameService(existing.BaseURL, a.APIURL) {
+		return nil, a.serviceMismatch(existing.BaseURL)
+	}
+	// Without an explicit service, an unreadable connection must not be answered with a guess:
+	// the default service may not be the one this user can sign in to.
+	if a.storeErr != nil && !*switchService && !resuming {
+		// The store's own error can carry local paths; the answer stays generic.
+		return nil, fail("INTERNAL_ERROR", "The stored connection could not be read, so the service it belongs to is unknown. Fix the credential store, or set MUVLOOM_API_URL to the service to sign in to")
+	}
 	// A host may replay the whole command after blocking cleanup. Never redeem a
 	// consumed code when its credentials were already saved, even after code expiry.
 	if err == nil && completedLogin(a, pending) {
 		return cmdAuthStatus(ctx, a, nil)
 	}
-	if err != nil || time.Now().After(pending.ExpiresAt) || pending.BaseURL != a.APIURL {
+	if err != nil || time.Now().After(pending.ExpiresAt) || !sameService(pending.BaseURL, a.APIURL) {
 		var device deviceAuthorization
 		if err := a.anonymousClient().PostForm(ctx, "/v1/oauth/device_authorization",
 			url.Values{"client_id": {oauthClientID}}, &device); err != nil {
@@ -229,7 +283,7 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 			BaseURL:                 a.APIURL,
 		}
 		if err := a.Store.SavePending(pending); err != nil {
-			return nil, fail("INTERNAL_ERROR", "Could not store the pending login: %v", err)
+			return nil, fail("INTERNAL_ERROR", "Could not store the pending login (%s)", auth.Reason(err))
 		}
 	}
 	prompt := map[string]any{
@@ -255,7 +309,7 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 			creds := a.credentialsFrom(tokens)
 			creds.LoginDeviceCodeHash = deviceCodeHash(pending.DeviceCode)
 			if err := a.Store.Save(creds); err != nil {
-				return nil, fail("INTERNAL_ERROR", "Could not store credentials: %v", err)
+				return nil, fail("INTERNAL_ERROR", "Could not store credentials (%s)", auth.Reason(err))
 			}
 			_ = a.Store.ClearPending()
 			a.progress("Signed in.")
@@ -328,8 +382,10 @@ func cmdAuthLogout(ctx context.Context, a *App, args []string) (any, error) {
 		}, nil) == nil
 	}
 	if err := a.Store.Clear(); err != nil {
-		return nil, fail("INTERNAL_ERROR", "Could not remove stored credentials: %v", err)
+		return nil, fail("INTERNAL_ERROR", "Could not remove stored credentials (%s)", auth.Reason(err))
 	}
+	// An explicit sign-out is the one place that may delete: remove what earlier versions left.
+	a.Store.CleanupLeftovers()
 	return map[string]any{"signed_out": true, "server_revoked": revoked}, nil
 }
 
