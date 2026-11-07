@@ -1,6 +1,7 @@
 import {
   type ImageRateRequest,
   type ImageTierEntry,
+  imageSizeTier,
   isGptDirectModel,
   isGptImage26Model,
   resolveImageTier,
@@ -15,11 +16,16 @@ export function declaredImageSizesForModel(model: string): readonly string[] | u
   }
   return undefined
 }
+/** 渠道是否声明了 GPT 直连所需的 size 能力；未声明时会员也不能保留高档参数。 */
+export function directAvailableForModel(model: string): boolean {
+  for (const channel of getPublicChannels()) {
+    const found = channel.models.find((one) => one.id === model)
+    if (found) return found.capabilities?.includes('size') ?? true
+  }
+  return false
+}
 
-/**
- * 前端报价统一经 `resolveImageTier`，倍率与服务端提交、结算同一来源。
- * 非 GPT 模型一律按 `gemini` 走 Gemini 的会员收口（与此前 `clampGeminiNonMemberRequest` 的口径一致）。
- */
+/** 前端报价统一经 `resolveImageTier`，倍率与服务端提交、结算同一来源。 */
 export function tierRate(
   model: string,
   request: ImageRateRequest | null | undefined,
@@ -39,16 +45,14 @@ export function tierRate(
   }).rateMultiplier
 }
 
-/**
- * 输入框、画布门禁和草稿估价共用：按请求档，渠道没开放的档收到最近的已开放档。
- * 不按会员身份收口，等于「会员的直接提交」的报价。画布批量、分镜等入口对非会员也按这一档报价，
- * 与服务端实扣是否一致另行处理，这里保持原样。
- */
+/** 直接提交与画布报价；画布调用方传当前会员位，避免非会员 Gemini 4K 被按会员档报价。 */
 export function composerImageRate(
   model: string,
   request: ImageRateRequest | null | undefined,
+  member = true,
+  directAvailable = directAvailableForModel(model),
 ): number {
-  return tierRate(model, request, 'web-direct', true, true)
+  return tierRate(model, request, 'web-direct', member, directAvailable)
 }
 
 /** 阶段授权等「先收基础档再提交」的入口：和服务端 resolveImageTier 之后的倍率一致。 */
@@ -60,13 +64,30 @@ export function preparedComposerImageRate(
   return tierRate(model, request, 'agent', member, true)
 }
 
-/** 基础档和渠道已收口的档位不必等待会员查询。 */
+/** 基础档和渠道已收口的档位不必等待会员查询；2.6 的 4K 即使同价也仍是会员档。 */
 export function preparedComposerNeedsMembership(
   model: string,
   request: ImageRateRequest | null | undefined,
 ): boolean {
-  return (
-    preparedComposerImageRate(model, request, false) !==
-    preparedComposerImageRate(model, request, true)
+  if (!request) return false
+  const requested4K = request.image_size === '4K' || request.gemini_image_size === '4K'
+  const supported = declaredImageSizesForModel(model)
+  const isGemini = model.trim().toLowerCase().startsWith('gemini')
+  if (requested4K && ((isGemini && supported?.includes('4K') === true) || isGptImage26Model(model)))
+    return true
+  if (
+    (isGptDirectModel(model) || isGptImage26Model(model)) &&
+    request.size !== undefined &&
+    imageSizeTier(request.size) === '4K'
   )
+    return true
+  return resolveImageTier({
+    model,
+    provider: isGptDirectModel(model) || isGptImage26Model(model) ? 'openai-compat' : 'gemini',
+    request,
+    entry: 'agent',
+    member: false,
+    directAvailable: true,
+    supportedTiers: supported,
+  }).requires.membership
 }

@@ -37,7 +37,7 @@ export function createWorkBuddySkillZip({ sourceDirectory = sourceRoot } = {}) {
   if (!sourceBody.includes(flowHeading)) throw new Error('Missing required Skill Flow section')
   const body = sourceBody.replace(
     flowHeading,
-    '\n## WorkBuddy\n\nFor installation, account connection or local permission errors, first follow [WorkBuddy setup](references/workbuddy.md). When it asks you to wait for the user, end the turn before continuing.\n\n## Flow\n',
+    '\n## WorkBuddy\n\nFor installation, account connection or local permission errors, first follow [WorkBuddy setup](references/workbuddy.md). Run the login command in the foreground and keep the turn open while it waits for the user.\n\n## Flow\n',
   )
   files['muvloom/SKILL.md'] = Buffer.from(`${source.slice(0, end)}\n${metadata}\n---\n${body}`)
   files['muvloom/references/workbuddy.md'] = readFileSync(

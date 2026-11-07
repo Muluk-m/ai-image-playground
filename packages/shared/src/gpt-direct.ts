@@ -5,6 +5,7 @@ import {
 } from './gpt-image-26'
 import { imageSizeTier, imageTierMaxPixels, parseImageSize } from './image'
 import { nearestImageSize } from './image-parameters'
+import { findCatalogModel } from './model-catalog'
 
 /**
  * 可以走 OpenAI 直连的 GPT Image 模型。另一条路是 sub2api：它忽略 size 与 quality，一律出约
@@ -157,15 +158,7 @@ export function clampGeminiNonMemberRequest<T extends ImageRateRequest>(
     : { ...request, gemini_image_size: '2K' }
 }
 
-/**
- * 与目录 `pricing.tierMultiplier` 相同。手写在这里，计价不跟随 Grok 等尚未启用的目录倍率。
- * 4K 已定义，渠道尚未开放。
- */
-const GEMINI_TIER_MULTIPLIERS = {
-  'gemini-nano-banana-2.1': { '1K': 1, '2K': 1.5, '4K': 3.4 },
-  'gemini-3-pro-image': { '1K': 1, '2K': 1, '4K': 1.8 },
-} as const
-
+/** 档位计价直接读取能力目录；没有目录倍率的模型按 1。 */
 const RATE_TIERS = ['1K', '2K', '4K'] as const
 type RateTier = (typeof RATE_TIERS)[number]
 
@@ -202,10 +195,13 @@ export function imageRateMultiplier(
   // 2.6 不在 GPT_DIRECT_MODELS 里（那张表会回退 sub2api），但倍率仍走 gptImageRateMultiplier。
   if (isGptDirectModel(model) || isGptImage26Model(model))
     return gptImageRateMultiplier(model, request)
-  const table = GEMINI_TIER_MULTIPLIERS[model as keyof typeof GEMINI_TIER_MULTIPLIERS]
+  const table =
+    findCatalogModel(model)?.family === 'gemini'
+      ? findCatalogModel(model)?.pricing.tierMultiplier
+      : undefined
   const tier = billableImageTier(request, supportedTiers)
   if (!table || !tier) return 1
-  return table[tier]
+  return table[tier] ?? 1
 }
 
 /**

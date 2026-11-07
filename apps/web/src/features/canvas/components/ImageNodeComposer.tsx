@@ -77,14 +77,18 @@ export default function ImageNodeComposer({
   const params = useStore((state) => state.params)
   const profile = getActiveApiProfile(settings)
   const view = clientProfileToApiProfile(profile)
-  const premium = useGptPremiumLocked(
-    view.model,
-    getParamCapabilities(profile, params.output_format).size,
-  )
+  const directAvailable = getParamCapabilities(profile, params.output_format).size
+  const premium = useGptPremiumLocked(view.model, directAvailable)
   const guard = usePrivateSubmissionGuard({
     model: view.model,
     quantity: preset ? 1 : Math.max(1, params.n),
-    unitMultiplier: quotedGptMultiplier(view.model, params, premium.highQuality, premium.member),
+    unitMultiplier: quotedGptMultiplier(
+      view.model,
+      params,
+      premium.highQuality,
+      premium.member,
+      directAvailable,
+    ),
   })
   const activeLook = useActiveLook((state) => (templates ? state.look : null))
   const libraryAssets = useLibraryStore((state) => state.assets)

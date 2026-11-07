@@ -147,10 +147,8 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
 
   const activeProfile = getActiveApiProfile(settings)
   const imageView = clientProfileToApiProfile(activeProfile)
-  const imagePremium = useGptPremiumLocked(
-    imageView.model,
-    getParamCapabilities(activeProfile, params.output_format).size,
-  )
+  const directAvailable = getParamCapabilities(activeProfile, params.output_format).size
+  const imagePremium = useGptPremiumLocked(imageView.model, directAvailable)
   const video = mode === 'video'
   const submissionInput = video
     ? {
@@ -166,6 +164,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
           params,
           imagePremium.highQuality,
           imagePremium.member,
+          directAvailable,
         ),
       }
   const submissionGuard = usePrivateSubmissionGuard(submissionInput)

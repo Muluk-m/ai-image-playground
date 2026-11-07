@@ -90,6 +90,7 @@ func newFakeServer(t *testing.T) *fakeServer {
 		case "authorization_code":
 			f.codeExchanges++
 			if f.codeBusy {
+				f.codeBusy = false
 				writeJSON(w, 503, map[string]string{"error": "temporarily_unavailable"})
 				return
 			}
@@ -1632,8 +1633,8 @@ func TestAResumedLoginReusesTheOpenPage(t *testing.T) {
 	}
 }
 
-// The code exchange hit a temporary error, and polling then signed in: the browser waits for
-// that outcome and is told it connected, not that it failed.
+// The code exchange hit a temporary error and is retried with the same code: the browser waits
+// for that outcome and is told it connected, not that it failed.
 func TestABrowserWaitsForTheLoginWhenTheCodeExchangeIsBusy(t *testing.T) {
 	f := newFakeServer(t)
 	f.approveAfter = 1 << 30
@@ -1660,5 +1661,29 @@ func TestABrowserWaitsForTheLoginWhenTheCodeExchangeIsBusy(t *testing.T) {
 	}
 	if got := <-landed; got != f.server.URL+"/device?status=connected" {
 		t.Fatalf("browser sent to %q", got)
+	}
+}
+
+// A pending login whose stored callback was edited to a non-loopback address is never served
+// there: the login still finishes by polling.
+func TestAResumedLoginNeverListensOffLoopback(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	execute(t, app, "auth", "login", "--no-wait")
+	pending, _ := app.Store.LoadPending()
+	pending.RedirectURI, pending.State, pending.CodeVerifier = "http://0.0.0.0:53682/callback", "s", "v"
+	if err := app.Store.SavePending(pending); err != nil {
+		t.Fatal(err)
+	}
+	var addrs []string
+	app.Listen = func(network, addr string) (net.Listener, error) {
+		addrs = append(addrs, addr)
+		return net.Listen(network, addr)
+	}
+	if r := execute(t, app, "auth", "login"); r.code != ExitOK {
+		t.Fatalf("login = %d %s", r.code, r.stdout)
+	}
+	if len(addrs) != 0 {
+		t.Fatalf("listened on %v", addrs)
 	}
 }
