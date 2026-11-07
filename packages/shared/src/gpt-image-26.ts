@@ -20,7 +20,14 @@ export const GPT_IMAGE_26_GIF_FRAME_MAX = 16
 /** 每帧时长，毫秒。界面三档：0.3 / 0.2 / 0.1 秒。 */
 export const GPT_IMAGE_26_GIF_DURATIONS_MS = [300, 200, 100] as const
 export const GPT_IMAGE_26_GIF_DEFAULT_DURATION_MS = 200
+/** 每帧时长的合法范围：20–2000 毫秒，步长 10。 */
+export const GPT_IMAGE_26_GIF_DURATION_MIN_MS = 20
+export const GPT_IMAGE_26_GIF_DURATION_MAX_MS = 2000
+export const GPT_IMAGE_26_GIF_DURATION_STEP_MS = 10
 export const GPT_IMAGE_26_GIF_SIZES = ['512x512', '768x768'] as const
+/** 网站切到 GIF 与插件不传帧参数时的默认值，两端共用。 */
+export const GPT_IMAGE_26_GIF_DEFAULT_FRAMES = 6
+export const GPT_IMAGE_26_GIF_DEFAULT_SIZE = '768x768'
 /** 产品雪碧图长边限制，不代表兼容渠道已确认的上游上限。 */
 export const GPT_IMAGE_26_GIF_SPRITE_MAX_EDGE = 3840
 /** 实测能拼进雪碧图的最大单帧边。超过它时按「边长 × 帧数 > 3840」拒绝。 */
@@ -97,7 +104,7 @@ function referenceCount(input: GptImage26QuoteInput): number {
 /** 一张产出的积分。flare 与 sunburst 同价。GIF / SVG 不随张数放大，调用方必须把 n 限制为 1。 */
 export function gptImage26Credits(input: GptImage26QuoteInput): number {
   if (input.output_format === 'gif') {
-    const frames = input.frame_count ?? 6
+    const frames = input.frame_count ?? GPT_IMAGE_26_GIF_DEFAULT_FRAMES
     if (frames <= 6) return 370
     if (frames <= 9) return 550
     return 980
@@ -122,7 +129,7 @@ export function gptImage26RateMultiplier(input: GptImage26QuoteInput): number {
 export function gptImage26EtaSeconds(model: string, input: GptImage26QuoteInput): number {
   if (input.output_format === 'svg') return 32
   if (input.output_format === 'gif') {
-    const frames = input.frame_count ?? 6
+    const frames = input.frame_count ?? GPT_IMAGE_26_GIF_DEFAULT_FRAMES
     if (frames <= 6) return 13
     if (frames <= 9) return 15
     return 25
@@ -168,7 +175,12 @@ export function gptImage26Rejection(
     )
       return 'gif_frames'
     const duration = request.frame_duration_ms ?? GPT_IMAGE_26_GIF_DEFAULT_DURATION_MS
-    if (!Number.isInteger(duration) || duration < 20 || duration > 2000 || duration % 10 !== 0)
+    if (
+      !Number.isInteger(duration) ||
+      duration < GPT_IMAGE_26_GIF_DURATION_MIN_MS ||
+      duration > GPT_IMAGE_26_GIF_DURATION_MAX_MS ||
+      duration % GPT_IMAGE_26_GIF_DURATION_STEP_MS !== 0
+    )
       return 'gif_duration'
     const parsed = request.size ? parseImageSize(request.size) : null
     if (!parsed) return 'gif_size'

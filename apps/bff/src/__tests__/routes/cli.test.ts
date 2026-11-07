@@ -17,6 +17,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../cli-operator-con
 process.env.CLIENT_IP_SOURCE = 'cf-connecting-ip'
 process.env.GPT_DIRECT_ENABLED = 'true'
 process.env.OPENAI_API_KEY = 'fixture-direct-key'
+process.env.GPT_IMAGE_26_ENABLED = 'true'
 
 // 计费能力要求 overlay 在场：替身必须在 app 求值之前装好。
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
@@ -119,6 +120,11 @@ const CHANNELS = parseChannelsConfig(
           {
             id: 'gpt-image-2.5-flare',
             label: 'GPT Image 2.5 Flare',
+            capabilities: ['generate', 'edit', 'size', 'quality'],
+          },
+          {
+            id: 'gpt-image-2.6-flare',
+            label: 'GPT Image 2.6 Flare',
             capabilities: ['generate', 'edit', 'size', 'quality'],
           },
         ],
@@ -841,6 +847,151 @@ describe('CLI tokens', () => {
     expect(create.status).toBe(403)
     expect(create.json.error.code).toBe('FORBIDDEN')
     expect(await db.select().from(schema.tasks)).toHaveLength(0)
+  })
+})
+
+describe('native GIF and SVG', () => {
+  const IMAGE_26 = 'gpt-image-2.6-flare'
+
+  it('lists the formats each model can output, with the GIF limits', async () => {
+    const user = await createUser('formats')
+    const { access_token } = await connect(user)
+    const caps = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
+    const byId = Object.fromEntries(
+      caps.json.data.models.map((model: { id: string }) => [model.id, model]),
+    )
+    expect(byId['gemini-3-pro-image'].output_formats).toEqual(['image'])
+    expect(byId['gemini-3-pro-image'].gif).toBeUndefined()
+    expect(byId[IMAGE_26]).toMatchObject({
+      output_formats: ['image', 'gif', 'svg'],
+      gif: {
+        frame_count: { min: 2, max: 16, default: 6 },
+        frame_duration_ms: { min: 20, max: 2000, step: 10, default: 200 },
+        suggested_frame_durations_ms: [300, 200, 100],
+        frame_sizes: ['512x512', '768x768'],
+        default_frame_size: '768x768',
+        max_frames_by_size: { '512x512': 16, '768x768': 12 },
+        reference_images: false,
+        images_per_request: 1,
+        price: { estimated_credits: 37 },
+      },
+      svg: { reference_images: false, images_per_request: 1, price: { estimated_credits: 61 } },
+    })
+  })
+
+  it('submits a GIF with the website defaults, quoting it as a GIF', async () => {
+    const user = await createUser('gif-maker')
+    const { access_token } = await connect(user)
+    const body = imageJob({ model: IMAGE_26, output_format: 'gif' })
+    const preview = await call('POST', '/v1/image-jobs/validate', {
+      body,
+      headers: bearer(access_token),
+    })
+    expect(preview.status).toBe(200)
+    expect(preview.json.data.normalized).toMatchObject({
+      model: IMAGE_26,
+      output_format: 'gif',
+      frame_count: 6,
+      frame_duration_ms: 200,
+      frame_size: '768x768',
+      quality: 'medium',
+    })
+    expect(preview.json.data.quote).toEqual({ estimated_credits: 37 })
+
+    expect(preview.json.data.normalized.image_size).toBeUndefined()
+    expect(preview.json.data.normalized.aspect_ratio).toBeUndefined()
+
+    const created = await call('POST', '/v1/image-jobs', { body, headers: bearer(access_token) })
+    expect(created.status).toBe(200)
+    expect(billing.reservations).toEqual([
+      expect.objectContaining({ model: IMAGE_26, credits: 37, unitMultiplier: 3.7 }),
+    ])
+    const [task] = await db.select().from(schema.tasks)
+    expect(JSON.stringify(task)).toContain('"output_format":"gif"')
+    expect(JSON.stringify(task)).toContain('"frame_count":6')
+    expect(JSON.stringify(task)).toContain('"size":"768x768"')
+  })
+
+  it('treats png as a regular image, keeping the request hash', async () => {
+    const user = await createUser('png-alias')
+    const { access_token } = await connect(user)
+    const plain = await call('POST', '/v1/image-jobs/validate', {
+      body: imageJob({ model: IMAGE_26, prompt: 'same' }),
+      headers: bearer(access_token),
+    })
+    const png = await call('POST', '/v1/image-jobs/validate', {
+      body: imageJob({ model: IMAGE_26, prompt: 'same', output_format: 'png' }),
+      headers: bearer(access_token),
+    })
+    expect(png.status).toBe(200)
+    expect(png.json.data.request_hash).toBe(plain.json.data.request_hash)
+    expect(png.json.data.normalized.output_format).toBeUndefined()
+  })
+
+  it('gives a 2.6 still at 2K concrete pixels instead of quietly sending 1K', async () => {
+    const user = await createUser('image26-2k')
+    billing.members.add(user.id)
+    const { access_token } = await connect(user)
+    const preview = await call('POST', '/v1/image-jobs/validate', {
+      body: imageJob({ model: IMAGE_26, image_size: '2K' }),
+      headers: bearer(access_token),
+    })
+    expect(preview.status).toBe(200)
+    expect(preview.json.data.normalized).toMatchObject({ image_size: '2K', aspect_ratio: '1:1' })
+    expect(preview.json.data.adjustments).toContainEqual({
+      field: 'ratio',
+      from: 'auto',
+      to: '1:1',
+    })
+  })
+
+  it('submits an SVG', async () => {
+    const user = await createUser('svg-maker')
+    const { access_token } = await connect(user)
+    const created = await call('POST', '/v1/image-jobs', {
+      body: imageJob({ model: IMAGE_26, output_format: 'svg' }),
+      headers: bearer(access_token),
+    })
+    expect(created.status).toBe(200)
+    const [task] = await db.select().from(schema.tasks)
+    expect(JSON.stringify(task)).toContain('"output_format":"svg"')
+  })
+
+  it('rejects what the website rejects, before any task or hold', async () => {
+    const user = await createUser('gif-rules')
+    const { access_token } = await connect(user)
+    const cases: [Record<string, unknown>, string][] = [
+      [{ model: 'gemini-3-pro-image', output_format: 'gif' }, 'does not support output_format gif'],
+      [{ model: IMAGE_26, output_format: 'gif', frame_count: 20 }, 'frame_count'],
+      [{ model: IMAGE_26, output_format: 'gif', frame_count: 16 }, 'too many frames'],
+      [{ model: IMAGE_26, output_format: 'gif', frame_size: '1024x1024' }, 'frame_size'],
+      [{ model: IMAGE_26, output_format: 'gif', frame_duration_ms: 15 }, 'frame_duration_ms'],
+      [{ model: IMAGE_26, output_format: 'gif', image_size: '2K' }, 'frame_size instead'],
+      [{ model: IMAGE_26, output_format: 'svg', quality: 'high' }, 'does not take quality'],
+      [{ model: IMAGE_26, frame_count: 6 }, 'apply to output_format gif only'],
+      [{ model: IMAGE_26, output_format: 'webm' }, 'output_format must be one of image, gif, svg'],
+      [
+        { model: IMAGE_26, output_format: 'gif', reference_media_ids: [crypto.randomUUID()] },
+        'gif output does not accept reference images',
+      ],
+      [
+        { model: IMAGE_26, output_format: 'svg', reference_media_ids: [crypto.randomUUID()] },
+        'svg output does not accept reference images',
+      ],
+    ]
+    for (const [overrides, message] of cases) {
+      for (const path of ['/v1/image-jobs/validate', '/v1/image-jobs']) {
+        const res = await call('POST', path, {
+          body: imageJob(overrides),
+          headers: bearer(access_token),
+        })
+        expect(res.status, JSON.stringify(overrides)).toBe(400)
+        expect(res.json.error.code).toBe('INVALID_REQUEST')
+        expect(res.json.error.message).toContain(message)
+      }
+    }
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(billing.reservations).toHaveLength(0)
   })
 })
 
