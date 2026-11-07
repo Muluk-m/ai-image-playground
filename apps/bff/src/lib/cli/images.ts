@@ -207,7 +207,8 @@ function outputFormatFields(
           }
         : {}),
     })
-  return { output_format: format, ...gif }
+  // 走到这里只剩 gif / svg：image 在上面已经返回。
+  return { output_format: format as 'gif' | 'svg', ...gif }
 }
 
 export interface PreparedImageRequest {
