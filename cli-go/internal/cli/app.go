@@ -229,6 +229,10 @@ func (a *App) Run(args []string) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		return a.render(nil, fail("USAGE", "%s", usage()))
 	}
+	// `-v`, `-V` and `--version` are what people (and agents) type first. Only when they stand alone.
+	if len(args) == 1 && (args[0] == "-v" || args[0] == "-V" || args[0] == "--version") {
+		args = []string{"version"}
+	}
 	group, ok := commands()[args[0]]
 	if !ok {
 		return a.render(nil, fail("USAGE", "unknown command %q\n%s", args[0], usage()))
