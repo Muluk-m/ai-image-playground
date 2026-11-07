@@ -725,3 +725,39 @@ func TestUnreadableStoreMessageDoesNotEchoTheStoreError(t *testing.T) {
 		t.Fatalf("refusal = %d %s", r.code, r.stdout)
 	}
 }
+
+// Switching service takes two sessions: start it, then finish it without the variable. Only the
+// login resumes the switch; every other command keeps using the working connection meanwhile.
+func TestAnOngoingServiceSwitchIsResumedByLoginOnly(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	creds, _ := app.Store.Load()
+	creds.BaseURL = "https://old.example" // the working connection belongs to another service
+	if err := app.Store.Save(creds); err != nil {
+		t.Fatal(err)
+	}
+	if r := execute(t, app, "auth", "login", "--switch-service", "--no-wait"); r.code != ExitOK {
+		t.Fatalf("start of the switch = %d %s", r.code, r.stdout)
+	}
+
+	other := newApp(t, f, dir)
+	other.APIURL = ""
+	guardNetwork(other, f)
+	if r := execute(t, other, "auth", "status"); r.out["data"].(map[string]any)["api_url_source"] != "connection" {
+		t.Fatalf("a command other than login left the working connection: %s", r.stdout)
+	}
+
+	next := newApp(t, f, dir)
+	next.APIURL = ""
+	guardNetwork(next, f)
+	r := execute(t, next, "auth", "login")
+	data, _ := r.out["data"].(map[string]any)
+	if r.code != ExitOK || data["state"] != "ready" || data["api_url"] != f.server.URL || data["api_url_source"] != "pending_login" {
+		t.Fatalf("the switch was not resumed = %d %s", r.code, r.stdout)
+	}
+	if got, _ := next.Store.Load(); got.BaseURL != f.server.URL {
+		t.Fatalf("connection service after the switch = %q", got.BaseURL)
+	}
+}
