@@ -38,7 +38,7 @@ runs:
         echo "image=${ImageVersion:-unknown}" >> "$GITHUB_OUTPUT"
     - name: Restore cached Chromium system packages
       if: runner.os == 'Linux'
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ runner.temp }}/pages-browser-debs
         key: ${{ steps.debs-key.outputs.prefix }}${{ steps.debs-key.outputs.image }}
@@ -102,7 +102,7 @@ runs:
         find /var/cache/apt/archives -maxdepth 1 -name '*.deb' -exec cp -n {} "$DEBS"/ \; 2>/dev/null || true
     - name: Save browser evidence
       if: always() && inputs.smoke == 'true'
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: ${{ inputs.label }}
         path: ${{ runner.temp }}/${{ inputs.label }}
