@@ -1,5 +1,5 @@
-import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto'
-import type { AccountProfileView } from '@image-playground/shared'
+import { createHash, createHmac, randomBytes, randomInt, randomUUID } from 'node:crypto'
+import { type AccountProfileView, isSessionRefreshRequestKey } from '@image-playground/shared'
 import { and, eq, gt, inArray, isNotNull, isNull, lt, or } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { accountProfileView } from '../account-profile-view'
@@ -32,6 +32,42 @@ export function hashCliSecret(value: string): string {
 
 function token(): string {
   return randomBytes(32).toString('base64url')
+}
+
+/**
+ * CLI 在换令牌前持久保存的请求标识（UUID v4）。响应丢失后带同一标识重试，服务端据此推导出
+ * 同一组令牌，见 ADR 0031。只存它的哈希。
+ */
+export type CliRequestKey = string & { readonly __cliRequestKey: unique symbol }
+
+export function parseCliRequestKey(value: unknown): CliRequestKey | null {
+  return isSessionRefreshRequestKey(value) ? (value as string as CliRequestKey) : null
+}
+
+function requestMarker(key: CliRequestKey): string {
+  return hashCliSecret(key)
+}
+
+/**
+ * 继任刷新令牌由前驱凭据（旧刷新令牌或设备码）、所属记录和请求标识确定性推导：
+ * 只有同时持有前驱明文和标识的一方能重算出它，数据库仍然只存哈希。
+ */
+function successorRefresh(
+  predecessor: string,
+  key: CliRequestKey,
+  domain: 'refresh' | 'device',
+  ownerId: string,
+): string {
+  const secret = createHmac('sha256', predecessor)
+    .update(JSON.stringify([`cli-${domain}-successor-v1`, ownerId, key]))
+    .digest('base64url')
+  return `r1.${requestMarker(key)}.${secret}`
+}
+
+function successorAccess(refresh: string): string {
+  return createHmac('sha256', refresh)
+    .update(JSON.stringify(['cli-access-v1']))
+    .digest('base64url')
 }
 
 function userCode(): string {
@@ -239,11 +275,12 @@ export type TokenGrantResult =
         | 'access_denied'
         | 'expired_token'
         | 'invalid_grant'
+        | 'refresh_request_completed'
     }
 
-function issueTokens(scopes: string, now: number) {
-  const access = token()
-  const refresh = token()
+function issueTokens(scopes: string, now: number, refreshValue?: string) {
+  const refresh = refreshValue ?? token()
+  const access = refreshValue ? successorAccess(refresh) : token()
   return {
     columns: {
       access_token_hash: hashCliSecret(access),
@@ -262,10 +299,55 @@ function issueTokens(scopes: string, now: number) {
   }
 }
 
-/** RFC 8628 §3.4/3.5：轮询太快回 slow_down 并加长间隔；批准后只能换一次令牌。 */
+/**
+ * 由确定性继任令牌找回仍然有效的连接，按库里记录的到期时间重发同一组令牌。连接已经轮换、
+ * 吊销或过期时不恢复过时凭据。
+ */
+async function replaySuccessor(
+  tx: Transaction,
+  refresh: string,
+  clientId: string,
+  now: number,
+): Promise<TokenGrantResult> {
+  const [connection] = await tx
+    .select()
+    .from(schema.cli_connections)
+    .where(
+      and(
+        eq(schema.cli_connections.refresh_token_hash, hashCliSecret(refresh)),
+        eq(schema.cli_connections.client_id, clientId),
+      ),
+    )
+    .limit(1)
+  const access = successorAccess(refresh)
+  if (
+    !connection ||
+    connection.revoked_at !== null ||
+    connection.refresh_expires_at <= now ||
+    connection.access_token_hash !== hashCliSecret(access)
+  )
+    return { ok: false, error: 'invalid_grant' }
+  return {
+    ok: true,
+    tokens: {
+      access_token: access,
+      refresh_token: refresh,
+      token_type: 'Bearer',
+      expires_in: Math.max(0, Math.floor((connection.access_expires_at - now) / 1000)),
+      refresh_token_expires_in: Math.floor((connection.refresh_expires_at - now) / 1000),
+      scope: connection.scopes,
+    },
+  }
+}
+
+/**
+ * RFC 8628 §3.4/3.5：轮询太快回 slow_down 并加长间隔；批准后只能换一次令牌。带请求标识
+ * 兑换时，令牌由设备码与标识推导：响应丢失后同一标识重试拿回同一组令牌，不同标识按已用拒绝。
+ */
 export async function exchangeDeviceCode(
   deviceCode: string,
   clientId: string,
+  requestKey: CliRequestKey | null = null,
 ): Promise<TokenGrantResult> {
   const now = Date.now()
   return db.transaction(async (tx) => {
@@ -280,7 +362,16 @@ export async function exchangeDeviceCode(
       )
       .for('update')
       .limit(1)
-    if (!row || row.status === 'consumed') return { ok: false, error: 'invalid_grant' }
+    if (!row) return { ok: false, error: 'invalid_grant' }
+    if (row.status === 'consumed')
+      return requestKey
+        ? replaySuccessor(
+            tx,
+            successorRefresh(deviceCode, requestKey, 'device', row.id),
+            clientId,
+            now,
+          )
+        : { ok: false, error: 'invalid_grant' }
     if (row.expires_at <= now) return { ok: false, error: 'expired_token' }
     if (row.status === 'denied') return { ok: false, error: 'access_denied' }
     if (row.status === 'pending') {
@@ -300,7 +391,11 @@ export async function exchangeDeviceCode(
       .update(schema.device_authorizations)
       .set({ status: 'consumed', last_polled_at: now })
       .where(eq(schema.device_authorizations.id, row.id))
-    const issued = issueTokens(row.scopes, now)
+    const issued = issueTokens(
+      row.scopes,
+      now,
+      requestKey ? successorRefresh(deviceCode, requestKey, 'device', row.id) : undefined,
+    )
     const connectionId = randomUUID()
     await tx.insert(schema.cli_connections).values({
       id: connectionId,
@@ -345,12 +440,17 @@ async function revokeConnection(
 }
 
 /**
- * 刷新时在同一行上轮换令牌，旧刷新令牌记进 retired 表。旧令牌再次出现说明被复制过，
- * 按 OAuth 2.1 §4.3.1 吊销整条连接。
+ * 刷新时在同一行上轮换令牌，旧刷新令牌记进 retired 表。
+ *
+ * 带请求标识（新 CLI）：继任令牌由旧令牌与标识推导，响应丢失后同一旧令牌带同一标识重试，
+ * 重发同一组令牌；证明不了的旧令牌只拒绝，不吊销仍然有效的连接。不带标识（旧 CLI）：旧令牌
+ * 再次出现说明被复制过，按 OAuth 2.1 §4.3.1 吊销整条连接——但被新 CLI 轮换掉的令牌不走
+ * 这条，否则持有旧令牌的一方去掉标识就能踢掉健康连接。
  */
 export async function refreshCliToken(
   refreshToken: string,
   clientId: string,
+  requestKey: CliRequestKey | null = null,
 ): Promise<TokenGrantResult> {
   const now = Date.now()
   const hash = hashCliSecret(refreshToken)
@@ -368,24 +468,63 @@ export async function refreshCliToken(
       .limit(1)
     if (!row) {
       const [retired] = await tx
-        .select({ connection: schema.cli_connections })
+        .select({
+          requestKeyHash: schema.cli_retired_refresh_tokens.request_key_hash,
+          connection: schema.cli_connections,
+        })
         .from(schema.cli_retired_refresh_tokens)
         .innerJoin(
           schema.cli_connections,
           eq(schema.cli_connections.id, schema.cli_retired_refresh_tokens.connection_id),
         )
-        .where(eq(schema.cli_retired_refresh_tokens.token_hash, hash))
+        .where(
+          and(
+            eq(schema.cli_retired_refresh_tokens.token_hash, hash),
+            eq(schema.cli_connections.client_id, clientId),
+          ),
+        )
+        .for('update')
         .limit(1)
-      if (retired && retired.connection.revoked_at === null)
+      if (!retired) return { ok: false, error: 'invalid_grant' }
+      if (requestKey)
+        return replaySuccessor(
+          tx,
+          successorRefresh(refreshToken, requestKey, 'refresh', retired.connection.id),
+          clientId,
+          now,
+        )
+      if (retired.requestKeyHash === null && retired.connection.revoked_at === null)
         await revokeConnection(tx, retired.connection, 'cli', 'refresh_token_reuse')
       return { ok: false, error: 'invalid_grant' }
     }
     if (row.revoked_at !== null || row.refresh_expires_at <= now)
       return { ok: false, error: 'invalid_grant' }
-    const issued = issueTokens(row.scopes, now)
-    await tx
-      .insert(schema.cli_retired_refresh_tokens)
-      .values({ token_hash: hash, connection_id: row.id, retired_at: now })
+    if (requestKey) {
+      // 这个标识已经在本连接上完成过一次轮换：当前令牌仍然有效，CLI 换个新标识再刷新即可，
+      // 不能拿已完成的标识推进更新一代令牌。
+      const [used] = await tx
+        .select({ hash: schema.cli_retired_refresh_tokens.token_hash })
+        .from(schema.cli_retired_refresh_tokens)
+        .where(
+          and(
+            eq(schema.cli_retired_refresh_tokens.connection_id, row.id),
+            eq(schema.cli_retired_refresh_tokens.request_key_hash, requestMarker(requestKey)),
+          ),
+        )
+        .limit(1)
+      if (used) return { ok: false, error: 'refresh_request_completed' }
+    }
+    const issued = issueTokens(
+      row.scopes,
+      now,
+      requestKey ? successorRefresh(refreshToken, requestKey, 'refresh', row.id) : undefined,
+    )
+    await tx.insert(schema.cli_retired_refresh_tokens).values({
+      token_hash: hash,
+      connection_id: row.id,
+      request_key_hash: requestKey ? requestMarker(requestKey) : null,
+      retired_at: now,
+    })
     // 刷新令牌自身 30 天就过期：比这更老的作废令牌即使被盗也换不到东西，不需要再为它做
     // 重放检测。按连接清理，活跃连接的记录数也有界。
     await tx
