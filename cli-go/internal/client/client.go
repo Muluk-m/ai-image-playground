@@ -44,7 +44,8 @@ func (e *APIError) Error() string {
 	return e.Code
 }
 
-// HTTPClient retries once after a 401 by asking Refresh for a new access token.
+// HTTPClient retries once after a 401 by asking Refresh for a new access token. A failing
+// Refresh ends the call with Refresh's own error.
 type HTTPClient struct {
 	BaseURL     string
 	HTTP        *http.Client
@@ -97,7 +98,13 @@ func (c *HTTPClient) Do(ctx context.Context, method, path string, body, out any)
 			return err
 		}
 		if status == http.StatusUnauthorized && attempt == 0 && c.Refresh != nil {
-			if token, refreshErr := c.Refresh(ctx, c.AccessToken); refreshErr == nil && token != "" {
+			token, refreshErr := c.Refresh(ctx, c.AccessToken)
+			// Why the refresh failed is the answer, not the 401 that started it: a network
+			// error or a busy lock must not read as "signed out".
+			if refreshErr != nil {
+				return refreshErr
+			}
+			if token != "" {
 				c.AccessToken = token
 				continue
 			}
