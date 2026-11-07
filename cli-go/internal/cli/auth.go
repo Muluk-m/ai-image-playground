@@ -133,7 +133,7 @@ type account struct {
 
 func completedLogin(a *App, pending auth.PendingLogin) bool {
 	creds, err := a.Store.Load()
-	if err != nil || creds.BaseURL != a.APIURL || pending.BaseURL != a.APIURL || creds.RefreshToken == "" {
+	if err != nil || !sameService(creds.BaseURL, a.APIURL) || !sameService(pending.BaseURL, a.APIURL) || creds.RefreshToken == "" {
 		return false
 	}
 	return pending.DeviceCode != "" && creds.LoginDeviceCodeHash == deviceCodeHash(pending.DeviceCode)
@@ -230,7 +230,7 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 	// Starting a login against another service would replace the working connection on
 	// approval. Do that only when asked; a login already started for this service (the
 	// `--no-wait` then resume flow) was asked for once and is not asked for again.
-	resuming := err == nil && pending.BaseURL == a.APIURL && time.Now().Before(pending.ExpiresAt)
+	resuming := err == nil && sameService(pending.BaseURL, a.APIURL) && time.Now().Before(pending.ExpiresAt)
 	if existing, loadErr := a.Store.Load(); loadErr == nil && !*switchService && !resuming &&
 		existing.RefreshToken != "" && existing.BaseURL != "" && !sameService(existing.BaseURL, a.APIURL) {
 		return nil, a.serviceMismatch(existing.BaseURL)
@@ -238,14 +238,15 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 	// Without an explicit service, an unreadable connection must not be answered with a guess:
 	// the default service may not be the one this user can sign in to.
 	if a.storeErr != nil && !*switchService && !resuming {
-		return nil, fail("INTERNAL_ERROR", "The stored connection is unreadable (%v), so the service it belongs to is unknown. Fix the credential store, or set MUVLOOM_API_URL to the service to sign in to", a.storeErr)
+		// The store's own error can carry local paths; the answer stays generic.
+		return nil, fail("INTERNAL_ERROR", "The stored connection could not be read, so the service it belongs to is unknown. Fix the credential store, or set MUVLOOM_API_URL to the service to sign in to")
 	}
 	// A host may replay the whole command after blocking cleanup. Never redeem a
 	// consumed code when its credentials were already saved, even after code expiry.
 	if err == nil && completedLogin(a, pending) {
 		return cmdAuthStatus(ctx, a, nil)
 	}
-	if err != nil || time.Now().After(pending.ExpiresAt) || pending.BaseURL != a.APIURL {
+	if err != nil || time.Now().After(pending.ExpiresAt) || !sameService(pending.BaseURL, a.APIURL) {
 		var device deviceAuthorization
 		if err := a.anonymousClient().PostForm(ctx, "/v1/oauth/device_authorization",
 			url.Values{"client_id": {oauthClientID}}, &device); err != nil {

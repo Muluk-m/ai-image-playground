@@ -77,6 +77,7 @@ func Default() Store {
 
 func (s Store) credentialsFile() string { return filepath.Join(s.Dir, "credentials.json") }
 func (s Store) pendingFile() string     { return filepath.Join(s.Dir, "pending-login.json") }
+func (s Store) serviceFile() string     { return filepath.Join(s.Dir, "connection.json") }
 
 // Backend names where credentials currently live, for status output.
 func (s Store) Backend() string {
@@ -105,7 +106,18 @@ func (s Store) Load() (Credentials, error) {
 	return creds, err
 }
 
+// Save stores the credentials and, beside them, which service they belong to. The service
+// address is not a secret: keeping it apart means an unreadable keychain or credential file
+// never makes the CLI guess the service.
 func (s Store) Save(creds Credentials) error {
+	if err := s.saveSecret(creds); err != nil {
+		return err
+	}
+	s.saveService(creds.BaseURL)
+	return nil
+}
+
+func (s Store) saveSecret(creds Credentials) error {
 	data, err := json.Marshal(creds)
 	if err != nil {
 		return err
@@ -134,12 +146,37 @@ func (s Store) Save(creds Credentials) error {
 	return nil
 }
 
+// saveService is best effort: the connection works without it.
+func (s Store) saveService(baseURL string) {
+	if baseURL == "" {
+		return
+	}
+	if data, err := json.Marshal(map[string]string{"base_url": baseURL}); err == nil {
+		_ = WriteFileAtomic(s.serviceFile(), data)
+	}
+}
+
+// LoadService returns the service the stored connection belongs to, without reading any
+// secret. ErrNotFound means none is recorded.
+func (s Store) LoadService() (string, error) {
+	var record struct {
+		BaseURL string `json:"base_url"`
+	}
+	if err := readJSON(s.serviceFile(), &record); err != nil {
+		return "", err
+	}
+	if record.BaseURL == "" {
+		return "", ErrNotFound
+	}
+	return record.BaseURL, nil
+}
+
 // Clear removes credentials from every backend, whichever one this process is using,
 // so switching MUVLOOM_CREDENTIALS_STORE cannot leave a login behind.
 func (s Store) Clear() error {
 	var keyringErr error
 	if !s.UseKeyring && !s.ClearKeyring {
-		return errors.Join(removeIfExists(s.credentialsFile()), removeIfExists(s.pendingFile()))
+		return errors.Join(removeIfExists(s.credentialsFile()), removeIfExists(s.pendingFile()), removeIfExists(s.serviceFile()))
 	}
 	if err := keyring.Delete(keyringService, keyringUser); err != nil && !errors.Is(err, keyring.ErrNotFound) {
 		// An unavailable keychain is only a problem if it still holds our entry.
@@ -147,7 +184,7 @@ func (s Store) Clear() error {
 			keyringErr = fmt.Errorf("could not remove credentials from the system keychain: %w", err)
 		}
 	}
-	return errors.Join(keyringErr, removeIfExists(s.credentialsFile()), removeIfExists(s.pendingFile()))
+	return errors.Join(keyringErr, removeIfExists(s.credentialsFile()), removeIfExists(s.pendingFile()), removeIfExists(s.serviceFile()))
 }
 
 func (s Store) LoadPending() (PendingLogin, error) {

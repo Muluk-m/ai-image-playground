@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -611,7 +612,7 @@ func TestLoginDoesNotGuessTheServiceWhenTheStoredConnectionIsUnreadable(t *testi
 	app := newApp(t, f, dir)
 	app.APIURL = ""
 	r := execute(t, app, "auth", "login", "--no-wait")
-	if r.code == ExitOK || !strings.Contains(r.stdout, "unreadable") {
+	if r.code == ExitOK || !strings.Contains(r.stdout, "could not be read") {
 		t.Fatalf("login with an unreadable store = %d %s", r.code, r.stdout)
 	}
 	if _, err := app.Store.LoadPending(); err != auth.ErrNotFound {
@@ -637,5 +638,90 @@ func TestATrailingSlashOnTheStoredServiceIsNotAMismatch(t *testing.T) {
 	}
 	if r := execute(t, app, "auth", "status"); r.out["data"].(map[string]any)["state"] != "ready" {
 		t.Fatalf("status = %s", r.stdout)
+	}
+}
+
+// guardNetwork lets an app reach only the fake server, so a test that fails by choosing the
+// wrong service cannot touch a real one.
+func guardNetwork(app *App, f *fakeServer) {
+	host := strings.TrimPrefix(f.server.URL, "http://")
+	app.HTTP = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host != host {
+			return nil, &net.DNSError{Err: "blocked by the test: " + r.URL.Host, Name: r.URL.Host}
+		}
+		return http.DefaultTransport.RoundTrip(r)
+	})}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// `login --no-wait` with the service chosen once, then a new session without the variable.
+func TestAPendingLoginKeepsItsServiceAcrossSessions(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	first := newApp(t, f, dir)
+	if r := execute(t, first, "auth", "login", "--no-wait"); r.code != ExitOK {
+		t.Fatalf("no-wait = %d %s", r.code, r.stdout)
+	}
+
+	next := newApp(t, f, dir)
+	next.APIURL = ""
+	guardNetwork(next, f)
+	r := execute(t, next, "auth", "login")
+	data, _ := r.out["data"].(map[string]any)
+	if r.code != ExitOK || data["state"] != "ready" || data["api_url"] != f.server.URL || data["api_url_source"] != "pending_login" {
+		t.Fatalf("resumed login = %d %s", r.code, r.stdout)
+	}
+}
+
+// The keychain may refuse a read while the connection still exists. The service address holds
+// no secret and is kept apart, so an unreadable secret never makes the CLI guess the service.
+func TestTheServiceIsKnownEvenWhenTheStoredSecretCannotBeRead(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	login(t, newApp(t, f, dir))
+	if err := os.WriteFile(filepath.Join(dir, "credentials.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	app := newApp(t, f, dir)
+	app.APIURL = ""
+	guardNetwork(app, f)
+	status := execute(t, app, "auth", "status")
+	data := status.out["data"].(map[string]any)
+	if data["api_url"] != f.server.URL || data["api_url_source"] != "connection" || data["state"] != "unauthenticated" {
+		t.Fatalf("status = %s", status.stdout)
+	}
+	if r := execute(t, app, "auth", "login", "--no-wait"); r.code != ExitOK {
+		t.Fatalf("login for the known service = %d %s", r.code, r.stdout)
+	}
+	if pending, err := app.Store.LoadPending(); err != nil || pending.BaseURL != f.server.URL {
+		t.Fatalf("pending login service = %q (%v)", pending.BaseURL, err)
+	}
+
+	// Signing out forgets the service as well.
+	_ = execute(t, newApp(t, f, dir), "auth", "logout")
+	gone := newApp(t, f, dir)
+	gone.APIURL = ""
+	if r := execute(t, gone, "auth", "status"); r.out["data"].(map[string]any)["api_url_source"] != "default" {
+		t.Fatalf("service kept after logout: %s", r.stdout)
+	}
+}
+
+// The store's own failure text can carry local paths; the answer must stay generic.
+func TestUnreadableStoreMessageDoesNotEchoTheStoreError(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "credentials.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app := newApp(t, f, dir)
+	app.APIURL = ""
+	guardNetwork(app, f)
+	r := execute(t, app, "auth", "login", "--no-wait")
+	if r.code == ExitOK || strings.Contains(r.stdout, "credentials.json") || strings.Contains(r.stdout, dir) {
+		t.Fatalf("refusal = %d %s", r.code, r.stdout)
 	}
 }
