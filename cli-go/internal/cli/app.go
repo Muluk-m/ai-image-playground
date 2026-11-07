@@ -103,10 +103,13 @@ type App struct {
 	APIURL string
 	// apiURLSource records how APIURL was resolved for this invocation.
 	apiURLSource string
-	Store        auth.Store
-	Out          io.Writer
-	Err          io.Writer
-	HTTP         *http.Client
+	// storeErr is why the stored connection could not be read when the service was resolved.
+	// An unreadable connection hides which service the user signed in to.
+	storeErr error
+	Store    auth.Store
+	Out      io.Writer
+	Err      io.Writer
+	HTTP     *http.Client
 	// Home and CWD override the Skill install roots in tests.
 	Home string
 	CWD  string
@@ -169,7 +172,7 @@ func commands() map[string]map[string]command {
 		"update":  {"check": {"update check", cmdUpdateCheck}},
 		"auth": {
 			"status": {"auth status", cmdAuthStatus},
-			"login":  {"auth login [--no-wait] [--timeout SECONDS]", cmdAuthLogin},
+			"login":  {"auth login [--no-wait] [--timeout SECONDS] [--switch-service]", cmdAuthLogin},
 			"logout": {"auth logout", cmdAuthLogout},
 		},
 		"capabilities": {"": {"capabilities", cmdCapabilities}},
@@ -237,7 +240,11 @@ func (a *App) Run(args []string) int {
 		}
 		rest = rest[1:]
 	}
-	if needsService[args[0]] {
+	if skipsService[args[0]] {
+		if a.APIURL == "" {
+			a.APIURL, a.apiURLSource = DefaultAPIURL, sourceDefault
+		}
+	} else {
 		a.resolveAPIURL()
 	}
 	if err := validateAPIURL(a.APIURL); err != nil {
@@ -247,11 +254,10 @@ func (a *App) Run(args []string) int {
 	return a.render(data, err)
 }
 
-// needsService lists the commands that talk to the service. The others never touch the
-// credential store, so they cannot trip a keychain prompt just to print a version.
-var needsService = map[string]bool{
-	"auth": true, "capabilities": true, "images": true, "jobs": true, "media": true, "artifacts": true,
-}
+// skipsService lists the command groups that never talk to the service. They must not
+// touch the credential store, so they cannot trip a keychain prompt just to print a version.
+// Every other command resolves the service first, so a new group fails safe.
+var skipsService = map[string]bool{"version": true, "update": true, "skill": true}
 
 // resolveAPIURL picks the service for this invocation: an explicit MUVLOOM_API_URL, else the
 // service the stored connection was issued by, else the default. A new agent session has no
@@ -261,11 +267,20 @@ func (a *App) resolveAPIURL() {
 		a.apiURLSource = sourceEnvironment
 		return
 	}
-	if creds, err := a.Store.Load(); err == nil && creds.RefreshToken != "" && creds.BaseURL != "" {
+	creds, err := a.Store.Load()
+	if err == nil && creds.RefreshToken != "" && creds.BaseURL != "" {
 		a.APIURL, a.apiURLSource = strings.TrimRight(creds.BaseURL, "/"), sourceConnection
 		return
 	}
+	if err != nil && !errors.Is(err, auth.ErrNotFound) {
+		a.storeErr = err
+	}
 	a.APIURL, a.apiURLSource = DefaultAPIURL, sourceDefault
+}
+
+// sameService compares service addresses without caring about a trailing slash.
+func sameService(a, b string) bool {
+	return strings.TrimRight(a, "/") == strings.TrimRight(b, "/")
 }
 
 type outputError struct {
