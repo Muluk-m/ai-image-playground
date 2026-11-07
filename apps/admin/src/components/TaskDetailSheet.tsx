@@ -63,13 +63,17 @@ function TaskDrawerTabs({ taskId }: { taskId: string }) {
   if (!tabs.length || !current) return null
   return (
     <div className="border-t bg-muted/40">
-      <div className="flex gap-4 border-b px-5 text-sm">
+      <div role="tablist" aria-label="任务附加信息" className="flex gap-4 border-b px-5 text-sm">
         {tabs.map((tab) => (
           <button
             key={tab.id}
+            id={`task-tab-${tab.id}`}
             type="button"
+            role="tab"
+            aria-selected={current === tab.id}
+            aria-controls={`task-panel-${tab.id}`}
             className={cn(
-              'h-9 border-b-2',
+              'h-9 border-b-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               current === tab.id
                 ? 'border-foreground font-medium'
                 : 'border-transparent text-muted-foreground',
@@ -80,7 +84,13 @@ function TaskDrawerTabs({ taskId }: { taskId: string }) {
           </button>
         ))}
       </div>
-      <div className="max-h-48 overflow-y-auto px-5 py-2 text-xs">
+      <div
+        id={`task-panel-${current}`}
+        role="tabpanel"
+        aria-labelledby={`task-tab-${current}`}
+        tabIndex={0}
+        className="max-h-40 overflow-y-auto px-5 py-2 text-xs"
+      >
         {current === 'history'
           ? history.map((event) => (
               <p key={event.label} className="grid grid-cols-[72px_1fr] gap-2 py-1">
@@ -94,7 +104,7 @@ function TaskDrawerTabs({ taskId }: { taskId: string }) {
           : null}
         {current === 'audit'
           ? auditRows.map((audit) => (
-              <p key={audit.id} className="py-1">
+              <p key={audit.id} className="break-words py-1">
                 <span className="font-mono text-muted-foreground">{audit.operator_id}</span>{' '}
                 {audit.action}
                 {typeof audit.details.reason === 'string' ? ` · ${audit.details.reason}` : ''}

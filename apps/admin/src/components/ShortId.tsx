@@ -10,9 +10,11 @@ interface ShortIdProps {
   value: string
   len?: number
   className?: string
+  compact?: boolean
+  copy?: boolean
 }
 
-export function ShortId({ value, len = 8, className }: ShortIdProps) {
+export function ShortId({ value, len = 8, className, compact = false, copy = true }: ShortIdProps) {
   const [copied, setCopied] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -41,18 +43,20 @@ export function ShortId({ value, len = 8, className }: ShortIdProps) {
             className,
           )}
         >
-          <span>{shortId(value, len)}</span>
-          <Button
-            autoTooltip={false}
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={onCopy}
-            aria-label="复制"
-            className="h-auto w-auto rounded p-0.5 text-muted-foreground hover:text-foreground [&_svg]:size-3"
-          >
-            {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-          </Button>
+          {compact ? null : <span>{shortId(value, len)}</span>}
+          {copy ? (
+            <Button
+              autoTooltip={false}
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={onCopy}
+              aria-label={copied ? '已复制 ID' : '复制 ID'}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+            </Button>
+          ) : null}
         </span>
       </TooltipTrigger>
       <TooltipContent>
