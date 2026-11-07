@@ -108,6 +108,12 @@ describe('CliDevicePage', () => {
     )
     await render()
     await act(async () => button('授权').click())
+    expect(vi.mocked(fetch)).toHaveBeenLastCalledWith(
+      'https://api.example.com/api/cli/device',
+      expect.objectContaining({
+        body: JSON.stringify({ user_code: 'BCDF-GHJK', decision: 'approve', loopback: true }),
+      }),
+    )
     expect(leaveTo).toHaveBeenCalledWith(
       `http://127.0.0.1:53682/callback?code=one-time&state=${state}`,
     )

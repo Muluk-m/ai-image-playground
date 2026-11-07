@@ -240,6 +240,7 @@ export const cliAccountRoutes = new Elysia()
         body.user_code,
         authUser.id,
         body.decision === 'approve' ? 'approved' : 'denied',
+        body.loopback === true,
       )
       if (!changed.ok) return status(404, { error: 'invalid_code' })
       return changed.redirectTo ? { ok: true, redirect_to: changed.redirectTo } : { ok: true }
@@ -248,6 +249,7 @@ export const cliAccountRoutes = new Elysia()
       body: t.Object({
         user_code: t.String({ minLength: 1, maxLength: 32 }),
         decision: t.Union([t.Literal('approve'), t.Literal('deny')]),
+        loopback: t.Optional(t.Boolean()),
       }),
     },
   )
