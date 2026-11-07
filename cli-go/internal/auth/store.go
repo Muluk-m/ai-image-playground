@@ -1,15 +1,25 @@
 // Package auth persists CLI credentials. The platform credential store (macOS Keychain,
 // Windows Credential Manager, Linux Secret Service) is used when available; otherwise a
 // 0600 file under the user config directory. Credential values are never logged.
+//
+// Files are only ever created and written in place: never renamed over, never deleted during
+// a login, a refresh or a logout. An agent host that sandboxes the config directory asks the
+// user before deleting or replacing a file, and a background command cannot be asked. A
+// signed-out file is emptied instead, and an empty file reads as "nothing stored".
 package auth
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/zalando/go-keyring"
@@ -26,6 +36,21 @@ var ErrNotFound = errors.New("no stored credentials")
 // ErrLockTimeout means another muvloom process held the credential lock for the whole wait.
 // Any other Lock error is a storage problem, not contention.
 var ErrLockTimeout = errors.New("timed out waiting for another muvloom process to refresh credentials")
+
+// Keychain is the system credential store. Tests substitute one.
+type Keychain interface {
+	Get(service, user string) (string, error)
+	Set(service, user, secret string) error
+	Delete(service, user string) error
+}
+
+type systemKeychain struct{}
+
+func (systemKeychain) Get(service, user string) (string, error) { return keyring.Get(service, user) }
+func (systemKeychain) Set(service, user, secret string) error {
+	return keyring.Set(service, user, secret)
+}
+func (systemKeychain) Delete(service, user string) error { return keyring.Delete(service, user) }
 
 type Credentials struct {
 	AccessToken         string    `json:"access_token"`
@@ -54,6 +79,15 @@ type Store struct {
 	// a file, so switching MUVLOOM_CREDENTIALS_STORE cannot leave a login behind. Tests that
 	// build a Store directly leave it off and never touch the real keychain.
 	ClearKeyring bool
+	// Keychain replaces the system credential store; nil means the system's.
+	Keychain Keychain
+}
+
+func (s Store) keychain() Keychain {
+	if s.Keychain != nil {
+		return s.Keychain
+	}
+	return systemKeychain{}
 }
 
 // ConfigDir is $MUVLOOM_CONFIG_DIR, or <user config dir>/muvloom.
@@ -82,31 +116,52 @@ func Default() Store {
 func (s Store) credentialsFile() string { return filepath.Join(s.Dir, "credentials.json") }
 func (s Store) pendingFile() string     { return filepath.Join(s.Dir, "pending-login.json") }
 func (s Store) serviceFile() string     { return filepath.Join(s.Dir, "connection.json") }
+func (s Store) lockFile() string        { return filepath.Join(s.Dir, "credentials.lock") }
 
-// Backend names where credentials currently live, for status output.
-func (s Store) Backend() string {
+// Info says where credentials live and, when the keychain is wanted but unusable, why. The
+// reason is a stable word: the keychain's own error text can carry local details.
+type Info struct {
+	Backend       string // keychain, file or none
+	KeychainIssue string // "", unavailable or unsupported_platform
+}
+
+// Describe reports the storage for `auth status`.
+func (s Store) Describe() Info {
+	var info Info
 	if s.UseKeyring {
-		if _, err := keyring.Get(keyringService, keyringUser); err == nil {
-			return "keychain"
+		_, err := s.keychain().Get(keyringService, keyringUser)
+		switch {
+		case err == nil:
+			info.Backend = "keychain"
+			return info
+		case errors.Is(err, keyring.ErrNotFound):
+			// The keychain works; it just holds nothing yet.
+		case errors.Is(err, keyring.ErrUnsupportedPlatform):
+			info.KeychainIssue = "unsupported_platform"
+		default:
+			info.KeychainIssue = "unavailable"
 		}
 	}
-	if _, err := os.Stat(s.credentialsFile()); err == nil {
-		return "file"
+	if fileHasContent(s.credentialsFile()) {
+		info.Backend = "file"
+	} else {
+		info.Backend = "none"
 	}
-	return "none"
+	return info
 }
 
 func (s Store) Load() (Credentials, error) {
-	var creds Credentials
 	if s.UseKeyring {
-		if secret, err := keyring.Get(keyringService, keyringUser); err == nil {
+		if secret, err := s.keychain().Get(keyringService, keyringUser); err == nil {
+			var creds Credentials
 			if err := json.Unmarshal([]byte(secret), &creds); err != nil {
 				return Credentials{}, fmt.Errorf("stored credentials are unreadable: %w", err)
 			}
 			return creds, nil
 		}
 	}
-	err := readJSON(s.credentialsFile(), &creds)
+	var creds Credentials
+	err := readRecord(s.credentialsFile(), &creds)
 	return creds, err
 }
 
@@ -114,11 +169,13 @@ func (s Store) Load() (Credentials, error) {
 // address is not a secret: keeping it apart means an unreadable keychain or credential file
 // never makes the CLI guess the service.
 func (s Store) Save(creds Credentials) error {
-	if err := s.saveSecret(creds); err != nil {
-		return err
-	}
-	s.saveService(creds.BaseURL)
-	return nil
+	return s.locked(func() error {
+		if err := s.saveSecret(creds); err != nil {
+			return err
+		}
+		s.saveService(creds.BaseURL)
+		return nil
+	})
 }
 
 func (s Store) saveSecret(creds Credentials) error {
@@ -127,22 +184,23 @@ func (s Store) saveSecret(creds Credentials) error {
 		return err
 	}
 	if s.UseKeyring {
-		if err := keyring.Set(keyringService, keyringUser, string(data)); err == nil {
-			// A stale file copy would be read if the keyring later becomes unavailable.
-			_ = removeIfExists(s.credentialsFile())
+		if err := s.keychain().Set(keyringService, keyringUser, string(data)); err == nil {
+			// The keychain now holds the login. Emptying the old file copy is housekeeping: its
+			// failure must not turn a stored login into a reported failure.
+			_ = truncateIfExists(s.credentialsFile())
 			return nil
 		}
 	}
 	// Write the file before touching the keychain: if the write fails, the previous
 	// credentials must still be somewhere.
-	if err := WriteFileAtomic(s.credentialsFile(), data); err != nil {
+	if err := writeRecord(s.credentialsFile(), creds); err != nil {
 		return err
 	}
 	// Load prefers the keychain, so an older entry there would shadow the file and replay
 	// a retired refresh token. This also covers MUVLOOM_CREDENTIALS_STORE=file.
 	if s.UseKeyring || s.ClearKeyring {
-		if err := keyring.Delete(keyringService, keyringUser); err != nil && !errors.Is(err, keyring.ErrNotFound) {
-			if _, getErr := keyring.Get(keyringService, keyringUser); getErr == nil {
+		if err := s.keychain().Delete(keyringService, keyringUser); err != nil && !errors.Is(err, keyring.ErrNotFound) {
+			if _, getErr := s.keychain().Get(keyringService, keyringUser); getErr == nil {
 				return fmt.Errorf("the system keychain still holds older credentials: %w", err)
 			}
 		}
@@ -150,14 +208,100 @@ func (s Store) saveSecret(creds Credentials) error {
 	return nil
 }
 
+// State files (credentials, pending login, service) are JSON objects carrying a "checksum"
+// member: a SHA-256 over the object's other members, computed on the raw members so that a
+// field added later never invalidates a record. A record cut short by a crash, torn by a
+// concurrent writer or edited by hand fails the check instead of being half trusted. The
+// member names are unchanged, so an older CLI still reads the files. A file without a checksum
+// is an older record and is accepted as it is.
+
+func checksumOf(members map[string]json.RawMessage) string {
+	data, _ := json.Marshal(members) // sorted keys, compacted values: the same bytes every time
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func frame(v any) ([]byte, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(data, &members); err != nil {
+		return nil, err
+	}
+	members["checksum"] = json.RawMessage(strconv.Quote(checksumOf(members)))
+	return json.Marshal(members)
+}
+
+// ErrIntegrity means a stored record did not match its own checksum.
+var ErrIntegrity = errors.New("failed its integrity check")
+
+func unframe(data []byte, out any) error {
+	var members map[string]json.RawMessage
+	if err := json.NewDecoder(bytes.NewReader(data)).Decode(&members); err != nil {
+		return err
+	}
+	if raw, ok := members["checksum"]; ok {
+		delete(members, "checksum")
+		var want string
+		if json.Unmarshal(raw, &want) != nil || want != checksumOf(members) {
+			return ErrIntegrity
+		}
+	}
+	payload, err := json.Marshal(members)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(payload, out)
+}
+
+func writeRecord(path string, v any) error {
+	data, err := frame(v)
+	if err != nil {
+		return err
+	}
+	return WriteFileInPlace(path, data)
+}
+
+// readRecord reads a record another process may be writing at this moment: an in-place write
+// is briefly a prefix of the new record, or the new record followed by the tail of a longer old
+// one. A few short retries ride that out; a record that stays bad is reported, never used.
+func readRecord(path string, out any) error {
+	var lastErr error
+	for attempt := 0; attempt < 5; attempt++ {
+		if attempt > 0 {
+			time.Sleep(25 * time.Millisecond)
+		}
+		data, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if len(bytes.TrimSpace(data)) == 0 {
+			return ErrNotFound
+		}
+		if err := unframe(data, out); err != nil {
+			if errors.Is(err, ErrIntegrity) {
+				lastErr = fmt.Errorf("%s %w", filepath.Base(path), err)
+			} else {
+				lastErr = fmt.Errorf("%s is unreadable: %w", filepath.Base(path), err)
+			}
+			continue
+		}
+		return nil
+	}
+	return lastErr
+}
+
 // saveService is best effort: the connection works without it.
 func (s Store) saveService(baseURL string) {
 	if baseURL == "" {
 		return
 	}
-	if data, err := json.Marshal(map[string]string{"base_url": baseURL}); err == nil {
-		_ = WriteFileAtomic(s.serviceFile(), data)
-	}
+	_ = writeRecord(s.serviceFile(), map[string]string{"base_url": baseURL})
 }
 
 // LoadService returns the service the stored connection belongs to, without reading any
@@ -166,7 +310,7 @@ func (s Store) LoadService() (string, error) {
 	var record struct {
 		BaseURL string `json:"base_url"`
 	}
-	if err := readJSON(s.serviceFile(), &record); err != nil {
+	if err := readRecord(s.serviceFile(), &record); err != nil {
 		return "", err
 	}
 	if record.BaseURL == "" {
@@ -175,141 +319,238 @@ func (s Store) LoadService() (string, error) {
 	return record.BaseURL, nil
 }
 
-// Clear removes credentials from every backend, whichever one this process is using,
-// so switching MUVLOOM_CREDENTIALS_STORE cannot leave a login behind.
+// Clear signs out of every backend, whichever one this process is using, so switching
+// MUVLOOM_CREDENTIALS_STORE cannot leave a login behind. Files are emptied, not deleted.
 func (s Store) Clear() error {
-	var keyringErr error
-	if !s.UseKeyring && !s.ClearKeyring {
-		return errors.Join(removeIfExists(s.credentialsFile()), removeIfExists(s.pendingFile()), removeIfExists(s.serviceFile()))
-	}
-	if err := keyring.Delete(keyringService, keyringUser); err != nil && !errors.Is(err, keyring.ErrNotFound) {
-		// An unavailable keychain is only a problem if it still holds our entry.
-		if _, getErr := keyring.Get(keyringService, keyringUser); getErr == nil {
-			keyringErr = fmt.Errorf("could not remove credentials from the system keychain: %w", err)
+	return s.locked(func() error {
+		var keyringErr error
+		if s.UseKeyring || s.ClearKeyring {
+			if err := s.keychain().Delete(keyringService, keyringUser); err != nil && !errors.Is(err, keyring.ErrNotFound) {
+				// An unavailable keychain is only a problem if it still holds our entry.
+				if _, getErr := s.keychain().Get(keyringService, keyringUser); getErr == nil {
+					keyringErr = fmt.Errorf("could not remove credentials from the system keychain: %w", err)
+				}
+			}
 		}
-	}
-	return errors.Join(keyringErr, removeIfExists(s.credentialsFile()), removeIfExists(s.pendingFile()), removeIfExists(s.serviceFile()))
+		return errors.Join(keyringErr, truncateIfExists(s.credentialsFile()), truncateIfExists(s.pendingFile()), truncateIfExists(s.serviceFile()))
+	})
 }
 
 func (s Store) LoadPending() (PendingLogin, error) {
 	var pending PendingLogin
-	err := readJSON(s.pendingFile(), &pending)
+	err := readRecord(s.pendingFile(), &pending)
 	return pending, err
 }
 
 func (s Store) SavePending(pending PendingLogin) error {
-	data, err := json.Marshal(pending)
-	if err != nil {
-		return err
-	}
-	return WriteFileAtomic(s.pendingFile(), data)
+	return s.locked(func() error { return writeRecord(s.pendingFile(), pending) })
 }
 
-func (s Store) ClearPending() error { return removeIfExists(s.pendingFile()) }
+func (s Store) ClearPending() error {
+	return s.locked(func() error { return truncateIfExists(s.pendingFile()) })
+}
 
-func readJSON(path string, out any) error {
+func fileHasContent(path string) bool {
 	data, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return ErrNotFound
-	}
-	if err != nil {
-		return err
-	}
-	if err := json.Unmarshal(data, out); err != nil {
-		return fmt.Errorf("%s is unreadable: %w", filepath.Base(path), err)
-	}
-	return nil
+	return err == nil && len(bytes.TrimSpace(data)) > 0
 }
 
-func removeIfExists(path string) error {
-	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-		return nil
-	} else if err != nil {
-		return err
-	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+// truncateIfExists empties a file without deleting it.
+func truncateIfExists(path string) error {
+	if err := os.Truncate(path, 0); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 	return nil
 }
 
-// WriteFileAtomic replaces path with data, readable only by the current user.
-func WriteFileAtomic(path string, data []byte) error {
+// WriteFileInPlace writes data into path, readable only by the current user. The file is
+// created if missing and otherwise keeps its identity: no temporary file, no rename.
+func WriteFileInPlace(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
 	}
-	name := tmp.Name()
-	renamed := false
-	defer func() {
-		if !renamed {
-			_ = os.Remove(name)
+	if runtime.GOOS != "windows" {
+		if err := file.Chmod(0o600); err != nil {
+			file.Close()
+			return err
 		}
-	}()
-	if err := tmp.Chmod(0o600); err != nil && runtime.GOOS != "windows" {
-		tmp.Close()
+	}
+	// Write first, shorten after: the file never holds less than the new record.
+	if _, err := file.WriteAt(data, 0); err != nil {
+		file.Close()
 		return err
 	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+	if err := file.Truncate(int64(len(data))); err != nil {
+		file.Close()
 		return err
 	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()
+	if err := file.Sync(); err != nil {
+		file.Close()
 		return err
 	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(name, path); err != nil {
-		return err
-	}
-	renamed = true
-	return nil
+	return file.Close()
 }
 
-// lockStaleAfter must exceed the longest refresh (request timeout plus saving), so a
-// live holder is never treated as crashed.
-const lockStaleAfter = 5 * time.Minute
+// Leftovers lists the temporary files earlier versions left in the config directory when a
+// rename was refused. Only our own `.tmp-*` files count.
+func (s Store) Leftovers() []string {
+	var found []string
+	for _, dir := range []string{s.Dir, filepath.Join(s.Dir, "submissions"), filepath.Join(s.Dir, "updates")} {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.Type().IsRegular() && strings.HasPrefix(entry.Name(), ".tmp-") {
+				found = append(found, filepath.Join(dir, entry.Name()))
+			}
+		}
+	}
+	return found
+}
 
-// Lock serializes credential refresh across concurrent CLI processes, so two processes
-// never present the same refresh token (a replay would revoke the connection). The lock
-// file records its owner, and unlock only removes a lock it still owns.
+// CleanupLeftovers removes them. Deleting is what a sandbox asks about, so callers use it only
+// for an explicit request; failing to remove one is not an error, it is housekeeping.
+func (s Store) CleanupLeftovers() {
+	for _, path := range s.Leftovers() {
+		_ = os.Remove(path)
+	}
+}
+
+// Reason names why a storage operation failed in a few stable words. The error text of the
+// filesystem or the keychain can carry local paths and details, and is never shown.
+func Reason(err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, ErrIntegrity):
+		return "failed its integrity check"
+	case errors.Is(err, ErrNotFound):
+		return "nothing is stored"
+	case errors.Is(err, os.ErrPermission):
+		return "permission denied"
+	case errors.Is(err, ErrLockTimeout):
+		return "another muvloom process is writing"
+	default:
+		return "storage error"
+	}
+}
+
+// legacyLockStaleAfter is how long an older version (0.1.3 and earlier) waited before it
+// treated a lock file it did not own as left by a dead process.
+const legacyLockStaleAfter = 5 * time.Minute
+
+// Lock serializes credential refresh across concurrent CLI processes, so two processes never
+// present the same refresh token (a replay would revoke the connection). It is an operating
+// system lock on a file that stays in place: the system drops it when its holder dies, so a
+// crash leaves nothing to clean up, and nothing is created or deleted per refresh.
+//
+// Older versions took this lock by creating the file with an owner marker in it, holding no
+// system lock, and deleting the file when done. While an upgrade is rolling out both versions
+// may refresh at the same moment, so the older protocol is honoured: a lock file with a fresh
+// owner marker is somebody else's lock and is waited for, and a stale one is taken over.
 func (s Store) Lock(timeout time.Duration) (func(), error) {
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return nil, err
 	}
-	path := filepath.Join(s.Dir, "credentials.lock")
-	owner := fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
+	path := s.lockFile()
 	deadline := time.Now().Add(timeout)
 	for {
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if err == nil {
-			_, writeErr := file.WriteString(owner)
-			closeErr := file.Close()
-			if err := errors.Join(writeErr, closeErr); err != nil {
-				_ = os.Remove(path)
-				return nil, err
-			}
-			return func() {
-				if held, err := os.ReadFile(path); err == nil && string(held) == owner {
-					_ = os.Remove(path)
-				}
-			}, nil
-		}
-		if !errors.Is(err, os.ErrExist) {
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
 			return nil, err
 		}
-		if info, statErr := os.Stat(path); statErr == nil && time.Since(info.ModTime()) > lockStaleAfter {
-			_ = os.Remove(path)
+		if heldByOlderVersion(file) {
+			file.Close()
+			if time.Now().After(deadline) {
+				return nil, ErrLockTimeout
+			}
+			time.Sleep(50 * time.Millisecond)
 			continue
 		}
+		acquired, err := tryLock(file)
+		if err != nil {
+			file.Close()
+			return nil, err
+		}
+		if acquired {
+			// An older version deletes its lock file when it is done. What we hold must still
+			// be the file at the path, or another process would lock a different file.
+			if !stillAtPath(file, path) {
+				_ = unlock(file)
+				file.Close()
+				continue
+			}
+			// An older version deletes a lock file nobody touched for five minutes.
+			now := time.Now()
+			_ = os.Chtimes(path, now, now)
+			return func() {
+				_ = unlock(file)
+				_ = file.Close()
+			}, nil
+		}
+		file.Close()
 		if time.Now().After(deadline) {
 			return nil, ErrLockTimeout
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// heldByOlderVersion reports an older version's live lock: a lock file carrying an owner
+// marker, which this version never writes, that was touched recently. A stale marker is
+// cleared so it is not mistaken for a holder again.
+func heldByOlderVersion(file *os.File) bool {
+	info, err := file.Stat()
+	if err != nil || info.Size() == 0 {
+		return false
+	}
+	if time.Since(info.ModTime()) > legacyLockStaleAfter {
+		_ = file.Truncate(0)
+		return false
+	}
+	return true
+}
+
+func stillAtPath(file *os.File, path string) bool {
+	held, err := file.Stat()
+	if err != nil {
+		return false
+	}
+	current, err := os.Stat(path)
+	return err == nil && os.SameFile(held, current)
+}
+
+// locked runs a write of state files under a short lock of its own, so two processes writing
+// at once (a login and another process's refresh, a logout) cannot interleave their bytes. It
+// is a different lock from the refresh lock, which is held across a network call and by the
+// caller of Save: taking that one again from the same process would wait on itself.
+func (s Store) locked(write func() error) error {
+	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(filepath.Join(s.Dir, "state.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		acquired, err := tryLock(file)
+		if err != nil {
+			return err
+		}
+		if acquired {
+			defer unlock(file)
+			return write()
+		}
+		if time.Now().After(deadline) {
+			return ErrLockTimeout
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

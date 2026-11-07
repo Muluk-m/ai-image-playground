@@ -49,7 +49,7 @@ func (a *App) loadCredentials() (auth.Credentials, error) {
 		return auth.Credentials{}, fail("AUTH_REQUIRED", "Not signed in; run `muvloom auth login`")
 	}
 	if err != nil {
-		return auth.Credentials{}, fail("AUTH_REQUIRED", "Stored credentials are unreadable; run `muvloom auth login` (%v)", err)
+		return auth.Credentials{}, fail("AUTH_REQUIRED", "Stored credentials are unreadable (%s); run `muvloom auth login`", auth.Reason(err))
 	}
 	if creds.BaseURL != "" && !sameService(creds.BaseURL, a.APIURL) {
 		return auth.Credentials{}, a.serviceMismatch(creds.BaseURL)
@@ -129,7 +129,7 @@ func (a *App) refresh(ctx context.Context, rejected string) (string, error) {
 	next := a.credentialsFrom(tokens)
 	next.LoginDeviceCodeHash = creds.LoginDeviceCodeHash
 	if err := a.Store.Save(next); err != nil {
-		return "", fail("INTERNAL_ERROR", "Could not store refreshed credentials: %v", err)
+		return "", fail("INTERNAL_ERROR", "Could not store refreshed credentials (%s)", auth.Reason(err))
 	}
 	return next.AccessToken, nil
 }
@@ -168,12 +168,19 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 		return nil, err
 	}
 	skills, _ := skill.Installed(a.Home, a.CWD)
+	store := a.Store.Describe()
 	status := map[string]any{
 		"cli_version":      Version,
 		"api_url":          a.APIURL,
 		"api_url_source":   a.apiURLSource,
-		"credential_store": a.Store.Backend(),
+		"credential_store": store.Backend,
 		"skills":           skills,
+	}
+	if store.KeychainIssue != "" {
+		status["credential_store_issue"] = store.KeychainIssue
+	}
+	if leftovers := a.Store.Leftovers(); len(leftovers) > 0 {
+		status["leftover_temp_files"] = len(leftovers)
 	}
 	if pending, err := a.Store.LoadPending(); err == nil && time.Now().Before(pending.ExpiresAt) && !completedLogin(a, pending) {
 		status["pending_login"] = map[string]any{
@@ -276,7 +283,7 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 			BaseURL:                 a.APIURL,
 		}
 		if err := a.Store.SavePending(pending); err != nil {
-			return nil, fail("INTERNAL_ERROR", "Could not store the pending login: %v", err)
+			return nil, fail("INTERNAL_ERROR", "Could not store the pending login (%s)", auth.Reason(err))
 		}
 	}
 	prompt := map[string]any{
@@ -302,7 +309,7 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 			creds := a.credentialsFrom(tokens)
 			creds.LoginDeviceCodeHash = deviceCodeHash(pending.DeviceCode)
 			if err := a.Store.Save(creds); err != nil {
-				return nil, fail("INTERNAL_ERROR", "Could not store credentials: %v", err)
+				return nil, fail("INTERNAL_ERROR", "Could not store credentials (%s)", auth.Reason(err))
 			}
 			_ = a.Store.ClearPending()
 			a.progress("Signed in.")
@@ -375,8 +382,10 @@ func cmdAuthLogout(ctx context.Context, a *App, args []string) (any, error) {
 		}, nil) == nil
 	}
 	if err := a.Store.Clear(); err != nil {
-		return nil, fail("INTERNAL_ERROR", "Could not remove stored credentials: %v", err)
+		return nil, fail("INTERNAL_ERROR", "Could not remove stored credentials (%s)", auth.Reason(err))
 	}
+	// An explicit sign-out is the one place that may delete: remove what earlier versions left.
+	a.Store.CleanupLeftovers()
 	return map[string]any{"signed_out": true, "server_revoked": revoked}, nil
 }
 
