@@ -168,12 +168,16 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 		return nil, err
 	}
 	skills, _ := skill.Installed(a.Home, a.CWD)
+	store := a.Store.Describe()
 	status := map[string]any{
 		"cli_version":      Version,
 		"api_url":          a.APIURL,
 		"api_url_source":   a.apiURLSource,
-		"credential_store": a.Store.Backend(),
+		"credential_store": store.Backend,
 		"skills":           skills,
+	}
+	if store.KeychainIssue != "" {
+		status["credential_store_issue"] = store.KeychainIssue
 	}
 	if pending, err := a.Store.LoadPending(); err == nil && time.Now().Before(pending.ExpiresAt) && !completedLogin(a, pending) {
 		status["pending_login"] = map[string]any{
@@ -241,6 +245,8 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
 	}
+	// Earlier versions left temporary files behind whenever a rename was refused.
+	a.Store.CleanupLeftovers()
 	pending, err := a.Store.LoadPending()
 	// Starting a login against another service would replace the working connection on
 	// approval. Do that only when asked; a login already started for this service (the

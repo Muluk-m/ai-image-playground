@@ -6,7 +6,7 @@ All commands print exactly one JSON line on stdout: `{"schema_version":1,"ok":tr
 | --- | --- |
 | `muvloom version` | CLI version and platform |
 | `muvloom update check` | Daily cached stable-release check; `should_prompt` controls offering an authorized upgrade |
-| `muvloom auth status` | `state`: ready / unauthenticated / outdated / unreachable / service_mismatch; the effective `api_url` and its `api_url_source` (environment / connection / pending_login / default); account, credits, membership, installed Skill |
+| `muvloom auth status` | `state`: ready / unauthenticated / outdated / unreachable / service_mismatch; the effective `api_url` and its `api_url_source` (environment / connection / pending_login / default); `credential_store` (keychain / file / none) and, when the keychain is wanted but unusable, `credential_store_issue` (unavailable / unsupported_platform); account, credits, membership, installed Skill |
 | `muvloom auth login [--no-wait] [--timeout S] [--switch-service]` | Browser device login; `--no-wait` prints the link and returns; `--switch-service` signs in to `MUVLOOM_API_URL` even though this machine is signed in to another service |
 | `muvloom auth logout` | Revoke this CLI connection and forget it |
 | `muvloom capabilities` | Models, aspect ratios, image sizes, qualities, base-price estimates, limits for this account |

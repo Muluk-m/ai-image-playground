@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -175,5 +177,32 @@ func TestCheckNeverOffersDowngradeOrUnpublishedVersions(t *testing.T) {
 				t.Fatalf("invalid upgrade offered: %+v", result)
 			}
 		})
+	}
+}
+
+// The check runs at every Skill startup. Its daily record is rewritten in place, so a sandbox
+// that asks before replacing files never has a reason to ask.
+func TestTheDailyRecordIsUpdatedInPlace(t *testing.T) {
+	c := checker(t, func(*http.Request) (*http.Response, error) {
+		return response(`[{"tag_name":"cli-v0.1.9"}]`, 200), nil
+	})
+	now := time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC)
+	c.Now = func() time.Time { return now }
+	c.Check(context.Background())
+	path := filepath.Join(c.Dir, "updates", "check.json")
+	first, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(24 * time.Hour)
+	if again := c.Check(context.Background()); again.Cached {
+		t.Fatalf("the next day was served from the old record: %+v", again)
+	}
+	after, err := os.Stat(path)
+	if err != nil || !os.SameFile(first, after) {
+		t.Fatalf("the daily record was replaced instead of updated in place: %v", err)
+	}
+	if left, _ := filepath.Glob(filepath.Join(c.Dir, "updates", ".tmp-*")); len(left) != 0 {
+		t.Fatalf("temporary files left behind: %v", left)
 	}
 }
