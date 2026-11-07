@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -120,6 +121,9 @@ type App struct {
 	CWD  string
 	// Sleep is replaced in tests so polling runs instantly.
 	Sleep func(context.Context, time.Duration) error
+	// OpenBrowser and Listen replace the system browser and the loopback listener in tests.
+	OpenBrowser func(url string) error
+	Listen      func(network, addr string) (net.Listener, error)
 }
 
 func New(out, errOut io.Writer) *App {
