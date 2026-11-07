@@ -2,7 +2,9 @@ import { useState, useSyncExternalStore } from 'react'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
+import { useGptPremiumLocked } from '../../../lib/gptPremium'
 import { composerImageRate } from '../../../lib/imageCharge'
+import { getParamCapabilities } from '../../../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
 import { canvasExportSources } from '../../image-export/sources'
@@ -53,10 +55,13 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
     .filter((el): el is ImageEl => el?.type === 'image' && !el.video)
   const exportable = exportableElements(doc, selection)
   const batchModel = clientProfileToApiProfile(getActiveApiProfile(settings)).model
+  const profile = getActiveApiProfile(settings)
+  const directAvailable = getParamCapabilities(profile, params.output_format).size
+  const premium = useGptPremiumLocked(batchModel, directAvailable)
   const guard = usePrivateSubmissionGuard({
     model: batchModel,
     quantity: images.length,
-    unitMultiplier: composerImageRate(batchModel, params),
+    unitMultiplier: composerImageRate(batchModel, params, premium.member, directAvailable),
   })
 
   if (doc.tool !== 'select' || selection.length < 2 || doc.editingTextId) return null
