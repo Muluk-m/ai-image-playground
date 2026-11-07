@@ -119,7 +119,11 @@ export default function CliDevicePage() {
         method: 'POST',
         signal: controller.signal,
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ user_code: code, decision }),
+        body: JSON.stringify(
+          loopbackState && decision === 'approve'
+            ? { user_code: code, decision, loopback: true }
+            : { user_code: code, decision },
+        ),
       })
       if (controller.signal.aborted) return
       if (!res.ok) {
