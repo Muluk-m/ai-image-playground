@@ -16,7 +16,7 @@
 - **测试环境**：推 `test` 分支由 `.github/workflows/deploy-test.yml` 先发布独立测试后端（`image-playground-test`，独立数据库与 R2 桶），再发布 https://test.muvloom.online；前端固定连 `https://test-api.muvloom.online`，不读写生产数据。前后端使用同一公开提交与 `private.lock` 钉住的 overlay。test 落后 main 会直接失败，把 main 合进 test 再推；别在 `test` 上直接改代码。细节见[测试环境手册](docs/deploy/test-environment.md)。
 - 前端发布只用 `scripts/pages-release.sh muvloom|test|admin`（企业域名与 muvloom 同属 muvloom 项目，一个项目、多个域名）；各目标的 Pages 项目与域名写在仓库外的 `pages.env`（默认 `$XDG_CONFIG_HOME/ai-image-playground/pages.env`，可用 `PAGES_ENV_FILE` 覆盖）。现存 `PAID_*` 配置键和 VPS `paid` 目标连接共享生产资源；企业域名使用 `ENTERPRISE_PUBLIC_ORIGIN` / `ENTERPRISE_BFF_BASE_URL`，配置切换与固定 runtime 更新见[部署手册](docs/deploy/image-release.md#产品与现存标识)。不要直接调底层 `scripts/pages-deploy.sh`——漏掉分支参数曾把未合并分支发到生产。
 - 灵感库（探索页素材流）批量下架、新增、回滚与验收按[灵感库维护手册](docs/deploy/inspiration-maintenance.md)；灵感图只传 `cms-r2.deepclick.com`。
-- **Agent 发布按[发布手册](docs/agents/release.md)**：合并前检查、`test` 只用 fetch 加快进推送、生产与私有 overlay 发布、上线核对和回滚。生产发布（功能或行为变更）、回滚、迁移、私有仓合并要 Nain 批准，表格见该手册。查生产问题默认只读，能做和禁止的操作见[生产只读排查](docs/agents/prod-readonly.md)。
+- **Agent 发布按[发布手册](docs/agents/release.md)**：合并前检查、`test` 只用 fetch 加快进推送、生产与私有 overlay 发布、上线核对和回滚。经流水线上线的合并、迁移、私有仓合并、CLI 发布与回滚都由 Agent 检查齐了直接推进，不等 Nain 批准，上线后必须冒烟；只有绕过流水线、手工改生产服务器或生产数据要 Nain 批准，表格见该手册。查生产问题默认只读，能做和禁止的操作见[生产只读排查](docs/agents/prod-readonly.md)。
 - 灾备采用[R2 按需冷恢复](docs/deploy/cold-recovery.md)；macmini2 旧备用已停止。固定 API 切换和跨机器单写者保护尚未上线，恢复演练或同库发布排空都不算完整灾备。
 
 ## 项目概况
@@ -71,7 +71,7 @@ CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）把 `pnpm lint`
 `with-overlay` / `with-overlay (typecheck)` / `with-overlay (build)` 再用 `private.lock` 钉住的 overlay 分别跑 lint + 私有包测试、typecheck + admin 构建、build + 冒烟。
 本地可选 `pnpm hooks:install` 启用 `.githooks/pre-push`：推送前只对改动文件跑 biome 和受影响包的 typecheck（`AIP_PRE_PUSH=lint` 只跑 lint，`skip` 跳过）。
 
-**默认交付到生产。** 代码修改通过检查后，继续创建 PR、等 CI、合并 `main`；合并后由部署 workflow 自动发布，会话不手动发布，只跟进该 workflow 结果并核验线上版本和行为。修 bug 的 PR 检查齐了直接完成整条链路，无需再次询问是否部署；功能或行为变更、带迁移的 PR 合并前要 Nain 确认（见[发布手册](docs/agents/release.md)）。用户明确要求仅本地修改或暂不合并时照办。
+**默认交付到生产。** 代码修改通过检查后，继续创建 PR、等 CI、合并 `main`；合并后由部署 workflow 自动发布，会话不手动发布，只跟进该 workflow 结果并核验线上版本和行为。修 bug、功能或行为变更、带迁移的 PR，检查齐了都直接完成整条链路：合并、跟进部署、上线后冒烟，无需询问是否部署（见[发布手册](docs/agents/release.md)）。用户明确要求仅本地修改或暂不合并时照办。
 
 **交付不能停在本地。** 用户指定测试环境或明确暂不上生产时，完成改动后自动走测试环境发布：工作分支提交 → 远端检查 → 将最新 `main` 与工作分支合入 `test` → 跟进 Deploy test → 核对线上版本并实测变更。不再次询问是否部署，不把已提交、已推送或 workflow 已触发当作交付完成；失败继续处理，外部阻塞明确报告且待办保持阻塞状态。测试验收不代表获准上生产。
 
@@ -91,11 +91,11 @@ CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）把 `pnpm lint`
 
 **评审。** 怎么评、什么算严重、哪些文件可跳过、输出格式，见 [REVIEW.md](REVIEW.md)。作者 Agent 与 Codex 最多来回 3 轮：第 2 轮起只看新增改动、不重复已提过的问题；3 轮后仍有严重问题就停下，重新想方案或交给 Nain。规则细节见 REVIEW.md「评审轮次上限」。每轮怎么处理的写进 PR 的「评审处理记录」。
 
-**Nain 的确认。** 需要 Nain 确认的 PR（见[发布手册](docs/agents/release.md)的审批表），在 PR 里记下他确认时的 head SHA（例：「Nain 已确认 @ abc1234」）。确认之后又推了提交、且新提交动到 REVIEW.md「什么算严重」里的领域的，要重新请他确认，旧的确认不算数；只改文案、注释或测试的可以沿用，但要在 PR 里说明。
+**上线后冒烟。** PR 合并不需要 Nain 确认（2026-11-08 决定）。合并后跟进部署 workflow，核对线上版本，再实测改到的功能：接口用只读请求，界面在浏览器里看，关键流程用测试账号；结果写进 PR 评论。冒烟不过就修复或回滚，并在汇报里说明。
 
 **关键流程证据。** 改到注册/登录、支付/计费、生成（出图、出视频）流程的 PR，必须附测试账号在测试环境（https://test.muvloom.online）走通该流程的截图或录屏，写明账号类型、环境和提交。证据里不能出现密码、验证码、token 或真实用户数据。`scripts/agent-smoke.ts`（[智能体上线手册](docs/deploy/agent-rollout.md)第七节）、`scripts/pages-browser-smoke.sh`（[部署手册](docs/deploy/image-release.md)「前端启动验收」）和[云端测试](docs/agents/cloud-tests.md)只能作补充：它们不走真实登录、付款或生成，不能代替证据。
 
-**成本与影响说明。** 改到模型调用、模型/供应商切换、定价、额度、计费，或任何会改变推理成本的改动（更贵的默认模型、更多调用次数、更长上下文、更大输出、放宽限额），必须在 PR 描述的「成本与影响」和给 Nain 的汇报里写清楚改了什么、对成本的影响。`.github/workflows/cost-impact.yml` 按 `scripts/cost-impact.mjs` 的路径清单检查，命中时打 `cost-impact` 标签提醒，只提示、不拦合并；清单外的成本改动同样要写。成本与扣费本身不需要 Nain 确认（预算充足）：只要改动不是用户可感知的功能或行为变更，写清楚影响即可按常规流程合并；同时属于功能或行为变更的，仍按上面「默认交付到生产」要 Nain 确认。
+**成本与影响说明。** 改到模型调用、模型/供应商切换、定价、额度、计费，或任何会改变推理成本的改动（更贵的默认模型、更多调用次数、更长上下文、更大输出、放宽限额），必须在 PR 描述的「成本与影响」和给 Nain 的汇报里写清楚改了什么、对成本的影响。`.github/workflows/cost-impact.yml` 按 `scripts/cost-impact.mjs` 的路径清单检查，命中时打 `cost-impact` 标签提醒，只提示、不拦合并；清单外的成本改动同样要写。成本与扣费本身不需要 Nain 确认（预算充足），写清楚影响即可按常规流程合并。
 
 **安全扫描（已定，2026-10-27）。** CodeQL（`.github/workflows/codeql.yml`）只报告、不拦合并；落在本 PR 改动上的高危告警按 REVIEW.md 当严重问题处理。Dependabot 只开 `.github/dependabot.yml` 里的版本更新，不开 Dependabot security updates（自动开安全修复 PR）。这是决定，不是待办。
 
