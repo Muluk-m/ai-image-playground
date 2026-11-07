@@ -217,12 +217,7 @@ export function AnnouncementEditor({ id }: { id: string }) {
             </Button>
           ) : null}
           {status !== 'archived' ? (
-            <Button
-              type="button"
-              size="sm"
-              className="bg-brand text-brand-foreground hover:bg-brand-hover"
-              onClick={() => setAction('publish')}
-            >
+            <Button type="button" size="sm" variant="brand" onClick={() => setAction('publish')}>
               <Send />
               发布
             </Button>
