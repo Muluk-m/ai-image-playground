@@ -16,10 +16,16 @@
 
 所有认证命令使用 WorkBuddy 的前台、可交互执行方式；Bash 的 `run_in_background` 保持关闭，让需要的权限确认可以显示给用户。前台执行仍可能受权限保护，不保证免于确认。
 
+用户点完授权，你应当自动继续，**不需要用户再回复你**。
+
 1. 先运行 `muvloom auth status`。确认 `api_url` 对应本次接入的服务，`state: ready` 时直接验证 `muvloom capabilities`，保留已有连接。
-2. 未登录时，前台运行 `muvloom auth login --no-wait`，打开返回的 `verification_uri_complete`，告诉用户在页面完成授权。**立即结束这一回合等待用户确认**，让用户有操作窗口。
-3. 用户确认后，先再次运行 `muvloom auth status`。已经 `ready` 就完成；否则前台运行 `muvloom auth login --timeout 15` 收尾，再检查状态。
-4. `AUTH_PENDING` 只表示仍在等待。保留原流程，提示用户完成页面确认后再继续；不要循环等待或反复申请新码。
+2. 未登录时，前台运行 `muvloom auth login --no-wait`，取得返回的 `verification_uri_complete`，**自己打开授权页**，并在这一条回复里告诉用户：授权页已打开，请登录并点「授权」；你会在这里等，点完会自动继续，不需要回复我。**不要结束本回合。**
+3. 紧接着前台运行 `muvloom auth login --timeout 60` 等待授权。返回 `AUTH_PENDING`（退出码 3）只表示用户还没点，不是失败：直接再运行一次，直到出现下面三种结果之一。等待期间不要反复提示用户，也不要重新打开授权页：
+   - `state: ready`：授权完成，继续第 4 步。
+   - `AUTH_DENIED`：用户拒绝了，停止并说明。
+   - `AUTH_EXPIRED`：授权码已过期（有效期 20 分钟），这时才重新运行 `muvloom auth login --no-wait` 发一个新码，再次打开页面并提示用户。
+4. 运行 `muvloom auth status` 确认 `ready`，再运行 `muvloom capabilities`。
+5. 宿主打断等待时的兜底：如果等待命令被宿主中断（超时被终止，或为权限确认而重放），先运行 `muvloom auth status`，`ready` 就是成功；仍未就绪就再等一次。同一次授权里等待命令**连续两次**都被中断，才退回到让用户确认：告诉用户点完授权后回复一句，收到后先查 `auth status`，仍未就绪再前台运行 `muvloom auth login --timeout 15` 收尾。
 
 ## 本地写入或清理受限
 

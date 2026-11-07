@@ -40,6 +40,20 @@ describe('WorkBuddy Skill package', () => {
     }
   })
 
+  // 用户点完授权就应该自动继续，不该再回一句：智能体在前台等待，而不是结束回合。
+  it('tells the agent to wait for the approval in the foreground instead of handing the turn back', () => {
+    const files = unzipSync(createWorkBuddySkillZip())
+    const guide = strFromU8(files['muvloom/references/workbuddy.md'])
+    expect(guide).toContain('muvloom auth login --no-wait')
+    expect(guide).toContain('muvloom auth login --timeout 60')
+    expect(guide).toContain('AUTH_PENDING')
+    expect(guide).toContain('不需要回复我')
+    expect(guide).not.toContain('立即结束这一回合')
+    expect(guide).not.toContain('不要循环等待')
+    // The old behaviour stays as the fallback when the host keeps interrupting the wait.
+    expect(guide).toContain('连续两次')
+  })
+
   it('produces identical bytes from the same checked-in source', () => {
     expect(createWorkBuddySkillZip()).toEqual(createWorkBuddySkillZip())
   })

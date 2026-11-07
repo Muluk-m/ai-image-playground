@@ -138,6 +138,22 @@ describe('CliConnectPage', () => {
     )
   })
 
+  it('两份指南都让智能体在前台等用户授权并自动继续，不再回一句', () => {
+    const dir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../public/cli')
+    const setup = readFileSync(resolve(dir, 'setup.md'), 'utf8')
+    const workbuddy = readFileSync(resolve(dir, 'workbuddy.md'), 'utf8')
+    for (const [name, text] of [
+      ['setup.md', setup],
+      ['workbuddy.md', workbuddy],
+    ] as const) {
+      expect(text, name).toContain('muvloom auth login --timeout 60')
+      expect(text, name).toContain('AUTH_PENDING')
+    }
+    expect(workbuddy).not.toContain('立即结束本回合')
+    expect(setup).not.toContain('ask the user to sign in and approve the connection.\n   Only if')
+    expect(setup.replace(/\s+/g, ' ')).toContain('do not end your turn')
+  })
+
   it('两份指南都要求抓取同目录的另一份时沿用同一个 v 参数', () => {
     const dir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../public/cli')
     for (const name of ['setup.md', 'workbuddy.md']) {
