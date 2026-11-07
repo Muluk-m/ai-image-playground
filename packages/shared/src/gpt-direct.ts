@@ -210,7 +210,7 @@ export function imageRateMultiplier(
 
 /**
  * 智能体、阶段授权、批量、模板与预先准备的提交会先把 GPT 收到非会员上限（≤2K、非高画质，
- * `clampGptInput` / {@link clampGptNonMemberRequest}），再计价。提案冻结的倍率必须走这里，和提交时的
+ * {@link clampGptNonMemberRequest}），再计价。提案冻结的倍率必须走这里，和提交时的
  * `pricingOf` 一致；两边用同一个收口函数，授权倍率与实扣才对得上。
  * 网站直接提交不要用它：会员的 GPT 档位原样计价。
  * `supportedTiers` 是渠道声明的可出档；提案和提交要传同一份。
