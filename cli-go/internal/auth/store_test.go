@@ -1,10 +1,15 @@
 package auth
 
 import (
+	"bufio"
 	"errors"
+	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -292,4 +297,129 @@ func TestLeftoverTemporaryFilesAreRemovedOnlyWhenTheyAreOurs(t *testing.T) {
 	if _, err := os.Stat(other); err != nil {
 		t.Fatalf("an unrelated file was removed: %v", err)
 	}
+}
+
+func TestPendingLoginAndServiceRecordsAreCheckedToo(t *testing.T) {
+	store := Store{Dir: t.TempDir()}
+	if err := store.SavePending(PendingLogin{DeviceCode: "dev", UserCode: "BCDF-GHJK", BaseURL: "https://api.test", ExpiresAt: time.Now().Add(time.Minute), IntervalSeconds: 5}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(Credentials{AccessToken: "a", RefreshToken: "r", BaseURL: "https://api.test"}); err != nil {
+		t.Fatal(err)
+	}
+	for file, from := range map[string]string{"pending-login.json": `"device_code":"dev"`, "connection.json": `"base_url":"https://api.test"`} {
+		path := filepath.Join(store.Dir, file)
+		data, _ := os.ReadFile(path)
+		garbled := strings.Replace(string(data), from, strings.Replace(from, "dev", "evil", 1), 1)
+		garbled = strings.Replace(garbled, "https://api.test", "https://api.evil", 1)
+		if garbled == string(data) {
+			t.Fatalf("%s has nothing to garble: %s", file, data)
+		}
+		if err := os.WriteFile(path, []byte(garbled), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.LoadPending(); !errors.Is(err, ErrIntegrity) {
+		t.Fatalf("a garbled pending login was used: %v", err)
+	}
+	if service, err := store.LoadService(); err == nil {
+		t.Fatalf("a garbled service record was used: %q", service)
+	}
+}
+
+// A field added to Credentials later must not make an older binary reject a good record.
+func TestARecordWithAFieldAddedLaterStillVerifies(t *testing.T) {
+	store := Store{Dir: t.TempDir()}
+	future := struct {
+		Credentials
+		Scope string `json:"scope"`
+	}{Credentials{AccessToken: "a", RefreshToken: "r", BaseURL: "https://api.test"}, "images:write"}
+	data, err := frame(future)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.Dir, "credentials.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.Load(); err != nil || got.RefreshToken != "r" {
+		t.Fatalf("a record with an extra field = %+v, %v", got, err)
+	}
+}
+
+// Writers take turns, so a reader never sees the bytes of two records mixed.
+func TestConcurrentWritersNeverLeaveATornRecord(t *testing.T) {
+	store := Store{Dir: t.TempDir()}
+	if err := store.Save(Credentials{AccessToken: "a", RefreshToken: "seed", BaseURL: "https://api.test"}); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 3)
+	for _, prefix := range []string{"short", "a-considerably-longer-refresh-token-value-"} {
+		go func() {
+			for i := 0; i < 40; i++ {
+				if err := store.Save(Credentials{AccessToken: "a", RefreshToken: prefix + strconv.Itoa(i), BaseURL: "https://api.test"}); err != nil {
+					done <- err
+					return
+				}
+			}
+			done <- nil
+		}()
+	}
+	go func() {
+		for i := 0; i < 120; i++ {
+			if _, err := store.Load(); err != nil {
+				done <- err
+				return
+			}
+		}
+		done <- nil
+	}()
+	for i := 0; i < 3; i++ {
+		if err := <-done; err != nil {
+			t.Fatalf("a writer or reader saw a broken record: %v", err)
+		}
+	}
+	if _, err := store.Load(); err != nil {
+		t.Fatalf("final record: %v", err)
+	}
+}
+
+// The lock must hold across processes, which is the only way two muvloom commands meet.
+func TestHelperHoldLock(t *testing.T) {
+	dir := os.Getenv("AIP_LOCK_HELPER_DIR")
+	if dir == "" {
+		t.Skip("helper process only")
+	}
+	unlock, err := (Store{Dir: dir}).Lock(5 * time.Second)
+	if err != nil {
+		fmt.Println("error:", err)
+		os.Exit(2)
+	}
+	fmt.Println("locked")
+	_, _ = io.Copy(io.Discard, os.Stdin) // hold until the parent closes our stdin
+	unlock()
+}
+
+func TestTheLockExcludesAnotherProcess(t *testing.T) {
+	store := Store{Dir: t.TempDir()}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestHelperHoldLock$")
+	cmd.Env = append(os.Environ(), "AIP_LOCK_HELPER_DIR="+store.Dir)
+	stdin, _ := cmd.StdinPipe()
+	stdout, _ := cmd.StdoutPipe()
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	line, err := bufio.NewReader(stdout).ReadString('\n')
+	if err != nil || strings.TrimSpace(line) != "locked" {
+		t.Fatalf("the helper did not take the lock: %q %v", line, err)
+	}
+	if _, err := store.Lock(150 * time.Millisecond); err != ErrLockTimeout {
+		t.Fatalf("a second process took a held lock: %v", err)
+	}
+	_ = stdin.Close() // the holder exits; the system releases its lock
+	_ = cmd.Wait()
+	unlock, err := store.Lock(2 * time.Second)
+	if err != nil {
+		t.Fatalf("the lock was not released with its holder: %v", err)
+	}
+	unlock()
 }

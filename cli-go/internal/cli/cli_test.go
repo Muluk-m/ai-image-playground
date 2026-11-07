@@ -957,17 +957,33 @@ func TestSigningInRefreshingAndOutNeverReplaceOrDeleteFiles(t *testing.T) {
 	}
 }
 
-func TestLoginClearsTheTemporaryFilesEarlierVersionsLeftBehind(t *testing.T) {
+// Deleting is what a sandbox asks about, so signing in never deletes. Leftovers from earlier
+// versions are counted by `auth status` and removed by an explicit `auth logout`.
+func TestLeftoverTemporaryFilesAreReportedAndRemovedOnlyByLogout(t *testing.T) {
 	f := newFakeServer(t)
 	dir := t.TempDir()
-	for _, name := range []string{".tmp-1111", ".tmp-2222"} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+	leftovers := []string{filepath.Join(dir, ".tmp-1111"), filepath.Join(dir, ".tmp-2222")}
+	for _, path := range leftovers {
+		if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	login(t, newApp(t, f, dir))
+	app := newApp(t, f, dir)
+	login(t, app)
+	for _, path := range leftovers {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("signing in deleted %s", filepath.Base(path))
+		}
+	}
+	if data := execute(t, app, "auth", "status").out["data"].(map[string]any); data["leftover_temp_files"] != float64(2) {
+		t.Fatalf("status = %v", data)
+	}
+	execute(t, app, "auth", "logout")
 	if left, _ := filepath.Glob(filepath.Join(dir, ".tmp-*")); len(left) != 0 {
-		t.Fatalf("leftovers remain: %v", left)
+		t.Fatalf("leftovers remain after logout: %v", left)
+	}
+	if data := execute(t, app, "auth", "status").out["data"].(map[string]any); data["leftover_temp_files"] != nil {
+		t.Fatalf("status still reports leftovers: %v", data)
 	}
 }
 
@@ -1006,4 +1022,50 @@ func TestTheSubmissionRecordIsUpdatedInPlace(t *testing.T) {
 		t.Fatalf("second create = %d %s", r.code, r.stdout)
 	}
 	assertSameFile(t, records[0], before, "a repeated submission")
+}
+
+// A keychain error that carries a local path.
+type leakyKeychain struct{ holds bool }
+
+func (k leakyKeychain) Get(string, string) (string, error) {
+	if k.holds {
+		return `{"access_token":"a","refresh_token":"r","base_url":"http://x"}`, nil
+	}
+	return "", errors.New("User interaction is not allowed: /Users/someone/Library/Keychains/login.keychain")
+}
+func (leakyKeychain) Set(string, string, string) error {
+	return errors.New("User interaction is not allowed: /Users/someone/Library/Keychains/login.keychain")
+}
+func (leakyKeychain) Delete(string, string) error {
+	return errors.New("User interaction is not allowed: /Users/someone/Library/Keychains/login.keychain")
+}
+
+func TestStoreFailuresNeverEchoTheStoresOwnText(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	// The keychain still holds the login but refuses to let go of it.
+	app.Store = auth.Store{Dir: dir, UseKeyring: true, Keychain: leakyKeychain{holds: true}}
+	r := execute(t, app, "auth", "logout")
+	if r.code == ExitOK {
+		t.Fatalf("logout succeeded although the keychain kept the login: %s", r.stdout)
+	}
+	if strings.Contains(r.stdout, "someone") || strings.Contains(r.stdout, "keychain") && strings.Contains(r.stdout, "/Users") {
+		t.Fatalf("the store's own error text leaked: %s", r.stdout)
+	}
+}
+
+func TestAnUnreadableCredentialFileDoesNotEchoItsOwnText(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	if err := os.WriteFile(filepath.Join(dir, "credentials.json"), []byte(`{"refresh_token":"x","checksum":"bad"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := execute(t, app, "jobs", "get", "job-1")
+	if r.code != ExitAuth || strings.Contains(r.stdout, "credentials.json") || strings.Contains(r.stdout, dir) {
+		t.Fatalf("unreadable credentials = %d %s", r.code, r.stdout)
+	}
 }
