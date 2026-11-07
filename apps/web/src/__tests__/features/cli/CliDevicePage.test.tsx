@@ -164,6 +164,7 @@ describe('CliDevicePage', () => {
     await render()
     expect(host.querySelector('[role="status"]')?.textContent).toBe('已连接，可以回到原来的应用。')
     expect(host.querySelector('input')).toBeNull()
+    expect(host.querySelectorAll('button')).toHaveLength(0)
     expect(fetcher).not.toHaveBeenCalled()
   })
 
