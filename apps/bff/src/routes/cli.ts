@@ -7,6 +7,7 @@ import {
   describeDeviceAuthorization,
   exchangeDeviceCode,
   listCliConnections,
+  parseCliRequestKey,
   refreshCliToken,
   revokeCliConnection,
   revokeCliToken,
@@ -118,11 +119,15 @@ export const cliOAuthRoutes = new Elysia()
       )
       if (blocked) return blocked
       if (body.client_id !== CLI_CLIENT_ID) return oauthJson({ error: 'invalid_client' }, 401)
+      // 扩展参数：CLI 换令牌前持久保存的请求标识，用于响应丢失后的重试恢复（ADR 0031）。
+      const requestKey = body.request_id === undefined ? null : parseCliRequestKey(body.request_id)
+      if (body.request_id !== undefined && !requestKey)
+        return oauthJson({ error: 'invalid_request' }, 400)
       const result =
         body.grant_type === 'urn:ietf:params:oauth:grant-type:device_code' && body.device_code
-          ? await exchangeDeviceCode(body.device_code, CLI_CLIENT_ID)
+          ? await exchangeDeviceCode(body.device_code, CLI_CLIENT_ID, requestKey)
           : body.grant_type === 'refresh_token' && body.refresh_token
-            ? await refreshCliToken(body.refresh_token, CLI_CLIENT_ID)
+            ? await refreshCliToken(body.refresh_token, CLI_CLIENT_ID, requestKey)
             : null
       if (!result) return oauthJson({ error: 'unsupported_grant_type' }, 400)
       return result.ok ? oauthJson({ ...result.tokens }) : oauthJson({ error: result.error }, 400)
@@ -133,6 +138,7 @@ export const cliOAuthRoutes = new Elysia()
         grant_type: t.String({ maxLength: 128 }),
         device_code: t.Optional(t.String({ maxLength: 256 })),
         refresh_token: t.Optional(t.String({ maxLength: 256 })),
+        request_id: t.Optional(t.String({ maxLength: 64 })),
       }),
     },
   )

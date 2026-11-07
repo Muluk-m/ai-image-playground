@@ -313,7 +313,7 @@ export const device_authorizations = pgTable(
 
 /**
  * One row per CLI connection (a token family). Refreshing rotates the hashes in place; the
- * retired refresh hashes live in `cli_retired_refresh_tokens` so a replay revokes the row.
+ * retired refresh hashes live in `cli_retired_refresh_tokens` for replay detection and recovery.
  */
 export const cli_connections = pgTable(
   'cli_connections',
@@ -348,9 +348,14 @@ export const cli_retired_refresh_tokens = pgTable(
     connection_id: text('connection_id')
       .notNull()
       .references(() => cli_connections.id, { onDelete: 'cascade' }),
+    /** SHA-256 of the CLI's refresh request identity; NULL for keyless (older) clients. */
+    request_key_hash: text('request_key_hash'),
     retired_at: epochMs('retired_at').notNull(),
   },
-  (t) => [index('idx_cli_retired_refresh_tokens_connection').on(t.connection_id)],
+  (t) => [
+    index('idx_cli_retired_refresh_tokens_connection').on(t.connection_id),
+    uniqueIndex('idx_cli_retired_refresh_request').on(t.connection_id, t.request_key_hash),
+  ],
 )
 
 /** Queue tasks submitted through the CLI API, for source attribution and reliability metrics. */

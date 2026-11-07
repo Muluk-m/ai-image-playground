@@ -215,12 +215,24 @@ async function startDevice() {
   return res.json as { device_code: string; user_code: string; verification_uri_complete: string }
 }
 
-function pollToken(deviceCode: string) {
+function pollToken(deviceCode: string, requestId?: string) {
   return call('POST', '/v1/oauth/token', {
     form: {
       client_id: 'muvloom-cli',
       grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
       device_code: deviceCode,
+      ...(requestId ? { request_id: requestId } : {}),
+    },
+  })
+}
+
+function refreshToken(value: string, requestId?: string) {
+  return call('POST', '/v1/oauth/token', {
+    form: {
+      client_id: 'muvloom-cli',
+      grant_type: 'refresh_token',
+      refresh_token: value,
+      ...(requestId ? { request_id: requestId } : {}),
     },
   })
 }
@@ -346,6 +358,58 @@ describe('device authorization', () => {
     expect((await pollToken(device.device_code)).json).toEqual({ error: 'access_denied' })
   })
 
+  it('replays the same tokens for a retried exchange with the same request id', async () => {
+    const user = await createUser('device-retry')
+    const device = await startDevice()
+    await call('POST', '/api/cli/device', {
+      body: { user_code: device.user_code, decision: 'approve' },
+      headers: { cookie: user.cookie },
+    })
+    const requestId = crypto.randomUUID()
+    const first = await pollToken(device.device_code, requestId)
+    expect(first.status).toBe(200)
+    // 响应在网络上丢失：CLI 带同一标识重试，拿回同一组令牌，仍然只有一条连接。
+    const retried = await pollToken(device.device_code, requestId)
+    expect(retried.status).toBe(200)
+    expect(retried.json.access_token).toBe(first.json.access_token)
+    expect(retried.json.refresh_token).toBe(first.json.refresh_token)
+    expect(retried.json.expires_in).toBeLessThanOrEqual(7200)
+    expect(await db.select().from(schema.cli_connections)).toHaveLength(1)
+    expect((await call('GET', '/v1/me', { headers: bearer(first.json.access_token) })).status).toBe(
+      200,
+    )
+
+    expect((await pollToken(device.device_code, crypto.randomUUID())).json).toEqual({
+      error: 'invalid_grant',
+    })
+    expect((await pollToken(device.device_code)).json).toEqual({ error: 'invalid_grant' })
+
+    // 设备码到期一小时后不再重发。
+    const [deviceRow] = await db.select().from(schema.device_authorizations)
+    await db
+      .update(schema.device_authorizations)
+      .set({ expires_at: Date.now() - 60 * 60 * 1000 - 1 })
+    expect((await pollToken(device.device_code, requestId)).json).toEqual({
+      error: 'invalid_grant',
+    })
+    await db.update(schema.device_authorizations).set({ expires_at: deviceRow!.expires_at })
+
+    // 连接已经往前轮换过，就不再重发兑换时的那一组。
+    expect((await refreshToken(first.json.refresh_token, crypto.randomUUID())).status).toBe(200)
+    expect((await pollToken(device.device_code, requestId)).json).toEqual({
+      error: 'invalid_grant',
+    })
+  })
+
+  it('rejects a malformed request id before touching the device code', async () => {
+    const device = await startDevice()
+    const res = await pollToken(device.device_code, 'not-a-uuid')
+    expect(res.status).toBe(400)
+    expect(res.json).toEqual({ error: 'invalid_request' })
+    const [row] = await db.select().from(schema.device_authorizations)
+    expect(row!.last_polled_at).toBeNull()
+  })
+
   it('expires codes after their lifetime', async () => {
     const device = await startDevice()
     await db.update(schema.device_authorizations).set({ expires_at: Date.now() - 1 })
@@ -375,6 +439,171 @@ describe('CLI tokens', () => {
       (await call('GET', '/v1/me', { headers: bearer(second.json.access_token) })).status,
     ).toBe(401)
     expect((await refresh(second.json.refresh_token)).json).toEqual({ error: 'invalid_grant' })
+  })
+
+  it('recovers a refresh whose response was lost, without revoking the connection', async () => {
+    const user = await createUser('refresh-retry')
+    const first = await connect(user)
+    const requestId = crypto.randomUUID()
+    const second = await refreshToken(first.refresh_token, requestId)
+    expect(second.status).toBe(200)
+
+    const retried = await refreshToken(first.refresh_token, requestId)
+    expect(retried.status).toBe(200)
+    expect(retried.json.access_token).toBe(second.json.access_token)
+    expect(retried.json.refresh_token).toBe(second.json.refresh_token)
+    expect(
+      (await call('GET', '/v1/me', { headers: bearer(retried.json.access_token) })).status,
+    ).toBe(200)
+
+    const stored = JSON.stringify(await db.select().from(schema.cli_retired_refresh_tokens))
+    expect(stored).not.toContain(requestId)
+    expect(stored).not.toContain(first.refresh_token)
+
+    // 恢复后照常用新标识继续轮换。
+    const third = await refreshToken(second.json.refresh_token, crypto.randomUUID())
+    expect(third.status).toBe(200)
+    expect((await call('GET', '/v1/me', { headers: bearer(third.json.access_token) })).status).toBe(
+      200,
+    )
+    // 已经被更新一代取代：同一标识也不再恢复那一组。
+    expect((await refreshToken(first.refresh_token, requestId)).json).toEqual({
+      error: 'invalid_grant',
+    })
+  })
+
+  it('rejects unprovable old tokens without kicking out the healthy connection', async () => {
+    const user = await createUser('refresh-stale')
+    const first = await connect(user)
+    const second = await refreshToken(first.refresh_token, crypto.randomUUID())
+    expect(second.status).toBe(200)
+
+    expect((await refreshToken(first.refresh_token, crypto.randomUUID())).json).toEqual({
+      error: 'invalid_grant',
+    })
+    // 去掉标识冒充旧客户端，也不能借重放检测吊销新 CLI 的连接。
+    expect((await refreshToken(first.refresh_token)).json).toEqual({ error: 'invalid_grant' })
+    expect(
+      (await call('GET', '/v1/me', { headers: bearer(second.json.access_token) })).status,
+    ).toBe(200)
+    expect((await refreshToken(second.json.refresh_token, crypto.randomUUID())).status).toBe(200)
+  })
+
+  it('keeps rotating a connection whose old client never sends a request id', async () => {
+    const user = await createUser('refresh-keyless')
+    let tokens = await connect(user)
+    for (let round = 0; round < 3; round++) {
+      const next = await refreshToken(tokens.refresh_token)
+      expect(next.status).toBe(200)
+      tokens = next.json
+    }
+    expect((await call('GET', '/v1/me', { headers: bearer(tokens.access_token) })).status).toBe(200)
+  })
+
+  it('revokes when a request id cannot prove a token another client rotated away', async () => {
+    const user = await createUser('refresh-stolen')
+    const first = await connect(user)
+    // 有人拿走令牌、不带标识先轮换了；合法 CLI 再带自己的标识来时，按重放吊销。
+    const thief = await refreshToken(first.refresh_token)
+    expect(thief.status).toBe(200)
+    expect((await refreshToken(first.refresh_token, crypto.randomUUID())).json).toEqual({
+      error: 'invalid_grant',
+    })
+    expect((await call('GET', '/v1/me', { headers: bearer(thief.json.access_token) })).status).toBe(
+      401,
+    )
+  })
+
+  it('replays an expired access token with zero lifetime so the CLI rotates again', async () => {
+    const user = await createUser('refresh-late')
+    const first = await connect(user)
+    const requestId = crypto.randomUUID()
+    const second = await refreshToken(first.refresh_token, requestId)
+    await db
+      .update(schema.cli_connections)
+      .set({ access_expires_at: Date.now() - 1 })
+      .where(
+        eq(schema.cli_connections.refresh_token_hash, hashCliSecret(second.json.refresh_token)),
+      )
+    const late = await refreshToken(first.refresh_token, requestId)
+    expect(late.status).toBe(200)
+    expect(late.json.expires_in).toBe(0)
+    expect(late.json.refresh_token).toBe(second.json.refresh_token)
+    const rotated = await refreshToken(late.json.refresh_token, crypto.randomUUID())
+    expect(rotated.status).toBe(200)
+    expect(
+      (await call('GET', '/v1/me', { headers: bearer(rotated.json.access_token) })).status,
+    ).toBe(200)
+  })
+
+  it('records a rejected stale token without revoking the connection', async () => {
+    const user = await createUser('refresh-audit')
+    const first = await connect(user)
+    const second = await refreshToken(first.refresh_token, crypto.randomUUID())
+    await refreshToken(first.refresh_token)
+    const audits = await db.select().from(schema.operator_audits)
+    expect(audits.map((row) => row.action)).toContain('cli.token.retired_rejected')
+    expect(audits.map((row) => row.action)).not.toContain('cli.connection.revoked')
+    expect(
+      (await call('GET', '/v1/me', { headers: bearer(second.json.access_token) })).status,
+    ).toBe(200)
+  })
+
+  it('refuses to advance a newer token with an already completed request id', async () => {
+    const user = await createUser('refresh-completed')
+    const first = await connect(user)
+    const requestId = crypto.randomUUID()
+    const second = await refreshToken(first.refresh_token, requestId)
+    const again = await refreshToken(second.json.refresh_token, requestId)
+    expect(again.status).toBe(400)
+    expect(again.json).toEqual({ error: 'refresh_request_completed' })
+    expect(
+      (await call('GET', '/v1/me', { headers: bearer(second.json.access_token) })).status,
+    ).toBe(200)
+    expect((await refreshToken(second.json.refresh_token, crypto.randomUUID())).status).toBe(200)
+  })
+
+  it('serializes concurrent refreshes that share a request id', async () => {
+    const user = await createUser('refresh-concurrent')
+    const first = await connect(user)
+    const requestId = crypto.randomUUID()
+    const results = await Promise.all([
+      refreshToken(first.refresh_token, requestId),
+      refreshToken(first.refresh_token, requestId),
+      refreshToken(first.refresh_token, requestId),
+    ])
+    expect(results.map((r) => r.status)).toEqual([200, 200, 200])
+    expect(new Set(results.map((r) => r.json.refresh_token)).size).toBe(1)
+    expect(
+      (await call('GET', '/v1/me', { headers: bearer(results[0]!.json.access_token) })).status,
+    ).toBe(200)
+  })
+
+  it('does not recover revoked or expired connections', async () => {
+    const user = await createUser('refresh-ended')
+    const revoked = await connect(user)
+    const requestId = crypto.randomUUID()
+    const rotated = await refreshToken(revoked.refresh_token, requestId)
+    await call('POST', '/v1/oauth/revoke', {
+      form: { client_id: 'muvloom-cli', token: rotated.json.refresh_token },
+    })
+    expect((await refreshToken(revoked.refresh_token, requestId)).json).toEqual({
+      error: 'invalid_grant',
+    })
+
+    const expired = await connect(user)
+    const expiredKey = crypto.randomUUID()
+    const next = await refreshToken(expired.refresh_token, expiredKey)
+    await db
+      .update(schema.cli_connections)
+      .set({ refresh_expires_at: Date.now() - 1 })
+      .where(eq(schema.cli_connections.refresh_token_hash, hashCliSecret(next.json.refresh_token)))
+    expect((await refreshToken(expired.refresh_token, expiredKey)).json).toEqual({
+      error: 'invalid_grant',
+    })
+    expect((await refreshToken(next.json.refresh_token, crypto.randomUUID())).json).toEqual({
+      error: 'invalid_grant',
+    })
   })
 
   it('rejects the next request after logout or account-side revocation', async () => {
