@@ -6,6 +6,7 @@ import { EmptyState, ErrorState, Page, PendingState } from '@/components/Page'
 import { SegmentedControl } from '@/components/SegmentedControl'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
+import { ContentTabs } from '@/features/content/ContentTabs'
 import { InspirationTabs } from '@/features/inspirations/InspirationTabs'
 import { useAgentSkillCatalog, useInspirations } from '@/lib/inspirations'
 
@@ -37,6 +38,7 @@ function SkillsPage() {
         />
       }
     >
+      <ContentTabs />
       <InspirationTabs />
       <div className="flex items-start gap-3 rounded-lg border border-warning/40 bg-warning/10 p-4 text-sm">
         <Lock className="mt-0.5 size-4 shrink-0" />

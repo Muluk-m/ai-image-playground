@@ -7,6 +7,7 @@ import { EmptyState, ErrorState, Page, PendingState } from '@/components/Page'
 import { SegmentedControl } from '@/components/SegmentedControl'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { ContentTabs } from '@/features/content/ContentTabs'
 import { InspirationDrawer } from '@/features/inspirations/InspirationDrawer'
 import { InspirationGrid } from '@/features/inspirations/InspirationGrid'
 import { InspirationTabs } from '@/features/inspirations/InspirationTabs'
@@ -88,6 +89,7 @@ function InspirationsPage() {
           </Button>
         }
       >
+        <ContentTabs />
         <InspirationTabs />
         <div className="flex flex-wrap items-center gap-3">
           <SegmentedControl

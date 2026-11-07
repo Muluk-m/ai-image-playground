@@ -15,6 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { ContentTabs } from '@/features/content/ContentTabs'
 import { ConfirmDialog } from '@/features/inspirations/ConfirmDialog'
 import { InspirationTabs } from '@/features/inspirations/InspirationTabs'
 import {
@@ -37,6 +38,7 @@ function CategoriesPage() {
 
   return (
     <Page crumbs={[{ label: '灵感库' }]}>
+      <ContentTabs />
       <InspirationTabs />
       <div className="mt-4">
         {categories.isPending ? (
