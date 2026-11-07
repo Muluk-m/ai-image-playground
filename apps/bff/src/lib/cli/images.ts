@@ -1,7 +1,17 @@
 import { createHash } from 'node:crypto'
 import {
+  GPT_IMAGE_26_GIF_DEFAULT_DURATION_MS,
+  GPT_IMAGE_26_GIF_DURATIONS_MS,
+  GPT_IMAGE_26_GIF_FRAME_MAX,
+  GPT_IMAGE_26_GIF_FRAME_MIN,
+  GPT_IMAGE_26_GIF_FRAMES,
+  GPT_IMAGE_26_GIF_SIZES,
+  type GptImage26Rejection,
+  gifSpriteExceedsLimit,
+  gptImage26Rejection,
   imageRateMultiplier,
   isGptDirectModel,
+  isGptImage26Model,
   type QueueProvider,
   type SubmitRequest,
 } from '@image-playground/shared'
@@ -71,6 +81,17 @@ export async function availableImageModels(): Promise<CliImageModel[]> {
   )
 }
 
+/** 普通图片之外，能直接出的格式。`image` 表示模型的常规图片输出。 */
+export type CliOutputFormat = 'image' | 'gif' | 'svg'
+
+const GIF_DEFAULT_FRAMES = 6
+const GIF_DEFAULT_SIZE = '768x768'
+
+/** 与网站一致：只有 GPT Image 2.6 能直出 GIF / SVG，规则见 `gpt-image-26.ts`。 */
+export function outputFormatsFor(model: string): readonly CliOutputFormat[] {
+  return isGptImage26Model(model) ? ['image', 'gif', 'svg'] : ['image']
+}
+
 export interface CliImageRequestBody {
   readonly prompt: string
   readonly model?: string
@@ -78,6 +99,10 @@ export interface CliImageRequestBody {
   readonly image_size?: string
   readonly quality?: string
   readonly reference_media_ids?: readonly string[]
+  readonly output_format?: string
+  readonly frame_count?: number
+  readonly frame_duration_ms?: number
+  readonly frame_size?: string
 }
 
 export interface NormalizedImageRequest {
@@ -88,6 +113,101 @@ export interface NormalizedImageRequest {
   readonly quality?: string
   readonly reference_media_ids: readonly string[]
   readonly count: 1
+  // 只在 GIF / SVG 时出现：普通图片的规整结果与哈希和以前完全一样。
+  readonly output_format?: 'gif' | 'svg'
+  readonly frame_count?: number
+  readonly frame_duration_ms?: number
+  readonly frame_size?: string
+}
+
+const OUTPUT_REJECTION: Record<GptImage26Rejection, string> = {
+  unavailable: 'this model is not available right now',
+  gif_edit: 'gif output does not accept reference images',
+  svg_edit: 'svg output does not accept reference images',
+  gif_count: 'gif output makes one image per request',
+  svg_count: 'svg output makes one image per request',
+  gif_frames: `frame_count must be an integer from ${GPT_IMAGE_26_GIF_FRAME_MIN} to ${GPT_IMAGE_26_GIF_FRAME_MAX}`,
+  gif_duration: 'frame_duration_ms must be a multiple of 10 from 20 to 2000',
+  gif_sprite:
+    'too many frames for this frame_size: use 768x768 with at most 12 frames, or 512x512 with at most 16',
+  gif_size: `frame_size must be one of ${GPT_IMAGE_26_GIF_SIZES.join(', ')}`,
+}
+
+/** GIF / SVG 参数的规整与校验，规则直接复用网站的 `gptImage26Rejection`，不建任务、不预扣。 */
+function outputFormatFields(
+  body: CliImageRequestBody,
+  model: CliImageModel,
+  references: number,
+): Pick<
+  NormalizedImageRequest,
+  'output_format' | 'frame_count' | 'frame_duration_ms' | 'frame_size'
+> {
+  const format = body.output_format ?? 'image'
+  const available = outputFormatsFor(model.id)
+  if (!(available as readonly string[]).includes(format))
+    throw new CliRequestError('INVALID_REQUEST', {
+      message: `model does not support output_format ${format}`,
+      details: { available },
+    })
+  const gifOnly =
+    body.frame_count !== undefined ||
+    body.frame_duration_ms !== undefined ||
+    body.frame_size !== undefined
+  if (format !== 'gif') {
+    if (gifOnly)
+      throw new CliRequestError('INVALID_REQUEST', {
+        message: 'frame_count, frame_duration_ms and frame_size apply to output_format gif only',
+      })
+    if (format === 'image') return {}
+  }
+  if (format === 'gif' && (body.image_size !== undefined || body.aspect_ratio !== undefined))
+    throw new CliRequestError('INVALID_REQUEST', {
+      message: 'gif output uses frame_size instead of image_size and aspect_ratio',
+    })
+  if (body.quality !== undefined)
+    throw new CliRequestError('INVALID_REQUEST', {
+      message: `${format} output does not take quality`,
+    })
+  const gif =
+    format === 'gif'
+      ? {
+          frame_count: body.frame_count ?? GIF_DEFAULT_FRAMES,
+          frame_duration_ms: body.frame_duration_ms ?? GPT_IMAGE_26_GIF_DEFAULT_DURATION_MS,
+          frame_size: body.frame_size ?? GIF_DEFAULT_SIZE,
+        }
+      : {}
+  const reason = gptImage26Rejection(
+    model.id,
+    {
+      output_format: format,
+      n: 1,
+      input_images: Array.from({ length: references }),
+      ...(gif.frame_count === undefined
+        ? {}
+        : {
+            frame_count: gif.frame_count,
+            frame_duration_ms: gif.frame_duration_ms,
+            // 帧尺寸只有两档；其它尺寸先按网站规则拒掉，再交给拼图上限判断。
+            size: (GPT_IMAGE_26_GIF_SIZES as readonly string[]).includes(gif.frame_size)
+              ? gif.frame_size
+              : undefined,
+          }),
+    },
+    true,
+  )
+  if (reason)
+    throw new CliRequestError('INVALID_REQUEST', {
+      message: OUTPUT_REJECTION[reason],
+      ...(format === 'gif'
+        ? {
+            details: {
+              frame_sizes: GPT_IMAGE_26_GIF_SIZES,
+              frame_count: { min: GPT_IMAGE_26_GIF_FRAME_MIN, max: GPT_IMAGE_26_GIF_FRAME_MAX },
+            },
+          }
+        : {}),
+    })
+  return { output_format: format, ...gif }
 }
 
 export interface PreparedImageRequest {
@@ -112,6 +232,7 @@ export function normalizeImageRequest(
       details: { available: models.map((one) => one.id) },
     })
   const references = [...new Set(body.reference_media_ids ?? [])]
+  const output = outputFormatFields(body, model, references.length)
   const caps = model.image
   if (references.length && !caps.operations.includes('edit'))
     throw new CliRequestError('INVALID_REQUEST', {
@@ -135,20 +256,24 @@ export function normalizeImageRequest(
     isGptDirectModel(model.id) && resolved.tier !== '1K' && resolved.ratio === 'auto'
   const ratio = concreteGptRatio ? '1:1' : resolved.ratio
   const qualities: readonly string[] = caps.quality?.values ?? []
-  if (body.quality && !qualities.includes(body.quality))
+  if (!output.output_format && body.quality && !qualities.includes(body.quality))
     throw new CliRequestError('INVALID_REQUEST', {
       message: 'unsupported quality',
       details: { available: qualities },
     })
-  const quality = alignResolutionQuality(caps, resolved.tier, body.quality)
+  // GIF / SVG 与网站一样固定中等画质；GIF 的尺寸由 frame_size 决定。
+  const quality = output.output_format
+    ? 'medium'
+    : alignResolutionQuality(caps, resolved.tier, body.quality)
   const normalized: NormalizedImageRequest = {
     prompt,
     model: model.id,
-    aspect_ratio: ratio,
-    image_size: resolved.tier,
+    aspect_ratio: output.output_format === 'gif' ? '1:1' : ratio,
+    image_size: output.output_format === 'gif' ? '1K' : resolved.tier,
     ...(quality && quality !== 'auto' ? { quality } : {}),
     reference_media_ids: references,
     count: 1,
+    ...output,
   }
   return {
     normalized,
@@ -206,6 +331,15 @@ export function toSubmitRequest(prepared: PreparedImageRequest): SubmitRequest {
   }
   if (normalized.reference_media_ids.length)
     request.input_images = normalized.reference_media_ids.map((id) => `aip-media:${id}`)
+  if (normalized.output_format) {
+    request.output_format = normalized.output_format
+    request.quality = 'medium'
+  }
+  if (normalized.output_format === 'gif') {
+    request.size = normalized.frame_size
+    request.frame_count = normalized.frame_count
+    request.frame_duration_ms = normalized.frame_duration_ms
+  }
   return request
 }
 
@@ -294,6 +428,85 @@ export interface CliModelCapability {
   readonly max_reference_images: number
   readonly price: CliQuote | null
   readonly typical_duration_seconds: number | null
+  /** `image` 是常规图片；`gif`、`svg` 是模型直出的动图与矢量图，限制见 `gif` / `svg`。 */
+  readonly output_formats: readonly CliOutputFormat[]
+  readonly gif?: CliGifCapability
+  readonly svg?: CliSvgCapability
+}
+
+export interface CliGifCapability {
+  readonly frame_count: { readonly min: number; readonly max: number; readonly default: number }
+  readonly suggested_frame_counts: readonly number[]
+  readonly frame_durations_ms: readonly number[]
+  readonly default_frame_duration_ms: number
+  readonly frame_sizes: readonly string[]
+  readonly default_frame_size: string
+  readonly max_frames_by_size: Readonly<Record<string, number>>
+  readonly reference_images: false
+  readonly images_per_request: 1
+  readonly price: CliQuote | null
+}
+
+export interface CliSvgCapability {
+  readonly reference_images: false
+  readonly images_per_request: 1
+  readonly price: CliQuote | null
+}
+
+/** 某个帧尺寸能装下的最多帧数，和网站按拼图上限给的提示一致。 */
+function maxFramesFor(size: string): number {
+  const [w, h] = size.split('x').map(Number)
+  for (let frames = GPT_IMAGE_26_GIF_FRAME_MAX; frames >= GPT_IMAGE_26_GIF_FRAME_MIN; frames--)
+    if (!gifSpriteExceedsLimit(w!, h!, frames)) return frames
+  return 0
+}
+
+async function specialFormatCapabilities(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  userId: string,
+  model: string,
+  hooks: Awaited<ReturnType<typeof loadPrivateBffOverlay>>['taskHooks'],
+): Promise<{ gif: CliGifCapability; svg: CliSvgCapability }> {
+  const quote = async (request: SubmitRequest) => {
+    const one = await hooks.quoteTask?.({
+      tx,
+      userId,
+      model,
+      quantity: 1,
+      unitMultiplier: imageRateMultiplier(model, request, declaredImageSizes(model)),
+    })
+    return one ? { estimated_credits: one.estimatedCredits } : null
+  }
+  return {
+    gif: {
+      frame_count: {
+        min: GPT_IMAGE_26_GIF_FRAME_MIN,
+        max: GPT_IMAGE_26_GIF_FRAME_MAX,
+        default: GIF_DEFAULT_FRAMES,
+      },
+      suggested_frame_counts: GPT_IMAGE_26_GIF_FRAMES,
+      frame_durations_ms: GPT_IMAGE_26_GIF_DURATIONS_MS,
+      default_frame_duration_ms: GPT_IMAGE_26_GIF_DEFAULT_DURATION_MS,
+      frame_sizes: GPT_IMAGE_26_GIF_SIZES,
+      default_frame_size: GIF_DEFAULT_SIZE,
+      max_frames_by_size: Object.fromEntries(
+        GPT_IMAGE_26_GIF_SIZES.map((size) => [size, maxFramesFor(size)]),
+      ),
+      reference_images: false,
+      images_per_request: 1,
+      price: await quote({
+        prompt: '',
+        output_format: 'gif',
+        frame_count: GIF_DEFAULT_FRAMES,
+        size: GIF_DEFAULT_SIZE,
+      }),
+    },
+    svg: {
+      reference_images: false,
+      images_per_request: 1,
+      price: await quote({ prompt: '', output_format: 'svg' }),
+    },
+  }
 }
 
 /**
@@ -343,6 +556,10 @@ export async function imageCapabilities(userId: string) {
         max_reference_images: caps.references.max,
         price: quote ? { estimated_credits: quote.estimatedCredits } : null,
         typical_duration_seconds: model.etaSeconds ?? null,
+        output_formats: outputFormatsFor(model.id),
+        ...(isGptImage26Model(model.id)
+          ? await specialFormatCapabilities(tx, userId, model.id, hooks)
+          : {}),
       })
     }
     return {
