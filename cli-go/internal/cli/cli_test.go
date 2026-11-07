@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -35,6 +36,9 @@ type fakeServer struct {
 	failJob        bool
 	deviceError    string
 	deviceRedeemed bool
+	// refreshMode makes the refresh endpoint misbehave: "drop" closes the connection,
+	// "5xx" answers 503 with no envelope, "429" answers a rate limit. Empty is healthy.
+	refreshMode string
 }
 
 const secretDeviceCode = "device-secret-value"
@@ -79,6 +83,19 @@ func newFakeServer(t *testing.T) *fakeServer {
 			writeJSON(w, 200, f.tokens())
 		case "refresh_token":
 			f.refreshCalls++
+			switch f.refreshMode {
+			case "drop":
+				if conn, _, err := w.(http.Hijacker).Hijack(); err == nil {
+					_ = conn.Close()
+				}
+				return
+			case "5xx":
+				w.WriteHeader(503)
+				return
+			case "429":
+				writeJSON(w, 429, map[string]string{"error": "slow_down"})
+				return
+			}
 			if r.Form.Get("refresh_token") != f.refresh {
 				writeJSON(w, 400, map[string]string{"error": "invalid_grant"})
 				return
@@ -759,5 +776,113 @@ func TestAnOngoingServiceSwitchIsResumedByLoginOnly(t *testing.T) {
 	}
 	if got, _ := next.Store.Load(); got.BaseURL != f.server.URL {
 		t.Fatalf("connection service after the switch = %q", got.BaseURL)
+	}
+}
+
+// A transient refresh failure must never be reported as being signed out: the agent would
+// start another login and open another approval page.
+func TestRefreshOutageIsTemporaryAndKeepsTheConnection(t *testing.T) {
+	for mode, want := range map[string]string{"drop": "NETWORK_ERROR", "5xx": "TEMPORARILY_UNAVAILABLE", "429": "RATE_LIMITED"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newFakeServer(t)
+			app := newApp(t, f, t.TempDir())
+			login(t, app)
+			f.mu.Lock()
+			f.access, f.refreshMode = "rotated-elsewhere", mode
+			f.mu.Unlock()
+
+			r := execute(t, app, "jobs", "get", "job-1")
+			if r.code != ExitTemporary || r.out["error"].(map[string]any)["code"] != want {
+				t.Fatalf("command during a refresh outage = %d %s, want %s", r.code, r.stdout, want)
+			}
+			status := execute(t, app, "auth", "status")
+			data := status.out["data"].(map[string]any)
+			if status.code != ExitOK || data["state"] != "unreachable" || data["error"].(map[string]any)["code"] != want {
+				t.Fatalf("status during a refresh outage = %s", status.stdout)
+			}
+			if creds, err := app.Store.Load(); err != nil || creds.RefreshToken != "refresh-1" {
+				t.Fatalf("the connection was not kept: %v %q", err, creds.RefreshToken)
+			}
+
+			f.mu.Lock()
+			f.refreshMode = ""
+			f.mu.Unlock()
+			if r := execute(t, app, "jobs", "get", "job-1"); r.code != ExitOK {
+				t.Fatalf("command after the outage = %d %s", r.code, r.stdout)
+			}
+		})
+	}
+}
+
+func TestRefreshLockTimeoutIsTemporary(t *testing.T) {
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	f.mu.Lock()
+	f.access = "rotated-elsewhere"
+	f.mu.Unlock()
+	if err := os.WriteFile(filepath.Join(dir, "credentials.lock"), []byte("another-process"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app.RefreshLockWait = 50 * time.Millisecond
+
+	r := execute(t, app, "jobs", "get", "job-1")
+	if r.code != ExitTemporary || r.out["error"].(map[string]any)["code"] != "TEMPORARILY_UNAVAILABLE" {
+		t.Fatalf("command while another process refreshes = %d %s", r.code, r.stdout)
+	}
+	if f.refreshCalls != 0 {
+		t.Fatalf("refreshed without holding the lock: %d calls", f.refreshCalls)
+	}
+}
+
+func TestRevokedConnectionAsksToSignInAgainAndForgetsIt(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	login(t, app)
+	f.mu.Lock()
+	f.access, f.refresh = "rotated-elsewhere", "server-rotated-away"
+	f.mu.Unlock()
+
+	r := execute(t, app, "jobs", "get", "job-1")
+	if r.code != ExitAuth || r.out["error"].(map[string]any)["code"] != "AUTH_REQUIRED" {
+		t.Fatalf("revoked connection = %d %s", r.code, r.stdout)
+	}
+	if _, err := app.Store.Load(); err != auth.ErrNotFound {
+		t.Fatalf("the dead connection was kept: %v", err)
+	}
+	if status := execute(t, app, "auth", "status"); status.out["data"].(map[string]any)["state"] != "unauthenticated" {
+		t.Fatalf("status after revocation = %s", status.stdout)
+	}
+}
+
+// A lock that cannot be created is a broken credential directory, not a busy refresh: telling
+// the agent to retry would hide the real problem.
+func TestUnwritableCredentialDirectoryIsNotReportedAsABusyRefresh(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("directory permissions are not enforced here")
+	}
+	f := newFakeServer(t)
+	dir := t.TempDir()
+	app := newApp(t, f, dir)
+	login(t, app)
+	f.mu.Lock()
+	f.access = "rotated-elsewhere"
+	f.mu.Unlock()
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	r := execute(t, app, "jobs", "get", "job-1")
+	errBody := r.out["error"].(map[string]any)
+	if errBody["code"] == "TEMPORARILY_UNAVAILABLE" || strings.Contains(errBody["message"].(string), "refreshing") {
+		t.Fatalf("a permission error was reported as a busy refresh: %s", r.stdout)
+	}
+	if strings.Contains(r.stdout, dir) {
+		t.Fatalf("the raw filesystem error leaked: %s", r.stdout)
+	}
+	if f.refreshCalls != 0 {
+		t.Fatalf("refreshed without the lock: %d", f.refreshCalls)
 	}
 }
