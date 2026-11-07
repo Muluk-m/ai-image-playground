@@ -5,8 +5,8 @@ import { type ImageTierEntry, resolveImageTier } from '../image-tier'
 const GPT = { model: 'gpt-image-2.5-flare', provider: 'openai-compat' } as const
 const GEMINI = { model: 'gemini-3-pro-image', provider: 'gemini' } as const
 
-const GPT_4K_HIGH: ImageRateRequest = { prompt: 'p', size: '3840x2160', quality: 'high' }
-const GEMINI_4K: ImageRateRequest = { prompt: 'p', image_size: '4K' }
+const GPT_4K_HIGH: ImageRateRequest = { size: '3840x2160', quality: 'high' }
+const GEMINI_4K: ImageRateRequest = { image_size: '4K' }
 
 const CEILING_ENTRIES: readonly ImageTierEntry[] = ['agent', 'stage', 'batch', 'look']
 
@@ -124,7 +124,7 @@ describe('resolveImageTier · requires', () => {
   it('asks cli-strict 2K medium GPT for the direct route only', () => {
     const result = resolveImageTier({
       ...GPT,
-      request: { prompt: 'p', size: '2560x1440', quality: 'medium' },
+      request: { size: '2560x1440', quality: 'medium' },
       entry: 'cli-strict',
       member: false,
       directAvailable: true,
@@ -135,7 +135,7 @@ describe('resolveImageTier · requires', () => {
   it('asks cli-strict 1K medium GPT for nothing, since sub2api delivers it', () => {
     const result = resolveImageTier({
       ...GPT,
-      request: { prompt: 'p', size: '1024x1024', quality: 'medium' },
+      request: { size: '1024x1024', quality: 'medium' },
       entry: 'cli-strict',
       member: false,
       directAvailable: true,
@@ -150,7 +150,7 @@ describe('resolveImageTier · requires', () => {
 
 describe('resolveImageTier · other models', () => {
   it('leaves a model without a tier table untouched at one', () => {
-    const request = { prompt: 'p', size: '3840x2160', quality: 'high' as const }
+    const request = { size: '3840x2160', quality: 'high' as const }
     const result = resolveImageTier({
       model: 'some-other-model',
       provider: 'openai-compat',
