@@ -33,15 +33,19 @@ trap 'rm -f "$stderr_copy"' EXIT
 
 waited=0
 while :; do
-  status=0
+  # The receiver's output (stderr included) goes to the job log and to a copy that names the
+  # lock holder. PIPESTATUS keeps tar's and ssh's own statuses apart from tee's.
+  set +e
   tar -C "$release_dir" -czf - . |
     "$ssh_bin" -i "${VPS_KEY_FILE:-}" -o IdentitiesOnly=yes -o BatchMode=yes \
       -o StrictHostKeyChecking=yes -o UserKnownHostsFile="${VPS_KNOWN_HOSTS_FILE:-}" \
       -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
-      "${VPS_SSH_USER:-}@${VPS_SSH_HOST:-}" "deploy $release_id $target $run_id" \
-      2> >(tee "$stderr_copy" >&2) || status=$?
-  # Let the tee behind the process substitution finish writing before the copy is read.
-  wait $! 2>/dev/null || true
+      "${VPS_SSH_USER:-}@${VPS_SSH_HOST:-}" "deploy $release_id $target $run_id" 2>&1 |
+    tee "$stderr_copy"
+  codes=("${PIPESTATUS[@]}")
+  set -e
+  status=${codes[1]}
+  if [ "$status" -eq 0 ] && [ "${codes[0]}" -ne 0 ]; then status=${codes[0]}; fi
   [ "$status" -eq 75 ] || exit "$status"
 
   # The receiver prints the holder's owner file indented by two spaces; `what=` names the entry.

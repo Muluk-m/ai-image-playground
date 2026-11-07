@@ -35,6 +35,7 @@ beforeEach(() => {
   mkdirSync(release)
   writeFileSync(join(release, 'images.tsv'), 'manifest\n')
   calls = join(root, 'calls')
+  writeFileSync(calls, '')
   fakeSsh = join(root, 'ssh')
   writeFileSync(
     fakeSsh,
