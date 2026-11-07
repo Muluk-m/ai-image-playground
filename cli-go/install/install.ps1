@@ -1,7 +1,9 @@
 # Installs the native muvloom CLI for Windows x64 from GitHub releases, verifying its SHA-256 checksum.
 #   $env:MUVLOOM_VERSION = "0.1.0"   pin a release (default: latest cli-v* release)
-#   $env:MUVLOOM_INSTALL_DIR = "..."  install directory (default: %LOCALAPPDATA%\Programs\muvloom)
-#   $env:MUVLOOM_NO_MODIFY_PATH = "1"  leave the user PATH unchanged
+#   $env:MUVLOOM_INSTALL_DIR = "..."  install directory. Default: where muvloom.exe already is (one
+#                                      copy, and it is the one that runs), else the per-user
+#                                      %LOCALAPPDATA%\Programs\muvloom, which needs no administrator
+#   $env:MUVLOOM_NO_MODIFY_PATH = "1"  leave the user PATH, and this session's PATH, unchanged
 #   $env:MUVLOOM_DISTRIBUTION_URL = "http://127.0.0.1:PORT/PATH"  local CI only
 $ErrorActionPreference = "Stop"
 $repo = "Muluk-m/ai-image-playground"
@@ -9,7 +11,24 @@ $repo = "Muluk-m/ai-image-playground"
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or -not [Environment]::Is64BitOperatingSystem -or $env:PROCESSOR_ARCHITECTURE -eq "ARM64" -or $env:PROCESSOR_ARCHITEW6432 -eq "ARM64") {
   throw "muvloom install: only Windows x64 is supported"
 }
-$installDir = if ($env:MUVLOOM_INSTALL_DIR) { $env:MUVLOOM_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "Programs\muvloom" }
+function Test-WritableDirectory($dir) {
+  try {
+    $probe = Join-Path $dir ([Guid]::NewGuid().ToString() + ".tmp")
+    [IO.File]::WriteAllText($probe, "")
+    Remove-Item -Force $probe
+    return $true
+  } catch {
+    return $false
+  }
+}
+# Where to install when MUVLOOM_INSTALL_DIR is not given: replace the copy already installed, so an
+# upgrade does not leave the old one running; otherwise the per-user directory.
+$installDir = $env:MUVLOOM_INSTALL_DIR
+if (-not $installDir) {
+  $existing = Get-Command muvloom.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+  $existingDir = if ($existing) { Split-Path -Parent $existing.Source } else { $null }
+  $installDir = if ($existingDir -and (Test-WritableDirectory $existingDir)) { $existingDir } else { Join-Path $env:LOCALAPPDATA "Programs\muvloom" }
+}
 $api = "https://api.github.com/repos/$repo/releases"
 $download = "https://github.com/$repo/releases/download"
 $requestOptions = @{}
@@ -60,10 +79,20 @@ try {
 }
 
 Write-Host "muvloom installed at $installDir\muvloom.exe"
-$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-if ($env:MUVLOOM_NO_MODIFY_PATH -ne "1" -and -not ($userPath -split ";" -contains $installDir)) {
-  [Environment]::SetEnvironmentVariable("Path", "$userPath;$installDir", "User")
-  Write-Host "Added $installDir to your user PATH; open a new terminal to use it."
+if ($env:MUVLOOM_NO_MODIFY_PATH -ne "1") {
+  $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+  if (-not ($userPath -split ";" -contains $installDir)) {
+    $newUserPath = if ($userPath) { "$userPath;$installDir" } else { $installDir }
+    [Environment]::SetEnvironmentVariable("Path", $newUserPath, "User")
+    Write-Host "Added $installDir to your user PATH; new terminals will find muvloom."
+  }
+  # `irm ... | iex` runs in the caller's session, so this also makes muvloom usable right now.
+  if (-not (($env:Path -split ";") -contains $installDir)) { $env:Path = "$env:Path;$installDir" }
+}
+# Another copy earlier on PATH would keep running instead of this one. Say so.
+$other = Get-Command muvloom.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($other -and ([IO.Path]::GetFullPath($other.Source) -ne [IO.Path]::GetFullPath((Join-Path $installDir "muvloom.exe")))) {
+  Write-Host "Note: $($other.Source) is earlier on PATH and will keep running instead; remove it, or put $installDir first."
 }
 & (Join-Path $installDir "muvloom.exe") version
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -1,12 +1,16 @@
 #!/bin/sh
 # Installs the native muvloom CLI from GitHub releases, verifying its SHA-256 checksum.
 #   MUVLOOM_VERSION=0.1.0   pin a release (default: latest cli-v* release)
-#   MUVLOOM_INSTALL_DIR=... install directory (default: ~/.local/bin)
+#   MUVLOOM_INSTALL_DIR=... install directory. Default: where muvloom already is (one copy, and
+#                           it is the one that runs), else /usr/local/bin when that is on PATH and
+#                           writable without sudo, else ~/.local/bin. For a system-wide install
+#                           that needs administrator rights: sudo MUVLOOM_INSTALL_DIR=/usr/local/bin sh
 #   MUVLOOM_DISTRIBUTION_URL=http://127.0.0.1:PORT/PATH local CI distribution only
 set -eu
 
 REPO="Muluk-m/ai-image-playground"
-INSTALL_DIR="${MUVLOOM_INSTALL_DIR:-$HOME/.local/bin}"
+# MUVLOOM_SYSTEM_BIN_DIR exists so the tests can stand in for /usr/local/bin.
+SYSTEM_BIN_DIR="${MUVLOOM_SYSTEM_BIN_DIR:-/usr/local/bin}"
 
 fail() { echo "muvloom install: $*" >&2; exit 1; }
 
@@ -51,6 +55,34 @@ elif command -v shasum >/dev/null 2>&1; then
 else
   fail "sha256sum or shasum is required to verify the download"
 fi
+
+# Where to install when MUVLOOM_INSTALL_DIR is not given. Agent hosts run commands in shells
+# whose PATH differs from the user's terminal, and sudo is not available to them, so the choice
+# favours places that need neither.
+choose_install_dir() {
+  if [ -n "${MUVLOOM_INSTALL_DIR:-}" ]; then
+    printf '%s\n' "$MUVLOOM_INSTALL_DIR"
+    return
+  fi
+  # 1. Replace the copy that is already installed: otherwise the old one keeps running.
+  found="$(command -v muvloom 2>/dev/null || true)"
+  if [ -n "$found" ] && [ -f "$found" ] && [ -w "$(dirname -- "$found")" ]; then
+    dirname -- "$found"
+    return
+  fi
+  # 2. The system-wide directory, when every shell finds it and no sudo is needed.
+  case ":$PATH:" in
+    *":$SYSTEM_BIN_DIR:"*)
+      if [ -d "$SYSTEM_BIN_DIR" ] && [ -w "$SYSTEM_BIN_DIR" ]; then
+        printf '%s\n' "$SYSTEM_BIN_DIR"
+        return
+      fi
+      ;;
+  esac
+  # 3. Per user.
+  printf '%s\n' "$HOME/.local/bin"
+}
+INSTALL_DIR="$(choose_install_dir)"
 
 if [ -n "${MUVLOOM_VERSION:-}" ]; then
   tag="cli-v${MUVLOOM_VERSION#v}"
@@ -97,4 +129,10 @@ case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;
   *) echo "Add it to PATH: export PATH=\"$INSTALL_DIR:\$PATH\"" >&2 ;;
 esac
+# Another copy earlier on PATH would keep running instead of this one (typically one in a
+# directory this user cannot write). Say so rather than leave two versions in silence.
+other="$(command -v muvloom 2>/dev/null || true)"
+if [ -n "$other" ] && [ -f "$other" ] && [ ! "$other" -ef "$INSTALL_DIR/muvloom" ]; then
+  echo "Note: $other is earlier on PATH and will keep running instead; remove it, or put $INSTALL_DIR first." >&2
+fi
 "$INSTALL_DIR/muvloom" version
