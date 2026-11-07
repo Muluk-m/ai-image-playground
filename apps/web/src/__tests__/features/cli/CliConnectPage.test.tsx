@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -120,6 +121,56 @@ describe('CliConnectPage', () => {
     expect(promptText()).toContain(new URL(AGENT_SETUP_PATH, window.location.origin).href)
   })
 
+  // WorkBuddy 的抓取工具会缓存网页：换了指南内容而网址不变，用户拿到的还是旧的固定版本命令。
+  it('提示词里的指南网址带着指南内容的哈希，内容一变网址就变', async () => {
+    const dir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../public/cli')
+    const guides = ['setup.md', 'workbuddy.md'].map((name) =>
+      readFileSync(resolve(dir, name), 'utf8'),
+    )
+    const rev = createHash('sha256').update(guides.join('\n')).digest('hex').slice(0, 10)
+    await render()
+    expect(promptText()).toContain(
+      `${new URL(WORKBUDDY_SETUP_PATH, window.location.origin).href}?v=${rev}`,
+    )
+    await click('Codex')
+    expect(promptText()).toContain(
+      `${new URL(AGENT_SETUP_PATH, window.location.origin).href}?v=${rev}`,
+    )
+  })
+
+  it('两份指南都让智能体在前台等用户授权并自动继续，不再回一句', () => {
+    const dir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../public/cli')
+    const setup = readFileSync(resolve(dir, 'setup.md'), 'utf8')
+    const workbuddy = readFileSync(resolve(dir, 'workbuddy.md'), 'utf8')
+    for (const [name, text] of [
+      ['setup.md', setup],
+      ['workbuddy.md', workbuddy],
+    ] as const) {
+      expect(text, name).toContain('muvloom auth login --timeout 60')
+      expect(text, name).toContain('AUTH_PENDING')
+    }
+    expect(workbuddy).not.toContain('立即结束本回合')
+    expect(setup).not.toContain('ask the user to sign in and approve the connection.\n   Only if')
+    expect(setup.replace(/\s+/g, ' ')).toContain('do not end your turn')
+  })
+
+  // 机器已连着测试或企业服务时打开生产页面：不显式指定服务，CLI 会沿用已存连接，接入静默"成功"在错误环境上。
+  it('指南对每个服务（含生产）都显式指定 API 地址，让 CLI 能发现与已存连接不一致', () => {
+    const dir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../public/cli')
+    const setup = readFileSync(resolve(dir, 'setup.md'), 'utf8').replace(/\s+/g, ' ')
+    expect(setup).not.toContain('use the default')
+    expect(setup).not.toContain('clear any conflicting')
+    expect(setup).toContain('including the production service')
+    expect(setup).toContain('service_mismatch')
+  })
+
+  it('两份指南都要求抓取同目录的另一份时沿用同一个 v 参数', () => {
+    const dir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../public/cli')
+    for (const name of ['setup.md', 'workbuddy.md']) {
+      expect(readFileSync(resolve(dir, name), 'utf8'), name).toContain('?v=')
+    }
+  })
+
   it('各插件都只复制简短的接入请求和指南地址，隐藏安装细节', async () => {
     await render()
     for (const label of ['WorkBuddy', '豆包工作', 'Claude Code', 'Codex', '其他']) {
@@ -203,6 +254,10 @@ describe('CliConnectPage', () => {
     }
     expect(guide).toContain('muvloom auth login --no-wait')
     expect(guide).toContain('muvloom auth status')
+    expect(guide).toContain('service_mismatch')
+    // An older CLI already on the machine must be upgraded, not reused.
+    expect(guide.replace(/\s+/g, ' ')).toContain(`lower than ${CLI_VERSION}`)
+    expect(guide).toContain('--switch-service')
     expect(guide).toContain('muvloom capabilities')
     expect(guide).toContain('https://test-api.muvloom.online')
     expect(guide).not.toMatch(/--host (workbuddy|doubao)/)
