@@ -173,26 +173,13 @@ export default function CliDevicePage() {
         </header>
 
         {outcome && !code ? (
-          <div className="space-y-3">
-            <p
-              className={
-                outcome === 'connected' ? 'text-title-md' : 'text-body-sm text-destructive'
-              }
-              role={outcome === 'connected' ? 'status' : 'alert'}
-            >
-              {t(outcome === 'connected' ? 'cliDevice.connected' : 'cliDevice.notFinished')}
-            </p>
-            {outcome === 'connected' ? (
-              <Button type="button" className="w-full" onClick={closePage}>
-                {t('cliDevice.return')}
-              </Button>
-            ) : null}
-            {closeBlocked ? (
-              <p className="text-body-sm text-muted-foreground" aria-live="polite">
-                {t('cliDevice.closeManually')}
-              </p>
-            ) : null}
-          </div>
+          // CLI 用系统命令打开的标签页，脚本关不掉：这里只说明结果，不放按不动的按钮。
+          <p
+            className={outcome === 'connected' ? 'text-title-md' : 'text-body-sm text-destructive'}
+            role={outcome === 'connected' ? 'status' : 'alert'}
+          >
+            {t(outcome === 'connected' ? 'cliDevice.connected' : 'cliDevice.notFinished')}
+          </p>
         ) : !code ? (
           <form className="space-y-3" onSubmit={submitCode}>
             <Input
