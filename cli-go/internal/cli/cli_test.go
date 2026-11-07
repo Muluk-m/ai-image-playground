@@ -561,12 +561,13 @@ func TestLoginFinishesAfterAFailedSaveWithoutApprovingAgain(t *testing.T) {
 	if err := os.RemoveAll(creds); err != nil {
 		t.Fatal(err)
 	}
-	// Even after the code itself expired.
 	pending, err := app.Store.LoadPending()
 	if err != nil || !pending.Redeemed {
 		t.Fatalf("pending login after a failed save = %+v %v", pending, err)
 	}
+	// Even after the code itself expired, and even if marking it redeemed never reached the disk.
 	pending.ExpiresAt = time.Now().Add(-time.Minute)
+	pending.Redeemed = false
 	if err := app.Store.SavePending(pending); err != nil {
 		t.Fatal(err)
 	}
@@ -1388,5 +1389,34 @@ func TestARedeemedLoginPastItsCodeLifetimeStillChecksTheService(t *testing.T) {
 	}
 	if other.polls != 0 {
 		t.Fatal("redeemed a login for another service without being asked")
+	}
+}
+
+// An expired login that was never approved: the service declines to repeat it, and the same
+// command goes on to a new approval instead of failing.
+func TestAnExpiredUnapprovedLoginStartsANewOne(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	execute(t, app, "auth", "login", "--no-wait")
+	pending, _ := app.Store.LoadPending()
+	pending.ExpiresAt = time.Now().Add(-time.Minute)
+	if err := app.Store.SavePending(pending); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.deviceError = "expired_token"
+	f.mu.Unlock()
+	r := execute(t, app, "auth", "login", "--no-wait")
+	if r.code != ExitOK || r.out["data"].(map[string]any)["state"] != "pending" {
+		t.Fatalf("login = %d %s", r.code, r.stdout)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.deviceAuthCalls != 2 {
+		t.Fatalf("device authorizations = %d, want a new one", f.deviceAuthCalls)
+	}
+	next, _ := app.Store.LoadPending()
+	if next.RequestID == "" || next.RequestID == pending.RequestID {
+		t.Fatalf("the new login reused the old identity")
 	}
 }
