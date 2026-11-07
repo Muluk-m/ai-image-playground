@@ -52,6 +52,8 @@ type fakeServer struct {
 	deviceAuthCalls   int
 	// onRedeem runs after the server issued tokens for the device code, before it answers.
 	onRedeem func()
+	// artifactType is the content type of the generated artifact; empty means image/png.
+	artifactType string
 	// ignoreRequestID behaves like a service that predates request identities.
 	ignoreRequestID bool
 	// expiredOnce answers the next refresh with an access token that has no lifetime left.
@@ -229,15 +231,24 @@ func newFakeServer(t *testing.T) *fakeServer {
 			envelope(w, 200, map[string]any{"job_id": "job-1", "status": "failed", "terminal": true, "error": map[string]any{"code": "upstream_error", "message": "The model failed"}}, "")
 			return
 		}
-		envelope(w, 200, map[string]any{"job_id": "job-1", "status": "succeeded", "terminal": true, "artifacts": []any{map[string]any{"artifact_id": "art_job-1_0", "media_id": "m1", "content_type": "image/png"}}}, "")
+		envelope(w, 200, map[string]any{"job_id": "job-1", "status": "succeeded", "terminal": true, "artifacts": []any{map[string]any{"artifact_id": "art_job-1_0", "media_id": "m1", "content_type": f.contentType()}}}, "")
 	}))
 	mux.HandleFunc("GET /v1/artifacts/{id}/download", authed(func(w http.ResponseWriter, r *http.Request) {
-		envelope(w, 200, map[string]any{"download_url": f.server.URL + "/files/a.png", "content_type": "image/png"}, "")
+		envelope(w, 200, map[string]any{"download_url": f.server.URL + "/files/a.png", "content_type": f.contentType()}, "")
 	}))
 	mux.HandleFunc("GET /files/a.png", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("PNGDATA")) })
 	f.server = httptest.NewServer(mux)
 	t.Cleanup(f.server.Close)
 	return f
+}
+
+func (f *fakeServer) contentType() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.artifactType == "" {
+		return "image/png"
+	}
+	return f.artifactType
 }
 
 func (f *fakeServer) tokens() map[string]any {
@@ -1685,5 +1696,48 @@ func TestAResumedLoginNeverListensOffLoopback(t *testing.T) {
 	}
 	if len(addrs) != 0 {
 		t.Fatalf("listened on %v", addrs)
+	}
+}
+
+// A GIF request carries its format and frame settings, and the download keeps a .gif name.
+func TestANativeGifIsRequestedAndSavedAsGif(t *testing.T) {
+	for _, tc := range []struct{ format, contentType, ext string }{
+		{"gif", "image/gif", ".gif"},
+		{"svg", "image/svg+xml", ".svg"},
+	} {
+		t.Run(tc.format, func(t *testing.T) {
+			f := newFakeServer(t)
+			f.artifactType = tc.contentType
+			app := newApp(t, f, t.TempDir())
+			login(t, app)
+			out := t.TempDir()
+			args := []string{"images", "create", "--prompt", "a dancing cat", "--model", "gpt-image-2.6-flare",
+				"--output-format", tc.format, "--idempotency-key", "native-key-" + tc.format, "--wait", "60", "--download", out}
+			if tc.format == "gif" {
+				args = append(args, "--frames", "9", "--frame-duration-ms", "100", "--frame-size", "512x512")
+			}
+			r := execute(t, app, args...)
+			if r.code != ExitOK {
+				t.Fatalf("create = %d %s", r.code, r.stdout)
+			}
+			var sent map[string]any
+			f.mu.Lock()
+			_ = json.Unmarshal([]byte(f.submissions["native-key-"+tc.format]), &sent)
+			f.mu.Unlock()
+			if sent["output_format"] != tc.format {
+				t.Fatalf("sent %v", sent)
+			}
+			if tc.format == "gif" && (sent["frame_count"] != float64(9) || sent["frame_duration_ms"] != float64(100) || sent["frame_size"] != "512x512") {
+				t.Fatalf("gif settings not sent: %v", sent)
+			}
+			if tc.format == "svg" && (sent["frame_count"] != nil || sent["frame_size"] != nil) {
+				t.Fatalf("svg sent gif settings: %v", sent)
+			}
+			files, _ := filepath.Glob(filepath.Join(out, "*"+tc.ext))
+			if len(files) != 1 {
+				entries, _ := os.ReadDir(out)
+				t.Fatalf("downloaded %v, want one %s", entries, tc.ext)
+			}
+		})
 	}
 }

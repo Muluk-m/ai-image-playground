@@ -42,8 +42,9 @@ func (s *stringList) Set(v string) error { *s = append(*s, v); return nil }
 
 type imageFlags struct {
 	prompt, promptFile, model, aspectRatio, imageSize, quality string
+	outputFormat, frameSize                                    string
 	refs                                                       stringList
-	maxCredits                                                 int
+	maxCredits, frameCount, frameDuration                      int
 }
 
 func bindImageFlags(fs *flag.FlagSet) *imageFlags {
@@ -56,6 +57,10 @@ func bindImageFlags(fs *flag.FlagSet) *imageFlags {
 	fs.StringVar(&f.quality, "quality", "", "quality value the model lists")
 	fs.Var(&f.refs, "ref", "reference image: a media_id or a local image file (repeatable)")
 	fs.IntVar(&f.maxCredits, "max-credits", -1, "reject the request if it would cost more credits")
+	fs.StringVar(&f.outputFormat, "output-format", "", "gif or svg on models that list it in `output_formats` (default: a regular image)")
+	fs.IntVar(&f.frameCount, "frames", 0, "GIF frame count (default: server default)")
+	fs.IntVar(&f.frameDuration, "frame-duration-ms", 0, "GIF milliseconds per frame (default: server default)")
+	fs.StringVar(&f.frameSize, "frame-size", "", "GIF frame size, e.g. 768x768 (default: server default)")
 	return f
 }
 
@@ -75,6 +80,7 @@ func (f *imageFlags) body(ctx context.Context, a *App, c *client.HTTPClient) (ma
 	body := map[string]any{"prompt": prompt}
 	for key, value := range map[string]string{
 		"model": f.model, "aspect_ratio": f.aspectRatio, "image_size": f.imageSize, "quality": f.quality,
+		"output_format": f.outputFormat, "frame_size": f.frameSize,
 	} {
 		if value != "" {
 			body[key] = value
@@ -82,6 +88,12 @@ func (f *imageFlags) body(ctx context.Context, a *App, c *client.HTTPClient) (ma
 	}
 	if f.maxCredits >= 0 {
 		body["max_credits"] = f.maxCredits
+	}
+	if f.frameCount != 0 {
+		body["frame_count"] = f.frameCount
+	}
+	if f.frameDuration != 0 {
+		body["frame_duration_ms"] = f.frameDuration
 	}
 	if len(f.refs) > 0 {
 		ids := make([]string, 0, len(f.refs))
