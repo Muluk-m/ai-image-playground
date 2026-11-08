@@ -17,6 +17,9 @@ export function InspirationTabs() {
           <Link
             key={entry.to}
             to={entry.to}
+            // Link's own active state is a prefix match, which would also mark 条目 current on
+            // /inspirations/categories. Keep it exact like the visual state.
+            activeOptions={{ exact: true }}
             aria-current={active ? 'page' : undefined}
             className={cn(
               'border-b-2 px-3 py-2 text-sm text-muted-foreground transition-colors hover:text-foreground',
