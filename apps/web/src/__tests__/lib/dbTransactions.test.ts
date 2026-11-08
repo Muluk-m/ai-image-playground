@@ -59,3 +59,31 @@ it('does not store the previous account image after switching accounts during th
     vi.unstubAllGlobals()
   }
 })
+
+it('returns cached media without an unhandled rejection when the recency write aborts', async () => {
+  setClientStorageScope('media-touch-abort')
+  const unhandled: unknown[] = []
+  const onUnhandled = (reason: unknown) => unhandled.push(reason)
+  process.on('unhandledRejection', onUnhandled)
+  try {
+    const media = {
+      id: 'm:preview',
+      data: new ArrayBuffer(1),
+      contentType: 'image/png',
+      bytes: 1,
+      lastUsedAt: 1,
+    }
+    await dbTransaction(STORE_MEDIA, 'readwrite', (store) => store.put(media))
+    const put = vi.spyOn(IDBObjectStore.prototype, 'put').mockImplementation(() => {
+      throw new Error('storage_transaction_aborted')
+    })
+    await expect(getCachedMedia(media.id)).resolves.toMatchObject({ id: media.id })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(put).toHaveBeenCalled()
+    expect(unhandled).toEqual([])
+  } finally {
+    process.off('unhandledRejection', onUnhandled)
+    vi.restoreAllMocks()
+    setClientStorageScope(null)
+  }
+})
