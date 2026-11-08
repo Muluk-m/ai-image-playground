@@ -203,10 +203,10 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
     state.timer=setTimeout(probe,${RESOURCE_PROBE_INTERVAL_MS});
     return true;
   };
-  // The app ships every required script and stylesheet from this origin. Edge-injected
-  // third-party tags (Cloudflare Web Analytics adds a module script) are often blocked by
-  // privacy tools and must not turn into a reload or a failure panel.
-  const firstParty=(src)=>{try{return new URL(src,location.href).origin===location.origin}catch{return false}};
+  // Only the build's own assets (/assets/ in production, /src/ in dev) decide whether boot failed.
+  // Edge-injected tags (Cloudflare Web Analytics adds a cross-origin module script, /cdn-cgi/ is
+  // same-origin) are often blocked by privacy tools and must not cause a reload or a failure panel.
+  const firstParty=(src)=>{try{const url=new URL(src,location.href);return url.origin===location.origin&&(url.pathname.startsWith('/assets/')||url.pathname.startsWith('/src/'))}catch{return false}};
   const onError=(event)=>{
     const target=event.target;
     let detail;

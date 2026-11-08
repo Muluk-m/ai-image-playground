@@ -237,6 +237,11 @@ it('ignores blocked third-party scripts and styles injected at the edge', () => 
   beacon.src = 'https://static.cloudflareinsights.com/beacon.min.js/v123'
   document.body.append(beacon)
   beacon.dispatchEvent(new Event('error'))
+  const edge = document.createElement('script')
+  edge.type = 'module'
+  edge.src = '/cdn-cgi/injected.js'
+  document.body.append(edge)
+  edge.dispatchEvent(new Event('error'))
   const style = document.createElement('link')
   style.rel = 'stylesheet'
   style.href = 'https://third-party.example/widget.css'
