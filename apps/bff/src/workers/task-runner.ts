@@ -33,6 +33,7 @@ import { knownInactiveModels, refreshInactiveModels } from '../lib/model-availab
 import type { TaskUsage } from '../lib/private-overlay'
 import { isAbortError } from '../lib/queueProvider'
 import { isRetryableError, planNextAttempt, shouldRetryEmptyResult } from '../lib/retry'
+import { taskFailureLogLevel } from '../lib/task-failure-log'
 import {
   callUpstream,
   extractUpstreamFailure,
@@ -485,7 +486,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       completedAt: now(),
     })
     if (failed) {
-      log.error(
+      log[taskFailureLogLevel(errorType)](
         {
           event: 'task.failed',
           taskId: id,
