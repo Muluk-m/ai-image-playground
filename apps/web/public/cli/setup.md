@@ -11,13 +11,13 @@ When this guide points to another guide in the same folder (for example
 replaced, keeping this page's `?v=` query. That value changes whenever the guides
 change, so a cached older copy is never used.
 
-## 1. Install CLI 0.1.6
+## 1. Install CLI 0.2.0
 
 Run `muvloom version` first. If the command is missing, or the version it prints is lower
-than 0.1.6, install 0.1.6 with the commands below: the installer replaces the
+than 0.2.0, install 0.2.0 with the commands below: the installer replaces the
 existing CLI in place and keeps the user's sign-in. An older CLI must not be reused,
 because it lacks fixes this guide relies on. Skip this step only when the installed
-version is already 0.1.6 or newer.
+version is already 0.2.0 or newer.
 
 Use the matching platform below. The scripts are pinned to the released source
 commit and verify the downloaded binary's SHA-256. If installation fails, report
@@ -26,14 +26,14 @@ the error; do not bypass verification.
 ### macOS / Linux
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/f45f2e3b2baf2c94967ca3a7a27f4e6cc8df9818/cli-go/install/install.sh | MUVLOOM_VERSION=0.1.6 sh
+curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/f6354234848760df01db23f495024733901228b4/cli-go/install/install.sh | MUVLOOM_VERSION=0.2.0 sh
 export PATH="${MUVLOOM_INSTALL_DIR:-$HOME/.local/bin}:$PATH"
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-$env:MUVLOOM_VERSION = "0.1.6"; irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/f45f2e3b2baf2c94967ca3a7a27f4e6cc8df9818/cli-go/install/install.ps1 | iex
+$env:MUVLOOM_VERSION = "0.2.0"; irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/f6354234848760df01db23f495024733901228b4/cli-go/install/install.ps1 | iex
 $env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")
 ```
 
@@ -80,7 +80,7 @@ For WorkBuddy, follow [the WorkBuddy guide](workbuddy.md) to install the officia
 skill from the conversation and connect the account. Confirm that the skill appears in WorkBuddy
 before reporting setup complete.
 
-For 豆包工作 and other hosts, skip this step. CLI 0.1.6 only
+For 豆包工作 and other hosts, skip this step. CLI 0.2.0 only
 accepts `claude-code` and `codex` as skill hosts. Use `muvloom --help` and
 subcommand help to learn the CLI; do not invent a `--host` value or write into
 an unverified host configuration directory.
