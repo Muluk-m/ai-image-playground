@@ -122,13 +122,33 @@ func ConfigDir() string {
 	return ".muvloom"
 }
 
-// Default uses the keyring unless MUVLOOM_CREDENTIALS_STORE=file.
+// Default uses the keyring unless MUVLOOM_CREDENTIALS_STORE=file. A directory chosen with
+// MUVLOOM_CONFIG_DIR keeps its credentials in files only and never writes or deletes the
+// keychain (auth status only reads it, see DefaultLoginElsewhere): the keychain has one entry, which belongs to the default directory, so a login
+// or sign-out in another directory (a test service, a container) must not replace or remove it.
 func Default() Store {
+	if os.Getenv("MUVLOOM_CONFIG_DIR") != "" {
+		return Store{Dir: ConfigDir()}
+	}
 	return Store{
 		Dir:          ConfigDir(),
 		UseKeyring:   os.Getenv("MUVLOOM_CREDENTIALS_STORE") != "file",
 		ClearKeyring: true,
 	}
+}
+
+// DefaultLoginElsewhere reports that this store is a MUVLOOM_CONFIG_DIR directory without a
+// login while the keychain holds the default directory's: before 0.2.1 such a directory
+// shared that entry, so its user must sign in here again.
+func (s Store) DefaultLoginElsewhere() bool {
+	if s.UseKeyring || s.ClearKeyring || os.Getenv("MUVLOOM_CONFIG_DIR") == "" {
+		return false
+	}
+	if _, err := s.Load(); err == nil {
+		return false
+	}
+	_, err := s.keychain().Get(keyringService, keyringUser)
+	return err == nil
 }
 
 func (s Store) credentialsFile() string { return filepath.Join(s.Dir, "credentials.json") }
