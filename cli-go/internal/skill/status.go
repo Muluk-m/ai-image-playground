@@ -126,3 +126,23 @@ func treeHash(root string) (string, error) {
 	}
 	return hashFiles(files), nil
 }
+
+// RefreshOutdated replaces every installed copy that is intact but older than the bundle
+// with the bundle, so upgrading the CLI upgrades the Skills it installed. A copy whose files
+// were changed by hand is left alone. It returns the copies it could not refresh.
+func RefreshOutdated(home, cwd string) ([]Installation, error) {
+	installed, err := Installed(home, cwd)
+	if err != nil {
+		return nil, err
+	}
+	var failed []Installation
+	for _, item := range installed {
+		if !item.Intact || item.Current {
+			continue
+		}
+		if _, err := Install(InstallOptions{Host: item.Host, Scope: item.Scope, Home: home, CWD: cwd}); err != nil {
+			failed = append(failed, item)
+		}
+	}
+	return failed, nil
+}
