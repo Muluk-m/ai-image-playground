@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -15,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Muluk-m/ai-image-playground/cli-go/internal/auth"
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/client"
 )
 
@@ -172,10 +174,14 @@ type download struct {
 	Path        string `json:"path"`
 	Bytes       int64  `json:"bytes"`
 	ContentType string `json:"content_type"`
+	// AlreadyPresent means the target already held these exact bytes (a rerun after an
+	// interrupted download); nothing was written.
+	AlreadyPresent bool `json:"already_present,omitempty"`
 }
 
 // downloadTo fetches a fresh signed URL and writes the file atomically without ever
-// replacing an existing file. A failure here never changes anything on the server.
+// replacing an existing file. An existing file with the same bytes counts as downloaded;
+// one with other bytes is FILE_EXISTS. A failure here never changes anything on the server.
 func (a *App) downloadTo(ctx context.Context, c *client.HTTPClient, path, target string) (download, error) {
 	var signed struct {
 		DownloadURL string `json:"download_url"`
@@ -192,9 +198,6 @@ func (a *App) downloadTo(ctx context.Context, c *client.HTTPClient, path, target
 	if err := a.checkStorageURL(signed.DownloadURL); err != nil {
 		return download{}, err
 	}
-	if _, err := os.Stat(target); err == nil {
-		return download{}, &Failure{Code: "FILE_EXISTS", Message: target + " already exists; choose another --output", Details: map[string]string{"path": target}}
-	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, signed.DownloadURL, nil)
 	if err != nil {
 		return download{}, err
@@ -207,12 +210,12 @@ func (a *App) downloadTo(ctx context.Context, c *client.HTTPClient, path, target
 	if resp.StatusCode != http.StatusOK {
 		return download{}, fail("TEMPORARILY_UNAVAILABLE", "Download failed with HTTP %d; retry to get a new link", resp.StatusCode)
 	}
-	size, err := writeNew(target, resp.Body)
+	size, present, err := writeNew(target, resp.Body)
 	if err != nil {
 		return download{}, err
 	}
 	absolute, _ := filepath.Abs(target)
-	return download{Path: absolute, Bytes: size, ContentType: signed.ContentType}, nil
+	return download{Path: absolute, Bytes: size, ContentType: signed.ContentType, AlreadyPresent: present}, nil
 }
 
 // checkStorageURL only lets local image bytes (or a download) go over https; a plain
@@ -248,17 +251,89 @@ func preferredExt(contentType string, exts []string) string {
 	return exts[0]
 }
 
+func fileExists(target string) *Failure {
+	return &Failure{Code: "FILE_EXISTS", Message: target + " already exists with other content; choose another --output or --download directory", Details: map[string]string{"path": target}}
+}
+
+// sameContent reports whether existing holds exactly the size bytes of fresh. Sizes are
+// compared first; equal sizes are compared in chunks, never whole files in memory. An error
+// means existing could not be read, which is not the same as holding other bytes;
+// os.ErrNotExist means it is gone. A link (even a dangling one) or anything else that is not
+// a regular file is never the same content: links are not followed.
+func sameContent(fresh string, size int64, existing string) (bool, error) {
+	info, err := os.Lstat(existing)
+	if err != nil {
+		return false, err
+	}
+	if !info.Mode().IsRegular() || info.Size() != size {
+		return false, nil
+	}
+	left, err := os.Open(fresh)
+	if err != nil {
+		return false, err
+	}
+	defer left.Close()
+	right, err := os.Open(existing)
+	if err != nil {
+		return false, err
+	}
+	defer right.Close()
+	// Open follows links: if the target was swapped for a link after Lstat, this is not the
+	// file that was checked, and is never the same content.
+	if opened, err := right.Stat(); err != nil || !os.SameFile(info, opened) {
+		return false, nil
+	}
+	a, b := make([]byte, 64<<10), make([]byte, 64<<10)
+	for {
+		n, errA := io.ReadFull(left, a)
+		m, errB := io.ReadFull(right, b)
+		if n != m || !bytes.Equal(a[:n], b[:m]) {
+			return false, nil
+		}
+		done := errA == io.EOF || errA == io.ErrUnexpectedEOF
+		if done && errB == errA {
+			return true, nil
+		}
+		if done || errB == io.EOF || errB == io.ErrUnexpectedEOF {
+			return false, nil
+		}
+		if errA != nil {
+			return false, errA
+		}
+		if errB != nil {
+			return false, errB
+		}
+	}
+}
+
+// existingTarget decides about a target that was in the way: the same bytes are present,
+// other bytes are FILE_EXISTS, an unreadable one is a local error. retry reports a target
+// that disappeared meanwhile, so placing the file can be tried again.
+func existingTarget(fresh string, size int64, target string) (present, retry bool, err error) {
+	same, err := sameContent(fresh, size, target)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return false, true, nil
+	case err != nil:
+		return false, false, fail("INVALID_REQUEST", "Cannot read the existing %s to compare it: %v", target, auth.Reason(err))
+	case same:
+		return true, false, nil
+	}
+	return false, false, fileExists(target)
+}
+
 // writeNew streams into a temp file beside target, then links it into place. Linking
 // fails if target exists, so a concurrent writer is never overwritten. Filesystems
-// without hard links fall back to an exclusive create.
-func writeNew(target string, body io.Reader) (int64, error) {
+// without hard links fall back to an exclusive create. A target that already holds the
+// same bytes is left as it is and reported as present.
+func writeNew(target string, body io.Reader) (int64, bool, error) {
 	dir := filepath.Dir(target)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return 0, fail("INVALID_REQUEST", "Cannot create %s: %v", dir, err)
+		return 0, false, fail("INVALID_REQUEST", "Cannot create %s: %v", dir, err)
 	}
 	tmp, err := os.CreateTemp(dir, ".muvloom-download-*")
 	if err != nil {
-		return 0, fail("INVALID_REQUEST", "Cannot write in %s: %v", dir, err)
+		return 0, false, fail("INVALID_REQUEST", "Cannot write in %s: %v", dir, err)
 	}
 	defer os.Remove(tmp.Name())
 	size, err := io.Copy(tmp, body)
@@ -269,29 +344,46 @@ func writeNew(target string, body io.Reader) (int64, error) {
 		err = closeErr
 	}
 	if err != nil {
-		return 0, fail("NETWORK_ERROR", "Download interrupted: %v", err)
+		return 0, false, fail("NETWORK_ERROR", "Download interrupted: %v", err)
 	}
 	// CreateTemp makes the file 0600; a downloaded image is ordinary user content.
 	_ = os.Chmod(tmp.Name(), 0o644)
-	linkErr := os.Link(tmp.Name(), target)
-	if linkErr == nil {
-		return size, nil
-	}
-	if errors.Is(linkErr, os.ErrExist) {
-		return 0, &Failure{Code: "FILE_EXISTS", Message: target + " already exists; choose another --output", Details: map[string]string{"path": target}}
+	var linkErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		if linkErr = os.Link(tmp.Name(), target); linkErr == nil {
+			return size, false, nil
+		}
+		if !errors.Is(linkErr, os.ErrExist) {
+			break
+		}
+		present, retry, err := existingTarget(tmp.Name(), size, target)
+		if !retry {
+			if err != nil {
+				return 0, false, err
+			}
+			return size, present, nil
+		}
 	}
 	out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if errors.Is(err, os.ErrExist) {
-		return 0, &Failure{Code: "FILE_EXISTS", Message: target + " already exists; choose another --output", Details: map[string]string{"path": target}}
+		present, retry, err := existingTarget(tmp.Name(), size, target)
+		if err != nil {
+			return 0, false, err
+		}
+		if retry {
+			// Something keeps appearing and vanishing at the target: report it, never success.
+			return 0, false, fail("INVALID_REQUEST", "%s changed while the download was being saved; run the command again", target)
+		}
+		return size, present, nil
 	}
 	if err != nil {
-		return 0, fail("INVALID_REQUEST", "Cannot create %s: %v", target, err)
+		return 0, false, fail("INVALID_REQUEST", "Cannot create %s: %v", target, err)
 	}
 	src, err := os.Open(tmp.Name())
 	if err != nil {
 		out.Close()
 		os.Remove(target)
-		return 0, err
+		return 0, false, err
 	}
 	defer src.Close()
 	_, copyErr := io.Copy(out, src)
@@ -299,7 +391,7 @@ func writeNew(target string, body io.Reader) (int64, error) {
 	if err := errors.Join(copyErr, closeErr); err != nil {
 		// A partial file would make the retry fail with FILE_EXISTS.
 		os.Remove(target)
-		return 0, fail("INTERNAL_ERROR", "Cannot write %s: %v", target, err)
+		return 0, false, fail("INTERNAL_ERROR", "Cannot write %s: %v", target, err)
 	}
-	return size, nil
+	return size, false, nil
 }

@@ -33,8 +33,8 @@ export function guideUrl(path: string, origin: string): string {
  * 是已发布版本的脚本，之后分支上的改动不会悄悄变成别人电脑上的命令。脚本再校验下载的 CLI
  * SHA-256；发新版 CLI 时同时更新这两个常量。
  */
-export const CLI_VERSION = '0.2.2'
-export const CLI_RELEASE_REF = '2a9d22308a30b0739e0d9b1fb9dc349c03807819'
+export const CLI_VERSION = '0.2.3'
+export const CLI_RELEASE_REF = '9008c3145a5ef40404cddb0aee29fa797b44f91c'
 const INSTALL_BASE = `https://raw.githubusercontent.com/Muluk-m/ai-image-playground/${CLI_RELEASE_REF}/cli-go/install`
 export const INSTALL_COMMAND: Record<ConnectPlatform, string> = {
   unix: `curl -fsSL ${INSTALL_BASE}/install.sh | MUVLOOM_VERSION=${CLI_VERSION} sh`,
