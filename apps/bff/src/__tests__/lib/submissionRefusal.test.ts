@@ -5,13 +5,17 @@ const quota = { ok: false, count: 20, quota: 20, reset_at: '2026-11-09T00:00:00.
 
 // 单张提交与批量提交共用这张表，每种拒绝结局一行。
 const table: ReadonlyArray<readonly [SubmissionRefusal, number, Record<string, unknown>]> = [
-  [{ kind: 'invalid_prompt' }, 400, { error: 'invalid_request' }],
+  [{ kind: 'invalid_prompt' }, 400, { error: 'invalid_request', message: '提示词不能为空' }],
   [
     { kind: 'invalid_image_request', message: 'bad size' },
     400,
     { error: 'invalid_request', message: 'bad size' },
   ],
-  [{ kind: 'invalid_input_image', message: 'bad ref' }, 400, { error: 'invalid_input_image' }],
+  [
+    { kind: 'invalid_input_image', message: 'bad ref' },
+    400,
+    { error: 'invalid_input_image', message: 'bad ref' },
+  ],
   [{ kind: 'idempotency_conflict' }, 409, { error: 'idempotency_key_conflict' }],
   [{ kind: 'idempotency_mismatch' }, 409, { error: 'idempotency_key_conflict' }],
   [
@@ -19,7 +23,11 @@ const table: ReadonlyArray<readonly [SubmissionRefusal, number, Record<string, u
     409,
     { error: 'duplicate_submission', request_id: 't1' },
   ],
-  [{ kind: 'object_storage_error', message: 'down' }, 503, { error: 'object_storage_error' }],
+  [
+    { kind: 'object_storage_error', message: 'down' },
+    503,
+    { error: 'object_storage_error', message: 'down' },
+  ],
   [
     { kind: 'insufficient_credits', required: 30, available: 10 },
     402,
@@ -37,7 +45,7 @@ const table: ReadonlyArray<readonly [SubmissionRefusal, number, Record<string, u
     { error: 'metering_denied', reason: 'blocked' },
   ],
   [{ kind: 'authentication_required' }, 401, { error: 'unauthorized' }],
-  [{ kind: 'private_billing_denied' }, 403, { error: 'plan_required' }],
+  [{ kind: 'private_billing_denied' }, 403, { error: 'plan_required', message: '4K 需要有效会员' }],
   [
     { kind: 'quota_exceeded', quota },
     429,
@@ -53,5 +61,5 @@ const table: ReadonlyArray<readonly [SubmissionRefusal, number, Record<string, u
 it.each(table)('%o → %i', (outcome, code, body) => {
   const response = submissionRefusalResponse(outcome)
   expect(response.code).toBe(code)
-  expect(response.response).toMatchObject(body)
+  expect(response.response).toEqual(body)
 })
