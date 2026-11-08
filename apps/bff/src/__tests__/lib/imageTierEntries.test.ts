@@ -16,7 +16,7 @@ import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
  * - web-direct：网站直接提交
  * - cli-strict：CLI（strictImageRequest）
  * - tx：调用方自带事务（确认生成），entry 为 agent
- * - prepared：先 prepareQueueTask 再在事务里提交（批次执行、自动提交、灵感套用），entry 为 batch
+ * - prepared：经 submitPrepared 先归档再在事务里提交（批次执行、自动提交、灵感套用），entry 为 batch
  * 智能体与阶段授权入口走同一条 ceiling 分支，由 chat-task / agent-stage-authorizations 测试覆盖。
  * 与 taskSubmission.test.ts 的 `non-member resolution ceiling` 有部分重叠，这里独立钉住全矩阵。
  */
@@ -27,7 +27,7 @@ process.env.PORT = '0'
 _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 
 const { close, db, schema } = await import('../../db/client')
-const { createQueueTask, prepareQueueTask } = await import('../../lib/taskSubmission')
+const { createQueueTask, submitPrepared } = await import('../../lib/taskSubmission')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 
 type Outcome = Awaited<ReturnType<typeof createQueueTask>>
@@ -115,11 +115,9 @@ async function submitVia(entry: Entry, base: Input): Promise<Outcome> {
     case 'tx':
       return db.transaction((tx) => createQueueTask({ ...input, tx }))
     case 'prepared': {
-      const preparation = await prepareQueueTask(input)
-      if (preparation.kind !== 'prepared') throw new Error(`prepare failed: ${preparation.kind}`)
-      return db.transaction((tx) =>
-        createQueueTask({ ...input, tx, prepared: preparation.prepared }),
-      )
+      const result = await submitPrepared([input], (_tx, submit) => submit(0))
+      if (result.kind !== 'committed') throw new Error(`prepare failed: ${result.outcome.kind}`)
+      return result.value
     }
   }
 }

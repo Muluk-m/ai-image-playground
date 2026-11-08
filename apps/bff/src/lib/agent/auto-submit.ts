@@ -8,13 +8,10 @@ import type {
   SubmitRequest,
 } from '@image-playground/shared'
 import { AGENT_AUTO_SUBMIT_MAX_PER_TURN } from '@image-playground/shared'
-import { db } from '../../db/client'
 import {
   type CreateQueueTaskInput,
   type CreateQueueTaskOutcome,
-  createQueueTask,
-  discardQueueTaskPreparation,
-  prepareQueueTask,
+  submitPrepared,
 } from '../taskSubmission'
 import { shapeQueuePrompt } from './prompt-shaping'
 import { recentlyRateLimitedLocked } from './rate-limit-resend'
@@ -117,13 +114,9 @@ export async function submitAgentGeneration(input: AutoSubmitInput): Promise<Aut
     },
   }
   // 输入图先归档好，再开事务：握着锁和连接时不去等对象存储。
-  const preparation = await prepareQueueTask(createInput)
-  if (preparation.kind !== 'prepared')
-    return { kind: 'refused', code: queueRefusalCode(preparation.kind) }
-  const { prepared } = preparation
-  let submitted: CreateQueueTaskOutcome | 'rate_limited'
-  try {
-    submitted = await db.transaction(async (tx) => {
+  const result = await submitPrepared(
+    [createInput],
+    async (tx, submit): Promise<CreateQueueTaskOutcome | 'rate_limited'> => {
       // 同一会话里同模型、同提示词刚因限流失败过：不自动重发，退回待确认的稿让用户决定。
       // 检查与建任务同一个事务、同一把锁，两条并发的自动提交不会都在检查里看漏。
       if (
@@ -134,19 +127,13 @@ export async function submitAgentGeneration(input: AutoSubmitInput): Promise<Aut
           prompt,
         }))
       )
-        return 'rate_limited' as const
-      return createQueueTask({ ...createInput, prepared, tx })
-    })
-  } catch (error) {
-    await discardQueueTaskPreparation(prepared)
-    throw error
-  }
-  if (
-    submitted === 'rate_limited' ||
-    submitted.kind !== 'created' ||
-    submitted.taskId !== prepared.taskId
+        return 'rate_limited'
+      return submit(0)
+    },
   )
-    await discardQueueTaskPreparation(prepared)
+  if (result.kind === 'refused')
+    return { kind: 'refused', code: queueRefusalCode(result.outcome.kind) }
+  const submitted = result.value
   if (submitted === 'rate_limited') return { kind: 'refused', code: 'upstream_error' }
   if (submitted.kind !== 'created')
     return { kind: 'refused', code: queueRefusalCode(submitted.kind) }
