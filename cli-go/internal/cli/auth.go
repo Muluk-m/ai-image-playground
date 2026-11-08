@@ -273,6 +273,9 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 			return status, nil
 		}
 		status["state"] = "unauthenticated"
+		if a.Store.DefaultLoginElsewhere() {
+			a.progress("MUVLOOM_CONFIG_DIR (%s) has its own login since CLI 0.2.1; the default directory's login is kept apart. Run `muvloom auth login` to sign in here.", a.Store.Dir)
+		}
 		return status, nil
 	}
 	var me account

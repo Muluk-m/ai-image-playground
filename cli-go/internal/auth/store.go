@@ -100,33 +100,53 @@ type Store struct {
 	ClearKeyring bool
 	// Keychain replaces the system credential store; nil means the system's.
 	Keychain Keychain
-	// KeyringUser names this store's keychain entry; empty means the default config
-	// directory's. A store in another directory (MUVLOOM_CONFIG_DIR) has its own entry, so
-	// signing in, out or switching storage there never touches the default login.
+	// KeyringUser overrides the keychain entry name; empty derives it from Dir.
 	KeyringUser string
 }
 
+// keyringUser names this store's keychain entry. The default config directory keeps the
+// entry every earlier version used; any other directory (MUVLOOM_CONFIG_DIR) has its own, so
+// signing in, out or switching storage there never touches the default login.
 func (s Store) keyringUser() string {
 	if s.KeyringUser != "" {
 		return s.KeyringUser
 	}
-	return defaultKeyringUser
+	return keyringUserFor(s.Dir)
 }
 
-// keyringUserFor gives a config directory other than the default its own keychain entry.
 func keyringUserFor(dir string) string {
-	if dir == defaultConfigDir() {
-		return ""
+	path := canonicalDir(dir)
+	if path == canonicalDir(defaultConfigDir()) {
+		return defaultKeyringUser
 	}
-	absolute, err := filepath.Abs(dir)
-	if err != nil {
-		absolute = dir
-	}
-	if absolute == defaultConfigDir() {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(filepath.Clean(absolute)))
+	sum := sha256.Sum256([]byte(path))
 	return "dir-" + hex.EncodeToString(sum[:8])
+}
+
+// canonicalDir spells one directory one way: absolute, symlinks resolved where they exist
+// (macOS /tmp is /private/tmp), and case-folded on Windows, whose paths ignore case.
+func canonicalDir(dir string) string {
+	path, err := filepath.Abs(dir)
+	if err != nil {
+		path = filepath.Clean(dir)
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	if runtime.GOOS == "windows" {
+		path = strings.ToLower(path)
+	}
+	return path
+}
+
+// DefaultLoginElsewhere reports that this store, in a directory of its own, has no login while
+// the default directory's keychain entry holds one: before 0.2.1 every directory shared it.
+func (s Store) DefaultLoginElsewhere() bool {
+	if !s.UseKeyring || s.keyringUser() == defaultKeyringUser {
+		return false
+	}
+	_, err := s.keychain().Get(keyringService, defaultKeyringUser)
+	return err == nil
 }
 
 func (s Store) keychain() Keychain {
@@ -156,12 +176,10 @@ func defaultConfigDir() string {
 
 // Default uses the keyring unless MUVLOOM_CREDENTIALS_STORE=file.
 func Default() Store {
-	dir := ConfigDir()
 	return Store{
-		Dir:          dir,
+		Dir:          ConfigDir(),
 		UseKeyring:   os.Getenv("MUVLOOM_CREDENTIALS_STORE") != "file",
 		ClearKeyring: true,
-		KeyringUser:  keyringUserFor(dir),
 	}
 }
 
