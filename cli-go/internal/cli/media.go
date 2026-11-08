@@ -251,17 +251,40 @@ func preferredExt(contentType string, exts []string) string {
 }
 
 func fileExists(target string) *Failure {
-	return &Failure{Code: "FILE_EXISTS", Message: target + " already exists with other content; choose another --output", Details: map[string]string{"path": target}}
+	return &Failure{Code: "FILE_EXISTS", Message: target + " already exists with other content; choose another --output or --download directory", Details: map[string]string{"path": target}}
 }
 
-// sameContent reports whether two files hold the same bytes.
-func sameContent(a, b string) bool {
-	left, err := os.ReadFile(a)
+// sameContent reports whether existing holds exactly the size bytes of fresh. Sizes are
+// compared first; equal sizes are compared in chunks, never whole files in memory.
+func sameContent(fresh string, size int64, existing string) bool {
+	info, err := os.Stat(existing)
+	if err != nil || !info.Mode().IsRegular() || info.Size() != size {
+		return false
+	}
+	left, err := os.Open(fresh)
 	if err != nil {
 		return false
 	}
-	right, err := os.ReadFile(b)
-	return err == nil && bytes.Equal(left, right)
+	defer left.Close()
+	right, err := os.Open(existing)
+	if err != nil {
+		return false
+	}
+	defer right.Close()
+	a, b := make([]byte, 64<<10), make([]byte, 64<<10)
+	for {
+		n, errA := io.ReadFull(left, a)
+		m, errB := io.ReadFull(right, b)
+		if n != m || !bytes.Equal(a[:n], b[:m]) {
+			return false
+		}
+		if errA == io.EOF || errA == io.ErrUnexpectedEOF {
+			return errB == errA
+		}
+		if errA != nil || errB != nil {
+			return false
+		}
+	}
 }
 
 // writeNew streams into a temp file beside target, then links it into place. Linking
@@ -295,14 +318,14 @@ func writeNew(target string, body io.Reader) (int64, bool, error) {
 		return size, false, nil
 	}
 	if errors.Is(linkErr, os.ErrExist) {
-		if sameContent(tmp.Name(), target) {
+		if sameContent(tmp.Name(), size, target) {
 			return size, true, nil
 		}
 		return 0, false, fileExists(target)
 	}
 	out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if errors.Is(err, os.ErrExist) {
-		if sameContent(tmp.Name(), target) {
+		if sameContent(tmp.Name(), size, target) {
 			return size, true, nil
 		}
 		return 0, false, fileExists(target)

@@ -1815,4 +1815,34 @@ func TestCreateFailuresAfterSubmitKeepTheJob(t *testing.T) {
 			t.Fatalf("rerun = %d %s", again.code, again.stdout)
 		}
 	})
+	t.Run("a different file in the way, as text", func(t *testing.T) {
+		f := newFakeServer(t)
+		app := newApp(t, f, t.TempDir())
+		login(t, app)
+		out := t.TempDir()
+		mine := filepath.Join(out, "art_job-1_0.png")
+		if err := os.WriteFile(mine, []byte("MY OWN PICTURE"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		args := []string{"images", "create", "--prompt", "a fox", "--idempotency-key", "keep-job-key-3", "--wait", "60", "--download", out}
+		r := execute(t, app, args...)
+		details, _ := r.out["error"].(map[string]any)["details"].(map[string]any)
+		if r.code != ExitRejected || r.out["error"].(map[string]any)["code"] != "FILE_EXISTS" ||
+			details["job_id"] != "job-1" || details["path"] != mine {
+			t.Fatalf("conflict = %d %s", r.code, r.stdout)
+		}
+		if content, _ := os.ReadFile(mine); string(content) != "MY OWN PICTURE" {
+			t.Fatal("the user's file was replaced")
+		}
+		var stdout, stderr bytes.Buffer
+		app.Out, app.Err = &stdout, &stderr
+		if code := app.Run(args); code != ExitRejected || stdout.Len() != 0 {
+			t.Fatalf("text conflict = %d %q", code, stdout.String())
+		}
+		for _, want := range []string{"(FILE_EXISTS)", "job_id: job-1", "idempotency_key: keep-job-key-3", "path: " + mine} {
+			if !strings.Contains(stderr.String(), want) {
+				t.Fatalf("text failure lacks %q:\n%s", want, stderr.String())
+			}
+		}
+	})
 }
