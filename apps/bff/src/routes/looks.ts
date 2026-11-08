@@ -21,10 +21,7 @@ import { readAssetImage } from '../lib/sync-assets'
 import {
   type CreateQueueTaskInput,
   type CreateQueueTaskOutcome,
-  createQueueTask,
-  discardQueueTaskPreparation,
-  type PreparedQueueTask,
-  prepareQueueTask,
+  submitPrepared,
 } from '../lib/taskSubmission'
 import { resolveAuthUser } from '../lib/user-auth'
 
@@ -307,23 +304,12 @@ export const lookRoutes = new Elysia()
         userId: authUser.id,
       }))
       // 输入图先全部归档，再开事务：握着积分锁和连接时不去等对象存储。
-      const prepared: PreparedQueueTask[] = []
-      const discardAll = () => Promise.all(prepared.map((one) => discardQueueTaskPreparation(one)))
-      for (const input of createInputs) {
-        const preparation = await prepareQueueTask(input)
-        if (preparation.kind !== 'prepared') {
-          await discardAll()
-          return refusalResponse(preparation)
-        }
-        prepared.push(preparation.prepared)
-      }
-
       let tasks: Array<{ assetIds: string[]; taskId: string }>
       try {
-        tasks = await db.transaction(async (tx) => {
+        const result = await submitPrepared(createInputs, async (tx, submit) => {
           const created: Array<{ assetIds: string[]; taskId: string }> = []
-          for (const [index, input] of createInputs.entries()) {
-            const outcome = await createQueueTask({ ...input, prepared: prepared[index]!, tx })
+          for (const index of createInputs.keys()) {
+            const outcome = await submit(index)
             if (outcome.kind === 'created') {
               created.push({ assetIds: assembled[index]!.assetIds, taskId: outcome.taskId })
               continue
@@ -344,8 +330,9 @@ export const lookRoutes = new Elysia()
           }
           return created
         })
+        if (result.kind === 'refused') return refusalResponse(result.outcome)
+        tasks = result.value
       } catch (error) {
-        await discardAll()
         if (error instanceof BatchRefused) return refusalResponse(error.outcome)
         throw error
       }
