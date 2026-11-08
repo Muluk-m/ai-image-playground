@@ -42,20 +42,25 @@ func (s *stringList) Set(v string) error { *s = append(*s, v); return nil }
 
 type imageFlags struct {
 	prompt, promptFile, model, aspectRatio, imageSize, quality string
+	outputFormat, frameSize                                    string
 	refs                                                       stringList
-	maxCredits                                                 int
+	maxCredits, frameCount, frameDuration                      int
 }
 
 func bindImageFlags(fs *flag.FlagSet) *imageFlags {
 	f := &imageFlags{}
-	fs.StringVar(&f.prompt, "prompt", "", "what to generate")
-	fs.StringVar(&f.promptFile, "prompt-file", "", "read the prompt from a UTF-8 file")
-	fs.StringVar(&f.model, "model", "", "model id from `muvloom capabilities` (default: server default)")
-	fs.StringVar(&f.aspectRatio, "aspect-ratio", "", "e.g. 1:1, 16:9, auto")
-	fs.StringVar(&f.imageSize, "image-size", "", "e.g. 1K, 2K, 4K")
-	fs.StringVar(&f.quality, "quality", "", "quality value the model lists")
-	fs.Var(&f.refs, "ref", "reference image: a media_id or a local image file (repeatable)")
-	fs.IntVar(&f.maxCredits, "max-credits", -1, "reject the request if it would cost more credits")
+	fs.StringVar(&f.prompt, "prompt", "", "What to generate")
+	fs.StringVar(&f.promptFile, "prompt-file", "", "Read the prompt from a UTF-8 file (long or multi-line prompts)")
+	fs.StringVar(&f.model, "model", "", "Model id from `muvloom capabilities`; omitted: the default model")
+	fs.StringVar(&f.aspectRatio, "aspect-ratio", "", "Aspect ratio the model lists, e.g. 1:1, 16:9, auto")
+	fs.StringVar(&f.imageSize, "image-size", "", "Image size the model lists, e.g. 1K, 2K, 4K")
+	fs.StringVar(&f.quality, "quality", "", "Quality the model lists, e.g. low, medium, high")
+	fs.Var(&f.refs, "ref", "Reference image: a local .png/.jpg/.webp (uploaded for you) or a media_id; repeatable")
+	fs.IntVar(&f.maxCredits, "max-credits", -1, "Refuse to create the job if it would cost more than N credits")
+	fs.StringVar(&f.outputFormat, "output-format", "", "gif or svg, on models whose output_formats list it; omitted: a regular image")
+	fs.IntVar(&f.frameCount, "frames", 0, "GIF: number of frames; limits in `muvloom capabilities`")
+	fs.IntVar(&f.frameDuration, "frame-duration-ms", 0, "GIF: milliseconds per frame")
+	fs.StringVar(&f.frameSize, "frame-size", "", "GIF: frame size, e.g. 512x512 or 768x768")
 	return f
 }
 
@@ -75,6 +80,7 @@ func (f *imageFlags) body(ctx context.Context, a *App, c *client.HTTPClient) (ma
 	body := map[string]any{"prompt": prompt}
 	for key, value := range map[string]string{
 		"model": f.model, "aspect_ratio": f.aspectRatio, "image_size": f.imageSize, "quality": f.quality,
+		"output_format": f.outputFormat, "frame_size": f.frameSize,
 	} {
 		if value != "" {
 			body[key] = value
@@ -82,6 +88,12 @@ func (f *imageFlags) body(ctx context.Context, a *App, c *client.HTTPClient) (ma
 	}
 	if f.maxCredits >= 0 {
 		body["max_credits"] = f.maxCredits
+	}
+	if f.frameCount != 0 {
+		body["frame_count"] = f.frameCount
+	}
+	if f.frameDuration != 0 {
+		body["frame_duration_ms"] = f.frameDuration
 	}
 	if len(f.refs) > 0 {
 		ids := make([]string, 0, len(f.refs))
@@ -166,9 +178,9 @@ type createResult struct {
 func cmdImagesCreate(ctx context.Context, a *App, args []string) (any, error) {
 	fs := newFlags("images create")
 	flags := bindImageFlags(fs)
-	key := fs.String("idempotency-key", "", "reuse a key to retry the same request safely (default: generated)")
-	wait := fs.Int("wait", 0, "wait up to SECONDS (max 3600) for the job to finish")
-	downloadDir := fs.String("download", "", "after a successful wait, save artifacts into DIR")
+	key := fs.String("idempotency-key", "", "Key that makes retrying the same request safe (8-64 of A-Z a-z 0-9 _ . : -); omitted: generated")
+	wait := fs.Int("wait", 0, "Wait up to SECONDS (max 3600) for the job to finish; 0 returns once submitted")
+	downloadDir := fs.String("download", "", "After a successful wait, save the results into DIR")
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
 	}
@@ -314,9 +326,9 @@ func cmdJobsGet(ctx context.Context, a *App, args []string) (any, error) {
 
 func cmdJobsList(ctx context.Context, a *App, args []string) (any, error) {
 	fs := newFlags("jobs list")
-	limit := fs.Int("limit", 20, "1-50")
-	cursor := fs.String("cursor", "", "next_cursor from the previous page")
-	key := fs.String("idempotency-key", "", "find the job submitted with this key")
+	limit := fs.Int("limit", 20, "Jobs per page, 1-50")
+	cursor := fs.String("cursor", "", "Continue from the previous page's next_cursor")
+	key := fs.String("idempotency-key", "", "Find the job submitted with this idempotency key")
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
 	}
@@ -340,7 +352,7 @@ func cmdJobsList(ctx context.Context, a *App, args []string) (any, error) {
 
 func cmdJobsWait(ctx context.Context, a *App, args []string) (any, error) {
 	fs := newFlags("jobs wait")
-	timeout := fs.Int("timeout", 300, "seconds to wait before returning the current state")
+	timeout := fs.Int("timeout", 300, "Seconds to wait (max 3600); on timeout the job keeps running")
 	rest, err := parse(fs, args, 1)
 	if err != nil {
 		return nil, err

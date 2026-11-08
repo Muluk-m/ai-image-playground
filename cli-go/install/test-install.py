@@ -128,7 +128,7 @@ class InstallTests(unittest.TestCase):
         return subprocess.run(command, cwd=self.project, env=self.env, text=True, capture_output=True, timeout=60)
 
     def cli(self, *args, code=0):
-        result = subprocess.run([str(self.binary), *args], cwd=self.project, env=self.env, text=True, capture_output=True, timeout=30)
+        result = subprocess.run([str(self.binary), "--json", *args], cwd=self.project, env=self.env, text=True, capture_output=True, timeout=30)
         self.assertEqual(result.returncode, code, result.stdout + result.stderr)
         envelope = json.loads(result.stdout)
         self.assertEqual(envelope["schema_version"], 1)
@@ -165,6 +165,20 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(len(installed), 4)
         self.assertTrue(all(item["intact"] and item["current"] for item in installed))
         self.assertEqual(self.cli("unknown-command", code=2)["error"]["code"], "USAGE")
+        # Without --json the installed binary speaks text, and help succeeds.
+        def text(*args):
+            return subprocess.run([str(self.binary), *args], cwd=self.project, env=self.env, text=True, capture_output=True, timeout=30)
+        version = text("version")
+        self.assertEqual(version.returncode, 0, version.stdout + version.stderr)
+        self.assertEqual(version.stdout.strip().split(" ")[:2], ["muvloom", VERSION], version.stdout + version.stderr)
+        helped = text("images", "create", "--help")
+        self.assertEqual(helped.returncode, 0, helped.stdout + helped.stderr)
+        self.assertIn("--output-format", helped.stdout)
+        # A text-mode failure keeps stdout empty and its exit code.
+        failed = text("unknown-command")
+        self.assertEqual(failed.returncode, 2, failed.stdout + failed.stderr)
+        self.assertEqual(failed.stdout, "")
+        self.assertIn("(USAGE)", failed.stderr)
         for _, headers in self.server.requests:
             self.assertFalse(any(key.lower() in ("authorization", "cookie") for key in headers))
 
@@ -196,6 +210,139 @@ class InstallTests(unittest.TestCase):
         self.env["MUVLOOM_API_URL"] = "http://untrusted.invalid"
         result = self.install()
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+
+    # ---- where the installer puts the CLI when MUVLOOM_INSTALL_DIR is not given ----------------
+
+    def default_location_env(self, *path_dirs, system_bin=None):
+        """No install-dir override and a PATH made only of the given directories plus the system's."""
+        if self.windows:
+            self.skipTest("shell installer only")
+        self.env.pop("MUVLOOM_INSTALL_DIR")
+        system = "/usr/bin:/bin:/usr/sbin:/sbin"
+        self.env["PATH"] = os.pathsep.join([*(str(d) for d in path_dirs), system])
+        # The system-wide directory is /usr/local/bin; point it somewhere a test may use.
+        self.env["MUVLOOM_SYSTEM_BIN_DIR"] = str(system_bin or (self.root / "no system bin"))
+
+    def installed_at(self, directory):
+        return (Path(directory) / "muvloom").is_file()
+
+    def test_default_location_is_the_users_local_bin(self):
+        self.default_location_env()
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(self.installed_at(self.home / ".local" / "bin"))
+        self.assertIn("Add it to PATH", result.stderr)  # not on PATH, so it says how
+
+    def test_an_existing_copy_is_replaced_where_it_is(self):
+        # One muvloom, and it is the one that runs: an upgrade must not leave the old copy first.
+        existing = self.root / "somewhere" / "bin"
+        existing.mkdir(parents=True)
+        (existing / "muvloom").write_text("#!/bin/sh\necho old\n", encoding="utf-8")
+        (existing / "muvloom").chmod(0o755)
+        self.default_location_env(existing)
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((existing / "muvloom").read_bytes(), (DIST / self.asset_name()).read_bytes())
+        self.assertFalse(self.installed_at(self.home / ".local" / "bin"), "a second copy was created")
+        self.assertNotIn("Add it to PATH", result.stderr)
+
+    def test_the_system_wide_directory_is_used_when_it_is_on_path_and_writable(self):
+        system_bin = self.root / "system bin"
+        system_bin.mkdir()
+        self.default_location_env(system_bin, system_bin=system_bin)
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(self.installed_at(system_bin))
+        self.assertFalse(self.installed_at(self.home / ".local" / "bin"))
+
+    def test_the_system_wide_directory_is_not_used_when_it_is_not_on_path(self):
+        system_bin = self.root / "system bin"
+        system_bin.mkdir()
+        self.default_location_env(system_bin=system_bin)  # exists and is writable, but no shell finds it
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(self.installed_at(self.home / ".local" / "bin"))
+        self.assertFalse(self.installed_at(system_bin))
+
+    def test_an_unwritable_system_directory_falls_back_to_the_user_directory(self):
+        if self.windows:
+            self.skipTest("shell installer only")
+        if os.geteuid() == 0:
+            self.skipTest("directory permissions are not enforced for root")
+        system_bin = self.root / "system bin"
+        system_bin.mkdir()
+        system_bin.chmod(0o555)
+        self.addCleanup(system_bin.chmod, 0o755)
+        self.default_location_env(system_bin, system_bin=system_bin)
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(self.installed_at(self.home / ".local" / "bin"))
+
+    def test_an_unwritable_existing_copy_is_reported_instead_of_silently_shadowing(self):
+        if self.windows:
+            self.skipTest("shell installer only")
+        if os.geteuid() == 0:
+            self.skipTest("directory permissions are not enforced for root")
+        existing = self.root / "root owned bin"
+        existing.mkdir()
+        (existing / "muvloom").write_text("#!/bin/sh\necho old\n", encoding="utf-8")
+        (existing / "muvloom").chmod(0o755)
+        existing.chmod(0o555)
+        self.addCleanup(existing.chmod, 0o755)
+        self.default_location_env(existing)
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(self.installed_at(self.home / ".local" / "bin"))
+        self.assertIn(str(existing / "muvloom"), result.stderr)
+        self.assertIn("earlier on PATH", result.stderr)
+
+    def test_an_explicit_install_dir_always_wins(self):
+        if self.windows:
+            self.skipTest("shell installer only")
+        existing = self.root / "somewhere" / "bin"
+        existing.mkdir(parents=True)
+        (existing / "muvloom").write_text("#!/bin/sh\necho old\n", encoding="utf-8")
+        (existing / "muvloom").chmod(0o755)
+        self.env["PATH"] = os.pathsep.join([str(existing), "/usr/bin:/bin"])
+        result = self.install()  # MUVLOOM_INSTALL_DIR is still set by setUp
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(self.binary.is_file())
+        self.assertEqual((existing / "muvloom").read_text(encoding="utf-8"), "#!/bin/sh\necho old\n")
+
+    def asset_name(self):
+        system = platform.system().lower()
+        machine = platform.machine().lower()
+        arch = "arm64" if machine in ("arm64", "aarch64") else "amd64"
+        return f"muvloom_{system}_{arch}"
+
+    # ---- the same choices for the PowerShell installer ---------------------------------------
+
+    def windows_default_location_env(self, *path_dirs):
+        if not self.windows:
+            self.skipTest("PowerShell installer only")
+        if platform.machine().lower() not in ("amd64", "x86_64"):
+            self.skipTest("the PowerShell installer supports only Windows x64")
+        self.env.pop("MUVLOOM_INSTALL_DIR")
+        # Keep the system directories pwsh needs, but drop any muvloom.exe this machine already has:
+        # the installer would treat it as the existing copy and the test would depend on the host.
+        inherited = [d for d in self.env.get("PATH", "").split(os.pathsep) if d and not (Path(d) / "muvloom.exe").exists()]
+        self.env["PATH"] = os.pathsep.join([*(str(d) for d in path_dirs), *inherited])
+
+    def test_windows_default_location_is_the_per_user_programs_directory(self):
+        self.windows_default_location_env()
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((self.home / "AppData" / "Local" / "Programs" / "muvloom" / "muvloom.exe").is_file())
+
+    def test_windows_an_existing_copy_is_replaced_where_it_is(self):
+        existing = self.root / "somewhere" / "bin"
+        existing.mkdir(parents=True)
+        (existing / "muvloom.exe").write_bytes(b"old copy")
+        self.windows_default_location_env(existing)
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((existing / "muvloom.exe").read_bytes(), (DIST / "muvloom_windows_amd64.exe").read_bytes())
+        self.assertFalse((self.home / "AppData" / "Local" / "Programs" / "muvloom" / "muvloom.exe").exists(), "a second copy was created")
 
     def test_unsupported_platform_fails_before_download(self):
         if self.windows:

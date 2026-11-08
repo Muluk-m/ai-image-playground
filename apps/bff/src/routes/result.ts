@@ -29,7 +29,14 @@ export const resultRoutes = new Elysia()
     '/v1/queue/requests/:id',
     async ({ params, status, request, authUser, serviceIdentity }) => {
       const [task] = await db
-        .select()
+        .select({
+          id: schema.tasks.id,
+          status: schema.tasks.status,
+          provider: schema.tasks.provider,
+          result_payload: schema.tasks.result_payload,
+          error_message: schema.tasks.error_message,
+          error_type: schema.tasks.error_type,
+        })
         .from(schema.tasks)
         .where(taskAccessWhere(params.id, authUser?.id ?? null, serviceIdentity))
         .limit(1)

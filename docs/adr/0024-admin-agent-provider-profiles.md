@@ -15,3 +15,5 @@
 协议执行复用 Pi 的 openai-completions、openai-responses、anthropic-messages API，保留原请求字节限制、流式空闲超时、过载证据与逐次派发记账。Pi 0.85.1 的 Google 原生适配器明确拒绝自定义 fetch，不能接入上述保护，因此暂不展示 google-generative-ai，也不接受该协议的自定义模型。Gemini 可以经 Pi 的 OpenRouter 等兼容渠道接入。后续只有在 Pi 提供所需 transport 接缝并通过预算／取消／记账测试后才开放该原生协议；不改全局 fetch，也不绕过保护。
 
 这里配置的是 Agent 对话轮。摘要、搜索等辅助调用和图片／视频生成渠道继续使用原有独立配置；不把生图渠道与对话 Provider 混为同一个注册表。Pi 内置目录升级随依赖版本发布，不在用户请求过程中自动访问厂商模型发现 API。
+18:
+Admin 入口统一为 `/providers`：Provider 实例、对话模型与产品档位在「Provider 与模型」页签，运行时密钥在「运行时密钥」页签。旧 `/agent-models` 与 `/upstream-secrets` 深链只做重定向，不再出现在侧栏；生成模型上下架仍属于独立的「模型」模块，避免把生成渠道与 Agent Provider 注册表混在一起。

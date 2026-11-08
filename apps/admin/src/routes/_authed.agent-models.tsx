@@ -1,8 +1,8 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
-/** 旧入口：Agent 模型并进了「模型」页的对话模型。 */
+/** 旧入口：Provider 与模型设置已并入「供应商」。 */
 export const Route = createFileRoute('/_authed/agent-models')({
   beforeLoad: () => {
-    throw redirect({ to: '/models', search: { tab: 'chat' } })
+    throw redirect({ to: '/providers' })
   },
 })
