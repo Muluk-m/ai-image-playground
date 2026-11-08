@@ -1845,4 +1845,17 @@ func TestCreateFailuresAfterSubmitKeepTheJob(t *testing.T) {
 			}
 		}
 	})
+	t.Run("the job fails", func(t *testing.T) {
+		f := newFakeServer(t)
+		f.failJob = true
+		app := newApp(t, f, t.TempDir())
+		login(t, app)
+		r := execute(t, app, "images", "create", "--prompt", "a fox", "--idempotency-key", "keep-job-key-4", "--wait", "60")
+		details, _ := r.out["error"].(map[string]any)["details"].(map[string]any)
+		job, _ := details["job"].(map[string]any)
+		if r.code != ExitRejected || details["job_id"] != "job-1" || details["idempotency_key"] != "keep-job-key-4" || job["status"] != "failed" {
+			t.Fatalf("failed job = %d %s", r.code, r.stdout)
+		}
+	})
 }
+
