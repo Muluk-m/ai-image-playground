@@ -459,8 +459,7 @@ func (a *App) render(data any, err error) int {
 	case a.json:
 		writeErr = a.write(output{SchemaVersion: schemaVersion, OK: true, Data: data})
 	case failure != nil:
-		// The text failure goes to stderr; a broken stderr has nowhere else to be reported.
-		_, _ = io.WriteString(a.Err, a.failureText(failure))
+		_, writeErr = io.WriteString(a.Err, a.failureText(failure))
 	default:
 		writeErr = a.writeText(data)
 	}
