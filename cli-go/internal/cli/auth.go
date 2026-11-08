@@ -12,7 +12,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -227,27 +226,34 @@ func deviceCodeHash(code string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// cmdAuthStatus is the cheap first call an agent makes: it never fails on a missing
+// cmdAuthStatus is the first call an agent makes: it never fails on a missing
 // login or an unreachable server, it reports the state instead.
 func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	fs := newFlags("auth status")
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
 	}
-	// Copies this CLI installed follow it: an outdated one that nobody edited is replaced with
-	// the bundled Skill. Only a copy that was changed by hand, or could not be replaced, is
-	// reported; any host may be calling, so the note names the copy it is about.
-	failed, _ := skill.RefreshOutdated(a.Home, a.CWD)
+	// Copies this CLI installed follow it: an older one that nobody edited is replaced with
+	// the bundled Skill, effective from the host's next session. Only a copy that cannot be
+	// verified, was edited, or could not be replaced is reported, naming its path, since any
+	// host may be the one calling.
+	failed, refreshErr := skill.RefreshOutdated(a.Home, a.CWD)
+	if refreshErr != nil {
+		a.progress("Could not check the installed muvloom Skills: %v", refreshErr)
+	}
 	skills, _ := skill.Installed(a.Home, a.CWD)
 	for _, installed := range skills {
-		if !installed.Intact {
-			a.progress("The muvloom Skill at %s was changed by hand, so it was not updated to %s. To replace it: muvloom skill install --host %s --scope %s",
+		switch {
+		case installed.Unverifiable:
+			a.progress("The muvloom Skill at %s is incomplete or has unexpected files. To reinstall it: muvloom skill install --host %s --scope %s",
+				installed.Path, installed.Host, installed.Scope)
+		case !installed.Intact && skill.VersionLess(installed.Version, skill.BundleVersion):
+			a.progress("The muvloom Skill at %s was edited, so it was not updated to %s. To replace it: muvloom skill install --host %s --scope %s",
 				installed.Path, skill.BundleVersion, installed.Host, installed.Scope)
 		}
 	}
-	for _, installed := range failed {
-		a.progress("Could not update the muvloom Skill at %s to %s. To retry: muvloom skill install --host %s --scope %s",
-			installed.Path, skill.BundleVersion, installed.Host, installed.Scope)
+	for _, item := range failed {
+		a.progress("Could not update the muvloom Skill at %s to %s: %v", item.Path, skill.BundleVersion, item.Err)
 	}
 	store := a.Store.Describe()
 	status := map[string]any{
@@ -660,31 +666,7 @@ func cmdAuthLogout(ctx context.Context, a *App, args []string) (any, error) {
 }
 
 // versionLess compares dotted numeric versions; unknown formats never force an upgrade.
-func versionLess(current, minimum string) bool {
-	if minimum == "" {
-		return false
-	}
-	cur := strings.Split(strings.TrimPrefix(current, "v"), ".")
-	req := strings.Split(strings.TrimPrefix(minimum, "v"), ".")
-	for i := 0; i < max(len(cur), len(req)); i++ {
-		var c, r int
-		var err error
-		if i < len(cur) {
-			if c, err = strconv.Atoi(cur[i]); err != nil {
-				return false
-			}
-		}
-		if i < len(req) {
-			if r, err = strconv.Atoi(req[i]); err != nil {
-				return false
-			}
-		}
-		if c != r {
-			return c < r
-		}
-	}
-	return false
-}
+func versionLess(current, minimum string) bool { return skill.VersionLess(current, minimum) }
 
 // spelledAs returns the flag as the user wrote it (-x or --x), without any =value.
 func spelledAs(args []string, name string) string {
