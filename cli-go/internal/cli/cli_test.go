@@ -315,7 +315,7 @@ func execute(t *testing.T, app *App, args ...string) run {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
 	app.Out, app.Err = &stdout, &stderr
-	code := app.Run(args)
+	code := app.Run(append([]string{"--json"}, args...))
 	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
 	if len(lines) != 1 {
 		t.Fatalf("stdout must be exactly one JSON line, got %q", stdout.String())

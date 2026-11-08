@@ -1,6 +1,8 @@
 # Errors
 
-| `error.code` | Meaning | Action |
+The code is the `(CODE)` at the end of the `Error:` line on stderr, or `error.code` with `--json`; details follow on the next lines (`error.details`).
+
+| Code | Meaning | Action |
 | --- | --- | --- |
 | `AUTH_REQUIRED`, `UNAUTHENTICATED` | No valid CLI connection, or login code invalid/already used | Check `auth status` after a permission interruption; keep a ready connection, otherwise follow the login flow in SKILL.md |
 | `SERVICE_MISMATCH` | `MUVLOOM_API_URL` names a different service than the stored connection; `details.api_url`, `details.connection_api_url` | Do not start a login. Unset `MUVLOOM_API_URL` to use the connection; use `auth login --switch-service` only if the user wants the other service |
