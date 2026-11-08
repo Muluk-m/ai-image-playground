@@ -567,7 +567,7 @@ func TestPreflightLeavesStoredCredentialsAsTheyWere(t *testing.T) {
 		if err := store.Preflight(); err != nil {
 			t.Fatalf("preflight: %v", err)
 		}
-		if len(kc.entries) != 1 || kc.entries[defaultKeyringUser] == "" {
+		if len(kc.entries) != 1 || kc.entries[store.keyringUser()] == "" {
 			t.Fatalf("keychain after preflight = %v", kc.entries)
 		}
 		if fileHasContent(store.credentialsFile()) {
@@ -590,9 +590,9 @@ func TestPreflightLeavesStoredCredentialsAsTheyWere(t *testing.T) {
 func TestAnotherConfigDirectoryNeverTouchesTheDefaultKeychainLogin(t *testing.T) {
 	keychain := &userKeychain{entries: map[string]string{defaultKeyringUser: `{"refresh_token":"prod"}`}}
 	dir := t.TempDir()
-	other := Store{Dir: dir, ClearKeyring: true, Keychain: keychain, KeyringUser: keyringUserFor(dir)}
-	if other.KeyringUser == "" || other.KeyringUser == defaultKeyringUser {
-		t.Fatalf("another directory shares the default entry: %q", other.KeyringUser)
+	other := Store{Dir: dir, ClearKeyring: true, Keychain: keychain}
+	if other.keyringUser() == defaultKeyringUser {
+		t.Fatal("another directory shares the default entry")
 	}
 	if err := other.Save(Credentials{RefreshToken: "test", BaseURL: "https://test.example"}); err != nil {
 		t.Fatal(err)
@@ -603,7 +603,7 @@ func TestAnotherConfigDirectoryNeverTouchesTheDefaultKeychainLogin(t *testing.T)
 	if keychain.entries[defaultKeyringUser] != `{"refresh_token":"prod"}` {
 		t.Fatalf("default login changed: %v", keychain.entries)
 	}
-	withKeychain := Store{Dir: dir, UseKeyring: true, ClearKeyring: true, Keychain: keychain, KeyringUser: keyringUserFor(dir)}
+	withKeychain := Store{Dir: dir, UseKeyring: true, ClearKeyring: true, Keychain: keychain}
 	if err := withKeychain.Save(Credentials{RefreshToken: "test", BaseURL: "https://test.example"}); err != nil {
 		t.Fatal(err)
 	}
@@ -613,11 +613,28 @@ func TestAnotherConfigDirectoryNeverTouchesTheDefaultKeychainLogin(t *testing.T)
 	if keychain.entries[defaultKeyringUser] != `{"refresh_token":"prod"}` {
 		t.Fatalf("default login overwritten: %v", keychain.entries)
 	}
+	// Signed out there, it says the default login exists, so a 0.2.0 user knows to sign in again.
+	if err := withKeychain.Clear(); err != nil {
+		t.Fatal(err)
+	}
+	if !withKeychain.DefaultLoginElsewhere() {
+		t.Fatal("the default login is not reported")
+	}
 }
 
 func TestTheDefaultConfigDirectoryKeepsTheExistingKeychainEntry(t *testing.T) {
-	if user := keyringUserFor(defaultConfigDir()); user != "" {
+	if user := keyringUserFor(defaultConfigDir()); user != defaultKeyringUser {
 		t.Fatalf("default directory moved to %q; existing logins would be lost", user)
+	}
+	// The default directory named explicitly, or through a symlink, is still the default.
+	link := filepath.Join(t.TempDir(), "link")
+	if _, err := os.Stat(defaultConfigDir()); err == nil && os.Symlink(defaultConfigDir(), link) == nil {
+		if user := keyringUserFor(link); user != defaultKeyringUser {
+			t.Fatalf("a symlink to the default directory got %q", user)
+		}
+	}
+	if user := keyringUserFor(defaultConfigDir() + string(filepath.Separator)); user != defaultKeyringUser {
+		t.Fatalf("a trailing separator got %q", user)
 	}
 	t.Setenv("MUVLOOM_CONFIG_DIR", "")
 	if user := Default().keyringUser(); user != defaultKeyringUser {
