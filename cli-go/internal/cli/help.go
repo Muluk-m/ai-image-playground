@@ -52,7 +52,7 @@ func mainHelp() string {
 ENVIRONMENT
   MUVLOOM_API_URL             Service for the first sign-in; later runs use the stored connection
   MUVLOOM_NO_BROWSER=1        Print the approval link instead of opening a browser (SSH, containers)
-  MUVLOOM_CONFIG_DIR          Where the connection and local records are kept
+  MUVLOOM_CONFIG_DIR          Where the connection and local records are kept; each directory is a separate login
   MUVLOOM_CREDENTIALS_STORE   "file" keeps credentials in the config directory instead of the keychain
 
 EXIT CODES
