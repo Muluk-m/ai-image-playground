@@ -646,7 +646,8 @@ async function dispatchPreparedBatch(
           submitted_at: submittedAt,
         })
       })
-      if (submission.kind === 'refused') throw new BatchPlanError('invalid_batch_plan', 422)
+      // 准备阶段被拒（参考图坏了、对象存储暂时不可用）同样按原因暂停或留给下一轮。
+      if (submission.kind === 'refused') throw submissionRefused(submission.outcome.kind)
     } catch (error) {
       const inputLimit =
         (error instanceof SafeFetchError && error.code === 'too_large') ||
