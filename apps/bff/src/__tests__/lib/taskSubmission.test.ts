@@ -18,7 +18,7 @@ _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 // 动态引入：环境要先钉死，再让捕获配置的模块加载。
 const { close, db, schema } = await import('../../db/client')
 const { config } = await import('../../config')
-const { createQueueTask, prepareQueueTask } = await import('../../lib/taskSubmission')
+const { createQueueTask, submitPrepared } = await import('../../lib/taskSubmission')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 // 数据库测试的模块加载边界：静态 import 会在上面的独立 DATABASE_URL 与 overlay 注入前捕获单例。
 const { quoteBatchPlan } = await import('../../lib/agent/batch-plans')
@@ -178,6 +178,19 @@ describe('non-member resolution ceiling', () => {
         },
       },
     })
+  }
+
+  /** 走预先准备的路径提交一条；`between` 在归档之后、提交之前执行。 */
+  async function submitPreparedOnce(
+    input: Parameters<typeof createQueueTask>[0],
+    between?: () => void,
+  ) {
+    const result = await submitPrepared([input], (_tx, submit) => {
+      between?.()
+      return submit(0)
+    })
+    if (result.kind !== 'committed') throw new Error(`prepare refused: ${result.outcome.kind}`)
+    return result.value
   }
 
   async function storedRequest(outcome: Awaited<ReturnType<typeof createQueueTask>>) {
@@ -364,12 +377,45 @@ describe('non-member resolution ceiling', () => {
 
     await db.delete(schema.tasks)
     withMember(false)
-    const preparation = await prepareQueueTask(input)
-    expect(preparation.kind).toBe('prepared')
-    if (preparation.kind !== 'prepared') throw new Error('expected a preparation')
-    const submitted = await createQueueTask({ ...input, prepared: preparation.prepared })
-    const downgraded = await storedRequest(submitted)
+    const downgraded = await storedRequest(await submitPreparedOnce(input))
     expect(downgraded.image_size).toBe('2K')
+  })
+
+  it('keeps the tier decided at preparation when the account becomes a member before submit', async () => {
+    await ensureBillingUser()
+    withMember(false)
+    const outcome = await submitPreparedOnce(
+      {
+        entry: 'batch',
+        provider: 'gemini',
+        model: 'gemini-nano-banana-2.1',
+        userId: BILLING_USER,
+        request: request({ image_size: '4K' }),
+      },
+      () => withMember(true),
+    )
+    const payload = await storedRequest(outcome)
+    expect(payload.image_size).toBe('2K')
+    const [task] = await db.select().from(schema.tasks)
+    expect(task!.metering).toMatchObject({ unitMultiplier: 1.5, tier: { memberApplied: false } })
+  })
+
+  it('refuses a prepared 4K submission whose membership lapsed and discards its inputs', async () => {
+    await ensureBillingUser()
+    withMember(true)
+    const outcome = await submitPreparedOnce(
+      {
+        entry: 'batch',
+        provider: 'gemini',
+        model: 'gemini-nano-banana-2.1',
+        userId: BILLING_USER,
+        request: request({ image_size: '4K' }),
+      },
+      () => withMember(false),
+    )
+    expect(outcome.kind).toBe('private_billing_denied')
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(store.objects.size).toBe(0)
   })
 
   it.each([
@@ -405,14 +451,66 @@ describe('non-member resolution ceiling', () => {
       userId: BILLING_USER,
       request: { prompt: 'a cup', image_size: '4K' as const },
     }
-    const preparation = await prepareQueueTask(input)
-    if (preparation.kind !== 'prepared') throw new Error('expected a preparation')
-    const payload = await storedRequest(
-      await createQueueTask({ ...input, prepared: preparation.prepared }),
-    )
+    const payload = await storedRequest(await submitPreparedOnce(input))
     expect(payload.image_size).toBe(tier)
   })
 })
+describe('submitPrepared', () => {
+  const input = (prompt = 'a cup') => ({
+    entry: 'look' as const,
+    provider: 'openai-compat' as const,
+    model: 'gpt-image-2.5-flare',
+    userId: null,
+    request: request({ prompt }),
+  })
+
+  it('keeps the inputs of created tasks', async () => {
+    const result = await submitPrepared([input()], (_tx, submit) => submit(0))
+    expect(result.kind).toBe('committed')
+    if (result.kind !== 'committed' || result.value.kind !== 'created')
+      throw new Error('expected a task')
+    const keys = [...store.objects.keys()]
+    expect(keys.length).toBeGreaterThan(0)
+    expect(keys.every((key) => key.startsWith(`${result.value.taskId}/in/`))).toBe(true)
+  })
+
+  it('discards every archived input when the transaction rolls back', async () => {
+    await expect(
+      submitPrepared([input('one'), input('two')], async (_tx, submit) => {
+        expect((await submit(0)).kind).toBe('created')
+        expect((await submit(1)).kind).toBe('created')
+        throw new Error('caller rolled back')
+      }),
+    ).rejects.toThrow('caller rolled back')
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(store.objects.size).toBe(0)
+  })
+
+  it('discards the inputs the transaction did not turn into a task', async () => {
+    const result = await submitPrepared([input('one'), input('two')], (_tx, submit) => submit(1))
+    if (result.kind !== 'committed' || result.value.kind !== 'created')
+      throw new Error('expected a task')
+    const kept = result.value.taskId
+    expect([...store.objects.keys()].every((key) => key.startsWith(`${kept}/in/`))).toBe(true)
+  })
+
+  it('refuses before the transaction and discards earlier preparations', async () => {
+    let ran = false
+    const result = await submitPrepared(
+      [
+        input('one'),
+        { ...input('two'), request: request({ input_images: ['data:image/png;base64,'] }) },
+      ],
+      async () => {
+        ran = true
+      },
+    )
+    expect(result).toMatchObject({ kind: 'refused', index: 1 })
+    expect(ran).toBe(false)
+    expect(store.objects.size).toBe(0)
+  })
+})
+
 it('ignores a strict flag supplied inside a website request body', async () => {
   const outcome = await createQueueTask({
     entry: 'web-direct',

@@ -54,21 +54,30 @@ import { type QuotaConsumeResult, tryConsumeQuotaInTransaction } from './quota'
 import { isObject } from './type-guards'
 import { gptDirectConfigured, gptImage26Configured } from './upstream/gpt-routing'
 
-export interface PreparedQueueTask {
+/**
+ * 一条已经归档好输入的提交，只在本 module 内流转（见 `submitPrepared`）。
+ * 档位决定随准备结果冻结：提交时沿用准备那一刻的会员位与收口后的请求，不再重查，
+ * 准备和提交之间会员开通或到期不会让两边的请求对不上。4K 门禁仍在提交事务里按当时的会员资格判。
+ */
+interface PreparedQueueTask {
   readonly taskId: string
   readonly requestHash: string
   readonly requestPayload: PersistedSubmitRequest
+  readonly alignment: ImageTierAlignment
+}
+
+interface ImageTierAlignment {
+  readonly input: CreateQueueTaskInput
+  readonly decision?: ImageTierDecision<SubmitRequest>
+  readonly member: boolean
 }
 
 export interface CreateQueueTaskInput {
   /**
-   * 从哪个入口提交，决定图片档位怎么收口（见 `resolveImageTier`）。调用方显式给出；
-   * `prepareQueueTask` 与之后的 `createQueueTask` 必须用同一个入口，否则准备和提交的哈希对不上。
+   * 从哪个入口提交，决定图片档位怎么收口（见 `resolveImageTier`）。调用方显式给出。
    */
   readonly entry: ImageTierEntry
   readonly stageAuthorization?: StageAuthorizationSubmission
-  /** Server-only preparation; its caller owns cleanup after its transaction commits or rolls back. */
-  readonly prepared?: PreparedQueueTask
   readonly provider: QueueProvider
   readonly model: string
   /** 输入图仍是 data URL，落库前在这里归档进对象存储。 */
@@ -226,7 +235,6 @@ function dedupesRecentSubmission(input: CreateQueueTaskInput): input is CreateQu
     !input.agent &&
     !input.stageAuthorization &&
     !input.tx &&
-    !input.prepared &&
     input.request.output_retention !== 'candidate' &&
     isCapabilityEnabled('billing:credits')
   )
@@ -386,11 +394,12 @@ async function prepareMaskedSubmission(input: CreateQueueTaskInput) {
  * Read, transform and archive image bytes before acquiring caller transaction locks.
  * 预先准备的入口（批量执行、自动提交、灵感套用）的 `entry` 一律让 GPT 收到非会员上限，见 `resolveImageTier`。
  */
-export async function prepareQueueTask(input: CreateQueueTaskInput) {
-  return prepareAlignedQueueTask((await alignImageTier(input)).input)
+async function prepareQueueTask(input: CreateQueueTaskInput) {
+  return prepareAlignedQueueTask(await alignImageTier(input))
 }
 
-async function prepareAlignedQueueTask(input: CreateQueueTaskInput) {
+async function prepareAlignedQueueTask(alignment: ImageTierAlignment) {
+  const { input } = alignment
   const id = crypto.randomUUID()
   let requestPayload: PersistedSubmitRequest
   try {
@@ -420,17 +429,71 @@ async function prepareAlignedQueueTask(input: CreateQueueTaskInput) {
 
   return {
     kind: 'prepared' as const,
-    prepared: { taskId: id, requestHash: commandHash(input), requestPayload },
+    prepared: { taskId: id, requestHash: commandHash(input), requestPayload, alignment },
   }
 }
 
-export async function discardQueueTaskPreparation(prepared: PreparedQueueTask): Promise<void> {
-  await discardArchivedInputs(prepared.taskId)
+export type PreparationRefusal = Extract<
+  CreateQueueTaskOutcome,
+  { kind: 'invalid_input_image' | 'object_storage_error' }
+>
+
+export type SubmitPreparedResult<T> =
+  | { readonly kind: 'refused'; readonly index: number; readonly outcome: PreparationRefusal }
+  | { readonly kind: 'committed'; readonly value: T }
+
+/**
+ * 先归档全部输入，再开一个事务交给 `work`；`work` 用 `submit(index)` 在这个事务里提交第 index 条。
+ * 归档要读对象存储，放在事务外，握着锁和连接时不去等它。
+ *
+ * 归档的清理归这里：事务回滚（`work` 抛错）时全部丢弃；事务提交后，没建成任务的那几条
+ * （被拒、命中幂等回执、`work` 没提交它）丢弃。任何一条准备失败时丢弃已准备的，返回 `refused`。
+ */
+export async function submitPrepared<T>(
+  inputs: readonly CreateQueueTaskInput[],
+  work: (
+    tx: BffTransaction,
+    submit: (index: number) => Promise<CreateQueueTaskOutcome>,
+  ) => Promise<T>,
+): Promise<SubmitPreparedResult<T>> {
+  const prepared: PreparedQueueTask[] = []
+  const discardExcept = (kept: ReadonlySet<string>) =>
+    Promise.all(
+      prepared
+        .filter((one) => !kept.has(one.taskId))
+        .map((one) => discardArchivedInputs(one.taskId)),
+    )
+  for (const [index, input] of inputs.entries()) {
+    const preparation = await prepareQueueTask(input)
+    if (preparation.kind !== 'prepared') {
+      await discardExcept(new Set())
+      return { kind: 'refused', index, outcome: preparation }
+    }
+    prepared.push(preparation.prepared)
+  }
+  const created = new Set<string>()
+  let value: T
+  try {
+    value = await db.transaction((tx) =>
+      work(tx, async (index) => {
+        const one = prepared[index]
+        if (!one) throw new RangeError(`no prepared submission at ${index}`)
+        const outcome = await submitQueueTask({ ...inputs[index]!, tx }, one)
+        if (outcome.kind === 'created' && outcome.taskId === one.taskId) created.add(one.taskId)
+        return outcome
+      }),
+    )
+  } catch (error) {
+    await discardExcept(new Set())
+    throw error
+  }
+  await discardExcept(created)
+  return { kind: 'committed', value }
 }
 
-/** 带授权的视频时长改成提案快照的同一档，再计价、落库。已经准备好的请求保持原哈希。 */
+/** 带授权的视频时长改成提案快照的同一档，再计价、落库。 */
 function alignStageSubmission(input: CreateQueueTaskInput): CreateQueueTaskInput {
-  if (!input.stageAuthorization || !input.video || input.prepared) return input
+  if (!input.stageAuthorization || !input.video) return input
   const duration_seconds = stageAuthorizedVideoDuration(
     input.video.duration_seconds,
     videoModelSupportOf(input.model),
@@ -594,11 +657,7 @@ function tierSnapshot(
  * - 对整理后的最终请求再解一次，让 `requires` 与倍率对应真正落库的请求。
  * 视频没有档位决定，原样返回。
  */
-async function alignImageTier(input: CreateQueueTaskInput): Promise<{
-  readonly input: CreateQueueTaskInput
-  readonly decision?: ImageTierDecision<SubmitRequest>
-  readonly member: boolean
-}> {
+async function alignImageTier(input: CreateQueueTaskInput): Promise<ImageTierAlignment> {
   if ((input.entry === 'cli-strict') !== (input.strictImageRequest === true))
     throw new TypeError('strict_image_request_entry_mismatch')
   if (input.video) return { input, member: false }
@@ -651,7 +710,20 @@ function gptImage26RequestProblem(
 }
 
 export async function createQueueTask(raw: CreateQueueTaskInput): Promise<CreateQueueTaskOutcome> {
-  const aligned = await alignImageTier(alignStageSubmission(raw))
+  return submitQueueTask(raw)
+}
+
+/**
+ * `prepared` 只由 `submitPrepared` 传入：沿用准备时冻结的档位决定，归档的清理也归它。
+ * 没有 `prepared` 时在这里对齐、归档，并自己清理。
+ */
+async function submitQueueTask(
+  raw: CreateQueueTaskInput,
+  prepared?: PreparedQueueTask,
+): Promise<CreateQueueTaskOutcome> {
+  const aligned: ImageTierAlignment = prepared
+    ? { ...prepared.alignment, input: { ...raw, request: prepared.alignment.input.request } }
+    : await alignImageTier(alignStageSubmission(raw))
   const input = aligned.input
   if (
     input.maxCredits !== undefined &&
@@ -661,10 +733,7 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
   // 只有空白、控制符或零宽字符的提示词和空的一样：所有入口都不建任务，也就不预扣积分。
   if (isBlankPrompt(input.request.prompt)) return { kind: 'invalid_prompt' }
   const image26 = gptImage26RequestProblem(input)
-  if (image26) {
-    if (input.prepared) await discardQueueTaskPreparation(input.prepared)
-    return image26
-  }
+  if (image26) return image26
   if (input.reconciliationRequired && input.video)
     throw new TypeError('reconciliation_requires_image_task')
   const commandId = input.request.client_request_id
@@ -693,11 +762,12 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
       if (legacy) return legacy
     }
   }
-  const preparation = input.prepared
-    ? { kind: 'prepared' as const, prepared: input.prepared }
-    : await prepareAlignedQueueTask(input)
+  const preparation = prepared
+    ? { kind: 'prepared' as const, prepared }
+    : await prepareAlignedQueueTask(aligned)
   if (preparation.kind !== 'prepared') return preparation
   const { taskId: id, requestPayload, requestHash } = preparation.prepared
+  // 同一份冻结的对齐结果算出来的，不相等只能是 module 内部的 bug。
   if (requestHash !== hash) throw new TypeError('prepared_queue_request_mismatch')
 
   const now = Date.now()
@@ -966,7 +1036,7 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
   try {
     outcome = input.tx ? await submit(input.tx) : await db.transaction(submit)
   } catch (error) {
-    if (!input.prepared) await discardArchivedInputs(id)
+    if (!prepared) await discardArchivedInputs(id)
     if (error instanceof MaxCreditsExceeded && !input.tx)
       return {
         kind: 'max_credits_exceeded',
@@ -976,7 +1046,7 @@ export async function createQueueTask(raw: CreateQueueTaskInput): Promise<Create
     throw error
   }
 
-  if (!input.prepared && (outcome.kind !== 'created' || outcome.taskId !== id))
+  if (!prepared && (outcome.kind !== 'created' || outcome.taskId !== id))
     await discardArchivedInputs(id)
   if (outcome.kind === 'idempotency_conflict' && input.userId && commandId && !input.tx) {
     return (await adoptLegacyCommand(input.userId, commandId, hash, legacyHash)) ?? outcome

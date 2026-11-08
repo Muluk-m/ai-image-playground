@@ -29,13 +29,7 @@ import {
   nonBillingPriceSnapshot,
 } from '../private-overlay'
 import { SafeFetchError } from '../safeFetch'
-import {
-  type CreateQueueTaskInput,
-  createQueueTask,
-  discardQueueTaskPreparation,
-  type PreparedQueueTask,
-  prepareQueueTask,
-} from '../taskSubmission'
+import { type CreateQueueTaskInput, submitPrepared } from '../taskSubmission'
 import { cancelUpstreamOfCancelledTasks } from '../upstream-cancel'
 import { cancelledBatchDependents, readFrozenDependencyTargets } from './batch-dependencies'
 import { batchItem, batchItemValues } from './batch-items'
@@ -488,10 +482,8 @@ async function dispatchPreparedBatch(
         ),
     )
     if (!item) return
-    let prepared: PreparedQueueTask | undefined
     let preparedAnalysis: PreparedAnalysisTask | undefined
     let input: CreateQueueTaskInput | undefined
-    let committed = false
     try {
       if (item.kind === 'analysis') {
         if (
@@ -514,11 +506,9 @@ async function dispatchPreparedBatch(
       } else {
         input = await prepareItem(batch, item, targetAttempt(item.key))
         if (!canDispatch()) return
-        const preparation = await prepareQueueTask(input)
-        if (preparation.kind !== 'prepared') throw new BatchPlanError('invalid_batch_plan', 422)
-        prepared = preparation.prepared
       }
-      committed = await db.transaction(async (tx) => {
+      // 输入图由 submitPrepared 在事务外归档；事务回滚或没建成任务时它负责丢弃。
+      const submission = await submitPrepared(input ? [input] : [], async (tx, submitQueued) => {
         const current = await lockOwnedBatch(tx, userId, id)
         if (
           !canDispatch() ||
@@ -527,8 +517,8 @@ async function dispatchPreparedBatch(
           current.confirmed_version !== batch.confirmed_version ||
           !batchExecutionAvailable(userId)
         )
-          return false
-        if (await pauseBatchForAnalysisAuthentication(tx, current)) return false
+          return
+        if (await pauseBatchForAnalysisAuthentication(tx, current)) return
         const currentAttempts = await batchAttempts(tx, current)
         // A task may fail while this item's bytes are being prepared, after the last progress scan.
         if (currentAttempts.some((one) => one.unrecordedAuthenticationFailure)) {
@@ -541,7 +531,7 @@ async function dispatchPreparedBatch(
               updated_at: Date.now(),
             })
             .where(eq(schema.agent_batches.id, id))
-          return false
+          return
         }
         if (
           !hasWindow(currentAttempts) ||
@@ -549,7 +539,7 @@ async function dispatchPreparedBatch(
             (one) => one.key === item.key && one.attempt === targetAttempt(item.key),
           )
         )
-          return false
+          return
         if (item.kind === 'generation') {
           const model = resolveAgentModel('image', item.params.model)
           if (
@@ -594,8 +584,8 @@ async function dispatchPreparedBatch(
             throw new BatchPlanError('batch_submission_refused', 422)
           reservedCredits = reservation.credits
         } else {
-          if (!input || !prepared) throw new BatchPlanError('invalid_batch_plan', 422)
-          const submitted = await createQueueTask({ ...input, prepared, tx })
+          if (!input) throw new BatchPlanError('invalid_batch_plan', 422)
+          const submitted = await submitQueued(0)
           if (submitted.kind === 'insufficient_credits')
             throw new BatchPlanError('batch_insufficient_credits', 422)
           if (submitted.kind === 'quota_exceeded') throw new BatchPlanError('quota_exceeded', 429)
@@ -615,8 +605,8 @@ async function dispatchPreparedBatch(
           reserved_credits: reservedCredits,
           submitted_at: submittedAt,
         })
-        return item.kind === 'analysis' || taskId === prepared?.taskId
       })
+      if (submission.kind === 'refused') throw new BatchPlanError('invalid_batch_plan', 422)
     } catch (error) {
       const inputLimit =
         (error instanceof SafeFetchError && error.code === 'too_large') ||
@@ -652,8 +642,6 @@ async function dispatchPreparedBatch(
             .where(eq(schema.agent_batches.id, id))
       })
       return
-    } finally {
-      if (!committed && prepared) await discardQueueTaskPreparation(prepared)
     }
   }
 }
