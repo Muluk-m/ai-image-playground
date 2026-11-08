@@ -13,6 +13,7 @@ import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { cancelTasks } from '../../db/task-transitions'
 import {
+  type AnalysisReservationResult,
   type PreparedAnalysisTask,
   prepareAnalysisTask,
   quoteAnalysisTask,
@@ -29,6 +30,7 @@ import {
   nonBillingPriceSnapshot,
 } from '../private-overlay'
 import { SafeFetchError } from '../safeFetch'
+import type { SubmissionRefusal } from '../submissionRefusal'
 import { type CreateQueueTaskInput, submitPrepared } from '../taskSubmission'
 import { cancelUpstreamOfCancelledTasks } from '../upstream-cancel'
 import { cancelledBatchDependents, readFrozenDependencyTargets } from './batch-dependencies'
@@ -373,6 +375,39 @@ async function currentQuote(
 
 /** Each preparation is outside locks; commit rechecks the batch generation before accepting it. */
 /** A rotating bounded page prevents unresolved batches from starving later confirmations. */
+type BatchPauseReason = NonNullable<(typeof schema.agent_batches.$inferSelect)['pause_reason']>
+
+/**
+ * 提交被拒后批次停在哪。对象存储这类暂时故障不停，留给下一轮重试；其余原样重试也不会成，
+ * 以前不停批次，调度每轮重提、每轮记错，用户只看到批次一直在跑。
+ */
+function refusalPauseReason(
+  kind: SubmissionRefusal['kind'] | Exclude<AnalysisReservationResult['kind'], 'reserved'>,
+): BatchPauseReason | null {
+  switch (kind) {
+    case 'object_storage_error':
+      return null
+    case 'insufficient_credits':
+      return 'insufficient_credits'
+    case 'quota_exceeded':
+      return 'quota_exceeded'
+    case 'price_unavailable':
+      return 'model_unavailable'
+    case 'invalid_input_image':
+      return 'input_limit'
+    default:
+      return 'submission_refused'
+  }
+}
+
+class BatchSubmissionRefused extends BatchPlanError {
+  readonly pauseReason: BatchPauseReason | null
+  constructor(kind: Parameters<typeof refusalPauseReason>[0]) {
+    super('batch_submission_refused', 422)
+    this.pauseReason = refusalPauseReason(kind)
+  }
+}
+
 export async function advanceAgentBatches(
   afterId: string | null,
   canDispatch: () => boolean,
@@ -580,8 +615,7 @@ async function dispatchPreparedBatch(
           if (reservation.kind === 'insufficient_credits')
             throw new BatchPlanError('batch_insufficient_credits', 422)
           if (reservation.kind === 'quota_exceeded') throw new BatchPlanError('quota_exceeded', 429)
-          if (reservation.kind !== 'reserved')
-            throw new BatchPlanError('batch_submission_refused', 422)
+          if (reservation.kind !== 'reserved') throw new BatchSubmissionRefused(reservation.kind)
           reservedCredits = reservation.credits
         } else {
           if (!input) throw new BatchPlanError('invalid_batch_plan', 422)
@@ -589,8 +623,7 @@ async function dispatchPreparedBatch(
           if (submitted.kind === 'insufficient_credits')
             throw new BatchPlanError('batch_insufficient_credits', 422)
           if (submitted.kind === 'quota_exceeded') throw new BatchPlanError('quota_exceeded', 429)
-          if (submitted.kind !== 'created')
-            throw new BatchPlanError('batch_submission_refused', 422)
+          if (submitted.kind !== 'created') throw new BatchSubmissionRefused(submitted.kind)
           taskId = submitted.taskId
           submittedAt = submitted.submittedAt
           reservedCredits = quote.credits
@@ -615,15 +648,17 @@ async function dispatchPreparedBatch(
         (error instanceof BatchPlanError && error.code === 'batch_input_limit')
       const pauseReason = inputLimit
         ? 'input_limit'
-        : error instanceof BatchPlanError && error.code === 'quota_exceeded'
-          ? 'quota_exceeded'
-          : error instanceof BatchPlanError && error.code === 'batch_price_changed'
-            ? 'price_changed'
-            : error instanceof BatchPlanError && error.code === 'batch_insufficient_credits'
-              ? 'insufficient_credits'
-              : error instanceof BatchPlanError && error.code === 'batch_execution_unavailable'
-                ? 'model_unavailable'
-                : null
+        : error instanceof BatchSubmissionRefused
+          ? error.pauseReason
+          : error instanceof BatchPlanError && error.code === 'quota_exceeded'
+            ? 'quota_exceeded'
+            : error instanceof BatchPlanError && error.code === 'batch_price_changed'
+              ? 'price_changed'
+              : error instanceof BatchPlanError && error.code === 'batch_insufficient_credits'
+                ? 'insufficient_credits'
+                : error instanceof BatchPlanError && error.code === 'batch_execution_unavailable'
+                  ? 'model_unavailable'
+                  : null
       if (!pauseReason) throw error
       await db.transaction(async (tx) => {
         const current = await lockOwnedBatch(tx, userId, id)

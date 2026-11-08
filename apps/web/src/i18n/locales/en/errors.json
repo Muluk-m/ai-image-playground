@@ -113,7 +113,8 @@
     "quota_exceeded": "Daily quota exceeded. The batch is paused.",
     "input_limit": "Inputs exceed the current limit. The batch is paused.",
     "upstream_auth": "Generation service authentication failed. The batch is paused.",
-    "model_unavailable": "The selected model or channel is unavailable. The batch is paused."
+    "model_unavailable": "The selected model or channel is unavailable. The batch is paused.",
+    "submission_refused": "The generation request was refused. The batch is paused. Adjust the plan to continue."
   },
   "attachment": {
     "attachment_capability_unavailable": "Attachment uploads are currently unavailable. Try again later or remove the attachment.",
