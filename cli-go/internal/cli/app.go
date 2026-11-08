@@ -1,5 +1,6 @@
-// Package cli implements the muvloom command line. stdout carries exactly one JSON
-// envelope per invocation; progress and diagnostics go to stderr. Access and refresh
+// Package cli implements the muvloom command line. stdout carries the result as text, or
+// with `--json` exactly one JSON envelope per invocation; progress, and failures in text
+// mode, go to stderr. Access and refresh
 // tokens, the secret device_code and signed upload URLs never reach either stream. The
 // user_code and its verification link are shown on purpose (RFC 8628 §3.3): approving
 // them only links a session to the account of whoever approves it.
@@ -16,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,7 +26,7 @@ import (
 )
 
 // Version is overridden at release time with -ldflags "-X .../cli.Version=x.y.z".
-var Version = "0.1.6"
+var Version = "0.2.0"
 
 const (
 	DefaultAPIURL  = "https://api.muvloom.online"
@@ -79,7 +81,7 @@ var exitByCode = map[string]int{
 	"UPGRADE_REQUIRED":            ExitVersion,
 }
 
-// Failure is a command error with a stable code, rendered as the error envelope.
+// Failure is a command error with a stable code, rendered as the error envelope or text.
 type Failure struct {
 	Code    string
 	Message string
@@ -110,9 +112,13 @@ type App struct {
 	// An unreadable connection hides which service the user signed in to.
 	storeErr error
 	Store    auth.Store
-	Out      io.Writer
-	Err      io.Writer
-	HTTP     *http.Client
+	// json selects the machine-readable envelope (`--json`) instead of text for this run.
+	json bool
+	// command is the command being run, for help hints and its text layout.
+	command string
+	Out     io.Writer
+	Err     io.Writer
+	HTTP    *http.Client
 	// RefreshLockWait bounds the wait for another process that is refreshing the token.
 	// Zero means the default.
 	RefreshLockWait time.Duration
@@ -171,58 +177,88 @@ func sleepContext(ctx context.Context, d time.Duration) error {
 }
 
 type command struct {
-	usage string
-	run   func(ctx context.Context, a *App, args []string) (any, error)
+	name    string // "images create"
+	args    string // positional arguments and the most used flags, for the usage line
+	summary string
+	run     func(ctx context.Context, a *App, args []string) (any, error)
 }
 
-func commands() map[string]map[string]command {
-	return map[string]map[string]command{
-		"version": {"": {"version", cmdVersion}},
-		"update":  {"check": {"update check", cmdUpdateCheck}},
-		"auth": {
-			"status": {"auth status", cmdAuthStatus},
-			"login":  {"auth login [--no-wait] [--timeout SECONDS] [--switch-service]", cmdAuthLogin},
-			"logout": {"auth logout", cmdAuthLogout},
-		},
-		"capabilities": {"": {"capabilities", cmdCapabilities}},
-		"images": {
-			"validate": {"images validate --prompt TEXT [image flags]", cmdImagesValidate},
-			"create":   {"images create --prompt TEXT [image flags] [--wait SECONDS] [--download DIR]", cmdImagesCreate},
-		},
-		"jobs": {
-			"get":    {"jobs get JOB_ID", cmdJobsGet},
-			"list":   {"jobs list [--limit N] [--cursor JOB_ID] [--idempotency-key KEY]", cmdJobsList},
-			"wait":   {"jobs wait JOB_ID [--timeout SECONDS]", cmdJobsWait},
-			"cancel": {"jobs cancel JOB_ID", cmdJobsCancel},
-		},
-		"media": {
-			"upload":   {"media upload FILE", cmdMediaUpload},
-			"list":     {"media list [--limit N] [--cursor MEDIA_ID]", cmdMediaList},
-			"get":      {"media get MEDIA_ID", cmdMediaGet},
-			"download": {"media download MEDIA_ID [--output PATH]", cmdMediaDownload},
-		},
-		"artifacts": {
-			"get":      {"artifacts get ARTIFACT_ID", cmdArtifactsGet},
-			"download": {"artifacts download ARTIFACT_ID [--output PATH]", cmdArtifactsDownload},
-		},
-		"skill": {
-			"install": {"skill install --host claude-code|codex [--scope user|project]", cmdSkillInstall},
-			"status":  {"skill status", cmdSkillStatus},
-		},
-	}
+// commandList is every command, in the order help shows them.
+var commandList = []struct {
+	section  string
+	commands []command
+}{
+	{"ACCOUNT", []command{
+		{"auth login", "[--no-wait] [--timeout SECONDS] [--switch-service]", "Connect this machine to your Muvloom account in the browser", cmdAuthLogin},
+		{"auth status", "", "Show the connection, account and credits", cmdAuthStatus},
+		{"auth logout", "", "Revoke this connection and forget it", cmdAuthLogout},
+	}},
+	{"GENERATE", []command{
+		{"capabilities", "", "Models, output formats, sizes, limits and prices for your account", cmdCapabilities},
+		{"images create", "--prompt TEXT [flags]", "Generate an image, an animated GIF or an SVG", cmdImagesCreate},
+		{"images validate", "--prompt TEXT [flags]", "Check a request and quote its cost without creating anything", cmdImagesValidate},
+	}},
+	{"JOBS AND FILES", []command{
+		{"jobs list", "[--limit N] [--cursor JOB_ID] [--idempotency-key KEY]", "Recent jobs, newest first", cmdJobsList},
+		{"jobs get", "JOB_ID", "Show one job", cmdJobsGet},
+		{"jobs wait", "JOB_ID [--timeout SECONDS]", "Wait for a job to finish", cmdJobsWait},
+		{"jobs cancel", "JOB_ID", "Cancel a queued or running job (refunded)", cmdJobsCancel},
+		{"artifacts get", "ARTIFACT_ID", "Show a generated image", cmdArtifactsGet},
+		{"artifacts download", "ARTIFACT_ID [--output PATH]", "Save a generated image", cmdArtifactsDownload},
+		{"media upload", "FILE", "Upload a reference image", cmdMediaUpload},
+		{"media list", "[--limit N] [--cursor MEDIA_ID]", "Uploaded reference images", cmdMediaList},
+		{"media get", "MEDIA_ID", "Show an uploaded reference image", cmdMediaGet},
+		{"media download", "MEDIA_ID [--output PATH]", "Save an uploaded reference image", cmdMediaDownload},
+	}},
+	{"SETUP", []command{
+		{"skill install", "--host claude-code|codex [--scope user|project]", "Install the bundled agent Skill", cmdSkillInstall},
+		{"skill status", "", "Where the agent Skill is installed and its version", cmdSkillStatus},
+		{"update check", "", "Check for a newer CLI release (cached for the day)", cmdUpdateCheck},
+		{"version", "", "Print the CLI version", cmdVersion},
+	}},
 }
 
-func usage() string {
-	lines := []string{}
-	table := commands()
-	for _, group := range []string{"version", "update", "auth", "capabilities", "images", "jobs", "media", "artifacts", "skill"} {
-		for _, sub := range []string{"", "check", "status", "login", "logout", "validate", "create", "get", "list", "wait", "cancel", "upload", "download", "install"} {
-			if cmd, ok := table[group][sub]; ok {
-				lines = append(lines, "muvloom "+cmd.usage)
+// lookup finds the command named by the first one or two arguments.
+func lookup(args []string) (command, []string, bool) {
+	for _, section := range commandList {
+		for _, cmd := range section.commands {
+			words := strings.Fields(cmd.name)
+			if len(args) >= len(words) && strings.Join(args[:len(words)], " ") == cmd.name {
+				return cmd, args[len(words):], true
 			}
 		}
 	}
-	return strings.Join(lines, "\n")
+	return command{}, nil, false
+}
+
+// group lists the subcommands of a command group such as "jobs"; nil when there is none.
+func group(name string) []command {
+	var found []command
+	for _, section := range commandList {
+		for _, cmd := range section.commands {
+			if strings.HasPrefix(cmd.name, name+" ") {
+				found = append(found, cmd)
+			}
+		}
+	}
+	return found
+}
+
+// jsonFlag recognizes --json, -json and their =true / =false forms.
+func jsonFlag(arg string) (on bool, ok bool) {
+	name, value, hasValue := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(arg, "-"), "-"), "=")
+	if !strings.HasPrefix(arg, "-") || name != "json" {
+		return false, false
+	}
+	if !hasValue {
+		return true, true
+	}
+	on, err := strconv.ParseBool(value)
+	return on, err == nil
+}
+
+func isHelpFlag(arg string) bool {
+	return arg == "-h" || arg == "--help" || arg == "-help"
 }
 
 // Run executes one command and returns the process exit code.
@@ -231,40 +267,80 @@ func (a *App) Run(args []string) int {
 		a.Sleep = sleepContext
 	}
 	ctx := context.Background()
-	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		return a.render(nil, fail("USAGE", "%s", usage()))
+	// --json is global: it may stand anywhere before a `--`.
+	a.json, a.command = false, ""
+	var kept []string
+	for i, arg := range args {
+		if arg == "--" {
+			kept = append(kept, args[i:]...)
+			break
+		}
+		if on, ok := jsonFlag(arg); ok {
+			a.json = on
+			continue
+		}
+		kept = append(kept, arg)
 	}
+	args = kept
 	// `-v`, `-V` and `--version` are what people (and agents) type first. Only when they stand alone.
 	if len(args) == 1 && (args[0] == "-v" || args[0] == "-V" || args[0] == "--version") {
 		args = []string{"version"}
 	}
-	group, ok := commands()[args[0]]
-	if !ok {
-		return a.render(nil, fail("USAGE", "unknown command %q\n%s", args[0], usage()))
+	if len(args) == 0 || isHelpFlag(args[0]) {
+		return a.help(mainHelp())
 	}
-	rest := args[1:]
-	cmd, ok := group[""]
-	if !ok {
-		if len(rest) == 0 {
-			return a.render(nil, fail("USAGE", "%s needs a subcommand\n%s", args[0], usage()))
+	if args[0] == "help" {
+		args = append(args[1:], "--help")
+		if len(args) == 1 {
+			return a.help(mainHelp())
 		}
-		if cmd, ok = group[rest[0]]; !ok {
-			return a.render(nil, fail("USAGE", "unknown command %q\n%s", args[0]+" "+rest[0], usage()))
-		}
-		rest = rest[1:]
 	}
-	if skipsService[args[0]] {
+	cmd, rest, ok := lookup(args)
+	if !ok {
+		if subs := group(args[0]); subs != nil {
+			if len(args) > 1 && isHelpFlag(args[1]) {
+				return a.help(groupHelp(args[0], subs))
+			}
+			if len(args) == 1 {
+				return a.usageError(args[0], "%s needs a subcommand: %s", args[0], subcommandNames(subs))
+			}
+			return a.usageError(args[0], "unknown command %q; %s has: %s", args[0]+" "+args[1], args[0], subcommandNames(subs))
+		}
+		return a.usageError("", "unknown command %q", args[0])
+	}
+	a.command = cmd.name
+	for _, arg := range rest {
+		if arg == "--" {
+			break
+		}
+		if isHelpFlag(arg) {
+			// Parsing stops at the help flag, before the command reads the store or the network.
+			_, err := cmd.run(ctx, a, []string{"--help"})
+			var request *helpRequest
+			if errors.As(err, &request) {
+				return a.help(commandHelp(cmd, request.flags))
+			}
+			return a.render(nil, err)
+		}
+	}
+	if skipsService[strings.Fields(cmd.name)[0]] {
 		if a.APIURL == "" {
 			a.APIURL, a.apiURLSource = DefaultAPIURL, sourceDefault
 		}
 	} else {
-		a.resolveAPIURL(args[0] == "auth" && len(args) > 1 && args[1] == "login")
+		a.resolveAPIURL(cmd.name == "auth login")
 	}
 	if err := validateAPIURL(a.APIURL); err != nil {
 		return a.render(nil, err)
 	}
 	data, err := cmd.run(ctx, a, rest)
 	return a.render(data, err)
+}
+
+// usageError reports a command line that names no command; help points at the right page.
+func (a *App) usageError(helpFor, format string, args ...any) int {
+	a.command = helpFor
+	return a.render(nil, fail("USAGE", format, args...))
 }
 
 // skipsService lists the command groups that never talk to the service. They must not
@@ -333,21 +409,31 @@ type output struct {
 
 func (a *App) render(data any, err error) int {
 	code := ExitOK
-	envelope := output{SchemaVersion: schemaVersion, OK: true, Data: data}
+	var failure *Failure
 	if err != nil {
-		failure := asFailure(err)
-		envelope = output{
-			SchemaVersion: schemaVersion,
-			OK:            false,
-			Error:         &outputError{Code: failure.Code, Message: failure.Message, Details: failure.Details},
-		}
+		failure = asFailure(err)
 		code = ExitInternal
 		if mapped, ok := exitByCode[failure.Code]; ok {
 			code = mapped
 		}
 	}
-	// A caller that never received the envelope must not see success.
-	if writeErr := a.write(envelope); writeErr != nil {
+	var writeErr error
+	switch {
+	case a.json && failure != nil:
+		writeErr = a.write(output{
+			SchemaVersion: schemaVersion,
+			Error:         &outputError{Code: failure.Code, Message: failure.Message, Details: failure.Details},
+		})
+	case a.json:
+		writeErr = a.write(output{SchemaVersion: schemaVersion, OK: true, Data: data})
+	case failure != nil:
+		// The text failure goes to stderr; a broken stderr has nowhere else to be reported.
+		_, _ = io.WriteString(a.Err, a.failureText(failure))
+	default:
+		writeErr = a.writeText(data)
+	}
+	// A caller that never received the result must not see success.
+	if writeErr != nil {
 		fmt.Fprintf(a.Err, "muvloom: could not write output: %v\n", writeErr)
 		return ExitInternal
 	}
@@ -376,14 +462,14 @@ func (a *App) write(v any) error {
 	return encoder.Encode(v)
 }
 
-// progress writes a human-readable line to stderr; stdout stays machine-readable.
+// progress writes a line to stderr, so stdout carries only the result.
 func (a *App) progress(format string, args ...any) {
 	fmt.Fprintf(a.Err, format+"\n", args...)
 }
 
 func cmdVersion(_ context.Context, _ *App, args []string) (any, error) {
-	if len(args) != 0 {
-		return nil, fail("USAGE", "usage: muvloom version")
+	if _, err := parse(newFlags("version"), args, 0); err != nil {
+		return nil, err
 	}
 	return map[string]any{"version": Version, "os": runtime.GOOS, "arch": runtime.GOARCH}, nil
 }

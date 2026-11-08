@@ -128,7 +128,7 @@ class InstallTests(unittest.TestCase):
         return subprocess.run(command, cwd=self.project, env=self.env, text=True, capture_output=True, timeout=60)
 
     def cli(self, *args, code=0):
-        result = subprocess.run([str(self.binary), *args], cwd=self.project, env=self.env, text=True, capture_output=True, timeout=30)
+        result = subprocess.run([str(self.binary), "--json", *args], cwd=self.project, env=self.env, text=True, capture_output=True, timeout=30)
         self.assertEqual(result.returncode, code, result.stdout + result.stderr)
         envelope = json.loads(result.stdout)
         self.assertEqual(envelope["schema_version"], 1)
@@ -165,6 +165,20 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(len(installed), 4)
         self.assertTrue(all(item["intact"] and item["current"] for item in installed))
         self.assertEqual(self.cli("unknown-command", code=2)["error"]["code"], "USAGE")
+        # Without --json the installed binary speaks text, and help succeeds.
+        def text(*args):
+            return subprocess.run([str(self.binary), *args], cwd=self.project, env=self.env, text=True, capture_output=True, timeout=30)
+        version = text("version")
+        self.assertEqual(version.returncode, 0, version.stdout + version.stderr)
+        self.assertEqual(version.stdout.strip().split(" ")[:2], ["muvloom", VERSION], version.stdout + version.stderr)
+        helped = text("images", "create", "--help")
+        self.assertEqual(helped.returncode, 0, helped.stdout + helped.stderr)
+        self.assertIn("--output-format", helped.stdout)
+        # A text-mode failure keeps stdout empty and its exit code.
+        failed = text("unknown-command")
+        self.assertEqual(failed.returncode, 2, failed.stdout + failed.stderr)
+        self.assertEqual(failed.stdout, "")
+        self.assertIn("(USAGE)", failed.stderr)
         for _, headers in self.server.requests:
             self.assertFalse(any(key.lower() in ("authorization", "cookie") for key in headers))
 
