@@ -567,7 +567,7 @@ func TestPreflightLeavesStoredCredentialsAsTheyWere(t *testing.T) {
 		if err := store.Preflight(); err != nil {
 			t.Fatalf("preflight: %v", err)
 		}
-		if len(kc.entries) != 1 || kc.entries[store.keyringUser()] == "" {
+		if len(kc.entries) != 1 || kc.entries[keyringUser] == "" {
 			t.Fatalf("keychain after preflight = %v", kc.entries)
 		}
 		if fileHasContent(store.credentialsFile()) {
@@ -585,85 +585,34 @@ func TestPreflightLeavesStoredCredentialsAsTheyWere(t *testing.T) {
 	})
 }
 
-// A store in another config directory (MUVLOOM_CONFIG_DIR) must leave the default login in
-// the keychain alone: signing in there with file storage, or out again, used to delete it.
-func TestAnotherConfigDirectoryNeverTouchesTheDefaultKeychainLogin(t *testing.T) {
-	keychain := &userKeychain{entries: map[string]string{defaultKeyringUser: `{"refresh_token":"prod"}`}}
-	dir := t.TempDir()
-	other := Store{Dir: dir, ClearKeyring: true, Keychain: keychain}
-	if other.keyringUser() == defaultKeyringUser {
-		t.Fatal("another directory shares the default entry")
+// A store in a MUVLOOM_CONFIG_DIR directory never touches the keychain, whose one entry belongs
+// to the default directory: signing in and out there used to delete it.
+func TestAConfigDirectoryNeverTouchesTheKeychain(t *testing.T) {
+	t.Setenv("MUVLOOM_CONFIG_DIR", t.TempDir())
+	t.Setenv("MUVLOOM_CREDENTIALS_STORE", "")
+	store := Default()
+	if store.UseKeyring || store.ClearKeyring {
+		t.Fatalf("a config directory uses the keychain: %+v", store)
 	}
-	if err := other.Save(Credentials{RefreshToken: "test", BaseURL: "https://test.example"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := other.Clear(); err != nil {
-		t.Fatal(err)
-	}
-	if keychain.entries[defaultKeyringUser] != `{"refresh_token":"prod"}` {
-		t.Fatalf("default login changed: %v", keychain.entries)
-	}
-	withKeychain := Store{Dir: dir, UseKeyring: true, ClearKeyring: true, Keychain: keychain}
-	if err := withKeychain.Save(Credentials{RefreshToken: "test", BaseURL: "https://test.example"}); err != nil {
-		t.Fatal(err)
-	}
-	if creds, err := withKeychain.Load(); err != nil || creds.RefreshToken != "test" {
-		t.Fatalf("own entry: %v %v", creds, err)
-	}
-	if keychain.entries[defaultKeyringUser] != `{"refresh_token":"prod"}` {
-		t.Fatalf("default login overwritten: %v", keychain.entries)
-	}
-	// Signed out there, it says the default login exists, so a 0.2.0 user knows to sign in again.
-	if err := withKeychain.Clear(); err != nil {
-		t.Fatal(err)
-	}
-	if !withKeychain.DefaultLoginElsewhere() {
+	keychain := &userKeychain{entries: map[string]string{keyringUser: `{"refresh_token":"prod"}`}}
+	store.Keychain = keychain
+	if !store.DefaultLoginElsewhere() {
 		t.Fatal("the default login is not reported")
 	}
-}
-
-func TestTheDefaultConfigDirectoryKeepsTheExistingKeychainEntry(t *testing.T) {
-	if user := (Store{Dir: defaultConfigDir()}).keyringUser(); user != defaultKeyringUser {
-		t.Fatalf("default directory moved to %q; existing logins would be lost", user)
-	}
-	if user := (Store{Dir: defaultConfigDir() + string(filepath.Separator)}).keyringUser(); user != defaultKeyringUser {
-		t.Fatalf("a trailing separator got %q", user)
-	}
-	t.Setenv("MUVLOOM_CONFIG_DIR", t.TempDir())
-	if user := Default().keyringUser(); user == defaultKeyringUser {
-		t.Fatal("MUVLOOM_CONFIG_DIR shares the default keychain entry")
-	}
-}
-
-// Every spelling of one directory (here a symlink) names the same entry, because the name
-// comes from an id kept in the directory, not from its path.
-func TestAnotherDirectoryKeepsOneEntryUnderAnySpelling(t *testing.T) {
-	keychain := &userKeychain{entries: map[string]string{}}
-	root := t.TempDir()
-	target := filepath.Join(root, "target")
-	store := Store{Dir: target, UseKeyring: true, Keychain: keychain}
-	if store.keyringUser() != "" {
-		t.Fatal("a fresh directory already has an entry")
-	}
-	if err := store.Save(Credentials{RefreshToken: "r", BaseURL: "https://test.example"}); err != nil {
+	if err := store.Save(Credentials{RefreshToken: "test", BaseURL: "https://test.example"}); err != nil {
 		t.Fatal(err)
 	}
-	name := store.keyringUser()
-	if name == "" || keychain.entries[name] == "" {
-		t.Fatalf("saved entry %q: %v", name, keychain.entries)
+	if creds, err := store.Load(); err != nil || creds.RefreshToken != "test" {
+		t.Fatalf("own login: %v %v", creds, err)
 	}
-	link := filepath.Join(root, "link")
-	if err := os.Symlink(target, link); err != nil {
-		t.Skip("symlinks unavailable:", err)
-	}
-	via := Store{Dir: filepath.Join(link, "..", "link"), UseKeyring: true, Keychain: keychain}
-	if creds, err := via.Load(); err != nil || creds.RefreshToken != "r" {
-		t.Fatalf("through the link: %v %v", creds, err)
-	}
-	if err := via.Clear(); err != nil {
+	if err := store.Clear(); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := keychain.entries[name]; ok {
-		t.Fatal("signing out through the link left the entry")
+	if keychain.entries[keyringUser] != `{"refresh_token":"prod"}` || len(keychain.entries) != 1 {
+		t.Fatalf("keychain changed: %v", keychain.entries)
+	}
+	t.Setenv("MUVLOOM_CONFIG_DIR", "")
+	if def := Default(); !def.UseKeyring || !def.ClearKeyring {
+		t.Fatalf("the default directory lost the keychain: %+v", def)
 	}
 }
