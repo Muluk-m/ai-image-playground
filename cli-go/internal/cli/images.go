@@ -261,8 +261,18 @@ func keepJob(err error, key, jobID string, saved []download, failedArtifact stri
 	if failedArtifact != "" {
 		details["failed_artifact_id"] = failedArtifact
 	}
-	if failure.Details != nil {
-		details["cause"] = failure.Details
+	// The failure's own details stay at the top level, where a lone download puts them
+	// (`path` of FILE_EXISTS); details of another shape are kept under `cause`.
+	switch own := failure.Details.(type) {
+	case nil:
+	case map[string]string:
+		for k, v := range own {
+			if _, taken := details[k]; !taken {
+				details[k] = v
+			}
+		}
+	default:
+		details["cause"] = own
 	}
 	return &Failure{Code: failure.Code, Message: failure.Message, Details: details}
 }
