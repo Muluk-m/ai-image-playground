@@ -29,6 +29,8 @@ const billing = {
   members: new Set<string>(),
   quote: 10,
   reservePrice: undefined as number | undefined,
+  /** Makes the next reservations answer that the daily quota is used up. */
+  quotaResetAt: undefined as string | undefined,
   reservations: [] as ReservationLog[],
   settlements: [] as { taskId: string; outcome: string }[],
 }
@@ -58,6 +60,13 @@ _setPrivateBffOverlayForTesting(
         quantity,
         unitMultiplier,
       }: Parameters<PrivateTaskHooks['reserveTask']>[0]) {
+        if (billing.quotaResetAt)
+          return {
+            kind: 'quota_exceeded' as const,
+            used: 3,
+            quota: 3,
+            resetAt: billing.quotaResetAt,
+          }
         const credits = (billing.reservePrice ?? billing.quote) * quantity * unitMultiplier
         billing.reservations.push({ taskId, model, credits, unitMultiplier })
         await tx.execute(
@@ -151,6 +160,7 @@ beforeEach(async () => {
   billing.members.clear()
   billing.quote = 10
   billing.reservePrice = undefined
+  billing.quotaResetAt = undefined
   process.env.GPT_DIRECT_ENABLED = 'true'
   _resetDirectBudgetCacheForTesting()
   billing.reservations.length = 0
@@ -1028,6 +1038,23 @@ describe('capabilities and dry-run', () => {
 
     const created = await call('POST', '/v1/image-jobs', { body, headers: bearer(access_token) })
     expect(created.json.data.request_hash).toBe(preview.json.data.request_hash)
+  })
+
+  it('answers a used-up daily quota with QUOTA_EXCEEDED and its reset time, leaving no task', async () => {
+    const user = await createUser('quota')
+    const { access_token } = await connect(user)
+    billing.quotaResetAt = '2099-01-01T00:00:00.000Z'
+    const refused = await call('POST', '/v1/image-jobs', {
+      body: imageJob(),
+      headers: bearer(access_token),
+    })
+    expect(refused.status).toBe(429)
+    expect(refused.json.error).toMatchObject({
+      code: 'QUOTA_EXCEEDED',
+      details: { reset_at: '2099-01-01T00:00:00.000Z' },
+    })
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(billing.reservations).toHaveLength(0)
   })
 
   it('rejects 4K for non-members and an exceeded max_credits before any task or hold', async () => {
