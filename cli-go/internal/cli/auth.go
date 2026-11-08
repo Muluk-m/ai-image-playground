@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
@@ -239,7 +240,7 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	// host may be the one calling.
 	skills, failed, refreshErr := skill.RefreshOutdated(a.Home, a.CWD)
 	if refreshErr != nil {
-		a.progress("Could not check the installed muvloom Skills: %v", refreshErr)
+		a.progress("Could not check the installed muvloom Skills (%s).", skillFailure(refreshErr))
 	}
 	for _, installed := range skills {
 		switch {
@@ -253,8 +254,9 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	}
 	var refreshFailures []map[string]string
 	for _, item := range failed {
-		a.progress("Could not update the muvloom Skill at %s to %s: %v", item.Path, skill.BundleVersion, item.Err)
-		refreshFailures = append(refreshFailures, map[string]string{"path": item.Path, "error": item.Err.Error()})
+		a.progress("Could not update the muvloom Skill at %s to %s (%s). To retry: muvloom skill install --host %s --scope %s",
+			item.Path, skill.BundleVersion, skillFailure(item.Err), item.Host, item.Scope)
+		refreshFailures = append(refreshFailures, map[string]string{"path": item.Path, "reason": skillFailure(item.Err)})
 	}
 	store := a.Store.Describe()
 	status := map[string]any{
@@ -265,7 +267,7 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 		"skills":           skills,
 	}
 	if refreshErr != nil {
-		status["skill_check_error"] = refreshErr.Error()
+		status["skill_check_error"] = skillFailure(refreshErr)
 	}
 	if len(refreshFailures) > 0 {
 		status["skill_refresh_failures"] = refreshFailures
@@ -670,6 +672,20 @@ func cmdAuthLogout(ctx context.Context, a *App, args []string) (any, error) {
 	// An explicit sign-out is the one place that may delete: remove what earlier versions left.
 	a.Store.CleanupLeftovers()
 	return map[string]any{"signed_out": true, "server_revoked": revoked}, nil
+}
+
+// skillFailure names why a Skill check or update failed with a stable word: the error's own
+// text can carry local details.
+func skillFailure(err error) string {
+	switch {
+	case errors.Is(err, auth.ErrLockTimeout):
+		return "busy"
+	case strings.Contains(err.Error(), "symlink"):
+		return "symlink"
+	case errors.Is(err, fs.ErrPermission):
+		return "permission_denied"
+	}
+	return "io_error"
 }
 
 // versionLess compares dotted numeric versions; unknown formats never force an upgrade.

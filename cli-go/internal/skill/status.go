@@ -163,34 +163,33 @@ func RefreshOutdated(home, cwd string) ([]Installation, []Refresh, error) {
 		return nil, nil, err
 	}
 	var failed []Refresh
-	changed := false
+	attempted := false
 	for _, item := range installed {
 		if !refreshable(item) {
 			continue
 		}
+		attempted = true
 		_, err := Install(InstallOptions{
 			Host: item.foundHost, Scope: item.foundScope, Home: home, CWD: cwd,
-			onlyIf: func(destination string) bool {
+			onlyIf: func(destination string) (bool, error) {
 				current, err := Installed(home, cwd)
 				if err != nil {
-					return false
+					return false, err
 				}
 				for _, again := range current {
 					if again.Path == destination {
-						return refreshable(again)
+						return refreshable(again), nil
 					}
 				}
-				return false
+				return false, nil
 			},
 		})
-		switch {
-		case err == nil:
-			changed = true
-		case !errors.Is(err, errNotNeeded):
+		if err != nil && !errors.Is(err, errNotNeeded) {
 			failed = append(failed, Refresh{Installation: item, Err: err})
 		}
 	}
-	if changed {
+	// Re-read after any attempt: this process, or another one, may have changed a copy.
+	if attempted {
 		if installed, err = Installed(home, cwd); err != nil {
 			return nil, failed, err
 		}
