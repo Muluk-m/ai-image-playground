@@ -261,9 +261,11 @@ export async function getCachedMedia(id: string): Promise<CachedMedia | undefine
     s.get(id),
   )
   if (cached)
-    void dbTransaction(STORE_MEDIA, 'readwrite', (s) =>
+    // Recency is best effort: WebKit (e.g. WeChat on iOS) may abort this write after the read
+    // already succeeded, and the cached bytes are still valid.
+    dbTransaction(STORE_MEDIA, 'readwrite', (s) =>
       s.put({ ...cached, lastUsedAt: Date.now() }),
-    )
+    ).catch(() => {})
   return cached
 }
 
