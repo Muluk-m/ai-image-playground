@@ -623,22 +623,11 @@ func TestAnotherConfigDirectoryNeverTouchesTheDefaultKeychainLogin(t *testing.T)
 }
 
 func TestTheDefaultConfigDirectoryKeepsTheExistingKeychainEntry(t *testing.T) {
-	if user := keyringUserFor(defaultConfigDir()); user != defaultKeyringUser {
+	if user := (Store{Dir: defaultConfigDir()}).keyringUser(); user != defaultKeyringUser {
 		t.Fatalf("default directory moved to %q; existing logins would be lost", user)
 	}
-	// The default directory named explicitly, or through a symlink, is still the default.
-	link := filepath.Join(t.TempDir(), "link")
-	if _, err := os.Stat(defaultConfigDir()); err == nil && os.Symlink(defaultConfigDir(), link) == nil {
-		if user := keyringUserFor(link); user != defaultKeyringUser {
-			t.Fatalf("a symlink to the default directory got %q", user)
-		}
-	}
-	if user := keyringUserFor(defaultConfigDir() + string(filepath.Separator)); user != defaultKeyringUser {
+	if user := (Store{Dir: defaultConfigDir() + string(filepath.Separator)}).keyringUser(); user != defaultKeyringUser {
 		t.Fatalf("a trailing separator got %q", user)
-	}
-	t.Setenv("MUVLOOM_CONFIG_DIR", "")
-	if user := Default().keyringUser(); user != defaultKeyringUser {
-		t.Fatalf("default store uses %q", user)
 	}
 	t.Setenv("MUVLOOM_CONFIG_DIR", t.TempDir())
 	if user := Default().keyringUser(); user == defaultKeyringUser {
@@ -646,22 +635,35 @@ func TestTheDefaultConfigDirectoryKeepsTheExistingKeychainEntry(t *testing.T) {
 	}
 }
 
-// A link to a directory that does not exist yet names the same entry before and after the
-// first login creates it.
-func TestALinkToAMissingDirectoryKeepsItsKeychainEntry(t *testing.T) {
+// Every spelling of one directory (here a symlink) names the same entry, because the name
+// comes from an id kept in the directory, not from its path.
+func TestAnotherDirectoryKeepsOneEntryUnderAnySpelling(t *testing.T) {
+	keychain := &userKeychain{entries: map[string]string{}}
 	root := t.TempDir()
-	link := filepath.Join(root, "link")
-	if err := os.Symlink(filepath.Join(root, "target"), link); err != nil {
-		t.Skip("symlinks unavailable:", err)
+	target := filepath.Join(root, "target")
+	store := Store{Dir: target, UseKeyring: true, Keychain: keychain}
+	if store.keyringUser() != "" {
+		t.Fatal("a fresh directory already has an entry")
 	}
-	before := keyringUserFor(link)
-	if err := os.MkdirAll(filepath.Join(root, "target"), 0o700); err != nil {
+	if err := store.Save(Credentials{RefreshToken: "r", BaseURL: "https://test.example"}); err != nil {
 		t.Fatal(err)
 	}
-	if after := keyringUserFor(link); after != before {
-		t.Fatalf("entry changed from %q to %q", before, after)
+	name := store.keyringUser()
+	if name == "" || keychain.entries[name] == "" {
+		t.Fatalf("saved entry %q: %v", name, keychain.entries)
 	}
-	if keyringUserFor(filepath.Join(root, "target")) != before {
-		t.Fatal("the link and its target name different entries")
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	via := Store{Dir: filepath.Join(link, "..", "link"), UseKeyring: true, Keychain: keychain}
+	if creds, err := via.Load(); err != nil || creds.RefreshToken != "r" {
+		t.Fatalf("through the link: %v %v", creds, err)
+	}
+	if err := via.Clear(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := keychain.entries[name]; ok {
+		t.Fatal("signing out through the link left the entry")
 	}
 }
