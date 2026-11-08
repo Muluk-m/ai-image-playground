@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestInstallUserHostsAndMetadata(t *testing.T) {
@@ -191,4 +192,75 @@ func TestRefreshOutdatedReplacesOnlyUneditedOldCopies(t *testing.T) {
 	if data, _ := os.ReadFile(filepath.Join(edited.Path, "SKILL.md")); string(data) != "my notes" {
 		t.Fatal("edited copy lost its changes")
 	}
+}
+
+// fakeRelease makes an installed copy look like another release: other files, matching metadata.
+func fakeRelease(t *testing.T, path, version, host, scope string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(path, "SKILL.md"), []byte("release "+version), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hash, err := treeHash(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, _ := json.Marshal(metadata{Skill: "muvloom", Version: version, Host: host, Scope: scope, FileHash: hash})
+	if err := os.WriteFile(filepath.Join(path, ".muvloom-skill.json"), meta, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRefreshOutdatedNeverDowngradesMovesOrRacesACopy(t *testing.T) {
+	cwd := t.TempDir()
+	t.Run("newer copy", func(t *testing.T) {
+		home := t.TempDir()
+		result, _ := Install(InstallOptions{Host: "codex", Scope: "user", Home: home})
+		fakeRelease(t, result.Path, "9.9.9", "codex", "user")
+		if failed, err := RefreshOutdated(home, cwd); err != nil || len(failed) != 0 {
+			t.Fatal(failed, err)
+		}
+		if data, _ := os.ReadFile(filepath.Join(result.Path, "SKILL.md")); string(data) != "release 9.9.9" {
+			t.Fatal("a newer copy was downgraded")
+		}
+	})
+	t.Run("metadata from elsewhere", func(t *testing.T) {
+		home := t.TempDir()
+		result, _ := Install(InstallOptions{Host: "codex", Scope: "user", Home: home})
+		fakeRelease(t, result.Path, "0.0.1", "codex", "project")
+		if failed, err := RefreshOutdated(home, cwd); err != nil || len(failed) != 0 {
+			t.Fatal(failed, err)
+		}
+		if data, _ := os.ReadFile(filepath.Join(result.Path, "SKILL.md")); string(data) != "release 0.0.1" {
+			t.Fatal("a copy placed by hand was refreshed")
+		}
+	})
+	t.Run("another process refreshing", func(t *testing.T) {
+		home := t.TempDir()
+		result, _ := Install(InstallOptions{Host: "codex", Scope: "user", Home: home})
+		fakeRelease(t, result.Path, "0.0.1", "codex", "user")
+		lock := filepath.Join(filepath.Dir(result.Path), ".muvloom-refresh.lock")
+		if err := os.WriteFile(lock, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if failed, err := RefreshOutdated(home, cwd); err != nil || len(failed) != 0 {
+			t.Fatal(failed, err)
+		}
+		if data, _ := os.ReadFile(filepath.Join(result.Path, "SKILL.md")); string(data) != "release 0.0.1" {
+			t.Fatal("refreshed while another process held the lock")
+		}
+		old := time.Now().Add(-5 * time.Minute)
+		if err := os.Chtimes(lock, old, old); err != nil {
+			t.Fatal(err)
+		}
+		if failed, err := RefreshOutdated(home, cwd); err != nil || len(failed) != 0 {
+			t.Fatal(failed, err)
+		}
+		installed, _ := Installed(home, cwd)
+		if len(installed) != 1 || !installed[0].Current {
+			t.Fatalf("a stale lock blocked the refresh: %+v", installed)
+		}
+		if _, err := os.Stat(lock); !os.IsNotExist(err) {
+			t.Fatal("the lock was left behind")
+		}
+	})
 }

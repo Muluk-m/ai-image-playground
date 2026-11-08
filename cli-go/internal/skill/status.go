@@ -7,6 +7,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // Installation is the on-disk metadata used by auth status and automation to
@@ -23,6 +26,13 @@ type Installation struct {
 	Intact bool `json:"intact"`
 	// Current is true when this install matches the Skill bundled with this CLI.
 	Current bool `json:"current"`
+	// Unverifiable is true when the files could not be hashed (a missing or unreadable
+	// file, or something other than a regular file): incomplete rather than edited.
+	Unverifiable bool `json:"unverifiable,omitempty"`
+
+	// Where the copy was found, which a refresh writes to; metadata may say otherwise
+	// when a copy was moved by hand.
+	foundHost, foundScope string
 }
 
 // Installed reports metadata for installed Skills in the user's home and the
@@ -77,8 +87,11 @@ func Installed(home, cwd string) ([]Installation, error) {
 				continue
 			}
 			item.Path = path
+			item.foundHost, item.foundScope = host.name, location.scope
 			if onDisk, hashErr := treeHash(path); hashErr == nil {
 				item.Intact = onDisk == item.FileHash
+			} else {
+				item.Unverifiable = true
 			}
 			if _, bundledHash, bundleErr := bundleFiles(); bundleErr == nil {
 				item.Current = item.Intact && item.FileHash == bundledHash
@@ -127,22 +140,84 @@ func treeHash(root string) (string, error) {
 	return hashFiles(files), nil
 }
 
-// RefreshOutdated replaces every installed copy that is intact but older than the bundle
-// with the bundle, so upgrading the CLI upgrades the Skills it installed. A copy whose files
-// were changed by hand is left alone. It returns the copies it could not refresh.
-func RefreshOutdated(home, cwd string) ([]Installation, error) {
+// Refresh is one installed copy RefreshOutdated could not update, and why.
+type Refresh struct {
+	Installation
+	Err error
+}
+
+// RefreshOutdated replaces every installed copy that is intact and of an older release than
+// the bundle, so upgrading the CLI upgrades the Skills it installed. It writes to where each
+// copy was found, never where its metadata says. A copy edited by hand, a newer copy (another,
+// newer CLI on this machine installed it) or one that metadata places elsewhere is left alone.
+// Another muvloom process refreshing at the same time makes this one skip: two replacements
+// of one directory must not interleave. It returns the copies it tried and could not update.
+func RefreshOutdated(home, cwd string) ([]Refresh, error) {
 	installed, err := Installed(home, cwd)
 	if err != nil {
 		return nil, err
 	}
-	var failed []Installation
+	var failed []Refresh
 	for _, item := range installed {
-		if !item.Intact || item.Current {
+		if !item.Intact || item.Current || !VersionLess(item.Version, BundleVersion) ||
+			item.Host != item.foundHost || item.Scope != item.foundScope {
 			continue
 		}
-		if _, err := Install(InstallOptions{Host: item.Host, Scope: item.Scope, Home: home, CWD: cwd}); err != nil {
-			failed = append(failed, item)
+		unlock, ok := refreshLock(filepath.Dir(item.Path))
+		if !ok {
+			continue
+		}
+		_, err := Install(InstallOptions{Host: item.foundHost, Scope: item.foundScope, Home: home, CWD: cwd})
+		unlock()
+		if err != nil {
+			failed = append(failed, Refresh{Installation: item, Err: err})
 		}
 	}
 	return failed, nil
+}
+
+// refreshLock takes an exclusive marker beside the Skill directory. A marker older than two
+// minutes belongs to a process that died mid-refresh and is taken over.
+func refreshLock(dir string) (func(), bool) {
+	path := filepath.Join(dir, ".muvloom-refresh.lock")
+	for attempt := 0; attempt < 2; attempt++ {
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			file.Close()
+			return func() { os.Remove(path) }, true
+		}
+		info, statErr := os.Stat(path)
+		if statErr != nil || time.Since(info.ModTime()) < 2*time.Minute {
+			return nil, false
+		}
+		os.Remove(path)
+	}
+	return nil, false
+}
+
+// VersionLess compares dotted numeric versions; an unknown format is never older.
+func VersionLess(current, other string) bool {
+	if other == "" {
+		return false
+	}
+	cur := strings.Split(strings.TrimPrefix(current, "v"), ".")
+	req := strings.Split(strings.TrimPrefix(other, "v"), ".")
+	for i := 0; i < max(len(cur), len(req)); i++ {
+		var c, r int
+		var err error
+		if i < len(cur) {
+			if c, err = strconv.Atoi(cur[i]); err != nil {
+				return false
+			}
+		}
+		if i < len(req) {
+			if r, err = strconv.Atoi(req[i]); err != nil {
+				return false
+			}
+		}
+		if c != r {
+			return c < r
+		}
+	}
+	return false
 }
