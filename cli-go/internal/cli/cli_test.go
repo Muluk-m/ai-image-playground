@@ -1306,7 +1306,7 @@ func TestStoreFailuresNeverEchoTheStoresOwnText(t *testing.T) {
 	app := newApp(t, f, dir)
 	login(t, app)
 	// The keychain still holds the login but refuses to let go of it.
-	app.Store = auth.Store{Dir: dir, UseKeyring: true, Keychain: leakyKeychain{holds: true}}
+	app.Store = auth.Store{Dir: dir, UseKeyring: true, Keychain: leakyKeychain{holds: true}, KeyringUser: "default"}
 	r := execute(t, app, "auth", "logout")
 	if r.code == ExitOK {
 		t.Fatalf("logout succeeded although the keychain kept the login: %s", r.stdout)
