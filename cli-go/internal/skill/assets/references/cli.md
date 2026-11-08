@@ -42,7 +42,7 @@ request's size/quality multiplier. Keep pricing internal unless the user asks.
 | 2 | Invalid command or request | Fix the flags or ask the user for the missing input |
 | 3 | Not signed in / login pending, denied or expired | Run the login flow |
 | 4 | Rejected (membership, not found, conflict, model unavailable, file exists, service mismatch, credential store unwritable) or the waited job failed / was canceled | Explain to the user; see errors.md |
-| 5 | Credits (insufficient, or above `--max-credits`) | Report insufficient credits or the exceeded user-supplied limit; stop |
+| 5 | Credits (insufficient, above `--max-credits`) or the daily quota is used up (`QUOTA_EXCEEDED`, with `reset_at`) | Report insufficient credits, the exceeded user-supplied limit, or when the quota resets; stop |
 | 6 | Temporary (network, rate limit, server busy) | Retry later with the same idempotency key |
 | 7 | CLI too old | Upgrade with install.md |
 | 1 | Unexpected | Report the message |
