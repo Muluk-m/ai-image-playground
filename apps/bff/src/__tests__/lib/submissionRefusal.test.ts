@@ -60,6 +60,6 @@ const table: ReadonlyArray<readonly [SubmissionRefusal, number, Record<string, u
 
 it.each(table)('%o → %i', (outcome, code, body) => {
   const response = submissionRefusalResponse(outcome)
-  expect(response.code).toBe(code)
-  expect(response.response).toEqual(body)
+  expect<number>(response.code).toBe(code)
+  expect<unknown>(response.response).toEqual(body)
 })
