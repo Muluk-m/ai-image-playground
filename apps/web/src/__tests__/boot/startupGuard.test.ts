@@ -229,6 +229,24 @@ it('unregisters legacy workers without depending on the app module or deleting u
   localStorage.removeItem('preserved-user-setting')
 })
 
+it('ignores blocked third-party scripts and styles injected at the edge', () => {
+  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  sessionStorage.removeItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)
+  const beacon = document.createElement('script')
+  beacon.type = 'module'
+  beacon.src = 'https://static.cloudflareinsights.com/beacon.min.js/v123'
+  document.body.append(beacon)
+  beacon.dispatchEvent(new Event('error'))
+  const style = document.createElement('link')
+  style.rel = 'stylesheet'
+  style.href = 'https://third-party.example/widget.css'
+  document.head.append(style)
+  style.dispatchEvent(new Event('error'))
+  style.remove()
+  vi.advanceTimersByTime(25_000)
+  expect(replace).not.toHaveBeenCalled()
+  expect(errorPanelVisible()).toBe(false)
+})
 it('ignores optional manifest and favicon resource failures', () => {
   for (const rel of ['manifest', 'icon', 'apple-touch-icon', 'preload']) {
     const link = document.createElement('link')

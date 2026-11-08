@@ -203,12 +203,16 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
     state.timer=setTimeout(probe,${RESOURCE_PROBE_INTERVAL_MS});
     return true;
   };
+  // The app ships every required script and stylesheet from this origin. Edge-injected
+  // third-party tags (Cloudflare Web Analytics adds a module script) are often blocked by
+  // privacy tools and must not turn into a reload or a failure panel.
+  const firstParty=(src)=>{try{return new URL(src,location.href).origin===location.origin}catch{return false}};
   const onError=(event)=>{
     const target=event.target;
     let detail;
     let source;
-    if(target instanceof HTMLLinkElement&&target.relList.contains('stylesheet')&&!target.hasAttribute('data-optional-style')){source=target.href;detail={tag:'stylesheet',src:clip(source,300)}}
-    else if(target instanceof HTMLScriptElement&&target.type==='module'){source=target.src;detail={tag:'script',src:clip(source,300)}}
+    if(target instanceof HTMLLinkElement&&target.relList.contains('stylesheet')&&!target.hasAttribute('data-optional-style')){if(!firstParty(target.href))return;source=target.href;detail={tag:'stylesheet',src:clip(source,300)}}
+    else if(target instanceof HTMLScriptElement&&target.type==='module'){if(!firstParty(target.src))return;source=target.src;detail={tag:'script',src:clip(source,300)}}
     else if(event instanceof ErrorEvent)note({type:'error',message:clip(event.message,300),stack:clip(event.error&&event.error.stack,1200),source:clip(event.filename,200)});
     if(detail){
       if(recovery){if(!recoverResource(detail,source))fail('resource',detail);return}
