@@ -25,7 +25,8 @@ export async function runPeriodicSteps(
 }
 
 /**
- * 按间隔跑；上一轮还没跑完就跳过这一拍，不叠着跑。返回停止函数。
+ * 按间隔跑；上一轮还没跑完就跳过这一拍，不叠着跑。返回停止函数：停掉定时器，
+ * 返回的 promise 等正在跑的那一轮结束（停机时据此在关库前等它收尾）。
  * `initial` 在启动时立刻在后台跑一次，不等它：开机清理积压多时可能要几分钟，不能挡着服务开始监听。
  * 它和定时那几拍共用同一个「正在跑」标记，跑完之前定时的那一拍同样跳过。
  */
@@ -33,18 +34,18 @@ export function startPeriodicSteps(
   intervalMs: number,
   steps: readonly PeriodicStep[],
   options: { readonly initial?: readonly PeriodicStep[] } = {},
-): () => void {
-  let running = false
-  const run = async (current: readonly PeriodicStep[]) => {
-    if (running) return
-    running = true
-    try {
-      await runPeriodicSteps(current)
-    } finally {
-      running = false
-    }
+): () => Promise<void> {
+  let inFlight: Promise<void> | undefined
+  const run = (current: readonly PeriodicStep[]) => {
+    if (inFlight) return
+    inFlight = runPeriodicSteps(current).finally(() => {
+      inFlight = undefined
+    })
   }
-  if (options.initial?.length) void run(options.initial)
-  const timer = setInterval(() => void run(steps), intervalMs)
-  return () => clearInterval(timer)
+  if (options.initial?.length) run(options.initial)
+  const timer = setInterval(() => run(steps), intervalMs)
+  return async () => {
+    clearInterval(timer)
+    await inFlight
+  }
 }
