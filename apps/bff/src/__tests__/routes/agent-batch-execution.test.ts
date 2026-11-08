@@ -63,7 +63,7 @@ const { config } = await import('../../config')
 const { runTask } = await import('../../workers/task-runner')
 const { TaskScheduler } = await import('../../workers/task-scheduler')
 const { purgeOldTasks } = await import('../../db/maintenance')
-const { advanceAgentBatches } = await import('../../lib/agent/batch-execution')
+const { dispatchAgentBatch } = await import('../../lib/agent/batch-execution')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { _setChannelsForTesting } = await import('../../lib/channels')
@@ -1082,9 +1082,13 @@ it('提交被计量拒绝时暂停批次，不再每轮重提', async () => {
     submittedCount: 1,
   })
   expect(paused.items[1].execution).toBeUndefined()
-  // 已暂停：调度推进不再重提被拒的那一项。
-  await advanceAgentBatches(null, () => true)
+  // 已暂停：再派发这一批也不重提被拒的那一项。只派本批次，不推进同库里别的用例留下的批次。
+  await dispatchAgentBatch('batch-execution-owner', batches[0].id)
   expect(generationReservations).toBe(2)
+  expect((await (await request(path)).json()).batch).toMatchObject({
+    status: 'paused',
+    pauseReason: 'submission_refused',
+  })
 })
 
 it('公共余额不足暂停后续派发，补足后恢复只提交未入队项', async () => {
