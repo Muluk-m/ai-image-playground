@@ -29,7 +29,7 @@ func TestUpdateCommandWorksWithoutLoginAndCachesItsResult(t *testing.T) {
 	})}
 	for attempt := range 2 {
 		out.Reset()
-		if code := a.Run([]string{"update", "check"}); code != ExitOK {
+		if code := a.Run([]string{"--json", "update", "check"}); code != ExitOK {
 			t.Fatalf("update check exit %d: %s", code, out.String())
 		}
 		var result struct {

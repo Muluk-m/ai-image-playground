@@ -8,7 +8,7 @@ description: Generate and fetch images with Muvloom (幕芽, muya, muvloom) thro
 Treat 幕芽, muya and muvloom as names for the same service, case-insensitively.
 Use `muvloom` as the executable name for all commands.
 
-Use the `muvloom` CLI for Muvloom requests; authentication and HTTP belong to the CLI. Each command prints one JSON object on stdout (`ok`, then `data` or `error`); progress goes to stderr. Models and prices come from the server. Keep credentials in the CLI. The CLI remembers which service the user signed in to, so a new session needs no `MUVLOOM_API_URL`; set it only to choose a service for the first login.
+Use the `muvloom` CLI for Muvloom requests; authentication and HTTP belong to the CLI. Learn flags from the CLI itself: `muvloom --help` lists commands and `muvloom <command> --help` lists a command's flags, limits and examples. Run that instead of guessing a flag. Results print as text on stdout: `key: value` lines using the field names this Skill mentions, while `version`, `capabilities` and lists use a compact layout (`version` prints `muvloom X.Y.Z (os/arch)`); a failure prints `Error: message (CODE)` on stderr with a non-zero exit code. Add `--json` to any command for one JSON object (`ok`, then `data` or `error`) when you need every field. Models and prices come from the server. Keep credentials in the CLI. The CLI remembers which service the user signed in to, so a new session needs no `MUVLOOM_API_URL`; set it only to choose a service for the first login.
 
 ## Flow
 
@@ -35,10 +35,10 @@ check or a declined update does not block generation.
 2. **Read capabilities**: `muvloom capabilities` once for the task; refresh if the server rejects a capability. Use the requested model, ratio and size when supported; otherwise omit unspecified flags for server defaults. Preserve explicit user requirements when handling an unavailable option.
    - Each model lists its `output_formats`: `image` is a regular image; `gif` and `svg` mean the model outputs an animated GIF or an SVG vector directly, with the limits in its `gif` / `svg` entry. Pick the model by what the request needs, not by name alone.
    - For a coordinated image set or e-commerce gallery, read [image-sets.md](references/image-sets.md) before submission. For GIF, animated-image or SVG/vector requests, read [animation.md](references/animation.md) before choosing the model and output.
-3. **Create**: choose and keep a unique idempotency key (8–64 characters: letters, digits, `_ . : -`) before submission. Run `muvloom images create --prompt "…" [flags] --idempotency-key KEY --wait 300 --download ./muvloom-output`. Add `--max-credits N` only for an explicit user-supplied credit limit. Keep `data.job.job_id` from the output; reuse the key only to recover the same request. Local reference images go directly in repeatable `--ref` flags. For a multiline prompt or shell-sensitive text, use a UTF-8 prompt file with `--prompt-file`.
+3. **Create**: choose and keep a unique idempotency key (8–64 characters: letters, digits, `_ . : -`) before submission. Run `muvloom images create --prompt "…" [flags] --idempotency-key KEY --wait 300 --download ./muvloom-output`. Add `--max-credits N` only for an explicit user-supplied credit limit. Keep the job's `job_id` from the output; reuse the key only to recover the same request. Local reference images go directly in repeatable `--ref` flags. For a multiline prompt or shell-sensitive text, use a UTF-8 prompt file with `--prompt-file`.
 4. **Finish and deliver**: a `wait_timed_out: true` response means the job is still running. Continue `muvloom jobs wait <job_id> --timeout 300` until it finishes, unless the user requested background submission. Once succeeded, download any remaining artifacts ([jobs.md](references/jobs.md)), show the images with the host's preview tools, and give the saved paths. A failed download only needs another download. Handle failed jobs with [errors.md](references/errors.md); explain a concrete blocker if completion is impossible.
 
-Flags shared by `validate` and `create`: `--model`, `--aspect-ratio`, `--image-size`, `--quality`, `--ref <file-or-media_id>` (repeatable; local files upload automatically), `--prompt-file`, and for native formats `--output-format gif|svg`, `--frames N`, `--frame-duration-ms MS`, `--frame-size WxH` (GIF only).
+`muvloom images create --help` lists every generation flag (model, ratio, size, quality, reference images, prompt file, GIF/SVG output and frames); `images validate` takes the same flags.
 
 If the host interrupts login for a permission approval or replays the command, run
 `muvloom auth status` before starting another login. A `ready` state means the
@@ -48,7 +48,7 @@ disable the host's file or credential protection.
 
 ## References
 
-- [cli.md](references/cli.md) — every command and exit code.
+- [cli.md](references/cli.md) — output modes, IDs and exit codes.
 - [jobs.md](references/jobs.md) — waiting, recovering a lost submission, cancelling.
 - [errors.md](references/errors.md) — what to do for each error code (credits, membership, conflicts).
 - [install.md](references/install.md) — installing or upgrading the CLI.

@@ -8,8 +8,8 @@ import (
 
 func cmdSkillInstall(_ context.Context, a *App, args []string) (any, error) {
 	fs := newFlags("skill install")
-	host := fs.String("host", "", "claude-code or codex")
-	scope := fs.String("scope", "user", "user or project")
+	host := fs.String("host", "", "Agent host: claude-code or codex")
+	scope := fs.String("scope", "user", "user (every project) or project (this directory)")
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
 	}

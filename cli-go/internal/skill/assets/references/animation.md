@@ -9,7 +9,8 @@ request: it is one generation, with no local tools.
 
 Run `muvloom images create --model <id> --output-format gif --prompt "…"` with the
 usual idempotency key, wait and download. Describe the motion in the prompt (what
-moves, how, and that it loops). Optional flags come from the model's `gif` entry:
+moves, how, and that it loops). Optional flags come from the model's `gif` entry
+(`muvloom capabilities` shows it; `--json` has every field):
 
 - `--frames N`: `frame_count.min`–`frame_count.max` (default `frame_count.default`);
   smoother motion needs more frames, and more frames cost more.
