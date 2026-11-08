@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import { runPeriodicSteps, startPeriodicSteps } from '../../lib/periodic'
 
-let stop: (() => void) | undefined
+let stop: (() => Promise<void>) | undefined
 afterEach(() => {
-  stop?.()
+  void stop?.()
   stop = undefined
 })
 
@@ -87,5 +87,32 @@ describe('periodic maintenance steps', () => {
     })
     await Bun.sleep(30)
     expect(ran.length).toBeGreaterThan(0)
+  })
+
+  it('waits for the in-flight run when stopped and schedules nothing after', async () => {
+    let calls = 0
+    let release: () => void = () => {}
+    const stopNow = startPeriodicSteps(5, [{ event: 'tick', run: async () => void calls++ }], {
+      initial: [
+        {
+          event: 'startup',
+          run: () =>
+            new Promise<void>((resolve) => {
+              release = resolve
+            }),
+        },
+      ],
+    })
+    let stopped = false
+    const stopping = stopNow().then(() => {
+      stopped = true
+    })
+    await Bun.sleep(20)
+    expect(stopped).toBe(false)
+    release()
+    await stopping
+    expect(stopped).toBe(true)
+    await Bun.sleep(20)
+    expect(calls).toBe(0)
   })
 })

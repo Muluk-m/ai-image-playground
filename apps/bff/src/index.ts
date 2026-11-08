@@ -115,7 +115,7 @@ const startupMaintenance = [
     },
   },
 ]
-startPeriodicSteps(
+const stopMaintenance = startPeriodicSteps(
   QUEUE_TIMEOUTS.PURGE_INTERVAL_MS,
   [
     {
@@ -297,6 +297,9 @@ async function gracefulShutdown(signal: string): Promise<void> {
   clearInterval(apiMinutesTimer)
   clearInterval(operatorConfigTimer)
   clearInterval(upstreamSecretTimer)
+  // 开机或定时清理还在跑时给它一段收尾时间再关库，免得半截的批次撞上 closeDb；
+  // 上限远小于容器 75 秒的停机宽限，等不完就照常退出，没删完的由下一次清理接着删。
+  await Promise.race([stopMaintenance(), Bun.sleep(30_000)])
 
   try {
     // Close idle canvas sockets after task drain so HTTP shutdown can finish.
