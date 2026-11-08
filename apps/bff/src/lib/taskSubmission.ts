@@ -448,6 +448,7 @@ export type SubmitPreparedResult<T> =
  *
  * 归档的清理归这里：事务回滚（`work` 抛错）时全部丢弃；事务提交后，没建成任务的那几条
  * （被拒、命中幂等回执、`work` 没提交它）丢弃。任何一条准备失败时丢弃已准备的，返回 `refused`。
+ * `submit` 的异常要穿出 `work`，让事务回滚；吞掉它时这里不清理，改为在事务提交后重新抛出。
  */
 export async function submitPrepared<T>(
   inputs: readonly CreateQueueTaskInput[],
@@ -463,30 +464,44 @@ export async function submitPrepared<T>(
         .filter((one) => !kept.has(one.taskId))
         .map((one) => discardArchivedInputs(one.taskId)),
     )
-  for (const [index, input] of inputs.entries()) {
-    const preparation = await prepareQueueTask(input)
-    if (preparation.kind !== 'prepared') {
-      await discardExcept(new Set())
-      return { kind: 'refused', index, outcome: preparation }
+  try {
+    for (const [index, input] of inputs.entries()) {
+      const preparation = await prepareQueueTask(input)
+      if (preparation.kind !== 'prepared') {
+        await discardExcept(new Set())
+        return { kind: 'refused', index, outcome: preparation }
+      }
+      prepared.push(preparation.prepared)
     }
-    prepared.push(preparation.prepared)
+  } catch (error) {
+    await discardExcept(new Set())
+    throw error
   }
   const created = new Set<string>()
+  // `submit` 抛过错而 `work` 吞掉了它：事务可能照常提交了那条任务（例如预扣后才抛的错），
+  // 哪些归档还被引用说不清，宁可留着由 bucket lifecycle 收，也不删掉可能已落库任务的输入。
+  let submitError: unknown
   let value: T
   try {
     value = await db.transaction((tx) =>
       work(tx, async (index) => {
         const one = prepared[index]
         if (!one) throw new RangeError(`no prepared submission at ${index}`)
-        const outcome = await submitQueueTask({ ...inputs[index]!, tx }, one)
-        if (outcome.kind === 'created' && outcome.taskId === one.taskId) created.add(one.taskId)
-        return outcome
+        try {
+          const outcome = await submitQueueTask({ ...inputs[index]!, tx }, one)
+          if (outcome.kind === 'created' && outcome.taskId === one.taskId) created.add(one.taskId)
+          return outcome
+        } catch (error) {
+          submitError ??= error
+          throw error
+        }
       }),
     )
   } catch (error) {
     await discardExcept(new Set())
     throw error
   }
+  if (submitError !== undefined) throw submitError
   await discardExcept(created)
   return { kind: 'committed', value }
 }
