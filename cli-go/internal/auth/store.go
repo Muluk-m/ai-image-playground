@@ -123,17 +123,23 @@ func keyringUserFor(dir string) string {
 	return "dir-" + hex.EncodeToString(sum[:8])
 }
 
-// canonicalDir spells one directory one way: absolute, symlinks resolved where they exist
-// (macOS /tmp is /private/tmp), and case-folded on Windows, whose paths ignore case.
+// canonicalDir spells one directory one way: absolute, with symlinks resolved (macOS /tmp is
+// /private/tmp), and case-folded where the default file system ignores case (Windows, macOS).
+// The directory is created first when it is missing: resolving a link whose target does not
+// exist yet would otherwise name it differently before and after the first login.
 func canonicalDir(dir string) string {
 	path, err := filepath.Abs(dir)
 	if err != nil {
 		path = filepath.Clean(dir)
 	}
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil && os.MkdirAll(path, 0o700) == nil {
+		resolved, err = filepath.EvalSymlinks(path)
+	}
+	if err == nil {
 		path = resolved
 	}
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
 		path = strings.ToLower(path)
 	}
 	return path

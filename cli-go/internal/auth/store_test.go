@@ -645,3 +645,23 @@ func TestTheDefaultConfigDirectoryKeepsTheExistingKeychainEntry(t *testing.T) {
 		t.Fatal("MUVLOOM_CONFIG_DIR shares the default keychain entry")
 	}
 }
+
+// A link to a directory that does not exist yet names the same entry before and after the
+// first login creates it.
+func TestALinkToAMissingDirectoryKeepsItsKeychainEntry(t *testing.T) {
+	root := t.TempDir()
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(filepath.Join(root, "target"), link); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	before := keyringUserFor(link)
+	if err := os.MkdirAll(filepath.Join(root, "target"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if after := keyringUserFor(link); after != before {
+		t.Fatalf("entry changed from %q to %q", before, after)
+	}
+	if keyringUserFor(filepath.Join(root, "target")) != before {
+		t.Fatal("the link and its target name different entries")
+	}
+}
