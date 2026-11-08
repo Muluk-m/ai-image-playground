@@ -30,8 +30,8 @@ type InstallOptions struct {
 	Home  string
 	CWD   string
 	// onlyIf, when set, decides under the install lock whether to replace the copy at the
-	// destination; false skips the install with errNotNeeded.
-	onlyIf func(destination string) bool
+	// destination; false skips the install with errNotNeeded, an error stops it.
+	onlyIf func(destination string) (bool, error)
 }
 
 // errNotNeeded reports an install skipped because onlyIf said the copy should stay.
@@ -114,19 +114,12 @@ func Install(opts InstallOptions) (Result, error) {
 		root = projectDir
 	}
 	destination := filepath.Join(root, dir, "skills", "muvloom")
-	// A project can ship `.claude` or `.agents/skills` as a symlink pointing anywhere;
-	// following it would write (and replace) a directory outside the project. A user's own
-	// home directory may symlink these on purpose (dotfiles), so only projects are checked.
-	if opts.Scope == "project" {
-		if err := refuseSymlinks(root, destination); err != nil {
-			return Result{}, err
-		}
-	} else if info, err := os.Lstat(destination); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		// Replacing the link would silently detach a dotfiles-managed Skill.
-		return Result{}, fmt.Errorf("%s is a symlink; update the Skill at its target instead", destination)
+	if err := checkDestination(opts.Scope, root, destination); err != nil {
+		return Result{}, err
 	}
 	// Every install of a host's skills directory (refresh or `skill install`) holds this lock,
-	// so two replacements of one directory never interleave.
+	// so two replacements of one directory never interleave. The path is checked again under
+	// it: the parents could have changed while waiting.
 	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
 		return Result{}, err
 	}
@@ -135,8 +128,17 @@ func Install(opts InstallOptions) (Result, error) {
 		return Result{}, fmt.Errorf("another muvloom is updating %s: %w", destination, err)
 	}
 	defer release()
-	if opts.onlyIf != nil && !opts.onlyIf(destination) {
-		return Result{}, errNotNeeded
+	if err := checkDestination(opts.Scope, root, destination); err != nil {
+		return Result{}, err
+	}
+	if opts.onlyIf != nil {
+		replace, err := opts.onlyIf(destination)
+		if err != nil {
+			return Result{}, err
+		}
+		if !replace {
+			return Result{}, errNotNeeded
+		}
 	}
 	files, hash, err := bundleFiles()
 	if err != nil {
@@ -146,6 +148,21 @@ func Install(opts InstallOptions) (Result, error) {
 		return Result{}, err
 	}
 	return Result{Host: opts.Host, Scope: opts.Scope, ProjectDir: projectDir, Path: destination, Version: BundleVersion, FileHash: hash}, nil
+}
+
+// checkDestination refuses a destination reached through a symlink.
+func checkDestination(scope, root, destination string) error {
+	// A project can ship `.claude` or `.agents/skills` as a symlink pointing anywhere;
+	// following it would write (and replace) a directory outside the project. A user's own
+	// home directory may symlink these on purpose (dotfiles), so only projects are checked.
+	if scope == "project" {
+		return refuseSymlinks(root, destination)
+	}
+	if info, err := os.Lstat(destination); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		// Replacing the link would silently detach a dotfiles-managed Skill.
+		return fmt.Errorf("%s is a symlink; update the Skill at its target instead", destination)
+	}
+	return nil
 }
 
 func findProjectRoot(start string) (string, error) {
