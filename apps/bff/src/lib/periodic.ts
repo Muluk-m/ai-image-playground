@@ -24,17 +24,27 @@ export async function runPeriodicSteps(
   }
 }
 
-/** 按间隔跑；上一轮还没跑完就跳过这一拍，不叠着跑。返回停止函数。 */
-export function startPeriodicSteps(intervalMs: number, steps: readonly PeriodicStep[]): () => void {
+/**
+ * 按间隔跑；上一轮还没跑完就跳过这一拍，不叠着跑。返回停止函数。
+ * `initial` 在启动时立刻在后台跑一次，不等它：开机清理积压多时可能要几分钟，不能挡着服务开始监听。
+ * 它和定时那几拍共用同一个「正在跑」标记，跑完之前定时的那一拍同样跳过。
+ */
+export function startPeriodicSteps(
+  intervalMs: number,
+  steps: readonly PeriodicStep[],
+  options: { readonly initial?: readonly PeriodicStep[] } = {},
+): () => void {
   let running = false
-  const timer = setInterval(async () => {
+  const run = async (current: readonly PeriodicStep[]) => {
     if (running) return
     running = true
     try {
-      await runPeriodicSteps(steps)
+      await runPeriodicSteps(current)
     } finally {
       running = false
     }
-  }, intervalMs)
+  }
+  if (options.initial?.length) void run(options.initial)
+  const timer = setInterval(() => void run(steps), intervalMs)
   return () => clearInterval(timer)
 }
