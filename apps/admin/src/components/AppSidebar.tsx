@@ -3,25 +3,20 @@ import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import {
   Activity,
   BookOpen,
-  Boxes,
   Bug,
   ClipboardList,
-  Gauge,
   HeartPulse,
   KeyRound,
   LogOut,
   type LucideIcon,
-  Megaphone,
   MessageSquareText,
   MonitorSmartphone,
   ReceiptText,
   RefreshCw,
   ScrollText,
   Settings,
-  Shapes,
   SlidersHorizontal,
   Sparkles,
-  Tags,
   Users,
 } from 'lucide-react'
 import {
@@ -53,13 +48,11 @@ export type NavTo =
   | '/inspirations/categories'
   | '/announcements'
   | '/ops'
-  | '/gpt-direct'
   | '/errors'
   | '/logs'
   | '/audit'
-  | '/models'
-  | '/operator-settings'
-  | '/upstream-secrets'
+  | '/providers'
+  | '/platform-settings'
 export interface NavEntry {
   to: NavTo
   icon: LucideIcon
@@ -71,6 +64,7 @@ export interface NavEntry {
    * 前缀判断会让「灵感库」跟着「技能目录」一起亮，所以它们只认完全相等。
    */
   exact?: boolean
+  activePaths?: readonly string[]
 }
 
 export interface NavGroup {
@@ -97,10 +91,12 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   {
     label: '运营内容',
     entries: [
-      { to: '/inspirations', icon: Sparkles, label: '灵感库', exact: true },
-      { to: '/inspirations/skills', icon: Shapes, label: '技能目录', exact: true },
-      { to: '/inspirations/categories', icon: Tags, label: '分类', exact: true },
-      { to: '/announcements', icon: Megaphone, label: '版本公告' },
+      {
+        to: '/inspirations',
+        icon: Sparkles,
+        label: '灵感库',
+        activePaths: ['/inspirations', '/announcements'],
+      },
     ],
   },
   {
@@ -108,16 +104,14 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     entries: [
       { to: '/logs', icon: ScrollText, label: '服务端日志' },
       { to: '/ops', icon: HeartPulse, label: '运维看板' },
-      { to: '/gpt-direct', icon: Gauge, label: '直连' },
       { to: '/errors', icon: Bug, label: '前端错误' },
     ],
   },
   {
     label: '设置',
     entries: [
-      { to: '/models', icon: Boxes, label: '模型' },
-      { to: '/upstream-secrets', icon: KeyRound, label: '上游密钥' },
-      { to: '/operator-settings', icon: SlidersHorizontal, label: '能力与配额' },
+      { to: '/providers', icon: KeyRound, label: '供应商' },
+      { to: '/platform-settings', icon: SlidersHorizontal, label: '平台配置' },
       { to: '/audit', icon: BookOpen, label: '审计' },
     ],
   },
@@ -256,7 +250,11 @@ export function AppSidebar() {
                         tooltip={entry.label}
                         className={NAV_ACTIVE_CLASS}
                         isActive={
-                          entry.exact ? pathname === entry.to : pathname.startsWith(entry.to)
+                          entry.activePaths
+                            ? entry.activePaths.some((path) => pathname.startsWith(path))
+                            : entry.exact
+                              ? pathname === entry.to
+                              : pathname.startsWith(entry.to)
                         }
                       >
                         <Link to={entry.to}>

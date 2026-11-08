@@ -1,22 +1,31 @@
 # Commands
 
-All commands print exactly one JSON line on stdout: `{"schema_version":1,"ok":true,"data":…}` or `{"schema_version":1,"ok":false,"error":{"code","message","details"}}`.
+`muvloom --help` lists every command; `muvloom <command> --help` lists its flags,
+defaults, limits and examples. Read those instead of guessing a flag: they always
+match the installed CLI.
 
-| Command | Purpose |
+## Output
+
+- Text (default): the result as `key: value` lines on stdout, with the field names
+  below; nested values are indented, lists of records are tables. A failure prints
+  `Error: message (CODE)` on stderr, then any details and a suggested next step.
+  Progress lines also go to stderr.
+- `--json` (anywhere before a `--`): exactly one JSON line on stdout,
+  `{"schema_version":1,"ok":true,"data":…}` or
+  `{"schema_version":1,"ok":false,"error":{"code","message","details"}}`. Use it
+  when you need every field, for example the full `capabilities` limits.
+
+The exit code is the same in both modes.
+
+| Command | What to read from it |
 | --- | --- |
-| `muvloom version` | CLI version and platform |
-| `muvloom update check` | Daily cached stable-release check; `should_prompt` controls offering an authorized upgrade |
-| `muvloom auth status` | `state`: ready / unauthenticated / outdated / unreachable / service_mismatch; the effective `api_url` and its `api_url_source` (environment / connection / pending_login / default); `credential_store` (keychain / file / none) and, when the keychain is wanted but unusable, `credential_store_issue` (unavailable / unsupported_platform); `leftover_temp_files` when an earlier version left `.tmp-*` files behind (`auth logout` removes them); account, credits, membership, installed Skill |
-| `muvloom auth login [--no-wait] [--timeout S] [--switch-service]` | Opens the approval page in the browser itself and waits in the foreground; approving once finishes the login (the browser comes back to the CLI; device-code polling covers a blocked port). It prints the link only when no browser can be opened; set `MUVLOOM_NO_BROWSER=1` to never open one (SSH, containers, a remote machine). Running it again after a timeout resumes the same login without a new page. `--no-wait` (advanced) prints the link and returns; `--switch-service` signs in to `MUVLOOM_API_URL` even though this machine is signed in to another service |
-| `muvloom auth logout` | Revoke this CLI connection and forget it |
-| `muvloom capabilities` | Models, aspect ratios, image sizes, qualities, base-price estimates, limits for this account |
-| `muvloom images validate --prompt T [flags]` | Optional request validation or a cost quote when the user asks; creates nothing |
-| `muvloom images create --prompt T [flags] [--max-credits N] [--idempotency-key K] [--wait S] [--download DIR]` | Submit one image |
-| `muvloom jobs get ID` / `jobs wait ID [--timeout S]` / `jobs cancel ID` | One job |
-| `muvloom jobs list [--limit N] [--cursor ID] [--idempotency-key K]` | Recent jobs, newest first |
-| `muvloom media upload FILE` / `media list` / `media get ID` / `media download ID [--output P]` | Reference images (`media_id`) |
-| `muvloom artifacts get ID` / `artifacts download ID [--output P]` | Generated results (`artifact_id`) |
-| `muvloom skill install --host claude-code\|codex [--scope user\|project]` / `skill status` | This Skill |
+| `auth status` | `state`: ready / unauthenticated / outdated / unreachable / service_mismatch; `api_url` and `api_url_source`; `credential_store` and `credential_store_issue`; `leftover_temp_files`; account, credits, membership, installed Skill |
+| `auth login` | Opens the approval page itself and waits; prints the link only when no browser can be opened (`MUVLOOM_NO_BROWSER=1` never opens one). Run it again after a timeout: it resumes the same sign-in |
+| `capabilities` | Each model's `output_formats`, ratios, sizes, qualities, reference-image limit, base price, and its `gif` / `svg` limits; account `limits` |
+| `images validate` / `images create` | A quote, or the submitted `job` with its `job_id`, `idempotency_key`, `wait_timed_out` and `downloads` |
+| `jobs get` / `wait` / `list` / `cancel` | Job `status`, `terminal`, `artifacts`, `actual_credits`; a list shows each job's artifact ids in its `artifacts` column, plus `next_cursor` |
+| `media …` / `artifacts …` | Uploaded references (`media_id`) and generated results (`artifact_id`); downloads report the saved `path` |
+| `update check`, `skill status`, `version` | Release check (`should_prompt`), installed Skills, CLI version |
 
 IDs: `job_id` is a generation task, `artifact_id` a generated image, `media_id` an uploaded reference image. They are not interchangeable.
 

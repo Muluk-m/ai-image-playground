@@ -866,6 +866,8 @@ describe('native GIF and SVG', () => {
       output_formats: ['image', 'gif', 'svg'],
       gif: {
         frame_count: { min: 2, max: 16, default: 6 },
+        frame_duration_ms: { min: 20, max: 2000, step: 10, default: 200 },
+        suggested_frame_durations_ms: [300, 200, 100],
         frame_sizes: ['512x512', '768x768'],
         default_frame_size: '768x768',
         max_frames_by_size: { '512x512': 16, '768x768': 12 },

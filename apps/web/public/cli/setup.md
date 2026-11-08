@@ -11,13 +11,13 @@ When this guide points to another guide in the same folder (for example
 replaced, keeping this page's `?v=` query. That value changes whenever the guides
 change, so a cached older copy is never used.
 
-## 1. Install CLI 0.1.5
+## 1. Install CLI 0.2.1
 
-Run `muvloom version` first. If the command is missing, or `data.version` is lower
-than 0.1.5, install 0.1.5 with the commands below: the installer replaces the
+Run `muvloom version` first. If the command is missing, or the version it prints is lower
+than 0.2.1, install 0.2.1 with the commands below: the installer replaces the
 existing CLI in place and keeps the user's sign-in. An older CLI must not be reused,
 because it lacks fixes this guide relies on. Skip this step only when the installed
-version is already 0.1.5 or newer.
+version is already 0.2.1 or newer.
 
 Use the matching platform below. The scripts are pinned to the released source
 commit and verify the downloaded binary's SHA-256. If installation fails, report
@@ -26,14 +26,14 @@ the error; do not bypass verification.
 ### macOS / Linux
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/dd19ad6fd9ef3679994095a2723a2ef17ccf3c70/cli-go/install/install.sh | MUVLOOM_VERSION=0.1.5 sh
+curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/78605633dc81d7d4751012eb4fe5c53a57010dda/cli-go/install/install.sh | MUVLOOM_VERSION=0.2.1 sh
 export PATH="${MUVLOOM_INSTALL_DIR:-$HOME/.local/bin}:$PATH"
 ```
 
 ### Windows (PowerShell)
 
 ```powershell
-$env:MUVLOOM_VERSION = "0.1.5"; irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/dd19ad6fd9ef3679994095a2723a2ef17ccf3c70/cli-go/install/install.ps1 | iex
+$env:MUVLOOM_VERSION = "0.2.1"; irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/78605633dc81d7d4751012eb4fe5c53a57010dda/cli-go/install/install.ps1 | iex
 $env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")
 ```
 
@@ -80,17 +80,17 @@ For WorkBuddy, follow [the WorkBuddy guide](workbuddy.md) to install the officia
 skill from the conversation and connect the account. Confirm that the skill appears in WorkBuddy
 before reporting setup complete.
 
-For 豆包工作 and other hosts, skip this step. CLI 0.1.5 only
+For 豆包工作 and other hosts, skip this step. CLI 0.2.1 only
 accepts `claude-code` and `codex` as skill hosts. Use `muvloom --help` and
 subcommand help to learn the CLI; do not invent a `--host` value or write into
 an unverified host configuration directory.
 
 ## 4. Connect the account
 
-Run `muvloom auth status` first. If its `data.state` is `ready`, keep the existing
+Run `muvloom auth status` first. If it reports `state: ready`, keep the existing
 connection and proceed to step 5. If it is `service_mismatch`, `MUVLOOM_API_URL`
 points at a different service than the one this machine is signed in to
-(`data.connection_api_url`): do not log in again on your own. Unset the variable to
+(`connection_api_url`): do not log in again on your own. Unset the variable to
 use the existing connection, or run `muvloom auth login --switch-service` only if
 the user wants the service named by this page. Otherwise:
 
@@ -106,7 +106,7 @@ the user wants the service named by this page. Otherwise:
    approved yet: run `muvloom auth login` again. It resumes the same login and
    does not open another page. Stop on `AUTH_DENIED`; start over only on
    `AUTH_EXPIRED`. Do not re-prompt the user while waiting.
-4. Run `muvloom auth status` and confirm `data.state` is `ready`.
+4. Run `muvloom auth status` and confirm it reports `state: ready`.
 
 Over SSH or in a remote environment, do not open a browser on the remote machine:
 set `MUVLOOM_NO_BROWSER=1`, run `muvloom auth login --no-wait`, open the returned

@@ -231,11 +231,18 @@ func deviceCodeHash(code string) string {
 // login or an unreachable server, it reports the state instead.
 func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	fs := newFlags("auth status")
-	fs.Bool("json", true, "accepted for compatibility; output is always JSON")
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
 	}
 	skills, _ := skill.Installed(a.Home, a.CWD)
+	// An agent reads its Skill before it runs this; an outdated one describes flags and output
+	// of an older CLI. stderr reaches the agent in both output modes.
+	for _, installed := range skills {
+		if !installed.Current {
+			a.progress("The muvloom Skill for %s (%s scope) is version %s; this CLI bundles %s. Update it: muvloom skill install --host %s --scope %s",
+				installed.Host, installed.Scope, installed.Version, skill.BundleVersion, installed.Host, installed.Scope)
+		}
+	}
 	store := a.Store.Describe()
 	status := map[string]any{
 		"cli_version":      Version,
@@ -266,6 +273,9 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 			return status, nil
 		}
 		status["state"] = "unauthenticated"
+		if a.Store.DefaultLoginElsewhere() {
+			a.progress("Since CLI 0.2.1, MUVLOOM_CONFIG_DIR (%s) keeps its own login in that directory and leaves the keychain login of the default directory alone. Run `muvloom auth login` to sign in here.", a.Store.Dir)
+		}
 		return status, nil
 	}
 	var me account
@@ -310,9 +320,9 @@ type deviceAuthorization struct {
 // `--no-wait` and a later resume; only the user code and URL are ever printed.
 func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 	fs := newFlags("auth login")
-	noWait := fs.Bool("no-wait", false, "print the approval link and return without waiting (no browser, device code only)")
-	timeout := fs.Int("timeout", -1, "seconds to wait for approval (default: as long as the code is valid)")
-	switchService := fs.Bool("switch-service", false, "sign in to MUVLOOM_API_URL even though this machine is signed in to another service")
+	noWait := fs.Bool("no-wait", false, "Print the approval link and return without waiting (no browser)")
+	timeout := fs.Int("timeout", -1, "Seconds to wait for approval; omitted: as long as the code is valid")
+	switchService := fs.Bool("switch-service", false, "Sign in to MUVLOOM_API_URL although this machine is signed in to another service")
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
 	}
@@ -670,6 +680,17 @@ func versionLess(current, minimum string) bool {
 	return false
 }
 
+// spelledAs returns the flag as the user wrote it (-x or --x), without any =value.
+func spelledAs(args []string, name string) string {
+	for _, arg := range args {
+		spelled, _, _ := strings.Cut(arg, "=")
+		if strings.TrimLeft(spelled, "-") == name && strings.HasPrefix(spelled, "-") {
+			return spelled
+		}
+	}
+	return "-" + name
+}
+
 func newFlags(name string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -681,7 +702,13 @@ func parse(fs *flag.FlagSet, args []string, positional int) ([]string, error) {
 	var rest []string
 	for len(args) > 0 {
 		if err := fs.Parse(args); err != nil {
-			return nil, fail("USAGE", "%s: %v", fs.Name(), err)
+			if errors.Is(err, flag.ErrHelp) {
+				return nil, &helpRequest{flags: fs}
+			}
+			if name, ok := strings.CutPrefix(err.Error(), "flag provided but not defined: -"); ok {
+				return nil, fail("USAGE", "unknown flag %s", spelledAs(args, name))
+			}
+			return nil, fail("USAGE", "%v", err)
 		}
 		args = fs.Args()
 		if len(args) > 0 {

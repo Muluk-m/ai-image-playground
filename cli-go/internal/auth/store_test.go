@@ -584,3 +584,35 @@ func TestPreflightLeavesStoredCredentialsAsTheyWere(t *testing.T) {
 		}
 	})
 }
+
+// A store in a MUVLOOM_CONFIG_DIR directory never touches the keychain, whose one entry belongs
+// to the default directory: signing in and out there used to delete it.
+func TestAConfigDirectoryNeverTouchesTheKeychain(t *testing.T) {
+	t.Setenv("MUVLOOM_CONFIG_DIR", t.TempDir())
+	t.Setenv("MUVLOOM_CREDENTIALS_STORE", "")
+	store := Default()
+	if store.UseKeyring || store.ClearKeyring {
+		t.Fatalf("a config directory uses the keychain: %+v", store)
+	}
+	keychain := &userKeychain{entries: map[string]string{keyringUser: `{"refresh_token":"prod"}`}}
+	store.Keychain = keychain
+	if !store.DefaultLoginElsewhere() {
+		t.Fatal("the default login is not reported")
+	}
+	if err := store.Save(Credentials{RefreshToken: "test", BaseURL: "https://test.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if creds, err := store.Load(); err != nil || creds.RefreshToken != "test" {
+		t.Fatalf("own login: %v %v", creds, err)
+	}
+	if err := store.Clear(); err != nil {
+		t.Fatal(err)
+	}
+	if keychain.entries[keyringUser] != `{"refresh_token":"prod"}` || len(keychain.entries) != 1 {
+		t.Fatalf("keychain changed: %v", keychain.entries)
+	}
+	t.Setenv("MUVLOOM_CONFIG_DIR", "")
+	if def := Default(); !def.UseKeyring || !def.ClearKeyring {
+		t.Fatalf("the default directory lost the keychain: %+v", def)
+	}
+}

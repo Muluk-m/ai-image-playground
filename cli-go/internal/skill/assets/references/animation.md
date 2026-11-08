@@ -1,26 +1,50 @@
-# GIF and animated-image requests
+# GIF, animation and SVG requests
 
-The current CLI submits still-image jobs. Its model operations `generate` and
-`edit` do not establish native animation support. Do not infer animation support
-from a model name or promise a native animated GIF from these commands.
+Read `muvloom capabilities` first. A model whose `output_formats` includes `gif`
+generates a real animated GIF in one job; one that includes `svg` generates an SVG
+vector file. Prefer this native output whenever a listed model supports the
+request: it is one generation, with no local tools.
 
-For a GIF request, briefly explain the actual workflow before spending: generate
-the source artwork with Muvloom, then animate and encode it with suitable local
-tools available on the agent host. Choose a sensible short looping motion when
-the user has not specified one; do not add a confirmation gate just for this
-explanation. Honor a request for native animation only: report the current
-limitation instead of substituting local animation.
+## Native GIF
 
-Check that local animation tools are available before generating the artwork.
-If a required tool is unavailable, resolve it within existing authorization or
-explain the blocker before spending. Use the normal Skill flow for the Muvloom
-artwork. Keep product identity or character appearance consistent when creating
-multiple source frames. For an existing image that only needs local animation,
-use local tools without creating an unnecessary Muvloom job.
+Run `muvloom images create --model <id> --output-format gif --prompt "…"` with the
+usual idempotency key, wait and download. Describe the motion in the prompt (what
+moves, how, and that it loops). Optional flags come from the model's `gif` entry
+(`muvloom capabilities` shows it; `--json` has every field):
 
-Inspect the finished animation with the host's preview tools and verify its
-actual format, pixel dimensions, multiple distinct frames, frame timing and loop
-behavior. A static image saved with a `.gif` extension is not an animation.
-Deliver the animated file with an inline preview when supported and a download
-link. Describe it as Muvloom artwork animated locally; distinguish it from native
-animation generation. Report any unmet motion requirements accurately.
+- `--frames N`: `frame_count.min`–`frame_count.max` (default `frame_count.default`);
+  smoother motion needs more frames, and more frames cost more.
+- `--frame-duration-ms MS`: time per frame within `frame_duration_ms` (min, max,
+  step); `suggested_frame_durations_ms` lists the usual choices (shorter is faster
+  motion).
+- `--frame-size WxH`: one of `frame_sizes`. `max_frames_by_size` caps the frames
+  for each size; pick a smaller size when the user needs more frames.
+
+A native GIF takes no reference images and makes one image per request; do not
+pass `--image-size`, `--aspect-ratio` or `--quality` with it. The server rejects an
+invalid combination with `INVALID_REQUEST` before charging; fix the flags from the
+message and the listed limits.
+
+## Native SVG
+
+Run `muvloom images create --model <id> --output-format svg --prompt "…"`. Suited to
+logos, icons, flat illustrations and other vector artwork. It takes no reference
+images and makes one file per request; do not pass `--quality`.
+
+## When native output does not fit
+
+Use local tools only when no listed model offers the format, when the user needs
+something native output cannot do (a GIF from their reference image, more frames
+or a larger size than the limits allow, a specific frame-by-frame sequence), or
+when the user asks for it. Then generate the artwork with Muvloom and animate or
+vectorize it with tools available on the host, checking they exist before
+spending. Keep product identity or character appearance consistent across frames.
+Say which path you took: a native Muvloom GIF/SVG, or Muvloom artwork animated or
+converted locally.
+
+## Delivery
+
+Inspect the result with the host's preview tools. For a GIF, check it really has
+multiple distinct frames and loops; a still image saved as `.gif` is not an
+animation. Deliver the file with an inline preview when supported and its saved
+path, and report any motion requirement that was not met.

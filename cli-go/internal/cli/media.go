@@ -102,8 +102,8 @@ func cmdMediaUpload(ctx context.Context, a *App, args []string) (any, error) {
 
 func cmdMediaList(ctx context.Context, a *App, args []string) (any, error) {
 	fs := newFlags("media list")
-	limit := fs.Int("limit", 20, "1-100")
-	cursor := fs.String("cursor", "", "next_cursor from the previous page")
+	limit := fs.Int("limit", 20, "Images per page, 1-100")
+	cursor := fs.String("cursor", "", "Continue from the previous page's next_cursor")
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
 	}
@@ -152,7 +152,7 @@ func (a *App) getJSON(ctx context.Context, path string) (any, error) {
 
 func (a *App) downloadCommand(ctx context.Context, name, prefix string, args []string) (any, error) {
 	fs := newFlags(name)
-	output := fs.String("output", "", "file to create (default: ./ID with the image extension)")
+	output := fs.String("output", "", "File to create; omitted: ./ID plus the image's extension. Never overwrites")
 	rest, err := parse(fs, args, 1)
 	if err != nil {
 		return nil, err
@@ -240,6 +240,10 @@ func preferredExt(contentType string, exts []string) string {
 		return ".png"
 	case "image/webp":
 		return ".webp"
+	case "image/gif":
+		return ".gif"
+	case "image/svg+xml":
+		return ".svg"
 	}
 	return exts[0]
 }
