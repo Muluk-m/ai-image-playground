@@ -251,6 +251,8 @@ class InstallTests(unittest.TestCase):
         self.assertFalse(self.installed_at(system_bin))
 
     def test_an_unwritable_system_directory_falls_back_to_the_user_directory(self):
+        if self.windows:
+            self.skipTest("shell installer only")
         if os.geteuid() == 0:
             self.skipTest("directory permissions are not enforced for root")
         system_bin = self.root / "system bin"
@@ -263,6 +265,8 @@ class InstallTests(unittest.TestCase):
         self.assertTrue(self.installed_at(self.home / ".local" / "bin"))
 
     def test_an_unwritable_existing_copy_is_reported_instead_of_silently_shadowing(self):
+        if self.windows:
+            self.skipTest("shell installer only")
         if os.geteuid() == 0:
             self.skipTest("directory permissions are not enforced for root")
         existing = self.root / "root owned bin"
@@ -302,8 +306,13 @@ class InstallTests(unittest.TestCase):
     def windows_default_location_env(self, *path_dirs):
         if not self.windows:
             self.skipTest("PowerShell installer only")
+        if platform.machine().lower() not in ("amd64", "x86_64"):
+            self.skipTest("the PowerShell installer supports only Windows x64")
         self.env.pop("MUVLOOM_INSTALL_DIR")
-        self.env["PATH"] = os.pathsep.join([*(str(d) for d in path_dirs), self.env.get("PATH", "")])
+        # Keep the system directories pwsh needs, but drop any muvloom.exe this machine already has:
+        # the installer would treat it as the existing copy and the test would depend on the host.
+        inherited = [d for d in self.env.get("PATH", "").split(os.pathsep) if d and not (Path(d) / "muvloom.exe").exists()]
+        self.env["PATH"] = os.pathsep.join([*(str(d) for d in path_dirs), *inherited])
 
     def test_windows_default_location_is_the_per_user_programs_directory(self):
         self.windows_default_location_env()
