@@ -17,7 +17,7 @@ import {
   refreshOperatorConfig,
   refreshOperatorConfigIfChanged,
 } from './lib/operator-config-overrides'
-import { runPeriodicSteps, startPeriodicSteps } from './lib/periodic'
+import { startPeriodicSteps } from './lib/periodic'
 import { purgeExpiredAttachmentMedia } from './lib/projectMedia'
 import { startServerLogs } from './lib/server-logs'
 import { refreshUpstreamKeySources } from './lib/upstream/gpt-direct-admin'
@@ -97,8 +97,15 @@ if (agentEnabled) {
 // channel discovery must be ready before that overlay initializes.
 const { app, apiMetrics } = await import('./app')
 
-// 开机清理失败（例如积压太多撞上语句超时）只记一条，不拦着启动：定时清理会接着清。
-await runPeriodicSteps([
+await refreshOperatorConfig().catch((error) =>
+  log.error(
+    { event: 'operator_config.startup_refresh_failed', error },
+    'operator config refresh failed',
+  ),
+)
+// 开机清理在后台跑，不等它：过期任务一多要逐条删对象存储，曾用掉 3 分多钟，
+// 新实例迟迟不监听、过不了发布的健康检查。失败只记一条，定时清理会接着清。
+const startupMaintenance = [
   { event: 'startup.private_maintenance_failed', run: runPrivateMaintenance },
   {
     event: 'startup.purge_tasks_failed',
@@ -107,84 +114,85 @@ await runPeriodicSteps([
       if (removed > 0) log.info({ event: 'startup.purged', count: removed }, 'purged old tasks')
     },
   },
-])
-await refreshOperatorConfig().catch((error) =>
-  log.error(
-    { event: 'operator_config.startup_refresh_failed', error },
-    'operator config refresh failed',
-  ),
+]
+startPeriodicSteps(
+  QUEUE_TIMEOUTS.PURGE_INTERVAL_MS,
+  [
+    {
+      event: 'periodic.purge_tasks_failed',
+      run: async () => {
+        const removed = await purgeOldTasks()
+        if (removed > 0) log.info({ event: 'periodic.purged', count: removed }, 'purged old tasks')
+      },
+    },
+    { event: 'periodic.private_maintenance_failed', run: runPrivateMaintenance },
+    {
+      event: 'periodic.purge_client_errors_failed',
+      run: async () => {
+        const removed = await purgeOldClientErrors()
+        if (removed > 0) {
+          log.info(
+            { event: 'periodic.purged_client_errors', count: removed },
+            'purged client errors',
+          )
+        }
+      },
+    },
+    // worker 的维护循环也清；没有 worker 的部署只有这里清。
+    { event: 'periodic.purge_heartbeats_failed', run: () => purgeStaleHeartbeats() },
+    ...(syncEnabled
+      ? [
+          {
+            event: 'periodic.purge_attachments_failed',
+            run: async () => {
+              await purgeExpiredAttachmentMedia()
+            },
+          },
+          {
+            event: 'periodic.purge_asset_owners_failed',
+            run: async () => {
+              const orphaned = await purgeOrphanedAssetObjects()
+              if (orphaned > 0) {
+                log.info(
+                  { event: 'periodic.purged_asset_owners', count: orphaned },
+                  'purged asset objects',
+                )
+              }
+            },
+          },
+        ]
+      : []),
+    ...(agentEnabled
+      ? [
+          {
+            event: 'periodic.expire_stage_authorizations_failed',
+            run: async () => {
+              const expired = await expireStaleStageAuthorizations()
+              if (expired > 0) {
+                log.info(
+                  { event: 'periodic.expired_stage_authorizations', count: expired },
+                  'expired idle stage authorizations',
+                )
+              }
+            },
+          },
+          {
+            event: 'periodic.purge_agent_events_failed',
+            run: async () => {
+              const expired = await purgeOldAgentTurnEvents()
+              if (expired > 0) {
+                log.info(
+                  { event: 'periodic.purged_agent_events', count: expired },
+                  'purged agent events',
+                )
+              }
+            },
+          },
+        ]
+      : []),
+  ],
+  { initial: startupMaintenance },
 )
-startPeriodicSteps(QUEUE_TIMEOUTS.PURGE_INTERVAL_MS, [
-  {
-    event: 'periodic.purge_tasks_failed',
-    run: async () => {
-      const removed = await purgeOldTasks()
-      if (removed > 0) log.info({ event: 'periodic.purged', count: removed }, 'purged old tasks')
-    },
-  },
-  { event: 'periodic.private_maintenance_failed', run: runPrivateMaintenance },
-  {
-    event: 'periodic.purge_client_errors_failed',
-    run: async () => {
-      const removed = await purgeOldClientErrors()
-      if (removed > 0) {
-        log.info({ event: 'periodic.purged_client_errors', count: removed }, 'purged client errors')
-      }
-    },
-  },
-  // worker 的维护循环也清；没有 worker 的部署只有这里清。
-  { event: 'periodic.purge_heartbeats_failed', run: () => purgeStaleHeartbeats() },
-  ...(syncEnabled
-    ? [
-        {
-          event: 'periodic.purge_attachments_failed',
-          run: async () => {
-            await purgeExpiredAttachmentMedia()
-          },
-        },
-        {
-          event: 'periodic.purge_asset_owners_failed',
-          run: async () => {
-            const orphaned = await purgeOrphanedAssetObjects()
-            if (orphaned > 0) {
-              log.info(
-                { event: 'periodic.purged_asset_owners', count: orphaned },
-                'purged asset objects',
-              )
-            }
-          },
-        },
-      ]
-    : []),
-  ...(agentEnabled
-    ? [
-        {
-          event: 'periodic.expire_stage_authorizations_failed',
-          run: async () => {
-            const expired = await expireStaleStageAuthorizations()
-            if (expired > 0) {
-              log.info(
-                { event: 'periodic.expired_stage_authorizations', count: expired },
-                'expired idle stage authorizations',
-              )
-            }
-          },
-        },
-        {
-          event: 'periodic.purge_agent_events_failed',
-          run: async () => {
-            const expired = await purgeOldAgentTurnEvents()
-            if (expired > 0) {
-              log.info(
-                { event: 'periodic.purged_agent_events', count: expired },
-                'purged agent events',
-              )
-            }
-          },
-        },
-      ]
-    : []),
-])
 
 if (config.corsOrigins === '*') {
   log.warn(

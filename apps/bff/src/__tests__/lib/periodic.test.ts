@@ -47,4 +47,45 @@ describe('periodic maintenance steps', () => {
     await Bun.sleep(15)
     expect(calls).toBeGreaterThan(1)
   })
+
+  it('starts the initial steps in the background and skips ticks until they finish', async () => {
+    const ran: string[] = []
+    let release: () => void = () => {}
+    stop = startPeriodicSteps(5, [{ event: 'tick', run: async () => void ran.push('tick') }], {
+      initial: [
+        {
+          event: 'startup',
+          run: () => {
+            ran.push('startup')
+            return new Promise<void>((resolve) => {
+              release = resolve
+            })
+          },
+        },
+      ],
+    })
+    // 启动时不等开机清理：返回时它已开跑但还没完成。
+    expect(ran).toEqual(['startup'])
+    await Bun.sleep(30)
+    expect(ran).toEqual(['startup'])
+    release()
+    await Bun.sleep(20)
+    expect(ran.filter((one) => one === 'tick').length).toBeGreaterThan(0)
+  })
+
+  it('keeps ticking after the initial steps fail', async () => {
+    const ran: string[] = []
+    stop = startPeriodicSteps(5, [{ event: 'tick', run: async () => void ran.push('tick') }], {
+      initial: [
+        {
+          event: 'startup',
+          run: async () => {
+            throw new Error('statement timeout')
+          },
+        },
+      ],
+    })
+    await Bun.sleep(30)
+    expect(ran.length).toBeGreaterThan(0)
+  })
 })
