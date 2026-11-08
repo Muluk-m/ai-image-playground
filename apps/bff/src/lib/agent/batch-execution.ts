@@ -400,12 +400,19 @@ function refusalPauseReason(
   }
 }
 
-class BatchSubmissionRefused extends BatchPlanError {
-  readonly pauseReason: BatchPauseReason | null
-  constructor(kind: Parameters<typeof refusalPauseReason>[0]) {
-    super('batch_submission_refused', 422)
-    this.pauseReason = refusalPauseReason(kind)
-  }
+/**
+ * 提交被拒：错误码照旧，附上该停在哪。不另起子类——本模块与 batch-plans 互相导入，
+ * 顶层 `extends BatchPlanError` 会在加载时读到未初始化的类。
+ */
+function submissionRefused(kind: Parameters<typeof refusalPauseReason>[0]) {
+  return Object.assign(new BatchPlanError('batch_submission_refused', 422), {
+    pauseReason: refusalPauseReason(kind),
+  })
+}
+
+function refusalPauseOf(error: unknown): BatchPauseReason | null | undefined {
+  if (!(error instanceof BatchPlanError) || error.code !== 'batch_submission_refused') return
+  return 'pauseReason' in error ? (error.pauseReason as BatchPauseReason | null) : null
 }
 
 export async function advanceAgentBatches(
@@ -615,7 +622,7 @@ async function dispatchPreparedBatch(
           if (reservation.kind === 'insufficient_credits')
             throw new BatchPlanError('batch_insufficient_credits', 422)
           if (reservation.kind === 'quota_exceeded') throw new BatchPlanError('quota_exceeded', 429)
-          if (reservation.kind !== 'reserved') throw new BatchSubmissionRefused(reservation.kind)
+          if (reservation.kind !== 'reserved') throw submissionRefused(reservation.kind)
           reservedCredits = reservation.credits
         } else {
           if (!input) throw new BatchPlanError('invalid_batch_plan', 422)
@@ -623,7 +630,7 @@ async function dispatchPreparedBatch(
           if (submitted.kind === 'insufficient_credits')
             throw new BatchPlanError('batch_insufficient_credits', 422)
           if (submitted.kind === 'quota_exceeded') throw new BatchPlanError('quota_exceeded', 429)
-          if (submitted.kind !== 'created') throw new BatchSubmissionRefused(submitted.kind)
+          if (submitted.kind !== 'created') throw submissionRefused(submitted.kind)
           taskId = submitted.taskId
           submittedAt = submitted.submittedAt
           reservedCredits = quote.credits
@@ -646,10 +653,11 @@ async function dispatchPreparedBatch(
         (error instanceof AgentToolError &&
           ['quota_exceeded', 'invalid_params'].includes(error.code)) ||
         (error instanceof BatchPlanError && error.code === 'batch_input_limit')
+      const refusalPause = refusalPauseOf(error)
       const pauseReason = inputLimit
         ? 'input_limit'
-        : error instanceof BatchSubmissionRefused
-          ? error.pauseReason
+        : refusalPause !== undefined
+          ? refusalPause
           : error instanceof BatchPlanError && error.code === 'quota_exceeded'
             ? 'quota_exceeded'
             : error instanceof BatchPlanError && error.code === 'batch_price_changed'
