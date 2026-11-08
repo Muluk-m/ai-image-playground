@@ -9,17 +9,14 @@ import {
   KeyRound,
   LogOut,
   type LucideIcon,
-  Megaphone,
   MessageSquareText,
   MonitorSmartphone,
   ReceiptText,
   RefreshCw,
   ScrollText,
   Settings,
-  Shapes,
   SlidersHorizontal,
   Sparkles,
-  Tags,
   Users,
 } from 'lucide-react'
 import {
@@ -67,6 +64,7 @@ export interface NavEntry {
    * 前缀判断会让「灵感库」跟着「技能目录」一起亮，所以它们只认完全相等。
    */
   exact?: boolean
+  activePaths?: readonly string[]
 }
 
 export interface NavGroup {
@@ -93,10 +91,12 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   {
     label: '运营内容',
     entries: [
-      { to: '/inspirations', icon: Sparkles, label: '灵感库', exact: true },
-      { to: '/inspirations/skills', icon: Shapes, label: '技能目录', exact: true },
-      { to: '/inspirations/categories', icon: Tags, label: '分类', exact: true },
-      { to: '/announcements', icon: Megaphone, label: '版本公告' },
+      {
+        to: '/inspirations',
+        icon: Sparkles,
+        label: '灵感库',
+        activePaths: ['/inspirations', '/announcements'],
+      },
     ],
   },
   {
@@ -250,7 +250,11 @@ export function AppSidebar() {
                         tooltip={entry.label}
                         className={NAV_ACTIVE_CLASS}
                         isActive={
-                          entry.exact ? pathname === entry.to : pathname.startsWith(entry.to)
+                          entry.activePaths
+                            ? entry.activePaths.some((path) => pathname.startsWith(path))
+                            : entry.exact
+                              ? pathname === entry.to
+                              : pathname.startsWith(entry.to)
                         }
                       >
                         <Link to={entry.to}>

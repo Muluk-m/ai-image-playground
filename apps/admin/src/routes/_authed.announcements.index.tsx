@@ -27,6 +27,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { ContentTabs } from '@/features/content/ContentTabs'
 import {
   type AnnouncementSearch,
   AUDIENCE_LABEL,
@@ -157,6 +158,7 @@ function AnnouncementsPage() {
         </>
       }
     >
+      <ContentTabs />
       <div className="flex flex-wrap items-center gap-2 rounded-xl border bg-card p-3">
         <SegmentedControl
           label="按状态筛选"
