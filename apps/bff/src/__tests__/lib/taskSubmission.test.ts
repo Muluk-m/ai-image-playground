@@ -469,9 +469,10 @@ describe('submitPrepared', () => {
     expect(result.kind).toBe('committed')
     if (result.kind !== 'committed' || result.value.kind !== 'created')
       throw new Error('expected a task')
+    const kept = result.value.taskId
     const keys = [...store.objects.keys()]
     expect(keys.length).toBeGreaterThan(0)
-    expect(keys.every((key) => key.startsWith(`${result.value.taskId}/in/`))).toBe(true)
+    expect(keys.every((key) => key.startsWith(`${kept}/in/`))).toBe(true)
   })
 
   it('discards every archived input when the transaction rolls back', async () => {
@@ -491,7 +492,27 @@ describe('submitPrepared', () => {
     if (result.kind !== 'committed' || result.value.kind !== 'created')
       throw new Error('expected a task')
     const kept = result.value.taskId
+    expect(store.objects.size).toBeGreaterThan(0)
     expect([...store.objects.keys()].every((key) => key.startsWith(`${kept}/in/`))).toBe(true)
+  })
+
+  it('keeps archived inputs and rethrows when work swallows a submit error', async () => {
+    _setPrivateBffOverlayForTesting({
+      ...EMPTY_PRIVATE_BFF_OVERLAY,
+      present: true,
+      taskHooks: {
+        ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks,
+        meteringDecision: async () => {
+          throw new Error('metering hook failed')
+        },
+      },
+    })
+    await expect(
+      submitPrepared([{ ...input(), userId: BILLING_USER }], async (_tx, submit) => {
+        await submit(0).catch(() => undefined)
+      }),
+    ).rejects.toThrow('metering hook failed')
+    expect(store.objects.size).toBeGreaterThan(0)
   })
 
   it('refuses before the transaction and discards earlier preparations', async () => {
