@@ -1034,10 +1034,21 @@ it('停机中止清理时保留未清完持久对象的对账任务，下一轮�
   const ids = ['purge-reconcile-a', 'purge-reconcile-b']
   const old = Date.now() - 60_000
   for (const id of ids) {
-    await db.execute(
-      sql`INSERT INTO tasks (id, provider, model, status, reconciliation_required, request_payload, submitted_at, completed_at) VALUES (${id}, 'openai-compat', 'fixture', 'failed', true, '{"device_id":"fixture","prompt":"one","n":1}'::jsonb, ${old}, ${old})`,
+    await db.insert(schema.tasks).values({
+      id,
+      provider: 'openai-compat',
+      model: 'fixture',
+      status: 'failed',
+      reconciliation_required: true,
+      request_payload: { device_id: 'fixture', prompt: 'one', n: 1 },
+      submitted_at: old,
+      completed_at: old,
+    })
+    await durable.write(
+      `${id}/reconciliation/evidence.json`,
+      new Uint8Array([1]),
+      'application/json',
     )
-    await durable.write(`${id}/reconciliation/evidence.json`, new Uint8Array([1]), 'application/json')
   }
   const remaining = async () =>
     (await db.select({ id: schema.tasks.id }).from(schema.tasks))
