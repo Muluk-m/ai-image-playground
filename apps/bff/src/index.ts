@@ -109,8 +109,8 @@ const startupMaintenance = [
   { event: 'startup.private_maintenance_failed', run: runPrivateMaintenance },
   {
     event: 'startup.purge_tasks_failed',
-    run: async () => {
-      const removed = await purgeOldTasks()
+    run: async (signal: AbortSignal) => {
+      const removed = await purgeOldTasks(undefined, signal)
       if (removed > 0) log.info({ event: 'startup.purged', count: removed }, 'purged old tasks')
     },
   },
@@ -120,8 +120,8 @@ const stopMaintenance = startPeriodicSteps(
   [
     {
       event: 'periodic.purge_tasks_failed',
-      run: async () => {
-        const removed = await purgeOldTasks()
+      run: async (signal: AbortSignal) => {
+        const removed = await purgeOldTasks(undefined, signal)
         if (removed > 0) log.info({ event: 'periodic.purged', count: removed }, 'purged old tasks')
       },
     },
@@ -297,8 +297,9 @@ async function gracefulShutdown(signal: string): Promise<void> {
   clearInterval(apiMinutesTimer)
   clearInterval(operatorConfigTimer)
   clearInterval(upstreamSecretTimer)
-  // 开机或定时清理还在跑时给它一段收尾时间再关库，免得半截的批次撞上 closeDb；
-  // 上限远小于容器 75 秒的停机宽限，等不完就照常退出，没删完的由下一次清理接着删。
+  // 开机或定时清理还在跑时先中止它：清理在批次与逐条删对象之间看停机信号收手，等它退出再关库。
+  // 单次对象存储调用挂住时不无限等，上限远小于容器 75 秒的停机宽限；
+  // 清理本就按崩溃安全写（先删对象再删行，或行删后对象交给桶生命周期），被截断不丢数据。
   await Promise.race([stopMaintenance(), Bun.sleep(30_000)])
 
   try {

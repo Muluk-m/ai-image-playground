@@ -233,7 +233,7 @@ export async function purgeOrphanedAssetObjects(): Promise<number> {
 }
 
 /** 返回结算失败的会话：它们的任务行这一轮不能清。 */
-async function settleAgentJobsBeforePurge(expired: SQL): Promise<string[]> {
+async function settleAgentJobsBeforePurge(expired: SQL, signal?: AbortSignal): Promise<string[]> {
   const conversations = await db
     .selectDistinct({ id: schema.tasks.agent_conversation_id })
     .from(schema.tasks)
@@ -242,6 +242,7 @@ async function settleAgentJobsBeforePurge(expired: SQL): Promise<string[]> {
     )
   const failed: string[] = []
   for (const { id } of conversations) {
+    if (signal?.aborted) break
     if (!id) continue
     try {
       await settleAgentConversationJobs(id)
@@ -262,6 +263,8 @@ async function settleAgentJobsBeforePurge(expired: SQL): Promise<string[]> {
  */
 export async function purgeOldTasks(
   retentionMs = QUEUE_TIMEOUTS.TASK_RETENTION_MS,
+  /** 停机时中止：在会话结算、批次与逐条删对象之间收手，没清完的留给下一次。 */
+  signal?: AbortSignal,
 ): Promise<number> {
   const threshold = Date.now() - retentionMs
   const expired = and(
@@ -271,7 +274,8 @@ export async function purgeOldTasks(
   )!
   // 智能体的后台任务只在有人读会话时结算；没人读过的会话若直接清行，结果就只剩「任务丢失了」。
   // 清之前先把它们所在的会话结算一遍，结算失败的会话这一轮不清，留给下次。
-  const unsettled = await settleAgentJobsBeforePurge(expired)
+  const unsettled = await settleAgentJobsBeforePurge(expired, signal)
+  if (signal?.aborted) return 0
   await snapshotAgentBatchesBeforePurge(expired)
   const purgeable = and(
     expired,
@@ -333,7 +337,10 @@ export async function purgeOldTasks(
         .limit(100)
         .for('update', { skipLocked: true })
       let count = 0
+      let lastId: string | undefined
       for (const task of candidates) {
+        if (signal?.aborted) break
+        lastId = task.id
         try {
           await objectStore().deletePrefix(`${task.id}/`)
           await durableMediaStore().deletePrefix(`${task.id}/`)
@@ -351,13 +358,15 @@ export async function purgeOldTasks(
         await tx.delete(schema.tasks).where(eq(schema.tasks.id, task.id))
         count++
       }
-      return { count, scanned: candidates.length, lastId: candidates.at(-1)?.id }
+      return { count, scanned: candidates.length, lastId }
     })
     candidatesRemoved += batch.count
+    if (signal?.aborted) return candidatesRemoved
     // Move past failures in this pass; retry them next time without starving later tasks.
     afterId = batch.lastId
     if (batch.scanned < 100) break
   }
+  if (signal?.aborted) return candidatesRemoved
   const deleted = await db
     .delete(schema.tasks)
     .where(
@@ -371,7 +380,15 @@ export async function purgeOldTasks(
       reconciliationRequired: schema.tasks.reconciliation_required,
     })
 
-  for (const task of deleted) {
+  for (const [index, task] of deleted.entries()) {
+    if (signal?.aborted) {
+      // 行已删、对象没删完：和删除失败一样留给桶生命周期收。
+      log.warn(
+        { event: 'object_store.cleanup_interrupted', remaining: deleted.length - index },
+        'task rows deleted; object prefixes left for lifecycle cleanup',
+      )
+      break
+    }
     try {
       await objectStore().deletePrefix(`${task.id}/`)
       if (task.reconciliationRequired) await durableMediaStore().deletePrefix(`${task.id}/`)

@@ -89,17 +89,20 @@ describe('periodic maintenance steps', () => {
     expect(ran.length).toBeGreaterThan(0)
   })
 
-  it('waits for the in-flight run when stopped and schedules nothing after', async () => {
+  it('aborts and waits for the in-flight run when stopped, then schedules nothing', async () => {
     let calls = 0
+    let startupSignal: AbortSignal | undefined
     let release: () => void = () => {}
     const stopNow = startPeriodicSteps(5, [{ event: 'tick', run: async () => void calls++ }], {
       initial: [
         {
           event: 'startup',
-          run: () =>
-            new Promise<void>((resolve) => {
+          run: (signal) => {
+            startupSignal = signal
+            return new Promise<void>((resolve) => {
               release = resolve
-            }),
+            })
+          },
         },
       ],
     })
@@ -108,6 +111,7 @@ describe('periodic maintenance steps', () => {
       stopped = true
     })
     await Bun.sleep(20)
+    expect(startupSignal?.aborted).toBe(true)
     expect(stopped).toBe(false)
     release()
     await stopping
