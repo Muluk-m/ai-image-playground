@@ -234,14 +234,20 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
 	}
+	// Copies this CLI installed follow it: an outdated one that nobody edited is replaced with
+	// the bundled Skill. Only a copy that was changed by hand, or could not be replaced, is
+	// reported; any host may be calling, so the note names the copy it is about.
+	failed, _ := skill.RefreshOutdated(a.Home, a.CWD)
 	skills, _ := skill.Installed(a.Home, a.CWD)
-	// An agent reads its Skill before it runs this; an outdated one describes flags and output
-	// of an older CLI. stderr reaches the agent in both output modes.
 	for _, installed := range skills {
-		if !installed.Current {
-			a.progress("The muvloom Skill for %s (%s scope) is version %s; this CLI bundles %s. Update it: muvloom skill install --host %s --scope %s",
-				installed.Host, installed.Scope, installed.Version, skill.BundleVersion, installed.Host, installed.Scope)
+		if !installed.Intact {
+			a.progress("The muvloom Skill at %s was changed by hand, so it was not updated to %s. To replace it: muvloom skill install --host %s --scope %s",
+				installed.Path, skill.BundleVersion, installed.Host, installed.Scope)
 		}
+	}
+	for _, installed := range failed {
+		a.progress("Could not update the muvloom Skill at %s to %s. To retry: muvloom skill install --host %s --scope %s",
+			installed.Path, skill.BundleVersion, installed.Host, installed.Scope)
 	}
 	store := a.Store.Describe()
 	status := map[string]any{

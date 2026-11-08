@@ -144,3 +144,51 @@ func TestStatusDetectsEditedInstall(t *testing.T) {
 		t.Fatalf("edited install reported intact: %+v", installed[0])
 	}
 }
+
+// An older copy nobody edited follows the CLI; a hand-edited one is left alone.
+func TestRefreshOutdatedReplacesOnlyUneditedOldCopies(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	old, err := Install(InstallOptions{Host: "codex", Scope: "user", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited, err := Install(InstallOptions{Host: "claude-code", Scope: "user", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An older release: different files, metadata that matches them.
+	if err := os.WriteFile(filepath.Join(old.Path, "SKILL.md"), []byte("old release"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hash, err := treeHash(old.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, _ := json.Marshal(metadata{Skill: "muvloom", Version: "0.1.1", Host: "codex", Scope: "user", FileHash: hash})
+	if err := os.WriteFile(filepath.Join(old.Path, ".muvloom-skill.json"), meta, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(edited.Path, "SKILL.md"), []byte("my notes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := RefreshOutdated(home, cwd)
+	if err != nil || len(failed) != 0 {
+		t.Fatalf("refresh: %v %v", failed, err)
+	}
+	installed, _ := Installed(home, cwd)
+	for _, item := range installed {
+		switch item.Host {
+		case "codex":
+			if !item.Current || item.Version != BundleVersion {
+				t.Fatalf("old copy not refreshed: %+v", item)
+			}
+		case "claude-code":
+			if item.Intact {
+				t.Fatalf("edited copy was replaced: %+v", item)
+			}
+		}
+	}
+	if data, _ := os.ReadFile(filepath.Join(edited.Path, "SKILL.md")); string(data) != "my notes" {
+		t.Fatal("edited copy lost its changes")
+	}
+}

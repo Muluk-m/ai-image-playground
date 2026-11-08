@@ -25,7 +25,7 @@ The exit code is the same in both modes.
 | `images validate` / `images create` | A quote, or the submitted `job` with its `job_id`, `idempotency_key`, `wait_timed_out` and `downloads` |
 | `jobs get` / `wait` / `list` / `cancel` | Job `status`, `terminal`, `artifacts`, `actual_credits`; a list shows each job's artifact ids in its `artifacts` column, plus `next_cursor` |
 | `media …` / `artifacts …` | Uploaded references (`media_id`) and generated results (`artifact_id`); downloads report the saved `path` |
-| `update check`, `skill status`, `version` | Release check (`should_prompt`), installed Skills, CLI version |
+| `update check`, `skill status`, `version` | Release check (`should_prompt`), installed Skills, CLI version. `auth status` also updates outdated, unedited Skill copies the CLI installed |
 
 IDs: `job_id` is a generation task, `artifact_id` a generated image, `media_id` an uploaded reference image. They are not interchangeable.
 
