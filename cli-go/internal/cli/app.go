@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -269,19 +270,20 @@ func (a *App) Run(args []string) int {
 	ctx := context.Background()
 	// --json is global: it may stand anywhere before a `--`.
 	a.json, a.command = false, ""
-	var kept []string
-	for i, arg := range args {
-		if arg == "--" {
-			kept = append(kept, args[i:]...)
-			break
-		}
-		if on, ok := jsonFlag(arg); ok {
+	// Global flags may stand before and between the command words; after the command, only
+	// where its flags allow (see commandArgs), so a flag value such as `--prompt --json` stays a value.
+	var words []string
+	for len(args) > 0 && len(words) < 2 {
+		if on, ok := jsonFlag(args[0]); ok {
 			a.json = on
-			continue
+		} else if strings.HasPrefix(args[0], "-") && len(words) > 0 {
+			break
+		} else {
+			words = append(words, args[0])
 		}
-		kept = append(kept, arg)
+		args = args[1:]
 	}
-	args = kept
+	args = append(words, args...)
 	// `-v`, `-V` and `--version` are what people (and agents) type first. Only when they stand alone.
 	if len(args) == 1 && (args[0] == "-v" || args[0] == "-V" || args[0] == "--version") {
 		args = []string{"version"}
@@ -290,10 +292,10 @@ func (a *App) Run(args []string) int {
 		return a.help(mainHelp())
 	}
 	if args[0] == "help" {
-		args = append(args[1:], "--help")
 		if len(args) == 1 {
 			return a.help(mainHelp())
 		}
+		args = append(args[1:], "--help")
 	}
 	cmd, rest, ok := lookup(args)
 	if !ok {
@@ -309,19 +311,16 @@ func (a *App) Run(args []string) int {
 		return a.usageError("", "unknown command %q", args[0])
 	}
 	a.command = cmd.name
-	for _, arg := range rest {
-		if arg == "--" {
-			break
-		}
-		if isHelpFlag(arg) {
-			// Parsing stops at the help flag, before the command reads the store or the network.
-			_, err := cmd.run(ctx, a, []string{"--help"})
-			var request *helpRequest
-			if errors.As(err, &request) {
-				return a.help(commandHelp(cmd, request.flags))
-			}
-			return a.render(nil, err)
-		}
+	// Parsing stops at the help flag, before the command reads the store or the network, so
+	// this also yields the command's flags without side effects.
+	_, err := cmd.run(ctx, a, []string{"--help"})
+	var request *helpRequest
+	if !errors.As(err, &request) {
+		return a.render(nil, err)
+	}
+	rest, help := a.commandArgs(rest, request.flags)
+	if help {
+		return a.help(commandHelp(cmd, request.flags))
 	}
 	if skipsService[strings.Fields(cmd.name)[0]] {
 		if a.APIURL == "" {
@@ -335,6 +334,39 @@ func (a *App) Run(args []string) int {
 	}
 	data, err := cmd.run(ctx, a, rest)
 	return a.render(data, err)
+}
+
+// commandArgs removes the global flags from a command's arguments and reports a help flag.
+// A token is a flag only where the command's own parsing would read one: not as the value of
+// a flag that takes one, and not after `--`.
+func (a *App) commandArgs(args []string, fs *flag.FlagSet) ([]string, bool) {
+	var kept []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			return append(kept, args[i:]...), false
+		}
+		if on, ok := jsonFlag(arg); ok {
+			a.json = on
+			continue
+		}
+		if isHelpFlag(arg) {
+			return nil, true
+		}
+		kept = append(kept, arg)
+		if !strings.HasPrefix(arg, "-") || strings.Contains(arg, "=") {
+			continue
+		}
+		f := fs.Lookup(strings.TrimLeft(arg, "-"))
+		if f == nil || i+1 == len(args) {
+			continue
+		}
+		if boolean, ok := f.Value.(interface{ IsBoolFlag() bool }); !ok || !boolean.IsBoolFlag() {
+			i++
+			kept = append(kept, args[i])
+		}
+	}
+	return kept, false
 }
 
 // usageError reports a command line that names no command; help points at the right page.
