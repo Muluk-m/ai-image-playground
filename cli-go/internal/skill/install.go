@@ -19,7 +19,7 @@ import (
 
 // BundleVersion is tied to the native CLI release. Keep the bundled Skill and
 // the executable on the same version so hosts can report what was installed.
-const BundleVersion = "0.2.3"
+const BundleVersion = "0.2.4"
 
 //go:embed assets
 var bundled embed.FS

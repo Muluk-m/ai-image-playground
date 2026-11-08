@@ -60,6 +60,8 @@ type fakeServer struct {
 	expiredOnce bool
 	// twoArtifacts makes a succeeded job have two results; failArtifact makes that one's
 	// download link fail; failJobPoll makes every job poll fail.
+	quotaUsedUp  bool
+	submitCalls  int
 	twoArtifacts bool
 	failArtifact string
 	failJobPoll  bool
@@ -208,11 +210,20 @@ func newFakeServer(t *testing.T) *fakeServer {
 		encoded, _ := json.Marshal(body)
 		f.mu.Lock()
 		f.submissions[key] = string(encoded)
+		f.submitCalls++
+		quotaUsedUp := f.quotaUsedUp
 		fail := f.failSubmits > 0
 		if fail {
 			f.failSubmits--
 		}
 		f.mu.Unlock()
+		if quotaUsedUp {
+			writeJSON(w, 429, map[string]any{"schema_version": 1, "ok": false, "error": map[string]any{
+				"code": "QUOTA_EXCEEDED", "message": "The daily generation quota is used up",
+				"details": map[string]any{"reset_at": "2099-01-01T00:00:00.000Z"},
+			}})
+			return
+		}
 		if fail {
 			envelope(w, 503, nil, "TEMPORARILY_UNAVAILABLE")
 			return
@@ -1874,4 +1885,34 @@ func TestCreateFailuresAfterSubmitKeepTheJob(t *testing.T) {
 			t.Fatal("wrote through the link")
 		}
 	})
+}
+
+// A used-up daily quota is not a busy signal: exit 5, one submit, the reset time reported.
+func TestQuotaExceededIsNotRetriedAndSaysWhenItResets(t *testing.T) {
+	f := newFakeServer(t)
+	f.quotaUsedUp = true
+	app := newApp(t, f, t.TempDir())
+	login(t, app)
+	r := execute(t, app, "images", "create", "--prompt", "a fox", "--idempotency-key", "quota-key-123")
+	errObj, _ := r.out["error"].(map[string]any)
+	details, _ := errObj["details"].(map[string]any)
+	if r.code != ExitCredits || errObj["code"] != "QUOTA_EXCEEDED" || details["reset_at"] != "2099-01-01T00:00:00.000Z" {
+		t.Fatalf("quota = %d %s", r.code, r.stdout)
+	}
+	f.mu.Lock()
+	calls := f.submitCalls
+	f.mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("the CLI retried a used-up quota: %d submits", calls)
+	}
+	var stdout, stderr bytes.Buffer
+	app.Out, app.Err = &stdout, &stderr
+	if code := app.Run([]string{"images", "create", "--prompt", "a fox", "--idempotency-key", "quota-key-124"}); code != ExitCredits || stdout.Len() != 0 {
+		t.Fatalf("text quota = %d %q", code, stdout.String())
+	}
+	for _, want := range []string{"(QUOTA_EXCEEDED)", "reset_at: 2099-01-01T00:00:00.000Z", "Do not retry"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("text failure lacks %q:\n%s", want, stderr.String())
+		}
+	}
 }
