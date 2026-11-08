@@ -237,23 +237,24 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	// the bundled Skill, effective from the host's next session. Only a copy that cannot be
 	// verified, was edited, or could not be replaced is reported, naming its path, since any
 	// host may be the one calling.
-	failed, refreshErr := skill.RefreshOutdated(a.Home, a.CWD)
+	skills, failed, refreshErr := skill.RefreshOutdated(a.Home, a.CWD)
 	if refreshErr != nil {
 		a.progress("Could not check the installed muvloom Skills: %v", refreshErr)
 	}
-	skills, _ := skill.Installed(a.Home, a.CWD)
 	for _, installed := range skills {
 		switch {
 		case installed.Unverifiable:
 			a.progress("The muvloom Skill at %s is incomplete or has unexpected files. To reinstall it: muvloom skill install --host %s --scope %s",
 				installed.Path, installed.Host, installed.Scope)
-		case !installed.Intact && skill.VersionLess(installed.Version, skill.BundleVersion):
-			a.progress("The muvloom Skill at %s was edited, so it was not updated to %s. To replace it: muvloom skill install --host %s --scope %s",
-				installed.Path, skill.BundleVersion, installed.Host, installed.Scope)
+		case !installed.Intact:
+			a.progress("The muvloom Skill at %s was edited or is incomplete, so it is not updated automatically. To replace it: muvloom skill install --host %s --scope %s",
+				installed.Path, installed.Host, installed.Scope)
 		}
 	}
+	var refreshFailures []map[string]string
 	for _, item := range failed {
 		a.progress("Could not update the muvloom Skill at %s to %s: %v", item.Path, skill.BundleVersion, item.Err)
+		refreshFailures = append(refreshFailures, map[string]string{"path": item.Path, "error": item.Err.Error()})
 	}
 	store := a.Store.Describe()
 	status := map[string]any{
@@ -262,6 +263,12 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 		"api_url_source":   a.apiURLSource,
 		"credential_store": store.Backend,
 		"skills":           skills,
+	}
+	if refreshErr != nil {
+		status["skill_check_error"] = refreshErr.Error()
+	}
+	if len(refreshFailures) > 0 {
+		status["skill_refresh_failures"] = refreshFailures
 	}
 	if store.KeychainIssue != "" {
 		status["credential_store_issue"] = store.KeychainIssue
