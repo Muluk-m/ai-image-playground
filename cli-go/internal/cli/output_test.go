@@ -2,7 +2,10 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"flag"
 	"strings"
 	"testing"
 )
@@ -151,4 +154,38 @@ func TestJSONFlagSpellings(t *testing.T) {
 	if _, errOut, _ := runText(t, app, "images", "create", "-bogus=1"); !strings.Contains(errOut, "unknown flag -bogus ") {
 		t.Fatalf("flag spelling not kept: %q", errOut)
 	}
+}
+
+// A flag value that looks like a global flag is still the value.
+func TestGlobalFlagsAreNotTakenFromFlagValues(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	var got [][]string
+	for _, value := range []string{"--json", "--json=false", "--help", "-h"} {
+		rest, help := app.commandArgs([]string{"--prompt", value, "--wait", "5"}, imagesCreateFlags(t))
+		if help || app.json {
+			t.Fatalf("value %q taken as a flag: help=%v json=%v", value, help, app.json)
+		}
+		got = append(got, rest)
+	}
+	for i, rest := range got {
+		if len(rest) != 4 || rest[1] == "" {
+			t.Fatalf("case %d lost the value: %v", i, rest)
+		}
+	}
+	rest, help := app.commandArgs([]string{"--prompt", "x", "--json", "--", "--help"}, imagesCreateFlags(t))
+	if help || !app.json || strings.Join(rest, " ") != "--prompt x -- --help" {
+		t.Fatalf("rest=%v help=%v json=%v", rest, help, app.json)
+	}
+}
+
+func imagesCreateFlags(t *testing.T) *flag.FlagSet {
+	t.Helper()
+	cmd, _, _ := lookup([]string{"images", "create"})
+	_, err := cmd.run(context.Background(), &App{}, []string{"--help"})
+	var request *helpRequest
+	if !errors.As(err, &request) {
+		t.Fatalf("no flags: %v", err)
+	}
+	return request.flags
 }
