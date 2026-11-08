@@ -7,6 +7,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 )
 
 // Installation is the on-disk metadata used by auth status and automation to
@@ -23,6 +25,13 @@ type Installation struct {
 	Intact bool `json:"intact"`
 	// Current is true when this install matches the Skill bundled with this CLI.
 	Current bool `json:"current"`
+	// Unverifiable is true when the files could not be hashed (a missing or unreadable
+	// file, or something other than a regular file): incomplete rather than edited.
+	Unverifiable bool `json:"unverifiable,omitempty"`
+
+	// Where the copy was found, which a refresh writes to; metadata may say otherwise
+	// when a copy was moved by hand.
+	foundHost, foundScope string
 }
 
 // Installed reports metadata for installed Skills in the user's home and the
@@ -77,8 +86,11 @@ func Installed(home, cwd string) ([]Installation, error) {
 				continue
 			}
 			item.Path = path
+			item.foundHost, item.foundScope = host.name, location.scope
 			if onDisk, hashErr := treeHash(path); hashErr == nil {
 				item.Intact = onDisk == item.FileHash
+			} else {
+				item.Unverifiable = true
 			}
 			if _, bundledHash, bundleErr := bundleFiles(); bundleErr == nil {
 				item.Current = item.Intact && item.FileHash == bundledHash
@@ -125,4 +137,89 @@ func treeHash(root string) (string, error) {
 		return "", err
 	}
 	return hashFiles(files), nil
+}
+
+// Refresh is one installed copy RefreshOutdated could not update, and why.
+type Refresh struct {
+	Installation
+	Err error
+}
+
+// refreshable is a copy this CLI should replace: unedited, of an older release, and found
+// where its metadata says it was installed.
+func refreshable(item Installation) bool {
+	return item.Intact && VersionLess(item.Version, BundleVersion) &&
+		item.Host == item.foundHost && item.Scope == item.foundScope
+}
+
+// RefreshOutdated replaces every copy the CLI installed that is unedited and of an older
+// release than the bundle, so upgrading the CLI upgrades the Skills it installed. It writes
+// where each copy was found, and decides again under the install lock, so a copy edited, or
+// refreshed by another (possibly newer) CLI meanwhile, is left as it is. It returns the
+// copies after refreshing and those it could not update.
+func RefreshOutdated(home, cwd string) ([]Installation, []Refresh, error) {
+	installed, err := Installed(home, cwd)
+	if err != nil {
+		return nil, nil, err
+	}
+	var failed []Refresh
+	attempted := false
+	for _, item := range installed {
+		if !refreshable(item) {
+			continue
+		}
+		attempted = true
+		_, err := Install(InstallOptions{
+			Host: item.foundHost, Scope: item.foundScope, Home: home, CWD: cwd,
+			onlyIf: func(destination string) (bool, error) {
+				current, err := Installed(home, cwd)
+				if err != nil {
+					return false, err
+				}
+				for _, again := range current {
+					if again.Path == destination {
+						return refreshable(again), nil
+					}
+				}
+				return false, nil
+			},
+		})
+		if err != nil && !errors.Is(err, errNotNeeded) {
+			failed = append(failed, Refresh{Installation: item, Err: err})
+		}
+	}
+	// Re-read after any attempt: this process, or another one, may have changed a copy.
+	if attempted {
+		if installed, err = Installed(home, cwd); err != nil {
+			return nil, failed, err
+		}
+	}
+	return installed, failed, nil
+}
+
+// VersionLess compares dotted numeric versions; an unknown format is never older.
+func VersionLess(current, other string) bool {
+	if other == "" {
+		return false
+	}
+	cur := strings.Split(strings.TrimPrefix(current, "v"), ".")
+	req := strings.Split(strings.TrimPrefix(other, "v"), ".")
+	for i := 0; i < max(len(cur), len(req)); i++ {
+		var c, r int
+		var err error
+		if i < len(cur) {
+			if c, err = strconv.Atoi(cur[i]); err != nil {
+				return false
+			}
+		}
+		if i < len(req) {
+			if r, err = strconv.Atoi(req[i]); err != nil {
+				return false
+			}
+		}
+		if c != r {
+			return c < r
+		}
+	}
+	return false
 }
