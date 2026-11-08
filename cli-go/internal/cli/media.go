@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Muluk-m/ai-image-playground/cli-go/internal/auth"
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/client"
 )
 
@@ -255,20 +256,25 @@ func fileExists(target string) *Failure {
 }
 
 // sameContent reports whether existing holds exactly the size bytes of fresh. Sizes are
-// compared first; equal sizes are compared in chunks, never whole files in memory.
-func sameContent(fresh string, size int64, existing string) bool {
+// compared first; equal sizes are compared in chunks, never whole files in memory. An error
+// means existing could not be read, which is not the same as holding other bytes;
+// os.ErrNotExist means it is gone.
+func sameContent(fresh string, size int64, existing string) (bool, error) {
 	info, err := os.Stat(existing)
-	if err != nil || !info.Mode().IsRegular() || info.Size() != size {
-		return false
+	if err != nil {
+		return false, err
+	}
+	if !info.Mode().IsRegular() || info.Size() != size {
+		return false, nil
 	}
 	left, err := os.Open(fresh)
 	if err != nil {
-		return false
+		return false, err
 	}
 	defer left.Close()
 	right, err := os.Open(existing)
 	if err != nil {
-		return false
+		return false, err
 	}
 	defer right.Close()
 	a, b := make([]byte, 64<<10), make([]byte, 64<<10)
@@ -276,15 +282,38 @@ func sameContent(fresh string, size int64, existing string) bool {
 		n, errA := io.ReadFull(left, a)
 		m, errB := io.ReadFull(right, b)
 		if n != m || !bytes.Equal(a[:n], b[:m]) {
-			return false
+			return false, nil
 		}
-		if errA == io.EOF || errA == io.ErrUnexpectedEOF {
-			return errB == errA
+		done := errA == io.EOF || errA == io.ErrUnexpectedEOF
+		if done && errB == errA {
+			return true, nil
 		}
-		if errA != nil || errB != nil {
-			return false
+		if done || errB == io.EOF || errB == io.ErrUnexpectedEOF {
+			return false, nil
+		}
+		if errA != nil {
+			return false, errA
+		}
+		if errB != nil {
+			return false, errB
 		}
 	}
+}
+
+// existingTarget decides about a target that was in the way: the same bytes are present,
+// other bytes are FILE_EXISTS, an unreadable one is a local error. retry reports a target
+// that disappeared meanwhile, so placing the file can be tried again.
+func existingTarget(fresh string, size int64, target string) (present, retry bool, err error) {
+	same, err := sameContent(fresh, size, target)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return false, true, nil
+	case err != nil:
+		return false, false, fail("INVALID_REQUEST", "Cannot read the existing %s to compare it: %v", target, auth.Reason(err))
+	case same:
+		return true, false, nil
+	}
+	return false, false, fileExists(target)
 }
 
 // writeNew streams into a temp file beside target, then links it into place. Linking
@@ -313,22 +342,29 @@ func writeNew(target string, body io.Reader) (int64, bool, error) {
 	}
 	// CreateTemp makes the file 0600; a downloaded image is ordinary user content.
 	_ = os.Chmod(tmp.Name(), 0o644)
-	linkErr := os.Link(tmp.Name(), target)
-	if linkErr == nil {
-		return size, false, nil
-	}
-	if errors.Is(linkErr, os.ErrExist) {
-		if sameContent(tmp.Name(), size, target) {
-			return size, true, nil
+	var linkErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		if linkErr = os.Link(tmp.Name(), target); linkErr == nil {
+			return size, false, nil
 		}
-		return 0, false, fileExists(target)
+		if !errors.Is(linkErr, os.ErrExist) {
+			break
+		}
+		present, retry, err := existingTarget(tmp.Name(), size, target)
+		if !retry {
+			if err != nil {
+				return 0, false, err
+			}
+			return size, present, nil
+		}
 	}
 	out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if errors.Is(err, os.ErrExist) {
-		if sameContent(tmp.Name(), size, target) {
-			return size, true, nil
+		present, _, err := existingTarget(tmp.Name(), size, target)
+		if err != nil {
+			return 0, false, err
 		}
-		return 0, false, fileExists(target)
+		return size, present, nil
 	}
 	if err != nil {
 		return 0, false, fail("INVALID_REQUEST", "Cannot create %s: %v", target, err)
