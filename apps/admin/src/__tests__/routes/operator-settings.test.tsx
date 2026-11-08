@@ -99,11 +99,11 @@ vi.mock('../../lib/queries', () => ({
   clearOperatorSetting: state.clear,
 }))
 
-import { OperatorSettingsPage } from '../../routes/_authed.operator-settings'
+import { OperatorSettingsPanel } from '../../features/platform-settings/OperatorSettingsPanel'
 
-describe('operator settings page', () => {
+describe('operator settings panel', () => {
   it('rejects another quota unit and preserves an exact integer quota', async () => {
-    render(<OperatorSettingsPage />)
+    render(<OperatorSettingsPanel />)
     const row = screen.getByText('每日配额').closest('tr')!
     const input = within(row).getByRole('textbox', { name: '每日配额值' })
     fireEvent.change(input, { target: { value: '2 GB' } })
@@ -127,7 +127,7 @@ describe('operator settings page', () => {
 
   it('does not expose raw transport errors', async () => {
     state.save.mockRejectedValueOnce(new Error('private token and upstream URL'))
-    render(<OperatorSettingsPage />)
+    render(<OperatorSettingsPanel />)
     const row = screen.getByText('CLI API').closest('tr')!
     fireEvent.click(within(row).getByRole('button', { name: '保存' }))
     fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), {
@@ -146,7 +146,7 @@ describe('operator settings page', () => {
   })
 
   it('renders grouped rows, read-only state, baseline and invalid distinctions, and searches', () => {
-    render(<OperatorSettingsPage />)
+    render(<OperatorSettingsPanel />)
     expect(screen.getByRole('heading', { name: '命令行' })).toBeInTheDocument()
     expect(screen.getByText('只读（需发布修改）')).toBeInTheDocument()
     expect(screen.getByText('基线已变（覆盖仍生效）')).toBeInTheDocument()
@@ -156,7 +156,7 @@ describe('operator settings page', () => {
   })
 
   it('requires a reason before saving and uses a separate cost confirmation', async () => {
-    render(<OperatorSettingsPage />)
+    render(<OperatorSettingsPanel />)
     const row = screen.getByText('免费对话').closest('tr')!
     fireEvent.click(within(row).getByRole('button', { name: '保存' }))
     expect(screen.getByRole('dialog', { name: '保存覆盖' })).toBeInTheDocument()
@@ -181,7 +181,7 @@ describe('operator settings page', () => {
   })
 
   it('requires a reason and cost confirmation when clearing a risky override', async () => {
-    render(<OperatorSettingsPage />)
+    render(<OperatorSettingsPanel />)
     const row = screen.getByText('免费对话').closest('tr')!
     fireEvent.click(within(row).getByRole('button', { name: '清除覆盖' }))
     fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), {
@@ -204,7 +204,7 @@ describe('operator settings page', () => {
       resolve = done
     })
     state.save.mockImplementationOnce(() => promise)
-    render(<OperatorSettingsPage />)
+    render(<OperatorSettingsPanel />)
     const row = screen.getByText('CLI API').closest('tr')!
     fireEvent.click(within(row).getByRole('button', { name: '保存' }))
     fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), {
@@ -218,7 +218,7 @@ describe('operator settings page', () => {
   })
 
   it('offers actionable refresh for a stale revision', async () => {
-    render(<OperatorSettingsPage />)
+    render(<OperatorSettingsPanel />)
     state.save.mockRejectedValueOnce(new ApiError(409, { error: 'stale_revision' }))
     const row = screen.getByText('CLI API').closest('tr')!
     fireEvent.click(within(row).getByRole('button', { name: '保存' }))

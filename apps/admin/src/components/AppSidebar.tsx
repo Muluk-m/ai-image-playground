@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import {
   Activity,
   BookOpen,
-  Boxes,
   Bug,
   ClipboardList,
   HeartPulse,
@@ -55,9 +54,8 @@ export type NavTo =
   | '/errors'
   | '/logs'
   | '/audit'
-  | '/models'
   | '/providers'
-  | '/operator-settings'
+  | '/platform-settings'
 export interface NavEntry {
   to: NavTo
   icon: LucideIcon
@@ -112,9 +110,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   {
     label: '设置',
     entries: [
-      { to: '/models', icon: Boxes, label: '模型' },
       { to: '/providers', icon: KeyRound, label: '供应商' },
-      { to: '/operator-settings', icon: SlidersHorizontal, label: '能力与配额' },
+      { to: '/platform-settings', icon: SlidersHorizontal, label: '平台配置' },
       { to: '/audit', icon: BookOpen, label: '审计' },
     ],
   },
