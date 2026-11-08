@@ -3,13 +3,14 @@ import type { TaskErrorType } from '@image-playground/shared'
 import { taskFailureLogLevel } from '../../lib/task-failure-log'
 
 describe('task failure log level', () => {
-  it('keeps failures that are the user request itself out of the error count', () => {
+  it('keeps a rejected prompt out of the error count', () => {
     expect(taskFailureLogLevel('content_policy')).toBe('warn')
-    expect(taskFailureLogLevel('plan_required')).toBe('warn')
   })
 
-  it('keeps every other failure as an error for operators', () => {
+  it('keeps every other failure as an error for operators, plan_required included', () => {
+    // plan_required reaching a worker means direct routes are down or unconfigured: ours to fix.
     const operational: TaskErrorType[] = [
+      'plan_required',
       'upstream_timeout',
       'upstream_result_unknown',
       'upstream_error',
