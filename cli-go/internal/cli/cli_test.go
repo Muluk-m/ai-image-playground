@@ -1857,4 +1857,21 @@ func TestCreateFailuresAfterSubmitKeepTheJob(t *testing.T) {
 			t.Fatalf("failed job = %d %s", r.code, r.stdout)
 		}
 	})
+	t.Run("a dangling link in the way", func(t *testing.T) {
+		f := newFakeServer(t)
+		app := newApp(t, f, t.TempDir())
+		login(t, app)
+		out := t.TempDir()
+		link := filepath.Join(out, "art_job-1_0.png")
+		if err := os.Symlink(filepath.Join(out, "missing"), link); err != nil {
+			t.Skip("symlinks unavailable:", err)
+		}
+		r := execute(t, app, "images", "create", "--prompt", "a fox", "--idempotency-key", "keep-job-key-5", "--wait", "60", "--download", out)
+		if r.code != ExitRejected || r.out["error"].(map[string]any)["code"] != "FILE_EXISTS" {
+			t.Fatalf("dangling link = %d %s", r.code, r.stdout)
+		}
+		if _, err := os.Stat(filepath.Join(out, "missing")); !os.IsNotExist(err) {
+			t.Fatal("wrote through the link")
+		}
+	})
 }

@@ -258,9 +258,10 @@ func fileExists(target string) *Failure {
 // sameContent reports whether existing holds exactly the size bytes of fresh. Sizes are
 // compared first; equal sizes are compared in chunks, never whole files in memory. An error
 // means existing could not be read, which is not the same as holding other bytes;
-// os.ErrNotExist means it is gone.
+// os.ErrNotExist means it is gone. A link (even a dangling one) or anything else that is not
+// a regular file is never the same content: links are not followed.
 func sameContent(fresh string, size int64, existing string) (bool, error) {
-	info, err := os.Stat(existing)
+	info, err := os.Lstat(existing)
 	if err != nil {
 		return false, err
 	}
@@ -360,9 +361,13 @@ func writeNew(target string, body io.Reader) (int64, bool, error) {
 	}
 	out, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if errors.Is(err, os.ErrExist) {
-		present, _, err := existingTarget(tmp.Name(), size, target)
+		present, retry, err := existingTarget(tmp.Name(), size, target)
 		if err != nil {
 			return 0, false, err
+		}
+		if retry {
+			// Something keeps appearing and vanishing at the target: report it, never success.
+			return 0, false, fail("INVALID_REQUEST", "%s changed while the download was being saved; run the command again", target)
 		}
 		return size, present, nil
 	}
