@@ -14,8 +14,8 @@ import { isModelDisabled, resolveModelMedia } from '../lib/channels'
 import { resolveImageBytesRef } from '../lib/extractImages'
 import { deviceIdSchema, validationMessage } from '../lib/http'
 import { MEDIA_INPUT_PATTERN, MediaInputError, resolveMediaInputs } from '../lib/mediaInputs'
-import { reservationFailureResponse } from '../lib/private-overlay'
 import { asQueueProvider } from '../lib/queueProvider'
+import { submissionRefusalResponse } from '../lib/submissionRefusal'
 import { taskAccessWhere } from '../lib/task-access'
 import { createQueueTask, findTaskByIdempotencyKey } from '../lib/taskSubmission'
 import { requireUser } from '../lib/user-auth'
@@ -226,54 +226,6 @@ export const submitRoutes = new Elysia()
         dedupeRepeats: true,
       })
 
-      if (outcome.kind === 'invalid_prompt')
-        return status(400, { error: 'invalid_request', message: '提示词不能为空' })
-      if (outcome.kind === 'invalid_image_request')
-        return status(400, { error: 'invalid_request', message: outcome.message })
-
-      if (outcome.kind === 'idempotency_mismatch')
-        return status(409, { error: 'idempotency_key_conflict' })
-
-      if (outcome.kind === 'duplicate_submission')
-        return status(409, { error: 'duplicate_submission', request_id: outcome.taskId })
-
-      if (outcome.kind === 'invalid_input_image') {
-        return status(400, { error: 'invalid_input_image', message: outcome.message })
-      }
-
-      if (outcome.kind === 'object_storage_error') {
-        return status(503, { error: 'object_storage_error', message: outcome.message })
-      }
-
-      if (outcome.kind === 'insufficient_credits' || outcome.kind === 'price_unavailable') {
-        return reservationFailureResponse(outcome)
-      }
-      if (outcome.kind === 'metering_denied')
-        return status(403, { error: 'metering_denied', reason: outcome.reason })
-
-      if (outcome.kind === 'authentication_required') {
-        return status(401, { error: 'unauthorized' })
-      }
-      if (outcome.kind === 'private_billing_denied') {
-        return status(403, { error: 'plan_required', message: '4K 需要有效会员' })
-      }
-      if (outcome.kind === 'quota_exceeded') {
-        const quota = outcome.quota
-        return status(429, {
-          error: 'daily_quota_exceeded',
-          quota: quota.quota,
-          used: quota.count,
-          reset_at: quota.reset_at,
-        })
-      }
-      if (outcome.kind === 'max_credits_exceeded') {
-        return status(402, {
-          error: 'max_credits_exceeded',
-          required: outcome.required,
-          max_credits: outcome.maxCredits,
-        })
-      }
-
       if (outcome.kind === 'idempotency_conflict') {
         if (body.client_request_id && !authUser) {
           const existing = await findTaskByIdempotencyKey(body.client_request_id, null)
@@ -285,8 +237,8 @@ export const submitRoutes = new Elysia()
             }
           }
         }
-        return status(409, { error: 'idempotency_key_conflict' })
       }
+      if (outcome.kind !== 'created') return submissionRefusalResponse(outcome)
 
       return {
         request_id: outcome.taskId,
