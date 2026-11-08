@@ -1020,3 +1020,36 @@ it.each([
   ).toEqual([0, 0, 255, 255, 0, 255, 0, 255])
   expect(billing.settlements).toHaveLength(1)
 })
+
+it('停机中止清理时保留未清完持久对象的对账任务，下一轮接着清', async () => {
+  const stopping = new AbortController()
+  class AbortingDurable extends DurableFixture {
+    override async deletePrefix(prefix: string) {
+      await super.deletePrefix(prefix)
+      stopping.abort()
+    }
+  }
+  const durable = new AbortingDurable()
+  setDurableMediaStoreForTesting(durable)
+  const ids = ['purge-reconcile-a', 'purge-reconcile-b']
+  const old = Date.now() - 60_000
+  for (const id of ids) {
+    await db.execute(
+      sql`INSERT INTO tasks (id, provider, model, status, reconciliation_required, request_payload, submitted_at, completed_at) VALUES (${id}, 'openai-compat', 'fixture', 'failed', true, '{"device_id":"fixture","prompt":"one","n":1}'::jsonb, ${old}, ${old})`,
+    )
+    await durable.write(`${id}/reconciliation/evidence.json`, new Uint8Array([1]), 'application/json')
+  }
+  const remaining = async () =>
+    (await db.select({ id: schema.tasks.id }).from(schema.tasks))
+      .map((row) => row.id)
+      .filter((id) => ids.includes(id))
+
+  await purgeOldTasks(-1, stopping.signal)
+  expect(await remaining()).toEqual(['purge-reconcile-b'])
+  expect(await durable.listPrefix('purge-reconcile-a/')).toEqual([])
+  expect(await durable.listPrefix('purge-reconcile-b/')).toHaveLength(1)
+
+  await purgeOldTasks(-1)
+  expect(await remaining()).toEqual([])
+  expect(await durable.listPrefix('purge-reconcile-b/')).toEqual([])
+})
