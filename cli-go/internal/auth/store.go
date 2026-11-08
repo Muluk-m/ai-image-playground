@@ -125,24 +125,41 @@ func keyringUserFor(dir string) string {
 
 // canonicalDir spells one directory one way: absolute, with symlinks resolved (macOS /tmp is
 // /private/tmp), and case-folded where the default file system ignores case (Windows, macOS).
-// The directory is created first when it is missing: resolving a link whose target does not
-// exist yet would otherwise name it differently before and after the first login.
 func canonicalDir(dir string) string {
 	path, err := filepath.Abs(dir)
 	if err != nil {
 		path = filepath.Clean(dir)
 	}
-	resolved, err := filepath.EvalSymlinks(path)
-	if err != nil && os.MkdirAll(path, 0o700) == nil {
-		resolved, err = filepath.EvalSymlinks(path)
-	}
-	if err == nil {
-		path = resolved
-	}
+	path = resolvePath(path, 0)
 	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
 		path = strings.ToLower(path)
 	}
 	return path
+}
+
+// resolvePath resolves symlinks like filepath.EvalSymlinks, but also for a path that does not
+// exist yet: a link to a missing directory resolves to that directory's path, so the name is
+// the same before and after the first login creates it.
+func resolvePath(path string, depth int) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil || depth > 40 {
+		if err != nil {
+			return path
+		}
+		return resolved
+	}
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		if target, err := os.Readlink(path); err == nil {
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(filepath.Dir(path), target)
+			}
+			return resolvePath(target, depth+1)
+		}
+	}
+	parent := filepath.Dir(path)
+	if parent == path {
+		return path
+	}
+	return filepath.Join(resolvePath(parent, depth+1), filepath.Base(path))
 }
 
 // DefaultLoginElsewhere reports that this store, in a directory of its own, has no login while
