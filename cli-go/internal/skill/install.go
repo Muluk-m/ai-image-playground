@@ -12,6 +12,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+
+	"github.com/Muluk-m/ai-image-playground/cli-go/internal/auth"
 )
 
 // BundleVersion is tied to the native CLI release. Keep the bundled Skill and
@@ -26,7 +29,16 @@ type InstallOptions struct {
 	Scope string
 	Home  string
 	CWD   string
+	// onlyIf, when set, decides under the install lock whether to replace the copy at the
+	// destination; false skips the install with errNotNeeded.
+	onlyIf func(destination string) bool
 }
+
+// errNotNeeded reports an install skipped because onlyIf said the copy should stay.
+var errNotNeeded = errors.New("the installed Skill no longer needs replacing")
+
+// installLockWait bounds how long an install waits for another process replacing the same copy.
+const installLockWait = 10 * time.Second
 
 type Result struct {
 	Host       string `json:"host"`
@@ -112,6 +124,19 @@ func Install(opts InstallOptions) (Result, error) {
 	} else if info, err := os.Lstat(destination); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		// Replacing the link would silently detach a dotfiles-managed Skill.
 		return Result{}, fmt.Errorf("%s is a symlink; update the Skill at its target instead", destination)
+	}
+	// Every install of a host's skills directory (refresh or `skill install`) holds this lock,
+	// so two replacements of one directory never interleave.
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return Result{}, err
+	}
+	release, err := auth.LockFile(filepath.Join(filepath.Dir(destination), ".muvloom-install.lock"), installLockWait)
+	if err != nil {
+		return Result{}, fmt.Errorf("another muvloom is updating %s: %w", destination, err)
+	}
+	defer release()
+	if opts.onlyIf != nil && !opts.onlyIf(destination) {
+		return Result{}, errNotNeeded
 	}
 	files, hash, err := bundleFiles()
 	if err != nil {

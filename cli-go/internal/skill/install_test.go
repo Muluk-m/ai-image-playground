@@ -2,6 +2,7 @@ package skill
 
 import (
 	"encoding/json"
+	"github.com/Muluk-m/ai-image-playground/cli-go/internal/auth"
 	"os"
 	"path/filepath"
 	"testing"
@@ -172,7 +173,7 @@ func TestRefreshOutdatedReplacesOnlyUneditedOldCopies(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(edited.Path, "SKILL.md"), []byte("my notes"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	failed, err := RefreshOutdated(home, cwd)
+	_, failed, err := RefreshOutdated(home, cwd)
 	if err != nil || len(failed) != 0 {
 		t.Fatalf("refresh: %v %v", failed, err)
 	}
@@ -216,7 +217,7 @@ func TestRefreshOutdatedNeverDowngradesMovesOrRacesACopy(t *testing.T) {
 		home := t.TempDir()
 		result, _ := Install(InstallOptions{Host: "codex", Scope: "user", Home: home})
 		fakeRelease(t, result.Path, "9.9.9", "codex", "user")
-		if failed, err := RefreshOutdated(home, cwd); err != nil || len(failed) != 0 {
+		if _, failed, err := RefreshOutdated(home, cwd); err != nil || len(failed) != 0 {
 			t.Fatal(failed, err)
 		}
 		if data, _ := os.ReadFile(filepath.Join(result.Path, "SKILL.md")); string(data) != "release 9.9.9" {
@@ -227,40 +228,32 @@ func TestRefreshOutdatedNeverDowngradesMovesOrRacesACopy(t *testing.T) {
 		home := t.TempDir()
 		result, _ := Install(InstallOptions{Host: "codex", Scope: "user", Home: home})
 		fakeRelease(t, result.Path, "0.0.1", "codex", "project")
-		if failed, err := RefreshOutdated(home, cwd); err != nil || len(failed) != 0 {
+		if _, failed, err := RefreshOutdated(home, cwd); err != nil || len(failed) != 0 {
 			t.Fatal(failed, err)
 		}
 		if data, _ := os.ReadFile(filepath.Join(result.Path, "SKILL.md")); string(data) != "release 0.0.1" {
 			t.Fatal("a copy placed by hand was refreshed")
 		}
 	})
-	t.Run("another process refreshing", func(t *testing.T) {
+	t.Run("edited while waiting for the lock", func(t *testing.T) {
 		home := t.TempDir()
 		result, _ := Install(InstallOptions{Host: "codex", Scope: "user", Home: home})
 		fakeRelease(t, result.Path, "0.0.1", "codex", "user")
-		lock := filepath.Join(filepath.Dir(result.Path), ".muvloom-refresh.lock")
-		if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		// Another process holds the install lock and edits the copy before letting go.
+		release, err := auth.LockFile(filepath.Join(filepath.Dir(result.Path), ".muvloom-install.lock"), time.Second)
+		if err != nil {
 			t.Fatal(err)
 		}
-		if failed, err := RefreshOutdated(home, cwd); err != nil || len(failed) != 0 {
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			_ = os.WriteFile(filepath.Join(result.Path, "SKILL.md"), []byte("edited meanwhile"), 0o644)
+			release()
+		}()
+		if _, failed, err := RefreshOutdated(home, cwd); err != nil || len(failed) != 0 {
 			t.Fatal(failed, err)
 		}
-		if data, _ := os.ReadFile(filepath.Join(result.Path, "SKILL.md")); string(data) != "release 0.0.1" {
-			t.Fatal("refreshed while another process held the lock")
-		}
-		old := time.Now().Add(-5 * time.Minute)
-		if err := os.Chtimes(lock, old, old); err != nil {
-			t.Fatal(err)
-		}
-		if failed, err := RefreshOutdated(home, cwd); err != nil || len(failed) != 0 {
-			t.Fatal(failed, err)
-		}
-		installed, _ := Installed(home, cwd)
-		if len(installed) != 1 || !installed[0].Current {
-			t.Fatalf("a stale lock blocked the refresh: %+v", installed)
-		}
-		if _, err := os.Stat(lock); !os.IsNotExist(err) {
-			t.Fatal("the lock was left behind")
+		if data, _ := os.ReadFile(filepath.Join(result.Path, "SKILL.md")); string(data) != "edited meanwhile" {
+			t.Fatal("an edit made while waiting for the lock was overwritten")
 		}
 	})
 }

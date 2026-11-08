@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // Installation is the on-disk metadata used by auth status and automation to
@@ -146,53 +145,57 @@ type Refresh struct {
 	Err error
 }
 
-// RefreshOutdated replaces every installed copy that is intact and of an older release than
-// the bundle, so upgrading the CLI upgrades the Skills it installed. It writes to where each
-// copy was found, never where its metadata says. A copy edited by hand, a newer copy (another,
-// newer CLI on this machine installed it) or one that metadata places elsewhere is left alone.
-// Another muvloom process refreshing at the same time makes this one skip: two replacements
-// of one directory must not interleave. It returns the copies it tried and could not update.
-func RefreshOutdated(home, cwd string) ([]Refresh, error) {
+// refreshable is a copy this CLI should replace: unedited, of an older release, and found
+// where its metadata says it was installed.
+func refreshable(item Installation) bool {
+	return item.Intact && VersionLess(item.Version, BundleVersion) &&
+		item.Host == item.foundHost && item.Scope == item.foundScope
+}
+
+// RefreshOutdated replaces every copy the CLI installed that is unedited and of an older
+// release than the bundle, so upgrading the CLI upgrades the Skills it installed. It writes
+// where each copy was found, and decides again under the install lock, so a copy edited, or
+// refreshed by another (possibly newer) CLI meanwhile, is left as it is. It returns the
+// copies after refreshing and those it could not update.
+func RefreshOutdated(home, cwd string) ([]Installation, []Refresh, error) {
 	installed, err := Installed(home, cwd)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var failed []Refresh
+	changed := false
 	for _, item := range installed {
-		if !item.Intact || item.Current || !VersionLess(item.Version, BundleVersion) ||
-			item.Host != item.foundHost || item.Scope != item.foundScope {
+		if !refreshable(item) {
 			continue
 		}
-		unlock, ok := refreshLock(filepath.Dir(item.Path))
-		if !ok {
-			continue
-		}
-		_, err := Install(InstallOptions{Host: item.foundHost, Scope: item.foundScope, Home: home, CWD: cwd})
-		unlock()
-		if err != nil {
+		_, err := Install(InstallOptions{
+			Host: item.foundHost, Scope: item.foundScope, Home: home, CWD: cwd,
+			onlyIf: func(destination string) bool {
+				current, err := Installed(home, cwd)
+				if err != nil {
+					return false
+				}
+				for _, again := range current {
+					if again.Path == destination {
+						return refreshable(again)
+					}
+				}
+				return false
+			},
+		})
+		switch {
+		case err == nil:
+			changed = true
+		case !errors.Is(err, errNotNeeded):
 			failed = append(failed, Refresh{Installation: item, Err: err})
 		}
 	}
-	return failed, nil
-}
-
-// refreshLock takes an exclusive marker beside the Skill directory. A marker older than two
-// minutes belongs to a process that died mid-refresh and is taken over.
-func refreshLock(dir string) (func(), bool) {
-	path := filepath.Join(dir, ".muvloom-refresh.lock")
-	for attempt := 0; attempt < 2; attempt++ {
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if err == nil {
-			file.Close()
-			return func() { os.Remove(path) }, true
+	if changed {
+		if installed, err = Installed(home, cwd); err != nil {
+			return nil, failed, err
 		}
-		info, statErr := os.Stat(path)
-		if statErr != nil || time.Since(info.ModTime()) < 2*time.Minute {
-			return nil, false
-		}
-		os.Remove(path)
 	}
-	return nil, false
+	return installed, failed, nil
 }
 
 // VersionLess compares dotted numeric versions; an unknown format is never older.
