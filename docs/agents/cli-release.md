@@ -15,8 +15,8 @@ python -m pip install 'skills-ref @ git+https://github.com/agentskills/agentskil
 cd cli-go
 go vet ./...
 go test ./...
-python install/build-dist.py --version 0.1.6 --output dist
-python install/test-install.py --dist dist --version 0.1.6
+python install/build-dist.py --version 0.2.0 --output dist
+python install/test-install.py --dist dist --version 0.2.0
 ```
 
 `MUVLOOM_DISTRIBUTION_URL` is a CI-only fixture seam: only `http://127.0.0.1:PORT/PATH` is accepted, and redirects are forbidden. Leave it unset for official GitHub downloads. The smoke suite sets `MUVLOOM_NO_MODIFY_PATH=1` on Windows so it never changes the runner's persistent user PATH. Neither installer sends CLI credentials; the CLI's authenticated HTTP requests retain their no-redirect policy.
