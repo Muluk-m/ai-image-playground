@@ -317,8 +317,9 @@ export async function purgeOldTasks(
       ),
     ),
   )
-  // Candidate spool objects have no bucket lifecycle. Keep their task row on cleanup failure,
-  // so the next maintenance pass retries, and lock it against concurrent reconciliation.
+  // Candidate spool objects and reconciliation media have no bucket lifecycle. Keep their task row
+  // on cleanup failure or shutdown, so the next maintenance pass retries, and lock it against
+  // concurrent reconciliation.
   let candidatesRemoved = 0
   let afterId: string | undefined
   while (true) {
@@ -329,7 +330,10 @@ export async function purgeOldTasks(
         .where(
           and(
             purgeable,
-            sql`${schema.tasks.request_payload}->>'output_retention' = 'candidate'`,
+            or(
+              sql`${schema.tasks.request_payload}->>'output_retention' = 'candidate'`,
+              eq(schema.tasks.reconciliation_required, true),
+            ),
             afterId === undefined ? undefined : gt(schema.tasks.id, afterId),
           ),
         )
@@ -373,12 +377,10 @@ export async function purgeOldTasks(
       and(
         purgeable,
         sql`${schema.tasks.request_payload}->>'output_retention' IS DISTINCT FROM 'candidate'`,
+        eq(schema.tasks.reconciliation_required, false),
       ),
     )
-    .returning({
-      id: schema.tasks.id,
-      reconciliationRequired: schema.tasks.reconciliation_required,
-    })
+    .returning({ id: schema.tasks.id })
 
   for (const [index, task] of deleted.entries()) {
     if (signal?.aborted) {
@@ -391,7 +393,6 @@ export async function purgeOldTasks(
     }
     try {
       await objectStore().deletePrefix(`${task.id}/`)
-      if (task.reconciliationRequired) await durableMediaStore().deletePrefix(`${task.id}/`)
     } catch (error) {
       log.warn(
         { event: 'object_store.cleanup_failed', taskId: task.id, err: String(error) },
