@@ -113,7 +113,8 @@
     "quota_exceeded": "每日额度已用尽，批次已暂停。",
     "input_limit": "输入超过当前限制，批次已暂停。",
     "upstream_auth": "生成服务认证失效，批次已暂停。",
-    "model_unavailable": "所选模型或通道暂不可用，批次已暂停。"
+    "model_unavailable": "所选模型或通道暂不可用，批次已暂停。",
+    "submission_refused": "生成请求被拒绝，批次已暂停。请调整计划后继续。"
   },
   "attachment": {
     "attachment_capability_unavailable": "附件上传当前不可用，请稍后恢复或移除附件",

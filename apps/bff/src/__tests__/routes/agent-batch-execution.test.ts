@@ -63,6 +63,7 @@ const { config } = await import('../../config')
 const { runTask } = await import('../../workers/task-runner')
 const { TaskScheduler } = await import('../../workers/task-scheduler')
 const { purgeOldTasks } = await import('../../db/maintenance')
+const { dispatchAgentBatch } = await import('../../lib/agent/batch-execution')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { _setChannelsForTesting } = await import('../../lib/channels')
@@ -1017,6 +1018,77 @@ it('未提交项涨价时暂停并重新报价确认，已提交项跨版本仍�
   expect(resumed.items[0].execution.taskId).toBe(firstTask)
   expect(resumed.items[1].execution.taskId).not.toBe(firstTask)
   expect(billing.reservations.filter((one) => one.model !== 'fixture-agent-model')).toHaveLength(2)
+})
+
+it('提交被计量拒绝时暂停批次，不再每轮重提', async () => {
+  billing.reset()
+  billing.answer = { kind: 'reserved', credits: 7 }
+  let generationReservations = 0
+  billing.decide = (one) => {
+    if (one.model === 'fixture-agent-model') return { kind: 'reserved', credits: 0 }
+    generationReservations++
+    return generationReservations > 1
+      ? { kind: 'access_denied', reason: 'account_restricted' }
+      : { kind: 'reserved', credits: 7 }
+  }
+  const first = await upload('#2a4466')
+  const second = await upload('#6a88aa')
+  const { conversation } = await (await request('agent/conversations', { deviceId: DEVICE })).json()
+  setAgentFetchForTesting(
+    scriptedAgentFetch(
+      [],
+      [
+        () =>
+          toolCallCompletion({
+            id: 'refused-batch',
+            name: 'planImageBatch',
+            args: {
+              title: '提交被拒',
+              rule: '分别换白底',
+              items: [
+                { key: 'first', imageIds: ['first'], prompt: '第一张换白底', dependencies: [] },
+                { key: 'second', imageIds: ['second'], prompt: '第二张换白底', dependencies: [] },
+              ],
+            },
+          }),
+        () => completionStream('请确认计划'),
+      ],
+    ),
+  )
+  await (
+    await request(`agent/conversations/${conversation.id}/turns`, {
+      deviceId: DEVICE,
+      text: '先拟两张图的计划',
+      references: [
+        { imageId: 'first', mediaId: first },
+        { imageId: 'second', mediaId: second },
+      ],
+    })
+  ).text()
+  const { batches } = await (await request(`agent/conversations/${conversation.id}/batches`)).json()
+  const path = `agent/batches/${batches[0].id}`
+  const draft = await (await request(path)).json()
+  const response = await request(`${path}/confirm`, {
+    commandId: 'confirm-refused',
+    expectedVersion: 1,
+    expectedDigest: draft.batch.digest,
+    deviceId: DEVICE,
+  })
+  expect(response.status).toBe(200)
+  const paused = await response.json()
+  expect(paused.batch).toMatchObject({
+    status: 'paused',
+    pauseReason: 'submission_refused',
+    submittedCount: 1,
+  })
+  expect(paused.items[1].execution).toBeUndefined()
+  // 已暂停：再派发这一批也不重提被拒的那一项。只派本批次，不推进同库里别的用例留下的批次。
+  await dispatchAgentBatch('batch-execution-owner', batches[0].id)
+  expect(generationReservations).toBe(2)
+  expect((await (await request(path)).json()).batch).toMatchObject({
+    status: 'paused',
+    pauseReason: 'submission_refused',
+  })
 })
 
 it('公共余额不足暂停后续派发，补足后恢复只提交未入队项', async () => {
