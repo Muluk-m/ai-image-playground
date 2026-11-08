@@ -278,6 +278,11 @@ func sameContent(fresh string, size int64, existing string) (bool, error) {
 		return false, err
 	}
 	defer right.Close()
+	// Open follows links: if the target was swapped for a link after Lstat, this is not the
+	// file that was checked, and is never the same content.
+	if opened, err := right.Stat(); err != nil || !os.SameFile(info, opened) {
+		return false, nil
+	}
 	a, b := make([]byte, 64<<10), make([]byte, 64<<10)
 	for {
 		n, errA := io.ReadFull(left, a)
