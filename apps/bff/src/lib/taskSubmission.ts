@@ -395,7 +395,7 @@ async function prepareMaskedSubmission(input: CreateQueueTaskInput) {
  * 预先准备的入口（批量执行、自动提交、灵感套用）的 `entry` 一律让 GPT 收到非会员上限，见 `resolveImageTier`。
  */
 async function prepareQueueTask(input: CreateQueueTaskInput) {
-  return prepareAlignedQueueTask(await alignImageTier(input))
+  return prepareAlignedQueueTask(await alignImageTier(alignStageSubmission(input)))
 }
 
 async function prepareAlignedQueueTask(alignment: ImageTierAlignment) {
@@ -448,7 +448,7 @@ export type SubmitPreparedResult<T> =
  *
  * 归档的清理归这里：事务回滚（`work` 抛错）时全部丢弃；事务提交后，没建成任务的那几条
  * （被拒、命中幂等回执、`work` 没提交它）丢弃。任何一条准备失败时丢弃已准备的，返回 `refused`。
- * `submit` 的异常要穿出 `work`，让事务回滚；吞掉它时这里不清理，改为在事务提交后重新抛出。
+ * `submit` 抛过错时事务一律回滚：`work` 吞掉了异常，这里也会在事务内重新抛出。
  */
 export async function submitPrepared<T>(
   inputs: readonly CreateQueueTaskInput[],
@@ -478,13 +478,13 @@ export async function submitPrepared<T>(
     throw error
   }
   const created = new Set<string>()
-  // `submit` 抛过错而 `work` 吞掉了它：事务可能照常提交了那条任务（例如预扣后才抛的错），
-  // 哪些归档还被引用说不清，宁可留着由 bucket lifecycle 收，也不删掉可能已落库任务的输入。
+  // `submit` 抛过错而 `work` 吞掉了它：仍让整个事务回滚。提交了半截（例如预扣后才抛错）的任务
+  // 不能落库，否则调用方以为失败去重试，会多建一条、多扣一次。
   let submitError: unknown
   let value: T
   try {
-    value = await db.transaction((tx) =>
-      work(tx, async (index) => {
+    value = await db.transaction(async (tx) => {
+      const result = await work(tx, async (index) => {
         const one = prepared[index]
         if (!one) throw new RangeError(`no prepared submission at ${index}`)
         try {
@@ -495,13 +495,14 @@ export async function submitPrepared<T>(
           submitError ??= error
           throw error
         }
-      }),
-    )
+      })
+      if (submitError !== undefined) throw submitError
+      return result
+    })
   } catch (error) {
     await discardExcept(new Set())
     throw error
   }
-  if (submitError !== undefined) throw submitError
   await discardExcept(created)
   return { kind: 'committed', value }
 }
@@ -736,8 +737,9 @@ async function submitQueueTask(
   raw: CreateQueueTaskInput,
   prepared?: PreparedQueueTask,
 ): Promise<CreateQueueTaskOutcome> {
+  // 预先准备的沿用冻结的请求与视频参数（带授权的视频时长在准备时已收口），只换上这次的事务。
   const aligned: ImageTierAlignment = prepared
-    ? { ...prepared.alignment, input: { ...raw, request: prepared.alignment.input.request } }
+    ? { ...prepared.alignment, input: { ...prepared.alignment.input, tx: raw.tx } }
     : await alignImageTier(alignStageSubmission(raw))
   const input = aligned.input
   if (

@@ -496,7 +496,7 @@ describe('submitPrepared', () => {
     expect([...store.objects.keys()].every((key) => key.startsWith(`${kept}/in/`))).toBe(true)
   })
 
-  it('keeps archived inputs and rethrows when work swallows a submit error', async () => {
+  it('rolls back and discards inputs when work swallows a submit error', async () => {
     _setPrivateBffOverlayForTesting({
       ...EMPTY_PRIVATE_BFF_OVERLAY,
       present: true,
@@ -512,7 +512,8 @@ describe('submitPrepared', () => {
         await submit(0).catch(() => undefined)
       }),
     ).rejects.toThrow('metering hook failed')
-    expect(store.objects.size).toBeGreaterThan(0)
+    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(store.objects.size).toBe(0)
   })
 
   it('refuses before the transaction and discards earlier preparations', async () => {
