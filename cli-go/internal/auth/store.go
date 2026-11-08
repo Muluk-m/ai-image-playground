@@ -27,7 +27,8 @@ import (
 
 const (
 	keyringService = "muvloom-cli"
-	keyringUser    = "default"
+	// defaultKeyringUser holds the login of the default config directory.
+	defaultKeyringUser = "default"
 	// keyringProbeUser is a throwaway entry Preflight writes; it never holds a secret.
 	keyringProbeUser = "write-check"
 )
@@ -99,6 +100,33 @@ type Store struct {
 	ClearKeyring bool
 	// Keychain replaces the system credential store; nil means the system's.
 	Keychain Keychain
+	// KeyringUser names this store's keychain entry; empty means the default config
+	// directory's. A store in another directory (MUVLOOM_CONFIG_DIR) has its own entry, so
+	// signing in, out or switching storage there never touches the default login.
+	KeyringUser string
+}
+
+func (s Store) keyringUser() string {
+	if s.KeyringUser != "" {
+		return s.KeyringUser
+	}
+	return defaultKeyringUser
+}
+
+// keyringUserFor gives a config directory other than the default its own keychain entry.
+func keyringUserFor(dir string) string {
+	if dir == defaultConfigDir() {
+		return ""
+	}
+	absolute, err := filepath.Abs(dir)
+	if err != nil {
+		absolute = dir
+	}
+	if absolute == defaultConfigDir() {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(absolute)))
+	return "dir-" + hex.EncodeToString(sum[:8])
 }
 
 func (s Store) keychain() Keychain {
@@ -113,6 +141,10 @@ func ConfigDir() string {
 	if dir := os.Getenv("MUVLOOM_CONFIG_DIR"); dir != "" {
 		return dir
 	}
+	return defaultConfigDir()
+}
+
+func defaultConfigDir() string {
 	if dir, err := os.UserConfigDir(); err == nil {
 		return filepath.Join(dir, "muvloom")
 	}
@@ -124,10 +156,12 @@ func ConfigDir() string {
 
 // Default uses the keyring unless MUVLOOM_CREDENTIALS_STORE=file.
 func Default() Store {
+	dir := ConfigDir()
 	return Store{
-		Dir:          ConfigDir(),
+		Dir:          dir,
 		UseKeyring:   os.Getenv("MUVLOOM_CREDENTIALS_STORE") != "file",
 		ClearKeyring: true,
+		KeyringUser:  keyringUserFor(dir),
 	}
 }
 
@@ -147,7 +181,7 @@ type Info struct {
 func (s Store) Describe() Info {
 	var info Info
 	if s.UseKeyring {
-		_, err := s.keychain().Get(keyringService, keyringUser)
+		_, err := s.keychain().Get(keyringService, s.keyringUser())
 		switch {
 		case err == nil:
 			info.Backend = "keychain"
@@ -170,7 +204,7 @@ func (s Store) Describe() Info {
 
 func (s Store) Load() (Credentials, error) {
 	if s.UseKeyring {
-		if secret, err := s.keychain().Get(keyringService, keyringUser); err == nil {
+		if secret, err := s.keychain().Get(keyringService, s.keyringUser()); err == nil {
 			var creds Credentials
 			if err := json.Unmarshal([]byte(secret), &creds); err != nil {
 				return Credentials{}, fmt.Errorf("stored credentials are unreadable: %w", err)
@@ -202,7 +236,7 @@ func (s Store) saveSecret(creds Credentials) error {
 		return err
 	}
 	if s.UseKeyring {
-		if err := s.keychain().Set(keyringService, keyringUser, string(data)); err == nil {
+		if err := s.keychain().Set(keyringService, s.keyringUser(), string(data)); err == nil {
 			// The keychain now holds the login. Emptying the old file copy is housekeeping: its
 			// failure must not turn a stored login into a reported failure.
 			_ = truncateIfExists(s.credentialsFile())
@@ -217,8 +251,8 @@ func (s Store) saveSecret(creds Credentials) error {
 	// Load prefers the keychain, so an older entry there would shadow the file and replay
 	// a retired refresh token. This also covers MUVLOOM_CREDENTIALS_STORE=file.
 	if s.UseKeyring || s.ClearKeyring {
-		if err := s.keychain().Delete(keyringService, keyringUser); err != nil && !errors.Is(err, keyring.ErrNotFound) {
-			if _, getErr := s.keychain().Get(keyringService, keyringUser); getErr == nil {
+		if err := s.keychain().Delete(keyringService, s.keyringUser()); err != nil && !errors.Is(err, keyring.ErrNotFound) {
+			if _, getErr := s.keychain().Get(keyringService, s.keyringUser()); getErr == nil {
 				return fmt.Errorf("the system keychain still holds older credentials: %w", err)
 			}
 		}
@@ -344,9 +378,9 @@ func (s Store) Clear() error {
 		var keyringErr error
 		if s.UseKeyring || s.ClearKeyring {
 			_ = s.keychain().Delete(keyringService, keyringProbeUser)
-			if err := s.keychain().Delete(keyringService, keyringUser); err != nil && !errors.Is(err, keyring.ErrNotFound) {
+			if err := s.keychain().Delete(keyringService, s.keyringUser()); err != nil && !errors.Is(err, keyring.ErrNotFound) {
 				// An unavailable keychain is only a problem if it still holds our entry.
-				if _, getErr := s.keychain().Get(keyringService, keyringUser); getErr == nil {
+				if _, getErr := s.keychain().Get(keyringService, s.keyringUser()); getErr == nil {
 					keyringErr = fmt.Errorf("could not remove credentials from the system keychain: %w", err)
 				}
 			}

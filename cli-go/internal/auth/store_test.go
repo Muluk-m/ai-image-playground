@@ -567,7 +567,7 @@ func TestPreflightLeavesStoredCredentialsAsTheyWere(t *testing.T) {
 		if err := store.Preflight(); err != nil {
 			t.Fatalf("preflight: %v", err)
 		}
-		if len(kc.entries) != 1 || kc.entries[keyringUser] == "" {
+		if len(kc.entries) != 1 || kc.entries[defaultKeyringUser] == "" {
 			t.Fatalf("keychain after preflight = %v", kc.entries)
 		}
 		if fileHasContent(store.credentialsFile()) {
@@ -583,4 +583,48 @@ func TestPreflightLeavesStoredCredentialsAsTheyWere(t *testing.T) {
 			t.Fatal("preflight passed although neither the keychain nor the file can be written")
 		}
 	})
+}
+
+// A store in another config directory (MUVLOOM_CONFIG_DIR) must leave the default login in
+// the keychain alone: signing in there with file storage, or out again, used to delete it.
+func TestAnotherConfigDirectoryNeverTouchesTheDefaultKeychainLogin(t *testing.T) {
+	keychain := &userKeychain{entries: map[string]string{defaultKeyringUser: `{"refresh_token":"prod"}`}}
+	dir := t.TempDir()
+	other := Store{Dir: dir, ClearKeyring: true, Keychain: keychain, KeyringUser: keyringUserFor(dir)}
+	if other.KeyringUser == "" || other.KeyringUser == defaultKeyringUser {
+		t.Fatalf("another directory shares the default entry: %q", other.KeyringUser)
+	}
+	if err := other.Save(Credentials{RefreshToken: "test", BaseURL: "https://test.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := other.Clear(); err != nil {
+		t.Fatal(err)
+	}
+	if keychain.entries[defaultKeyringUser] != `{"refresh_token":"prod"}` {
+		t.Fatalf("default login changed: %v", keychain.entries)
+	}
+	withKeychain := Store{Dir: dir, UseKeyring: true, ClearKeyring: true, Keychain: keychain, KeyringUser: keyringUserFor(dir)}
+	if err := withKeychain.Save(Credentials{RefreshToken: "test", BaseURL: "https://test.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if creds, err := withKeychain.Load(); err != nil || creds.RefreshToken != "test" {
+		t.Fatalf("own entry: %v %v", creds, err)
+	}
+	if keychain.entries[defaultKeyringUser] != `{"refresh_token":"prod"}` {
+		t.Fatalf("default login overwritten: %v", keychain.entries)
+	}
+}
+
+func TestTheDefaultConfigDirectoryKeepsTheExistingKeychainEntry(t *testing.T) {
+	if user := keyringUserFor(defaultConfigDir()); user != "" {
+		t.Fatalf("default directory moved to %q; existing logins would be lost", user)
+	}
+	t.Setenv("MUVLOOM_CONFIG_DIR", "")
+	if user := Default().keyringUser(); user != defaultKeyringUser {
+		t.Fatalf("default store uses %q", user)
+	}
+	t.Setenv("MUVLOOM_CONFIG_DIR", t.TempDir())
+	if user := Default().keyringUser(); user == defaultKeyringUser {
+		t.Fatal("MUVLOOM_CONFIG_DIR shares the default keychain entry")
+	}
 }
