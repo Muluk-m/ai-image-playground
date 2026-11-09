@@ -24,10 +24,13 @@ import (
 
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/auth"
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/client"
+	"github.com/Muluk-m/ai-image-playground/cli-go/internal/version"
 )
 
-// Version is overridden at release time with -ldflags "-X .../cli.Version=x.y.z".
-var Version = "0.2.4"
+// Version is the release version, read from the single source
+// cli-go/internal/version/VERSION at compile time (no -ldflags override, so the
+// binary can never report a version the bundled Skill disagrees with).
+var Version = version.Current
 
 const (
 	DefaultAPIURL  = "https://api.muvloom.online"

@@ -27,6 +27,15 @@ def main():
     if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", args.version):
         parser.error("version must be an exact stable X.Y.Z version (no cli-v prefix)")
     root = Path(__file__).resolve().parents[1]
+    # The version is compiled in from internal/version/VERSION, the single source shared
+    # with the bundled Skill's metadata. --version stays required so the release tag is
+    # cross-checked against that source here instead of producing a mislabelled release.
+    source = (root / "internal" / "version" / "VERSION").read_text(encoding="utf-8").strip()
+    if args.version != source:
+        parser.error(
+            f"--version {args.version} does not match cli-go/internal/version/VERSION ({source}); "
+            "bump that file in the release commit"
+        )
     output = args.output.resolve()
     # Refuse stale binaries/checksums instead of silently publishing mixed releases.
     output.mkdir(parents=True, exist_ok=True)
@@ -38,9 +47,7 @@ def main():
         asset = output / f"muvloom_{goos}_{goarch}{suffix}"
         subprocess.run(
             [
-                "go", "build", "-trimpath", "-ldflags",
-                "-s -w -X github.com/Muluk-m/ai-image-playground/cli-go/internal/cli.Version="
-                + args.version,
+                "go", "build", "-trimpath", "-ldflags", "-s -w",
                 "-o", str(asset), "./cmd/muvloom",
             ],
             cwd=root,
