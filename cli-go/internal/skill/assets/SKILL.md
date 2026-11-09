@@ -54,4 +54,8 @@ disable the host's file or credential protection.
 - [install.md](references/install.md) — installing or upgrading the CLI.
 - [updates.md](references/updates.md) — daily update checks and authorized upgrades.
 
+A host that cannot install Skills reads this body from `muvloom skill print`. With no
+files on disk, read a reference this Skill points at with `muvloom skill print --file
+references/cli.md`; `muvloom skill print --list` names them all.
+
 Generated images are artifacts in the user's Muvloom history; they are not saved to the asset library unless the user does that on the website.

@@ -25,7 +25,9 @@ The exit code is the same in both modes.
 | `images validate` / `images create` | A quote, or the submitted `job` with its `job_id`, `idempotency_key`, `wait_timed_out` and `downloads` |
 | `jobs get` / `wait` / `list` / `cancel` | Job `status`, `terminal`, `artifacts`, `actual_credits`; a list shows each job's artifact ids in its `artifacts` column, plus `next_cursor` |
 | `media …` / `artifacts …` | Uploaded references (`media_id`) and generated results (`artifact_id`); downloads report the saved `path` |
-| `update check`, `skill status`, `version` | Release check (`should_prompt`), installed Skills, CLI version. `auth status` also updates older, unedited Skill copies the CLI installed (next session) |
+| `update check`, `skill status`, `version` | Release check (`should_prompt`), installed Skills, CLI version. Each installed Skill reports `path`, `version`, `intact`, `current`, `managed` and, outside the fixed host locations, the `skills_dir` it was found in. `auth status` also updates every older, unedited copy the CLI installed — the fixed Claude Code and Codex locations and each directory installed with `--dir` — effective in the host's next session |
+| `skill install` | Where the Skill went: `host`, `scope`, `path`. `--host claude-code\|codex` installs into that host's fixed location; `--dir DIRECTORY` installs into any host's skills directory, so the Skill lands in `<dir>/muvloom` (for example `--dir ~/.workbuddy/skills`) and that directory is remembered for later refreshes. A copy a host installed itself has `managed: false`: it is reported, never replaced |
+| `skill print` | The bundled Skill on stdout, byte for byte, for a host that cannot install Skills: the body by default, one reference with `--file references/cli.md`, the printable file names with `--list` |
 
 IDs: `job_id` is a generation task, `artifact_id` a generated image, `media_id` an uploaded reference image. They are not interchangeable.
 
