@@ -77,7 +77,7 @@ async function submit4k(userId: string | null = BILLING_USER) {
     userId,
   })
 }
-it('persists original prompt facts while queueing the shaped prompt', async () => {
+it('persists original prompt facts while queueing the prompt', async () => {
   const originalPrompt = 'a red cat'
   const outcome = await createQueueTask({
     entry: 'web-direct',
@@ -90,12 +90,10 @@ it('persists original prompt facts while queueing the shaped prompt', async () =
   expect(outcome.kind).toBe('created')
   if (outcome.kind !== 'created') throw new Error('unreachable')
   const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, outcome.taskId))
-  expect(task!.request_payload.prompt).toBe(
-    `${originalPrompt}\n\nComposition: a wide 16:9 landscape frame, horizontal orientation.`,
-  )
+  expect(task!.request_payload.prompt).toBe(originalPrompt)
   expect(task!.request_payload.prompt_shaping).toMatchObject({
     original_prompt: originalPrompt,
-    ratio_via_prompt: true,
+    ratio_via_prompt: false,
   })
 })
 

@@ -1438,13 +1438,8 @@ it('only accepts dispatch shaping the selected model would actually get', async 
         { prompt, inputCount: 0 },
         { provider, model, size: '1536x1024' },
       )
-    // gpt-image-2.5-flare 不认 size：guard、后缀、两者都有都是分发层的合法产物。
-    for (const prompt of [
-      '嫩芽',
-      applyPromptRewriteGuard('嫩芽'),
-      `嫩芽\n\n${instruction}`,
-      `${applyPromptRewriteGuard('嫩芽')}\n\n${instruction}`,
-    ])
+    // 当前模型清单声明该模型支持 size；分发层只可能补 guard，不补构图后缀。
+    for (const prompt of ['嫩芽', applyPromptRewriteGuard('嫩芽')])
       expect(accepts(prompt, 'gpt-image-2.5-flare', 'openai-compat')).toBe(true)
     // 认 size 的模型分发层不加构图后缀，只可能加 guard。
     expect(accepts(`嫩芽\n\n${instruction}`, 'sized-image', 'openai-compat')).toBe(false)
