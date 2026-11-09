@@ -45,12 +45,14 @@ export const useAgentJobActivity = create<JobActivityState>(() => ({ activity: {
 
 /** 切走的对话多久问一次。人不在那个对话里，晚几秒知道没关系。 */
 const AWAY_POLL_MS = 5_000
+const HIDDEN_POLL_MS = 30_000
 
 interface Hooks {
   /** 用户此刻正看着这个对话（在对话/画布入口、标签页在前台、开着的就是它）。 */
   viewing(conversationId: string): boolean
   fetchJobs(conversationId: string): Promise<readonly AgentBackgroundJobView[]>
   pollIntervalMs: number
+  hiddenPollIntervalMs: number
   /** 出完了新图：重新拉一次项目目录，侧栏缩略图马上换成封面，不用等刷新。 */
   refreshCovers(): void
 }
@@ -59,6 +61,7 @@ const hooks: Hooks = {
   viewing: () => false,
   fetchJobs: requestJobs,
   pollIntervalMs: AWAY_POLL_MS,
+  hiddenPollIntervalMs: HIDDEN_POLL_MS,
   refreshCovers: () => {},
 }
 
@@ -126,37 +129,58 @@ function complete(
 }
 
 /** 切走之后还在等的对话：一份守候一个对话。 */
-const away = new Map<string, { readonly ids: Set<string>; readonly token: object }>()
+const away = new Map<string, { readonly ids: Set<string>; stop(): void }>()
+
+function stopAway(conversationId: string): void {
+  away.get(conversationId)?.stop()
+  away.delete(conversationId)
+}
 
 function watchAway(conversationId: string, ids: readonly string[]) {
   if (!ids.length || away.has(conversationId)) return
-  const token = {}
-  const entry = { ids: new Set(ids), token }
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let stopped = false
+  let busy = false
+  let catchUp = false
+  const hidden = () => typeof document !== 'undefined' && document.visibilityState === 'hidden'
+  const stop = () => {
+    stopped = true
+    clearTimeout(timer)
+    timer = undefined
+    if (typeof document !== 'undefined')
+      document.removeEventListener('visibilitychange', visibility)
+  }
+  const entry = { ids: new Set(ids), stop }
   away.set(conversationId, entry)
   const previous = useAgentJobActivity.getState().activity[conversationId]
   patch(conversationId, { ...previous, running: ids.length })
   const sameAccount = accountScope()
-  const live = () => away.get(conversationId)?.token === token && sameAccount()
+  const live = () => {
+    if (stopped || away.get(conversationId) !== entry) return false
+    if (!sameAccount()) {
+      resetAgentJobActivity()
+      return false
+    }
+    return true
+  }
   const settled = new Map<string, AgentBackgroundJobView['result']>()
-  void (async () => {
-    while (live()) {
-      await new Promise((resolve) => setTimeout(resolve, hooks.pollIntervalMs))
+  const schedule = (immediate = false) => {
+    clearTimeout(timer)
+    if (!live()) return
+    timer = setTimeout(
+      () => void poll(),
+      immediate ? 0 : hidden() ? hooks.hiddenPollIntervalMs : hooks.pollIntervalMs,
+    )
+  }
+  const poll = async () => {
+    timer = undefined
+    if (!live() || busy) return
+    busy = true
+    catchUp = false
+    try {
+      const jobs = await hooks.fetchJobs(conversationId)
       if (!live()) return
-      let jobs: readonly AgentBackgroundJobView[]
-      try {
-        jobs = await hooks.fetchJobs(conversationId)
-      } catch (error) {
-        // 对话已经删了（或不再属于这个账号）：不再等，侧栏的「在跑」也收掉；其它错误下次再问。
-        if (error instanceof AgentRequestError && (error.status === 404 || error.status === 403)) {
-          if (!live()) return
-          away.delete(conversationId)
-          patch(conversationId, null)
-          return
-        }
-        continue
-      }
-      if (!live()) return
-      // 切走期间出完的图把助手叫醒、又提交了新的一批：这些也算这个对话还没出完的，一起等。
+      // New submissions while away belong to the same completion notification.
       for (const job of jobs)
         if (job.result.status === 'submitted' || job.result.status === 'queued')
           entry.ids.add(job.messageId)
@@ -168,19 +192,32 @@ function watchAway(conversationId: string, ids: readonly string[]) {
         )
           settled.set(job.messageId, job.result)
       const seen = new Set(jobs.map((job) => job.messageId))
-      // 服务端已经不列的（会话删了、记录收掉）不再等。
       const running = [...entry.ids].filter((id) => seen.has(id) && !settled.has(id)).length
       if (running > 0) {
         const current = useAgentJobActivity.getState().activity[conversationId]
         if (current?.running !== running) patch(conversationId, { ...current, running })
-        continue
+      } else {
+        stopAway(conversationId)
+        complete(conversationId, tally([...settled.values()]))
       }
-      away.delete(conversationId)
-      complete(conversationId, tally([...settled.values()]))
-      return
+    } catch (error) {
+      if (!live()) return
+      if (error instanceof AgentRequestError && (error.status === 404 || error.status === 403)) {
+        stopAway(conversationId)
+        patch(conversationId, null)
+      }
+    } finally {
+      busy = false
+      if (live()) schedule(catchUp && !hidden())
     }
-    if (away.get(conversationId)?.token === token) away.delete(conversationId)
-  })()
+  }
+  const visibility = () => {
+    if (!live()) return
+    if (busy) catchUp = !hidden()
+    else schedule(!hidden())
+  }
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', visibility)
+  schedule()
 }
 
 /** 记下这些的是哪个账号：换了账号，上一个账号的状态整份作废。 */
@@ -226,7 +263,7 @@ export function reportAgentPanel(
   if (watched && messages.some((message) => watched.ids.has(message.id))) {
     // 接手时把后台在等的卡记到面板上：切回来之前已经出完的，也照样结算、记一笔。
     for (const message of messages) if (watched.ids.has(message.id)) panel.ids.add(message.id)
-    away.delete(conversationId)
+    stopAway(conversationId)
   }
   const unsettled = messages.filter(agentJobUnsettled)
   for (const message of unsettled) panel.ids.add(message.id)
@@ -268,6 +305,7 @@ export function dismissAgentJobNotice(): void {
 /** 换账号、测试之间：全部清掉。 */
 export function resetAgentJobActivity(): void {
   scope = accountScope()
+  for (const entry of away.values()) entry.stop()
   away.clear()
   panel = null
   useAgentJobActivity.setState({ activity: {}, notice: null })

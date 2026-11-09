@@ -51,7 +51,7 @@ export function noteDirectKeySnapshot(input: {
   const keys = input.admin ?? safeEnvDirectKeys()
   const deliverable =
     input.deliverable ?? keys.some((key) => key.enabled && !blocked.has(key.fingerprint))
-  setAdminDirectKeySnapshot(input.admin, deliverable)
+  setAdminDirectKeySnapshot(input.admin, deliverable, blocked)
 }
 
 /** 预算或冷却变了之后，改 size 能力，不动密钥清单。 */
@@ -185,7 +185,7 @@ function legacySingleKey(secret: string): DirectKey {
   }
 }
 
-function envDirectKeys(): DirectKey[] {
+export function envDirectKeys(): DirectKey[] {
   const list = process.env.OPENAI_API_KEYS?.trim()
   if (list) return parseDirectKeyList(list, process.env.OPENAI_API_KEY_BUDGETS_USD ?? '')
   const single = runtimeSecret('OPENAI_API_KEY', config.gptDirect.apiKey).trim()

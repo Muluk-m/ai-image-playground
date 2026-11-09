@@ -45,6 +45,7 @@ import {
 } from './upstream/errors'
 import { mergeGeminiCandidateResults } from './upstream/gemini'
 import { estimateDirectCostMicroUsd, recordDirectUsage } from './upstream/gpt-budget'
+import { directKeyKnownDisabled } from './upstream/gpt-direct-availability'
 import { configuredDirectKeys, type DirectKey } from './upstream/gpt-key-config'
 import {
   classifyDirectKeyFailure,
@@ -143,6 +144,8 @@ interface UpstreamRoute {
   schedulerBuckets?: readonly SchedulerBucket[]
   /** GPT Image 走的是哪条通道；决定发送前的参数适配（见 {@link adaptGptRequest}）。 */
   gptRoute?: GptRoute
+  /** 实际选中的直连 key；所有模型在共同派发边界记录，不保存密钥本身。 */
+  keyFingerprint?: string
   /** 直连可选的 OpenAI-Organization 头。 */
   organization?: string
   /**
@@ -272,7 +275,11 @@ function directRoute(
   key?: DirectKey,
   options?: { skipSharedRateLimitCooldown?: boolean },
 ): UpstreamRoute {
-  const chosen = key ?? configuredDirectKeys()[0]
+  const chosen =
+    key ??
+    configuredDirectKeys().find(
+      (candidate) => candidate.enabled && !directKeyKnownDisabled(candidate.fingerprint),
+    )
   return {
     baseUrl: config.gptDirect.baseUrl,
     key: chosen?.secret ?? gptDirectApiKey(),
@@ -283,6 +290,7 @@ function directRoute(
     supportsNativeN: true,
     schedulerBuckets: gptSchedulerBuckets(model, 'direct'),
     gptRoute: 'direct',
+    ...(chosen ? { keyFingerprint: chosen.fingerprint } : {}),
     ...(options?.skipSharedRateLimitCooldown ? { skipSharedRateLimitCooldown: true } : {}),
     ...(config.gptDirect.organization ? { organization: config.gptDirect.organization } : {}),
   }
@@ -297,8 +305,8 @@ export interface UpstreamCallParams {
   gptMember?: boolean
   /** Server-persisted CLI contract; premium GPT requests may only execute on direct. */
   strictImageRequest?: boolean
-  /** 每次直连 key 真正派发前记录指纹；null 用于清掉上一次失败的尝试。 */
-  onGptKey?: (fingerprint: string | null) => Promise<void>
+  /** 直连请求派发时记录安全指纹；与响应一起等待落库，不推迟传输启动。 */
+  onGptKey?: (fingerprint: string) => Promise<void>
   /** GPT Image 每条路开跑前调用（换路时再调一次）；调用方据此记下最后走的通道，结算用。 */
   onGptRoute?: (route: GptRoute) => Promise<void>
   provider: QueueProvider
@@ -491,12 +499,10 @@ async function callDirectTryingKeys(
         directRoute(model, key, { skipSharedRateLimitCooldown: another !== null }),
         {
           ...attempt,
-          onDispatched: async () => {
-            onAttempt(key.fingerprint)
-            await params.onGptKey?.(null)
-            await attempt.onDispatched?.()
-            await params.onGptKey?.(key.fingerprint)
+          onDispatched: () => {
             thisKeyDispatched = true
+            onAttempt(key.fingerprint)
+            return attempt.onDispatched?.()
           },
           onResponse: () => {
             produced = true
@@ -885,17 +891,14 @@ async function callUpstreamVia(
       if (lease) outstandingLeases.add(lease)
     }
     let sent = false
-    // 调度等待结束后到记账回调前仍可能被用户或换路逻辑取消；取消的请求不能写派发账。
+    // 记账回调开始前都确定没发出；回调里失败时不知道它是否已提交，按原样当「结果未知」。
     let committing = false
     try {
-      if (deadline.signal.aborted) {
-        if (deadline.timedOut) throw queueTimeoutError()
-        throw new DOMException('Upstream request aborted', 'AbortError')
-      }
+      if (deadline.signal.aborted) throw new DOMException('Upstream request aborted', 'AbortError')
       committing = true
       const dispatchId = counted ? await beforeRequest?.() : undefined
       sent = true
-      if (counted) await attempt.onDispatched?.()
+      const attributed = counted ? attempt.onDispatched?.() : undefined
       // The accounting callback is the dispatch commit point. Start the transport with a fresh
       // signal before relaying cancellation so a cancellation that loses the database race cannot
       // create a charged task without a corresponding upstream invocation.
@@ -907,13 +910,17 @@ async function callUpstreamVia(
       })
       deadline.signal.addEventListener('abort', relayAbort, { once: true })
       if (deadline.signal.aborted) relayAbort()
+      let keyRecorded: Promise<void> | undefined
       try {
+        if (counted && route.keyFingerprint) keyRecorded = params.onGptKey?.(route.keyFingerprint)
         const recorded = dispatchId ? params.onRequestDispatched?.(dispatchId) : undefined
         let response: UpstreamResponse
         try {
-          ;[response] = await Promise.all([responsePromise, recorded])
+          ;[response] = await Promise.all([responsePromise, recorded, attributed, keyRecorded])
         } catch (error) {
           requestAbort.abort()
+          // 旧通道的写入必须结束再允许换路，避免覆盖后续 sub2api 的清空结果。
+          await Promise.allSettled([attributed, keyRecorded])
           throw error
         }
         if (dispatchId) dispatchIdentities.set(response, dispatchId)
