@@ -793,7 +793,7 @@ async function submitQueueTask(
         ),
       },
     })
-    const legacyRequest = { ...request, no_rewrite, prompt: legacyPrompt }
+    const legacyRequest = { ...request, prompt: legacyPrompt }
     legacyHashes.push(commandHash({ ...input, promptShaping: undefined, request: legacyRequest }))
     if (no_rewrite && input.provider !== 'gemini')
       legacyHashes.push(
@@ -801,6 +801,18 @@ async function submitQueueTask(
           ...input,
           promptShaping: undefined,
           request: { ...legacyRequest, prompt: applyPromptRewriteGuard(legacyPrompt) },
+        }),
+      )
+    const optionedLegacyRequest = { ...legacyRequest, no_rewrite }
+    legacyHashes.push(
+      commandHash({ ...input, promptShaping: undefined, request: optionedLegacyRequest }),
+    )
+    if (no_rewrite && input.provider !== 'gemini')
+      legacyHashes.push(
+        commandHash({
+          ...input,
+          promptShaping: undefined,
+          request: { ...optionedLegacyRequest, prompt: applyPromptRewriteGuard(legacyPrompt) },
         }),
       )
   }
