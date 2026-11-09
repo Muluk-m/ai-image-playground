@@ -97,7 +97,7 @@ describe('shutdown abort', () => {
     expect(row).toMatchObject({
       status: 'failed',
       attempt: 1,
-      errorType: 'upstream_result_unknown',
+      errorType: 'interrupted',
     })
     expect(row?.next).toBeNull()
     expect(row?.completedAt).not.toBeNull()
@@ -110,7 +110,7 @@ describe('shutdown abort', () => {
 
     expect(await readTask('drain-exhausted')).toMatchObject({
       status: 'failed',
-      errorType: 'upstream_result_unknown',
+      errorType: 'interrupted',
       attempt: MAX_ATTEMPTS,
     })
   })

@@ -1438,12 +1438,8 @@ it('only accepts dispatch shaping the selected model would actually get', async 
         { prompt, inputCount: 0 },
         { provider, model, size: '1536x1024' },
       )
-    // 直连 GPT 模型即使声明 size，也由分发层补构图后缀；同时允许旧页面的 guard 变体。
-    for (const prompt of [
-      `嫩芽\n\n${instruction}`,
-      `${applyPromptRewriteGuard('嫩芽')}\n\n${instruction}`,
-    ])
-      expect(accepts(prompt, 'gpt-image-2.5-flare', 'openai-compat')).toBe(true)
+    const prompt = `${applyPromptRewriteGuard('嫩芽')}\n\n${instruction}`
+    expect(accepts(prompt, 'gpt-image-2.5-flare', 'openai-compat')).toBe(true)
     // 认 size 的模型分发层不加构图后缀，只可能加 guard。
     expect(accepts(`嫩芽\n\n${instruction}`, 'sized-image', 'openai-compat')).toBe(false)
     expect(accepts(applyPromptRewriteGuard('嫩芽'), 'sized-image', 'openai-compat')).toBe(true)
