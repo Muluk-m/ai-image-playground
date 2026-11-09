@@ -171,15 +171,21 @@ describe('route choice', () => {
   it.each([
     'gpt-image-2.6-flare',
     'gpt-image-2.6-sunburst',
-  ])('removes a legacy guard from the actual %s direct request', async (model) => {
+  ])('records the actual %s direct key and removes a legacy guard', async (model) => {
+    const fingerprints: string[] = []
     await callUpstream({
       provider: 'openai-compat',
       model,
       request: { prompt: `${PROMPT_REWRITE_GUARD_PREFIX}\na cat`, quality: 'high' },
+      onGptKey: async (fingerprint) => {
+        fingerprints.push(fingerprint)
+      },
     })
     expect(sent).toHaveLength(1)
     expect(sent[0]!.route).toBe('direct')
     expect(sent[0]!.body).toMatchObject({ prompt: 'a cat', quality: 'high', model })
+    expect(fingerprints).toEqual([fingerprintOf('direct-key').fingerprint])
+    expect(JSON.stringify(fingerprints)).not.toContain('direct-key')
   })
 
   it('adds the guard only to the selected gateway when requested', async () => {

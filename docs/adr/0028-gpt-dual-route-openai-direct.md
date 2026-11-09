@@ -103,4 +103,4 @@ BFF 拆成多个单图任务。OpenAI 组织是 Tier 1（每模型 20 张/分钟
 - 后台 `/providers` 的「直连与预算」页签可以增删、改预算、排序、停用和恢复；旧 `/gpt-direct` 深链保留并重定向到该页签。密文用 `UPSTREAM_SECRETS_MASTER_KEY` 做 AES-256-GCM，和上游密钥替换同一套，明文不回显。后台有记录就只走这些；没有记录才退回环境变量。
 - 直连页签按需读取花费数据，7／30 天范围保留在 URL；worker 约每 2 秒重读，不用重启。
 - 告警扫描直接读数据库中的后台 key 清单、`enabled` 与自动停用原因，不依赖各 worker 的刷新快照；只有后台无记录才读环境变量。手动停用或移除 key 后解除该 key 的告警，不清除额度耗尽／失效原因；重新启用仍须显式恢复自动停用状态。解除通知只说明告警结束，不声称密钥已重新可用。
-- `0097_task_gpt_route_attribution` 新增 `tasks.gpt_key_fingerprint`；直连实际派发时记录安全指纹，换到 sub2api 时清空。归因写入与响应一起等待，不推迟传输启动；归档重试保留原归因。`queue_tasks` 视图按实际历史列顺序追加缺失的公开字段，保留授权与依赖；Admin 任务列表、用户／设备任务和详情展示通道及指纹，旧任务指纹为空。迁移回滚脚本在 `packages/db/drizzle/rollback/0097_task_gpt_route_attribution.down.sql`；常规代码回滚可保留这两个可空字段。
+- `0097_task_gpt_route_attribution` 新增 `tasks.gpt_key_fingerprint`；所有直连模型（包括 2.6 独立直连）在共用的实际派发边界记录安全指纹，换到 sub2api 时清空。归因写入与响应一起等待，不推迟传输启动；归档重试保留原归因。`queue_tasks` 视图按实际历史列顺序追加缺失的公开字段，保留授权与依赖；Admin 任务列表、用户／设备任务和详情展示通道及指纹，旧任务指纹为空。迁移回滚脚本在 `packages/db/drizzle/rollback/0097_task_gpt_route_attribution.down.sql`；常规代码回滚可保留这两个可空字段。
