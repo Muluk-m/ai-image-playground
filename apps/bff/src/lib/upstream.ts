@@ -297,6 +297,8 @@ export interface UpstreamCallParams {
   gptMember?: boolean
   /** Server-persisted CLI contract; premium GPT requests may only execute on direct. */
   strictImageRequest?: boolean
+  /** 每次直连 key 真正派发前记录指纹；null 用于清掉上一次失败的尝试。 */
+  onGptKey?: (fingerprint: string | null) => Promise<void>
   /** GPT Image 每条路开跑前调用（换路时再调一次）；调用方据此记下最后走的通道，结算用。 */
   onGptRoute?: (route: GptRoute) => Promise<void>
   provider: QueueProvider
@@ -488,11 +490,12 @@ async function callDirectTryingKeys(
         params,
         directRoute(model, key, { skipSharedRateLimitCooldown: another !== null }),
         {
-          ...attempt,
-          onDispatched: () => {
-            thisKeyDispatched = true
+          onDispatched: async () => {
             onAttempt(key.fingerprint)
-            attempt.onDispatched?.()
+            await params.onGptKey?.(null)
+            await attempt.onDispatched?.()
+            await params.onGptKey?.(key.fingerprint)
+            thisKeyDispatched = true
           },
           onResponse: () => {
             produced = true
@@ -780,7 +783,7 @@ interface AttemptOptions {
   /** 两路共用的硬截止（epoch 毫秒）；缺席按提交时刻 + 硬超时。 */
   deadlineAt?: number
   /** 每条计数请求通过记账、确实发出时调用。 */
-  onDispatched?: () => void
+  onDispatched?: () => void | Promise<void>
   /** 某条请求的响应完整读到（成功出图）时调用；fan-out 里已有成品就不该再整单换路。 */
   onResponse?: () => void
 }
@@ -881,15 +884,17 @@ async function callUpstreamVia(
       if (lease) outstandingLeases.add(lease)
     }
     let sent = false
-    // 记账回调开始前都确定没发出；回调里失败时不知道它是否已提交，按原样当「结果未知」。
+    // 调度等待结束后到记账回调前仍可能被用户或换路逻辑取消；取消的请求不能写派发账。
     let committing = false
     try {
-      if (deadline.signal.aborted) throw new DOMException('Upstream request aborted', 'AbortError')
+      if (deadline.signal.aborted) {
+        if (deadline.timedOut) throw queueTimeoutError()
+        throw new DOMException('Upstream request aborted', 'AbortError')
+      }
       committing = true
       const dispatchId = counted ? await beforeRequest?.() : undefined
       sent = true
-      if (counted) attempt.onDispatched?.()
-
+      if (counted) await attempt.onDispatched?.()
       // The accounting callback is the dispatch commit point. Start the transport with a fresh
       // signal before relaying cancellation so a cancellation that loses the database race cannot
       // create a charged task without a corresponding upstream invocation.
