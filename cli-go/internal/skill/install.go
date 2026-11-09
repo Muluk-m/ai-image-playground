@@ -15,11 +15,13 @@ import (
 	"time"
 
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/auth"
+	"github.com/Muluk-m/ai-image-playground/cli-go/internal/version"
 )
 
-// BundleVersion is tied to the native CLI release. Keep the bundled Skill and
-// the executable on the same version so hosts can report what was installed.
-const BundleVersion = "0.2.4"
+// BundleVersion is the bundled Skill's metadata version. It comes from the same
+// single source as the executable's version (cli-go/internal/version/VERSION),
+// so hosts always report the Skill and the CLI on one version.
+var BundleVersion = version.Current
 
 //go:embed assets
 var bundled embed.FS
