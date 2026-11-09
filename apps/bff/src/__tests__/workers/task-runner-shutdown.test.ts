@@ -88,19 +88,15 @@ async function abortForShutdown(running: Promise<void>): Promise<void> {
 }
 
 describe('shutdown abort', () => {
-  it('does not resubmit an already dispatched request whose result is unknown', async () => {
+  it('requeues an interrupted request that was not dispatched', async () => {
     const { running } = await startInflightTask('drain-requeue')
 
     await abortForShutdown(running)
 
     const row = await readTask('drain-requeue')
-    expect(row).toMatchObject({
-      status: 'failed',
-      attempt: 1,
-      errorType: 'interrupted',
-    })
-    expect(row?.next).toBeNull()
-    expect(row?.completedAt).not.toBeNull()
+    expect(row).toMatchObject({ status: 'queued', attempt: 1, errorType: null })
+    expect(row?.next).not.toBeNull()
+    expect(row?.completedAt).toBeNull()
   })
 
   it('fails the task once the retry budget is spent', async () => {
