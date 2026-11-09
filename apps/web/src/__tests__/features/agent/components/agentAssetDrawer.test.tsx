@@ -424,7 +424,10 @@ it('shows a resumed batch result while another batch keeps running', async () =>
     await act(async () =>
       root.render(
         <AgentAssetDrawer
-          messages={[planMessage('running', 'running'), planMessage('恢复后的新素材', 'paused')]}
+          messages={[
+            planMessage('running', 'running'),
+            { ...planMessage('paused', 'paused'), title: '恢复后的新素材' },
+          ]}
           onClose={() => {}}
           onPreview={() => {}}
         />,
