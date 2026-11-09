@@ -156,7 +156,6 @@ it.each([
   const original = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, legacy)
   expect(original.status).toBe(200)
   const { request_id } = await original.json()
-  const replay = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceB, modern)
   expect(replay.status).toBe(200)
   expect(await replay.json()).toMatchObject({ request_id })
   const changed = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceB, {
