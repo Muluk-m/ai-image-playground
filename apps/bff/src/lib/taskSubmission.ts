@@ -26,6 +26,7 @@ import {
   nearestImageSize,
   QUEUE_TIMEOUTS,
   resolveImageTier,
+  shapeQueuePrompt,
   stageAuthorizedVideoDuration,
   videoModelSupportOf,
   videoRateMultiplier,
@@ -38,7 +39,7 @@ import { prepareMaskedInput } from './agent/masked-input'
 import { consumeStageAuthorization } from './agent/stage-authorizations'
 import { canonicalJson } from './canonicalJson'
 import { isCapabilityEnabled } from './capabilities'
-import { declaredImageSizes } from './channels'
+import { declaredImageSizes, modelCapabilities } from './channels'
 import { describeEmptyResult, type ExtractedResult, extractMeta } from './extractImages'
 import { isActiveMember } from './gpt-membership'
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from './imageArchive'
@@ -83,6 +84,11 @@ export interface CreateQueueTaskInput {
   /** 输入图仍是 data URL，落库前在这里归档进对象存储。 */
   readonly request: Omit<SubmitRequest, 'video'>
   readonly video?: PersistedVideoRequest
+  /** Original prompt and capability decision used to build the persisted queue prompt. */
+  readonly promptShaping?: {
+    readonly originalPrompt: string
+    readonly ratioViaPrompt?: boolean
+  }
   readonly userId: string | null
   /** 智能体工具提交时带上会话与轮，任务由此可反查属于哪一轮。 */
   readonly agent?: {
@@ -183,18 +189,21 @@ function pricingOf(
 
 function commandHash(input: Omit<CreateQueueTaskInput, 'entry'>) {
   const { device_id: _device, client_request_id: _command, ...request } = input.request
+  const prompt = input.promptShaping?.originalPrompt ?? request.prompt
+  const identityRequest = {
+    ...request,
+    prompt,
+    n: request.n ?? 1,
+    ...(!input.video && input.provider === 'openai-compat'
+      ? { moderation: request.moderation ?? DEFAULT_IMAGE_MODERATION }
+      : {}),
+  }
   return createHash('sha256')
     .update(
       canonicalJson({
         provider: input.provider,
         model: input.model,
-        request: {
-          ...request,
-          n: request.n ?? 1,
-          ...(!input.video && input.provider === 'openai-compat'
-            ? { moderation: request.moderation ?? DEFAULT_IMAGE_MODERATION }
-            : {}),
-        },
+        request: identityRequest,
         video: input.video,
         ...(input.reconciliationRequired ? { reconciliationRequired: true } : {}),
         // Strict execution is server policy, not request identity; keep existing CLI receipts replayable.
@@ -392,6 +401,7 @@ async function prepareMaskedSubmission(input: CreateQueueTaskInput) {
 
 /**
  * Read, transform and archive image bytes before acquiring caller transaction locks.
+ * Prompt shaping stays here, after image/mask preparation, so mask-specific prompt notes are retained.
  * 预先准备的入口（批量执行、自动提交、灵感套用）的 `entry` 一律让 GPT 收到非会员上限，见 `resolveImageTier`。
  */
 async function prepareQueueTask(input: CreateQueueTaskInput) {
@@ -404,10 +414,34 @@ async function prepareAlignedQueueTask(alignment: ImageTierAlignment) {
   let requestPayload: PersistedSubmitRequest
   try {
     const masked = await prepareMaskedSubmission(input)
+    const baseRequest = masked?.request ?? input.request
+    const capabilities = modelCapabilities(input.model)
+    const shaping =
+      input.promptShaping && !input.video
+        ? {
+            original_prompt: input.promptShaping.originalPrompt,
+            provider: input.provider,
+            model: input.model,
+            ...(baseRequest.size ? { size: baseRequest.size } : {}),
+            ...(input.request.no_rewrite !== undefined
+              ? { no_rewrite: input.request.no_rewrite }
+              : {}),
+            ratio_via_prompt:
+              input.promptShaping.ratioViaPrompt ??
+              Boolean(baseRequest.size && capabilities && !capabilities.includes('size')),
+          }
+        : undefined
+    const request = shaping
+      ? {
+          ...baseRequest,
+          prompt: shapeQueuePrompt({ prompt: baseRequest.prompt, facts: shaping }),
+        }
+      : baseRequest
     requestPayload = {
-      ...(await archiveInputImages(id, masked?.request ?? input.request)),
+      ...(await archiveInputImages(id, request)),
       ...(input.video ? { video: input.video } : {}),
       ...masked?.facts,
+      ...(shaping ? { prompt_shaping: shaping } : {}),
     }
     // The request body cannot opt into (or out of) the server's execution contract.
     delete requestPayload.strict_image_request
@@ -700,7 +734,11 @@ async function alignImageTier(input: CreateQueueTaskInput): Promise<ImageTierAli
   // 对整理后的最终请求只取 requires 与倍率：会员位拉满，避免再收一次口把 Gemini 降回 2K，
   // 而 extra.imageConfig 与渠道取最近档的结果仍是 4K，落库、计价与上游发出的档位就错位了。
   const decision = resolveImageTier({ ...base, request, member: true })
-  return { input: request === input.request ? input : { ...input, request }, decision, member }
+  return {
+    input: request === input.request ? input : { ...input, request },
+    decision,
+    member,
+  }
 }
 
 const GPT_IMAGE_26_REJECTION_MESSAGE = {
@@ -758,14 +796,26 @@ async function submitQueueTask(
   let legacyHash: string | undefined
   if (input.request.no_rewrite !== undefined) {
     const { no_rewrite, ...request } = input.request
+    const legacyPrompt = shapeQueuePrompt({
+      prompt: input.promptShaping?.originalPrompt ?? request.prompt,
+      facts: {
+        provider: input.provider,
+        model: input.model,
+        ...(request.size ? { size: request.size } : {}),
+        ratio_via_prompt: Boolean(
+          request.size && modelCapabilities(input.model)?.includes('size') === false,
+        ),
+      },
+    })
     legacyHash = commandHash({
       ...input,
+      promptShaping: undefined,
       request: {
         ...request,
         prompt:
           no_rewrite && !input.video && input.provider !== 'gemini'
-            ? applyPromptRewriteGuard(request.prompt)
-            : request.prompt,
+            ? applyPromptRewriteGuard(legacyPrompt)
+            : legacyPrompt,
       },
     })
   }

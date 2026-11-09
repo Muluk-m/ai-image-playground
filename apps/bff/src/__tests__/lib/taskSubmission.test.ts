@@ -77,6 +77,27 @@ async function submit4k(userId: string | null = BILLING_USER) {
     userId,
   })
 }
+it('persists original prompt facts while queueing the shaped prompt', async () => {
+  const originalPrompt = 'a red cat'
+  const outcome = await createQueueTask({
+    entry: 'web-direct',
+    provider: 'openai-compat',
+    model: 'gpt-image-2.5-flare',
+    promptShaping: { originalPrompt },
+    request: request({ prompt: originalPrompt, size: '1280x720' }),
+    userId: null,
+  })
+  expect(outcome.kind).toBe('created')
+  if (outcome.kind !== 'created') throw new Error('unreachable')
+  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, outcome.taskId))
+  expect(task!.request_payload.prompt).toBe(
+    `${originalPrompt}\n\nComposition: a wide 16:9 landscape frame, horizontal orientation.`,
+  )
+  expect(task!.request_payload.prompt_shaping).toMatchObject({
+    original_prompt: originalPrompt,
+    ratio_via_prompt: true,
+  })
+})
 
 it('accepts 4K with a current active private billing subscription', async () => {
   await ensureBillingUser()
