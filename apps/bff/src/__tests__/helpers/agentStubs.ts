@@ -9,9 +9,11 @@ import {
 } from '@image-playground/shared'
 import { TEST_IMAGE } from './imageFixtures'
 
-/** 队列保存原文；防改写前缀只在网关派发时添加。 */
+/** 队列保存原文；图片尺寸不由模型决定时，队列提示会补构图事实。 */
 export function submittedPrompt(prompt: string): string {
-  return prompt
+  return prompt.includes('执行局部图像编辑')
+    ? `${prompt}\n\nComposition: a 1:1 square frame.`
+    : prompt
 }
 
 export interface AgentCall {
