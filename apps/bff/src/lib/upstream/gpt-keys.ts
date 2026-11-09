@@ -297,7 +297,6 @@ export function notifyDirectKeyDisabled(key: DirectKey, reason: 'quota' | 'inval
 export async function restoreDirectKey(fingerprint: string, operator?: string): Promise<boolean> {
   const key = configuredDirectKeys().find((candidate) => candidate.fingerprint === fingerprint)
   if (!key) return false
-  forgetDirectKeyDisabled(fingerprint)
   const now = Date.now()
   const operatorId = (operator?.trim() || 'admin').slice(0, 200)
   await db.transaction(async (tx) => {
@@ -325,6 +324,7 @@ export async function restoreDirectKey(fingerprint: string, operator?: string): 
       created_at: now,
     })
   })
+  forgetDirectKeyDisabled(fingerprint)
   log.info(
     {
       event: 'gpt.direct_key_restored',

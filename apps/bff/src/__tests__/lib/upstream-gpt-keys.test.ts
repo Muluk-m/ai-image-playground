@@ -10,6 +10,7 @@ process.env.DATABASE_URL = await resetTestDatabase('bff_gpt_direct_keys')
 process.env.UPSTREAM_BASE_URL = 'https://sub2api.example.com'
 process.env.UPSTREAM_API_KEY = 'sub2api-key'
 process.env.GPT_DIRECT_ENABLED = 'true'
+process.env.GPT_IMAGE_26_ENABLED = 'true'
 process.env.OPENAI_API_KEY = ''
 process.env.OPENAI_API_KEYS = `${PRIMARY},${SECONDARY}`
 process.env.OPENAI_API_KEY_BUDGETS_USD = '1,5'
@@ -480,6 +481,36 @@ describe('key failover', () => {
       secondaryId.fingerprint,
     ])
     expect(await db.select().from(schema.gpt_direct_usage)).toHaveLength(0)
+  })
+
+  it('keeps GPT 2.6 disabled when restoring its key rolls back, then reopens after commit', async () => {
+    await db.insert(schema.gpt_direct_key_state).values(
+      [primaryId, secondaryId].map((key) => ({
+        fingerprint: key.fingerprint,
+        disabled_reason: 'quota' as const,
+        updated_at: Date.now(),
+      })),
+    )
+    await refreshGptDirectKeys()
+    await db.execute(sql`ALTER TABLE operator_audits RENAME TO unavailable_restore_audits_fixture`)
+    try {
+      await expect(restoreDirectKey(primaryId.fingerprint, 'ops')).rejects.toThrow()
+    } finally {
+      await db.execute(
+        sql`ALTER TABLE unavailable_restore_audits_fixture RENAME TO operator_audits`,
+      )
+    }
+    const generate = () =>
+      callUpstream({
+        provider: 'openai-compat',
+        model: 'gpt-image-2.6',
+        request: { prompt: 'a cat' },
+      })
+    await expect(generate()).rejects.toThrow('direct route is not configured')
+    expect(sent).toEqual([])
+    await restoreDirectKey(primaryId.fingerprint, 'ops')
+    await generate()
+    expect(sent).toEqual(['primary'])
   })
 
   it('uses a restored key again, and ignores last month when judging the budget', async () => {
