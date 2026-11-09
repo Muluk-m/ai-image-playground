@@ -953,6 +953,7 @@ export async function getUserTasks(
       SELECT a.task_id AS id, 'openai-compat' AS provider, a.model, a.status,
         a.created_at AS submitted_at, c.dispatched_at AS started_at, a.completed_at,
         a.error_code AS error_type, NULL::integer AS upstream_status,
+        NULL::text AS gpt_route, NULL::text AS gpt_key_fingerprint,
         jsonb_build_object('prompt', a.input_snapshot->>'prompt') AS request_payload,
         a.attempt AS attempt_count, COALESCE(c.http_dispatch_count, 0) AS upstream_invocation_count,
         a.origin_conversation_id AS agent_conversation_id,
