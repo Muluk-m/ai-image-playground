@@ -196,6 +196,16 @@ it('keeps a spent automatic reload budget until the user explicitly retries', ()
   expect(errorPanelVisible()).toBe(true)
 })
 
+it('leaves post-boot preload failures for the route boundary', () => {
+  ready()
+  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  replace.mockClear()
+  const event = preloadError('Unable to preload JS for /assets/route.js')
+  expect(event.defaultPrevented).toBe(false)
+  expect(replace).not.toHaveBeenCalled()
+  expect(errorPanelVisible()).toBe(false)
+})
+
 it('reloads once more when a later release deletes a chunk this long-lived tab still references', () => {
   const meta = document.createElement('meta')
   meta.name = BUILD_META_NAME
@@ -639,7 +649,6 @@ it('does not renew spent recovery when each document commits a loading screen be
 
   document.body.innerHTML = bodyHtml
   installGuard()
-  ready()
   expect(sessionStorage.getItem(PRELOAD_RELOAD_STORAGE_KEY)).not.toBeNull()
   expect(preloadError().defaultPrevented).toBe(false)
   expect(replace).toHaveBeenCalledTimes(1)
