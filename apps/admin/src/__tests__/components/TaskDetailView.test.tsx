@@ -39,6 +39,8 @@ it('shows analysis findings, coverage and independent credits instead of an imag
     completed_at: 2000,
     error_type: null,
     upstream_status: null,
+    gpt_route: null,
+    gpt_key_fingerprint: null,
     prompt: '比较颜色',
     upstream_invocation_count: 1,
     attempt_count: 1,
@@ -94,6 +96,41 @@ it('shows analysis findings, coverage and independent credits instead of an imag
   expect(screen.queryByRole('link', { name: '在提示词页查看' })).not.toBeInTheDocument()
 })
 
+it('shows the final direct route and only its key fingerprint', () => {
+  const task: TaskDetail = {
+    id: 'direct-result',
+    source: 'chat',
+    kind: 'queue',
+    provider: 'openai-compat',
+    model: 'gpt-image-2.5-flare',
+    status: 'completed',
+    submitted_at: 1000,
+    started_at: 1000,
+    completed_at: 2000,
+    error_type: null,
+    upstream_status: null,
+    gpt_route: 'direct',
+    gpt_key_fingerprint: 'abcd1234...wxyz',
+    prompt: '杯子',
+    upstream_invocation_count: 1,
+    attempt_count: 1,
+    request_payload: { prompt: '杯子' },
+    result_meta: { images: [] },
+    error_message: null,
+    upstream_body: null,
+    device_id: null,
+    user_id: null,
+    next_retry_at: null,
+  }
+  taskQuery.mockReturnValue({ isPending: false, isError: false, data: task })
+  render(
+    <TooltipProvider>
+      <TaskDetailView taskId={task.id} />
+    </TooltipProvider>,
+  )
+  expect(screen.getByText('OpenAI 直连 · abcd1234...wxyz')).toBeInTheDocument()
+})
+
 it.each([
   'chat',
   'manual',
@@ -113,6 +150,8 @@ it.each([
     completed_at: null,
     error_type: null,
     upstream_status: null,
+    gpt_route: null,
+    gpt_key_fingerprint: null,
     prompt: '杯子',
     upstream_invocation_count: 1,
     attempt_count: 1,
