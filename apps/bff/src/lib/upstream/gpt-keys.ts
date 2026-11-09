@@ -450,13 +450,23 @@ export async function directKeyPanel(days: 7 | 30, now = Date.now()): Promise<Gp
   }
 }
 
-/** 告警轮询用：当前仍停用的密钥。标签来自配置，库里只有指纹。 */
+/** 告警轮询用：当前仍因上游错误停用、且后台没有手动关闭的密钥。标签来自配置，库里只有指纹。 */
 export async function disabledDirectKeys(): Promise<
   Array<{ fingerprint: string; label: string; reason: 'quota' | 'invalid' }>
 > {
-  // 配置解析失败就让它抛：告警层把抛错当成「这一块没观察到」，保持原状态；
-  // 返回空数组会被当成「一把都没停用」，把还停着的密钥误报成已恢复。
-  const labels = new Map(configuredDirectKeys().map((key) => [key.fingerprint, key.label]))
+  // 配置解析失败就让它抛：告警层把抛错当成「没观察到」，保持原状态；
+  // 返回空数组会把还停着的密钥误报成已恢复。
+  const configured = configuredDirectKeys()
+  const labels = new Map(configured.map((key) => [key.fingerprint, key.label]))
+  const adminRows = await db
+    .select({
+      fingerprint: schema.gpt_direct_admin_keys.fingerprint,
+      enabled: schema.gpt_direct_admin_keys.enabled,
+    })
+    .from(schema.gpt_direct_admin_keys)
+  const manuallyDisabled = new Set(
+    adminRows.filter((row) => !row.enabled).map((row) => row.fingerprint),
+  )
   const rows = await db
     .select({
       fingerprint: schema.gpt_direct_key_state.fingerprint,
@@ -465,7 +475,7 @@ export async function disabledDirectKeys(): Promise<
     .from(schema.gpt_direct_key_state)
   return rows.flatMap((row) => {
     const label = labels.get(row.fingerprint)
-    if (!label) return []
+    if (!label || manuallyDisabled.has(row.fingerprint)) return []
     return row.disabled_reason === 'quota' || row.disabled_reason === 'invalid'
       ? [{ fingerprint: row.fingerprint, label, reason: row.disabled_reason }]
       : []

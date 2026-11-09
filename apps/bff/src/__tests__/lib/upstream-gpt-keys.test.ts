@@ -139,6 +139,7 @@ beforeEach(async () => {
   await db.delete(schema.gpt_direct_budget_holds)
   await db.delete(schema.gpt_direct_usage)
   await db.delete(schema.gpt_direct_key_state)
+  await db.delete(schema.gpt_direct_admin_keys)
 })
 
 afterEach(() => {
@@ -278,6 +279,33 @@ describe('key failover', () => {
     expect(state?.disabled_reason).toBe('quota')
     expect(state?.cooldown_until ?? null).toBeNull()
     expect(alerts[0]?.reason).toBe('quota')
+  })
+
+  it('does not alert or restore a database-disabled key despite a stale worker snapshot', async () => {
+    await db.insert(schema.gpt_direct_key_state).values({
+      fingerprint: primaryId.fingerprint,
+      disabled_reason: 'quota',
+      updated_at: Date.now(),
+    })
+    await db.insert(schema.gpt_direct_admin_keys).values({
+      id: 'manually-disabled',
+      ordinal: 1,
+      fingerprint: primaryId.fingerprint,
+      budget_usd: 1,
+      enabled: false,
+      nonce: 'test-nonce',
+      tag: 'test-tag',
+      ciphertext: 'test-ciphertext',
+      updated_at: Date.now(),
+      updated_by: 'test',
+    })
+    // 模拟另一个 worker 还没收到后台配置刷新：它仍认为 key 启用。
+    noteDirectKeySnapshot({ admin: [], hardDisabled: new Set() })
+    await expect(disabledDirectKeys()).resolves.toEqual([])
+    expect(alerts).toEqual([])
+    expect(kicks).toBe(0)
+    const [state] = await db.select().from(schema.gpt_direct_key_state)
+    expect(state?.disabled_reason).toBe('quota')
   })
 
   it('does not bill a key that never left the queue after the previous key was rejected', async () => {

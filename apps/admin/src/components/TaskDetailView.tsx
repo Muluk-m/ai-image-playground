@@ -11,7 +11,7 @@ import { useTask } from '@/lib/queries'
 import { countInputImages, extractPrompt } from '@/lib/request-helpers'
 import { adminApiUrl } from '@/lib/runtime-config'
 import type { TaskDetail } from '@/lib/types'
-import { TASK_SOURCE_LABELS } from '../../contracts'
+import { gptRouteLabel, TASK_SOURCE_LABELS } from '../../contracts'
 
 interface TaskDetailViewProps {
   taskId: string
@@ -55,6 +55,14 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
           {TASK_SOURCE_LABELS[task.source]}
         </span>
         {task.kind === 'analysis' ? <span className="text-xs font-medium">图片分析</span> : null}
+        {gptRouteLabel(task.gpt_route) ? (
+          <span className="rounded-md bg-muted px-2 py-1 text-xs">
+            {gptRouteLabel(task.gpt_route)}
+            {task.gpt_route === 'direct' && task.gpt_key_fingerprint
+              ? ` · ${task.gpt_key_fingerprint}`
+              : ''}
+          </span>
+        ) : null}
         <span className="text-xs text-muted-foreground">
           提交：
           <FuzzyTime ts={task.submitted_at} />

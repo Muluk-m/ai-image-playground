@@ -388,7 +388,8 @@ function taskConditions(filters: GenerationTaskFilters, window: TimeWindow, curs
 
 const taskSelect = sql`
   SELECT t.id, t.provider, t.model, t.status, t.submitted_at, t.started_at, t.completed_at,
-    t.error_type, t.upstream_status, t.attempt_count, t.upstream_invocation_count,
+    t.error_type, t.upstream_status, t.gpt_route, t.gpt_key_fingerprint,
+    t.attempt_count, t.upstream_invocation_count,
     ${promptText} AS prompt,
     t.user_id, t.device_id, t.agent_conversation_id, u.username,
     ${taskSourceSql(sql`t.id`, sql`t.agent_conversation_id`)} AS source
