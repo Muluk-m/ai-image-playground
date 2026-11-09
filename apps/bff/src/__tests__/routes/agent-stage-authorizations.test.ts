@@ -1457,7 +1457,7 @@ it('only accepts dispatch shaping the selected model would actually get', async 
         { provider: 'openai-compat', model: 'sized-image', size: '1536x1024' },
       ),
     ).toBe(true)
-    // 网页分发层不看原文是否已带 guard，原文以 guard 开头时会被再钉一次，这也是合法产物。
+    // 已带 guard 的原文再次加 guard 不属于分发层合法产物。
     const guardedOriginal = { ...binding, prompt: applyPromptRewriteGuard('嫩芽') }
     expect(
       stageBindingAccepts(
@@ -1465,7 +1465,7 @@ it('only accepts dispatch shaping the selected model would actually get', async 
         { prompt: applyPromptRewriteGuard(guardedOriginal.prompt), inputCount: 0 },
         { provider: 'openai-compat', model: 'gpt-image-2.5-flare', size: '1536x1024' },
       ),
-    ).toBe(true)
+    ).toBe(false)
     // 不带 shaping（视频）只做逐字比。
     expect(
       stageBindingAccepts(
