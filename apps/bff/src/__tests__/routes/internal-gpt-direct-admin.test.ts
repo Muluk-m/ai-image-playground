@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import { sql } from 'drizzle-orm'
 
 const SECRET = 'sk-admin-direct-dddd'
 const OTHER = 'sk-admin-direct-eeee'
@@ -22,6 +23,7 @@ const { close } = await import('../../db/client')
 const { configuredDirectKeys, fingerprintOf, gptDirectSizeEnabled, resetAdminDirectKeySnapshot } =
   await import('../../lib/upstream/gpt-key-config')
 const { refreshGptDirectKeys } = await import('../../lib/upstream/gpt-direct-admin')
+const { selectDirectKey } = await import('../../lib/upstream/gpt-keys')
 
 const auth = {
   authorization: 'Bearer fixture-service-credential-alpha',
@@ -53,6 +55,31 @@ beforeEach(async () => {
 afterAll(() => close())
 
 describe('admin direct keys', () => {
+  it('fails closed on state read errors without losing admin precedence', async () => {
+    const created = await request('/internal/admin/gpt-direct/keys', 'POST', {
+      apiKey: SECRET,
+      budgetUsd: 40,
+    })
+    expect(created.status).toBe(200)
+    await db.execute(sql`ALTER TABLE gpt_direct_key_state RENAME TO unavailable_key_state_fixture`)
+    try {
+      resetAdminDirectKeySnapshot()
+      await refreshGptDirectKeys()
+      expect(configuredDirectKeys().map((key) => key.fingerprint)).toEqual([
+        fingerprintOf(SECRET).fingerprint,
+      ])
+      expect(gptDirectSizeEnabled()).toBe(false)
+      expect(await selectDirectKey({ estimateMicroUsd: 1 })).toBeNull()
+    } finally {
+      await db.execute(sql`ALTER TABLE unavailable_key_state_fixture RENAME TO gpt_direct_key_state`)
+    }
+    await refreshGptDirectKeys()
+    expect(gptDirectSizeEnabled()).toBe(true)
+    expect((await selectDirectKey({ estimateMicroUsd: 1 }))?.fingerprint).toBe(
+      fingerprintOf(SECRET).fingerprint,
+    )
+  })
+
   it('stores, reorders, and drops keys without echoing the secret, and other workers see them after refresh', async () => {
     expect(
       (

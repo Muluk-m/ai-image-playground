@@ -10,12 +10,13 @@ import {
   sealSecret,
   UpstreamSecretError,
 } from '../upstream-secrets'
-import { fingerprintMacSource } from './gpt-direct-availability'
+import { fingerprintMacSource, setAdminDirectKeySnapshot } from './gpt-direct-availability'
 import {
   type DirectKey,
   FingerprintSecretMissingError,
   fingerprintOf,
   noteDirectKeySnapshot,
+  safeEnvDirectKeys,
 } from './gpt-key-config'
 import { selectDirectKey } from './gpt-keys'
 
@@ -87,7 +88,18 @@ export async function refreshUpstreamKeySources(): Promise<void> {
 }
 
 async function publishSnapshot(admin: DirectKey[] | null): Promise<void> {
-  const states = await db.select().from(schema.gpt_direct_key_state)
+  setAdminDirectKeySnapshot(admin, false)
+  const states = await db
+    .select()
+    .from(schema.gpt_direct_key_state)
+    .catch((error) => {
+      noteDirectKeySnapshot({
+        admin,
+        hardDisabled: new Set((admin ?? safeEnvDirectKeys()).map((key) => key.fingerprint)),
+        deliverable: false,
+      })
+      throw error
+    })
   const hardDisabled = new Set(
     states.filter((row) => row.disabled_reason !== null).map((row) => row.fingerprint),
   )
