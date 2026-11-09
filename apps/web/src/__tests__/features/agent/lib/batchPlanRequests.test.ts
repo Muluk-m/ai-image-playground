@@ -78,7 +78,12 @@ describe('shared batch reads', () => {
 
   it('isolates pending and completed reads by account and backend', async () => {
     let finish!: (response: Response) => void
-    fixture.fetch.mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve }))
+    fixture.fetch.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve
+        }),
+    )
     const old = fetchBatchPlan('batch', { reuseSettled: true })
     const rejected = expect(old).rejects.toMatchObject({ name: 'AbortError' })
     setClientStorageScope('next-account')
@@ -95,22 +100,44 @@ describe('shared batch reads', () => {
 
   it('does not let an older in-flight result overwrite an explicit reload', async () => {
     let finish!: (response: Response) => void
-    fixture.fetch.mockImplementationOnce(() => new Promise<Response>((resolve) => { finish = resolve }))
+    fixture.fetch.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve
+        }),
+    )
     const old = fetchBatchPlan('batch', { reuseSettled: true })
     fixture.fetch.mockResolvedValueOnce(response(page('cancelled')))
     await fetchBatchPlan('batch', { reuseSettled: true, force: true })
     finish(response(page()))
     await old
-    await expect(fetchBatchPlan('batch', { reuseSettled: true })).resolves.toMatchObject(page('cancelled'))
+    await expect(fetchBatchPlan('batch', { reuseSettled: true })).resolves.toMatchObject(
+      page('cancelled'),
+    )
     expect(fixture.fetch).toHaveBeenCalledTimes(2)
   })
 
-  it.each(['update', 'cancel', 'command'])('invalidates cached results after a %s mutation', async (action) => {
+  it.each([
+    'update',
+    'cancel',
+    'command',
+  ])('invalidates cached results after a %s mutation', async (action) => {
     fixture.fetch.mockImplementation(async () => response(page()))
     await fetchBatchPlan('batch', { reuseSettled: true })
-    if (action === 'update') await updateBatchPlan('batch', { expectedVersion: 1, title: 'changed', rule: 'rule', items: [] })
+    if (action === 'update')
+      await updateBatchPlan('batch', {
+        expectedVersion: 1,
+        title: 'changed',
+        rule: 'rule',
+        items: [],
+      })
     else if (action === 'cancel') await cancelBatchPlan('batch', 1)
-    else await executeBatchCommand('batch', { action: 'pause', commandId: 'command', expectedVersion: 1 })
+    else
+      await executeBatchCommand('batch', {
+        action: 'pause',
+        commandId: 'command',
+        expectedVersion: 1,
+      })
     await fetchBatchPlan('batch', { reuseSettled: true })
     expect(fixture.fetch).toHaveBeenCalledTimes(3)
   })

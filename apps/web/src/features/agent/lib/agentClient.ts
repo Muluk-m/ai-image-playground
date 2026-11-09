@@ -1020,9 +1020,11 @@ export function fetchBatchPlan(
     return page
   })()
   batchRequests.set(key, request)
-  void request.finally(() => {
-    if (batchRequests.get(key) === request) batchRequests.delete(key)
-  }).catch(() => {})
+  void request
+    .finally(() => {
+      if (batchRequests.get(key) === request) batchRequests.delete(key)
+    })
+    .catch(() => {})
   return request
 }
 

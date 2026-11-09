@@ -1,6 +1,6 @@
 import type { GptDirectAdminView } from '@image-playground/shared'
 import { replaceEqualDeep, useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type {
   AgentPromptFilters,
   AgentPromptsResult,
@@ -268,9 +268,10 @@ export function useTodayErrors() {
 
 /** The rolling window owns refreshes; changing it creates exactly one new task query. */
 export function useGenerationTasksClock(live: boolean) {
-  const [clock, setClock] = useState(() => ({ live, now: Date.now() }))
-  if (clock.live !== live) setClock({ live, now: Date.now() })
+  const activatedAt = useMemo(() => ({ live, now: Date.now() }), [live])
+  const [clock, setClock] = useState(activatedAt)
   useEffect(() => {
+    setClock((previous) => (previous.live === live ? previous : activatedAt))
     if (!live) return
     let timer: number | undefined
     const advance = () => setClock((previous) => ({ live, now: Math.max(Date.now(), previous.now + 1) }))
@@ -295,8 +296,8 @@ export function useGenerationTasksClock(live: boolean) {
       document.removeEventListener('visibilitychange', visibilityChanged)
       window.removeEventListener(ADMIN_REFRESH_EVENT, refresh)
     }
-  }, [live])
-  return clock.now
+  }, [live, activatedAt])
+  return clock.live === live ? clock.now : activatedAt.now
 }
 export function useGenerationTasks(filters: GenerationTaskFilters) {
   return useQuery({

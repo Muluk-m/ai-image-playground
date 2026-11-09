@@ -36,7 +36,9 @@ export function gptDirectConfigured(model: string): boolean {
 export function gptImage26Configured(): boolean {
   return (
     config.gptImage26.enabled &&
-    (adminDirectKeys() ?? safeEnvDirectKeys()).some((key) => key.enabled && !directKeyKnownDisabled(key.fingerprint))
+    (adminDirectKeys() ?? safeEnvDirectKeys()).some(
+      (key) => key.enabled && !directKeyKnownDisabled(key.fingerprint),
+    )
   )
 }
 

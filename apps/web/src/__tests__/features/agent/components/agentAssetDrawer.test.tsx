@@ -368,12 +368,17 @@ it('polls only unfinished batches and stops after unmount', async () => {
       items: [],
     }))
     await act(async () => {
-      root.render(<AgentAssetDrawer
-        messages={[planMessage('finished', 'finished'), planMessage('running', 'running')]}
-        onClose={() => {}} onPreview={() => {}}
-      />)
+      root.render(
+        <AgentAssetDrawer
+          messages={[planMessage('finished', 'finished'), planMessage('running', 'running')]}
+          onClose={() => {}}
+          onPreview={() => {}}
+        />,
+      )
     })
-    await act(async () => { await vi.advanceTimersByTimeAsync(12_000) })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000)
+    })
     expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'finished')).toHaveLength(1)
     expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'running')).toHaveLength(4)
     await act(async () => root.render(null))
@@ -384,7 +389,9 @@ it('polls only unfinished batches and stops after unmount', async () => {
   }
 })
 
-it.each([403, 404])('stops polling HTTP %s batches and lets explicit retry reload every batch', async (status) => {
+it.each([
+  403, 404,
+])('stops polling HTTP %s batches and lets explicit retry reload every batch', async (status) => {
   vi.useFakeTimers()
   try {
     fixture.fetchBatchPlan.mockImplementation(async (id: string) => {
@@ -392,12 +399,21 @@ it.each([403, 404])('stops polling HTTP %s batches and lets explicit retry reloa
       return { batch: { status: id === 'running' ? 'running' : 'closed' }, items: [] }
     })
     await act(async () => {
-      root.render(<AgentAssetDrawer
-        messages={[planMessage('done', 'done'), planMessage('missing', 'missing'), planMessage('running', 'running')]}
-        onClose={() => {}} onPreview={() => {}}
-      />)
+      root.render(
+        <AgentAssetDrawer
+          messages={[
+            planMessage('done', 'done'),
+            planMessage('missing', 'missing'),
+            planMessage('running', 'running'),
+          ]}
+          onClose={() => {}}
+          onPreview={() => {}}
+        />,
+      )
     })
-    await act(async () => { await vi.advanceTimersByTimeAsync(8_000) })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000)
+    })
     expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'missing')).toHaveLength(1)
     expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'done')).toHaveLength(1)
     const retry = document.querySelector<HTMLButtonElement>('[role="alert"] button')!

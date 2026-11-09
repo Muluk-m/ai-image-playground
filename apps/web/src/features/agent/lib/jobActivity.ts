@@ -147,7 +147,8 @@ function watchAway(conversationId: string, ids: readonly string[]) {
     stopped = true
     clearTimeout(timer)
     timer = undefined
-    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', visibility)
+    if (typeof document !== 'undefined')
+      document.removeEventListener('visibilitychange', visibility)
   }
   const entry = { ids: new Set(ids), stop }
   away.set(conversationId, entry)
@@ -188,7 +189,8 @@ function watchAway(conversationId: string, ids: readonly string[]) {
           entry.ids.has(job.messageId) &&
           job.result.status !== 'submitted' &&
           job.result.status !== 'queued'
-        ) settled.set(job.messageId, job.result)
+        )
+          settled.set(job.messageId, job.result)
       const seen = new Set(jobs.map((job) => job.messageId))
       const running = [...entry.ids].filter((id) => seen.has(id) && !settled.has(id)).length
       if (running > 0) {

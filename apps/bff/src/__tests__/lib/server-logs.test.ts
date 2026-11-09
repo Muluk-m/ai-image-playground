@@ -116,7 +116,9 @@ describe('server log persistence', () => {
     const errors: unknown[] = []
     const maintenance = createSharedMaintenance({
       job: 'server-logs-transaction-test',
-      onError: (error) => { errors.push(error) },
+      onError: (error) => {
+        errors.push(error)
+      },
       work: async (transaction) => {
         await purgeServerLogs(Date.now(), transaction)
         if (fail) throw new Error('rollback log retention')
@@ -125,11 +127,21 @@ describe('server log persistence', () => {
     try {
       await maintenance.run()
       expect(errors).toHaveLength(1)
-      expect(await db.select().from(schema.server_logs).where(eq(schema.server_logs.id, 'transaction-expired-log'))).toHaveLength(1)
+      expect(
+        await db
+          .select()
+          .from(schema.server_logs)
+          .where(eq(schema.server_logs.id, 'transaction-expired-log')),
+      ).toHaveLength(1)
       fail = false
       await maintenance.run()
       expect(errors).toHaveLength(1)
-      expect(await db.select().from(schema.server_logs).where(eq(schema.server_logs.id, 'transaction-expired-log'))).toHaveLength(0)
+      expect(
+        await db
+          .select()
+          .from(schema.server_logs)
+          .where(eq(schema.server_logs.id, 'transaction-expired-log')),
+      ).toHaveLength(0)
     } finally {
       await maintenance.stop()
     }

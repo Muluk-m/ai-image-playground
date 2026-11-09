@@ -277,7 +277,9 @@ function directRoute(
 ): UpstreamRoute {
   const chosen =
     key ??
-    configuredDirectKeys().find((candidate) => candidate.enabled && !directKeyKnownDisabled(candidate.fingerprint))
+    configuredDirectKeys().find(
+      (candidate) => candidate.enabled && !directKeyKnownDisabled(candidate.fingerprint),
+    )
   return {
     baseUrl: config.gptDirect.baseUrl,
     key: chosen?.secret ?? gptDirectApiKey(),

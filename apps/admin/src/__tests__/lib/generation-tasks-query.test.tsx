@@ -1,8 +1,13 @@
-import { focusManager, onlineManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  focusManager,
+  onlineManager,
+  QueryClient,
+  QueryClientProvider,
+} from '@tanstack/react-query'
 import { act, cleanup, renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { todayWindow, type GenerationTasksResult } from '../../../contracts'
+import { type GenerationTasksResult, todayWindow } from '../../../contracts'
 import { presetWindow } from '../../components/FilterBar'
 import { ADMIN_REFRESH_EVENT, useGenerationTasks, useGenerationTasksClock } from '../../lib/queries'
 
@@ -32,19 +37,29 @@ afterEach(() => {
 })
 
 function mount(initial: { preset: 'today' | '7d' | '30d'; from?: number; to?: number }) {
-  return renderHook(({ preset, from, to }) => {
-    const clock = useGenerationTasksClock(from === undefined && to === undefined)
-    const window = from !== undefined && to !== undefined
-      ? { from, to }
-      : preset === 'today' ? todayWindow(clock) : presetWindow(preset, clock)
-    return useGenerationTasks({ ...window, page: 1, pageSize: 50 })
-  }, {
-    initialProps: initial,
-    wrapper: ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>,
-  })
+  return renderHook(
+    ({ preset, from, to }) => {
+      const clock = useGenerationTasksClock(from === undefined && to === undefined)
+      const window =
+        from !== undefined && to !== undefined
+          ? { from, to }
+          : preset === 'today'
+            ? todayWindow(clock)
+            : presetWindow(preset, clock)
+      return useGenerationTasks({ ...window, page: 1, pageSize: 50 })
+    },
+    {
+      initialProps: initial,
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <QueryClientProvider client={client}>{children}</QueryClientProvider>
+      ),
+    },
+  )
 }
 async function advance(ms = 0) {
-  await act(async () => { await vi.advanceTimersByTimeAsync(ms) })
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms)
+  })
 }
 async function setVisibility(next: DocumentVisibilityState) {
   await act(async () => {
@@ -65,7 +80,11 @@ async function manualRefresh() {
 }
 
 describe('generation tasks refresh', () => {
-  it.each(['today', '7d', '30d'] as const)('advances the dynamic %s window once every thirty seconds', async (preset) => {
+  it.each([
+    'today',
+    '7d',
+    '30d',
+  ] as const)('advances the dynamic %s window once every thirty seconds', async (preset) => {
     mount({ preset })
     await advance()
     expect(get).toHaveBeenCalledTimes(1)
@@ -117,7 +136,11 @@ describe('generation tasks refresh', () => {
   })
 
   it('updates a newly resumed live window immediately after viewing fixed history', async () => {
-    const { rerender } = mount({ preset: 'today', from: Date.now() - 86400_000, to: Date.now() - 1 })
+    const { rerender } = mount({
+      preset: 'today',
+      from: Date.now() - 86400_000,
+      to: Date.now() - 1,
+    })
     await advance()
     await advance(3600_000)
     rerender({ preset: 'today' })
