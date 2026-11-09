@@ -16,8 +16,8 @@ After approval:
    Install the exact approved `latest_version` using [install.md](install.md).
    Set `MUVLOOM_VERSION` only for the installer invocation, and use the returned
    `install_directory` as `MUVLOOM_INSTALL_DIR` to replace the existing CLI.
-2. Check `muvloom version`, then run `muvloom auth status`: it updates the Skill
-   copies the CLI installed, as described in install.md. Existing login credentials
+2. Check `muvloom version`, then run `muvloom auth status`: it refreshes all
+   registered Skill installs, as described in install.md. Existing login credentials
    are retained.
 3. Resume the original task. Report an installation failure without falling back
    to another source or requesting the user's password or token.
