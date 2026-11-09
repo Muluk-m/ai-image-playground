@@ -1,4 +1,4 @@
-import { Component, type ComponentType, lazy, type ReactNode } from 'react'
+import { Component, type ReactNode } from 'react'
 import { Button } from './ui/button'
 
 interface RouteChunkBoundaryProps {
@@ -9,23 +9,6 @@ interface RouteChunkBoundaryProps {
   onRetry?: () => void
 }
 
-export class RouteChunkLoadError extends Error {
-  constructor(cause: unknown) {
-    super(cause instanceof Error ? cause.message : String(cause))
-    this.name = 'RouteChunkLoadError'
-  }
-}
-
-export function lazyRoute(load: () => Promise<{ default: ComponentType }>) {
-  return lazy(async () => {
-    try {
-      return await load()
-    } catch (cause) {
-      throw new RouteChunkLoadError(cause)
-    }
-  })
-}
-
 interface RouteChunkBoundaryState {
   error: unknown | null
   unhandledError: unknown
@@ -33,7 +16,6 @@ interface RouteChunkBoundaryState {
 }
 
 function isRouteChunkError(error: unknown) {
-  if (error instanceof RouteChunkLoadError) return true
   if (error && typeof error === 'object' && 'name' in error && error.name === 'ChunkLoadError') {
     return true
   }

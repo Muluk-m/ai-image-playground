@@ -2,7 +2,7 @@
 import { act, Component, createElement, type JSX, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import RouteChunkBoundary, { lazyRoute, RouteLoading } from '../../components/RouteChunkBoundary'
+import RouteChunkBoundary, { RouteLoading } from '../../components/RouteChunkBoundary'
 
 class ParentBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state: { error: Error | null } = { error: null }
@@ -110,23 +110,6 @@ describe('RouteChunkBoundary', () => {
           description: 'Try again',
           retryLabel: 'Reload',
           children: createElement(BrokenPage),
-        }),
-      ),
-    )
-    expect(host.querySelector('[role="alert"]')?.textContent).toBe('Page unavailable')
-  })
-
-  it('shows recovery UI for a rejected lazy route loader', async () => {
-    const LazyPage = lazyRoute(async () => {
-      throw null
-    })
-    await act(async () =>
-      root.render(
-        createElement(RouteChunkBoundary, {
-          title: 'Page unavailable',
-          description: 'Try again',
-          retryLabel: 'Reload',
-          children: createElement(LazyPage),
         }),
       ),
     )
