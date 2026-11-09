@@ -145,6 +145,15 @@ func New(out, errOut io.Writer) *App {
 	}
 }
 
+// configDir is where the CLI keeps its own files: the credential store names it, and the
+// record of `skill install --dir` directories lives beside it.
+func (a *App) configDir() string {
+	if a.Store.Dir != "" {
+		return a.Store.Dir
+	}
+	return auth.ConfigDir()
+}
+
 // validateAPIURL keeps credentials off plaintext connections: only https, except a
 // local development server.
 func validateAPIURL(raw string) error {
@@ -213,7 +222,7 @@ var commandList = []struct {
 		{"media download", "MEDIA_ID [--output PATH]", "Save an uploaded reference image", cmdMediaDownload},
 	}},
 	{"SETUP", []command{
-		{"skill install", "--host claude-code|codex [--scope user|project]", "Install the bundled agent Skill", cmdSkillInstall},
+		{"skill install", "--host claude-code|codex [--scope user|project] | --dir DIRECTORY", "Install the bundled agent Skill", cmdSkillInstall},
 		{"skill status", "", "Where the agent Skill is installed and its version", cmdSkillStatus},
 		{"update check", "", "Check for a newer CLI release (cached for the day)", cmdUpdateCheck},
 		{"version", "", "Print the CLI version", cmdVersion},
