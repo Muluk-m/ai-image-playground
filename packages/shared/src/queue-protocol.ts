@@ -151,6 +151,16 @@ export interface SubmitRequest {
 /** 源片引用。submit 校验完归属后落库，客户端既不发也读不到它。 */
 export type PersistedVideoRequest = VideoRequest & { source_video?: StoredImageRef }
 
+/** Facts captured when a queue task's prompt is shaped; omitted on legacy tasks. */
+export interface PromptShapingFacts {
+  readonly original_prompt: string
+  readonly provider: QueueProvider
+  readonly model: string
+  readonly size?: string
+  readonly no_rewrite?: boolean
+  readonly ratio_via_prompt?: boolean
+}
+
 /** BFF-only database representation after input pixel bytes move to object storage. */
 export type PersistedSubmitRequest = Omit<SubmitRequest, 'input_images' | 'mask' | 'video'> & {
   /** Server-only CLI contract: premium GPT parameters must never fall back to a basic route. */
@@ -166,6 +176,8 @@ export type PersistedSubmitRequest = Omit<SubmitRequest, 'input_images' | 'mask'
   input_images?: StoredImageRef[]
   mask?: StoredImageRef
   video?: PersistedVideoRequest
+  /** Server-side shaping facts for reconstructing the original prompt and wire variants. */
+  prompt_shaping?: PromptShapingFacts
 }
 
 export interface SubmitResponse {

@@ -65,7 +65,7 @@ describe('model catalog vs channels.json', () => {
       })
 
       it("injects the ratio into the prompt exactly when 'size' is not declared", () => {
-        // apps/web/src/lib/api.ts 与 agent/prompt-shaping.ts：没有 size 能力就写构图指令。
+        // apps/web 的提交只传尺寸意图；服务端按同一份能力目录写构图指令。
         expect(image().ratioVia.includes('prompt')).toBe(!model.capabilities.includes('size'))
       })
 

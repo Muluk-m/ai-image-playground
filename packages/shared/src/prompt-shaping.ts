@@ -1,5 +1,5 @@
 import { formatImageRatio, parseImageSize } from './image'
-import type { QueueProvider } from './queue-protocol'
+import type { PromptShapingFacts, QueueProvider } from './queue-protocol'
 
 /** 旧请求可能已带此前缀；新请求只在需要防改写的网关发送前添加。 */
 export const PROMPT_REWRITE_GUARD_PREFIX =
@@ -7,6 +7,58 @@ export const PROMPT_REWRITE_GUARD_PREFIX =
 
 export function applyPromptRewriteGuard(prompt: string): string {
   return `${PROMPT_REWRITE_GUARD_PREFIX}\n${prompt}`
+}
+
+export interface PromptShapeInput {
+  readonly prompt: string
+  readonly facts: Pick<
+    PromptShapingFacts,
+    'provider' | 'model' | 'size' | 'no_rewrite' | 'ratio_via_prompt'
+  >
+}
+
+/** Add only the machine instruction recorded by the caller's capability decision. */
+export function shapeQueuePrompt(input: PromptShapeInput): string {
+  if (!input.facts.ratio_via_prompt || !input.facts.size) return input.prompt
+  const instruction = buildAspectInstruction(input.facts.size)
+  if (!instruction || input.prompt.endsWith(instruction)) return input.prompt
+  return `${input.prompt}\n\n${instruction}`
+}
+
+/** Queue prompt spellings accepted for stage authorization and legacy dispatch checks. */
+export function promptVariants(input: PromptShapeInput): readonly string[] {
+  const queuePrompt = shapeQueuePrompt(input)
+  const variants = [queuePrompt]
+  if (input.facts.provider !== 'gemini' && input.facts.no_rewrite === true)
+    variants.push(applyPromptRewriteGuard(queuePrompt))
+  return variants
+}
+/** Prefer the server-recorded original prompt; fall back to exact legacy prefix/suffix removal. */
+export function restoreQueuePrompt(input: {
+  readonly prompt: string
+  readonly shaping?: Pick<PromptShapingFacts, 'original_prompt'>
+  readonly provider?: QueueProvider
+  readonly size?: string
+  readonly stripRewriteGuard?: boolean
+}): string {
+  return input.shaping?.original_prompt ?? unshapeQueuePrompt(input)
+}
+
+/** Shape the persisted queue prompt for the selected upstream route. */
+export function wirePrompt(
+  input: PromptShapeInput & { readonly route: 'direct' | 'sub2api' },
+): string {
+  const queuePrompt = shapeQueuePrompt(input)
+  if (input.route === 'direct')
+    return unshapeQueuePrompt({
+      provider: input.facts.provider,
+      prompt: queuePrompt,
+      size: input.facts.ratio_via_prompt ? input.facts.size : undefined,
+      stripRewriteGuard: input.facts.no_rewrite === undefined,
+    })
+  if (input.facts.provider !== 'gemini' && input.facts.no_rewrite === true)
+    return applyPromptRewriteGuard(queuePrompt)
+  return queuePrompt
 }
 
 /**

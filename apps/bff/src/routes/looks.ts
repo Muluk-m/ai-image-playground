@@ -287,6 +287,7 @@ export const lookRoutes = new Elysia()
         entry: 'look',
         provider: target.provider,
         model: target.model,
+        promptShaping: { originalPrompt: item.prompt },
         request: {
           prompt: item.prompt,
           ...(look.size ? { size: look.size } : {}),
