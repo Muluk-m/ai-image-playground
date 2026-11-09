@@ -15,6 +15,7 @@ const fixture = vi.hoisted(() => ({
   fetchBatchPlan: vi.fn(
     async (_id: string): Promise<unknown> => ({ batch: { status: 'paused' }, items: [] }),
   ),
+  changes: new Set<(batchId: string) => void>(),
   fetchMessageReference: vi.fn(async () => new Blob()),
   resolveMediaSource: vi.fn(
     async (_source: string, _variant?: string) => 'data:image/png;base64,preview',
@@ -31,6 +32,12 @@ vi.mock('../../../../features/agent/lib/agentClient', () => ({
   fetchMessages: fixture.fetchMessages,
   fetchBatchPlan: fixture.fetchBatchPlan,
   fetchMessageReference: fixture.fetchMessageReference,
+  subscribeBatchPlanChanges: (listener: (batchId: string) => void) => {
+    fixture.changes.add(listener)
+    return () => {
+      fixture.changes.delete(listener)
+    }
+  },
 }))
 vi.mock('../../../../lib/cloudMedia', async () => {
   const actual = await vi.importActual<typeof import('../../../../lib/cloudMedia')>(
@@ -123,6 +130,7 @@ beforeEach(() => {
   fixture.fetchBatchPlan.mockReset()
   fixture.fetchBatchPlan.mockResolvedValue({ batch: { status: 'paused' }, items: [] })
   fixture.fetchMessageReference.mockClear()
+  fixture.changes.clear()
   fixture.resolveMediaSource.mockReset()
   fixture.resolveMediaSource.mockResolvedValue('data:image/png;base64,preview')
   fixture.fetchMessages.mockImplementation(async (id) => history(id, id === 'other-1' ? 30 : 2))
@@ -380,6 +388,62 @@ it('polls only unfinished batches and stops after unmount', async () => {
     await act(async () => root.render(null))
     await vi.advanceTimersByTimeAsync(12_000)
     expect(fixture.fetchBatchPlan).toHaveBeenCalledTimes(5)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('shows a resumed batch result while another batch keeps running', async () => {
+  vi.useFakeTimers()
+  let resumed = false
+  try {
+    fixture.fetchBatchPlan.mockImplementation(async (id) => ({
+      batch: { status: id === 'running' ? 'running' : resumed ? 'closed' : 'paused' },
+      items:
+        id === 'paused' && resumed
+          ? [
+              {
+                inputs: [],
+                progress: 'completed',
+                execution: {
+                  status: 'completed',
+                  artifacts: [
+                    {
+                      artifactId: 'resumed-output',
+                      taskId: 'resumed-task',
+                      media: 'image',
+                      outputIndex: 0,
+                      mime: 'image/png',
+                    },
+                  ],
+                },
+              },
+            ]
+          : [],
+    }))
+    await act(async () =>
+      root.render(
+        <AgentAssetDrawer
+          messages={[planMessage('running', 'running'), planMessage('恢复后的新素材', 'paused')]}
+          onClose={() => {}}
+          onPreview={() => {}}
+        />,
+      ),
+    )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000)
+    })
+    expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'paused')).toHaveLength(1)
+    expect(document.body.textContent).not.toContain('恢复后的新素材')
+    await act(async () => {
+      resumed = true
+      for (const listener of fixture.changes) listener('paused')
+    })
+    expect(document.body.textContent).toContain('恢复后的新素材')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000)
+    })
+    expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'paused')).toHaveLength(2)
   } finally {
     vi.useRealTimers()
   }

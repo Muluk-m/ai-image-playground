@@ -12,6 +12,7 @@ const fixture = vi.hoisted(() => ({
   fetchBatchPlan: vi.fn(
     async (_id: string): Promise<unknown> => ({ batch: { status: 'closed' }, items: [] }),
   ),
+  changes: new Set<(batchId: string) => void>(),
   fetchMessages: vi.fn(async () => ({ messages: [], turns: [] })),
 }))
 vi.mock('../../../../features/agent/lib/agentClient', () => ({
@@ -23,6 +24,12 @@ vi.mock('../../../../features/agent/lib/agentClient', () => ({
   fetchBatchPlan: fixture.fetchBatchPlan,
   fetchMessages: fixture.fetchMessages,
   fetchConversations: vi.fn(async () => []),
+  subscribeBatchPlanChanges: (listener: (batchId: string) => void) => {
+    fixture.changes.add(listener)
+    return () => {
+      fixture.changes.delete(listener)
+    }
+  },
 }))
 vi.mock('../../../../features/agent/store', () => ({
   useAgentStore: (
@@ -57,6 +64,7 @@ beforeEach(() => {
   setClientStorageScope('canvas-account')
   fixture.fetchBatchPlan.mockReset()
   fixture.fetchMessages.mockClear()
+  fixture.changes.clear()
   fixture.messages = plans('closed', 'paused', 'running')
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -107,6 +115,63 @@ it('retains finished results while querying only batches with active work', asyn
   await act(async () => root.render(null))
   await vi.advanceTimersByTimeAsync(12_000)
   expect(fixture.fetchBatchPlan).toHaveBeenCalledTimes(9)
+})
+
+it('shows results from a resumed batch without reopening assets or repolling it after completion', async () => {
+  let resumed = false
+  fixture.messages = plans('running', 'paused')
+  fixture.fetchBatchPlan.mockImplementation(async (id) => ({
+    batch: { status: id === 'running' ? 'running' : resumed ? 'closed' : 'paused' },
+    items:
+      id === 'paused' && resumed
+        ? [
+            {
+              inputs: [],
+              progress: 'completed',
+              execution: {
+                status: 'completed',
+                artifacts: [
+                  {
+                    artifactId: 'resumed-output',
+                    taskId: 'resumed-task',
+                    media: 'image',
+                    outputIndex: 0,
+                    mime: 'image/png',
+                  },
+                ],
+              },
+            },
+          ]
+        : [],
+  }))
+  function Results() {
+    const assets = useCanvasAssets('conversation', 'project')
+    return (
+      <div>
+        {assets.items.map((one) => (
+          <span key={one.id}>{one.id}</span>
+        ))}
+      </div>
+    )
+  }
+  await act(async () => root.render(<Results />))
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(8_000)
+  })
+  expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'paused')).toHaveLength(1)
+  await act(async () => {
+    resumed = true
+    for (const listener of fixture.changes) listener('paused')
+  })
+  expect(host.textContent).toContain('resumed-output')
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(8_000)
+  })
+  expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'paused')).toHaveLength(2)
+  const reads = fixture.fetchBatchPlan.mock.calls.length
+  await act(async () => root.render(null))
+  for (const listener of fixture.changes) listener('paused')
+  expect(fixture.fetchBatchPlan).toHaveBeenCalledTimes(reads)
 })
 
 it.each([

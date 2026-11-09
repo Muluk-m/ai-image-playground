@@ -976,6 +976,62 @@ function invalidateBatchPlan(batchId: string): void {
   batchRequests.delete(key)
 }
 
+const batchSubscriptions = new Map<
+  string,
+  { listeners: Set<(batchId: string) => void>; channel?: BroadcastChannel }
+>()
+
+function batchChangeScope(): string {
+  return scopedStorageName(url('/batches'))
+}
+
+function receiveBatchChange(scope: string, batchId: string): void {
+  if (scope !== batchChangeScope()) return
+  invalidateBatchPlan(batchId)
+  for (const listener of batchSubscriptions.get(scope)?.listeners ?? []) listener(batchId)
+}
+
+export function subscribeBatchPlanChanges(listener: (batchId: string) => void): () => void {
+  const scope = batchChangeScope()
+  let subscription = batchSubscriptions.get(scope)
+  if (!subscription) {
+    subscription = { listeners: new Set() }
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        subscription.channel = new BroadcastChannel(`agent-batch-changes:${scope}`)
+        subscription.channel.onmessage = ({ data }: MessageEvent<unknown>) => {
+          if (typeof data === 'string') receiveBatchChange(scope, data)
+        }
+      } catch {
+        // Local writes still notify readers when the browser blocks cross-tab messages.
+      }
+    }
+    batchSubscriptions.set(scope, subscription)
+  }
+  subscription.listeners.add(listener)
+  return () => {
+    subscription.listeners.delete(listener)
+    if (subscription.listeners.size) return
+    subscription.channel?.close()
+    batchSubscriptions.delete(scope)
+  }
+}
+
+function announceBatchChange(scope: string, batchId: string): void {
+  receiveBatchChange(scope, batchId)
+  if (typeof BroadcastChannel === 'undefined') return
+  const shared = batchSubscriptions.get(scope)?.channel
+  let publisher: BroadcastChannel | undefined
+  try {
+    publisher = shared ?? new BroadcastChannel(`agent-batch-changes:${scope}`)
+    publisher.postMessage(batchId)
+  } catch {
+    // Server state remains authoritative if cross-tab messaging is unavailable.
+  } finally {
+    if (publisher && publisher !== shared) publisher.close()
+  }
+}
+
 /** Asset readers may reuse settled results briefly; plan editors always read fresh state. */
 export function fetchBatchPlan(
   batchId: string,
@@ -1032,12 +1088,13 @@ export async function updateBatchPlan(
   update: AgentBatchUpdate,
 ): Promise<AgentBatchPage> {
   invalidateBatchPlan(batchId)
+  const scope = batchChangeScope()
   const response = await authenticatedBffFetch(url(`/batches/${encodeURIComponent(batchId)}`), {
     ...jsonInit(update, 'PATCH'),
     signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
   })
   if (!response.ok) throw await requestError(response)
-  invalidateBatchPlan(batchId)
+  announceBatchChange(scope, batchId)
   return (await response.json()) as AgentBatchPage
 }
 
@@ -1046,6 +1103,7 @@ export async function cancelBatchPlan(
   expectedVersion: number,
 ): Promise<AgentBatchPage> {
   invalidateBatchPlan(batchId)
+  const scope = batchChangeScope()
   const response = await authenticatedBffFetch(
     url(`/batches/${encodeURIComponent(batchId)}/cancel`),
     {
@@ -1054,13 +1112,14 @@ export async function cancelBatchPlan(
     },
   )
   if (!response.ok) throw await requestError(response)
-  invalidateBatchPlan(batchId)
+  announceBatchChange(scope, batchId)
   return (await response.json()) as AgentBatchPage
 }
 
 /** 生成中单独撤掉一张；那一张已经结束时服务端原样返回最新页面。 */
 export async function cancelBatchItem(batchId: string, itemKey: string): Promise<AgentBatchPage> {
   invalidateBatchPlan(batchId)
+  const scope = batchChangeScope()
   const response = await authenticatedBffFetch(
     url(`/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemKey)}/cancel`),
     {
@@ -1069,7 +1128,7 @@ export async function cancelBatchItem(batchId: string, itemKey: string): Promise
     },
   )
   if (!response.ok) throw await requestError(response)
-  invalidateBatchPlan(batchId)
+  announceBatchChange(scope, batchId)
   return (await response.json()) as AgentBatchPage
 }
 
@@ -1094,6 +1153,7 @@ export async function executeBatchCommand(
   command: AgentBatchCommand,
 ): Promise<AgentBatchPage> {
   invalidateBatchPlan(batchId)
+  const scope = batchChangeScope()
   const { action, ...body } = command
   const response = await authenticatedBffFetch(
     url(`/batches/${encodeURIComponent(batchId)}/${action}`),
@@ -1103,6 +1163,6 @@ export async function executeBatchCommand(
     },
   )
   if (!response.ok) throw await requestError(response)
-  invalidateBatchPlan(batchId)
+  announceBatchChange(scope, batchId)
   return (await response.json()) as AgentBatchPage
 }
