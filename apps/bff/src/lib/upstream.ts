@@ -45,6 +45,7 @@ import {
 } from './upstream/errors'
 import { mergeGeminiCandidateResults } from './upstream/gemini'
 import { estimateDirectCostMicroUsd, recordDirectUsage } from './upstream/gpt-budget'
+import { directKeyKnownDisabled } from './upstream/gpt-direct-availability'
 import { configuredDirectKeys, type DirectKey } from './upstream/gpt-key-config'
 import {
   classifyDirectKeyFailure,
@@ -274,7 +275,11 @@ function directRoute(
   key?: DirectKey,
   options?: { skipSharedRateLimitCooldown?: boolean },
 ): UpstreamRoute {
-  const chosen = key ?? configuredDirectKeys()[0]
+  const chosen =
+    key ??
+    configuredDirectKeys().find(
+      (candidate) => candidate.enabled && !directKeyKnownDisabled(candidate.fingerprint),
+    )
   return {
     baseUrl: config.gptDirect.baseUrl,
     key: chosen?.secret ?? gptDirectApiKey(),

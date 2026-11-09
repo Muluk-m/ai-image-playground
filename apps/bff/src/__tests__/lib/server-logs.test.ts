@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 
+// Bind the isolated database before loading server logging and maintenance singletons.
 process.env.DATABASE_URL = await resetTestDatabase('bff_server_logs')
 process.env.APP_ROLE = 'worker'
 const { db, schema, close } = await import('../../db/client')
@@ -14,6 +15,7 @@ const { purgeServerLogs, closeServerLogDatabase, writeServerLogs } = await impor
 )
 const { withRequestContext } = await import('../../lib/request-context')
 const { parseServerLog } = await import('../../lib/server-log-buffer')
+const { createSharedMaintenance } = await import('../../lib/shared-maintenance')
 afterAll(async () => {
   await closeServerLogDatabase()
   await close()
@@ -101,5 +103,47 @@ describe('server log persistence', () => {
     expect(
       await db.select().from(schema.server_logs).where(eq(schema.server_logs.id, base!.id)),
     ).toHaveLength(1)
+  })
+
+  it('keeps retention on its leader transaction so a failed run rolls back', async () => {
+    const [base] = await db.select().from(schema.server_logs).limit(1)
+    await db.insert(schema.server_logs).values({
+      ...base!,
+      id: 'transaction-expired-log',
+      at: Date.now() - 8 * 86400_000,
+    })
+    let fail = true
+    const errors: unknown[] = []
+    const maintenance = createSharedMaintenance({
+      job: 'server-logs-transaction-test',
+      onError: (error) => {
+        errors.push(error)
+      },
+      work: async (transaction) => {
+        await purgeServerLogs(Date.now(), transaction)
+        if (fail) throw new Error('rollback log retention')
+      },
+    })
+    try {
+      await maintenance.run()
+      expect(errors).toHaveLength(1)
+      expect(
+        await db
+          .select()
+          .from(schema.server_logs)
+          .where(eq(schema.server_logs.id, 'transaction-expired-log')),
+      ).toHaveLength(1)
+      fail = false
+      await maintenance.run()
+      expect(errors).toHaveLength(1)
+      expect(
+        await db
+          .select()
+          .from(schema.server_logs)
+          .where(eq(schema.server_logs.id, 'transaction-expired-log')),
+      ).toHaveLength(0)
+    } finally {
+      await maintenance.stop()
+    }
   })
 })

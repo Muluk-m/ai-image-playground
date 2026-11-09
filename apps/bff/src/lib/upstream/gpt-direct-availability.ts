@@ -31,11 +31,21 @@ let adminKeys: DirectKey[] | null = null
 let adminDeliverable: boolean | null = null
 /** 后台快照里启用的 key 数。`null` 表示没有后台记录，退回环境变量。 */
 let adminEnabledCount: number | null = null
+let hardDisabledKeys: ReadonlySet<string> = new Set()
+
+export function directKeyKnownDisabled(fingerprint: string): boolean {
+  return hardDisabledKeys.has(fingerprint)
+}
+
+export function forgetDirectKeyDisabled(fingerprint: string): void {
+  hardDisabledKeys = new Set([...hardDisabledKeys].filter((key) => key !== fingerprint))
+}
 
 export function resetAdminDirectKeySnapshot(): void {
   adminKeys = null
   adminDeliverable = null
   adminEnabledCount = null
+  hardDisabledKeys = new Set()
 }
 
 export function adminDirectKeys(): DirectKey[] | null {
@@ -45,10 +55,12 @@ export function adminDirectKeys(): DirectKey[] | null {
 export function setAdminDirectKeySnapshot(
   keys: DirectKey[] | null,
   deliverable: boolean | null,
+  hardDisabled?: ReadonlySet<string>,
 ): void {
   adminKeys = keys
   adminDeliverable = deliverable
   adminEnabledCount = keys === null ? null : keys.filter((key) => key.enabled).length
+  if (hardDisabled) hardDisabledKeys = hardDisabled
 }
 
 export function gptDirectSwitchOn(): boolean {
