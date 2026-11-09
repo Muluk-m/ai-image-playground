@@ -286,6 +286,14 @@ function GenerationTasksPage() {
                             <span>
                               {TASK_SOURCE_LABELS[task.source]} · {task.provider}
                             </span>
+                            {gptRouteLabel(task.gpt_route) ? (
+                              <span className="font-mono">
+                                {gptRouteLabel(task.gpt_route)}
+                                {task.gpt_route === 'direct' && task.gpt_key_fingerprint
+                                  ? ` · ${task.gpt_key_fingerprint}`
+                                  : ''}
+                              </span>
+                            ) : null}
                             <span className="font-mono">
                               {duration(task.started_at, task.completed_at)}
                             </span>
