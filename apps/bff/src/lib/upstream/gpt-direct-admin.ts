@@ -157,8 +157,7 @@ async function refreshGptDirectKeysOnce(ticket: number): Promise<void> {
         noteDirectKeySnapshot({ admin: [], deliverable: false })
         return
       }
-      noteDirectKeySnapshot({ admin: null, deliverable: false })
-      await selectDirectKey({ estimateMicroUsd: 1 })
+      await publishSnapshot(null)
     } catch (err) {
       log.warn(
         {
@@ -191,8 +190,7 @@ async function refreshGptDirectKeysOnce(ticket: number): Promise<void> {
       .orderBy(asc(schema.gpt_direct_admin_keys.ordinal))
     if (ticket !== refreshRequested) return
     if (rows.length === 0) {
-      noteDirectKeySnapshot({ admin: null, deliverable: false })
-      await selectDirectKey({ estimateMicroUsd: 1 })
+      await publishSnapshot(null)
       return
     }
     const keys: DirectKey[] = []
