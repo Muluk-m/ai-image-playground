@@ -503,7 +503,7 @@ describe('key failover', () => {
     const generate = () =>
       callUpstream({
         provider: 'openai-compat',
-        model: 'gpt-image-2.6',
+        model: 'gpt-image-2.6-flare',
         request: { prompt: 'a cat' },
       })
     await expect(generate()).rejects.toThrow('direct route is not configured')
