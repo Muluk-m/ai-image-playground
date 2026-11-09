@@ -51,7 +51,7 @@ export function noteDirectKeySnapshot(input: {
   const keys = input.admin ?? safeEnvDirectKeys()
   const deliverable =
     input.deliverable ?? keys.some((key) => key.enabled && !blocked.has(key.fingerprint))
-  setAdminDirectKeySnapshot(input.admin, deliverable)
+  setAdminDirectKeySnapshot(input.admin, deliverable, blocked)
 }
 
 /** 预算或冷却变了之后，改 size 能力，不动密钥清单。 */

@@ -5,7 +5,7 @@ import { purgeOldHostSamples, recoverAbandonedTasks, recoverTasksByIds } from '.
 import { recoverAnalysisTasks } from './lib/analysis-tasks'
 import { autoReconcileTasks } from './lib/auto-reconcile'
 import { isCapabilityEnabled } from './lib/capabilities'
-import { initChannels } from './lib/channels'
+import { initChannels, refreshChannelsIfChanged } from './lib/channels'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
 import { log } from './lib/logger'
 import {
@@ -14,6 +14,7 @@ import {
 } from './lib/operator-config-overrides'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { startServerLogs } from './lib/server-logs'
+import { startSharedMaintenance } from './lib/shared-maintenance'
 import { refreshUpstreamKeySources } from './lib/upstream/gpt-direct-admin'
 import { logFingerprintMacSourceOnce } from './lib/upstream/gpt-key-config'
 import { UPSTREAM_SECRET_REFRESH_MS } from './lib/upstream-secrets'
@@ -88,6 +89,20 @@ const checkAppAlerts = createAppAlerting({
 registerAppAlertScan(checkAppAlerts)
 let privateMaintenance: Promise<void> | undefined
 let operatorConfigRefresh: Promise<unknown> | undefined
+const stopOpsMaintenance = startSharedMaintenance({
+  job: 'operations-history',
+  work: async (transaction) => {
+    const now = Date.now()
+    await purgeStaleHeartbeats(now, transaction)
+    await purgeOldHostSamples(now, transaction)
+  },
+  onError: (err) => {
+    log.warn(
+      { event: 'worker.ops_purge_failed', err: err instanceof Error ? err.message : String(err) },
+      'operations board table purge failed',
+    )
+  },
+})
 const staleScanTimer = setInterval(() => {
   if (!operatorConfigRefresh) {
     operatorConfigRefresh = refreshOperatorConfigIfChanged()
@@ -112,13 +127,6 @@ const staleScanTimer = setInterval(() => {
       })
   }
   void checkAppAlerts()
-  // 运维看板的两张小表都靠这个循环保持小：过期的心跳实例，和 7 天前的宿主机采样。
-  Promise.all([purgeStaleHeartbeats(), purgeOldHostSamples()]).catch((err) => {
-    log.warn(
-      { event: 'worker.ops_purge_failed', err: err instanceof Error ? err.message : String(err) },
-      'operations board table purge failed',
-    )
-  })
   if (!scheduler.drainStatus().draining)
     Promise.all([
       recoverAbandonedTasks(runningTaskIds()),
@@ -134,7 +142,10 @@ const staleScanTimer = setInterval(() => {
       )
     })
 }, 10_000)
+let upstreamRefreshRunning = false
 const upstreamSecretTimer = setInterval(() => {
+  if (upstreamRefreshRunning) return
+  upstreamRefreshRunning = true
   // 刷新失败只记日志，渠道清单照样重建（否则一次读库失败会让这个定时器每轮都白跑）。
   void refreshUpstreamKeySources()
     .catch((error) =>
@@ -146,7 +157,7 @@ const upstreamSecretTimer = setInterval(() => {
         'upstream secret refresh failed',
       ),
     )
-    .then(() => initChannels(config.channelsFile ?? undefined))
+    .then(() => refreshChannelsIfChanged(config.channelsFile ?? undefined))
     .catch((error) =>
       log.error(
         {
@@ -156,6 +167,9 @@ const upstreamSecretTimer = setInterval(() => {
         'channels refresh failed',
       ),
     )
+    .finally(() => {
+      upstreamRefreshRunning = false
+    })
 }, UPSTREAM_SECRET_REFRESH_MS)
 const workerHealthServer = startWorkerHealthServer({
   port: config.worker.healthPort,
@@ -201,6 +215,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   stopHeartbeat()
   clearInterval(staleScanTimer)
   clearInterval(upstreamSecretTimer)
+  const opsMaintenanceStopped = stopOpsMaintenance()
   await workerHealthServer.stop()
   const drainTimeoutMs = config.worker.drainTimeoutMs
   log.info(
@@ -217,6 +232,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
         maintenanceTimeout = setTimeout(resolve, drainTimeoutMs)
       }),
     ]).finally(() => clearTimeout(maintenanceTimeout)),
+    opsMaintenanceStopped,
   ])
   if (!idle) {
     // id 必须在 abort 之前取：runner settle 之后会把自己从 runningTasks 摘掉。

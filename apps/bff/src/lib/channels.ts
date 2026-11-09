@@ -23,7 +23,7 @@
  * 新增 channel 往后排，别随手插第一位。
  */
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type {
   ChannelCapability,
@@ -52,7 +52,7 @@ import { findCatalogModel, publishModelCapabilities } from '@image-playground/sh
 import { isObject } from './type-guards'
 import { capabilitiesForModel } from './upstream/adapters'
 import { gptDirectEnabledKeyCount, gptDirectSizeEnabled } from './upstream/gpt-direct-availability'
-import { runtimeSecret } from './upstream-secret-cache'
+import { runtimeSecret, upstreamSecretRevision } from './upstream-secret-cache'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
 
@@ -569,7 +569,25 @@ let discoveredCache: DiscoveredChannel[] = []
 export function initChannels(filePath = defaultChannelsPath()): ChannelsLoadResult {
   const result = loadChannelsFromFile(filePath)
   setLoaded(result.channels, result.disabled, result.disabledModels)
+  refreshSignature = undefined
   return result
+}
+
+let refreshSignature: string | undefined
+
+/** Periodic reloads only rebuild channels when the file or effective credentials change. */
+export function refreshChannelsIfChanged(filePath = defaultChannelsPath()): void {
+  let fileVersion = 'missing'
+  try {
+    const stat = statSync(filePath, { bigint: true })
+    fileVersion = `${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`
+  } catch (error) {
+    if (!isFileNotFoundError(error)) throw error
+  }
+  const signature = `${filePath}:${fileVersion}:${upstreamSecretRevision()}:${gptDirectEnabledKeyCount()}:${gptDirectSizeEnabled()}`
+  if (signature === refreshSignature) return
+  initChannels(filePath)
+  refreshSignature = signature
 }
 
 export function getChannels(): InternalChannel[] {

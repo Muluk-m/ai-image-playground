@@ -93,6 +93,21 @@ async function put(id: string, apiKey: string) {
 }
 
 describe('upstream secret admin API', () => {
+  it('rechecks unchanged ciphertext after the encryption key changes and recovers when restored', async () => {
+    expect((await put('openai_direct', OPENAI_ADMIN)).status).toBe(200)
+    await refreshUpstreamSecrets()
+    expect(gptDirectApiKey()).toBe(OPENAI_ADMIN)
+    process.env.UPSTREAM_SECRETS_MASTER_KEY = Buffer.alloc(32, 8).toString('base64')
+    try {
+      await refreshUpstreamSecrets()
+      expect(gptDirectApiKey()).toBe(OPENAI_ENV)
+    } finally {
+      process.env.UPSTREAM_SECRETS_MASTER_KEY = MASTER_KEY
+    }
+    await refreshUpstreamSecrets()
+    expect(gptDirectApiKey()).toBe(OPENAI_ADMIN)
+  })
+
   it('rejects callers that are not the internal admin service', async () => {
     const response = await app.handle(new Request(endpoint))
     expect(response.status).toBe(401)

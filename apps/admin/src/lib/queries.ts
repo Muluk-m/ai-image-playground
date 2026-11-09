@@ -1,5 +1,6 @@
 import type { GptDirectAdminView } from '@image-playground/shared'
 import { replaceEqualDeep, useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
 import type {
   AgentPromptFilters,
   AgentPromptsResult,
@@ -264,6 +265,39 @@ export function useTodayErrors() {
     refetchInterval: 30_000,
   })
 }
+
+/** The rolling window owns refreshes; changing it creates exactly one new task query. */
+export function useGenerationTasksClock(live: boolean) {
+  const [clock, setClock] = useState(() => ({ live, now: Date.now() }))
+  if (clock.live !== live) setClock({ live, now: Date.now() })
+  useEffect(() => {
+    if (!live) return
+    let timer: number | undefined
+    const advance = () => setClock((previous) => ({ live, now: Math.max(Date.now(), previous.now + 1) }))
+    const schedule = () => {
+      if (timer !== undefined) window.clearInterval(timer)
+      timer = undefined
+      if (document.visibilityState !== 'hidden') timer = window.setInterval(advance, 30_000)
+    }
+    const visibilityChanged = () => {
+      if (document.visibilityState !== 'hidden') advance()
+      schedule()
+    }
+    const refresh = (event: Event) => {
+      event.preventDefault()
+      advance()
+    }
+    schedule()
+    document.addEventListener('visibilitychange', visibilityChanged)
+    window.addEventListener(ADMIN_REFRESH_EVENT, refresh)
+    return () => {
+      if (timer !== undefined) window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', visibilityChanged)
+      window.removeEventListener(ADMIN_REFRESH_EVENT, refresh)
+    }
+  }, [live])
+  return clock.now
+}
 export function useGenerationTasks(filters: GenerationTaskFilters) {
   return useQuery({
     queryKey: ['generation-tasks', filters],
@@ -276,7 +310,9 @@ export function useGenerationTasks(filters: GenerationTaskFilters) {
       return apiClient.get<GenerationTasksResult>(`/api/tasks?${params}`)
     },
     staleTime: 0,
-    refetchInterval: 30_000,
+    refetchInterval: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   })
 }
 

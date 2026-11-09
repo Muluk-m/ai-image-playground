@@ -39,6 +39,7 @@ import {
   parseAgentFrame,
 } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
+import { accountScope, scopedStorageName } from '../../../lib/authScope'
 import { mediaIdentity, resolveMediaSource } from '../../../lib/cloudMedia'
 import { getDeviceId } from '../../../lib/deviceId'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
@@ -960,26 +961,82 @@ export async function fetchStageRunWakeReceipt(
   return (await response.json()) as StageRunWakeReceipt
 }
 
-export async function fetchBatchPlan(batchId: string): Promise<AgentBatchPage> {
-  const response = await authenticatedBffFetch(
-    url(`/batches/${encodeURIComponent(batchId)}?limit=100`),
-    {
-      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
-    },
-  )
-  if (!response.ok) throw await requestError(response)
-  return (await response.json()) as AgentBatchPage
+const batchRequests = new Map<string, Promise<AgentBatchPage>>()
+const settledBatches = new Map<string, { page: AgentBatchPage; expires: number }>()
+const SETTLED_BATCH_TTL_MS = 60_000
+const MAX_SETTLED_BATCHES = 128
+
+function batchRequestKey(batchId: string): string {
+  return scopedStorageName(url(`/batches/${encodeURIComponent(batchId)}?limit=100`))
+}
+
+function invalidateBatchPlan(batchId: string): void {
+  const key = batchRequestKey(batchId)
+  settledBatches.delete(key)
+  batchRequests.delete(key)
+}
+
+/** Asset readers may reuse settled results briefly; plan editors always read fresh state. */
+export function fetchBatchPlan(
+  batchId: string,
+  options: { reuseSettled?: boolean; force?: boolean } = {},
+): Promise<AgentBatchPage> {
+  const key = batchRequestKey(batchId)
+  if (options.force) invalidateBatchPlan(batchId)
+  const cached = settledBatches.get(key)
+  if (options.reuseSettled && cached && cached.expires > Date.now())
+    return Promise.resolve(cached.page)
+  settledBatches.delete(key)
+  const pending = batchRequests.get(key)
+  if (pending) return pending
+  const sameAccount = accountScope()
+  const request: Promise<AgentBatchPage> = (async () => {
+    const response = await authenticatedBffFetch(
+      url(`/batches/${encodeURIComponent(batchId)}?limit=100`),
+      { signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS) },
+    )
+    if (!response.ok) throw await requestError(response)
+    const page = (await response.json()) as AgentBatchPage
+    if (!sameAccount()) throw new DOMException('Account changed', 'AbortError')
+    // Paused/draft plans can be resumed or edited. Even closed/cancelled plans must
+    // have no outstanding reconciliation before their result can be reused.
+    if (
+      batchRequests.get(key) === request &&
+      (page.batch.status === 'closed' || page.batch.status === 'cancelled') &&
+      !page.items.some(
+        (item) =>
+          item.progress === 'in_flight' ||
+          item.progress === 'reconciling' ||
+          (item.execution &&
+            ['queued', 'in_progress', 'reconciling'].includes(item.execution.status)),
+      )
+    ) {
+      for (const [id, entry] of settledBatches)
+        if (entry.expires <= Date.now()) settledBatches.delete(id)
+      if (settledBatches.size >= MAX_SETTLED_BATCHES)
+        settledBatches.delete(settledBatches.keys().next().value!)
+      settledBatches.set(key, { page, expires: Date.now() + SETTLED_BATCH_TTL_MS })
+    }
+    return page
+  })()
+  batchRequests.set(key, request)
+  void request.finally(() => {
+    if (batchRequests.get(key) === request) batchRequests.delete(key)
+  }).catch(() => {})
+  return request
 }
 
 export async function updateBatchPlan(
   batchId: string,
   update: AgentBatchUpdate,
 ): Promise<AgentBatchPage> {
+  invalidateBatchPlan(batchId)
   const response = await authenticatedBffFetch(url(`/batches/${encodeURIComponent(batchId)}`), {
     ...jsonInit(update, 'PATCH'),
     signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
   })
   if (!response.ok) throw await requestError(response)
+  invalidateBatchPlan(batchId)
   return (await response.json()) as AgentBatchPage
 }
 
@@ -987,6 +1044,7 @@ export async function cancelBatchPlan(
   batchId: string,
   expectedVersion: number,
 ): Promise<AgentBatchPage> {
+  invalidateBatchPlan(batchId)
   const response = await authenticatedBffFetch(
     url(`/batches/${encodeURIComponent(batchId)}/cancel`),
     {
@@ -995,11 +1053,13 @@ export async function cancelBatchPlan(
     },
   )
   if (!response.ok) throw await requestError(response)
+  invalidateBatchPlan(batchId)
   return (await response.json()) as AgentBatchPage
 }
 
 /** 生成中单独撤掉一张；那一张已经结束时服务端原样返回最新页面。 */
 export async function cancelBatchItem(batchId: string, itemKey: string): Promise<AgentBatchPage> {
+  invalidateBatchPlan(batchId)
   const response = await authenticatedBffFetch(
     url(`/batches/${encodeURIComponent(batchId)}/items/${encodeURIComponent(itemKey)}/cancel`),
     {
@@ -1008,6 +1068,7 @@ export async function cancelBatchItem(batchId: string, itemKey: string): Promise
     },
   )
   if (!response.ok) throw await requestError(response)
+  invalidateBatchPlan(batchId)
   return (await response.json()) as AgentBatchPage
 }
 
@@ -1031,6 +1092,7 @@ export async function executeBatchCommand(
   batchId: string,
   command: AgentBatchCommand,
 ): Promise<AgentBatchPage> {
+  invalidateBatchPlan(batchId)
   const { action, ...body } = command
   const response = await authenticatedBffFetch(
     url(`/batches/${encodeURIComponent(batchId)}/${action}`),
@@ -1040,5 +1102,6 @@ export async function executeBatchCommand(
     },
   )
   if (!response.ok) throw await requestError(response)
+  invalidateBatchPlan(batchId)
   return (await response.json()) as AgentBatchPage
 }

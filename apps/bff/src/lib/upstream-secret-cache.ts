@@ -3,6 +3,11 @@
  * 所以正在发出的上游请求继续用它开始时的那把 key。
  */
 let overrides = new Map<string, string>()
+let revision = 0
+
+export function upstreamSecretRevision(): number {
+  return revision
+}
 
 /** Admin override when one is cached; otherwise the caller-supplied env snapshot. */
 export function runtimeSecret(envName: string, fallback: string): string {
@@ -11,9 +16,13 @@ export function runtimeSecret(envName: string, fallback: string): string {
 }
 
 export function replaceUpstreamSecretCache(next: ReadonlyMap<string, string>): void {
+  if (next.size === overrides.size && [...next].every(([key, value]) => overrides.get(key) === value))
+    return
+  revision += 1
   overrides = new Map(next)
 }
 
 export function resetUpstreamSecretCacheForTests(): void {
+  revision += 1
   overrides = new Map()
 }

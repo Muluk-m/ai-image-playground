@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { Download } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import {
   FilterBar,
@@ -26,7 +26,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { duration, shortId } from '@/lib/format'
-import { ADMIN_REFRESH_EVENT, useGenerationTasks } from '@/lib/queries'
+import { useGenerationTasks, useGenerationTasksClock } from '@/lib/queries'
 import { adminApiUrl } from '@/lib/runtime-config'
 import { clearTaskView, parseGenerationTasksSearch } from '@/lib/search-params'
 import { cn } from '@/lib/utils'
@@ -106,21 +106,7 @@ function GenerationTasksPage() {
   const navigate = Route.useNavigate()
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState('')
-  // 默认「今天」的结束时间如果每次渲染都取 now，查询键会一直变，列表永远停在加载中。
-  const [clock, setClock] = useState(() => Date.now())
-  useEffect(() => {
-    if (search.from !== undefined || search.to !== undefined) return
-    const refresh = (event: Event) => {
-      event.preventDefault()
-      setClock(Date.now())
-    }
-    const timer = window.setInterval(() => setClock(Date.now()), 30_000)
-    window.addEventListener(ADMIN_REFRESH_EVENT, refresh)
-    return () => {
-      window.clearInterval(timer)
-      window.removeEventListener(ADMIN_REFRESH_EVENT, refresh)
-    }
-  }, [search.from, search.to])
+  const clock = useGenerationTasksClock(search.from === undefined && search.to === undefined)
   const preset = search.preset ?? (search.from === undefined ? 'today' : 'custom')
   const taskWindow =
     search.from !== undefined && search.to !== undefined
