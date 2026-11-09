@@ -298,6 +298,7 @@ export const EXPECTED_COLUMNS = [
   'inspiration_items.thumb_height',
   'tasks.reconcile_started_at',
   'tasks.gpt_route',
+  'tasks.gpt_key_fingerprint',
   'gpt_direct_usage.key_fingerprint',
   'gpt_direct_admin_keys.fingerprint',
   'tasks.reconcile_alerted_at',

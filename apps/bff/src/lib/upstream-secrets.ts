@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { log } from './logger'
@@ -11,7 +11,7 @@ import {
 export { runtimeSecret } from './upstream-secret-cache'
 
 /** How often each BFF and worker process re-reads admin overrides. In-flight calls keep the key they already resolved. */
-export const UPSTREAM_SECRET_REFRESH_MS = 2_000
+export const UPSTREAM_SECRET_REFRESH_MS = 10_000
 
 const MASTER_KEY_ENV = 'UPSTREAM_SECRETS_MASTER_KEY'
 
@@ -73,6 +73,8 @@ type SecretRow = typeof schema.upstream_api_secrets.$inferSelect
 let appliedMeta = new Map<string, SlotMeta>()
 let warning: string | null = null
 let loggedProblem: string | null = null
+let appliedRevision: string | undefined
+let appliedMasterKey: Buffer | undefined
 
 const MISSING_MASTER_KEY = `未配置 ${MASTER_KEY_ENV}，不能写入或替换。生成继续使用环境变量里的密钥。`
 const INVALID_MASTER_KEY = `${MASTER_KEY_ENV} 必须是 32 字节，用 base64 或 64 位十六进制。不能写入或替换。生成继续使用环境变量里的密钥。`
@@ -203,6 +205,8 @@ function currentView(): UpstreamSecretsView {
 async function refreshUpstreamSecretsOnce(): Promise<void> {
   const master = readMasterKey()
   if (!master.ok) {
+    appliedRevision = undefined
+    appliedMasterKey = undefined
     replaceUpstreamSecretCache(new Map())
     appliedMeta = new Map()
     warning = null
@@ -210,6 +214,11 @@ async function refreshUpstreamSecretsOnce(): Promise<void> {
     return
   }
   try {
+    const [version] = await db.execute<{ revision: string }>(sql`
+      SELECT md5(COALESCE(jsonb_agg(to_jsonb(secrets) ORDER BY secrets.id)::text, '[]')) AS revision
+      FROM ${schema.upstream_api_secrets} AS secrets
+    `)
+    if (version?.revision === appliedRevision && appliedMasterKey?.equals(master.key)) return
     const rows = await db.select().from(schema.upstream_api_secrets)
     const next = new Map<string, string>()
     const meta = new Map<string, SlotMeta>()
@@ -229,6 +238,8 @@ async function refreshUpstreamSecretsOnce(): Promise<void> {
     appliedMeta = meta
     warning = ignored > 0 ? DECRYPT_WARNING : null
     noteProblem(null)
+    appliedRevision = version?.revision
+    appliedMasterKey = master.key
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown'
     log.warn(
@@ -255,6 +266,8 @@ export function resetUpstreamSecretsForTests(): void {
   appliedMeta = new Map()
   warning = null
   loggedProblem = null
+  appliedRevision = undefined
+  appliedMasterKey = undefined
 }
 
 export async function listUpstreamSecrets(): Promise<UpstreamSecretsView> {

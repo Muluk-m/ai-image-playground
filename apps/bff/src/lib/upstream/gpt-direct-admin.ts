@@ -10,18 +10,19 @@ import {
   sealSecret,
   UpstreamSecretError,
 } from '../upstream-secrets'
-import { fingerprintMacSource } from './gpt-direct-availability'
+import { fingerprintMacSource, setAdminDirectKeySnapshot } from './gpt-direct-availability'
 import {
   type DirectKey,
   FingerprintSecretMissingError,
   fingerprintOf,
   noteDirectKeySnapshot,
+  safeEnvDirectKeys,
 } from './gpt-key-config'
 import { selectDirectKey } from './gpt-keys'
 
 /**
  * 后台「直连」页的密钥。加密、主密钥和刷新节奏与 upstream-secrets 相同，
- * 不另起一套。写完立刻刷新本进程；其他 worker 在下一次 2 秒刷新里跟上。
+ * 不另起一套。写完立刻刷新本进程；其他 worker 在下一次 10 秒刷新里跟上。
  */
 
 const AAD_PREFIX = 'gpt-direct:'
@@ -47,6 +48,10 @@ function sealedRow(row: { nonce: string; tag: string; ciphertext: string }) {
 
 let refreshRequested = 0
 let refreshChain: Promise<void> = Promise.resolve()
+let cachedRevision: string | undefined
+let cachedMasterKey: Buffer | undefined
+let cachedFingerprintSecret: string | undefined
+let cachedKeys: DirectKey[] | undefined
 
 /** 串行刷新。读到一半又有更新时，旧结果不写回快照。 */
 export function refreshGptDirectKeys(): Promise<void> {
@@ -83,15 +88,36 @@ export async function refreshUpstreamKeySources(): Promise<void> {
 }
 
 async function publishSnapshot(admin: DirectKey[] | null): Promise<void> {
-  noteDirectKeySnapshot({ admin, deliverable: false })
-  const probe = await selectDirectKey({ estimateMicroUsd: 1 })
-  if (probe) noteDirectKeySnapshot({ admin, deliverable: true })
+  setAdminDirectKeySnapshot(admin, false)
+  const states = await db
+    .select()
+    .from(schema.gpt_direct_key_state)
+    .catch((error) => {
+      noteDirectKeySnapshot({
+        admin,
+        hardDisabled: new Set((admin ?? safeEnvDirectKeys()).map((key) => key.fingerprint)),
+        deliverable: false,
+      })
+      throw error
+    })
+  const hardDisabled = new Set(
+    states.filter((row) => row.disabled_reason !== null).map((row) => row.fingerprint),
+  )
+  noteDirectKeySnapshot({ admin, hardDisabled, deliverable: false })
+  const probe = await selectDirectKey({
+    estimateMicroUsd: 1,
+    state: new Map(states.map((row) => [row.fingerprint, row])),
+  })
+  if (probe) noteDirectKeySnapshot({ admin, hardDisabled, deliverable: true })
 }
 
 /** 从库里重读。失败时留着上一份快照，避免一次查询失败把正在用的 key 丢掉。 */
 async function refreshGptDirectKeysOnce(ticket: number): Promise<void> {
   if (ticket !== refreshRequested) return
+  const fingerprintSource = fingerprintMacSource()
+  const fingerprintSecret = fingerprintSource === 'unset' ? '' : process.env[fingerprintSource]
   if (fingerprintMacSource() === 'unset') {
+    cachedRevision = undefined
     log.error(
       { event: 'gpt.fingerprint_secret_missing' },
       'direct fingerprint secret is unset; admin keys and direct routing stay unavailable',
@@ -116,6 +142,7 @@ async function refreshGptDirectKeysOnce(ticket: number): Promise<void> {
   }
   const master = readMasterKey()
   if (!master.ok) {
+    cachedRevision = undefined
     try {
       const [row] = await db
         .select({ id: schema.gpt_direct_admin_keys.id })
@@ -130,8 +157,7 @@ async function refreshGptDirectKeysOnce(ticket: number): Promise<void> {
         noteDirectKeySnapshot({ admin: [], deliverable: false })
         return
       }
-      noteDirectKeySnapshot({ admin: null, deliverable: false })
-      await selectDirectKey({ estimateMicroUsd: 1 })
+      await publishSnapshot(null)
     } catch (err) {
       log.warn(
         {
@@ -144,14 +170,27 @@ async function refreshGptDirectKeysOnce(ticket: number): Promise<void> {
     return
   }
   try {
+    const [version] = await db.execute<{ revision: string }>(sql`
+      SELECT md5(COALESCE(jsonb_agg(to_jsonb(keys) ORDER BY keys.id)::text, '[]')) AS revision
+      FROM ${schema.gpt_direct_admin_keys} AS keys
+    `)
+    if (ticket !== refreshRequested) return
+    if (
+      version?.revision === cachedRevision &&
+      cachedMasterKey?.equals(master.key) &&
+      fingerprintSecret === cachedFingerprintSecret &&
+      cachedKeys
+    ) {
+      await publishSnapshot(cachedKeys)
+      return
+    }
     const rows = await db
       .select()
       .from(schema.gpt_direct_admin_keys)
       .orderBy(asc(schema.gpt_direct_admin_keys.ordinal))
     if (ticket !== refreshRequested) return
     if (rows.length === 0) {
-      noteDirectKeySnapshot({ admin: null, deliverable: false })
-      await selectDirectKey({ estimateMicroUsd: 1 })
+      await publishSnapshot(null)
       return
     }
     const keys: DirectKey[] = []
@@ -188,6 +227,10 @@ async function refreshGptDirectKeysOnce(ticket: number): Promise<void> {
       return
     }
     await publishSnapshot(keys)
+    cachedRevision = version?.revision
+    cachedMasterKey = master.key
+    cachedFingerprintSecret = fingerprintSecret
+    cachedKeys = keys
   } catch (err) {
     log.warn(
       {

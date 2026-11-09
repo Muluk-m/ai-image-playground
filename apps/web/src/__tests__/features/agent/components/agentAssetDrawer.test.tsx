@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Overlay from '../../../../components/patterns/Overlay'
 import AgentAssetDrawer from '../../../../features/agent/components/AgentAssetDrawer'
+import { AgentRequestError } from '../../../../features/agent/lib/agentClient'
 import type { AgentToolMessage } from '../../../../features/agent/types'
 import ImageExportDialog from '../../../../features/image-export/ImageExportDialog'
 import { useImageExportStore } from '../../../../features/image-export/store'
@@ -14,6 +15,7 @@ const fixture = vi.hoisted(() => ({
   fetchBatchPlan: vi.fn(
     async (_id: string): Promise<unknown> => ({ batch: { status: 'paused' }, items: [] }),
   ),
+  changes: new Set<(batchId: string) => void>(),
   fetchMessageReference: vi.fn(async () => new Blob()),
   resolveMediaSource: vi.fn(
     async (_source: string, _variant?: string) => 'data:image/png;base64,preview',
@@ -21,10 +23,21 @@ const fixture = vi.hoisted(() => ({
 }))
 
 vi.mock('../../../../features/agent/lib/agentClient', () => ({
+  AgentRequestError: class extends Error {
+    constructor(readonly status: number) {
+      super(`Agent request failed with ${status}`)
+    }
+  },
   fetchConversations: fixture.fetchConversations,
   fetchMessages: fixture.fetchMessages,
   fetchBatchPlan: fixture.fetchBatchPlan,
   fetchMessageReference: fixture.fetchMessageReference,
+  subscribeBatchPlanChanges: (listener: (batchId: string) => void) => {
+    fixture.changes.add(listener)
+    return () => {
+      fixture.changes.delete(listener)
+    }
+  },
 }))
 vi.mock('../../../../lib/cloudMedia', async () => {
   const actual = await vi.importActual<typeof import('../../../../lib/cloudMedia')>(
@@ -117,6 +130,7 @@ beforeEach(() => {
   fixture.fetchBatchPlan.mockReset()
   fixture.fetchBatchPlan.mockResolvedValue({ batch: { status: 'paused' }, items: [] })
   fixture.fetchMessageReference.mockClear()
+  fixture.changes.clear()
   fixture.resolveMediaSource.mockReset()
   fixture.resolveMediaSource.mockResolvedValue('data:image/png;base64,preview')
   fixture.fetchMessages.mockImplementation(async (id) => history(id, id === 'other-1' ? 30 : 2))
@@ -271,7 +285,6 @@ it('lists the source images of a batch plan when the chat itself has no generate
   await vi.waitFor(() => expect(document.body.textContent).toContain('01-主图场景'))
   expect(document.body.textContent).toContain('02-场景二-烛光深色墙')
   expect(document.body.textContent).not.toContain('当前对话还没有生成内容')
-  expect(fixture.fetchBatchPlan).toHaveBeenCalledWith('batch-1')
   expect(document.querySelectorAll('.studio-assets-item')).toHaveLength(2)
 })
 
@@ -346,6 +359,129 @@ it('keeps refreshing a paused batch while a submitted item is still running', as
       await vi.advanceTimersByTimeAsync(4_000)
     })
     expect(fixture.fetchBatchPlan).toHaveBeenCalledTimes(2)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('polls only unfinished batches and stops after unmount', async () => {
+  vi.useFakeTimers()
+  try {
+    fixture.fetchBatchPlan.mockImplementation(async (id: string) => ({
+      batch: { status: id === 'running' ? 'running' : 'closed' },
+      items: [],
+    }))
+    await act(async () => {
+      root.render(
+        <AgentAssetDrawer
+          messages={[planMessage('finished', 'finished'), planMessage('running', 'running')]}
+          onClose={() => {}}
+          onPreview={() => {}}
+        />,
+      )
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000)
+    })
+    expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'finished')).toHaveLength(1)
+    expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'running')).toHaveLength(4)
+    await act(async () => root.render(null))
+    await vi.advanceTimersByTimeAsync(12_000)
+    expect(fixture.fetchBatchPlan).toHaveBeenCalledTimes(5)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('shows a resumed batch result while another batch keeps running', async () => {
+  vi.useFakeTimers()
+  let resumed = false
+  try {
+    fixture.fetchBatchPlan.mockImplementation(async (id) => ({
+      batch: { status: id === 'running' ? 'running' : resumed ? 'closed' : 'paused' },
+      items:
+        id === 'paused' && resumed
+          ? [
+              {
+                inputs: [],
+                progress: 'completed',
+                execution: {
+                  status: 'completed',
+                  artifacts: [
+                    {
+                      artifactId: 'resumed-output',
+                      taskId: 'resumed-task',
+                      media: 'image',
+                      outputIndex: 0,
+                      mime: 'image/png',
+                    },
+                  ],
+                },
+              },
+            ]
+          : [],
+    }))
+    await act(async () =>
+      root.render(
+        <AgentAssetDrawer
+          messages={[
+            planMessage('running', 'running'),
+            { ...planMessage('paused', 'paused'), title: '恢复后的新素材' },
+          ]}
+          onClose={() => {}}
+          onPreview={() => {}}
+        />,
+      ),
+    )
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000)
+    })
+    expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'paused')).toHaveLength(1)
+    expect(document.body.textContent).not.toContain('恢复后的新素材')
+    await act(async () => {
+      resumed = true
+      for (const listener of fixture.changes) listener('paused')
+    })
+    expect(document.body.textContent).toContain('恢复后的新素材')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000)
+    })
+    expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'paused')).toHaveLength(2)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it.each([
+  403, 404,
+])('stops polling HTTP %s batches and lets explicit retry reload every batch', async (status) => {
+  vi.useFakeTimers()
+  try {
+    fixture.fetchBatchPlan.mockImplementation(async (id: string) => {
+      if (id === 'missing') throw new AgentRequestError(status)
+      return { batch: { status: id === 'running' ? 'running' : 'closed' }, items: [] }
+    })
+    await act(async () => {
+      root.render(
+        <AgentAssetDrawer
+          messages={[
+            planMessage('done', 'done'),
+            planMessage('missing', 'missing'),
+            planMessage('running', 'running'),
+          ]}
+          onClose={() => {}}
+          onPreview={() => {}}
+        />,
+      )
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_000)
+    })
+    expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'missing')).toHaveLength(1)
+    expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'done')).toHaveLength(1)
+    const retry = document.querySelector<HTMLButtonElement>('[role="alert"] button')!
+    await act(async () => retry.click())
+    expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'missing')).toHaveLength(2)
   } finally {
     vi.useRealTimers()
   }

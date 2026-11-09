@@ -338,6 +338,8 @@ describe('admin user routes', () => {
         completed_at: expect.any(Number),
         error_type: null,
         upstream_status: null,
+        gpt_route: null,
+        gpt_key_fingerprint: null,
         prompt: 'failed image',
         upstream_invocation_count: 3,
         attempt_count: 0,

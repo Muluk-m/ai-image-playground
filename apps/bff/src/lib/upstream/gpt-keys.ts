@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { GptDirectAdminView, GptDirectKeyStatus } from '@image-playground/shared'
-import { gte, sql } from 'drizzle-orm'
+import { eq, gte, sql } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { kickAppAlerts } from '../../ops/alert-kick'
@@ -13,12 +13,14 @@ import {
   releaseDirectReservation,
   reserveDirectBudget,
 } from './gpt-budget'
+import { directKeyKnownDisabled, forgetDirectKeyDisabled } from './gpt-direct-availability'
 import {
   adminDirectKeys,
   configuredDirectKeys,
   type DirectKey,
   directKeySecrets,
   displayDirectKeyError,
+  envDirectKeys,
   FingerprintSecretMissingError,
   fingerprintMacSource,
   noteDirectSizeDeliverable,
@@ -106,6 +108,7 @@ async function walkDirectKeys(input: {
   exclude?: ReadonlySet<string>
   now?: number
   reserve?: boolean
+  state?: ReadonlyMap<string, KeyStateRow>
 }): Promise<{ key: DirectKey; reservationId: string | null } | null> {
   const now = input.now ?? Date.now()
   let keys: DirectKey[]
@@ -115,13 +118,13 @@ async function walkDirectKeys(input: {
     log.warn({ event: 'gpt.direct_keys_invalid', err }, 'openai direct key config is invalid')
     return null
   }
-  if (keys.length === 0) {
+  if (keys.every((key) => !key.enabled || directKeyKnownDisabled(key.fingerprint))) {
     if (!input.exclude?.size) noteDirectSizeDeliverable(false)
     return null
   }
-  let state: Map<string, KeyStateRow>
+  let state: ReadonlyMap<string, KeyStateRow>
   try {
-    state = await loadKeyState()
+    state = input.state ?? (await loadKeyState())
   } catch (err) {
     log.warn({ event: 'gpt.direct_key_state_read_failed', err }, 'direct key state read failed')
     return null
@@ -166,6 +169,7 @@ export async function selectDirectKey(input: {
   estimateMicroUsd: number
   exclude?: ReadonlySet<string>
   now?: number
+  state?: ReadonlyMap<string, KeyStateRow>
 }): Promise<DirectKey | null> {
   const picked = await walkDirectKeys(input)
   return picked?.key ?? null
@@ -320,6 +324,7 @@ export async function restoreDirectKey(fingerprint: string, operator?: string): 
       created_at: now,
     })
   })
+  forgetDirectKeyDisabled(fingerprint)
   log.info(
     {
       event: 'gpt.direct_key_restored',
@@ -450,23 +455,30 @@ export async function directKeyPanel(days: 7 | 30, now = Date.now()): Promise<Gp
   }
 }
 
-/** 告警轮询用：当前仍因上游错误停用、且后台没有手动关闭的密钥。标签来自配置，库里只有指纹。 */
+/** 告警轮询以数据库后台清单为准，不受各 worker 的配置刷新时序影响。 */
 export async function disabledDirectKeys(): Promise<
   Array<{ fingerprint: string; label: string; reason: 'quota' | 'invalid' }>
 > {
-  // 配置解析失败就让它抛：告警层把抛错当成「没观察到」，保持原状态；
-  // 返回空数组会把还停着的密钥误报成已恢复。
-  const configured = configuredDirectKeys()
-  const labels = new Map(configured.map((key) => [key.fingerprint, key.label]))
   const adminRows = await db
     .select({
       fingerprint: schema.gpt_direct_admin_keys.fingerprint,
       enabled: schema.gpt_direct_admin_keys.enabled,
+      reason: schema.gpt_direct_key_state.disabled_reason,
     })
     .from(schema.gpt_direct_admin_keys)
-  const manuallyDisabled = new Set(
-    adminRows.filter((row) => !row.enabled).map((row) => row.fingerprint),
-  )
+    .leftJoin(
+      schema.gpt_direct_key_state,
+      eq(schema.gpt_direct_key_state.fingerprint, schema.gpt_direct_admin_keys.fingerprint),
+    )
+  if (adminRows.length > 0) {
+    return adminRows.flatMap((row) =>
+      row.enabled && (row.reason === 'quota' || row.reason === 'invalid')
+        ? [{ fingerprint: row.fingerprint, label: row.fingerprint, reason: row.reason }]
+        : [],
+    )
+  }
+  // 后台无记录才退回环境变量；解析失败必须抛错，不能被误读为已恢复。
+  const labels = new Map(envDirectKeys().map((key) => [key.fingerprint, key.label]))
   const rows = await db
     .select({
       fingerprint: schema.gpt_direct_key_state.fingerprint,
@@ -475,7 +487,7 @@ export async function disabledDirectKeys(): Promise<
     .from(schema.gpt_direct_key_state)
   return rows.flatMap((row) => {
     const label = labels.get(row.fingerprint)
-    if (!label || manuallyDisabled.has(row.fingerprint)) return []
+    if (!label) return []
     return row.disabled_reason === 'quota' || row.disabled_reason === 'invalid'
       ? [{ fingerprint: row.fingerprint, label, reason: row.disabled_reason }]
       : []

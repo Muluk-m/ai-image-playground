@@ -1547,10 +1547,19 @@ const {
   reconcile_started_at: _reconcileStartedAt,
   reconcile_alerted_at: _reconcileAlertedAt,
   metering: _metering,
+  gpt_route: gptRouteColumn,
+  gpt_key_fingerprint: gptKeyFingerprintColumn,
   ...queueTaskColumns
 } = getTableColumns(tasks)
 export const queue_tasks = pgView('queue_tasks').as((qb) =>
-  qb.select(queueTaskColumns).from(tasks).where(eq(tasks.kind, 'queue')),
+  qb
+    .select({
+      ...queueTaskColumns,
+      gpt_route: gptRouteColumn,
+      gpt_key_fingerprint: gptKeyFingerprintColumn,
+    })
+    .from(tasks)
+    .where(eq(tasks.kind, 'queue')),
 )
 
 export const task_dispatches = pgTable(
