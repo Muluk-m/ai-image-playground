@@ -14,6 +14,7 @@ import {
   main,
   PIN_FILE,
   RELEASE_DOC_FILE,
+  REQUIRE_TAGS_ENV,
   SKILL_FILE,
   SOURCE_FILE,
   WORKFLOW_FILE,
@@ -83,12 +84,25 @@ test('没取到 tag 时只跳过 tag 相关子检查', () => {
   const { problems, notices } = inspect(factsFor(fixture(), null))
   assert.deepEqual(problems, [])
   assert.equal(notices.length, 1)
-  assert.match(notices[0], /fetch-tags/)
+  assert.match(notices[0], /跳过与 release tag 相关的子检查/)
   // 其余检查仍然生效。
   const drifted = inspect(
     factsFor(fixture({ [WORKFLOW_FILE]: (t) => t.replace('cli-v0.2.4', 'cli-v0.2.3') }), null),
   )
   assert.equal(drifted.problems.length, 1)
+})
+
+test('权威门禁里取不到 tag 算失败', () => {
+  const previous = process.env[REQUIRE_TAGS_ENV]
+  process.env[REQUIRE_TAGS_ENV] = '1'
+  try {
+    const { problems } = inspect(factsFor(fixture(), null))
+    assert.equal(problems.length, 1)
+    assert.match(problems[0], /需要 fetch-tags/)
+  } finally {
+    if (previous === undefined) delete process.env[REQUIRE_TAGS_ENV]
+    else process.env[REQUIRE_TAGS_ENV] = previous
+  }
 })
 
 test('来源文件必须是精确的 X.Y.Z', () => {

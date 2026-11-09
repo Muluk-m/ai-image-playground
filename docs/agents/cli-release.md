@@ -15,10 +15,11 @@
 `cli-checks.yml`），于是「标签 ≠ 源码版本」在构建第一步就失败，不会产出标错版本的 release。
 
 剩下的几份拷贝（工作流默认标签、网页接入页固定值、三份接入指南、服务端最低版本）由
-`scripts/check-cli-version.mjs` 校验，它挂在根 `pnpm lint` 里，并且 `.github/workflows/web.yml` 的
-`lint` job 每个 PR 都跑（该 job 的检出带 `fetch-tags`，脚本要用 `git` 读 `cli-v*` 标签指向的提交）。
-自测：`node --test scripts/__tests__/check-cli-version.test.mjs`。本地没有 `cli-v*` 标签时脚本只跳过
-与标签相关的子检查并打印一条 notice，其余照常。
+`scripts/check-cli-version.mjs` 校验，它挂在根 `pnpm lint` 里，每个 PR 由
+`.github/workflows/web.yml` 的 `lint` job 跑。脚本要用 `git` 读 `cli-v*` 标签指向的提交，所以该 job
+的检出带 `fetch-tags`，并且只有它设 `CLI_VERSION_REQUIRE_TAGS=1`：取不到标签就报错，而不是悄悄把
+检查变弱。别处（其他 job 和本机浅克隆）没有标签时只跳过与标签相关的子检查并打印一条 notice。
+自测：`node --test scripts/__tests__/check-cli-version.test.mjs`。
 
 脚本强制的规则（V = `VERSION` 里的版本，P = 网页固定版本 `CLI_VERSION`，R = `CLI_RELEASE_REF`）：
 

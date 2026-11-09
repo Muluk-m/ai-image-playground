@@ -114,7 +114,11 @@ jobs:
       - run: python3 scripts/test-cloud-test.py
       - run: node --test scripts/__tests__/ci-cli-required.test.mjs
       - run: node --test scripts/__tests__/lock-closure-changed.test.mjs scripts/__tests__/test-guard.test.mjs scripts/__tests__/cost-impact.test.mjs scripts/__tests__/review-stats.test.mjs scripts/__tests__/test-shard.test.mjs scripts/__tests__/check-cli-version.test.mjs
+      # 这一步是 CLI 版本一致性的权威门禁：别的 job 也跑 pnpm lint，但只有这里的检出取了 tag，
+      # 所以只在这里要求必须取到 cli-v*（取不到就报错，而不是悄悄跳过 tag 相关的子检查）。
       - run: pnpm lint
+        env:
+          CLI_VERSION_REQUIRE_TAGS: '1'
       # Deploy and backup scripts; shellcheck ships on the hosted runner.
       - run: pnpm lint:sh
   # Docker web 阶段只在构建输入变化时跑（中位 0，触发时约 95 秒），不需要 pnpm 安装，单独一台，不再拖慢 lint。
