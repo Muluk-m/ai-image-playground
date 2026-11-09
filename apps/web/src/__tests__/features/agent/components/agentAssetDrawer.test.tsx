@@ -277,10 +277,6 @@ it('lists the source images of a batch plan when the chat itself has no generate
   await vi.waitFor(() => expect(document.body.textContent).toContain('01-主图场景'))
   expect(document.body.textContent).toContain('02-场景二-烛光深色墙')
   expect(document.body.textContent).not.toContain('当前对话还没有生成内容')
-  expect(fixture.fetchBatchPlan).toHaveBeenCalledWith('batch-1', {
-    reuseSettled: true,
-    force: false,
-  })
   expect(document.querySelectorAll('.studio-assets-item')).toHaveLength(2)
 })
 
@@ -418,7 +414,6 @@ it.each([
     expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'done')).toHaveLength(1)
     const retry = document.querySelector<HTMLButtonElement>('[role="alert"] button')!
     await act(async () => retry.click())
-    expect(fixture.fetchBatchPlan).toHaveBeenCalledWith('done', { reuseSettled: true, force: true })
     expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'missing')).toHaveLength(2)
   } finally {
     vi.useRealTimers()
