@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from 'react'
+import { type ReactNode, Suspense, useEffect, useLayoutEffect, useRef } from 'react'
 import { useAuth } from './auth/AuthContext'
 import { resumePendingSubmission } from './auth/resumePendingSubmission'
 import { signalBootReady } from './boot/ready'
@@ -10,6 +10,7 @@ import ImageContextMenu from './components/ImageContextMenu'
 import InputBar from './components/InputBar'
 import Lightbox from './components/Lightbox'
 import MaskEditorModal from './components/MaskEditorModal'
+import RouteChunkBoundary, { lazyRoute, RouteLoading } from './components/RouteChunkBoundary'
 import SettingsModal from './components/SettingsModal'
 import Sidebar from './components/Sidebar'
 import TaskBulkActions from './components/TaskBulkActions'
@@ -42,14 +43,14 @@ import { startSyncEngine } from './lib/sync/engine'
 import { clearUrlSettingParams, hasUrlSettingParams } from './lib/urlSettings'
 import { initStore, useStore } from './store'
 
-const ChangelogPage = lazy(() => import('./features/announcements/ChangelogPage'))
-const CanvasMode = lazy(() => import('./features/canvas/components/CanvasMode'))
-const CliConnectPage = lazy(() => import('./features/cli/CliConnectPage'))
-const CliDevicePage = lazy(() => import('./features/cli/CliDevicePage'))
-const ExplorePage = lazy(() => import('./features/inspiration/components/ExplorePage'))
-const LibraryPage = lazy(() => import('./features/library/components/LibraryPage'))
-const PricingPage = lazy(() => import('./features/pricing/PricingPage'))
-const ToolboxPage = lazy(() => import('./features/toolbox/components/ToolboxPage'))
+const ChangelogPage = lazyRoute(() => import('./features/announcements/ChangelogPage'))
+const CanvasMode = lazyRoute(() => import('./features/canvas/components/CanvasMode'))
+const CliConnectPage = lazyRoute(() => import('./features/cli/CliConnectPage'))
+const CliDevicePage = lazyRoute(() => import('./features/cli/CliDevicePage'))
+const ExplorePage = lazyRoute(() => import('./features/inspiration/components/ExplorePage'))
+const LibraryPage = lazyRoute(() => import('./features/library/components/LibraryPage'))
+const PricingPage = lazyRoute(() => import('./features/pricing/PricingPage'))
+const ToolboxPage = lazyRoute(() => import('./features/toolbox/components/ToolboxPage'))
 
 export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: number }) {
   const setSettings = useStore((s) => s.setSettings)
@@ -135,37 +136,30 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     }
   }, [])
 
-  if (isPricingPath(pathname))
-    return (
-      <Suspense fallback={null}>
-        <PricingPage />
-      </Suspense>
-    )
+  const route = (key: string, element: ReactNode) => (
+    <RouteChunkBoundary
+      key={key}
+      title={t('route.loadFailed')}
+      description={t('route.loadFailedDescription')}
+      retryLabel={t('route.retry')}
+    >
+      <Suspense fallback={<RouteLoading label={t('route.loading')} />}>{element}</Suspense>
+    </RouteChunkBoundary>
+  )
+
+  if (isPricingPath(pathname)) return route(pathname, <PricingPage />)
   // 独立页的代码只在打开对应地址时加载；Terms/Privacy 保持轻量静态页。
-  if (isCliDevicePath(pathname))
-    return (
-      <Suspense fallback={null}>
-        <CliDevicePage />
-      </Suspense>
-    )
+  if (isCliDevicePath(pathname)) return route(pathname, <CliDevicePage />)
   if (isTermsPath(pathname) || isPrivacyPath(pathname)) return <LegalPage />
 
   const page = isChangelogPath(pathname) ? (
-    <Suspense fallback={null}>
-      <ChangelogPage />
-    </Suspense>
+    route(pathname, <ChangelogPage />)
   ) : appMode === 'explore' ? (
-    <Suspense fallback={null}>
-      <ExplorePage />
-    </Suspense>
+    route(`${pathname}:explore`, <ExplorePage />)
   ) : appMode === 'library' ? (
-    <Suspense fallback={null}>
-      <LibraryPage />
-    </Suspense>
+    route(`${pathname}:library`, <LibraryPage />)
   ) : appMode === 'tools' ? (
-    <Suspense fallback={null}>
-      <ToolboxPage />
-    </Suspense>
+    route(`${pathname}:tools`, <ToolboxPage />)
   ) : (
     <>
       <main
@@ -239,14 +233,22 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
                 'calc(100dvh - var(--mobile-topbar-height) - var(--mobile-nav-height, 0px) - var(--app-inset) * 2)',
             }}
           >
-            <Suspense fallback={null}>
-              <CliConnectPage />
-            </Suspense>
+            {route(pathname, <CliConnectPage />)}
           </div>
         ) : canvasOwnsMainPane(appMode, pathname) ? (
-          <Suspense fallback={null}>
-            <CanvasMode />
-          </Suspense>
+          <div
+            className="app-inset-panel"
+            style={{
+              marginTop: 'calc(var(--mobile-topbar-height) + var(--app-inset))',
+              marginRight: 'var(--app-inset)',
+              marginBottom: 'calc(var(--mobile-nav-height, 0px) + var(--app-inset))',
+              marginLeft: 'calc(var(--app-sidebar-width) + var(--app-inset))',
+              minHeight:
+                'calc(100dvh - var(--mobile-topbar-height) - var(--mobile-nav-height, 0px) - var(--app-inset) * 2)',
+            }}
+          >
+            {route(`${pathname}:canvas`, <CanvasMode />)}
+          </div>
         ) : (
           <div
             className="app-inset-panel"
