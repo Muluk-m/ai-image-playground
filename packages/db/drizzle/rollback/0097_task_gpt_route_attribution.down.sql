@@ -1,15 +1,23 @@
--- 回滚到 0096 的公开任务视图；gpt_route 是旧版本已有字段，不删除。
-DROP VIEW IF EXISTS "queue_tasks";
---> statement-breakpoint
-CREATE VIEW "queue_tasks" AS SELECT "id", "provider", "model", "status", "request_payload", "result_payload", "error_message", "error_type", "upstream_status", "upstream_body", "upstream_task_ids", "upstream_submitted_at", "submitted_at", "started_at", "completed_at", "user_id", "client_request_id", "attempt_count", "upstream_invocation_count", "next_retry_at", "device_id", "agent_conversation_id", "agent_turn_id", "kind" FROM "tasks" WHERE "tasks"."kind" = 'queue';
---> statement-breakpoint
+-- 只在回滚到 0096 代码后执行；重建旧视图时保留其现有授权，不猜测角色名。
 DO $$
-DECLARE "role" text;
+DECLARE
+  grants text[];
+  statement text;
 BEGIN
-  FOR "role" IN SELECT "rolname" FROM "pg_roles" WHERE "rolname" LIKE '%readonly%' OR "rolname" LIKE '%ops_ro%' LOOP
-    EXECUTE format('GRANT SELECT ON TABLE "queue_tasks" TO %I', "role");
-    EXECUTE format('REVOKE ALL ON TABLE "tasks" FROM %I', "role");
+  SELECT array_agg(format(
+    'GRANT %s ON TABLE public.queue_tasks TO %s%s',
+    acl.privilege_type,
+    CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(acl.grantee)) END,
+    CASE WHEN acl.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END
+  )) INTO grants
+  FROM pg_class relation
+  CROSS JOIN LATERAL aclexplode(COALESCE(relation.relacl, acldefault('r', relation.relowner))) acl
+  WHERE relation.oid = 'public.queue_tasks'::regclass;
+
+  DROP VIEW public.queue_tasks;
+  CREATE VIEW public.queue_tasks AS SELECT "id", "provider", "model", "status", "request_payload", "result_payload", "error_message", "error_type", "upstream_status", "upstream_body", "upstream_task_ids", "upstream_submitted_at", "submitted_at", "started_at", "completed_at", "user_id", "client_request_id", "attempt_count", "upstream_invocation_count", "next_retry_at", "device_id", "agent_conversation_id", "agent_turn_id", "kind" FROM public.tasks WHERE "kind" = 'queue';
+  FOREACH statement IN ARRAY COALESCE(grants, ARRAY[]::text[]) LOOP
+    EXECUTE statement;
   END LOOP;
+  ALTER TABLE public.tasks DROP COLUMN IF EXISTS gpt_key_fingerprint;
 END $$;
---> statement-breakpoint
-ALTER TABLE "tasks" DROP COLUMN IF EXISTS "gpt_key_fingerprint";

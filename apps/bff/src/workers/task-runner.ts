@@ -234,7 +234,6 @@ async function executeTask(execution: TaskExecution): Promise<void> {
     // 原模型的总时限从提交算起（含排队与之前的重试），到点没出的几张改用回落模型。
     fallbackModel =
       task.provider === 'gemini' ? await rateLimitFallbackModel(task.model) : undefined
-    await execution.recordGptKey(null)
     const upstreamCall: UpstreamCallParams = {
       reconciliationRequired: task.reconciliation_required,
       taskId: id,

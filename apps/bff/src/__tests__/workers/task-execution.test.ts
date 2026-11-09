@@ -120,6 +120,33 @@ async function takeOver(id: string): Promise<void> {
 }
 
 describe('认领', () => {
+  it('clears the direct key on fallback and fences attribution from a former owner', async () => {
+    await insertQueuedTask('gpt-attribution')
+    const execution = await claimTaskExecution('gpt-attribution')
+    try {
+      await execution!.recordGptRoute('direct')
+      await execution!.recordGptKey('abcd1234')
+      expect(await readTask('gpt-attribution')).toMatchObject({
+        gpt_route: 'direct',
+        gpt_key_fingerprint: 'abcd1234',
+      })
+      await execution!.recordGptRoute('sub2api')
+      expect(await readTask('gpt-attribution')).toMatchObject({
+        gpt_route: 'sub2api',
+        gpt_key_fingerprint: null,
+      })
+      await takeOver('gpt-attribution')
+      await execution!.recordGptRoute('direct')
+      await execution!.recordGptKey('old-owner')
+      expect(await readTask('gpt-attribution')).toMatchObject({
+        gpt_route: 'sub2api',
+        gpt_key_fingerprint: null,
+      })
+    } finally {
+      execution?.release()
+    }
+  })
+
   it('starts the archive retry clock at the first durable checkpoint', async () => {
     await insertQueuedTask('checkpoint-clock')
     const execution = await claimTaskExecution('checkpoint-clock')

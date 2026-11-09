@@ -90,6 +90,46 @@ afterAll(async () => {
 })
 
 describe('runMigrations', () => {
+  it('preserves queue view readers and grants through GPT attribution upgrade and rollback', async () => {
+    await withEmptyDatabase('gpt_attribution_upgrade', async (url) => {
+      await migrateUntil(url, '0096_cli_loopback_authorization')
+      const sql = new SQL(url, { max: 1 })
+      try {
+        await sql`GRANT SELECT ON queue_tasks TO PUBLIC`
+        await sql`CREATE VIEW existing_reader AS SELECT id FROM queue_tasks`
+        await runMigrations(url)
+        await sql`INSERT INTO tasks (id, provider, model, status, request_payload, submitted_at, gpt_route, gpt_key_fingerprint)
+          VALUES ('direct', 'openai-compat', 'gpt-image-2.5-flare', 'completed', '{}', now(), 'direct', 'abcd1234'),
+                 ('chat', 'openai-compat', 'chat-model', 'completed', '{}', now(), NULL, NULL)`
+        await sql`UPDATE tasks SET kind = 'chat' WHERE id = 'chat'`
+        expect(await sql`SELECT id, gpt_route, gpt_key_fingerprint FROM queue_tasks`).toEqual([
+          { id: 'direct', gpt_route: 'direct', gpt_key_fingerprint: 'abcd1234' },
+        ])
+        expect(await sql`SELECT id FROM existing_reader`).toEqual([{ id: 'direct' }])
+        expect(
+          await sql`SELECT privilege_type FROM information_schema.table_privileges
+          WHERE table_schema = 'public' AND table_name = 'queue_tasks' AND grantee = 'PUBLIC'`,
+        ).toEqual([{ privilege_type: 'SELECT' }])
+        await sql`DROP VIEW existing_reader`
+        await sql.unsafe(
+          await Bun.file(
+            join(migrationsDirectory, 'rollback/0097_task_gpt_route_attribution.down.sql'),
+          ).text(),
+        )
+        expect(
+          await sql`SELECT privilege_type FROM information_schema.table_privileges
+          WHERE table_schema = 'public' AND table_name = 'queue_tasks' AND grantee = 'PUBLIC'`,
+        ).toEqual([{ privilege_type: 'SELECT' }])
+        expect(await sql`SELECT id FROM queue_tasks`).toEqual([{ id: 'direct' }])
+        expect(await sql`SELECT gpt_route FROM tasks WHERE id = 'direct'`).toEqual([
+          { gpt_route: 'direct' },
+        ])
+      } finally {
+        await sql.close()
+      }
+    })
+  }, 30_000)
+
   it('upgrades deployed creation history to editable operator overrides without losing existing rows', async () => {
     await withEmptyDatabase('operator_overrides_upgrade', async (url) => {
       await migrateUntil(url, '0084_generation_images_soft_delete')
