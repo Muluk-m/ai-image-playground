@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef } from 'react'
 import { useAuth } from './auth/AuthContext'
 import { resumePendingSubmission } from './auth/resumePendingSubmission'
 import { signalBootReady } from './boot/ready'
@@ -18,21 +18,13 @@ import UpdateBanner from './components/UpdateBanner'
 import AgentJobDoneNotice from './features/agent/components/AgentJobDoneNotice'
 import SkillStarterGuide from './features/agent/components/SkillStarterGuide'
 import { AnnouncementHost } from './features/announcements/AnnouncementHost'
-import ChangelogPage from './features/announcements/ChangelogPage'
-import CanvasMode from './features/canvas/components/CanvasMode'
-import CliConnectPage from './features/cli/CliConnectPage'
-import CliDevicePage from './features/cli/CliDevicePage'
 import ImageExportDialog from './features/image-export/ImageExportDialog'
-import ExplorePage from './features/inspiration/components/ExplorePage'
 import HomeInspirationSection from './features/inspiration/components/HomeInspirationSection'
 import InspirationChips from './features/inspiration/components/InspirationChips'
 import { initHashRoute } from './features/inspiration/lib/hashRoute'
 import LegalPage from './features/legal/LegalPage'
-import LibraryPage from './features/library/components/LibraryPage'
 import SaveAssetDialog from './features/library/components/SaveAssetDialog'
 import SaveTemplateDialog from './features/library/components/SaveTemplateDialog'
-import PricingPage from './features/pricing/PricingPage'
-import ToolboxPage from './features/toolbox/components/ToolboxPage'
 import { i18next, useTranslation } from './i18n'
 import {
   canvasOwnsMainPane,
@@ -49,6 +41,15 @@ import { usePathname } from './lib/pathname'
 import { startSyncEngine } from './lib/sync/engine'
 import { clearUrlSettingParams, hasUrlSettingParams } from './lib/urlSettings'
 import { initStore, useStore } from './store'
+
+const ChangelogPage = lazy(() => import('./features/announcements/ChangelogPage'))
+const CanvasMode = lazy(() => import('./features/canvas/components/CanvasMode'))
+const CliConnectPage = lazy(() => import('./features/cli/CliConnectPage'))
+const CliDevicePage = lazy(() => import('./features/cli/CliDevicePage'))
+const ExplorePage = lazy(() => import('./features/inspiration/components/ExplorePage'))
+const LibraryPage = lazy(() => import('./features/library/components/LibraryPage'))
+const PricingPage = lazy(() => import('./features/pricing/PricingPage'))
+const ToolboxPage = lazy(() => import('./features/toolbox/components/ToolboxPage'))
 
 export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: number }) {
   const setSettings = useStore((s) => s.setSettings)
@@ -134,18 +135,37 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     }
   }, [])
 
-  if (isPricingPath(pathname)) return <PricingPage />
-  if (isCliDevicePath(pathname)) return <CliDevicePage />
+  if (isPricingPath(pathname))
+    return (
+      <Suspense fallback={null}>
+        <PricingPage />
+      </Suspense>
+    )
+  // 独立页的代码只在打开对应地址时加载；Terms/Privacy 保持轻量静态页。
+  if (isCliDevicePath(pathname))
+    return (
+      <Suspense fallback={null}>
+        <CliDevicePage />
+      </Suspense>
+    )
   if (isTermsPath(pathname) || isPrivacyPath(pathname)) return <LegalPage />
 
   const page = isChangelogPath(pathname) ? (
-    <ChangelogPage />
+    <Suspense fallback={null}>
+      <ChangelogPage />
+    </Suspense>
   ) : appMode === 'explore' ? (
-    <ExplorePage />
+    <Suspense fallback={null}>
+      <ExplorePage />
+    </Suspense>
   ) : appMode === 'library' ? (
-    <LibraryPage />
+    <Suspense fallback={null}>
+      <LibraryPage />
+    </Suspense>
   ) : appMode === 'tools' ? (
-    <ToolboxPage />
+    <Suspense fallback={null}>
+      <ToolboxPage />
+    </Suspense>
   ) : (
     <>
       <main
@@ -200,6 +220,8 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     </>
   )
 
+  // 画布与 CLI 接入页直接挂在外壳里：各自的 Suspense 只盖住它们自己的区域，
+  // 懒加载分片还没到时 Header、Sidebar 与各个弹窗照常显示，不会整个界面消失。
   return (
     <>
       <div className="app-chrome min-h-dvh bg-sidebar">
@@ -217,10 +239,14 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
                 'calc(100dvh - var(--mobile-topbar-height) - var(--mobile-nav-height, 0px) - var(--app-inset) * 2)',
             }}
           >
-            <CliConnectPage />
+            <Suspense fallback={null}>
+              <CliConnectPage />
+            </Suspense>
           </div>
         ) : canvasOwnsMainPane(appMode, pathname) ? (
-          <CanvasMode />
+          <Suspense fallback={null}>
+            <CanvasMode />
+          </Suspense>
         ) : (
           <div
             className="app-inset-panel"
