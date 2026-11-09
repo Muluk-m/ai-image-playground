@@ -10,6 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useIsMobile } from '@/hooks/use-mobile'
 import { duration, shortId } from '@/lib/format'
 import type { TaskListItem } from '@/lib/types'
+import { gptRouteLabel } from '../../contracts'
 
 interface TaskTableProps {
   tasks: TaskListItem[]
@@ -110,6 +111,10 @@ export function TaskTable({ tasks, hasNextPage, isFetchingNextPage, onLoadMore }
                   <span className="truncate font-mono text-xs">
                     {t.kind === 'analysis' ? '图片分析 · ' : ''}
                     {t.model}
+                    {gptRouteLabel(t.gpt_route) ? ` · ${gptRouteLabel(t.gpt_route)}` : ''}
+                    {t.gpt_route === 'direct' && t.gpt_key_fingerprint
+                      ? ` · ${t.gpt_key_fingerprint}`
+                      : ''}
                   </span>
                   <span className="min-h-8 text-xs text-muted-foreground">
                     <PromptCell text={t.prompt} lines={2} />
@@ -167,6 +172,14 @@ export function TaskTable({ tasks, hasNextPage, isFetchingNextPage, onLoadMore }
                 <div className="w-[140px] shrink-0 truncate font-mono text-xs">
                   {t.kind === 'analysis' ? '图片分析 · ' : ''}
                   {t.model}
+                  {gptRouteLabel(t.gpt_route) ? (
+                    <span className="block truncate text-[10px] text-muted-foreground">
+                      {gptRouteLabel(t.gpt_route)}
+                      {t.gpt_route === 'direct' && t.gpt_key_fingerprint
+                        ? ` · ${t.gpt_key_fingerprint}`
+                        : ''}
+                    </span>
+                  ) : null}
                 </div>
                 <div className="min-w-0 flex-1">
                   <PromptCell text={t.prompt} />

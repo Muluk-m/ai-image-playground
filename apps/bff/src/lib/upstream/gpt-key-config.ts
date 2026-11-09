@@ -185,7 +185,7 @@ function legacySingleKey(secret: string): DirectKey {
   }
 }
 
-function envDirectKeys(): DirectKey[] {
+export function envDirectKeys(): DirectKey[] {
   const list = process.env.OPENAI_API_KEYS?.trim()
   if (list) return parseDirectKeyList(list, process.env.OPENAI_API_KEY_BUDGETS_USD ?? '')
   const single = runtimeSecret('OPENAI_API_KEY', config.gptDirect.apiKey).trim()

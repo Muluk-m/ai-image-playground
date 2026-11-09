@@ -102,6 +102,10 @@ export const TASK_SOURCE_LABELS: Record<TaskSource, string> = {
   manual: '手动',
 }
 
+export function gptRouteLabel(route: TaskListItem['gpt_route']): string | null {
+  return route === 'direct' ? 'OpenAI 直连' : route === 'sub2api' ? 'sub2api' : null
+}
+
 export interface TaskListItem {
   source: TaskSource
   kind?: 'queue' | 'analysis'
@@ -114,6 +118,10 @@ export interface TaskListItem {
   completed_at: number | null
   error_type: string | null
   upstream_status: number | null
+  /** GPT Image 最终实际使用的通道；非 GPT 或旧任务为空。 */
+  gpt_route: 'direct' | 'sub2api' | null
+  /** OpenAI 直连 key 的安全指纹；只展示指纹，不展示密钥。 */
+  gpt_key_fingerprint: string | null
   prompt: string
   upstream_invocation_count: number
   attempt_count: number
