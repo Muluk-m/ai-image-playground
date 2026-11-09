@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { evaluateAlerts, QUEUE_TIMEOUTS } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 
 // 两把直连密钥。fetch 换成本地桩，按 Authorization 区分，不打真实上游，也不把密钥写进断言以外的输出。
 const PRIMARY = 'test-key-primary-aaaa'
@@ -29,6 +29,7 @@ const { budgetMonthStart } = await import('../../lib/upstream/gpt-budget')
 const { _resetDirectBudgetCacheForTesting } = await import('../../lib/upstream/gpt-budget')
 const { _setDirectKeyAlertForTesting, directKeyPanel, disabledDirectKeys, restoreDirectKey } =
   await import('../../lib/upstream/gpt-keys')
+const { refreshGptDirectKeys } = await import('../../lib/upstream/gpt-direct-admin')
 const {
   configuredDirectKeys,
   FingerprintSecretMissingError,
@@ -238,6 +239,44 @@ describe('key failover', () => {
     expect(usage?.key_fingerprint).toBe(primaryId.fingerprint)
     expect(JSON.stringify(usage)).not.toContain(PRIMARY)
   })
+
+  it.each([undefined, 'ab'.repeat(32)])(
+    'keeps disabled env keys out of routing after refresh with master %s, then restores a key',
+    async (master) => {
+      const savedMaster = process.env.UPSTREAM_SECRETS_MASTER_KEY
+      if (master === undefined) delete process.env.UPSTREAM_SECRETS_MASTER_KEY
+      else process.env.UPSTREAM_SECRETS_MASTER_KEY = master
+      try {
+        await db.insert(schema.gpt_direct_key_state).values(
+          [primaryId, secondaryId].map((key) => ({
+            fingerprint: key.fingerprint,
+            disabled_reason: 'quota' as const,
+            updated_at: Date.now(),
+          })),
+        )
+        await refreshGptDirectKeys()
+        await db.execute(
+          sql`ALTER TABLE gpt_direct_key_state RENAME TO unavailable_env_key_state_fixture`,
+        )
+        try {
+          await call()
+          expect(sent).toEqual(['sub2api'])
+        } finally {
+          await db.execute(
+            sql`ALTER TABLE unavailable_env_key_state_fixture RENAME TO gpt_direct_key_state`,
+          )
+        }
+        await restoreDirectKey(primaryId.fingerprint, 'test')
+        await refreshGptDirectKeys()
+        sent = []
+        await call()
+        expect(sent).toEqual(['primary'])
+      } finally {
+        if (savedMaster === undefined) delete process.env.UPSTREAM_SECRETS_MASTER_KEY
+        else process.env.UPSTREAM_SECRETS_MASTER_KEY = savedMaster
+      }
+    },
+  )
 
   it('disables an invalid key, alerts, and retries the next key inside the same direct route', async () => {
     replies.primary = {
