@@ -490,6 +490,7 @@ async function callDirectTryingKeys(
         params,
         directRoute(model, key, { skipSharedRateLimitCooldown: another !== null }),
         {
+          ...attempt,
           onDispatched: async () => {
             onAttempt(key.fingerprint)
             await params.onGptKey?.(null)
