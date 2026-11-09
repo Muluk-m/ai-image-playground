@@ -17,6 +17,7 @@ import {
   fetchConversations,
   fetchMessageReference,
   fetchMessages,
+  subscribeBatchPlanChanges,
 } from '../lib/agentClient'
 import {
   type AssetItem,
@@ -114,7 +115,7 @@ export default function AgentAssetDrawer({
     let timer: ReturnType<typeof setTimeout> | undefined
     const load = async (initial: boolean, force = false) => {
       const token = ++generation
-      if (timer) clearTimeout(timer)
+      clearTimeout(timer)
       timer = undefined
       if (initial) setBatchLoading(true)
       const requested = [...pending]
@@ -160,11 +161,17 @@ export default function AgentAssetDrawer({
       for (const id of ids) pending.add(id)
       void load(true, true)
     }
+    const unsubscribe = subscribeBatchPlanChanges((id) => {
+      if (!ids.includes(id) || !sameAccount()) return
+      pending.add(id)
+      void load(false)
+    })
     void load(true)
     return () => {
       cancelled = true
       generation += 1
-      if (timer) clearTimeout(timer)
+      unsubscribe()
+      clearTimeout(timer)
       reloadBatchRef.current = () => {}
     }
   }, [batchKey, accountKey, conversationId])

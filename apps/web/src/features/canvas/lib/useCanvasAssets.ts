@@ -6,6 +6,7 @@ import {
   fetchBatchPlan,
   fetchConversations,
   fetchMessages,
+  subscribeBatchPlanChanges,
 } from '../../agent/lib/agentClient'
 import { batchNeedsRefresh } from '../../agent/lib/assetItems'
 import { panelStateFromHistory } from '../../agent/lib/panelMessages'
@@ -110,13 +111,17 @@ function useBatchAssets(
     const failures = new Set<string>()
     setByBatch({})
     let cancelled = false
+    let generation = 0
     let timer: ReturnType<typeof setTimeout> | undefined
     const load = async () => {
+      const token = ++generation
+      clearTimeout(timer)
+      timer = undefined
       const requested = [...pending]
       const settled = await Promise.allSettled(
         requested.map((id) => fetchBatchPlan(id, { reuseSettled: true })),
       )
-      if (cancelled || !sameAccount()) return
+      if (cancelled || token !== generation || !sameAccount()) return
       const next: Record<string, readonly CanvasAssetItem[]> = {}
       settled.forEach((result, index) => {
         const id = requested[index]!
@@ -154,10 +159,17 @@ function useBatchAssets(
       setFailed(failures.size > 0)
       if (pending.size) timer = setTimeout(() => void load(), BATCH_REFRESH_MS)
     }
+    const unsubscribe = subscribeBatchPlanChanges((id) => {
+      if (!ids.includes(id) || !sameAccount()) return
+      pending.add(id)
+      void load()
+    })
     void load()
     return () => {
       cancelled = true
-      if (timer) clearTimeout(timer)
+      generation += 1
+      unsubscribe()
+      clearTimeout(timer)
     }
   }, [batchKey, conversationId, accountKey])
   return { items: useMemo(() => Object.values(byBatch).flat(), [byBatch]), failed }

@@ -3,6 +3,7 @@ import {
   cancelBatchPlan,
   executeBatchCommand,
   fetchBatchPlan,
+  subscribeBatchPlanChanges,
   updateBatchPlan,
 } from '../../../../features/agent/lib/agentClient'
 import { setClientStorageScope } from '../../../../lib/authScope'
@@ -140,5 +141,79 @@ describe('shared batch reads', () => {
       })
     await fetchBatchPlan('batch', { reuseSettled: true })
     expect(fixture.fetch).toHaveBeenCalledTimes(3)
+  })
+
+  it('refreshes an asset reader after resuming a cached plan', async () => {
+    let status = 'closed'
+    let observed = ''
+    fixture.fetch.mockImplementation(async (_url, init) => {
+      if (init?.method === 'POST') status = 'running'
+      return response(page(status))
+    })
+    await fetchBatchPlan('batch', { reuseSettled: true })
+    const stop = subscribeBatchPlanChanges((id) => {
+      void fetchBatchPlan(id, { reuseSettled: true }).then((result) => {
+        observed = result.batch.status
+      })
+    })
+    try {
+      await executeBatchCommand('batch', {
+        action: 'resume',
+        commandId: 'resume-command',
+        expectedVersion: 1,
+        expectedDigest: 'digest',
+        deviceId: 'device',
+      })
+      await vi.waitFor(() => expect(observed).toBe('running'))
+    } finally {
+      stop()
+    }
+  })
+
+  it('refreshes for another tab but ignores its notifications after an account change', async () => {
+    const Channel = globalThis.BroadcastChannel
+    const channels: BroadcastChannel[] = []
+    vi.stubGlobal(
+      'BroadcastChannel',
+      class extends Channel {
+        constructor(name: string) {
+          super(name)
+          channels.push(this)
+        }
+      },
+    )
+    let status = 'closed'
+    let observed = ''
+    let peer: BroadcastChannel | undefined
+    let stop = () => {}
+    fixture.fetch.mockImplementation(async () => response(page(status)))
+    try {
+      await fetchBatchPlan('batch', { reuseSettled: true })
+      stop = subscribeBatchPlanChanges((id) => {
+        void fetchBatchPlan(id, { reuseSettled: true }).then((result) => {
+          observed = result.batch.status
+        })
+      })
+      const receiver = channels[0]!
+      peer = new Channel(receiver.name)
+      status = 'running'
+      peer.postMessage('batch')
+      await vi.waitFor(() => expect(observed).toBe('running'))
+
+      setClientStorageScope('other-account')
+      status = 'closed'
+      await fetchBatchPlan('batch', { reuseSettled: true })
+      status = 'running'
+      const received = new Promise<void>((resolve) => {
+        receiver.addEventListener('message', () => resolve(), { once: true })
+      })
+      peer.postMessage('batch')
+      await received
+      expect((await fetchBatchPlan('batch', { reuseSettled: true })).batch.status).toBe('closed')
+    } finally {
+      peer?.close()
+      stop()
+      vi.unstubAllGlobals()
+    }
   })
 })

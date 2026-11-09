@@ -26,4 +26,6 @@ Arrange images, select one or several as references, and generate new versions b
 
 Find examples in the inspiration library, then adapt a prompt or reference for your own work. Your works can be searched, favorited, downloaded, or sent back to the canvas; save useful images as assets and prompts with their references and settings as templates.
 
+Open asset panels update with new results when you resume a batch plan, including from another tab signed into the same account.
+
 <p align="center"><img src="./docs/images/inspiration-library.webp" alt="Muvloom Explore view with public inspiration examples and category filters" width="1100" /></p>
