@@ -19,6 +19,8 @@ export const WORKFLOW_FILE = '.github/workflows/cli-checks.yml'
 export const RELEASE_DOC_FILE = 'docs/agents/cli-release.md'
 export const PIN_FILE = 'apps/web/src/features/cli/connectAgents.ts'
 export const MIN_VERSION_FILE = 'apps/bff/src/routes/cli.ts'
+/** 设为 1 时，取不到 cli-v* tag 算失败而不是跳过。只有权威门禁那一步设它。 */
+export const REQUIRE_TAGS_ENV = 'CLI_VERSION_REQUIRE_TAGS'
 /** 三份面向宿主智能体的接入指南，安装命令里固定着网页版本与发布提交。 */
 export const GUIDE_FILES = [
   'apps/web/public/cli/setup.md',
@@ -97,6 +99,7 @@ export function collect(root, { git = defaultGit } = {}) {
     ),
     guides,
     tags: git(root),
+    requireTags: process.env[REQUIRE_TAGS_ENV] === '1',
   }
 }
 
@@ -206,7 +209,16 @@ export function inspect(facts) {
 
   const tags = facts.tags
   if (!tags) {
-    notices.push('没有取到 cli-v* tag，跳过与 release tag 相关的子检查（CI 检出需要 fetch-tags）')
+    // 浅检出或没取 tag 的环境（多数 CI job 跑 pnpm lint 时都是）只跳过这几项，不把整个 lint 卡住。
+    // 唯一的权威门禁是 web.yml 的 lint job：它的检出带 fetch-tags，并用这个变量要求必须取到 tag，
+    // 这样一旦检出配置失效，是它报错，而不是悄悄把检查变弱。
+    if (facts.requireTags) {
+      problems.push(
+        `没有取到 cli-v* tag，但设置了 ${REQUIRE_TAGS_ENV}：检出需要 fetch-tags（见 .github/workflows/web.yml 的 lint job）`,
+      )
+    } else {
+      notices.push('没有取到 cli-v* tag，跳过与 release tag 相关的子检查')
+    }
     if (compareVersions(p, v) > 0) {
       problems.push(`${PIN_FILE}: CLI_VERSION=${p} 高于 ${SOURCE_FILE}（${v}）`)
     }
