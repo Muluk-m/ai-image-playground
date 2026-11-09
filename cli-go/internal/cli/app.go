@@ -120,10 +120,16 @@ type App struct {
 	command string
 	Out     io.Writer
 	Err     io.Writer
-	HTTP    *http.Client
+	// HTTP carries the total timeout for API requests. File transfers reuse its transport
+	// without that timeout; see transferHTTP and TransferIdleTimeout.
+	HTTP *http.Client
 	// RefreshLockWait bounds the wait for another process that is refreshing the token.
 	// Zero means the default.
 	RefreshLockWait time.Duration
+	// TransferIdleTimeout bounds how long an upload or a download may move no bytes before
+	// it fails as temporary. The transfer itself has no total timeout, unlike the API
+	// requests HTTP carries. Zero means defaultTransferIdleTimeout; tests shorten it.
+	TransferIdleTimeout time.Duration
 	// Home and CWD override the Skill install roots in tests.
 	Home string
 	CWD  string
