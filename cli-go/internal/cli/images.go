@@ -230,23 +230,53 @@ func cmdImagesCreate(ctx context.Context, a *App, args []string) (any, error) {
 	}
 	final, timedOut, err := a.waitJob(ctx, c, result.Job.JobID, seconds(*wait, 0, 3600))
 	if err != nil {
-		return nil, err
+		return nil, keepJob(err, *key, result.Job.JobID, nil, "")
 	}
 	result.Job, result.WaitTimedOut = final, timedOut
 	if err := jobOutcome(final, result); err != nil {
-		return nil, err
+		return nil, keepJob(err, *key, final.JobID, nil, "")
 	}
 	if *downloadDir != "" && final.Status == "succeeded" {
 		for _, artifact := range final.Artifacts {
 			saved, err := a.downloadTo(ctx, c, "/v1/artifacts/"+url.PathEscape(artifact.ArtifactID)+"/download",
 				filepath.Join(*downloadDir, artifact.ArtifactID))
 			if err != nil {
-				return nil, err
+				return nil, keepJob(err, *key, final.JobID, result.Downloads, artifact.ArtifactID)
 			}
 			result.Downloads = append(result.Downloads, saved)
 		}
 	}
 	return result, nil
+}
+
+// keepJob adds what an accepted create already has to a later failure: the job and its
+// idempotency key (to wait or download again instead of submitting again), the files
+// already saved, and the artifact that failed.
+func keepJob(err error, key, jobID string, saved []download, failedArtifact string) error {
+	failure := asFailure(err)
+	details := map[string]any{"job_id": jobID, "idempotency_key": key}
+	if len(saved) > 0 {
+		details["downloads"] = saved
+	}
+	if failedArtifact != "" {
+		details["failed_artifact_id"] = failedArtifact
+	}
+	// The failure's own details stay at the top level, where they are without this wrapper
+	// (`path` of FILE_EXISTS, `job` of JOB_FAILED); details that are not an object are kept
+	// under `cause`.
+	if failure.Details != nil {
+		var own map[string]any
+		if data, err := json.Marshal(failure.Details); err == nil && json.Unmarshal(data, &own) == nil && own != nil {
+			for k, v := range own {
+				if _, taken := details[k]; !taken {
+					details[k] = v
+				}
+			}
+		} else {
+			details["cause"] = failure.Details
+		}
+	}
+	return &Failure{Code: failure.Code, Message: failure.Message, Details: details}
 }
 
 type job struct {

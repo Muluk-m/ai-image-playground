@@ -94,5 +94,11 @@
     "aria": "选择创作方式",
     "chat": "智能创作",
     "canvas": "画布创作"
+  },
+  "route": {
+    "loading": "正在打开页面…",
+    "loadFailed": "页面暂时无法打开",
+    "loadFailedDescription": "资源加载失败，请重试或刷新页面。",
+    "retry": "重新加载"
   }
 }

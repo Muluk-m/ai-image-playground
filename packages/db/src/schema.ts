@@ -1927,6 +1927,7 @@ export const agent_batches = pgTable(
       | 'input_limit'
       | 'upstream_auth'
       | 'model_unavailable'
+      | 'submission_refused'
     >(),
     confirmed_version: integer('confirmed_version'),
     confirmation_command_id: text('confirmation_command_id'),

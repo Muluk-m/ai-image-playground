@@ -57,7 +57,7 @@ ENVIRONMENT
 
 EXIT CODES
   0 success   2 invalid command or request   3 sign-in needed   4 rejected, or the job failed
-  5 not enough credits   6 temporary, retry   7 CLI too old   1 unexpected
+  5 not enough credits or quota used up   6 temporary, retry   7 CLI too old   1 unexpected
 
 Run "muvloom <command> --help" for a command's flags and examples.
 `)

@@ -435,6 +435,7 @@ var hints = map[string]string{
 	"SERVICE_MISMATCH":            "Unset MUVLOOM_API_URL to use the stored connection, or run `muvloom auth login --switch-service`.",
 	"INSUFFICIENT_CREDITS":        "Top up credits on the website, or choose a cheaper model or size.",
 	"MAX_CREDITS_EXCEEDED":        "Raise --max-credits or choose a cheaper request.",
+	"QUOTA_EXCEEDED":              "Today's generation quota is used up; it resets at the time shown above. Do not retry before then.",
 	"PLAN_REQUIRED":               "This request needs a membership; choose a smaller size or another model.",
 	"IDEMPOTENCY_CONFLICT":        "This key was used for a different request; use a new --idempotency-key.",
 	"FILE_EXISTS":                 "Choose another --output; existing files are never replaced.",

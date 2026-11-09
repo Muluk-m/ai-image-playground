@@ -58,6 +58,13 @@ type fakeServer struct {
 	ignoreRequestID bool
 	// expiredOnce answers the next refresh with an access token that has no lifetime left.
 	expiredOnce bool
+	// twoArtifacts makes a succeeded job have two results; failArtifact makes that one's
+	// download link fail; failJobPoll makes every job poll fail.
+	quotaUsedUp  bool
+	submitCalls  int
+	twoArtifacts bool
+	failArtifact string
+	failJobPoll  bool
 	// Loopback sign-in as the service sees it: what the CLI registered, and the code it issued.
 	redirectURI   string
 	codeChallenge string
@@ -203,11 +210,20 @@ func newFakeServer(t *testing.T) *fakeServer {
 		encoded, _ := json.Marshal(body)
 		f.mu.Lock()
 		f.submissions[key] = string(encoded)
+		f.submitCalls++
+		quotaUsedUp := f.quotaUsedUp
 		fail := f.failSubmits > 0
 		if fail {
 			f.failSubmits--
 		}
 		f.mu.Unlock()
+		if quotaUsedUp {
+			writeJSON(w, 429, map[string]any{"schema_version": 1, "ok": false, "error": map[string]any{
+				"code": "QUOTA_EXCEEDED", "message": "The daily generation quota is used up",
+				"details": map[string]any{"reset_at": "2099-01-01T00:00:00.000Z"},
+			}})
+			return
+		}
 		if fail {
 			envelope(w, 503, nil, "TEMPORARILY_UNAVAILABLE")
 			return
@@ -222,7 +238,12 @@ func newFakeServer(t *testing.T) *fakeServer {
 		f.mu.Lock()
 		f.jobPolls++
 		done := f.jobPolls >= 3
+		failPoll := f.failJobPoll
 		f.mu.Unlock()
+		if failPoll {
+			envelope(w, 503, nil, "TEMPORARILY_UNAVAILABLE")
+			return
+		}
 		if !done {
 			envelope(w, 200, map[string]any{"job_id": "job-1", "status": "running", "terminal": false, "next_poll_after_seconds": 2}, "")
 			return
@@ -231,9 +252,20 @@ func newFakeServer(t *testing.T) *fakeServer {
 			envelope(w, 200, map[string]any{"job_id": "job-1", "status": "failed", "terminal": true, "error": map[string]any{"code": "upstream_error", "message": "The model failed"}}, "")
 			return
 		}
-		envelope(w, 200, map[string]any{"job_id": "job-1", "status": "succeeded", "terminal": true, "artifacts": []any{map[string]any{"artifact_id": "art_job-1_0", "media_id": "m1", "content_type": f.contentType()}}}, "")
+		artifacts := []any{map[string]any{"artifact_id": "art_job-1_0", "media_id": "m1", "content_type": f.contentType()}}
+		if f.twoArtifacts {
+			artifacts = append(artifacts, map[string]any{"artifact_id": "art_job-1_1", "media_id": "m2", "content_type": f.contentType()})
+		}
+		envelope(w, 200, map[string]any{"job_id": "job-1", "status": "succeeded", "terminal": true, "artifacts": artifacts}, "")
 	}))
 	mux.HandleFunc("GET /v1/artifacts/{id}/download", authed(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		failing := f.failArtifact
+		f.mu.Unlock()
+		if r.PathValue("id") == failing {
+			envelope(w, 503, nil, "TEMPORARILY_UNAVAILABLE")
+			return
+		}
 		envelope(w, 200, map[string]any{"download_url": f.server.URL + "/files/a.png", "content_type": f.contentType()}, "")
 	}))
 	mux.HandleFunc("GET /files/a.png", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("PNGDATA")) })
@@ -456,9 +488,21 @@ func TestCreateWaitsAndDownloadsWithoutOverwriting(t *testing.T) {
 	if content, err := os.ReadFile(saved); err != nil || string(content) != "PNGDATA" {
 		t.Fatalf("download = %q, %v", content, err)
 	}
-	again := execute(t, app, "artifacts", "download", "art_job-1_0", "--output", saved)
+	// The same bytes already in place count as downloaded; other bytes are never replaced.
+	same := execute(t, app, "artifacts", "download", "art_job-1_0", "--output", saved)
+	if same.code != ExitOK || same.out["data"].(map[string]any)["already_present"] != true {
+		t.Fatalf("same file = %d %s", same.code, same.stdout)
+	}
+	other := filepath.Join(out, "mine.png")
+	if err := os.WriteFile(other, []byte("MY OWN PICTURE"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	again := execute(t, app, "artifacts", "download", "art_job-1_0", "--output", other)
 	if again.code != ExitRejected || again.out["error"].(map[string]any)["code"] != "FILE_EXISTS" {
 		t.Fatalf("overwrite attempt = %d %s", again.code, again.stdout)
+	}
+	if content, _ := os.ReadFile(other); string(content) != "MY OWN PICTURE" {
+		t.Fatal("an existing file was replaced")
 	}
 	if strings.Contains(r.stdout, "/files/a.png") {
 		t.Fatal("signed download URL leaked to stdout")
@@ -1739,5 +1783,136 @@ func TestANativeGifIsRequestedAndSavedAsGif(t *testing.T) {
 				t.Fatalf("downloaded %v, want one %s", entries, tc.ext)
 			}
 		})
+	}
+}
+
+// After the service accepted a create, a later failure still says which job it was, so the
+// caller waits or downloads again instead of submitting (and paying) again.
+func TestCreateFailuresAfterSubmitKeepTheJob(t *testing.T) {
+	t.Run("waiting fails", func(t *testing.T) {
+		f := newFakeServer(t)
+		f.failJobPoll = true
+		app := newApp(t, f, t.TempDir())
+		login(t, app)
+		r := execute(t, app, "images", "create", "--prompt", "a fox", "--idempotency-key", "keep-job-key-1", "--wait", "60")
+		details, _ := r.out["error"].(map[string]any)["details"].(map[string]any)
+		if r.code == ExitOK || details["job_id"] != "job-1" || details["idempotency_key"] != "keep-job-key-1" {
+			t.Fatalf("wait failure = %d %s", r.code, r.stdout)
+		}
+	})
+	t.Run("second download fails, then a rerun finishes", func(t *testing.T) {
+		f := newFakeServer(t)
+		f.twoArtifacts, f.failArtifact = true, "art_job-1_1"
+		app := newApp(t, f, t.TempDir())
+		login(t, app)
+		out := t.TempDir()
+		args := []string{"images", "create", "--prompt", "a fox", "--idempotency-key", "keep-job-key-2", "--wait", "60", "--download", out}
+		r := execute(t, app, args...)
+		details, _ := r.out["error"].(map[string]any)["details"].(map[string]any)
+		saved, _ := details["downloads"].([]any)
+		if r.code == ExitOK || details["job_id"] != "job-1" || details["failed_artifact_id"] != "art_job-1_1" || len(saved) != 1 {
+			t.Fatalf("second download failure = %d %s", r.code, r.stdout)
+		}
+		if saved[0].(map[string]any)["path"] != filepath.Join(out, "art_job-1_0.png") {
+			t.Fatalf("first file not reported: %v", saved)
+		}
+		// The same key again: the first file is already there, the second now downloads.
+		f.mu.Lock()
+		f.failArtifact = ""
+		f.mu.Unlock()
+		again := execute(t, app, args...)
+		downloads, _ := again.out["data"].(map[string]any)["downloads"].([]any)
+		if again.code != ExitOK || len(downloads) != 2 || downloads[0].(map[string]any)["already_present"] != true {
+			t.Fatalf("rerun = %d %s", again.code, again.stdout)
+		}
+	})
+	t.Run("a different file in the way, as text", func(t *testing.T) {
+		f := newFakeServer(t)
+		app := newApp(t, f, t.TempDir())
+		login(t, app)
+		out := t.TempDir()
+		mine := filepath.Join(out, "art_job-1_0.png")
+		if err := os.WriteFile(mine, []byte("MY OWN PICTURE"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		args := []string{"images", "create", "--prompt", "a fox", "--idempotency-key", "keep-job-key-3", "--wait", "60", "--download", out}
+		r := execute(t, app, args...)
+		details, _ := r.out["error"].(map[string]any)["details"].(map[string]any)
+		if r.code != ExitRejected || r.out["error"].(map[string]any)["code"] != "FILE_EXISTS" ||
+			details["job_id"] != "job-1" || details["path"] != mine {
+			t.Fatalf("conflict = %d %s", r.code, r.stdout)
+		}
+		if content, _ := os.ReadFile(mine); string(content) != "MY OWN PICTURE" {
+			t.Fatal("the user's file was replaced")
+		}
+		var stdout, stderr bytes.Buffer
+		app.Out, app.Err = &stdout, &stderr
+		if code := app.Run(args); code != ExitRejected || stdout.Len() != 0 {
+			t.Fatalf("text conflict = %d %q", code, stdout.String())
+		}
+		for _, want := range []string{"(FILE_EXISTS)", "job_id: job-1", "idempotency_key: keep-job-key-3", "path: " + mine} {
+			if !strings.Contains(stderr.String(), want) {
+				t.Fatalf("text failure lacks %q:\n%s", want, stderr.String())
+			}
+		}
+	})
+	t.Run("the job fails", func(t *testing.T) {
+		f := newFakeServer(t)
+		f.failJob = true
+		app := newApp(t, f, t.TempDir())
+		login(t, app)
+		r := execute(t, app, "images", "create", "--prompt", "a fox", "--idempotency-key", "keep-job-key-4", "--wait", "60")
+		details, _ := r.out["error"].(map[string]any)["details"].(map[string]any)
+		job, _ := details["job"].(map[string]any)
+		if r.code != ExitRejected || details["job_id"] != "job-1" || details["idempotency_key"] != "keep-job-key-4" || job["status"] != "failed" {
+			t.Fatalf("failed job = %d %s", r.code, r.stdout)
+		}
+	})
+	t.Run("a dangling link in the way", func(t *testing.T) {
+		f := newFakeServer(t)
+		app := newApp(t, f, t.TempDir())
+		login(t, app)
+		out := t.TempDir()
+		link := filepath.Join(out, "art_job-1_0.png")
+		if err := os.Symlink(filepath.Join(out, "missing"), link); err != nil {
+			t.Skip("symlinks unavailable:", err)
+		}
+		r := execute(t, app, "images", "create", "--prompt", "a fox", "--idempotency-key", "keep-job-key-5", "--wait", "60", "--download", out)
+		if r.code != ExitRejected || r.out["error"].(map[string]any)["code"] != "FILE_EXISTS" {
+			t.Fatalf("dangling link = %d %s", r.code, r.stdout)
+		}
+		if _, err := os.Stat(filepath.Join(out, "missing")); !os.IsNotExist(err) {
+			t.Fatal("wrote through the link")
+		}
+	})
+}
+
+// A used-up daily quota is not a busy signal: exit 5, one submit, the reset time reported.
+func TestQuotaExceededIsNotRetriedAndSaysWhenItResets(t *testing.T) {
+	f := newFakeServer(t)
+	f.quotaUsedUp = true
+	app := newApp(t, f, t.TempDir())
+	login(t, app)
+	r := execute(t, app, "images", "create", "--prompt", "a fox", "--idempotency-key", "quota-key-123")
+	errObj, _ := r.out["error"].(map[string]any)
+	details, _ := errObj["details"].(map[string]any)
+	if r.code != ExitCredits || errObj["code"] != "QUOTA_EXCEEDED" || details["reset_at"] != "2099-01-01T00:00:00.000Z" {
+		t.Fatalf("quota = %d %s", r.code, r.stdout)
+	}
+	f.mu.Lock()
+	calls := f.submitCalls
+	f.mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("the CLI retried a used-up quota: %d submits", calls)
+	}
+	var stdout, stderr bytes.Buffer
+	app.Out, app.Err = &stdout, &stderr
+	if code := app.Run([]string{"images", "create", "--prompt", "a fox", "--idempotency-key", "quota-key-124"}); code != ExitCredits || stdout.Len() != 0 {
+		t.Fatalf("text quota = %d %q", code, stdout.String())
+	}
+	for _, want := range []string{"(QUOTA_EXCEEDED)", "reset_at: 2099-01-01T00:00:00.000Z", "Do not retry"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("text failure lacks %q:\n%s", want, stderr.String())
+		}
 	}
 }

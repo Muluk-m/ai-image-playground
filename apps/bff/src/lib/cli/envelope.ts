@@ -39,6 +39,7 @@ const CLI_ERRORS = {
   MEDIA_NOT_READY: { status: 409, message: 'The media is not ready' },
   REQUEST_TOO_LARGE: { status: 413, message: 'The upload is too large' },
   RATE_LIMITED: { status: 429, message: 'Too many requests' },
+  QUOTA_EXCEEDED: { status: 429, message: 'The daily generation quota is used up' },
   INTERNAL_ERROR: { status: 500, message: 'The request could not be completed' },
   TEMPORARILY_UNAVAILABLE: { status: 503, message: 'The service is temporarily unavailable' },
 } as const satisfies Record<string, { status: number; message: string }>

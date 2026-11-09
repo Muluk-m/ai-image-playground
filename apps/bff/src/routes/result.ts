@@ -155,7 +155,13 @@ async function serveOutput(
   serviceIdentity: boolean | undefined,
 ): Promise<Response> {
   const [task] = await db
-    .select()
+    .select({
+      id: schema.tasks.id,
+      status: schema.tasks.status,
+      provider: schema.tasks.provider,
+      result_payload: schema.tasks.result_payload,
+      user_id: schema.tasks.user_id,
+    })
     .from(schema.tasks)
     .where(taskAccessWhere(params.id, userId, serviceIdentity))
     .limit(1)

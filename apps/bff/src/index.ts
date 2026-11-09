@@ -17,7 +17,7 @@ import {
   refreshOperatorConfig,
   refreshOperatorConfigIfChanged,
 } from './lib/operator-config-overrides'
-import { runPeriodicSteps, startPeriodicSteps } from './lib/periodic'
+import { startPeriodicSteps } from './lib/periodic'
 import { purgeExpiredAttachmentMedia } from './lib/projectMedia'
 import { startServerLogs } from './lib/server-logs'
 import { refreshUpstreamKeySources } from './lib/upstream/gpt-direct-admin'
@@ -97,94 +97,102 @@ if (agentEnabled) {
 // channel discovery must be ready before that overlay initializes.
 const { app, apiMetrics } = await import('./app')
 
-// 开机清理失败（例如积压太多撞上语句超时）只记一条，不拦着启动：定时清理会接着清。
-await runPeriodicSteps([
-  { event: 'startup.private_maintenance_failed', run: runPrivateMaintenance },
-  {
-    event: 'startup.purge_tasks_failed',
-    run: async () => {
-      const removed = await purgeOldTasks()
-      if (removed > 0) log.info({ event: 'startup.purged', count: removed }, 'purged old tasks')
-    },
-  },
-])
 await refreshOperatorConfig().catch((error) =>
   log.error(
     { event: 'operator_config.startup_refresh_failed', error },
     'operator config refresh failed',
   ),
 )
-startPeriodicSteps(QUEUE_TIMEOUTS.PURGE_INTERVAL_MS, [
+// 开机清理在后台跑，不等它：过期任务一多要逐条删对象存储，曾用掉 3 分多钟，
+// 新实例迟迟不监听、过不了发布的健康检查。失败只记一条，定时清理会接着清。
+const startupMaintenance = [
+  { event: 'startup.private_maintenance_failed', run: () => runPrivateMaintenance() },
   {
-    event: 'periodic.purge_tasks_failed',
-    run: async () => {
-      const removed = await purgeOldTasks()
-      if (removed > 0) log.info({ event: 'periodic.purged', count: removed }, 'purged old tasks')
+    event: 'startup.purge_tasks_failed',
+    run: async (signal: AbortSignal) => {
+      const removed = await purgeOldTasks(undefined, signal)
+      if (removed > 0) log.info({ event: 'startup.purged', count: removed }, 'purged old tasks')
     },
   },
-  { event: 'periodic.private_maintenance_failed', run: runPrivateMaintenance },
-  {
-    event: 'periodic.purge_client_errors_failed',
-    run: async () => {
-      const removed = await purgeOldClientErrors()
-      if (removed > 0) {
-        log.info({ event: 'periodic.purged_client_errors', count: removed }, 'purged client errors')
-      }
+]
+const stopMaintenance = startPeriodicSteps(
+  QUEUE_TIMEOUTS.PURGE_INTERVAL_MS,
+  [
+    {
+      event: 'periodic.purge_tasks_failed',
+      run: async (signal: AbortSignal) => {
+        const removed = await purgeOldTasks(undefined, signal)
+        if (removed > 0) log.info({ event: 'periodic.purged', count: removed }, 'purged old tasks')
+      },
     },
-  },
-  // worker 的维护循环也清；没有 worker 的部署只有这里清。
-  { event: 'periodic.purge_heartbeats_failed', run: () => purgeStaleHeartbeats() },
-  ...(syncEnabled
-    ? [
-        {
-          event: 'periodic.purge_attachments_failed',
-          run: async () => {
-            await purgeExpiredAttachmentMedia()
+    { event: 'periodic.private_maintenance_failed', run: () => runPrivateMaintenance() },
+    {
+      event: 'periodic.purge_client_errors_failed',
+      run: async () => {
+        const removed = await purgeOldClientErrors()
+        if (removed > 0) {
+          log.info(
+            { event: 'periodic.purged_client_errors', count: removed },
+            'purged client errors',
+          )
+        }
+      },
+    },
+    // worker 的维护循环也清；没有 worker 的部署只有这里清。
+    { event: 'periodic.purge_heartbeats_failed', run: () => purgeStaleHeartbeats() },
+    ...(syncEnabled
+      ? [
+          {
+            event: 'periodic.purge_attachments_failed',
+            run: async () => {
+              await purgeExpiredAttachmentMedia()
+            },
           },
-        },
-        {
-          event: 'periodic.purge_asset_owners_failed',
-          run: async () => {
-            const orphaned = await purgeOrphanedAssetObjects()
-            if (orphaned > 0) {
-              log.info(
-                { event: 'periodic.purged_asset_owners', count: orphaned },
-                'purged asset objects',
-              )
-            }
+          {
+            event: 'periodic.purge_asset_owners_failed',
+            run: async () => {
+              const orphaned = await purgeOrphanedAssetObjects()
+              if (orphaned > 0) {
+                log.info(
+                  { event: 'periodic.purged_asset_owners', count: orphaned },
+                  'purged asset objects',
+                )
+              }
+            },
           },
-        },
-      ]
-    : []),
-  ...(agentEnabled
-    ? [
-        {
-          event: 'periodic.expire_stage_authorizations_failed',
-          run: async () => {
-            const expired = await expireStaleStageAuthorizations()
-            if (expired > 0) {
-              log.info(
-                { event: 'periodic.expired_stage_authorizations', count: expired },
-                'expired idle stage authorizations',
-              )
-            }
+        ]
+      : []),
+    ...(agentEnabled
+      ? [
+          {
+            event: 'periodic.expire_stage_authorizations_failed',
+            run: async () => {
+              const expired = await expireStaleStageAuthorizations()
+              if (expired > 0) {
+                log.info(
+                  { event: 'periodic.expired_stage_authorizations', count: expired },
+                  'expired idle stage authorizations',
+                )
+              }
+            },
           },
-        },
-        {
-          event: 'periodic.purge_agent_events_failed',
-          run: async () => {
-            const expired = await purgeOldAgentTurnEvents()
-            if (expired > 0) {
-              log.info(
-                { event: 'periodic.purged_agent_events', count: expired },
-                'purged agent events',
-              )
-            }
+          {
+            event: 'periodic.purge_agent_events_failed',
+            run: async () => {
+              const expired = await purgeOldAgentTurnEvents()
+              if (expired > 0) {
+                log.info(
+                  { event: 'periodic.purged_agent_events', count: expired },
+                  'purged agent events',
+                )
+              }
+            },
           },
-        },
-      ]
-    : []),
-])
+        ]
+      : []),
+  ],
+  { initial: startupMaintenance },
+)
 
 if (config.corsOrigins === '*') {
   log.warn(
@@ -289,6 +297,10 @@ async function gracefulShutdown(signal: string): Promise<void> {
   clearInterval(apiMinutesTimer)
   clearInterval(operatorConfigTimer)
   clearInterval(upstreamSecretTimer)
+  // 开机或定时清理还在跑时先中止它：清理在批次与逐条删对象之间看停机信号收手，等它退出再关库。
+  // 单次对象存储调用挂住时不无限等，上限远小于容器 75 秒的停机宽限；
+  // 清理本就按崩溃安全写（先删对象再删行，或行删后对象交给桶生命周期），被截断不丢数据。
+  await Promise.race([stopMaintenance(), Bun.sleep(30_000)])
 
   try {
     // Close idle canvas sockets after task drain so HTTP shutdown can finish.

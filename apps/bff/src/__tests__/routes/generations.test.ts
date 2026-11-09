@@ -225,6 +225,8 @@ it('升级前的带参考图任务也校验原参数并保留永久重试回执'
   })
   expect(replay.status).toBe(200)
   expect((await replay.json()).request_id).toBe(original.request_id)
+  // 停机信号已中止时不动任何行，留给下一次清理。
+  expect(await purgeOldTasks(-1, AbortSignal.abort())).toBe(0)
   expect(await purgeOldTasks(-1)).toBe(1)
   const afterPurge = await request(
     '/v1/queue/openai-compat/gpt-image-2/submit',
