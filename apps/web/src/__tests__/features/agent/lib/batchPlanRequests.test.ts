@@ -143,9 +143,10 @@ describe('shared batch reads', () => {
     expect(fixture.fetch).toHaveBeenCalledTimes(3)
   })
 
-  it('refreshes an asset reader after resuming a cached plan', async () => {
+  it('refreshes two asset readers with one read after resuming a cached plan', async () => {
     let status = 'closed'
     let observed = ''
+    let second = ''
     fixture.fetch.mockImplementation(async (_url, init) => {
       if (init?.method === 'POST') status = 'running'
       return response(page(status))
@@ -154,6 +155,11 @@ describe('shared batch reads', () => {
     const stop = subscribeBatchPlanChanges((id) => {
       void fetchBatchPlan(id, { reuseSettled: true }).then((result) => {
         observed = result.batch.status
+      })
+    })
+    const stopSecond = subscribeBatchPlanChanges((id) => {
+      void fetchBatchPlan(id, { reuseSettled: true }).then((result) => {
+        second = result.batch.status
       })
     })
     try {
@@ -165,8 +171,11 @@ describe('shared batch reads', () => {
         deviceId: 'device',
       })
       await vi.waitFor(() => expect(observed).toBe('running'))
+      await vi.waitFor(() => expect(second).toBe('running'))
+      expect(fixture.fetch.mock.calls.filter(([, init]) => init?.method !== 'POST')).toHaveLength(2)
     } finally {
       stop()
+      stopSecond()
     }
   })
 
