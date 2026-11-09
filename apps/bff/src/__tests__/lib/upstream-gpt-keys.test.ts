@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import { evaluateAlerts, QUEUE_TIMEOUTS } from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
 
 // 两把直连密钥。fetch 换成本地桩，按 Authorization 区分，不打真实上游，也不把密钥写进断言以外的输出。
 const PRIMARY = 'test-key-primary-aaaa'
@@ -37,7 +39,6 @@ const {
   safeEnvDirectKeys,
 } = await import('../../lib/upstream/gpt-key-config')
 const { config } = await import('../../config')
-const { QUEUE_TIMEOUTS } = await import('@image-playground/shared')
 const { _resetSub2apiBreakerForTesting } = await import('../../lib/upstream/gpt-routing')
 const { _setOfficialCostsFetchForTesting } = await import('../../lib/upstream/gpt-official-costs')
 const { schedulerBucketUsage } = await import('../../lib/upstream/scheduler')
@@ -281,31 +282,79 @@ describe('key failover', () => {
     expect(alerts[0]?.reason).toBe('quota')
   })
 
-  it('does not alert or restore a database-disabled key despite a stale worker snapshot', async () => {
+  it('keeps key alerts consistent across stale snapshots and resolves once after manual disable', async () => {
+    const configured = configuredDirectKeys()[0]!
     await db.insert(schema.gpt_direct_key_state).values({
       fingerprint: primaryId.fingerprint,
       disabled_reason: 'quota',
       updated_at: Date.now(),
     })
     await db.insert(schema.gpt_direct_admin_keys).values({
-      id: 'manually-disabled',
+      id: 'admin-key',
       ordinal: 1,
       fingerprint: primaryId.fingerprint,
       budget_usd: 1,
-      enabled: false,
+      enabled: true,
       nonce: 'test-nonce',
       tag: 'test-tag',
       ciphertext: 'test-ciphertext',
       updated_at: Date.now(),
       updated_by: 'test',
     })
-    // 模拟另一个 worker 还没收到后台配置刷新：它仍认为 key 启用。
+    const now = Date.now()
+    const disabled = [
+      {
+        fingerprint: primaryId.fingerprint,
+        label: primaryId.fingerprint,
+        reason: 'quota' as const,
+      },
+    ]
     noteDirectKeySnapshot({ admin: [], hardDisabled: new Set() })
-    await expect(disabledDirectKeys()).resolves.toEqual([])
-    expect(alerts).toEqual([])
-    expect(kicks).toBe(0)
+    expect(await disabledDirectKeys()).toEqual(disabled)
+    const firing = evaluateAlerts({ gptDirectKeys: { disabled } }, {}, now)
+    expect(firing.messages.map((message) => message.kind)).toEqual(['firing'])
+    noteDirectKeySnapshot({ admin: [{ ...configured, id: 'admin-key', enabled: false }] })
+    const stillDisabled = await disabledDirectKeys()
+    expect(stillDisabled).toEqual(disabled)
+    expect(
+      evaluateAlerts({ gptDirectKeys: { disabled: stillDisabled } }, firing.state, now + 1000)
+        .messages,
+    ).toEqual([])
+
+    await db
+      .update(schema.gpt_direct_admin_keys)
+      .set({ enabled: false })
+      .where(eq(schema.gpt_direct_admin_keys.id, 'admin-key'))
+    noteDirectKeySnapshot({ admin: [{ ...configured, id: 'admin-key', enabled: true }] })
+    const suppressed = await disabledDirectKeys()
+    expect(suppressed).toEqual([])
+    const resolved = evaluateAlerts(
+      { gptDirectKeys: { disabled: suppressed } },
+      firing.state,
+      now + 2000,
+    )
+    expect(resolved.messages.map((message) => message.kind)).toEqual(['resolved'])
+    noteDirectKeySnapshot({ admin: [] })
+    expect(
+      evaluateAlerts(
+        { gptDirectKeys: { disabled: await disabledDirectKeys() } },
+        resolved.state,
+        now + 3000,
+      ).messages,
+    ).toEqual([])
     const [state] = await db.select().from(schema.gpt_direct_key_state)
     expect(state?.disabled_reason).toBe('quota')
+  })
+
+  it('observes environment keys after the last admin key is removed despite a stale admin snapshot', async () => {
+    const configured = configuredDirectKeys()[0]!
+    noteDirectKeySnapshot({ admin: [{ ...configured, id: 'removed-key', enabled: false }] })
+    await db.insert(schema.gpt_direct_key_state).values({
+      fingerprint: secondaryId.fingerprint,
+      disabled_reason: 'invalid',
+      updated_at: Date.now(),
+    })
+    expect(await disabledDirectKeys()).toEqual([{ ...secondaryId, reason: 'invalid' }])
   })
 
   it('does not bill a key that never left the queue after the previous key was rejected', async () => {

@@ -652,7 +652,7 @@ function evaluateGptKeys(
         firingText: key
           ? `OpenAI 直连密钥 ${label} 已停用（${reasonText(key.reason)}）\n本单已改用下一把；全部不可用时才退回 sub2api`
           : '',
-        resolvedText: `已恢复：OpenAI 直连密钥 ${label} 已重新启用`,
+        resolvedText: `告警已解除：OpenAI 直连密钥 ${label}`,
       },
       prior,
       now,
