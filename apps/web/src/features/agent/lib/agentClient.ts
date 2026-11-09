@@ -990,11 +990,10 @@ export function fetchBatchPlan(
   const pending = batchRequests.get(key)
   if (pending) return pending
   const sameAccount = accountScope()
-  const request: Promise<AgentBatchPage> = (async () => {
-    const response = await authenticatedBffFetch(
-      url(`/batches/${encodeURIComponent(batchId)}?limit=100`),
-      { signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS) },
-    )
+  const request: Promise<AgentBatchPage> = authenticatedBffFetch(
+    url(`/batches/${encodeURIComponent(batchId)}?limit=100`),
+    { signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS) },
+  ).then(async (response) => {
     if (!response.ok) throw await requestError(response)
     const page = (await response.json()) as AgentBatchPage
     if (!sameAccount()) throw new DOMException('Account changed', 'AbortError')
@@ -1018,7 +1017,7 @@ export function fetchBatchPlan(
       settledBatches.set(key, { page, expires: Date.now() + SETTLED_BATCH_TTL_MS })
     }
     return page
-  })()
+  })
   batchRequests.set(key, request)
   void request
     .finally(() => {

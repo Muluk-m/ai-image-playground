@@ -88,9 +88,14 @@ export async function refreshUpstreamKeySources(): Promise<void> {
 
 async function publishSnapshot(admin: DirectKey[] | null): Promise<void> {
   const states = await db.select().from(schema.gpt_direct_key_state)
-  const hardDisabled = new Set(states.filter((row) => row.disabled_reason !== null).map((row) => row.fingerprint))
+  const hardDisabled = new Set(
+    states.filter((row) => row.disabled_reason !== null).map((row) => row.fingerprint),
+  )
   noteDirectKeySnapshot({ admin, hardDisabled, deliverable: false })
-  const probe = await selectDirectKey({ estimateMicroUsd: 1, state: new Map(states.map((row) => [row.fingerprint, row])) })
+  const probe = await selectDirectKey({
+    estimateMicroUsd: 1,
+    state: new Map(states.map((row) => [row.fingerprint, row])),
+  })
   if (probe) noteDirectKeySnapshot({ admin, hardDisabled, deliverable: true })
 }
 
