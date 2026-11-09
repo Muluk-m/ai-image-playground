@@ -101,6 +101,8 @@ export interface TaskExecution {
   abort(): void
   /** GPT Image 这一单正要走的通道（换路时覆盖成后一条）；结算按它判断是否降了档。 */
   recordGptRoute(route: 'direct' | 'sub2api'): Promise<void>
+  /** 记录最后一把真正发出直连请求的 key 指纹；切到 sub2api 时清空。 */
+  recordGptKey(fingerprint: string | null): Promise<void>
   /** 记账：上游真的被调用过。返回 false 表示这一行已经不归本次执行。 */
   recordUpstreamInvocation(count?: number): Promise<boolean>
   recordDispatchIntent(): Promise<string | null>
@@ -195,7 +197,14 @@ class TaskExecutionHandle implements TaskExecution {
   }
 
   async recordGptRoute(route: 'direct' | 'sub2api'): Promise<void> {
-    await db.update(schema.tasks).set({ gpt_route: route }).where(this.#own())
+    await db
+      .update(schema.tasks)
+      .set({ gpt_route: route, gpt_key_fingerprint: null })
+      .where(this.#own())
+  }
+
+  async recordGptKey(fingerprint: string | null): Promise<void> {
+    await db.update(schema.tasks).set({ gpt_key_fingerprint: fingerprint }).where(this.#own())
   }
 
   async recordUpstreamInvocation(count = 1): Promise<boolean> {

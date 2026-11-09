@@ -234,18 +234,20 @@ async function executeTask(execution: TaskExecution): Promise<void> {
     // 原模型的总时限从提交算起（含排队与之前的重试），到点没出的几张改用回落模型。
     fallbackModel =
       task.provider === 'gemini' ? await rateLimitFallbackModel(task.model) : undefined
+    await execution.recordGptKey(null)
     const upstreamCall: UpstreamCallParams = {
       reconciliationRequired: task.reconciliation_required,
       taskId: id,
       strictImageRequest: request.strict_image_request,
+      model: task.model,
       ...(gptDirectConfigured(task.model)
         ? {
             gptMember: !isGptSub2apiDeliverable(request) || (await isActiveMember(task.user_id)),
           }
         : {}),
       onGptRoute: (route) => execution.recordGptRoute(route),
+      onGptKey: (fingerprint) => execution.recordGptKey(fingerprint),
       provider: task.provider,
-      model: task.model,
       // 截图模式：落库的是整张原图与选区，送上游的只是选区周围那一块。
       request: request.masked_crop
         ? {
