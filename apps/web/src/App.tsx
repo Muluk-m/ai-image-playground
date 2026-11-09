@@ -1,4 +1,4 @@
-import { type ReactNode, Suspense, useEffect, useLayoutEffect, useRef } from 'react'
+import { lazy, type ReactNode, Suspense, useEffect, useLayoutEffect, useRef } from 'react'
 import { useAuth } from './auth/AuthContext'
 import { resumePendingSubmission } from './auth/resumePendingSubmission'
 import { signalBootReady } from './boot/ready'
@@ -10,7 +10,7 @@ import ImageContextMenu from './components/ImageContextMenu'
 import InputBar from './components/InputBar'
 import Lightbox from './components/Lightbox'
 import MaskEditorModal from './components/MaskEditorModal'
-import RouteChunkBoundary, { lazyRoute, RouteLoading } from './components/RouteChunkBoundary'
+import RouteChunkBoundary, { RouteLoading } from './components/RouteChunkBoundary'
 import SettingsModal from './components/SettingsModal'
 import Sidebar from './components/Sidebar'
 import TaskBulkActions from './components/TaskBulkActions'
@@ -43,14 +43,14 @@ import { startSyncEngine } from './lib/sync/engine'
 import { clearUrlSettingParams, hasUrlSettingParams } from './lib/urlSettings'
 import { initStore, useStore } from './store'
 
-const ChangelogPage = lazyRoute(() => import('./features/announcements/ChangelogPage'))
-const CanvasMode = lazyRoute(() => import('./features/canvas/components/CanvasMode'))
-const CliConnectPage = lazyRoute(() => import('./features/cli/CliConnectPage'))
-const CliDevicePage = lazyRoute(() => import('./features/cli/CliDevicePage'))
-const ExplorePage = lazyRoute(() => import('./features/inspiration/components/ExplorePage'))
-const LibraryPage = lazyRoute(() => import('./features/library/components/LibraryPage'))
-const PricingPage = lazyRoute(() => import('./features/pricing/PricingPage'))
-const ToolboxPage = lazyRoute(() => import('./features/toolbox/components/ToolboxPage'))
+const ChangelogPage = lazy(() => import('./features/announcements/ChangelogPage'))
+const CanvasMode = lazy(() => import('./features/canvas/components/CanvasMode'))
+const CliConnectPage = lazy(() => import('./features/cli/CliConnectPage'))
+const CliDevicePage = lazy(() => import('./features/cli/CliDevicePage'))
+const ExplorePage = lazy(() => import('./features/inspiration/components/ExplorePage'))
+const LibraryPage = lazy(() => import('./features/library/components/LibraryPage'))
+const PricingPage = lazy(() => import('./features/pricing/PricingPage'))
+const ToolboxPage = lazy(() => import('./features/toolbox/components/ToolboxPage'))
 
 export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: number }) {
   const setSettings = useStore((s) => s.setSettings)
@@ -236,19 +236,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
             {route(pathname, <CliConnectPage />)}
           </div>
         ) : canvasOwnsMainPane(appMode, pathname) ? (
-          <div
-            className="app-inset-panel"
-            style={{
-              marginTop: 'calc(var(--mobile-topbar-height) + var(--app-inset))',
-              marginRight: 'var(--app-inset)',
-              marginBottom: 'calc(var(--mobile-nav-height, 0px) + var(--app-inset))',
-              marginLeft: 'calc(var(--app-sidebar-width) + var(--app-inset))',
-              minHeight:
-                'calc(100dvh - var(--mobile-topbar-height) - var(--mobile-nav-height, 0px) - var(--app-inset) * 2)',
-            }}
-          >
-            {route(`${pathname}:canvas`, <CanvasMode />)}
-          </div>
+          route(`${pathname}:canvas`, <CanvasMode />)
         ) : (
           <div
             className="app-inset-panel"
