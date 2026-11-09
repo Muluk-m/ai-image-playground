@@ -13,6 +13,7 @@ import {
   releaseDirectReservation,
   reserveDirectBudget,
 } from './gpt-budget'
+import { directKeyKnownDisabled, forgetDirectKeyDisabled } from './gpt-direct-availability'
 import {
   adminDirectKeys,
   configuredDirectKeys,
@@ -107,6 +108,7 @@ async function walkDirectKeys(input: {
   exclude?: ReadonlySet<string>
   now?: number
   reserve?: boolean
+  state?: ReadonlyMap<string, KeyStateRow>
 }): Promise<{ key: DirectKey; reservationId: string | null } | null> {
   const now = input.now ?? Date.now()
   let keys: DirectKey[]
@@ -116,13 +118,13 @@ async function walkDirectKeys(input: {
     log.warn({ event: 'gpt.direct_keys_invalid', err }, 'openai direct key config is invalid')
     return null
   }
-  if (keys.length === 0) {
+  if (keys.every((key) => !key.enabled || directKeyKnownDisabled(key.fingerprint))) {
     if (!input.exclude?.size) noteDirectSizeDeliverable(false)
     return null
   }
-  let state: Map<string, KeyStateRow>
+  let state: ReadonlyMap<string, KeyStateRow>
   try {
-    state = await loadKeyState()
+    state = input.state ?? (await loadKeyState())
   } catch (err) {
     log.warn({ event: 'gpt.direct_key_state_read_failed', err }, 'direct key state read failed')
     return null
@@ -167,6 +169,7 @@ export async function selectDirectKey(input: {
   estimateMicroUsd: number
   exclude?: ReadonlySet<string>
   now?: number
+  state?: ReadonlyMap<string, KeyStateRow>
 }): Promise<DirectKey | null> {
   const picked = await walkDirectKeys(input)
   return picked?.key ?? null
@@ -321,6 +324,7 @@ export async function restoreDirectKey(fingerprint: string, operator?: string): 
       created_at: now,
     })
   })
+  forgetDirectKeyDisabled(fingerprint)
   log.info(
     {
       event: 'gpt.direct_key_restored',

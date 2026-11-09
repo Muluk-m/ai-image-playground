@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { evaluateAlerts, QUEUE_TIMEOUTS } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 
 // 两把直连密钥。fetch 换成本地桩，按 Authorization 区分，不打真实上游，也不把密钥写进断言以外的输出。
 const PRIMARY = 'test-key-primary-aaaa'
@@ -10,6 +10,7 @@ process.env.DATABASE_URL = await resetTestDatabase('bff_gpt_direct_keys')
 process.env.UPSTREAM_BASE_URL = 'https://sub2api.example.com'
 process.env.UPSTREAM_API_KEY = 'sub2api-key'
 process.env.GPT_DIRECT_ENABLED = 'true'
+process.env.GPT_IMAGE_26_ENABLED = 'true'
 process.env.OPENAI_API_KEY = ''
 process.env.OPENAI_API_KEYS = `${PRIMARY},${SECONDARY}`
 process.env.OPENAI_API_KEY_BUDGETS_USD = '1,5'
@@ -29,6 +30,7 @@ const { budgetMonthStart } = await import('../../lib/upstream/gpt-budget')
 const { _resetDirectBudgetCacheForTesting } = await import('../../lib/upstream/gpt-budget')
 const { _setDirectKeyAlertForTesting, directKeyPanel, disabledDirectKeys, restoreDirectKey } =
   await import('../../lib/upstream/gpt-keys')
+const { refreshGptDirectKeys } = await import('../../lib/upstream/gpt-direct-admin')
 const {
   configuredDirectKeys,
   FingerprintSecretMissingError,
@@ -239,6 +241,44 @@ describe('key failover', () => {
     expect(JSON.stringify(usage)).not.toContain(PRIMARY)
   })
 
+  it.each([
+    undefined,
+    'ab'.repeat(32),
+  ])('keeps disabled env keys out of routing after refresh with master %s, then restores a key', async (master) => {
+    const savedMaster = process.env.UPSTREAM_SECRETS_MASTER_KEY
+    if (master === undefined) delete process.env.UPSTREAM_SECRETS_MASTER_KEY
+    else process.env.UPSTREAM_SECRETS_MASTER_KEY = master
+    try {
+      await db.insert(schema.gpt_direct_key_state).values(
+        [primaryId, secondaryId].map((key) => ({
+          fingerprint: key.fingerprint,
+          disabled_reason: 'quota' as const,
+          updated_at: Date.now(),
+        })),
+      )
+      await refreshGptDirectKeys()
+      await db.execute(
+        sql`ALTER TABLE gpt_direct_key_state RENAME TO unavailable_env_key_state_fixture`,
+      )
+      try {
+        await call()
+        expect(sent).toEqual(['sub2api'])
+      } finally {
+        await db.execute(
+          sql`ALTER TABLE unavailable_env_key_state_fixture RENAME TO gpt_direct_key_state`,
+        )
+      }
+      await restoreDirectKey(primaryId.fingerprint, 'test')
+      await refreshGptDirectKeys()
+      sent = []
+      await call()
+      expect(sent).toEqual(['primary'])
+    } finally {
+      if (savedMaster === undefined) delete process.env.UPSTREAM_SECRETS_MASTER_KEY
+      else process.env.UPSTREAM_SECRETS_MASTER_KEY = savedMaster
+    }
+  })
+
   it('disables an invalid key, alerts, and retries the next key inside the same direct route', async () => {
     replies.primary = {
       status: 401,
@@ -441,6 +481,36 @@ describe('key failover', () => {
       secondaryId.fingerprint,
     ])
     expect(await db.select().from(schema.gpt_direct_usage)).toHaveLength(0)
+  })
+
+  it('keeps GPT 2.6 disabled when restoring its key rolls back, then reopens after commit', async () => {
+    await db.insert(schema.gpt_direct_key_state).values(
+      [primaryId, secondaryId].map((key) => ({
+        fingerprint: key.fingerprint,
+        disabled_reason: 'quota' as const,
+        updated_at: Date.now(),
+      })),
+    )
+    await refreshGptDirectKeys()
+    await db.execute(sql`ALTER TABLE operator_audits RENAME TO unavailable_restore_audits_fixture`)
+    try {
+      await expect(restoreDirectKey(primaryId.fingerprint, 'ops')).rejects.toThrow()
+    } finally {
+      await db.execute(
+        sql`ALTER TABLE unavailable_restore_audits_fixture RENAME TO operator_audits`,
+      )
+    }
+    const generate = () =>
+      callUpstream({
+        provider: 'openai-compat',
+        model: 'gpt-image-2.6-flare',
+        request: { prompt: 'a cat' },
+      })
+    await expect(generate()).rejects.toThrow('direct route is not configured')
+    expect(sent).toEqual([])
+    await restoreDirectKey(primaryId.fingerprint, 'ops')
+    await generate()
+    expect(sent).toEqual(['primary'])
   })
 
   it('uses a restored key again, and ignores last month when judging the budget', async () => {
