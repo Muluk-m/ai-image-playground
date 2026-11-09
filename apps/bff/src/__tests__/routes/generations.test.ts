@@ -163,7 +163,7 @@ it.each([
     ...modern,
     no_rewrite: !no_rewrite,
   })
-  expect(changed.status).toBe(200)
+  expect(changed.status).toBe(no_rewrite ? 409 : 200)
   expect((await (await request('/api/generations', deviceB)).json()).items).toHaveLength(1)
 })
 
