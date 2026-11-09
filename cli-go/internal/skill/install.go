@@ -242,6 +242,40 @@ func bundleFiles() ([]bundleFile, string, error) {
 // BodyFile is the Skill file a host reads first; the rest are loaded on demand.
 const BodyFile = "SKILL.md"
 
+// Files lists the bundled Skill's files, bundle-relative and slash separated, in the order
+// a host would read them: the body first.
+func Files() ([]string, error) {
+	files, _, err := bundleFiles()
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(files))
+	for _, file := range files {
+		if file.path != BodyFile {
+			names = append(names, file.path)
+		}
+	}
+	sort.Strings(names)
+	return append([]string{BodyFile}, names...), nil
+}
+
+// Body returns one bundled Skill file byte for byte, for a host that cannot install the
+// Skill and reads it from stdout instead. Only a bundled path is served: no path outside
+// the bundle can be named, however it is spelled.
+func Body(path string) ([]byte, error) {
+	files, _, err := bundleFiles()
+	if err != nil {
+		return nil, err
+	}
+	wanted := filepath.ToSlash(filepath.Clean("/" + strings.TrimSpace(path)))[1:]
+	for _, file := range files {
+		if file.path == wanted {
+			return file.data, nil
+		}
+	}
+	return nil, fmt.Errorf("the bundled Skill has no file %q", path)
+}
+
 // hashFiles is the bundle identity recorded at install time and checked by status.
 func hashFiles(files []bundleFile) string {
 	sort.Slice(files, func(i, j int) bool { return files[i].path < files[j].path })

@@ -93,7 +93,7 @@ var placeholders = map[string]string{
 	"output-format": "gif|svg", "frames": "N", "frame-duration-ms": "MS", "frame-size": "WxH",
 	"idempotency-key": "KEY", "wait": "SECONDS", "download": "DIR", "limit": "N", "cursor": "ID",
 	"timeout": "SECONDS", "output": "PATH", "host": "claude-code|codex", "scope": "user|project",
-	"dir": "DIRECTORY",
+	"dir": "DIRECTORY", "file": "PATH",
 }
 
 // flagOrder puts the flags a command cannot do without first; the rest follow alphabetically.
@@ -120,6 +120,10 @@ var examples = map[string][]string{
 		"muvloom skill install --host codex --scope project",
 		"muvloom skill install --dir ~/.workbuddy/skills   # any host's skills directory",
 	},
+	"skill print": {
+		"muvloom skill print                              # the Skill body on stdout",
+		"muvloom skill print --file references/cli.md     # one reference, on demand",
+	},
 }
 
 // notes add what a command's flags alone do not say.
@@ -130,6 +134,8 @@ var notes = map[string]string{
 	"auth login":      "Opens the approval page and waits. Run it again after a timeout: it resumes the same sign-in.",
 	"skill install": "--dir takes the host's skills directory; the Skill is installed into <dir>/muvloom and the\n" +
 		"directory is remembered, so `muvloom auth status` keeps that copy up to date too.",
+	"skill print": "For a host that cannot install Skills: read the body, then a reference only when the body\n" +
+		"points at it. --list names the files that can be printed.",
 }
 
 func commandHelp(cmd command, fs *flag.FlagSet) string {
