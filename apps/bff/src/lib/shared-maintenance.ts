@@ -5,7 +5,9 @@ import { config } from '../config'
 import { schema } from '../db/client'
 
 export const SHARED_MAINTENANCE_INTERVAL_MS = 5 * 60_000
-export type MaintenanceTransaction = Parameters<Parameters<BunSQLDatabase<typeof schema>['transaction']>[0]>[0]
+export type MaintenanceTransaction = Parameters<
+  Parameters<BunSQLDatabase<typeof schema>['transaction']>[0]
+>[0]
 
 interface SharedMaintenanceOptions {
   job: string
@@ -45,7 +47,9 @@ export function createSharedMaintenance(options: SharedMaintenanceOptions) {
       }
       const database = drizzle(client, { schema })
       await database.transaction(async (transaction) => {
-        const [session] = await transaction.execute<{ pid: number }>(sql`SELECT pg_backend_pid() AS pid`)
+        const [session] = await transaction.execute<{ pid: number }>(
+          sql`SELECT pg_backend_pid() AS pid`,
+        )
         if (leaderPid !== session!.pid) {
           const [lock] = await transaction.execute<{ locked: boolean }>(sql`
             SELECT pg_try_advisory_lock(hashtextextended(${`maintenance:${options.job}`}, 0)) AS locked
@@ -65,7 +69,10 @@ export function createSharedMaintenance(options: SharedMaintenanceOptions) {
   return {
     run() {
       if (stopped) return Promise.resolve()
-      if (!pending) pending = execute().finally(() => { pending = undefined })
+      if (!pending)
+        pending = execute().finally(() => {
+          pending = undefined
+        })
       return pending
     },
     async stop() {

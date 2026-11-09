@@ -16,7 +16,10 @@ export function runtimeSecret(envName: string, fallback: string): string {
 }
 
 export function replaceUpstreamSecretCache(next: ReadonlyMap<string, string>): void {
-  if (next.size === overrides.size && [...next].every(([key, value]) => overrides.get(key) === value))
+  if (
+    next.size === overrides.size &&
+    [...next].every(([key, value]) => overrides.get(key) === value)
+  )
     return
   revision += 1
   overrides = new Map(next)

@@ -3,7 +3,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { _setChannelsForTesting, getChannels, refreshChannelsIfChanged } from '../../lib/channels'
-import { replaceUpstreamSecretCache, resetUpstreamSecretCacheForTests } from '../../lib/upstream-secret-cache'
+import {
+  replaceUpstreamSecretCache,
+  resetUpstreamSecretCacheForTests,
+} from '../../lib/upstream-secret-cache'
 
 // Exercise changes at the file/credential boundary without depending on a host channels file.
 describe('periodic channel refresh', () => {
@@ -11,12 +14,15 @@ describe('periodic channel refresh', () => {
     const directory = mkdtempSync(join(tmpdir(), 'channel-refresh-'))
     const path = join(directory, 'channels.json')
     const channel = {
-      id: 'refresh-example', kind: 'openai-queue', label: 'Refresh example',
+      id: 'refresh-example',
+      kind: 'openai-queue',
+      label: 'Refresh example',
       baseUrl: 'https://example.invalid/v1',
       auth: { type: 'bearer', secretRef: 'PERIODIC_REFRESH_FIXTURE_KEY' },
       requiresSecret: true,
       models: [{ id: 'fixture-image', label: 'Fixture image', capabilities: ['generate'] }],
-      defaults: {}, allowedPaths: ['images/generations'],
+      defaults: {},
+      allowedPaths: ['images/generations'],
     }
     try {
       resetUpstreamSecretCacheForTests()

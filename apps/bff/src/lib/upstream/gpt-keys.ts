@@ -13,6 +13,7 @@ import {
   releaseDirectReservation,
   reserveDirectBudget,
 } from './gpt-budget'
+import { directKeyKnownDisabled, forgetDirectKeyDisabled } from './gpt-direct-availability'
 import {
   adminDirectKeys,
   configuredDirectKeys,
@@ -26,7 +27,6 @@ import {
   scrubSecrets,
 } from './gpt-key-config'
 import { readOfficialDirectCosts } from './gpt-official-costs'
-import { directKeyKnownDisabled, forgetDirectKeyDisabled } from './gpt-direct-availability'
 
 /**
  * 直连密钥的运行状态写在 `gpt_direct_key_state`，所有 worker 共用。
@@ -108,6 +108,7 @@ async function walkDirectKeys(input: {
   exclude?: ReadonlySet<string>
   now?: number
   reserve?: boolean
+  state?: ReadonlyMap<string, KeyStateRow>
 }): Promise<{ key: DirectKey; reservationId: string | null } | null> {
   const now = input.now ?? Date.now()
   let keys: DirectKey[]
@@ -121,9 +122,9 @@ async function walkDirectKeys(input: {
     if (!input.exclude?.size) noteDirectSizeDeliverable(false)
     return null
   }
-  let state: Map<string, KeyStateRow>
+  let state: ReadonlyMap<string, KeyStateRow>
   try {
-    state = await loadKeyState()
+    state = input.state ?? await loadKeyState()
   } catch (err) {
     log.warn({ event: 'gpt.direct_key_state_read_failed', err }, 'direct key state read failed')
     return null
@@ -168,6 +169,7 @@ export async function selectDirectKey(input: {
   estimateMicroUsd: number
   exclude?: ReadonlySet<string>
   now?: number
+  state?: ReadonlyMap<string, KeyStateRow>
 }): Promise<DirectKey | null> {
   const picked = await walkDirectKeys(input)
   return picked?.key ?? null

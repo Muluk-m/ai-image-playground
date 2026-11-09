@@ -12,10 +12,18 @@ import type { AgentToolMessage } from '../../../../features/agent/types'
 import { setClientStorageScope } from '../../../../lib/authScope'
 
 const pending: AgentToolMessage = {
-  kind: 'tool', id: 'job', turnId: 'turn', toolCallId: 'call', title: 'image',
-  toolName: 'generateImage', status: 'submitted', job: { taskId: 'task', media: 'image' },
+  kind: 'tool',
+  id: 'job',
+  turnId: 'turn',
+  toolCallId: 'call',
+  title: 'image',
+  toolName: 'generateImage',
+  status: 'submitted',
+  job: { taskId: 'task', media: 'image' },
 }
-const jobs = [{ messageId: pending.id, turnId: pending.turnId, result: pending }] as unknown as AgentBackgroundJobView[]
+const jobs = [
+  { messageId: pending.id, turnId: pending.turnId, result: pending },
+] as unknown as AgentBackgroundJobView[]
 const fetchJobs = vi.fn(async (): Promise<readonly AgentBackgroundJobView[]> => jobs)
 let visibility: 'visible' | 'hidden'
 
@@ -31,7 +39,9 @@ function show(next: 'visible' | 'hidden') {
 // The web package targets ES2020, which does not include Promise.withResolvers.
 function deferredJobs() {
   let resolve!: (jobs: readonly AgentBackgroundJobView[]) => void
-  const promise = new Promise<readonly AgentBackgroundJobView[]>((finish) => { resolve = finish })
+  const promise = new Promise<readonly AgentBackgroundJobView[]>((finish) => {
+    resolve = finish
+  })
   return { promise, resolve }
 }
 
@@ -43,8 +53,11 @@ beforeEach(() => {
   resetAgentJobActivity()
   fetchJobs.mockReset().mockResolvedValue(jobs)
   configureAgentJobActivity({
-    fetchJobs, viewing: () => false, refreshCovers: () => {},
-    pollIntervalMs: 5_000, hiddenPollIntervalMs: 30_000,
+    fetchJobs,
+    viewing: () => false,
+    refreshCovers: () => {},
+    pollIntervalMs: 5_000,
+    hiddenPollIntervalMs: 30_000,
   })
 })
 afterEach(() => {

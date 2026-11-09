@@ -412,7 +412,9 @@ export async function purgeOldHostSamples(
 ): Promise<number> {
   const before = now - HOST_SAMPLE_RETENTION_MS
   // 容器读数与接口统计和宿主机采样同一个保留期：看板上三者画在同一段时间上。
-  await database.delete(schema.container_samples).where(lt(schema.container_samples.sampled_at, before))
+  await database
+    .delete(schema.container_samples)
+    .where(lt(schema.container_samples.sampled_at, before))
   await database.delete(schema.api_minutes).where(lt(schema.api_minutes.minute, before))
   const deleted = await database
     .delete(schema.host_samples)

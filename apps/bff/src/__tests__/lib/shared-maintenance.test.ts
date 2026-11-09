@@ -5,7 +5,9 @@ import { sql } from 'drizzle-orm'
 process.env.DATABASE_URL = await resetTestDatabase('bff_shared_maintenance')
 // These singletons must load only after DATABASE_URL points at this suite's isolated database.
 const { db, close } = await import('../../db/client')
-const { createSharedMaintenance, startSharedMaintenance } = await import('../../lib/shared-maintenance')
+const { createSharedMaintenance, startSharedMaintenance } = await import(
+  '../../lib/shared-maintenance'
+)
 await db.execute(sql`CREATE TABLE maintenance_probe (job text NOT NULL, pid integer NOT NULL)`)
 
 const stops: Array<() => Promise<void>> = []
@@ -14,10 +16,13 @@ afterEach(async () => {
 })
 afterAll(close)
 
-function runner(job: string, options: {
-  work?: () => Promise<void>
-  onError?: (error: unknown) => void
-} = {}) {
+function runner(
+  job: string,
+  options: {
+    work?: () => Promise<void>
+    onError?: (error: unknown) => void
+  } = {},
+) {
   const maintenance = createSharedMaintenance({
     job,
     onError: options.onError,
@@ -28,7 +33,9 @@ function runner(job: string, options: {
         ) AS held
       `)
       expect(lock?.held).toBe(true)
-      await transaction.execute(sql`INSERT INTO maintenance_probe VALUES (${job}, pg_backend_pid())`)
+      await transaction.execute(
+        sql`INSERT INTO maintenance_probe VALUES (${job}, pg_backend_pid())`,
+      )
       await options.work?.()
     },
   })
@@ -36,7 +43,9 @@ function runner(job: string, options: {
   return maintenance
 }
 function rows(job: string) {
-  return db.execute<{ pid: number }>(sql`SELECT pid FROM maintenance_probe WHERE job = ${job} ORDER BY ctid`)
+  return db.execute<{ pid: number }>(
+    sql`SELECT pid FROM maintenance_probe WHERE job = ${job} ORDER BY ctid`,
+  )
 }
 
 function gate() {
@@ -106,7 +115,9 @@ describe('shared maintenance leadership', () => {
     expect(maintenance.run()).toBe(running)
     expect(maintenance.run()).toBe(running)
     let stopped = false
-    const stopping = maintenance.stop().then(() => { stopped = true })
+    const stopping = maintenance.stop().then(() => {
+      stopped = true
+    })
     expect(stopped).toBe(false)
     release.release()
     await Promise.all([running, stopping])
@@ -120,8 +131,12 @@ describe('shared maintenance leadership', () => {
     const errors: unknown[] = []
     const failure = new Error('cleanup unavailable')
     const failing = runner('failure', {
-      work: async () => { throw failure },
-      onError: (error) => { errors.push(error) },
+      work: async () => {
+        throw failure
+      },
+      onError: (error) => {
+        errors.push(error)
+      },
     })
     await expect(failing.run()).resolves.toBeUndefined()
     expect(errors).toEqual([failure])
@@ -145,7 +160,9 @@ describe('shared maintenance leadership', () => {
     const stop = startSharedMaintenance({
       job: 'startup',
       work: async (transaction) => {
-        await transaction.execute(sql`INSERT INTO maintenance_probe VALUES ('startup', pg_backend_pid())`)
+        await transaction.execute(
+          sql`INSERT INTO maintenance_probe VALUES ('startup', pg_backend_pid())`,
+        )
         started.release()
       },
     })

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { accountScope, scopedStorageName } from '../../../lib/authScope'
 import {
-  AgentRequestError,
   type AgentConversationState,
+  AgentRequestError,
   fetchBatchPlan,
   fetchConversations,
   fetchMessages,
@@ -192,7 +192,12 @@ function useOtherAssets(enabled: boolean, conversationId: string | null) {
       const page: CanvasAssetItem[] = []
       let read = 0
       try {
-        while (page.length < PAGE_SIZE && read < CONVERSATIONS_PER_PAGE && !cancelled && sameAccount()) {
+        while (
+          page.length < PAGE_SIZE &&
+          read < CONVERSATIONS_PER_PAGE &&
+          !cancelled &&
+          sameAccount()
+        ) {
           if (!conversations)
             conversations = (await fetchConversations())
               .map((one) => one.id)
