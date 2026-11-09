@@ -99,5 +99,11 @@
     "aria": "Choose creation mode",
     "chat": "Smart creation",
     "canvas": "Canvas"
+  },
+  "route": {
+    "loading": "Opening page…",
+    "loadFailed": "This page could not be opened",
+    "loadFailedDescription": "The page resource failed to load. Try again or refresh.",
+    "retry": "Reload"
   }
 }

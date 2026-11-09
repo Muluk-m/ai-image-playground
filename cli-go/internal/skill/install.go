@@ -12,11 +12,14 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+
+	"github.com/Muluk-m/ai-image-playground/cli-go/internal/auth"
 )
 
 // BundleVersion is tied to the native CLI release. Keep the bundled Skill and
 // the executable on the same version so hosts can report what was installed.
-const BundleVersion = "0.2.1"
+const BundleVersion = "0.2.4"
 
 //go:embed assets
 var bundled embed.FS
@@ -26,7 +29,16 @@ type InstallOptions struct {
 	Scope string
 	Home  string
 	CWD   string
+	// onlyIf, when set, decides under the install lock whether to replace the copy at the
+	// destination; false skips the install with errNotNeeded, an error stops it.
+	onlyIf func(destination string) (bool, error)
 }
+
+// errNotNeeded reports an install skipped because onlyIf said the copy should stay.
+var errNotNeeded = errors.New("the installed Skill no longer needs replacing")
+
+// installLockWait bounds how long an install waits for another process replacing the same copy.
+const installLockWait = 10 * time.Second
 
 type Result struct {
 	Host       string `json:"host"`
@@ -102,16 +114,31 @@ func Install(opts InstallOptions) (Result, error) {
 		root = projectDir
 	}
 	destination := filepath.Join(root, dir, "skills", "muvloom")
-	// A project can ship `.claude` or `.agents/skills` as a symlink pointing anywhere;
-	// following it would write (and replace) a directory outside the project. A user's own
-	// home directory may symlink these on purpose (dotfiles), so only projects are checked.
-	if opts.Scope == "project" {
-		if err := refuseSymlinks(root, destination); err != nil {
+	if err := checkDestination(opts.Scope, root, destination); err != nil {
+		return Result{}, err
+	}
+	// Every install of a host's skills directory (refresh or `skill install`) holds this lock,
+	// so two replacements of one directory never interleave. The path is checked again under
+	// it: the parents could have changed while waiting.
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return Result{}, err
+	}
+	release, err := auth.LockFile(filepath.Join(filepath.Dir(destination), ".muvloom-install.lock"), installLockWait)
+	if err != nil {
+		return Result{}, fmt.Errorf("another muvloom is updating %s: %w", destination, err)
+	}
+	defer release()
+	if err := checkDestination(opts.Scope, root, destination); err != nil {
+		return Result{}, err
+	}
+	if opts.onlyIf != nil {
+		replace, err := opts.onlyIf(destination)
+		if err != nil {
 			return Result{}, err
 		}
-	} else if info, err := os.Lstat(destination); err == nil && info.Mode()&os.ModeSymlink != 0 {
-		// Replacing the link would silently detach a dotfiles-managed Skill.
-		return Result{}, fmt.Errorf("%s is a symlink; update the Skill at its target instead", destination)
+		if !replace {
+			return Result{}, errNotNeeded
+		}
 	}
 	files, hash, err := bundleFiles()
 	if err != nil {
@@ -121,6 +148,21 @@ func Install(opts InstallOptions) (Result, error) {
 		return Result{}, err
 	}
 	return Result{Host: opts.Host, Scope: opts.Scope, ProjectDir: projectDir, Path: destination, Version: BundleVersion, FileHash: hash}, nil
+}
+
+// checkDestination refuses a destination reached through a symlink.
+func checkDestination(scope, root, destination string) error {
+	// A project can ship `.claude` or `.agents/skills` as a symlink pointing anywhere;
+	// following it would write (and replace) a directory outside the project. A user's own
+	// home directory may symlink these on purpose (dotfiles), so only projects are checked.
+	if scope == "project" {
+		return refuseSymlinks(root, destination)
+	}
+	if info, err := os.Lstat(destination); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		// Replacing the link would silently detach a dotfiles-managed Skill.
+		return fmt.Errorf("%s is a symlink; update the Skill at its target instead", destination)
+	}
+	return nil
 }
 
 func findProjectRoot(start string) (string, error) {

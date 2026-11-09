@@ -2,9 +2,11 @@ package skill
 
 import (
 	"encoding/json"
+	"github.com/Muluk-m/ai-image-playground/cli-go/internal/auth"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestInstallUserHostsAndMetadata(t *testing.T) {
@@ -143,4 +145,115 @@ func TestStatusDetectsEditedInstall(t *testing.T) {
 	if installed[0].Intact || installed[0].Current {
 		t.Fatalf("edited install reported intact: %+v", installed[0])
 	}
+}
+
+// An older copy nobody edited follows the CLI; a hand-edited one is left alone.
+func TestRefreshOutdatedReplacesOnlyUneditedOldCopies(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	old, err := Install(InstallOptions{Host: "codex", Scope: "user", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited, err := Install(InstallOptions{Host: "claude-code", Scope: "user", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// An older release: different files, metadata that matches them.
+	if err := os.WriteFile(filepath.Join(old.Path, "SKILL.md"), []byte("old release"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hash, err := treeHash(old.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, _ := json.Marshal(metadata{Skill: "muvloom", Version: "0.1.1", Host: "codex", Scope: "user", FileHash: hash})
+	if err := os.WriteFile(filepath.Join(old.Path, ".muvloom-skill.json"), meta, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(edited.Path, "SKILL.md"), []byte("my notes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, failed, err := RefreshOutdated(home, cwd)
+	if err != nil || len(failed) != 0 {
+		t.Fatalf("refresh: %v %v", failed, err)
+	}
+	installed, _ := Installed(home, cwd)
+	for _, item := range installed {
+		switch item.Host {
+		case "codex":
+			if !item.Current || item.Version != BundleVersion {
+				t.Fatalf("old copy not refreshed: %+v", item)
+			}
+		case "claude-code":
+			if item.Intact {
+				t.Fatalf("edited copy was replaced: %+v", item)
+			}
+		}
+	}
+	if data, _ := os.ReadFile(filepath.Join(edited.Path, "SKILL.md")); string(data) != "my notes" {
+		t.Fatal("edited copy lost its changes")
+	}
+}
+
+// fakeRelease makes an installed copy look like another release: other files, matching metadata.
+func fakeRelease(t *testing.T, path, version, host, scope string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(path, "SKILL.md"), []byte("release "+version), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hash, err := treeHash(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, _ := json.Marshal(metadata{Skill: "muvloom", Version: version, Host: host, Scope: scope, FileHash: hash})
+	if err := os.WriteFile(filepath.Join(path, ".muvloom-skill.json"), meta, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRefreshOutdatedNeverDowngradesMovesOrRacesACopy(t *testing.T) {
+	cwd := t.TempDir()
+	t.Run("newer copy", func(t *testing.T) {
+		home := t.TempDir()
+		result, _ := Install(InstallOptions{Host: "codex", Scope: "user", Home: home})
+		fakeRelease(t, result.Path, "9.9.9", "codex", "user")
+		if _, failed, err := RefreshOutdated(home, cwd); err != nil || len(failed) != 0 {
+			t.Fatal(failed, err)
+		}
+		if data, _ := os.ReadFile(filepath.Join(result.Path, "SKILL.md")); string(data) != "release 9.9.9" {
+			t.Fatal("a newer copy was downgraded")
+		}
+	})
+	t.Run("metadata from elsewhere", func(t *testing.T) {
+		home := t.TempDir()
+		result, _ := Install(InstallOptions{Host: "codex", Scope: "user", Home: home})
+		fakeRelease(t, result.Path, "0.0.1", "codex", "project")
+		if _, failed, err := RefreshOutdated(home, cwd); err != nil || len(failed) != 0 {
+			t.Fatal(failed, err)
+		}
+		if data, _ := os.ReadFile(filepath.Join(result.Path, "SKILL.md")); string(data) != "release 0.0.1" {
+			t.Fatal("a copy placed by hand was refreshed")
+		}
+	})
+	t.Run("edited while waiting for the lock", func(t *testing.T) {
+		home := t.TempDir()
+		result, _ := Install(InstallOptions{Host: "codex", Scope: "user", Home: home})
+		fakeRelease(t, result.Path, "0.0.1", "codex", "user")
+		// Another process holds the install lock and edits the copy before letting go.
+		release, err := auth.LockFile(filepath.Join(filepath.Dir(result.Path), ".muvloom-install.lock"), time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			_ = os.WriteFile(filepath.Join(result.Path, "SKILL.md"), []byte("edited meanwhile"), 0o644)
+			release()
+		}()
+		if _, failed, err := RefreshOutdated(home, cwd); err != nil || len(failed) != 0 {
+			t.Fatal(failed, err)
+		}
+		if data, _ := os.ReadFile(filepath.Join(result.Path, "SKILL.md")); string(data) != "edited meanwhile" {
+			t.Fatal("an edit made while waiting for the lock was overwritten")
+		}
+	})
 }

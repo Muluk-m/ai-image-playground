@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import { runPeriodicSteps, startPeriodicSteps } from '../../lib/periodic'
 
-let stop: (() => void) | undefined
+let stop: (() => Promise<void>) | undefined
 afterEach(() => {
-  stop?.()
+  void stop?.()
   stop = undefined
 })
 
@@ -46,5 +46,77 @@ describe('periodic maintenance steps', () => {
     release()
     await Bun.sleep(15)
     expect(calls).toBeGreaterThan(1)
+  })
+
+  it('starts the initial steps in the background and skips ticks until they finish', async () => {
+    const ran: string[] = []
+    let release: () => void = () => {}
+    stop = startPeriodicSteps(5, [{ event: 'tick', run: async () => void ran.push('tick') }], {
+      initial: [
+        {
+          event: 'startup',
+          run: () => {
+            ran.push('startup')
+            return new Promise<void>((resolve) => {
+              release = resolve
+            })
+          },
+        },
+      ],
+    })
+    // 启动时不等开机清理：返回时它已开跑但还没完成。
+    expect(ran).toEqual(['startup'])
+    await Bun.sleep(30)
+    expect(ran).toEqual(['startup'])
+    release()
+    await Bun.sleep(20)
+    expect(ran.filter((one) => one === 'tick').length).toBeGreaterThan(0)
+  })
+
+  it('keeps ticking after the initial steps fail', async () => {
+    const ran: string[] = []
+    stop = startPeriodicSteps(5, [{ event: 'tick', run: async () => void ran.push('tick') }], {
+      initial: [
+        {
+          event: 'startup',
+          run: async () => {
+            throw new Error('statement timeout')
+          },
+        },
+      ],
+    })
+    await Bun.sleep(30)
+    expect(ran.length).toBeGreaterThan(0)
+  })
+
+  it('aborts and waits for the in-flight run when stopped, then schedules nothing', async () => {
+    let calls = 0
+    let startupSignal: AbortSignal | undefined
+    let release: () => void = () => {}
+    const stopNow = startPeriodicSteps(5, [{ event: 'tick', run: async () => void calls++ }], {
+      initial: [
+        {
+          event: 'startup',
+          run: (signal) => {
+            startupSignal = signal
+            return new Promise<void>((resolve) => {
+              release = resolve
+            })
+          },
+        },
+      ],
+    })
+    let stopped = false
+    const stopping = stopNow().then(() => {
+      stopped = true
+    })
+    await Bun.sleep(20)
+    expect(startupSignal?.aborted).toBe(true)
+    expect(stopped).toBe(false)
+    release()
+    await stopping
+    expect(stopped).toBe(true)
+    await Bun.sleep(20)
+    expect(calls).toBe(0)
   })
 })

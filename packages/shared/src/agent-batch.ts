@@ -164,6 +164,7 @@ export interface AgentBatchView {
     | 'input_limit'
     | 'upstream_auth'
     | 'model_unavailable'
+    | 'submission_refused'
     | null
   readonly retryItemKeys?: readonly string[]
   readonly retryRequiresResume?: boolean

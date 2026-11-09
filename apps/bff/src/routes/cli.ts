@@ -399,8 +399,8 @@ export const cliApiRoutes = new Elysia()
         case 'price_unavailable':
           throw new CliRequestError('MODEL_UNAVAILABLE')
         case 'quota_exceeded':
-          throw new CliRequestError('RATE_LIMITED', {
-            message: 'Daily generation quota exceeded',
+          // Not a busy signal: retrying cannot help before `reset_at`.
+          throw new CliRequestError('QUOTA_EXCEEDED', {
             details: { reset_at: outcome.quota.reset_at },
           })
         case 'object_storage_error':

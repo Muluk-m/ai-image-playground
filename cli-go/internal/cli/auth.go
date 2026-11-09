@@ -9,10 +9,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -227,21 +227,36 @@ func deviceCodeHash(code string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// cmdAuthStatus is the cheap first call an agent makes: it never fails on a missing
+// cmdAuthStatus is the first call an agent makes: it never fails on a missing
 // login or an unreachable server, it reports the state instead.
 func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	fs := newFlags("auth status")
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
 	}
-	skills, _ := skill.Installed(a.Home, a.CWD)
-	// An agent reads its Skill before it runs this; an outdated one describes flags and output
-	// of an older CLI. stderr reaches the agent in both output modes.
+	// Copies this CLI installed follow it: an older one that nobody edited is replaced with
+	// the bundled Skill, effective from the host's next session. Only a copy that cannot be
+	// verified, was edited, or could not be replaced is reported, naming its path, since any
+	// host may be the one calling.
+	skills, failed, refreshErr := skill.RefreshOutdated(a.Home, a.CWD)
+	if refreshErr != nil {
+		a.progress("Could not check the installed muvloom Skills (%s).", skillFailure(refreshErr))
+	}
 	for _, installed := range skills {
-		if !installed.Current {
-			a.progress("The muvloom Skill for %s (%s scope) is version %s; this CLI bundles %s. Update it: muvloom skill install --host %s --scope %s",
-				installed.Host, installed.Scope, installed.Version, skill.BundleVersion, installed.Host, installed.Scope)
+		switch {
+		case installed.Unverifiable:
+			a.progress("The muvloom Skill at %s is incomplete or has unexpected files. To reinstall it: muvloom skill install --host %s --scope %s",
+				installed.Path, installed.Host, installed.Scope)
+		case !installed.Intact:
+			a.progress("The muvloom Skill at %s was edited or is incomplete, so it is not updated automatically. To replace it: muvloom skill install --host %s --scope %s",
+				installed.Path, installed.Host, installed.Scope)
 		}
+	}
+	var refreshFailures []map[string]string
+	for _, item := range failed {
+		a.progress("Could not update the muvloom Skill at %s to %s (%s). To retry: muvloom skill install --host %s --scope %s",
+			item.Path, skill.BundleVersion, skillFailure(item.Err), item.Host, item.Scope)
+		refreshFailures = append(refreshFailures, map[string]string{"path": item.Path, "reason": skillFailure(item.Err)})
 	}
 	store := a.Store.Describe()
 	status := map[string]any{
@@ -250,6 +265,12 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 		"api_url_source":   a.apiURLSource,
 		"credential_store": store.Backend,
 		"skills":           skills,
+	}
+	if refreshErr != nil {
+		status["skill_check_error"] = skillFailure(refreshErr)
+	}
+	if len(refreshFailures) > 0 {
+		status["skill_refresh_failures"] = refreshFailures
 	}
 	if store.KeychainIssue != "" {
 		status["credential_store_issue"] = store.KeychainIssue
@@ -653,32 +674,22 @@ func cmdAuthLogout(ctx context.Context, a *App, args []string) (any, error) {
 	return map[string]any{"signed_out": true, "server_revoked": revoked}, nil
 }
 
-// versionLess compares dotted numeric versions; unknown formats never force an upgrade.
-func versionLess(current, minimum string) bool {
-	if minimum == "" {
-		return false
+// skillFailure names why a Skill check or update failed with a stable word: the error's own
+// text can carry local details.
+func skillFailure(err error) string {
+	switch {
+	case errors.Is(err, auth.ErrLockTimeout):
+		return "busy"
+	case strings.Contains(err.Error(), "symlink"):
+		return "symlink"
+	case errors.Is(err, fs.ErrPermission):
+		return "permission_denied"
 	}
-	cur := strings.Split(strings.TrimPrefix(current, "v"), ".")
-	req := strings.Split(strings.TrimPrefix(minimum, "v"), ".")
-	for i := 0; i < max(len(cur), len(req)); i++ {
-		var c, r int
-		var err error
-		if i < len(cur) {
-			if c, err = strconv.Atoi(cur[i]); err != nil {
-				return false
-			}
-		}
-		if i < len(req) {
-			if r, err = strconv.Atoi(req[i]); err != nil {
-				return false
-			}
-		}
-		if c != r {
-			return c < r
-		}
-	}
-	return false
+	return "io_error"
 }
+
+// versionLess compares dotted numeric versions; unknown formats never force an upgrade.
+func versionLess(current, minimum string) bool { return skill.VersionLess(current, minimum) }
 
 // spelledAs returns the flag as the user wrote it (-x or --x), without any =value.
 func spelledAs(args []string, name string) string {

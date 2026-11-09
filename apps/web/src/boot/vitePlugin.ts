@@ -225,6 +225,18 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
   };
   const onPreloadError=(event)=>{
     const message=event.payload&&event.payload.message;
+    // Once React has painted the shell, a rejected dynamic route chunk owns the
+    // failure. Entry-graph assets still use the startup guard's stale-HTML recovery.
+    const routeSource =
+      typeof message==='string' &&
+      message.match(/^Unable to preload (?:CSS|JS) for (.+)$/i)?.[1]
+    if(rendered&&routeSource){
+      try{
+        const url=new URL(routeSource,location.href)
+        const staticAsset=requiredAssets.some(([src])=>new URL(src,location.href).href===url.href)
+        if(url.origin===location.origin&&!staticAsset&&url.pathname.startsWith('/assets/'))return
+      }catch{}
+    }
     // Vite reports a failed CSS link again after its DOM error. Only join the recovery for
     // that exact captured stylesheet; unrelated JS import/evaluation errors must still fail.
     const cssPrefix='Unable to preload CSS for ';

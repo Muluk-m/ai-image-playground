@@ -12,17 +12,10 @@ import { ensureAgentSkills, findAgentSkill, readAgentSkillFileBytes } from '../l
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { resolveQueueModel } from '../lib/channels'
 import { deviceIdSchema } from '../lib/http'
-import {
-  type BffTransaction,
-  loadPrivateBffOverlay,
-  reservationFailureResponse,
-} from '../lib/private-overlay'
+import { type BffTransaction, loadPrivateBffOverlay } from '../lib/private-overlay'
+import { type SubmissionRefusal, submissionRefusalResponse } from '../lib/submissionRefusal'
 import { readAssetImage } from '../lib/sync-assets'
-import {
-  type CreateQueueTaskInput,
-  type CreateQueueTaskOutcome,
-  submitPrepared,
-} from '../lib/taskSubmission'
+import { type CreateQueueTaskInput, submitPrepared } from '../lib/taskSubmission'
 import { resolveAuthUser } from '../lib/user-auth'
 
 /** 一批最多几条素材。上限存在是为了挡住一次点掉整个素材库，不是产品刻度。 */
@@ -139,7 +132,7 @@ async function readAssets(
   return assets
 }
 
-type BatchRefusal = Exclude<CreateQueueTaskOutcome, { kind: 'created' }>
+type BatchRefusal = SubmissionRefusal
 
 /** 建到某一条被拒：抛出来让整批事务回滚，前面已经建好、预扣好的任务一并撤销。 */
 class BatchRefused extends Error {
@@ -330,41 +323,11 @@ export const lookRoutes = new Elysia()
           }
           return created
         })
-        if (result.kind === 'refused') return refusalResponse(result.outcome)
+        if (result.kind === 'refused') return submissionRefusalResponse(result.outcome)
         tasks = result.value
       } catch (error) {
-        if (error instanceof BatchRefused) return refusalResponse(error.outcome)
+        if (error instanceof BatchRefused) return submissionRefusalResponse(error.outcome)
         throw error
-      }
-
-      function refusalResponse(outcome: BatchRefusal) {
-        if (outcome.kind === 'insufficient_credits' || outcome.kind === 'price_unavailable') {
-          return reservationFailureResponse(outcome)
-        }
-        if (outcome.kind === 'quota_exceeded') {
-          return status(429, {
-            error: 'daily_quota_exceeded',
-            quota: outcome.quota.quota,
-            used: outcome.quota.count,
-            reset_at: outcome.quota.reset_at,
-          })
-        }
-        if (outcome.kind === 'invalid_prompt') {
-          return status(400, { error: 'invalid_request', message: '提示词不能为空' })
-        }
-        if (outcome.kind === 'invalid_image_request') {
-          return status(400, { error: 'invalid_request', message: outcome.message })
-        }
-        if (outcome.kind === 'invalid_input_image') {
-          return status(400, { error: 'invalid_input_image', message: outcome.message })
-        }
-        if (outcome.kind === 'object_storage_error') {
-          return status(503, { error: 'object_storage_error', message: outcome.message })
-        }
-        if (outcome.kind === 'private_billing_denied') {
-          return status(403, { error: 'plan_required', message: '4K 需要有效会员' })
-        }
-        return status(401, { error: 'unauthorized' })
       }
 
       return { tasks }

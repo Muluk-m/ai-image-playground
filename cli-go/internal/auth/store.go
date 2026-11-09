@@ -518,6 +518,35 @@ const legacyLockStaleAfter = 5 * time.Minute
 // system lock, and deleting the file when done. While an upgrade is rolling out both versions
 // may refresh at the same moment, so the older protocol is honoured: a lock file with a fresh
 // owner marker is somebody else's lock and is waited for, and a stale one is taken over.
+// LockFile takes an exclusive OS lock on path, waiting up to wait. The OS releases it when
+// the process exits, so a crash leaves no stale lock to take over. ErrLockTimeout means
+// another process held it for the whole wait.
+func LockFile(path string, wait time.Duration) (func(), error) {
+	deadline := time.Now().Add(wait)
+	for {
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			return nil, err
+		}
+		ok, err := tryLock(file)
+		if err != nil {
+			file.Close()
+			return nil, err
+		}
+		if ok {
+			return func() {
+				_ = unlock(file)
+				file.Close()
+			}, nil
+		}
+		file.Close()
+		if !time.Now().Before(deadline) {
+			return nil, ErrLockTimeout
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 func (s Store) Lock(timeout time.Duration) (func(), error) {
 	if err := os.MkdirAll(s.Dir, 0o700); err != nil {
 		return nil, err

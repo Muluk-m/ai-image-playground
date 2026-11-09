@@ -27,7 +27,7 @@ import (
 )
 
 // Version is overridden at release time with -ldflags "-X .../cli.Version=x.y.z".
-var Version = "0.2.1"
+var Version = "0.2.4"
 
 const (
 	DefaultAPIURL  = "https://api.muvloom.online"
@@ -72,6 +72,7 @@ var exitByCode = map[string]int{
 	"JOB_FAILED":                  ExitRejected,
 	"JOB_CANCELED":                ExitRejected,
 	"INSUFFICIENT_CREDITS":        ExitCredits,
+	"QUOTA_EXCEEDED":              ExitCredits,
 	"MAX_CREDITS_EXCEEDED":        ExitCredits,
 	"NETWORK_ERROR":               ExitTemporary,
 	"RATE_LIMITED":                ExitTemporary,
