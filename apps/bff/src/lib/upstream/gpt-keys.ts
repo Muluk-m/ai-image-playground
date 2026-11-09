@@ -124,7 +124,7 @@ async function walkDirectKeys(input: {
   }
   let state: ReadonlyMap<string, KeyStateRow>
   try {
-    state = input.state ?? await loadKeyState()
+    state = input.state ?? (await loadKeyState())
   } catch (err) {
     log.warn({ event: 'gpt.direct_key_state_read_failed', err }, 'direct key state read failed')
     return null

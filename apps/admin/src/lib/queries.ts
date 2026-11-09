@@ -274,7 +274,8 @@ export function useGenerationTasksClock(live: boolean) {
     setClock((previous) => (previous.live === live ? previous : activatedAt))
     if (!live) return
     let timer: number | undefined
-    const advance = () => setClock((previous) => ({ live, now: Math.max(Date.now(), previous.now + 1) }))
+    const advance = () =>
+      setClock((previous) => ({ live, now: Math.max(Date.now(), previous.now + 1) }))
     const schedule = () => {
       if (timer !== undefined) window.clearInterval(timer)
       timer = undefined

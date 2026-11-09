@@ -22,10 +22,11 @@ mock.module(path('lib/analysis-tasks.ts'), () => ({ recoverAnalysisTasks: done }
 mock.module(path('lib/auto-reconcile.ts'), () => ({ autoReconcileTasks: done }));
 mock.module(path('lib/capabilities.ts'), () => ({ isCapabilityEnabled: () => false }));
 mock.module(path('lib/operator-config-overrides.ts'), () => ({ refreshOperatorConfig: async () => 0, refreshOperatorConfigIfChanged: async () => null }));
-mock.module(path('lib/channels.ts'), () => ({ initChannels: () => ({ warnings: [] }) }));
+mock.module(path('lib/channels.ts'), () => ({ initChannels: () => ({ warnings: [] }), refreshChannelsIfChanged: noop }));
 mock.module(path('lib/heartbeat.ts'), () => ({ purgeStaleHeartbeats: done, startHeartbeat: () => noop }));
 mock.module(path('lib/logger.ts'), () => ({ log: { warn: noop, error: noop, info: noop, flush: noop } }));
 mock.module(path('lib/server-logs.ts'), () => ({ startServerLogs: () => done }));
+mock.module(path('lib/shared-maintenance.ts'), () => ({ startSharedMaintenance: () => done }));
 mock.module(path('ops/alert-sender.ts'), () => ({ createAlertSender: () => done, createAlertSenderFromEnv: () => done, alertTargetsConfigured: () => false }));
 mock.module(path('ops/app-alerts.ts'), () => ({ createAppAlerting: () => done }));
 mock.module(path('workers/analysis-runner.ts'), () => ({ abortAllRunningAnalysisTasks: noop, runningAnalysisTaskIds: () => [] }));
