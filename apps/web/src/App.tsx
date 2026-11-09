@@ -220,58 +220,63 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
     </>
   )
 
+  // 画布与 CLI 接入页直接挂在外壳里：各自的 Suspense 只盖住它们自己的区域，
+  // 懒加载分片还没到时 Header、Sidebar 与各个弹窗照常显示，不会整个界面消失。
   return (
-    <Suspense fallback={null}>
-      <>
-        <div className="app-chrome min-h-dvh bg-sidebar">
-          <Header />
-          <Sidebar />
-          {isCliConnectPath(pathname) ? (
-            <div
-              className="app-inset-panel"
-              style={{
-                marginTop: 'calc(var(--mobile-topbar-height) + var(--app-inset))',
-                marginRight: 'var(--app-inset)',
-                marginBottom: 'calc(var(--mobile-nav-height, 0px) + var(--app-inset))',
-                marginLeft: 'calc(var(--app-sidebar-width) + var(--app-inset))',
-                minHeight:
-                  'calc(100dvh - var(--mobile-topbar-height) - var(--mobile-nav-height, 0px) - var(--app-inset) * 2)',
-              }}
-            >
+    <>
+      <div className="app-chrome min-h-dvh bg-sidebar">
+        <Header />
+        <Sidebar />
+        {isCliConnectPath(pathname) ? (
+          <div
+            className="app-inset-panel"
+            style={{
+              marginTop: 'calc(var(--mobile-topbar-height) + var(--app-inset))',
+              marginRight: 'var(--app-inset)',
+              marginBottom: 'calc(var(--mobile-nav-height, 0px) + var(--app-inset))',
+              marginLeft: 'calc(var(--app-sidebar-width) + var(--app-inset))',
+              minHeight:
+                'calc(100dvh - var(--mobile-topbar-height) - var(--mobile-nav-height, 0px) - var(--app-inset) * 2)',
+            }}
+          >
+            <Suspense fallback={null}>
               <CliConnectPage />
-            </div>
-          ) : canvasOwnsMainPane(appMode, pathname) ? (
+            </Suspense>
+          </div>
+        ) : canvasOwnsMainPane(appMode, pathname) ? (
+          <Suspense fallback={null}>
             <CanvasMode />
-          ) : (
-            <div
-              className="app-inset-panel"
-              style={{
-                marginTop: 'calc(var(--mobile-topbar-height) + var(--app-inset))',
-                marginRight: 'var(--app-inset)',
-                marginBottom: 'calc(var(--mobile-nav-height, 0px) + var(--app-inset))',
-                marginLeft: 'calc(var(--app-sidebar-width) + var(--app-inset))',
-                minHeight:
-                  'calc(100dvh - var(--mobile-topbar-height) - var(--mobile-nav-height, 0px) - var(--app-inset) * 2)',
-              }}
-            >
-              {page}
-            </div>
-          )}
-        </div>
-        <DetailModal />
-        <Lightbox />
-        <ImageExportDialog />
-        <SettingsModal />
-        <SaveAssetDialog />
-        <SaveTemplateDialog />
-        <ConfirmDialog />
-        <Toast />
-        <AgentJobDoneNotice />
-        <UpdateBanner />
-        <AnnouncementHost />
-        <MaskEditorModal />
-        <ImageContextMenu />
-      </>
-    </Suspense>
+          </Suspense>
+        ) : (
+          <div
+            className="app-inset-panel"
+            style={{
+              marginTop: 'calc(var(--mobile-topbar-height) + var(--app-inset))',
+              marginRight: 'var(--app-inset)',
+              marginBottom: 'calc(var(--mobile-nav-height, 0px) + var(--app-inset))',
+              marginLeft: 'calc(var(--app-sidebar-width) + var(--app-inset))',
+              minHeight:
+                'calc(100dvh - var(--mobile-topbar-height) - var(--mobile-nav-height, 0px) - var(--app-inset) * 2)',
+            }}
+          >
+            {page}
+          </div>
+        )}
+      </div>
+      <DetailModal />
+      <Lightbox />
+      <ImageExportDialog />
+      <SettingsModal />
+
+      <SaveAssetDialog />
+      <SaveTemplateDialog />
+      <ConfirmDialog />
+      <Toast />
+      <AgentJobDoneNotice />
+      <UpdateBanner />
+      <AnnouncementHost />
+      <MaskEditorModal />
+      <ImageContextMenu />
+    </>
   )
 }
