@@ -352,6 +352,7 @@ export const cliApiRoutes = new Elysia()
         model: prepared.model.id,
         userId: cli.user.id,
         strictImageRequest: true,
+        promptShaping: { originalPrompt: prepared.normalized.prompt },
         ...(body.max_credits === undefined ? {} : { maxCredits: body.max_credits }),
         request: {
           ...submit,

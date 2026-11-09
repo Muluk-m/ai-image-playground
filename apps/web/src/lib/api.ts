@@ -1,9 +1,4 @@
-import {
-  buildAspectInstruction,
-  gifSpriteExceedsLimit,
-  isGptImage26Model,
-  parseImageSize,
-} from '@image-playground/shared'
+import { gifSpriteExceedsLimit, isGptImage26Model, parseImageSize } from '@image-playground/shared'
 import { i18next, UserFacingError } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from './apiProfiles'
 import { createMaskPreviewDataUrl } from './canvasImage'
@@ -14,7 +9,7 @@ import { getPublicChannel, getPublicChannels } from './channels/publicChannels'
 import { callQueueChannelApi, resumeQueueChannelApi, toQueueProvider } from './channels/queueClient'
 import { compressInputImageDataUrls } from './compressInputImage'
 import type { CallApiOptions, CallApiResult } from './imageApiShared'
-import { getParamCapabilities, normalizeParamsForSettings } from './paramCompatibility'
+import { normalizeParamsForSettings } from './paramCompatibility'
 import { getRuntimeConfig } from './runtimeConfig'
 
 export type { CallApiOptions, CallApiResult } from './imageApiShared'
@@ -104,15 +99,6 @@ export async function callImageApi(opts: CallApiOptions): Promise<CallApiResult>
   // 不做跨 task 缓存以避免缓存生命周期复杂度。
   if (opts.maskDataUrl && !modelSupportsNativeMask(profile, getPublicChannels())) {
     opts = await applySoftMaskFallback(opts)
-  }
-
-  // sub2api 中继的 Codex 图片路径会丢弃 `size`，但模型会服从 prompt 中明确的构图；
-  // 生成与编辑路径均已验证。
-  if (!getParamCapabilities(profile, opts.params.output_format).size) {
-    const instruction = buildAspectInstruction(opts.params.size)
-    if (instruction) {
-      opts = { ...opts, prompt: `${opts.prompt}\n\n${instruction}` }
-    }
   }
 
   // 原生 mask 要求遮罩与主图同尺寸，缩放会破坏这个约定。

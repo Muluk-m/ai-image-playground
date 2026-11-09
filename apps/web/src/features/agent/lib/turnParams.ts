@@ -46,8 +46,8 @@ export function snapImageCount(n: number, model?: string): number {
  *
  * **透明输出不在这里**，不是漏了：它是往提示词注绿幕再在本地抠色（`lib/transparentImage.ts`），
  * 整条流水线在浏览器里，服务端补齐能力之前给不了智能体。防改写 guard 与「模型丢 size 时的
- * 构图指令」已经下沉到服务端（`packages/shared/src/prompt-shaping.ts`，智能体侧在
- * `apps/bff/src/lib/agent/prompt-shaping.ts` 提交那一刻施加），所以也不必在这里传。
+ * 构图指令」已经下沉到服务端（`packages/shared/src/prompt-shaping.ts`，由任务提交统一施加），
+ * 所以也不必在这里传。
  *
  * 参数浮层里不该出现做不到的开关——显示了却不生效比没有更糟。
  */
