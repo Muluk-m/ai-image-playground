@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import Overlay from '../../../../components/patterns/Overlay'
 import AgentAssetDrawer from '../../../../features/agent/components/AgentAssetDrawer'
+import { AgentRequestError } from '../../../../features/agent/lib/agentClient'
 import type { AgentToolMessage } from '../../../../features/agent/types'
 import ImageExportDialog from '../../../../features/image-export/ImageExportDialog'
 import { useImageExportStore } from '../../../../features/image-export/store'
@@ -21,6 +22,11 @@ const fixture = vi.hoisted(() => ({
 }))
 
 vi.mock('../../../../features/agent/lib/agentClient', () => ({
+  AgentRequestError: class extends Error {
+    constructor(readonly status: number) {
+      super(`Agent request failed with ${status}`)
+    }
+  },
   fetchConversations: fixture.fetchConversations,
   fetchMessages: fixture.fetchMessages,
   fetchBatchPlan: fixture.fetchBatchPlan,
@@ -271,7 +277,10 @@ it('lists the source images of a batch plan when the chat itself has no generate
   await vi.waitFor(() => expect(document.body.textContent).toContain('01-主图场景'))
   expect(document.body.textContent).toContain('02-场景二-烛光深色墙')
   expect(document.body.textContent).not.toContain('当前对话还没有生成内容')
-  expect(fixture.fetchBatchPlan).toHaveBeenCalledWith('batch-1')
+  expect(fixture.fetchBatchPlan).toHaveBeenCalledWith('batch-1', {
+    reuseSettled: true,
+    force: false,
+  })
   expect(document.querySelectorAll('.studio-assets-item')).toHaveLength(2)
 })
 
@@ -346,6 +355,55 @@ it('keeps refreshing a paused batch while a submitted item is still running', as
       await vi.advanceTimersByTimeAsync(4_000)
     })
     expect(fixture.fetchBatchPlan).toHaveBeenCalledTimes(2)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('polls only unfinished batches and stops after unmount', async () => {
+  vi.useFakeTimers()
+  try {
+    fixture.fetchBatchPlan.mockImplementation(async (id: string) => ({
+      batch: { status: id === 'running' ? 'running' : 'closed' },
+      items: [],
+    }))
+    await act(async () => {
+      root.render(<AgentAssetDrawer
+        messages={[planMessage('finished', 'finished'), planMessage('running', 'running')]}
+        onClose={() => {}} onPreview={() => {}}
+      />)
+    })
+    await act(async () => { await vi.advanceTimersByTimeAsync(12_000) })
+    expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'finished')).toHaveLength(1)
+    expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'running')).toHaveLength(4)
+    await act(async () => root.render(null))
+    await vi.advanceTimersByTimeAsync(12_000)
+    expect(fixture.fetchBatchPlan).toHaveBeenCalledTimes(5)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it.each([403, 404])('stops polling HTTP %s batches and lets explicit retry reload every batch', async (status) => {
+  vi.useFakeTimers()
+  try {
+    fixture.fetchBatchPlan.mockImplementation(async (id: string) => {
+      if (id === 'missing') throw new AgentRequestError(status)
+      return { batch: { status: id === 'running' ? 'running' : 'closed' }, items: [] }
+    })
+    await act(async () => {
+      root.render(<AgentAssetDrawer
+        messages={[planMessage('done', 'done'), planMessage('missing', 'missing'), planMessage('running', 'running')]}
+        onClose={() => {}} onPreview={() => {}}
+      />)
+    })
+    await act(async () => { await vi.advanceTimersByTimeAsync(8_000) })
+    expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'missing')).toHaveLength(1)
+    expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'done')).toHaveLength(1)
+    const retry = document.querySelector<HTMLButtonElement>('[role="alert"] button')!
+    await act(async () => retry.click())
+    expect(fixture.fetchBatchPlan).toHaveBeenCalledWith('done', { reuseSettled: true, force: true })
+    expect(fixture.fetchBatchPlan.mock.calls.filter(([id]) => id === 'missing')).toHaveLength(2)
   } finally {
     vi.useRealTimers()
   }

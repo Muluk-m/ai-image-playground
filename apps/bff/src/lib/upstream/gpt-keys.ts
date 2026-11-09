@@ -26,6 +26,7 @@ import {
   scrubSecrets,
 } from './gpt-key-config'
 import { readOfficialDirectCosts } from './gpt-official-costs'
+import { directKeyKnownDisabled, forgetDirectKeyDisabled } from './gpt-direct-availability'
 
 /**
  * 直连密钥的运行状态写在 `gpt_direct_key_state`，所有 worker 共用。
@@ -116,7 +117,7 @@ async function walkDirectKeys(input: {
     log.warn({ event: 'gpt.direct_keys_invalid', err }, 'openai direct key config is invalid')
     return null
   }
-  if (keys.length === 0) {
+  if (keys.every((key) => !key.enabled || directKeyKnownDisabled(key.fingerprint))) {
     if (!input.exclude?.size) noteDirectSizeDeliverable(false)
     return null
   }
@@ -294,6 +295,7 @@ export function notifyDirectKeyDisabled(key: DirectKey, reason: 'quota' | 'inval
 export async function restoreDirectKey(fingerprint: string, operator?: string): Promise<boolean> {
   const key = configuredDirectKeys().find((candidate) => candidate.fingerprint === fingerprint)
   if (!key) return false
+  forgetDirectKeyDisabled(fingerprint)
   const now = Date.now()
   const operatorId = (operator?.trim() || 'admin').slice(0, 200)
   await db.transaction(async (tx) => {

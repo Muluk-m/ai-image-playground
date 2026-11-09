@@ -7,10 +7,12 @@ import { Button } from '../../../components/ui/button'
 import { Checkbox } from '../../../components/ui/checkbox'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
+import { accountScope, scopedStorageName } from '../../../lib/authScope'
 import { blobDataUrl } from '../../../lib/cloudMedia'
 import { assetExportSource } from '../../image-export/sources'
 import { openImageExport } from '../../image-export/store'
 import {
+  AgentRequestError,
   fetchBatchPlan,
   fetchConversations,
   fetchMessageReference,
@@ -80,6 +82,7 @@ export default function AgentAssetDrawer({
     return ids
   }, [messages])
   const batchKey = batchIds.join('\n')
+  const accountKey = scopedStorageName('batch-assets')
   const reloadBatchRef = useRef<() => void>(() => {})
   const loadReferenceRef = useRef<StoredReferenceLoader>(async () => null)
   loadReferenceRef.current = async (targetConversationId, messageId, index, variant) => {
@@ -102,30 +105,43 @@ export default function AgentAssetDrawer({
       return
     }
     const ids = batchKey.split('\n')
+    const sameAccount = accountScope()
+    const pending = new Set(ids)
+    const failures = new Set<string>()
+    setBatchById({})
     let cancelled = false
     let generation = 0
     let timer: ReturnType<typeof setTimeout> | undefined
-    const load = async (initial: boolean) => {
+    const load = async (initial: boolean, force = false) => {
       const token = ++generation
       if (timer) clearTimeout(timer)
       timer = undefined
       if (initial) setBatchLoading(true)
-      const settled = await Promise.allSettled(ids.map((id) => fetchBatchPlan(id)))
-      if (cancelled || token !== generation) return
-      const failed: string[] = []
+      const requested = [...pending]
+      const settled = await Promise.allSettled(
+        requested.map((id) => fetchBatchPlan(id, { reuseSettled: true, force })),
+      )
+      if (cancelled || token !== generation || !sameAccount()) return
       const loaded = new Map<string, readonly AssetItem[]>()
-      let refresh = false
       settled.forEach((result, index) => {
-        const id = ids[index]!
+        const id = requested[index]!
         if (result.status === 'rejected') {
-          failed.push(id)
+          failures.add(id)
+          if (
+            result.reason instanceof AgentRequestError &&
+            (result.reason.status === 403 || result.reason.status === 404)
+          ) {
+            pending.delete(id)
+            loaded.set(id, [])
+          }
           return
         }
+        failures.delete(id)
         const message = messagesRef.current.find(
           (one): one is AgentToolMessage => one.kind === 'tool' && one.batchId === id,
         )
         loaded.set(id, message ? assetsFromBatch(message, result.value) : [])
-        if (batchNeedsRefresh(result.value)) refresh = true
+        if (!batchNeedsRefresh(result.value)) pending.delete(id)
       })
       setBatchById((current) => {
         const next: Record<string, readonly AssetItem[]> = {}
@@ -136,11 +152,14 @@ export default function AgentAssetDrawer({
         }
         return next
       })
-      setBatchFailed(failed.length > 0)
+      setBatchFailed(failures.size > 0)
       setBatchLoading(false)
-      if (refresh) timer = setTimeout(() => void load(false), BATCH_REFRESH_MS)
+      if (pending.size) timer = setTimeout(() => void load(false), BATCH_REFRESH_MS)
     }
-    reloadBatchRef.current = () => void load(true)
+    reloadBatchRef.current = () => {
+      for (const id of ids) pending.add(id)
+      void load(true, true)
+    }
     void load(true)
     return () => {
       cancelled = true
@@ -148,7 +167,7 @@ export default function AgentAssetDrawer({
       if (timer) clearTimeout(timer)
       reloadBatchRef.current = () => {}
     }
-  }, [batchKey])
+  }, [batchKey, accountKey, conversationId])
   const batchItems = useMemo(
     () => batchIds.flatMap((id) => batchById[id] ?? []),
     [batchIds, batchById],
@@ -182,6 +201,7 @@ export default function AgentAssetDrawer({
   sessionItemsRef.current = sessionItems
   useEffect(() => {
     if (scope !== 'all') return
+    const sameAccount = accountScope()
     let cancelled = false
     let busy = false
     let conversations: Awaited<ReturnType<typeof fetchConversations>> | null = null
@@ -194,14 +214,14 @@ export default function AgentAssetDrawer({
     setHasMore(true)
     setLoadFailed(false)
     const loadNext = async () => {
-      if (busy || cancelled) return
+      if (busy || cancelled || !sameAccount()) return
       busy = true
       setLoadingAll(true)
       setLoadFailed(false)
       const page: AssetItem[] = []
       try {
         // 先消费已在内存里的本会话产物；滚到底部才读取下一段会话历史。
-        while (page.length < ASSET_PAGE_SIZE && !cancelled) {
+        while (page.length < ASSET_PAGE_SIZE && !cancelled && sameAccount()) {
           if (pending.length) {
             page.push(...pending.splice(0, ASSET_PAGE_SIZE - page.length))
           } else {
@@ -209,9 +229,11 @@ export default function AgentAssetDrawer({
               conversations = (await fetchConversations()).filter(
                 (one) => one.id !== conversationId,
               )
+            if (cancelled || !sameAccount()) return
             if (nextConversation >= conversations.length) break
             const olderId = conversations[nextConversation]!.id
             const history = await fetchMessages(olderId)
+            if (cancelled || !sameAccount()) return
             pending = assetsFromMessages(panelStateFromHistory(history).messages, {
               conversationId: olderId,
               loadReference: (targetConversationId, messageId, index, variant) =>
@@ -221,9 +243,9 @@ export default function AgentAssetDrawer({
           }
         }
       } catch {
-        if (!cancelled) setLoadFailed(true)
+        if (!cancelled && sameAccount()) setLoadFailed(true)
       } finally {
-        if (!cancelled) {
+        if (!cancelled && sameAccount()) {
           if (page.length) setAllItems((items) => [...items, ...page])
           setHasMore(
             pending.length > 0 || conversations === null || nextConversation < conversations.length,
@@ -238,7 +260,7 @@ export default function AgentAssetDrawer({
       cancelled = true
       loadNextRef.current = () => {}
     }
-  }, [scope, conversationId])
+  }, [scope, conversationId, accountKey])
   const liveSession = new Map(sessionItems.map((item) => [item.id, item]))
   const items =
     scope === 'session'

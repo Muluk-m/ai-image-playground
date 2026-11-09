@@ -406,12 +406,15 @@ export async function purgeOldTasks(
 /** 宿主机采样只为看近几天的趋势；留久了这张表自己就成了吃磁盘的那个。 */
 const HOST_SAMPLE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
-export async function purgeOldHostSamples(now: number = Date.now()): Promise<number> {
+export async function purgeOldHostSamples(
+  now: number = Date.now(),
+  database: Pick<typeof db, 'delete'> = db,
+): Promise<number> {
   const before = now - HOST_SAMPLE_RETENTION_MS
   // 容器读数与接口统计和宿主机采样同一个保留期：看板上三者画在同一段时间上。
-  await db.delete(schema.container_samples).where(lt(schema.container_samples.sampled_at, before))
-  await db.delete(schema.api_minutes).where(lt(schema.api_minutes.minute, before))
-  const deleted = await db
+  await database.delete(schema.container_samples).where(lt(schema.container_samples.sampled_at, before))
+  await database.delete(schema.api_minutes).where(lt(schema.api_minutes.minute, before))
+  const deleted = await database
     .delete(schema.host_samples)
     .where(lt(schema.host_samples.sampled_at, before))
     .returning({ sampled_at: schema.host_samples.sampled_at })

@@ -33,7 +33,7 @@ const {
   _setBeforeDirectUsageRecordForTesting,
   reserveDirectBudget,
 } = await import('../../lib/upstream/gpt-budget')
-const { fingerprintOf } = await import('../../lib/upstream/gpt-key-config')
+const { fingerprintOf, envDirectKeys, noteDirectKeySnapshot, resetAdminDirectKeySnapshot } = await import('../../lib/upstream/gpt-key-config')
 const { ImagePlanRequiredError } = await import('../../lib/upstream/errors')
 const { config } = await import('../../config')
 const { gptSchedulerBuckets, tryAcquireSchedulerSlots } = await import(
@@ -115,6 +115,7 @@ const call = (request: Record<string, unknown>, member: boolean, strictImageRequ
   })
 
 beforeEach(async () => {
+  resetAdminDirectKeySnapshot()
   _setChannelsForTesting([])
   _resetSub2apiBreakerForTesting()
   _resetDirectBudgetCacheForTesting()
@@ -131,11 +132,23 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+  resetAdminDirectKeySnapshot()
   setUpstreamFetchForTesting()
   _setBeforeDirectUsageRecordForTesting()
 })
 
 describe('route choice', () => {
+  it('skips direct using the hard-disabled snapshot and resumes after a refreshed restore', async () => {
+    const keys = envDirectKeys()
+    noteDirectKeySnapshot({ admin: keys, hardDisabled: new Set(keys.map((key) => key.fingerprint)) })
+    await call({}, true)
+    expect(sent.map((request) => request.route)).toEqual(['sub2api'])
+    noteDirectKeySnapshot({ admin: keys, hardDisabled: new Set() })
+    sent = []
+    await call({}, true)
+    expect(sent.map((request) => request.route)).toEqual(['direct'])
+  })
+
   it('sends members to OpenAI direct with native parameters and records the cost from usage', async () => {
     const guarded = `${PROMPT_REWRITE_GUARD_PREFIX}\na cat\n\nComposition: a wide 16:9 landscape frame, horizontal orientation.`
     await call({ prompt: guarded, size: '2560x1440', quality: 'auto' }, true)
@@ -187,6 +200,24 @@ describe('route choice', () => {
     expect(fingerprints).toEqual([fingerprintOf('direct-key').fingerprint])
     expect(JSON.stringify(fingerprints)).not.toContain('direct-key')
   })
+
+  it.each(['gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'])(
+    'does not dispatch %s while every key is manually or automatically disabled',
+    async (model) => {
+      const keys = envDirectKeys()
+      for (const automatic of [false, true]) {
+        noteDirectKeySnapshot({
+          admin: keys.map((key) => ({ ...key, enabled: automatic })),
+          hardDisabled: automatic ? new Set(keys.map((key) => key.fingerprint)) : new Set(),
+        })
+        await expect(callUpstream({ provider: 'openai-compat', model, request: { prompt: 'a cat' } })).rejects.toThrow()
+        expect(sent).toEqual([])
+      }
+      noteDirectKeySnapshot({ admin: keys, hardDisabled: new Set() })
+      await callUpstream({ provider: 'openai-compat', model, request: { prompt: 'a cat' } })
+      expect(sent.map((request) => request.route)).toEqual(['direct'])
+    },
+  )
 
   it('adds the guard only to the selected gateway when requested', async () => {
     await call({ no_rewrite: true }, false)

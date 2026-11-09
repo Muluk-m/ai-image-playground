@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { accountScope, scopedStorageName } from '../../../lib/authScope'
 import {
+  AgentRequestError,
   type AgentConversationState,
   fetchBatchPlan,
   fetchConversations,
@@ -36,6 +38,7 @@ export interface CanvasAssets {
 
 /** 本项目对话的消息：正在聊的就用实时消息，否则读一次历史。落库时间都从历史取。 */
 function useProjectMessages(conversationId: string | null) {
+  const accountKey = scopedStorageName('canvas-assets')
   const live = useAgentStore((s) =>
     conversationId && s.conversationId === conversationId ? s.messages : null,
   )
@@ -47,22 +50,23 @@ function useProjectMessages(conversationId: string | null) {
       setState('idle')
       return
     }
+    const sameAccount = accountScope()
     let cancelled = false
     setState('loading')
     fetchMessages(conversationId).then(
       (next) => {
-        if (cancelled) return
+        if (cancelled || !sameAccount()) return
         setHistory(next)
         setState('idle')
       },
       () => {
-        if (!cancelled) setState('failed')
+        if (!cancelled && sameAccount()) setState('failed')
       },
     )
     return () => {
       cancelled = true
     }
-  }, [conversationId])
+  }, [conversationId, accountKey])
   const messages = useMemo(
     () => live ?? (history ? panelStateFromHistory(history).messages : NO_MESSAGES),
     [live, history],
@@ -86,6 +90,7 @@ function useBatchAssets(
     [messages],
   )
   const batchKey = [...new Set(batchMessages.map((one) => one.batchId))].join('\n')
+  const accountKey = scopedStorageName('batch-assets')
   // 轮询回调读最新的消息与时间；在提交后同步，避免渲染期写 ref。此 effect 排在轮询 effect 前面，先跑。
   const latest = useRef({ batchMessages, time })
   useEffect(() => {
@@ -100,16 +105,33 @@ function useBatchAssets(
       return
     }
     const ids = batchKey.split('\n')
+    const sameAccount = accountScope()
+    const pending = new Set(ids)
+    const failures = new Set<string>()
+    setByBatch({})
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | undefined
     const load = async () => {
-      const settled = await Promise.allSettled(ids.map((id) => fetchBatchPlan(id)))
-      if (cancelled) return
-      let refresh = false
+      const requested = [...pending]
+      const settled = await Promise.allSettled(
+        requested.map((id) => fetchBatchPlan(id, { reuseSettled: true })),
+      )
+      if (cancelled || !sameAccount()) return
       const next: Record<string, readonly CanvasAssetItem[]> = {}
       settled.forEach((result, index) => {
-        const id = ids[index]!
-        if (result.status === 'rejected') return
+        const id = requested[index]!
+        if (result.status === 'rejected') {
+          failures.add(id)
+          if (
+            result.reason instanceof AgentRequestError &&
+            (result.reason.status === 403 || result.reason.status === 404)
+          ) {
+            pending.delete(id)
+            next[id] = []
+          }
+          return
+        }
+        failures.delete(id)
         const message = latest.current.batchMessages.find((one) => one.batchId === id)
         next[id] = message
           ? canvasAssetsFromBatch(
@@ -119,7 +141,7 @@ function useBatchAssets(
               latest.current.time(message),
             )
           : []
-        if (batchNeedsRefresh(result.value)) refresh = true
+        if (!batchNeedsRefresh(result.value)) pending.delete(id)
       })
       setByBatch((current) => {
         const merged: Record<string, readonly CanvasAssetItem[]> = {}
@@ -129,20 +151,21 @@ function useBatchAssets(
         }
         return merged
       })
-      setFailed(settled.some((result) => result.status === 'rejected'))
-      if (refresh) timer = setTimeout(() => void load(), BATCH_REFRESH_MS)
+      setFailed(failures.size > 0)
+      if (pending.size) timer = setTimeout(() => void load(), BATCH_REFRESH_MS)
     }
     void load()
     return () => {
       cancelled = true
       if (timer) clearTimeout(timer)
     }
-  }, [batchKey, conversationId])
+  }, [batchKey, conversationId, accountKey])
   return { items: useMemo(() => Object.values(byBatch).flat(), [byBatch]), failed }
 }
 
 /** 别的对话的产物，按对话最近更新的顺序一段段读，每段至少凑够一页。 */
 function useOtherAssets(enabled: boolean, conversationId: string | null) {
+  const accountKey = scopedStorageName('canvas-assets')
   const [items, setItems] = useState<CanvasAssetItem[]>([])
   const [loading, setLoading] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -156,26 +179,29 @@ function useOtherAssets(enabled: boolean, conversationId: string | null) {
       loadNextRef.current = () => {}
       return
     }
+    const sameAccount = accountScope()
     let cancelled = false
     let busy = false
     let conversations: string[] | null = null
     let next = 0
     const loadNext = async () => {
-      if (busy || cancelled) return
+      if (busy || cancelled || !sameAccount()) return
       busy = true
       setLoading(true)
       setFailed(false)
       const page: CanvasAssetItem[] = []
       let read = 0
       try {
-        while (page.length < PAGE_SIZE && read < CONVERSATIONS_PER_PAGE && !cancelled) {
+        while (page.length < PAGE_SIZE && read < CONVERSATIONS_PER_PAGE && !cancelled && sameAccount()) {
           if (!conversations)
             conversations = (await fetchConversations())
               .map((one) => one.id)
               .filter((id) => id !== conversationId)
+          if (cancelled || !sameAccount()) return
           const id = conversations[next]
           if (!id) break
           const history = await fetchMessages(id)
+          if (cancelled || !sameAccount()) return
           page.push(
             ...canvasAssetsFromMessages(
               panelStateFromHistory(history).messages,
@@ -187,9 +213,9 @@ function useOtherAssets(enabled: boolean, conversationId: string | null) {
           read += 1
         }
       } catch {
-        if (!cancelled) setFailed(true)
+        if (!cancelled && sameAccount()) setFailed(true)
       } finally {
-        if (!cancelled) {
+        if (!cancelled && sameAccount()) {
           if (page.length) setItems((current) => [...current, ...page])
           setHasMore(conversations === null || next < conversations.length)
           setLoading(false)
@@ -203,7 +229,7 @@ function useOtherAssets(enabled: boolean, conversationId: string | null) {
       cancelled = true
       loadNextRef.current = () => {}
     }
-  }, [enabled, conversationId])
+  }, [enabled, conversationId, accountKey])
   const loadMore = useCallback(() => loadNextRef.current(), [])
   return { items, loading, failed, hasMore, loadMore }
 }
