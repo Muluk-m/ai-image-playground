@@ -240,43 +240,43 @@ describe('key failover', () => {
     expect(JSON.stringify(usage)).not.toContain(PRIMARY)
   })
 
-  it.each([undefined, 'ab'.repeat(32)])(
-    'keeps disabled env keys out of routing after refresh with master %s, then restores a key',
-    async (master) => {
-      const savedMaster = process.env.UPSTREAM_SECRETS_MASTER_KEY
-      if (master === undefined) delete process.env.UPSTREAM_SECRETS_MASTER_KEY
-      else process.env.UPSTREAM_SECRETS_MASTER_KEY = master
+  it.each([
+    undefined,
+    'ab'.repeat(32),
+  ])('keeps disabled env keys out of routing after refresh with master %s, then restores a key', async (master) => {
+    const savedMaster = process.env.UPSTREAM_SECRETS_MASTER_KEY
+    if (master === undefined) delete process.env.UPSTREAM_SECRETS_MASTER_KEY
+    else process.env.UPSTREAM_SECRETS_MASTER_KEY = master
+    try {
+      await db.insert(schema.gpt_direct_key_state).values(
+        [primaryId, secondaryId].map((key) => ({
+          fingerprint: key.fingerprint,
+          disabled_reason: 'quota' as const,
+          updated_at: Date.now(),
+        })),
+      )
+      await refreshGptDirectKeys()
+      await db.execute(
+        sql`ALTER TABLE gpt_direct_key_state RENAME TO unavailable_env_key_state_fixture`,
+      )
       try {
-        await db.insert(schema.gpt_direct_key_state).values(
-          [primaryId, secondaryId].map((key) => ({
-            fingerprint: key.fingerprint,
-            disabled_reason: 'quota' as const,
-            updated_at: Date.now(),
-          })),
-        )
-        await refreshGptDirectKeys()
-        await db.execute(
-          sql`ALTER TABLE gpt_direct_key_state RENAME TO unavailable_env_key_state_fixture`,
-        )
-        try {
-          await call()
-          expect(sent).toEqual(['sub2api'])
-        } finally {
-          await db.execute(
-            sql`ALTER TABLE unavailable_env_key_state_fixture RENAME TO gpt_direct_key_state`,
-          )
-        }
-        await restoreDirectKey(primaryId.fingerprint, 'test')
-        await refreshGptDirectKeys()
-        sent = []
         await call()
-        expect(sent).toEqual(['primary'])
+        expect(sent).toEqual(['sub2api'])
       } finally {
-        if (savedMaster === undefined) delete process.env.UPSTREAM_SECRETS_MASTER_KEY
-        else process.env.UPSTREAM_SECRETS_MASTER_KEY = savedMaster
+        await db.execute(
+          sql`ALTER TABLE unavailable_env_key_state_fixture RENAME TO gpt_direct_key_state`,
+        )
       }
-    },
-  )
+      await restoreDirectKey(primaryId.fingerprint, 'test')
+      await refreshGptDirectKeys()
+      sent = []
+      await call()
+      expect(sent).toEqual(['primary'])
+    } finally {
+      if (savedMaster === undefined) delete process.env.UPSTREAM_SECRETS_MASTER_KEY
+      else process.env.UPSTREAM_SECRETS_MASTER_KEY = savedMaster
+    }
+  })
 
   it('disables an invalid key, alerts, and retries the next key inside the same direct route', async () => {
     replies.primary = {
