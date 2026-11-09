@@ -56,6 +56,7 @@ export async function purgeServerLogs(
 export function startServerLogs() {
   const stopMaintenance = startSharedMaintenance({
     job: 'server-logs',
+    intervalMs: 60_000,
     work: (transaction) => purgeServerLogs(Date.now(), transaction),
   })
   return async () => {

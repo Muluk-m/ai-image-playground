@@ -13,6 +13,7 @@ interface SharedMaintenanceOptions {
   job: string
   work: (transaction: MaintenanceTransaction) => Promise<void>
   onError?: (error: unknown) => void
+  intervalMs?: number
 }
 
 /** A dedicated session owns leadership; all maintenance SQL uses its transaction connection. */
@@ -83,11 +84,14 @@ export function createSharedMaintenance(options: SharedMaintenanceOptions) {
   }
 }
 
-/** Start immediately, then run serially every five minutes without queuing missed ticks. */
+/** Start immediately, then run serially without queuing missed ticks. */
 export function startSharedMaintenance(options: SharedMaintenanceOptions) {
   const maintenance = createSharedMaintenance(options)
   void maintenance.run()
-  const timer = setInterval(() => void maintenance.run(), SHARED_MAINTENANCE_INTERVAL_MS)
+  const timer = setInterval(
+    () => void maintenance.run(),
+    options.intervalMs ?? SHARED_MAINTENANCE_INTERVAL_MS,
+  )
   timer.unref()
   return async () => {
     clearInterval(timer)
