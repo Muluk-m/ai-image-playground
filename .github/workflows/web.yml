@@ -91,6 +91,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # scripts/check-cli-version.mjs 要读 cli-v* 标签指向的提交，核对网页固定的发布提交；
+          # 标签没取到时它只跳过这一项，所以这里必须显式取标签（blobless 全历史，和下面的 job 同一套）。
+          fetch-depth: 0
+          filter: blob:none
+          fetch-tags: true
           persist-credentials: false
       - uses: ./.github/actions/setup
       - name: Apply optional formatting fixes
@@ -108,7 +113,7 @@ jobs:
           if-no-files-found: error
       - run: python3 scripts/test-cloud-test.py
       - run: node --test scripts/__tests__/ci-cli-required.test.mjs
-      - run: node --test scripts/__tests__/lock-closure-changed.test.mjs scripts/__tests__/test-guard.test.mjs scripts/__tests__/cost-impact.test.mjs scripts/__tests__/review-stats.test.mjs scripts/__tests__/test-shard.test.mjs
+      - run: node --test scripts/__tests__/lock-closure-changed.test.mjs scripts/__tests__/test-guard.test.mjs scripts/__tests__/cost-impact.test.mjs scripts/__tests__/review-stats.test.mjs scripts/__tests__/test-shard.test.mjs scripts/__tests__/check-cli-version.test.mjs
       - run: pnpm lint
       # Deploy and backup scripts; shellcheck ships on the hosted runner.
       - run: pnpm lint:sh
