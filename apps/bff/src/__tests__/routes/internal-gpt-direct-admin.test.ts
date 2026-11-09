@@ -71,7 +71,9 @@ describe('admin direct keys', () => {
       expect(gptDirectSizeEnabled()).toBe(false)
       expect(await selectDirectKey({ estimateMicroUsd: 1 })).toBeNull()
     } finally {
-      await db.execute(sql`ALTER TABLE unavailable_key_state_fixture RENAME TO gpt_direct_key_state`)
+      await db.execute(
+        sql`ALTER TABLE unavailable_key_state_fixture RENAME TO gpt_direct_key_state`,
+      )
     }
     await refreshGptDirectKeys()
     expect(gptDirectSizeEnabled()).toBe(true)

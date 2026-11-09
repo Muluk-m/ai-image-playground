@@ -27,6 +27,8 @@ mock.module(path('lib/heartbeat.ts'), () => ({ purgeStaleHeartbeats: done, start
 mock.module(path('lib/logger.ts'), () => ({ log: { warn: noop, error: noop, info: noop, flush: noop } }));
 mock.module(path('lib/server-logs.ts'), () => ({ startServerLogs: () => done }));
 mock.module(path('lib/shared-maintenance.ts'), () => ({ startSharedMaintenance: () => done }));
+mock.module(path('lib/upstream/gpt-direct-admin.ts'), () => ({ refreshUpstreamKeySources: done }));
+mock.module(path('lib/upstream/gpt-key-config.ts'), () => ({ logFingerprintMacSourceOnce: noop }));
 mock.module(path('ops/alert-sender.ts'), () => ({ createAlertSender: () => done, createAlertSenderFromEnv: () => done, alertTargetsConfigured: () => false }));
 mock.module(path('ops/app-alerts.ts'), () => ({ createAppAlerting: () => done }));
 mock.module(path('workers/analysis-runner.ts'), () => ({ abortAllRunningAnalysisTasks: noop, runningAnalysisTaskIds: () => [] }));
@@ -55,16 +57,16 @@ let server;
 mock.module(path('workers/worker-health.ts'), () => ({
   startWorkerHealthServer: options => { server = startWorkerHealthServer(options); return server; }
 }));
-let maintenanceTick;
+const maintenanceTicks = [];
 const interval = globalThis.setInterval;
 globalThis.setInterval = (callback, delay, ...args) => {
-  if (delay === 10000) maintenanceTick = () => callback(...args);
+  if (delay === 10000) maintenanceTicks.push(() => callback(...args));
   const timer = interval(noop, 1000000000);
   timer.unref();
   return timer;
 };
 await import(path('worker-index.ts'));
-maintenanceTick();
+for (const tick of maintenanceTicks) tick();
 await Promise.resolve();
 const url = new URL('/internal/deployment/drain', server.url);
 const pending = await (await fetch(url, { method: 'POST' })).json();
