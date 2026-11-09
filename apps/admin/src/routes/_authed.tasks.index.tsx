@@ -30,7 +30,12 @@ import { ADMIN_REFRESH_EVENT, useGenerationTasks } from '@/lib/queries'
 import { adminApiUrl } from '@/lib/runtime-config'
 import { clearTaskView, parseGenerationTasksSearch } from '@/lib/search-params'
 import { cn } from '@/lib/utils'
-import { type GenerationTaskFilters, TASK_SOURCE_LABELS, todayWindow } from '../../contracts'
+import {
+  type GenerationTaskFilters,
+  gptRouteLabel,
+  TASK_SOURCE_LABELS,
+  todayWindow,
+} from '../../contracts'
 
 export const Route = createFileRoute('/_authed/tasks/')({
   validateSearch: parseGenerationTasksSearch,
@@ -374,6 +379,12 @@ function GenerationTasksPage() {
                               <span className="block">{TASK_SOURCE_LABELS[task.source]}</span>
                               <span className="mt-1 block truncate font-mono text-[11px] text-muted-foreground">
                                 {task.provider}
+                                {gptRouteLabel(task.gpt_route)
+                                  ? ` · ${gptRouteLabel(task.gpt_route)}`
+                                  : ''}
+                                {task.gpt_route === 'direct' && task.gpt_key_fingerprint
+                                  ? ` · ${task.gpt_key_fingerprint}`
+                                  : ''}
                               </span>
                             </TableCell>
                             <TableCell className="text-right font-mono text-xs">
