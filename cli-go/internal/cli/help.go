@@ -93,6 +93,7 @@ var placeholders = map[string]string{
 	"output-format": "gif|svg", "frames": "N", "frame-duration-ms": "MS", "frame-size": "WxH",
 	"idempotency-key": "KEY", "wait": "SECONDS", "download": "DIR", "limit": "N", "cursor": "ID",
 	"timeout": "SECONDS", "output": "PATH", "host": "claude-code|codex", "scope": "user|project",
+	"dir": "DIRECTORY",
 }
 
 // flagOrder puts the flags a command cannot do without first; the rest follow alphabetically.
@@ -114,7 +115,11 @@ var examples = map[string][]string{
 	"jobs wait":          {"muvloom jobs wait JOB_ID --timeout 300"},
 	"jobs list":          {"muvloom jobs list --idempotency-key KEY   # find a job whose submit response was lost"},
 	"artifacts download": {"muvloom artifacts download ARTIFACT_ID --output ./out/cat"},
-	"skill install":      {"muvloom skill install --host claude-code", "muvloom skill install --host codex --scope project"},
+	"skill install": {
+		"muvloom skill install --host claude-code",
+		"muvloom skill install --host codex --scope project",
+		"muvloom skill install --dir ~/.workbuddy/skills   # any host's skills directory",
+	},
 }
 
 // notes add what a command's flags alone do not say.
@@ -123,6 +128,8 @@ var notes = map[string]string{
 		"A GIF or SVG takes no --ref, --aspect-ratio, --image-size or --quality.",
 	"images validate": "Same flags as images create. Creates nothing and charges nothing.",
 	"auth login":      "Opens the approval page and waits. Run it again after a timeout: it resumes the same sign-in.",
+	"skill install": "--dir takes the host's skills directory; the Skill is installed into <dir>/muvloom and the\n" +
+		"directory is remembered, so `muvloom auth status` keeps that copy up to date too.",
 }
 
 func commandHelp(cmd command, fs *flag.FlagSet) string {

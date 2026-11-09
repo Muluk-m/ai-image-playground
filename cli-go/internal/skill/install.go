@@ -24,11 +24,20 @@ const BundleVersion = "0.2.4"
 //go:embed assets
 var bundled embed.FS
 
+// metadataFile records, inside an installed copy, which release this CLI put there.
+const metadataFile = ".muvloom-skill.json"
+
 type InstallOptions struct {
 	Host  string
 	Scope string
 	Home  string
 	CWD   string
+	// Dir is a host's skills directory, named by the host instead of a Host and Scope this
+	// CLI knows: the Skill is installed into <Dir>/muvloom and the directory is recorded,
+	// so a later status and refresh find it again.
+	Dir string
+	// ConfigDir is where that record is kept; empty means the CLI's own config directory.
+	ConfigDir string
 	// onlyIf, when set, decides under the install lock whether to replace the copy at the
 	// destination; false skips the install with errNotNeeded, an error stops it.
 	onlyIf func(destination string) (bool, error)
@@ -44,9 +53,11 @@ type Result struct {
 	Host       string `json:"host"`
 	Scope      string `json:"scope"`
 	ProjectDir string `json:"project_dir,omitempty"`
-	Path       string `json:"path"`
-	Version    string `json:"version"`
-	FileHash   string `json:"file_hash"`
+	// Dir is the skills directory a `--dir` install went into; Path is <Dir>/muvloom.
+	Dir      string `json:"dir,omitempty"`
+	Path     string `json:"path"`
+	Version  string `json:"version"`
+	FileHash string `json:"file_hash"`
 }
 
 type metadata struct {
@@ -70,6 +81,9 @@ func hostDir(name string) (string, bool) {
 }
 
 func Install(opts InstallOptions) (Result, error) {
+	if opts.Dir != "" {
+		return installDir(opts)
+	}
 	dir, ok := hostDir(opts.Host)
 	if !ok {
 		return Result{}, fmt.Errorf("unsupported host %q", opts.Host)
@@ -225,6 +239,9 @@ func bundleFiles() ([]bundleFile, string, error) {
 	return files, hashFiles(files), nil
 }
 
+// BodyFile is the Skill file a host reads first; the rest are loaded on demand.
+const BodyFile = "SKILL.md"
+
 // hashFiles is the bundle identity recorded at install time and checked by status.
 func hashFiles(files []bundleFile) string {
 	sort.Slice(files, func(i, j int) bool { return files[i].path < files[j].path })
@@ -267,7 +284,7 @@ func installTree(destination string, files []bundleFile, meta metadata) error {
 		return fmt.Errorf("encode Skill metadata: %w", err)
 	}
 	metaBytes = append(metaBytes, '\n')
-	if err := os.WriteFile(filepath.Join(tmp, ".muvloom-skill.json"), metaBytes, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(tmp, metadataFile), metaBytes, 0o644); err != nil {
 		return fmt.Errorf("write Skill metadata: %w", err)
 	}
 	// Move the old install aside first and put it back if the swap fails, so a failed

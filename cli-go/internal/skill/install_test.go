@@ -95,7 +95,7 @@ func TestInstalledReportsUserAndProjectMetadata(t *testing.T) {
 	if _, err := Install(InstallOptions{Host: "codex", Scope: "project", Home: home, CWD: nested}); err != nil {
 		t.Fatal(err)
 	}
-	installed, err := Installed(home, nested)
+	installed, err := Installed(home, nested, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,14 +134,14 @@ func TestStatusDetectsEditedInstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	installed, err := Installed(home, t.TempDir())
+	installed, err := Installed(home, t.TempDir(), t.TempDir())
 	if err != nil || len(installed) != 1 || !installed[0].Intact || !installed[0].Current {
 		t.Fatalf("fresh install = %+v, %v", installed, err)
 	}
 	if err := os.WriteFile(filepath.Join(result.Path, "SKILL.md"), []byte("edited"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	installed, _ = Installed(home, t.TempDir())
+	installed, _ = Installed(home, t.TempDir(), t.TempDir())
 	if installed[0].Intact || installed[0].Current {
 		t.Fatalf("edited install reported intact: %+v", installed[0])
 	}
@@ -149,7 +149,7 @@ func TestStatusDetectsEditedInstall(t *testing.T) {
 
 // An older copy nobody edited follows the CLI; a hand-edited one is left alone.
 func TestRefreshOutdatedReplacesOnlyUneditedOldCopies(t *testing.T) {
-	home, cwd := t.TempDir(), t.TempDir()
+	home, cwd, config := t.TempDir(), t.TempDir(), t.TempDir()
 	old, err := Install(InstallOptions{Host: "codex", Scope: "user", Home: home})
 	if err != nil {
 		t.Fatal(err)
@@ -173,11 +173,11 @@ func TestRefreshOutdatedReplacesOnlyUneditedOldCopies(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(edited.Path, "SKILL.md"), []byte("my notes"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, failed, err := RefreshOutdated(home, cwd)
+	_, failed, err := RefreshOutdated(home, cwd, config)
 	if err != nil || len(failed) != 0 {
 		t.Fatalf("refresh: %v %v", failed, err)
 	}
-	installed, _ := Installed(home, cwd)
+	installed, _ := Installed(home, cwd, config)
 	for _, item := range installed {
 		switch item.Host {
 		case "codex":
@@ -212,12 +212,12 @@ func fakeRelease(t *testing.T, path, version, host, scope string) {
 }
 
 func TestRefreshOutdatedNeverDowngradesMovesOrRacesACopy(t *testing.T) {
-	cwd := t.TempDir()
+	cwd, config := t.TempDir(), t.TempDir()
 	t.Run("newer copy", func(t *testing.T) {
 		home := t.TempDir()
 		result, _ := Install(InstallOptions{Host: "codex", Scope: "user", Home: home})
 		fakeRelease(t, result.Path, "9.9.9", "codex", "user")
-		if _, failed, err := RefreshOutdated(home, cwd); err != nil || len(failed) != 0 {
+		if _, failed, err := RefreshOutdated(home, cwd, config); err != nil || len(failed) != 0 {
 			t.Fatal(failed, err)
 		}
 		if data, _ := os.ReadFile(filepath.Join(result.Path, "SKILL.md")); string(data) != "release 9.9.9" {
@@ -228,7 +228,7 @@ func TestRefreshOutdatedNeverDowngradesMovesOrRacesACopy(t *testing.T) {
 		home := t.TempDir()
 		result, _ := Install(InstallOptions{Host: "codex", Scope: "user", Home: home})
 		fakeRelease(t, result.Path, "0.0.1", "codex", "project")
-		if _, failed, err := RefreshOutdated(home, cwd); err != nil || len(failed) != 0 {
+		if _, failed, err := RefreshOutdated(home, cwd, config); err != nil || len(failed) != 0 {
 			t.Fatal(failed, err)
 		}
 		if data, _ := os.ReadFile(filepath.Join(result.Path, "SKILL.md")); string(data) != "release 0.0.1" {
@@ -249,7 +249,7 @@ func TestRefreshOutdatedNeverDowngradesMovesOrRacesACopy(t *testing.T) {
 			_ = os.WriteFile(filepath.Join(result.Path, "SKILL.md"), []byte("edited meanwhile"), 0o644)
 			release()
 		}()
-		if _, failed, err := RefreshOutdated(home, cwd); err != nil || len(failed) != 0 {
+		if _, failed, err := RefreshOutdated(home, cwd, config); err != nil || len(failed) != 0 {
 			t.Fatal(failed, err)
 		}
 		if data, _ := os.ReadFile(filepath.Join(result.Path, "SKILL.md")); string(data) != "edited meanwhile" {

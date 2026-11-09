@@ -237,25 +237,28 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	// Copies this CLI installed follow it: an older one that nobody edited is replaced with
 	// the bundled Skill, effective from the host's next session. Only a copy that cannot be
 	// verified, was edited, or could not be replaced is reported, naming its path, since any
-	// host may be the one calling.
-	skills, failed, refreshErr := skill.RefreshOutdated(a.Home, a.CWD)
+	// host may be the one calling. A copy a host installed itself (WorkBuddy's) is reported
+	// in the result as `managed: false` and nothing is suggested for it: its host keeps it
+	// up to date, and a line on every run would only push the agent to take it over.
+	skills, failed, refreshErr := skill.RefreshOutdated(a.Home, a.CWD, a.configDir())
 	if refreshErr != nil {
 		a.progress("Could not check the installed muvloom Skills (%s).", skillFailure(refreshErr))
 	}
 	for _, installed := range skills {
 		switch {
+		case !installed.Managed:
 		case installed.Unverifiable:
-			a.progress("The muvloom Skill at %s is incomplete or has unexpected files. To reinstall it: muvloom skill install --host %s --scope %s",
-				installed.Path, installed.Host, installed.Scope)
+			a.progress("The muvloom Skill at %s is incomplete or has unexpected files. To reinstall it: %s",
+				installed.Path, skillInstallCommand(installed))
 		case !installed.Intact:
-			a.progress("The muvloom Skill at %s was edited or is incomplete, so it is not updated automatically. To replace it: muvloom skill install --host %s --scope %s",
-				installed.Path, installed.Host, installed.Scope)
+			a.progress("The muvloom Skill at %s was edited or is incomplete, so it is not updated automatically. To replace it: %s",
+				installed.Path, skillInstallCommand(installed))
 		}
 	}
 	var refreshFailures []map[string]string
 	for _, item := range failed {
-		a.progress("Could not update the muvloom Skill at %s to %s (%s). To retry: muvloom skill install --host %s --scope %s",
-			item.Path, skill.BundleVersion, skillFailure(item.Err), item.Host, item.Scope)
+		a.progress("Could not update the muvloom Skill at %s to %s (%s). To retry: %s",
+			item.Path, skill.BundleVersion, skillFailure(item.Err), skillInstallCommand(item.Installation))
 		refreshFailures = append(refreshFailures, map[string]string{"path": item.Path, "reason": skillFailure(item.Err)})
 	}
 	store := a.Store.Describe()
@@ -676,6 +679,14 @@ func cmdAuthLogout(ctx context.Context, a *App, args []string) (any, error) {
 
 // skillFailure names why a Skill check or update failed with a stable word: the error's own
 // text can carry local details.
+// skillInstallCommand is the command that replaces one installed copy where it stands.
+func skillInstallCommand(item skill.Installation) string {
+	if item.SkillsDir != "" {
+		return "muvloom skill install --dir " + item.SkillsDir
+	}
+	return fmt.Sprintf("muvloom skill install --host %s --scope %s", item.Host, item.Scope)
+}
+
 func skillFailure(err error) string {
 	switch {
 	case errors.Is(err, auth.ErrLockTimeout):
