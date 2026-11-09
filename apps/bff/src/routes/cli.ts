@@ -52,7 +52,12 @@ import { requireUser } from '../lib/user-auth'
 import { sessionClientFromRequest } from '../lib/user-session'
 import { cliVerificationOrigin, frontendOrigin } from './oauth'
 
-/** CLI 低于这个版本时 `auth status` 报需要升级。 */
+/**
+ * CLI 低于这个版本时 `auth status` 报需要升级，也是 `GET /v1/me` 的 `min_cli_version`。
+ * 只有已发布的某个 CLI 版本在新服务端上确实不能工作时才抬高，上限是网页接入页当前固定的版本
+ * （`apps/web/src/features/cli/connectAgents.ts` 的 `CLI_VERSION`）：照指南刚装完的用户必须能用。
+ * `scripts/check-cli-version.mjs` 强制这条上限，规则见 docs/agents/cli-release.md。
+ */
 export const CLI_MIN_VERSION = '0.1.0'
 
 /** 设备码与令牌端点不带凭据，按来源 IP 限流：轮询间隔 5 秒，一分钟 30 次足够。 */
