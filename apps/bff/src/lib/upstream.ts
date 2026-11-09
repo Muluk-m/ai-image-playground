@@ -907,8 +907,7 @@ async function callUpstreamVia(
       if (deadline.signal.aborted) relayAbort()
       let keyRecorded: Promise<void> | undefined
       try {
-        if (counted && route.keyFingerprint)
-          keyRecorded = params.onGptKey?.(route.keyFingerprint)
+        if (counted && route.keyFingerprint) keyRecorded = params.onGptKey?.(route.keyFingerprint)
         const recorded = dispatchId ? params.onRequestDispatched?.(dispatchId) : undefined
         let response: UpstreamResponse
         try {
