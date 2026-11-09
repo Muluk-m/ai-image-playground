@@ -65,6 +65,17 @@ type fakeServer struct {
 	twoArtifacts bool
 	failArtifact string
 	failJobPoll  bool
+	// How the fake storage moves bytes to and from its presigned URLs. downloadPause sends
+	// the download body one byte at a time with that pause in between; downloadStalls sends
+	// the first byte and then goes silent. uploadPause slows reading the upload body;
+	// uploadStalls takes every byte and then never answers. uploadedBytes is what arrived.
+	// uploadPause runs once per 64 KiB received, so the delay does not depend on how the
+	// host happens to split reads.
+	downloadPause  time.Duration
+	downloadStalls bool
+	uploadPause    time.Duration
+	uploadStalls   bool
+	uploadedBytes  int64
 	// Loopback sign-in as the service sees it: what the CLI registered, and the code it issued.
 	redirectURI   string
 	codeChallenge string
@@ -268,7 +279,73 @@ func newFakeServer(t *testing.T) *fakeServer {
 		}
 		envelope(w, 200, map[string]any{"download_url": f.server.URL + "/files/a.png", "content_type": f.contentType()}, "")
 	}))
-	mux.HandleFunc("GET /files/a.png", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("PNGDATA")) })
+	mux.HandleFunc("POST /v1/media", authed(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		envelope(w, 200, map[string]any{
+			"media_id": "m-upload", "status": "reserved", "bytes": body["bytes"],
+			"content_type": body["content_type"], "upload_url": f.server.URL + "/files/upload",
+		}, "")
+	}))
+	mux.HandleFunc("PUT /files/upload", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		pause, stalls := f.uploadPause, f.uploadStalls
+		f.mu.Unlock()
+		var read int64
+		nextPause := int64(64 << 10)
+		buffer := make([]byte, 32<<10)
+		for {
+			n, err := r.Body.Read(buffer)
+			read += int64(n)
+			if err != nil {
+				break
+			}
+			if pause > 0 && read >= nextPause {
+				nextPause += 64 << 10
+				time.Sleep(pause)
+			}
+		}
+		f.mu.Lock()
+		f.uploadedBytes = read
+		f.mu.Unlock()
+		if stalls {
+			stall(r)
+			return
+		}
+		w.WriteHeader(200)
+	})
+	mux.HandleFunc("POST /v1/media/{id}/complete", authed(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		size := f.uploadedBytes
+		f.mu.Unlock()
+		envelope(w, 200, map[string]any{
+			"media_id": r.PathValue("id"), "status": "ready", "bytes": size, "content_type": "image/png",
+		}, "")
+	}))
+	mux.HandleFunc("GET /files/a.png", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		pause, stalls := f.downloadPause, f.downloadStalls
+		f.mu.Unlock()
+		body := []byte("PNGDATA")
+		if stalls {
+			// One byte arrives and nothing follows: only an idle timeout can end this.
+			_, _ = w.Write(body[:1])
+			w.(http.Flusher).Flush()
+			stall(r)
+			return
+		}
+		if pause == 0 {
+			_, _ = w.Write(body)
+			return
+		}
+		for i := range body {
+			if _, err := w.Write(body[i : i+1]); err != nil {
+				return
+			}
+			w.(http.Flusher).Flush()
+			time.Sleep(pause)
+		}
+	})
 	f.server = httptest.NewServer(mux)
 	t.Cleanup(f.server.Close)
 	return f
@@ -507,6 +584,102 @@ func TestCreateWaitsAndDownloadsWithoutOverwriting(t *testing.T) {
 	if strings.Contains(r.stdout, "/files/a.png") {
 		t.Fatal("signed download URL leaked to stdout")
 	}
+}
+
+// stall keeps a request open until the client gives up on it, so nothing but the CLI's own
+// idle timeout can end the transfer. The cap only keeps a broken test from hanging.
+func stall(r *http.Request) {
+	select {
+	case <-r.Context().Done():
+	case <-time.After(5 * time.Second):
+	}
+}
+
+// writeImage makes an uploadable file of size bytes; the fake storage ignores its content.
+func writeImage(t *testing.T, size int) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "ref.png")
+	if err := os.WriteFile(path, bytes.Repeat([]byte("x"), size), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// File transfers are bounded by how long they make no progress, not by how long they take:
+// a 4K image or a large reference on a slow link must not be cut off while bytes keep
+// moving, and a transfer that goes silent must fail as temporary (exit 6). transferTotal
+// stands in for the 60 s total timeout API requests keep, so this runs in milliseconds.
+const transferTotal = 500 * time.Millisecond
+
+func TestATricklingDownloadOutlastsTheTotalTimeout(t *testing.T) {
+	f := newFakeServer(t)
+	f.downloadPause = 120 * time.Millisecond // seven bytes, well over transferTotal in all
+	app := newApp(t, f, t.TempDir())
+	login(t, app)
+	app.HTTP = &http.Client{Transport: f.server.Client().Transport, Timeout: transferTotal}
+	app.TransferIdleTimeout = 5 * time.Second
+	target := filepath.Join(t.TempDir(), "slow.png")
+	r := execute(t, app, "artifacts", "download", "art_job-1_0", "--output", target)
+	if r.code != ExitOK {
+		t.Fatalf("trickling download = %d %s", r.code, r.stdout)
+	}
+	if content, err := os.ReadFile(target); err != nil || string(content) != "PNGDATA" {
+		t.Fatalf("download = %q, %v", content, err)
+	}
+	// The second run proves the guarantees still hold on a transfer that has no total timeout.
+	again := execute(t, app, "artifacts", "download", "art_job-1_0", "--output", target)
+	if again.code != ExitOK || again.out["data"].(map[string]any)["already_present"] != true {
+		t.Fatalf("same bytes again = %d %s", again.code, again.stdout)
+	}
+}
+
+func TestAStalledDownloadFailsAsTemporaryAndLeavesNothingBehind(t *testing.T) {
+	f := newFakeServer(t)
+	f.downloadStalls = true
+	app := newApp(t, f, t.TempDir())
+	login(t, app)
+	app.TransferIdleTimeout = 150 * time.Millisecond
+	dir := t.TempDir()
+	target := filepath.Join(dir, "stalled.png")
+	r := execute(t, app, "artifacts", "download", "art_job-1_0", "--output", target)
+	if r.code != ExitTemporary || r.out["error"].(map[string]any)["code"] != "NETWORK_ERROR" {
+		t.Fatalf("stalled download = %d %s", r.code, r.stdout)
+	}
+	if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a stalled download left %s behind: %v", target, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("temp files left over: %v, %v", entries, err)
+	}
+	assertNoSecrets(t, r, "/files/a.png")
+}
+
+func TestASlowlyConsumedUploadOutlastsTheTotalTimeout(t *testing.T) {
+	f := newFakeServer(t)
+	f.uploadPause = 60 * time.Millisecond // sixteen pauses for a 1 MiB body, well over transferTotal
+	app := newApp(t, f, t.TempDir())
+	login(t, app)
+	app.HTTP = &http.Client{Transport: f.server.Client().Transport, Timeout: transferTotal}
+	app.TransferIdleTimeout = 5 * time.Second
+	r := execute(t, app, "media", "upload", writeImage(t, 1<<20))
+	data, _ := r.out["data"].(map[string]any)
+	if r.code != ExitOK || data["bytes"] != float64(1<<20) {
+		t.Fatalf("slow upload = %d %s", r.code, r.stdout)
+	}
+}
+
+func TestAnUploadStorageThatNeverAnswersFailsAsTemporary(t *testing.T) {
+	f := newFakeServer(t)
+	f.uploadStalls = true
+	app := newApp(t, f, t.TempDir())
+	login(t, app)
+	app.TransferIdleTimeout = 150 * time.Millisecond
+	r := execute(t, app, "media", "upload", writeImage(t, 64<<10))
+	if r.code != ExitTemporary || r.out["error"].(map[string]any)["code"] != "NETWORK_ERROR" {
+		t.Fatalf("stalled upload = %d %s", r.code, r.stdout)
+	}
+	assertNoSecrets(t, r, "/files/upload")
 }
 
 func TestWaitReturnsAtTheDeadlineWithoutFailing(t *testing.T) {

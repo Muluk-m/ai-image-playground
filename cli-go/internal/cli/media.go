@@ -69,17 +69,24 @@ func (a *App) uploadMedia(ctx context.Context, c *client.HTTPClient, path string
 		return media{}, err
 	}
 	a.progress("Uploading %s (%d bytes)", filepath.Base(path), size)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, reserved.UploadURL, file)
+	// The bytes may take much longer than an API request; only a stall ends the upload.
+	transferCtx, guard := a.newTransfer(ctx)
+	defer guard.stop()
+	req, err := http.NewRequestWithContext(transferCtx, http.MethodPut, reserved.UploadURL, guard.reader(file))
 	if err != nil {
 		return media{}, err
 	}
 	req.ContentLength = size
 	req.Header.Set("Content-Type", contentType)
-	resp, err := a.HTTP.Do(req)
+	resp, err := a.transferHTTP().Do(req)
 	if err != nil {
+		if stall := guard.stalled("Upload"); stall != nil {
+			return media{}, stall
+		}
 		return media{}, fail("NETWORK_ERROR", "Upload failed: could not reach storage")
 	}
 	resp.Body.Close()
+	guard.stop() // the bytes are in; what follows is an ordinary API request again
 	if resp.StatusCode >= 300 {
 		return media{}, fail("TEMPORARILY_UNAVAILABLE", "Upload failed with HTTP %d", resp.StatusCode)
 	}
@@ -198,20 +205,31 @@ func (a *App) downloadTo(ctx context.Context, c *client.HTTPClient, path, target
 	if err := a.checkStorageURL(signed.DownloadURL); err != nil {
 		return download{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, signed.DownloadURL, nil)
+	// A 4K image on a slow link may take far longer than an API request: the transfer runs
+	// without a total timeout and is ended only once it stops making progress.
+	transferCtx, guard := a.newTransfer(ctx)
+	defer guard.stop()
+	req, err := http.NewRequestWithContext(transferCtx, http.MethodGet, signed.DownloadURL, nil)
 	if err != nil {
 		return download{}, err
 	}
-	resp, err := a.HTTP.Do(req)
+	resp, err := a.transferHTTP().Do(req)
 	if err != nil {
+		if stall := guard.stalled("Download"); stall != nil {
+			return download{}, stall
+		}
 		return download{}, fail("NETWORK_ERROR", "Download failed: could not reach storage")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return download{}, fail("TEMPORARILY_UNAVAILABLE", "Download failed with HTTP %d; retry to get a new link", resp.StatusCode)
 	}
-	size, present, err := writeNew(target, resp.Body)
+	size, present, err := writeNew(target, guard.body(resp.Body))
 	if err != nil {
+		// A stall is what interrupted the copy; writeNew already removed its temp file.
+		if stall := guard.stalled("Download"); stall != nil {
+			return download{}, stall
+		}
 		return download{}, err
 	}
 	absolute, _ := filepath.Abs(target)
