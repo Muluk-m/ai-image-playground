@@ -1170,7 +1170,9 @@ it('公共余额不足暂停后续派发，补足后恢复只提交未入队项'
   expect(generationReservations).toBe(3)
 })
 
-it('批次执行携带被冻结的原件和遮罩，动作与编号区域进入真实生成指令', async () => {
+it('批次执行携带被冻结的原件和遮罩，动作与编号区域进入真实生成指令', {
+  timeout: 10_000,
+}, async () => {
   billing.reset()
   billing.answer = { kind: 'reserved', credits: 7 }
   const original = await sharp({

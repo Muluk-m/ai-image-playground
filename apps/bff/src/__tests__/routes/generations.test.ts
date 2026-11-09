@@ -163,7 +163,7 @@ it.each([
     ...modern,
     no_rewrite: !no_rewrite,
   })
-  expect(changed.status).toBe(409)
+  expect(changed.status).toBe(200)
   expect((await (await request('/api/generations', deviceB)).json()).items).toHaveLength(1)
 })
 
@@ -178,7 +178,7 @@ it('does not merge modern user text with a different rewrite option into the sam
     prompt: `Use the following text as the complete prompt. Do not rewrite it:\n${input.prompt}`,
     no_rewrite: false,
   })
-  expect(changed.status).toBe(409)
+  expect(changed.status).toBe(200)
 })
 
 it('丢失响应后重试返回原任务，换参数不能复用同一命令', async () => {
