@@ -1,10 +1,9 @@
 import { createHash } from 'node:crypto'
 import {
-  applyPromptRewriteGuard,
   billedStageQuantity,
-  buildAspectInstruction,
   canvasOrigin,
   isGptDirectModel,
+  promptVariants,
   type QueueProvider,
   readCanvasDocument,
   STAGE_RUN_MAX_RETRIES,
@@ -872,19 +871,24 @@ export interface StagePromptShaping {
  * 的 size 加构图指令。条件和 web 的 `getParamCapabilities().size`、BFF 的 `shapeQueuePrompt`
  * 一致（没声明能力的模型按支持 size 处理，不加后缀）。
  */
-function dispatchedPromptVariants(prompt: string, shaping: StagePromptShaping): string[] {
+function dispatchedPromptVariants(prompt: string, shaping: StagePromptShaping): readonly string[] {
   // 协议族以 channels.json 为准：路径里的 provider 是调用方写的，不能让它决定放宽哪一种写法。
   const provider = resolveQueueModel('image', shaping.model)?.provider ?? shaping.provider
-  const guarded = provider === 'gemini' ? [prompt] : [prompt, applyPromptRewriteGuard(prompt)]
   const capabilities = modelCapabilities(shaping.model)
-  // GPT 直连模型的 size 随直连开关声明或收回：开关切换后还开着旧页面的前端仍会钉构图句，照样认。
-  const instruction =
-    shaping.size &&
-    capabilities &&
-    (!capabilities.includes('size') || isGptDirectModel(shaping.model))
-      ? buildAspectInstruction(shaping.size)
-      : null
-  return instruction ? [...guarded, ...guarded.map((item) => `${item}\n\n${instruction}`)] : guarded
+  return promptVariants({
+    prompt,
+    facts: {
+      provider,
+      model: shaping.model,
+      ...(shaping.size ? { size: shaping.size } : {}),
+      no_rewrite: provider !== 'gemini',
+      ratio_via_prompt: Boolean(
+        shaping.size &&
+          capabilities &&
+          (!capabilities.includes('size') || isGptDirectModel(shaping.model)),
+      ),
+    },
+  })
 }
 
 /**

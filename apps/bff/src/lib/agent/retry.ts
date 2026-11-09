@@ -3,7 +3,7 @@ import type {
   AgentToolErrorCode,
   AgentToolResultBlock,
 } from '@image-playground/shared'
-import { agentToolRetryable } from '@image-playground/shared'
+import { agentToolRetryable, restoreQueuePrompt } from '@image-playground/shared'
 import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { cancelTasks } from '../../db/task-transitions'
@@ -272,12 +272,20 @@ async function submitRetryTask(
     .limit(1)
   if (!original || asQueueProvider(original.provider) !== plan.target.provider)
     return { kind: 'not_retryable' }
-  const { video, client_request_id: _command, ...persisted } = original.request
+  const { video, client_request_id: _command, prompt_shaping, ...persisted } = original.request
   const { video: _hydratedVideo, ...request } = await hydrateInputImages(persisted)
+  const originalPrompt = restoreQueuePrompt({
+    shaping: prompt_shaping,
+    prompt: request.prompt,
+    provider: plan.target.provider,
+    size: request.size,
+    stripRewriteGuard: request.no_rewrite === undefined,
+  })
+  const retryRequest = { ...request, prompt: originalPrompt }
   if (video) {
     const rejected = agentVideoRequestError(
       plan.target.model,
-      request.prompt,
+      originalPrompt,
       video,
       request.input_images?.length ?? 0,
     )
@@ -288,7 +296,8 @@ async function submitRetryTask(
     entry: 'agent',
     provider: plan.target.provider,
     model: plan.target.model,
-    request: { ...request, n: 1, ...(deviceId ? { device_id: deviceId } : {}) },
+    promptShaping: !video ? { originalPrompt } : undefined,
+    request: { ...retryRequest, n: 1, ...(deviceId ? { device_id: deviceId } : {}) },
     ...(video ? { video } : {}),
     userId: input.userId,
     // 重试自成一轮：任务、项目预留与重试记录都挂在它下面，与原来那一轮互不相干。

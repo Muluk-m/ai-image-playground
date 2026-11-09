@@ -1,9 +1,4 @@
-import {
-  applyPromptRewriteGuard,
-  buildAspectInstruction,
-  isGptDirectModel,
-  unshapeQueuePrompt,
-} from '@image-playground/shared'
+import { isGptDirectModel, wirePrompt } from '@image-playground/shared'
 import type { HydratedSubmitRequest } from '../../imageArchive'
 
 /** 每次实际选路后从原始请求适配，换路时不沿用上一条路加过的机器指令。 */
@@ -12,13 +7,18 @@ export function adaptGptRequest(
   model: string,
   request: HydratedSubmitRequest,
 ): HydratedSubmitRequest {
-  if (route === 'direct') {
-    const prompt = unshapeQueuePrompt({
+  const prompt = wirePrompt({
+    prompt: request.prompt,
+    route,
+    facts: {
       provider: 'openai-compat',
-      prompt: request.prompt,
-      size: isGptDirectModel(model) ? request.size : undefined,
-      stripRewriteGuard: request.no_rewrite === undefined,
-    })
+      model,
+      ...(request.size ? { size: request.size } : {}),
+      no_rewrite: request.no_rewrite,
+      ratio_via_prompt: isGptDirectModel(model),
+    },
+  })
+  if (route === 'direct') {
     // 2.5 的 auto 仍按 medium 控制成本；2.6 沿用自己的画质契约。
     const quality =
       isGptDirectModel(model) && (!request.quality || request.quality === 'auto')
@@ -26,11 +26,5 @@ export function adaptGptRequest(
         : request.quality
     return { ...request, prompt, ...(quality ? { quality } : {}) }
   }
-  let prompt = request.prompt
-  // 旧客户端已经带过前缀；新客户端用参数表达意图，用户原文里同样的文字也不吞掉。
-  if (request.no_rewrite === true) prompt = applyPromptRewriteGuard(prompt)
-  const instruction =
-    isGptDirectModel(model) && request.size ? buildAspectInstruction(request.size) : null
-  if (instruction && !prompt.endsWith(instruction)) prompt = `${prompt}\n\n${instruction}`
   return { ...request, prompt }
 }

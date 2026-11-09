@@ -7,13 +7,13 @@ import type {
   QueueProvider,
   SubmitRequest,
 } from '@image-playground/shared'
-import { AGENT_AUTO_SUBMIT_MAX_PER_TURN } from '@image-playground/shared'
+import { AGENT_AUTO_SUBMIT_MAX_PER_TURN, shapeQueuePrompt } from '@image-playground/shared'
+import { modelCapabilities } from '../channels'
 import {
   type CreateQueueTaskInput,
   type CreateQueueTaskOutcome,
   submitPrepared,
 } from '../taskSubmission'
-import { shapeQueuePrompt } from './prompt-shaping'
 import { recentlyRateLimitedLocked } from './rate-limit-resend'
 import { queueRefusalCode } from './tools/errors'
 import { agentVideoRequestError } from './video-models'
@@ -82,27 +82,18 @@ export async function submitAgentGeneration(input: AutoSubmitInput): Promise<Aut
     )
     if (rejected) return { kind: 'refused', code: rejected.code }
   }
-  const prompt =
-    input.media === 'image'
-      ? shapeQueuePrompt({
-          provider: input.provider,
-          model: input.model,
-          prompt: input.request.prompt,
-          ...(input.request.size ? { size: input.request.size } : {}),
-        })
-      : input.request.prompt
   const createInput: CreateQueueTaskInput = {
     entry: 'agent',
     provider: input.provider,
     model: input.model,
+    userId: input.userId,
+    ...(input.video ? { video: input.video } : {}),
+    ...(input.media === 'image' ? { promptShaping: { originalPrompt: input.request.prompt } } : {}),
     request: {
       ...input.request,
-      prompt,
       ...(input.media === 'image' ? { no_rewrite: input.provider !== 'gemini' } : {}),
       client_request_id: commandIdOf(input),
     },
-    ...(input.video ? { video: input.video } : {}),
-    userId: input.userId,
     agent: {
       conversationId: input.conversationId,
       turnId: input.turnId,
@@ -124,7 +115,17 @@ export async function submitAgentGeneration(input: AutoSubmitInput): Promise<Aut
         (await recentlyRateLimitedLocked(tx, {
           conversationId: input.conversationId,
           model: input.model,
-          prompt,
+          prompt: shapeQueuePrompt({
+            prompt: input.request.prompt,
+            facts: {
+              provider: input.provider,
+              model: input.model,
+              ...(input.request.size ? { size: input.request.size } : {}),
+              ratio_via_prompt: Boolean(
+                input.request.size && modelCapabilities(input.model)?.includes('size') === false,
+              ),
+            },
+          }),
         }))
       )
         return 'rate_limited'
