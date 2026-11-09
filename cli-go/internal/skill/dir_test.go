@@ -2,6 +2,7 @@ package skill
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -296,6 +297,37 @@ func TestRefreshOfARecordedDirectoryDecidesAgainUnderTheLock(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(filepath.Join(result.Path, BodyFile)); string(data) != "edited meanwhile" {
 		t.Fatal("an edit made while waiting for the lock was overwritten")
+	}
+}
+
+func TestBodyAndFilesServeTheBundledSkillOnly(t *testing.T) {
+	want, err := fs.ReadFile(bundled, "assets/"+BodyFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := Body(BodyFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != string(want) {
+		t.Fatal("Body does not return the embedded Skill")
+	}
+	files, err := Files()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) < 2 || files[0] != BodyFile {
+		t.Fatalf("Files = %v", files)
+	}
+	for _, name := range files {
+		if _, err := Body(name); err != nil {
+			t.Fatalf("Body(%q): %v", name, err)
+		}
+	}
+	for _, name := range []string{"../../../etc/passwd", "/etc/passwd", "references/../../assets/SKILL.md", "", "references"} {
+		if _, err := Body(name); err == nil {
+			t.Fatalf("Body(%q) served a file outside the bundle", name)
+		}
 	}
 }
 

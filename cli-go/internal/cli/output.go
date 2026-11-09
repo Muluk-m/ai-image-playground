@@ -88,6 +88,12 @@ func decodeValue(d *json.Decoder) (any, error) {
 }
 
 func (a *App) writeText(data any) error {
+	// `skill print` is read as the Skill itself: the file goes to stdout byte for byte, with
+	// nothing added, relabelled or reordered. `--json` carries the same bytes as a string.
+	if file, ok := data.(skillFile); ok {
+		_, err := io.WriteString(a.Out, file.Content)
+		return err
+	}
 	value, err := ordered(data)
 	if err != nil {
 		return err

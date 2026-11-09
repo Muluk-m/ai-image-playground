@@ -224,6 +224,7 @@ var commandList = []struct {
 	{"SETUP", []command{
 		{"skill install", "--host claude-code|codex [--scope user|project] | --dir DIRECTORY", "Install the bundled agent Skill", cmdSkillInstall},
 		{"skill status", "", "Where the agent Skill is installed and its version", cmdSkillStatus},
+		{"skill print", "[--file PATH] [--list]", "Print the bundled Skill, for a host that cannot install it", cmdSkillPrint},
 		{"update check", "", "Check for a newer CLI release (cached for the day)", cmdUpdateCheck},
 		{"version", "", "Print the CLI version", cmdVersion},
 	}},

@@ -114,3 +114,65 @@ func TestSkillInstallRejectsDirWithHostOrScope(t *testing.T) {
 		t.Fatal("a rejected command installed the Skill")
 	}
 }
+
+// A host that cannot install Skills reads the body from stdout: it must be the embedded
+// Skill byte for byte, with nothing added.
+func TestSkillPrintWritesTheEmbeddedSkillByteForByte(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	for _, name := range []string{"SKILL.md", "references/cli.md", "references/install.md"} {
+		want, err := skill.Body(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		args := []string{"skill", "print"}
+		if name != "SKILL.md" {
+			args = append(args, "--file", name)
+		}
+		stdout, _, code := runText(t, app, args...)
+		if code != ExitOK {
+			t.Fatalf("%v = %d", args, code)
+		}
+		if stdout != string(want) {
+			t.Fatalf("%s: stdout is not the embedded file (%d vs %d bytes)", name, len(stdout), len(want))
+		}
+	}
+	// `--json` carries the same bytes, so a host can read them from the envelope instead.
+	r := execute(t, app, "skill", "print")
+	data, _ := r.out["data"].(map[string]any)
+	want, _ := skill.Body("SKILL.md")
+	if r.code != ExitOK || data["content"] != string(want) || data["version"] != skill.BundleVersion {
+		t.Fatalf("skill print --json = %d %v", r.code, data)
+	}
+	// The files a host may ask for are listed, and nothing outside the bundle is served.
+	r = execute(t, app, "skill", "print", "--list")
+	data, _ = r.out["data"].(map[string]any)
+	files, _ := data["files"].([]any)
+	if r.code != ExitOK || len(files) == 0 || files[0] != "SKILL.md" {
+		t.Fatalf("skill print --list = %d %v", r.code, data)
+	}
+	if r := execute(t, app, "skill", "print", "--file", "../../../etc/passwd"); r.code != ExitInvalid {
+		t.Fatalf("a path outside the bundle = %d %s", r.code, r.stdout)
+	}
+}
+
+func TestHelpListsTheSkillCommands(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	stdout, _, _ := runText(t, app, "--help")
+	for _, want := range []string{"skill install", "skill status", "skill print"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("main help is missing %q", want)
+		}
+	}
+	stdout, _, _ = runText(t, app, "skill", "install", "--help")
+	for _, want := range []string{"--dir DIRECTORY", "<dir>/muvloom"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("skill install help is missing %q: %s", want, stdout)
+		}
+	}
+	stdout, _, _ = runText(t, app, "skill", "print", "--help")
+	if !strings.Contains(stdout, "--file PATH") || !strings.Contains(stdout, "--list") {
+		t.Fatalf("skill print help: %s", stdout)
+	}
+}

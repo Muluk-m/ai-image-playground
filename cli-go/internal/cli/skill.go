@@ -56,3 +56,32 @@ func cmdSkillStatus(_ context.Context, a *App, args []string) (any, error) {
 	}
 	return map[string]any{"bundled_version": skill.BundleVersion, "installed": installed}, nil
 }
+
+// skillFile is one bundled Skill file. In text mode writeText prints Content alone, byte for
+// byte, so a host that cannot install the Skill can read it from stdout.
+type skillFile struct {
+	Path    string `json:"path"`
+	Version string `json:"version"`
+	Content string `json:"content"`
+}
+
+func cmdSkillPrint(_ context.Context, a *App, args []string) (any, error) {
+	fs := newFlags("skill print")
+	file := fs.String("file", skill.BodyFile, "Which bundled file to print, as listed by --list")
+	list := fs.Bool("list", false, "List the bundled files instead of printing one")
+	if _, err := parse(fs, args, 0); err != nil {
+		return nil, err
+	}
+	if *list {
+		files, err := skill.Files()
+		if err != nil {
+			return nil, fail("INTERNAL_ERROR", "%v", err)
+		}
+		return map[string]any{"version": skill.BundleVersion, "files": files}, nil
+	}
+	content, err := skill.Body(*file)
+	if err != nil {
+		return nil, fail("USAGE", "%v; run `muvloom skill print --list` for the files", err)
+	}
+	return skillFile{Path: *file, Version: skill.BundleVersion, Content: string(content)}, nil
+}
