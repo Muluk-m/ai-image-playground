@@ -106,6 +106,12 @@ const call = (request: Record<string, unknown>, member: boolean, strictImageRequ
     onGptRoute: async (route) => {
       routes.push(route)
     },
+    onGptKey: async (fingerprint) => {
+      expect(fingerprint === null || fingerprint === fingerprintOf('direct-key').fingerprint).toBe(
+        true,
+      )
+      expect(fingerprint ?? '').not.toContain('direct-key')
+    },
   })
 
 beforeEach(async () => {

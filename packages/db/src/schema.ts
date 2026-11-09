@@ -1433,8 +1433,10 @@ export const tasks = pgTable(
     upstream_task_ids: bunJsonb('upstream_task_ids').$type<string[]>(),
     /** Anchor for the polling deadline, so a restart cannot grant a fresh timeout budget. */
     upstream_submitted_at: epochMs('upstream_submitted_at'),
-    /** GPT Image 这一单最后走的通道；会员高档参数落到 sub2api 时结算按基础档（task-transitions finishTask）。 */
+    /** GPT Image 这一单最后走的通道；会员高档参数落到 sub2api 时结算按基础档。 */
     gpt_route: text('gpt_route').$type<'direct' | 'sub2api'>(),
+    /** 最后实际发出直连请求的 key 指纹；只存可展示的 HMAC 指纹，不存密钥。 */
+    gpt_key_fingerprint: text('gpt_key_fingerprint'),
     execution_token: text('execution_token'),
     lease_expires_at: epochMs('lease_expires_at'),
     submitted_at: epochMs('submitted_at').notNull(),
@@ -1535,8 +1537,7 @@ export const daily_quota = pgTable(
  * 真要看对话轮，显式写 `tasks`。
  */
 // Archive recovery sources and executor fencing are worker-private and are not part of the
-// operational view. Keeping them out also preserves the committed view shape across additive
-// task migrations, so existing read-only grants do not need the view to be dropped and recreated.
+// operational view. GPT route attribution is intentionally visible to the operator console.
 const {
   reconciliation_required: _reconciliationRequired,
   archive_payload: _archivePayload,
@@ -1546,7 +1547,6 @@ const {
   reconcile_started_at: _reconcileStartedAt,
   reconcile_alerted_at: _reconcileAlertedAt,
   metering: _metering,
-  gpt_route: _gptRoute,
   ...queueTaskColumns
 } = getTableColumns(tasks)
 export const queue_tasks = pgView('queue_tasks').as((qb) =>
