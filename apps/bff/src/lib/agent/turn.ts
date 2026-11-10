@@ -71,6 +71,7 @@ import {
 import { omittedReviewNote, prepareReviewImages } from './review-images'
 import { type RunningTurn, registerRunningTurn } from './runningTurns'
 import { InvalidSelectionError } from './selection-preview'
+import type { ShortConfirmationGuard } from './short-confirmation'
 import type { AgentTurnAudience } from './skills'
 import { agentThinking } from './thinking'
 import { createAgentToolGate } from './tool-gate'
@@ -146,6 +147,11 @@ export interface PreparedAgentTurn {
   }
   /** 起轮时预扣的积分；缺席即这个部署不计费。 */
   readonly reservedCredits?: number
+  /**
+   * 用户只发了短确认语，且会话里有待确认卡片或已经出完/还在跑的批次：
+   * 这一轮不再问模型，直接回复，生成类工具因此不会被调用。
+   */
+  readonly confirmationGuard?: ShortConfirmationGuard
   /** 收尾结算，回报本轮结算后的消耗；缺席即这个部署不计费。 */
   readonly settle?: (settlement: AgentTurnSettlement) => Promise<AgentTurnCost>
 }
@@ -218,6 +224,7 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     ...(prepared.wake?.plan ? { carried: prepared.wake.plan.authorization } : {}),
   })
   let clarified = false
+  let confirmationGuarded = false
   /** 确认范围后按提议直接提交的那一次调用试过没有；提交成功本轮就到此为止。 */
   let directEditTried = false
   let directEditSubmitted = false
@@ -962,9 +969,31 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   const unregister = registerRunningTurn(turn)
 
   // 未完成澄清链仍是同一请求；实发与预扣共享附图范围及张数限制。
-  void requireAgentImages(images, shownImageRequests(requestAgentReferences(input)))
-    .then(async (references) => {
+  void Promise.resolve()
+    .then(async () => {
       if (aborted) return
+      if (prepared.confirmationGuard) {
+        confirmationGuarded = true
+        const messageId = crypto.randomUUID()
+        const text = prepared.confirmationGuard.reply
+        log.info(
+          {
+            event: 'agent.short_confirmation_guarded',
+            conversationId,
+            turnId,
+            reason: prepared.confirmationGuard.reason,
+          },
+          'short confirmation intercepted without calling the model',
+        )
+        events.emit({ type: 'assistantStart', messageId })
+        events.emit({ type: 'textDelta', messageId, delta: text })
+        await storeBlock({ type: 'text', text }, messageId)
+        return
+      }
+      const references = await requireAgentImages(
+        images,
+        shownImageRequests(requestAgentReferences(input)),
+      )
       // 复核用预览而不是原件：4K 产物的原件会把整轮请求撑过字节预算。装不下的如实告诉模型。
       const { reviewed, omitted } = await prepareReviewImages(
         images,
@@ -1070,7 +1099,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
         !error &&
         !aborted &&
         !clarified &&
-        !drafted
+        !drafted &&
+        !confirmationGuarded
       ) {
         scheduleAgentFollowUps({
           conversationId,
@@ -1090,22 +1120,24 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       ended = true
       await touchAgentConversation(conversationId)
       await events.flush()
-      await saveModelHistoryAfterTurn({
-        outcome,
-        retained,
-        userMessageStored: !!prepared.storedUserMessage,
-        steered: steeringReferences.size > 0,
-        conversationId,
-        turnId,
-        owner: prepared.owner,
-        mode,
-        userId: prepared.userId,
-        experience: audience.experience,
-        expectedHistory: [...history.messages, ...storedMessages.values()],
-        previousSkills: input.skillTexts,
-        messages: agent.state.messages,
-        assertExecution: execution.assert,
-      })
+      if (!confirmationGuarded) {
+        await saveModelHistoryAfterTurn({
+          outcome,
+          retained,
+          userMessageStored: !!prepared.storedUserMessage,
+          steered: steeringReferences.size > 0,
+          conversationId,
+          turnId,
+          owner: prepared.owner,
+          mode,
+          userId: prepared.userId,
+          experience: audience.experience,
+          expectedHistory: [...history.messages, ...storedMessages.values()],
+          previousSkills: input.skillTexts,
+          messages: agent.state.messages,
+          assertExecution: execution.assert,
+        })
+      }
     })
     .catch(async (err) => {
       // 租约已经归了别人：这里不能再写，终帧由接手的一方补（见 `sealAbandonedTurns`）。
