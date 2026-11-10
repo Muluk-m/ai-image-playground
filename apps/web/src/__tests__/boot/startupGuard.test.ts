@@ -153,40 +153,6 @@ it('leaves runtime exceptions before the first render to the app', () => {
   window.dispatchEvent(new Event('unhandledrejection'))
   expect(errorPanelVisible()).toBe(false)
 })
-const rejection = (reason: unknown) => {
-  const event = new Event('unhandledrejection')
-  Object.defineProperty(event, 'reason', { value: reason })
-  window.dispatchEvent(event)
-}
-const staleChunk = () =>
-  new TypeError('Failed to fetch dynamically imported module: /assets/AuthGate-old.js')
-
-it('reloads once when a dynamic import fails before the first render', () => {
-  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
-  rejection(staleChunk())
-  expect(replace).toHaveBeenCalledTimes(1)
-  expect(errorPanelVisible()).toBe(false)
-})
-it('shows the failure panel at once when the reload budget is already spent', () => {
-  rejection(staleChunk())
-  expect(replace).not.toHaveBeenCalled()
-  expect(errorPanelVisible()).toBe(true)
-})
-it.each([
-  ['a bare Safari fetch failure', new TypeError('Load failed')],
-  ['an ordinary error', new Error('boom')],
-])('does not reload for %s before the first render', (_label, reason) => {
-  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
-  rejection(reason)
-  expect(replace).not.toHaveBeenCalled()
-  expect(errorPanelVisible()).toBe(false)
-})
-it('leaves a dynamic import failure after the first render to the app', () => {
-  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
-  ready()
-  rejection(staleChunk())
-  expect(replace).not.toHaveBeenCalled()
-})
 it('hands loading and errors to whatever screen React renders first', () => {
   ready()
   vi.advanceTimersByTime(60000)

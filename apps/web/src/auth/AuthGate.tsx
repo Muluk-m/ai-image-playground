@@ -1,6 +1,7 @@
 import type { AuthUserView } from '@image-playground/shared'
 import { Suspense, useCallback, useEffect, useState } from 'react'
 import { signalBootReady, signalBootStage } from '../boot/ready'
+import RouteChunkBoundary from '../components/RouteChunkBoundary'
 import { Button } from '../components/ui/button'
 import { Icon } from '../components/ui/icon'
 import PricingSheet from '../features/pricing/PricingSheet'
@@ -282,9 +283,16 @@ export function AuthGate() {
         logout,
       }}
     >
-      <Suspense fallback={<LoadingScreen />}>
-        <App adoptedTaskCount={adoptedTaskCount} />
-      </Suspense>
+      {/* 预算用完仍取不到工作台分片时留一个重新加载入口，不让整棵树卸成白屏。 */}
+      <RouteChunkBoundary
+        title={t('route.loadFailed', { ns: 'shell' })}
+        description={t('route.loadFailedDescription', { ns: 'shell' })}
+        retryLabel={t('route.retry', { ns: 'shell' })}
+      >
+        <Suspense fallback={<LoadingScreen />}>
+          <App adoptedTaskCount={adoptedTaskCount} />
+        </Suspense>
+      </RouteChunkBoundary>
       {sessionExpired && loginReason === null ? (
         <SessionExpiredCard
           onRelogin={() => setLoginReason('session-expired')}

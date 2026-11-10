@@ -18,9 +18,3 @@ export const RELOAD_QUERY_PARAM = '__aip_reload'
 export const DEVICE_ID_STORAGE_KEY = 'image-playground.device_id'
 /** 构建时注入 index.html 的构建标识（见 vitePlugin），错误上报拿它当 release。 */
 export const BUILD_META_NAME = 'aip-html-build'
-/**
- * Browser messages for a module that failed to download. Safari's bare `Load failed` is also used
- * for ordinary fetches, so it must not trigger a reload.
- */
-export const DYNAMIC_IMPORT_FAILURE =
-  /failed to fetch dynamically imported module|error loading dynamically imported module|importing a module script failed|failed to load module script/i

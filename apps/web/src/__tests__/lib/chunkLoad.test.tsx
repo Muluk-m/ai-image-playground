@@ -2,12 +2,12 @@
 import { act, Component, type ReactNode, Suspense } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { PRELOAD_RELOAD_STORAGE_KEY, RELOAD_QUERY_PARAM } from '../../boot/constants'
 import {
-  isDynamicImportFailure,
-  lazyWithReload,
-  reloadOnceForChunkFailure,
-} from '../../lib/chunkLoad'
+  BUILD_META_NAME,
+  PRELOAD_RELOAD_STORAGE_KEY,
+  RELOAD_QUERY_PARAM,
+} from '../../boot/constants'
+import { isChunkFailure, lazyWithReload, reloadOnceForChunkFailure } from '../../lib/chunkLoad'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -62,10 +62,11 @@ afterEach(() => {
 })
 
 it('recognizes module download failures but not a bare Safari fetch failure', () => {
-  expect(isDynamicImportFailure(missing())).toBe(true)
-  expect(isDynamicImportFailure(new TypeError('Importing a module script failed.'))).toBe(true)
-  expect(isDynamicImportFailure(new TypeError('Load failed'))).toBe(false)
-  expect(isDynamicImportFailure(new Error('boom'))).toBe(false)
+  expect(isChunkFailure(missing())).toBe(true)
+  expect(isChunkFailure(new TypeError('Importing a module script failed.'))).toBe(true)
+  expect(isChunkFailure(new Error('Unable to preload CSS for /assets/App-old.css'))).toBe(true)
+  expect(isChunkFailure(new TypeError('Load failed'))).toBe(false)
+  expect(isChunkFailure(new Error('boom'))).toBe(false)
 })
 
 it('reloads once per HTML build and keeps path, query and hash', () => {
@@ -77,6 +78,24 @@ it('reloads once per HTML build and keeps path, query and hash', () => {
   expect(target.hash).toBe('#node')
   expect(reloadOnceForChunkFailure()).toBe(false)
   expect(replace).toHaveBeenCalledTimes(1)
+})
+
+it('spends the budget per HTML build: a newer build may reload once more', () => {
+  const meta = document.createElement('meta')
+  meta.name = BUILD_META_NAME
+  meta.content = 'build-a'
+  document.head.append(meta)
+  try {
+    sessionStorage.setItem(PRELOAD_RELOAD_STORAGE_KEY, `${Date.now()}|build-a`)
+    expect(reloadOnceForChunkFailure()).toBe(false)
+    meta.content = 'build-b'
+    expect(reloadOnceForChunkFailure()).toBe(true)
+    expect(sessionStorage.getItem(PRELOAD_RELOAD_STORAGE_KEY)).toMatch(/\|build-b$/)
+    expect(reloadOnceForChunkFailure()).toBe(false)
+    expect(replace).toHaveBeenCalledTimes(1)
+  } finally {
+    meta.remove()
+  }
 })
 
 it('reloads instead of surfacing a missing chunk', async () => {
