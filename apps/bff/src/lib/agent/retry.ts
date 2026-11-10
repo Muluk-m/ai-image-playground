@@ -3,7 +3,7 @@ import type {
   AgentToolErrorCode,
   AgentToolResultBlock,
 } from '@image-playground/shared'
-import { agentToolRetryable, restoreQueuePrompt } from '@image-playground/shared'
+import { agentTool, agentToolRetryable, restoreQueuePrompt } from '@image-playground/shared'
 import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { cancelTasks } from '../../db/task-transitions'
@@ -183,7 +183,7 @@ async function rewriteRecord(
 /** 撤回（用户撤的，或轮到的那条被拒后整队撤的）：记录收成取消，失败占位回到原来那次失败。 */
 function withdrawnBlock(block: AgentToolResultBlock, message: string): AgentToolResultBlock {
   const { job: _job, ...rest } = block
-  return { ...rest, status: 'failed', errorCode: 'cancelled', message }
+  return { ...rest, status: agentTool.step('queued', 'withdraw'), errorCode: 'cancelled', message }
 }
 
 interface RetryPlan {
@@ -446,7 +446,7 @@ async function submitQueuedRecord(
       try {
         written = await rewriteRecord(conversationId, record, {
           ...record.block,
-          status: 'submitted',
+          status: agentTool.step('queued', 'submit'),
           job: submitted.job,
         })
       } catch (error) {

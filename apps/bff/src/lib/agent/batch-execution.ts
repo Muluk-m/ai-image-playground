@@ -5,6 +5,8 @@ import {
   type AgentBatchGenerationItem,
   type AgentBatchItem,
   type AgentBatchPriceSnapshot,
+  agentBatch,
+  agentBatchConfirmEvent,
   preparedImageRateMultiplier,
   QUEUE_MAX_INPUT_IMAGES,
 } from '@image-playground/shared'
@@ -163,8 +165,12 @@ export async function confirmAgentBatch(
     await tx
       .update(schema.agent_batches)
       .set({
-        status:
-          plan.retry_requires_resume || plan.confirmation?.requiresResume ? 'paused' : 'running',
+        status: agentBatch.step(
+          batch.status === 'paused' ? 'paused' : 'draft',
+          agentBatchConfirmEvent(
+            Boolean(plan.retry_requires_resume || plan.confirmation?.requiresResume),
+          ),
+        ),
         pause_reason: null,
         confirmed_version: plan.version,
         confirmation_command_id: input.commandId,
@@ -564,7 +570,7 @@ async function dispatchPreparedBatch(
           await tx
             .update(schema.agent_batches)
             .set({
-              status: 'paused',
+              status: agentBatch.target('pause'),
               pause_reason: 'upstream_auth',
               dispatch_generation: current.dispatch_generation + 1,
               updated_at: Date.now(),
@@ -675,7 +681,7 @@ async function dispatchPreparedBatch(
           await tx
             .update(schema.agent_batches)
             .set({
-              status: 'paused',
+              status: agentBatch.target('pause'),
               pause_reason: pauseReason,
               dispatch_generation: current.dispatch_generation + 1,
               updated_at: Date.now(),
@@ -739,7 +745,7 @@ export async function controlAgentBatch(
       if (!plan || plan.digest !== input.expectedDigest)
         throw new BatchPlanError('batch_version_conflict', 409)
     }
-    const target = kind === 'pause' ? 'paused' : 'running'
+    const target = kind === 'pause' ? agentBatch.target('pause') : agentBatch.target('resume')
     if (batch.status !== target)
       await tx
         .update(schema.agent_batches)
@@ -1187,7 +1193,7 @@ export async function quoteAgentBatchRetry(
     await tx
       .update(schema.agent_batches)
       .set({
-        status: 'paused',
+        status: agentBatch.target('pause'),
         pause_reason: null,
         current_version: version,
         confirmed_version: null,
