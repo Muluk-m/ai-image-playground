@@ -33,8 +33,7 @@ export function getModelCapabilities(
  */
 export function publishedImageOf(profile: ClientProfile, publicChannels: PublicChannel[]) {
   const channel = publicChannels.find((item) => item.id === profile.channelId)
-  const model =
-    channel?.models.find((item) => item.id === profile.selectedModelId) ?? channel?.models[0]
+  const model = channel?.models.find((item) => item.id === profile.selectedModelId)
   return model?.image
 }
 

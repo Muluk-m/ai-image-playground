@@ -324,6 +324,14 @@ describe('gptSettledUsage', () => {
         gptRoute: 'sub2api',
       }),
     ).toEqual({ quantity: 1, unitMultiplier: 1 })
+    // 2.6 落到 sub2api 时按降级后的 1K medium 倍率退差价，不按 2.5 的 1 倍。
+    expect(
+      gptSettledUsage(completed, {
+        model: 'gpt-image-2.6-flare',
+        request: { ...premium, output_format: 'png' },
+        gptRoute: 'sub2api',
+      }),
+    ).toEqual({ quantity: 2, unitMultiplier: 3.3 })
   })
 
   it('keeps the frozen settlement when the order ran direct, was basic, failed or is another model', () => {

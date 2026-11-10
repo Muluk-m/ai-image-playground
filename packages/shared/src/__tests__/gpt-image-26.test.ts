@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { imageRateMultiplier, isGptDirectModel } from '../gpt-direct'
 import {
+  degradeGptImage26ForSub2api,
   gifSpriteExceedsLimit,
   gptImage26Credits,
   gptImage26RateMultiplier,
@@ -183,5 +184,40 @@ describe('gpt image 2.6 rejection', () => {
         }
       }
     }
+  })
+})
+
+describe('degradeGptImage26ForSub2api', () => {
+  it('收成 1K medium 静态图，并按收口后的积分计价', () => {
+    const degraded = degradeGptImage26ForSub2api({
+      output_format: 'gif',
+      size: '2048x2048',
+      quality: 'high',
+      frame_count: 12,
+      frame_duration_ms: 100,
+    })
+    expect(degraded?.kind).toBe('size_quality_format')
+    expect(degraded?.request).toMatchObject({
+      output_format: 'png',
+      size: '1024x1024',
+      quality: 'medium',
+    })
+    expect(degraded?.request.frame_count).toBeUndefined()
+    expect(degraded?.request.frame_duration_ms).toBeUndefined()
+    expect(gptImage26RateMultiplier(degraded!.request)).toBe(3.3)
+    expect(
+      gptImage26RateMultiplier({
+        size: '2048x2048',
+        quality: 'high',
+        output_format: 'gif',
+        frame_count: 12,
+      }),
+    ).toBe(9.8)
+  })
+
+  it('已经是 1K 非高画质静态图时不改', () => {
+    expect(
+      degradeGptImage26ForSub2api({ size: '1024x1024', quality: 'low', output_format: 'png' }),
+    ).toBeNull()
   })
 })

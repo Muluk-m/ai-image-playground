@@ -155,6 +155,7 @@ async function pollAndFetch(
     const actualParams = narrowActualParams(meta.actual_params)
     return {
       images,
+      ...(meta.degrade_notice ? { degradeNotice: meta.degrade_notice } : {}),
       revisedPrompts,
       actualParams,
       actualParamsList: meta.images.map(() => actualParams),

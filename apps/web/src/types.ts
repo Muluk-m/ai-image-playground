@@ -1,4 +1,5 @@
 import type {
+  Image26DegradeKind,
   PartialImageFailure,
   TaskErrorType,
   TaskProgressPhase,
@@ -167,6 +168,8 @@ export interface TaskRecord {
    * 页面刷新时重提带相同 ID，BFF 用它去重。仅 BFF queue 路径会带。
    */
   clientRequestId?: string
+  /** 直连不可用时服务端降级的类别，卡片上显示一句提示。 */
+  degradeNotice?: Image26DegradeKind
   /** API 返回的实际生效参数，用于标记与请求值不一致的情况 */
   actualParams?: Partial<TaskParams>
   /** 输出图片对应的实际生效参数，key 为 outputImages 中的图片 id */

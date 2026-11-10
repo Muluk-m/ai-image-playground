@@ -599,30 +599,60 @@ describe('gpt image 2.6 routes', () => {
     }
   })
 
-  it('does not send a 2K or high-quality still to sub2api when direct is down', async () => {
+  it('degrades a 2K or high-quality still onto sub2api when direct is down', async () => {
     const keys = envDirectKeys()
     noteDirectKeySnapshot({
       admin: keys.map((key) => ({ ...key, enabled: false })),
     })
-    await expect(
-      call26({
-        prompt: 'a paper crane',
-        output_format: 'png',
-        size: '2048x2048',
-        quality: 'low',
-        n: 1,
-      }),
-    ).rejects.toBeInstanceOf(GptImage26RouteUnavailableError)
-    await expect(
-      call26({
-        prompt: 'a paper crane',
-        output_format: 'png',
-        size: '1024x1024',
-        quality: 'high',
-        n: 1,
-      }),
-    ).rejects.toBeInstanceOf(GptImage26RouteUnavailableError)
-    expect(sent).toEqual([])
+    await call26({
+      prompt: 'a paper crane',
+      output_format: 'png',
+      size: '2048x2048',
+      quality: 'low',
+      n: 1,
+    })
+    expect(sent.at(-1)?.route).toBe('sub2api')
+    expect(sent.at(-1)?.body).toMatchObject({
+      size: '1024x1024',
+      quality: 'low',
+      output_format: 'png',
+    })
+    sent = []
+    routes = []
+    await call26({
+      prompt: 'a paper crane',
+      output_format: 'png',
+      size: '1024x1024',
+      quality: 'high',
+      n: 1,
+    })
+    expect(sent[0]?.body).toMatchObject({ size: '1024x1024', quality: 'medium' })
+    expect(routes).toEqual(['sub2api'])
+  })
+
+  it('sends sunburst to sub2api under its own model name when the direct switch is off', async () => {
+    const saved = process.env.GPT_DIRECT_ENABLED
+    process.env.GPT_DIRECT_ENABLED = 'false'
+    noteDirectKeySnapshot({ admin: null })
+    try {
+      const before = (await db.select().from(schema.gpt_direct_usage)).length
+      await callUpstream({
+        provider: 'openai-compat',
+        model: 'gpt-image-2.6-sunburst',
+        taskId: 'task-sunburst',
+        request: still,
+        onGptRoute: async (route) => {
+          routes.push(route)
+        },
+      })
+      expect(sent.map((one) => one.route)).toEqual(['sub2api'])
+      expect(sent[0]?.body.model).toBe('gpt-image-2.6-sunburst')
+      expect(routes).toEqual(['sub2api'])
+      expect(await db.select().from(schema.gpt_direct_usage)).toHaveLength(before)
+    } finally {
+      if (saved === undefined) delete process.env.GPT_DIRECT_ENABLED
+      else process.env.GPT_DIRECT_ENABLED = saved
+    }
   })
 
   it('opens the sub2api breaker from a 2.6 fallback failure and then stops calling it', async () => {
@@ -639,23 +669,27 @@ describe('gpt image 2.6 routes', () => {
     expect(sent).toEqual([])
   })
 
-  it('does not dispatch a GIF when direct cannot take it', async () => {
+  it('degrades a GIF to a still sub2api image when direct cannot take it', async () => {
     const keys = envDirectKeys()
     noteDirectKeySnapshot({
       admin: keys.map((key) => ({ ...key, enabled: false })),
     })
-    await expect(
-      call26({
-        prompt: 'a bouncing ball',
-        output_format: 'gif',
-        size: '768x768',
-        frame_count: 6,
-        frame_duration_ms: 200,
-        n: 1,
-      }),
-    ).rejects.toBeInstanceOf(GptImage26RouteUnavailableError)
-    expect(sent).toEqual([])
-    expect(routes).toEqual([])
+    await call26({
+      prompt: 'a bouncing ball',
+      output_format: 'gif',
+      size: '768x768',
+      frame_count: 6,
+      frame_duration_ms: 200,
+      n: 1,
+    })
+    expect(sent[0]?.route).toBe('sub2api')
+    expect(sent[0]?.body).toMatchObject({
+      output_format: 'png',
+      size: '1024x1024',
+    })
+    expect(sent[0]?.body.frame_count).toBeUndefined()
+    expect(sent[0]?.body.frame_duration_ms).toBeUndefined()
+    expect(routes).toEqual(['sub2api'])
   })
 
   it('polls a resumed direct task on OpenAI and does not rewrite the route', async () => {

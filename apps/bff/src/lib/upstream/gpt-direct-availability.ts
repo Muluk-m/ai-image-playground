@@ -92,3 +92,16 @@ export function gptDirectSizeEnabled(): boolean {
   if (gptDirectEnabledKeyCount() === 0) return false
   return adminDeliverable ?? true
 }
+
+/** Image 2.6 的产品开关。只读环境变量，渠道清单不能为此去加载 config。 */
+export function gptImage26Enabled(): boolean {
+  return process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true'
+}
+
+/**
+ * 直连此刻能不能接 2.6。开关关掉、没有启用 key，或上一轮预占发现预算/冷却接不了，都是 false。
+ * 不读 config、不连数据库。目录不再据此隐藏高档；CLI 用它标注 degraded。
+ */
+export function gptImage26DirectListed(): boolean {
+  return gptImage26Enabled() && gptDirectSwitchOn() && gptDirectSizeEnabled()
+}

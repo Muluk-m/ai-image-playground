@@ -6,6 +6,7 @@
  * BFF 用 localhost / 内网调上游 API，完全脱钩浏览器和 Edge 的 HTTP 长超时限制。
  */
 
+import type { Image26DegradeField, Image26DegradeKind } from './gpt-image-26'
 import type { VideoRequest } from './video-presets'
 
 export type QueueProvider = 'openai-compat' | 'gemini'
@@ -115,6 +116,13 @@ export interface SubmitRequest {
   frame_count?: number
   /** GIF 每帧毫秒。只对 output_format=gif 有意义。 */
   frame_duration_ms?: number
+  /**
+   * 直连不可用时服务端收口的记录。不发给上游。前端按 kind 显示一句降级提示。
+   */
+  image26_degrade?: {
+    kind: Image26DegradeKind
+    fields: readonly Image26DegradeField[]
+  }
   /** OpenAI Images 使用的输出压缩率（0-100）。 */
   output_compression?: number
   /** OpenAI Images 使用的内容审核级别；缺省使用 DEFAULT_IMAGE_MODERATION。 */
@@ -200,6 +208,8 @@ export interface StatusResultMeta {
   raw_image_urls?: string[]
   /** 同 {@link ResultResponse.partial_failure} */
   partial_failure?: PartialImageFailure
+  /** 直连不可用时的降级类别。前端按它显示一句提示。 */
+  degrade_notice?: Image26DegradeKind
 }
 
 export interface StatusResponse {
@@ -256,6 +266,8 @@ export interface ResultResponse {
   error?: { message: string; type: TaskErrorType }
   /** 一单多张里有几张没出来：任务照样 completed，`images` 是交付的那几张。 */
   partial_failure?: PartialImageFailure
+  /** 直连不可用时的降级类别。 */
+  degrade_notice?: Image26DegradeKind
 }
 
 /**

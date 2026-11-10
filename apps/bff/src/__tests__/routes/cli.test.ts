@@ -872,11 +872,12 @@ describe('native GIF and SVG', () => {
       const caps = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
       const model = caps.json.data.models.find((item: { id: string }) => item.id === IMAGE_26)
       expect(model).toMatchObject({
-        output_formats: ['image'],
-        image_sizes: ['1K'],
-        qualities: ['auto', 'low', 'medium'],
+        degraded: true,
+        output_formats: ['image', 'gif', 'svg'],
+        image_sizes: ['1K', '2K'],
+        qualities: ['auto', 'low', 'medium', 'high'],
       })
-      expect(model.gif).toBeUndefined()
+      expect(model.image_sizes).not.toContain('4K')
     } finally {
       if (saved === undefined) delete process.env.GPT_DIRECT_ENABLED
       else process.env.GPT_DIRECT_ENABLED = saved

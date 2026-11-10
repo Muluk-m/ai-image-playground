@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import {
+  degradeGptImage26ForSub2api,
   GPT_IMAGE_26_GIF_DEFAULT_DURATION_MS,
   GPT_IMAGE_26_GIF_DEFAULT_FRAMES,
   GPT_IMAGE_26_GIF_DEFAULT_SIZE,
@@ -34,12 +35,8 @@ import { declaredImageSizes, getDiscoveredChannels, resolveQueueModel } from '..
 import { refreshInactiveModels, withoutInactiveModels } from '../model-availability'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { strictImageRequestAllowed } from '../taskSubmission'
-import {
-  gptDirectConfigured,
-  gptImage26Configured,
-  gptImage26DirectKey,
-  gptImage26DirectListed,
-} from '../upstream/gpt-routing'
+import { gptImage26DirectListed } from '../upstream/gpt-direct-availability'
+import { gptDirectConfigured, gptImage26DirectKey } from '../upstream/gpt-routing'
 import { CliRequestError } from './envelope'
 
 export const CLI_PROMPT_MAX_CHARS = 32_000
@@ -99,11 +96,11 @@ const GIF_DEFAULT_SIZE = GPT_IMAGE_26_GIF_DEFAULT_SIZE
 const OUTPUT_FORMAT_VALUES = ['image', 'png', 'gif', 'svg'] as const
 
 /**
- * 与网站一致：只有 GPT Image 2.6 能直出 GIF / SVG。直连接不了单时不列出这两种格式，
- * 避免用户选了再在提交时被拒。
+ * 与网站一致：只有 GPT Image 2.6 能直出 GIF / SVG。直连接不了单时仍列出，
+ * 提交会降级成静态图，能力清单用 `degraded` 标明。
  */
 export function outputFormatsFor(model: string): readonly CliOutputFormat[] {
-  return isGptImage26Model(model) && gptImage26DirectListed() ? ['image', 'gif', 'svg'] : ['image']
+  return isGptImage26Model(model) ? ['image', 'gif', 'svg'] : ['image']
 }
 
 export interface CliImageRequestBody {
@@ -196,6 +193,8 @@ function outputFormatFields(
           frame_size: body.frame_size ?? GIF_DEFAULT_SIZE,
         }
       : {}
+  // 直连接不了时不在这里拒绝：提交会把 GIF / SVG 收成 PNG，再按静态图计价。
+  if (!gptImage26DirectListed()) return { output_format: format as 'gif' | 'svg', ...gif }
   const reason = gptImage26Rejection(
     model.id,
     {
@@ -213,10 +212,8 @@ function outputFormatFields(
               : undefined,
           }),
     },
-    gptImage26Configured(),
+    true,
   )
-  if (reason === 'unavailable')
-    throw new CliRequestError('MODEL_UNAVAILABLE', { message: OUTPUT_REJECTION[reason] })
   if (reason)
     throw new CliRequestError('INVALID_REQUEST', {
       message: OUTPUT_REJECTION[reason],
@@ -403,6 +400,12 @@ export interface CliImagePreview {
   readonly planRequired: boolean
 }
 
+/** 直连接不了时，预检和提交按同一份降级请求报价，避免预览按高档、实扣按 1K。 */
+async function pricedImageRequest(model: string, request: SubmitRequest): Promise<SubmitRequest> {
+  if (!isGptImage26Model(model) || (await gptImage26DirectKey(model, request))) return request
+  return degradeGptImage26ForSub2api(request)?.request ?? request
+}
+
 /** 预检：报价与会员档判断放在同一个只读事务里，不建任务、不预扣。 */
 export async function previewImageRequest(
   userId: string,
@@ -410,13 +413,14 @@ export async function previewImageRequest(
   request: SubmitRequest,
 ): Promise<CliImagePreview> {
   const hooks = (await loadPrivateBffOverlay()).taskHooks
+  const priced = await pricedImageRequest(prepared.model.id, request)
   return db.transaction(async (tx) => {
     const planRequired = !(await strictImageRequestAllowed(
       tx,
       userId,
       prepared.model.provider,
       prepared.model.id,
-      request,
+      priced,
     ))
     if (planRequired) return { planRequired, quote: null }
     const quote = await hooks.quoteTask?.({
@@ -426,7 +430,7 @@ export async function previewImageRequest(
       quantity: 1,
       unitMultiplier: imageRateMultiplier(
         prepared.model.id,
-        request,
+        priced,
         declaredImageSizes(prepared.model.id),
       ),
     })
@@ -451,6 +455,8 @@ export interface CliModelCapability {
   readonly typical_duration_seconds: number | null
   /** `image` 是常规图片；`gif`、`svg` 是模型直出的动图与矢量图，限制见 `gif` / `svg`。 */
   readonly output_formats: readonly CliOutputFormat[]
+  /** 直连暂时接不了。高档、动图和矢量图仍列出，提交时降级成 1K 静态图。 */
+  readonly degraded?: true
   readonly gif?: CliGifCapability
   readonly svg?: CliSvgCapability
 }
@@ -553,10 +559,7 @@ export async function imageCapabilities(userId: string) {
       const caps = model.image
       const gpt = isGptDirectModel(model.id)
       const image26 = isGptImage26Model(model.id)
-      const image26Direct =
-        image26 &&
-        gptImage26DirectListed() &&
-        (await gptImage26DirectKey(model.id, { size: '1024x1024', quality: 'low' })) !== null
+      const image26Direct = image26 && gptImage26DirectListed()
       const memberTier = await strictImageRequestAllowed(tx, userId, model.provider, model.id, {
         prompt: '',
         ...(gpt ? { size: '3840x2160', quality: 'high' } : { image_size: '4K' }),
@@ -565,7 +568,6 @@ export async function imageCapabilities(userId: string) {
       const tiers = caps.tiers
         .map((tier) => tier.id)
         .filter((id) => {
-          if (image26 && !image26Direct) return id === '1K'
           if (id === '4K') return memberTier
           if (gpt && id !== '1K') return direct
           return true
@@ -587,14 +589,14 @@ export async function imageCapabilities(userId: string) {
         aspect_ratios: [...(caps.autoRatio ? ['auto'] : []), ...caps.surfaces.direct.ratios],
         image_sizes: tiers,
         default_image_size: tiers.includes(caps.defaultTier) ? caps.defaultTier : tiers[0]!,
-        qualities: (caps.quality?.values ?? []).filter((quality) => {
-          if (image26 && !image26Direct) return quality !== 'high'
-          return !gpt || memberTier || quality !== 'high'
-        }),
+        qualities: (caps.quality?.values ?? []).filter(
+          (quality) => !gpt || memberTier || quality !== 'high',
+        ),
         max_reference_images: caps.references.max,
         price: quote ? { estimated_credits: quote.estimatedCredits } : null,
         typical_duration_seconds: model.etaSeconds ?? null,
         output_formats: outputFormatsFor(model.id),
+        ...(image26 && !image26Direct ? { degraded: true as const } : {}),
         ...(outputFormatsFor(model.id).includes('gif')
           ? await specialFormatCapabilities(tx, userId, model.id, hooks)
           : {}),

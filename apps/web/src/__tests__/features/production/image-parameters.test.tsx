@@ -146,6 +146,81 @@ it('keeps incompatible values after a model change until the user explicitly res
   }
 })
 
+it('keeps 4K behind membership when the catalog lists every tier', async () => {
+  stubPointerApis()
+  const original = useStore.getState()
+  setChannels([
+    {
+      id: 'images',
+      label: 'Images',
+      kind: 'openai-queue',
+      defaults: {},
+      models: [
+        {
+          id: 'gpt-image-2.6-flare',
+          label: 'Flare',
+          capabilities: ['generate', 'size', 'quality'],
+          image: {
+            operations: ['generate'],
+            tiers: [
+              { id: '1K', pixels: {} },
+              { id: '2K', pixels: {} },
+              { id: '4K', pixels: {} },
+            ],
+            ratios: ['1:1'],
+            surfaces: {
+              direct: { ratios: ['1:1'], customSize: false },
+              agent: { ratios: ['1:1'], customSize: false },
+            },
+            ratioVia: ['param'],
+            autoRatio: true,
+            defaultTier: '1K',
+            count: { max: 1, singleTask: true },
+            references: { max: 0 },
+            quality: { values: ['auto', 'low', 'medium', 'high'] },
+          },
+        },
+      ],
+    },
+  ])
+  useStore.setState({
+    params: { ...DEFAULT_PARAMS, size: '1024x1024', quality: 'medium' },
+    settings: {
+      ...original.settings,
+      activeProfileId: 'profile',
+      profiles: [
+        {
+          id: 'profile',
+          source: 'builtin-edge',
+          channelId: 'images',
+          selectedModelId: 'gpt-image-2.6-flare',
+        },
+      ],
+    },
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<ParamControls />))
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label^="生成设置: "]')
+    expect(trigger).not.toBeNull()
+    await act(async () => trigger!.click())
+    const button = (label: string) =>
+      [...document.body.querySelectorAll<HTMLButtonElement>('button')].find(
+        (node) => node.textContent === label,
+      )
+    expect(button('1K')?.disabled).toBe(false)
+    expect(button('2K')?.disabled).toBe(false)
+    expect(button('4K')?.disabled).toBe(true)
+    expect(button('高')?.disabled).toBe(false)
+  } finally {
+    await act(async () => root.unmount())
+    host.remove()
+    useStore.setState(original)
+  }
+})
+
 it('follows catalog tiers and qualities instead of offering 2K or high', async () => {
   stubPointerApis()
   const original = useStore.getState()

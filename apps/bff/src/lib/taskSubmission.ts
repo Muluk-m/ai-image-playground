@@ -19,15 +19,14 @@ import {
   applyPromptRewriteGuard,
   billedStageQuantity,
   DEFAULT_IMAGE_MODERATION,
+  degradeGptImage26ForSub2api,
   GPT_IMAGE_26_GIF_DEFAULT_DURATION_MS,
   type GptImage26Rejection,
   gptImage26Rejection,
   gptImage26RejectionFields,
-  gptImage26RequiresDirect,
   imageSizeTier,
   isBlankPrompt,
   isGptImage26Model,
-  isGptSub2apiDeliverable,
   nearestImageSize,
   QUEUE_TIMEOUTS,
   resolveImageTier,
@@ -236,6 +235,67 @@ function commandHash(input: Omit<CreateQueueTaskInput, 'entry'>) {
     )
     .digest('hex')
 }
+
+function pushNoRewriteHashes(
+  hashes: string[],
+  input: CreateQueueTaskInput,
+  request: SubmitRequest,
+): void {
+  if (request.no_rewrite === undefined) return
+  const { no_rewrite, ...withoutOption } = request
+  const legacyPrompt = shapeQueuePrompt({
+    prompt: input.promptShaping?.originalPrompt ?? withoutOption.prompt,
+    facts: {
+      provider: input.provider,
+      model: input.model,
+      ...(withoutOption.size ? { size: withoutOption.size } : {}),
+      ratio_via_prompt: Boolean(
+        withoutOption.size && modelCapabilities(input.model)?.includes('size') === false,
+      ),
+    },
+  })
+  const legacyRequest = { ...withoutOption, prompt: legacyPrompt }
+  hashes.push(commandHash({ ...input, promptShaping: undefined, request: legacyRequest }))
+  if (no_rewrite && input.provider !== 'gemini')
+    hashes.push(
+      commandHash({
+        ...input,
+        promptShaping: undefined,
+        request: { ...legacyRequest, prompt: applyPromptRewriteGuard(legacyPrompt) },
+      }),
+    )
+  const optionedLegacyRequest = { ...legacyRequest, no_rewrite }
+  hashes.push(commandHash({ ...input, promptShaping: undefined, request: optionedLegacyRequest }))
+  if (no_rewrite && input.provider !== 'gemini')
+    hashes.push(
+      commandHash({
+        ...input,
+        promptShaping: undefined,
+        request: { ...optionedLegacyRequest, prompt: applyPromptRewriteGuard(legacyPrompt) },
+      }),
+    )
+}
+
+/**
+ * 旧任务的幂等哈希。默认 GIF 时长以前没写进载荷；no_rewrite 的几种提示词形态也要能认回。
+ * 两者叠在同一单上时，缺时长的那份也要带上 no_rewrite 的每一种形态。
+ */
+function legacyCommandHashes(input: CreateQueueTaskInput): string[] {
+  const hashes: string[] = []
+  const requests = [input.request]
+  if (
+    isGptImage26Model(input.model) &&
+    input.request.output_format === 'gif' &&
+    input.request.frame_duration_ms === GPT_IMAGE_26_GIF_DEFAULT_DURATION_MS
+  ) {
+    const { frame_duration_ms: _duration, ...withoutDuration } = input.request
+    requests.push(withoutDuration)
+    hashes.push(commandHash({ ...input, request: withoutDuration }))
+  }
+  for (const request of requests) pushNoRewriteHashes(hashes, input, request)
+  return hashes
+}
+
 /**
  * 同一个账号在这段时间里提交了一模一样的请求（命令 id 不同），当作手滑连点挡掉，不另建任务、不再扣费。
  * 连点两下的间隔远小于它；失败或取消的那条不算，立刻重试仍然放行。
@@ -704,7 +764,24 @@ function tierSnapshot(
  * - 对整理后的最终请求再解一次，让 `requires` 与倍率对应真正落库的请求。
  * 视频没有档位决定，原样返回。
  */
+async function degradeImage26WhenDirectUnavailable(
+  input: CreateQueueTaskInput,
+): Promise<CreateQueueTaskInput> {
+  if (!isGptImage26Model(input.model) || input.video) return input
+  if (await gptImage26DirectKey(input.model, input.request)) return input
+  const degraded = degradeGptImage26ForSub2api(input.request)
+  if (!degraded) return input
+  return {
+    ...input,
+    request: {
+      ...degraded.request,
+      image26_degrade: { kind: degraded.kind, fields: degraded.fields },
+    },
+  }
+}
+
 async function alignImageTier(input: CreateQueueTaskInput): Promise<ImageTierAlignment> {
+  input = await degradeImage26WhenDirectUnavailable(input)
   if ((input.entry === 'cli-strict') !== (input.strictImageRequest === true))
     throw new TypeError('strict_image_request_entry_mismatch')
   if (input.video) return { input, member: false }
@@ -750,30 +827,16 @@ const GPT_IMAGE_26_REJECTION_MESSAGE = {
   gif_size: '动图尺寸无效',
 } as const
 
-const GPT_IMAGE_26_DIRECT_ONLY_MESSAGE = '动图和矢量图需要 OpenAI 直连，当前直连不可用'
-const GPT_IMAGE_26_TIER_MESSAGE = '当前高分辨率/高画质需要 OpenAI 直连，暂不可用'
-
 /**
  * 2.6 的格式和雪碧图限制在建任务、扣积分之前拒绝。
- * 静态图在直连不可用时不拒绝，交给执行时走 sub2api。GIF / SVG 没有第二条路。
+ * 直连不可用时请求已经收成 1K 静态图，这里只校验直连仍要出的 GIF / SVG。
  */
-async function gptImage26RequestProblem(
+function gptImage26RequestProblem(
   input: CreateQueueTaskInput,
-): Promise<Extract<
-  CreateQueueTaskOutcome,
-  { kind: 'invalid_image_request' | 'model_unavailable' }
-> | null> {
+): Extract<CreateQueueTaskOutcome, { kind: 'invalid_image_request' }> | null {
   if (!isGptImage26Model(input.model) || input.video) return null
-  if (!config.gptImage26.enabled)
-    return { kind: 'model_unavailable', message: GPT_IMAGE_26_REJECTION_MESSAGE.unavailable }
-  const directKey = await gptImage26DirectKey(input.model, input.request)
-  if (!directKey && gptImage26RequiresDirect(input.request))
-    return { kind: 'model_unavailable', message: GPT_IMAGE_26_DIRECT_ONLY_MESSAGE }
-  // sub2api 不兑现 2K/4K/高画质。先拒绝再计价，避免按高档扣了费却出默认尺寸。
-  if (!directKey && !isGptSub2apiDeliverable(input.request))
-    return { kind: 'model_unavailable', message: GPT_IMAGE_26_TIER_MESSAGE }
   const reason = gptImage26Rejection(input.model, input.request, true)
-  if (!reason) return null
+  if (!reason || reason === 'unavailable') return null
   return {
     kind: 'invalid_image_request',
     code: reason,
@@ -812,53 +875,7 @@ async function submitQueueTask(
     throw new TypeError('reconciliation_requires_image_task')
   const commandId = input.request.client_request_id
   const hash = commandHash(input)
-  const legacyHashes: string[] = []
-  // 旧 GIF 任务校验时按 200ms 放行，但没把默认时长写进载荷。补进请求后哈希变了，
-  // 同一幂等键要仍能认回那条任务。
-  if (
-    isGptImage26Model(input.model) &&
-    input.request.output_format === 'gif' &&
-    input.request.frame_duration_ms === GPT_IMAGE_26_GIF_DEFAULT_DURATION_MS
-  ) {
-    const { frame_duration_ms: _duration, ...request } = input.request
-    legacyHashes.push(commandHash({ ...input, request }))
-  }
-  if (input.request.no_rewrite !== undefined) {
-    const { no_rewrite, ...request } = input.request
-    const legacyPrompt = shapeQueuePrompt({
-      prompt: input.promptShaping?.originalPrompt ?? request.prompt,
-      facts: {
-        provider: input.provider,
-        model: input.model,
-        ...(request.size ? { size: request.size } : {}),
-        ratio_via_prompt: Boolean(
-          request.size && modelCapabilities(input.model)?.includes('size') === false,
-        ),
-      },
-    })
-    const legacyRequest = { ...request, prompt: legacyPrompt }
-    legacyHashes.push(commandHash({ ...input, promptShaping: undefined, request: legacyRequest }))
-    if (no_rewrite && input.provider !== 'gemini')
-      legacyHashes.push(
-        commandHash({
-          ...input,
-          promptShaping: undefined,
-          request: { ...legacyRequest, prompt: applyPromptRewriteGuard(legacyPrompt) },
-        }),
-      )
-    const optionedLegacyRequest = { ...legacyRequest, no_rewrite }
-    legacyHashes.push(
-      commandHash({ ...input, promptShaping: undefined, request: optionedLegacyRequest }),
-    )
-    if (no_rewrite && input.provider !== 'gemini')
-      legacyHashes.push(
-        commandHash({
-          ...input,
-          promptShaping: undefined,
-          request: { ...optionedLegacyRequest, prompt: applyPromptRewriteGuard(legacyPrompt) },
-        }),
-      )
-  }
+  const legacyHashes = legacyCommandHashes(input)
   // 外部事务在场时不走历史命令认领：它自己要开一个事务，握着连接的调用方会因此卡在连接池上。
   // 确认生成用的是新建的命令 id，没有历史任务可认领。
   if (input.userId && commandId) {
