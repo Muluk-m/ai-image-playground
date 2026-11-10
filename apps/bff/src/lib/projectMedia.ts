@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { mediaObject } from '@image-playground/shared'
 import {
   and,
   eq,
@@ -626,7 +627,7 @@ async function publishMedia(
       const [ready] = await tx
         .update(media)
         .set({
-          status: 'ready',
+          status: mediaObject.step('pending', 'publish'),
           object_key: objectKey,
           preview_key: previewKey,
           preview_bytes: preview.length,
@@ -879,7 +880,7 @@ export async function purgeExpiredAttachmentMedia(now = Date.now()): Promise<num
         if (protectedMedia.length) return null
         const [deleting] = await tx
           .update(media)
-          .set({ status: 'deleting', updated_at: now })
+          .set({ status: mediaObject.target('reclaim'), updated_at: now })
           .where(eq(media.id, row.id))
           .returning()
         return deleting ?? null
