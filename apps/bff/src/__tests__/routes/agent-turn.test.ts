@@ -436,6 +436,16 @@ describe('POST /api/agent/conversations/:id/turns', () => {
     expect((await post(path, { deviceId: 'short', text: '你好' })).status).toBe(400)
   })
 
+  it('rejects a 25ms GIF frame duration before the turn starts', async () => {
+    const conversationId = await startConversation()
+    const { status } = await post(`/api/agent/conversations/${conversationId}/turns`, {
+      deviceId: DEVICE,
+      text: '出一张动图',
+      params: { output_format: 'gif', frame_count: 6, frame_duration_ms: 25 },
+    })
+    expect(status).toBe(400)
+  })
+
   /**
    * 上一轮附的图不再无条件跟着下一轮重发：纯文字轮一个图片块都不带，那批图只剩 id 与编号，
    * 模型真要看内容得自己调 viewImage。这条是「公鸡那一轮被上一轮的商务人像带偏」的回归。

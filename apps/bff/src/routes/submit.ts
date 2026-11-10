@@ -1,5 +1,10 @@
 import type { PersistedVideoRequest, StoredImageRef, VideoRequest } from '@image-playground/shared'
 import {
+  GPT_IMAGE_26_GIF_DURATION_MAX_MS,
+  GPT_IMAGE_26_GIF_DURATION_MIN_MS,
+  GPT_IMAGE_26_GIF_DURATION_STEP_MS,
+  GPT_IMAGE_26_GIF_FRAME_MAX,
+  GPT_IMAGE_26_GIF_FRAME_MIN,
   QUEUE_MAX_INPUT_IMAGES,
   QUEUE_PROMPT_MAX_CHARS,
   stageAuthorizedVideoDuration,
@@ -44,8 +49,20 @@ const submitBodySchema = t.Object({
   size: t.Optional(t.String()),
   quality: t.Optional(t.String()),
   output_format: t.Optional(t.String()),
-  frame_count: t.Optional(t.Number({ minimum: 2, maximum: 16, multipleOf: 1 })),
-  frame_duration_ms: t.Optional(t.Number({ minimum: 20, maximum: 2000 })),
+  frame_count: t.Optional(
+    t.Number({
+      minimum: GPT_IMAGE_26_GIF_FRAME_MIN,
+      maximum: GPT_IMAGE_26_GIF_FRAME_MAX,
+      multipleOf: 1,
+    }),
+  ),
+  frame_duration_ms: t.Optional(
+    t.Number({
+      minimum: GPT_IMAGE_26_GIF_DURATION_MIN_MS,
+      maximum: GPT_IMAGE_26_GIF_DURATION_MAX_MS,
+      multipleOf: GPT_IMAGE_26_GIF_DURATION_STEP_MS,
+    }),
+  ),
   output_compression: t.Optional(t.Number({ minimum: 0, maximum: 100 })),
   moderation: t.Optional(t.String()),
   aspect_ratio: t.Optional(t.String()),
