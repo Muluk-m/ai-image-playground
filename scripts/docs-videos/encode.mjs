@@ -1,6 +1,8 @@
 /**
  * 把 scripts/docs-videos/raw 里的录像压成指南成片：
  * H.264 MP4、VP9 WebM、WebP 封面。不读凭据。
+ * 视频写到 scripts/docs-videos/out/（gitignore）。封面仍写到 public。
+ * 这是旧的低码率路径，不要再用它盖掉 finish.py 的成片。
  *
  *   node scripts/docs-videos/encode.mjs
  */
@@ -11,8 +13,10 @@ import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const raw = resolve(root, 'scripts/docs-videos/raw')
-const out = resolve(root, 'apps/web/public/guide-assets/zh/clips')
+const out = resolve(root, 'scripts/docs-videos/out')
+const posters = resolve(root, 'apps/web/public/guide-assets/zh/clips')
 mkdirSync(out, { recursive: true })
+mkdirSync(posters, { recursive: true })
 const font = '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc'
 
 function run(args) {
@@ -50,7 +54,7 @@ const straight = {
 function encodePair(name, src) {
   const mp4 = resolve(out, `${name}.mp4`)
   const webm = resolve(out, `${name}.webm`)
-  const poster = resolve(out, `${name}-poster.webp`)
+  const poster = resolve(posters, `${name}-poster.webp`)
   run([
     '-i', src,
     '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '32', '-preset', 'veryfast',
@@ -110,5 +114,5 @@ writeFileSync(listPath, segments.map((file) => `file '${file}'`).join('\n'))
 const promo = resolve(out, 'promo-site-zh.mp4')
 run(['-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'copy', promo])
 run(['-i', promo, '-an', '-c:v', 'libvpx-vp9', '-crf', '40', '-b:v', '0', '-cpu-used', '4', resolve(out, 'promo-site-zh.webm')])
-run(['-ss', '8', '-i', promo, '-frames:v', '1', '-c:v', 'libwebp', '-quality', '72', resolve(out, 'promo-site-zh-poster.webp')])
+run(['-ss', '8', '-i', promo, '-frames:v', '1', '-c:v', 'libwebp', '-quality', '72', resolve(posters, 'promo-site-zh-poster.webp')])
 console.log('promo bytes', statSync(promo).size)

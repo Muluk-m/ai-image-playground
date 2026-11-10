@@ -114,7 +114,8 @@ overlay 的受理 / 出错 / 结算通知，以及失败按错误码映射成人
   分组 → 页面，地址 `/guide/<group>/<page>/`，一页一个功能。中文为主版本；英文暂沿用旧内容，
   同一主题使用相同的 `group/page` 以便 hreflang 配对。页面改名或拆分时把旧地址与锚点写进 `moved`，
   不要删除旧链接。新增页面只需修改内容，不再创建 HTML 占位文件。渲染与站内链接回归在 `apps/website/src/__tests__/`。
-- 截图在 `public/guide-assets/<zh|en>/`，使用 WebP；录屏放在 `clips/`（H.264 mp4 + 可选 WebM + WebP 封面），
+- 截图在 `public/guide-assets/<zh|en>/`，使用 WebP。录屏封面（`*-poster.webp`）仍放在 `clips/`；
+  mp4 / webm 不进仓库，公开地址集中在 `src/features/guide/content/media.ts`，指向 `cms-r2.deepclick.com`。
   保持短小无声。截图编号圆点与同组步骤一一对应。界面文案修改时也同步指南里的 `[[标签]]`。
 - Web 构建先输出工作台，再调用官网构建并合并为 `dist`。`index.html` 是官网，`workbench.html` 是工作台。
   Pages、BFF、nginx 仅为明确的工作台路径回退到后者，缺失页面和资源必须返回 404。

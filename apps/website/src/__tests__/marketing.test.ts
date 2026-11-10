@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
+import { guideClipUrl } from '../../../web/src/features/guide/content/media'
 import { ContactPanel } from '../components/ContactModal'
 import { MarketingHome } from '../components/MarketingHome'
 import { CONTACT_EMAIL, caseRows, HOME_IMAGES, marketingCopy } from '../marketing'
@@ -35,6 +36,16 @@ describe('marketing home', () => {
       expect(html).toContain('href="#contact"')
       expect(html.indexOf('id="contact"')).toBeGreaterThan(html.indexOf('<footer'))
     }
+  })
+
+  it('plays the promo from the guide clip map', () => {
+    const html = render('zh-CN')
+    expect(html).toContain(`src="${guideClipUrl('promo-site-zh.webm')}"`)
+    expect(html).toContain(`src="${guideClipUrl('promo-site-zh.mp4')}"`)
+    expect(html).toContain('poster="/guide-assets/zh/clips/promo-site-zh-poster.webp"')
+    expect(html).toContain('preload="none"')
+    expect(html).not.toContain('/guide-assets/zh/clips/promo-site-zh.mp4')
+    expect(html).not.toContain('/guide-assets/zh/clips/promo-site-zh.webm')
   })
 
   it('uses only bundled images', () => {
