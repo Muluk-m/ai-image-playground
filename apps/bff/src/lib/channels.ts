@@ -51,7 +51,12 @@ import {
 import { findCatalogModel, publishModelCapabilities } from '@image-playground/shared/model-catalog'
 import { isObject } from './type-guards'
 import { capabilitiesForModel } from './upstream/adapters'
-import { gptDirectEnabledKeyCount, gptDirectSizeEnabled } from './upstream/gpt-direct-availability'
+import {
+  adminDirectKeys,
+  directKeyKnownDisabled,
+  gptDirectEnabledKeyCount,
+  gptDirectSizeEnabled,
+} from './upstream/gpt-direct-availability'
 import { runtimeSecret, upstreamSecretRevision } from './upstream-secret-cache'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
@@ -482,9 +487,26 @@ export function parseChannelsConfig(
 
     const secret = envLookup(ch.auth.secretRef)?.trim() ?? ''
     const adminDirectKeys = ch.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0
+    const image26WithoutDirectKey =
+      process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true' &&
+      ch.models.some((model) => isGptImage26Model(model.id))
     if (!secret && !adminDirectKeys) {
       // 直连上游没有 key 就只是个必然失败的模型，宁可整条不广播；缺省的宽容留给网关部署。
       // 后台直连页里启用的 key 也算有密钥，清掉 OPENAI_API_KEY 之后模型还留在列表里。
+      // 2.6 开关开着时仍留下 2.6：静态图走 sub2api，不依赖这把直连 key。
+      if (ch.requiresSecret && image26WithoutDirectKey) {
+        warnings.push(
+          `channel '${ch.id}': env '${ch.auth.secretRef}' is empty or unset; only Image 2.6 stays listed and uses sub2api`,
+        )
+        channels.push(
+          toInternal(
+            { ...ch, models: ch.models.filter((model) => isGptImage26Model(model.id)) },
+            resolved.baseUrl,
+            secret,
+          ),
+        )
+        return
+      }
       if (ch.requiresSecret) {
         warnings.push(
           `channel '${ch.id}': env '${ch.auth.secretRef}' is empty or unset; the channel is disabled and will not be advertised`,
@@ -718,22 +740,27 @@ function withDeliverableGptSize(channel: InternalChannel): InternalChannel {
 }
 
 /**
- * 2.6 默认不出现。开关打开但直连 key 不在时仍列出来，标成不可用，前端不能改去别的模型。
+ * 2.6 默认不出现。开关打开就列出来，即使直连 key 不可用：1K、非高画质走 sub2api。
+ * 直连不可用时目录只标 1K。GIF / SVG、2K/4K/高画质在提交时拒绝。
  */
+/** 目录用的同步判断，不连数据库。预算用尽仍要到提交时拒绝。 */
+function image26DirectListed(): boolean {
+  const admin = adminDirectKeys()
+  if (admin) return admin.some((key) => key.enabled && !directKeyKnownDisabled(key.fingerprint))
+  if (process.env.OPENAI_API_KEYS?.split(',').some((part) => part.trim())) return true
+  return Boolean(process.env.OPENAI_API_KEY?.trim())
+}
+
 function withGptImage26(channel: InternalChannel): InternalChannel {
   if (!channel.models.some((model) => isGptImage26Model(model.id))) return channel
   const enabled = process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true'
-  // 只配了 OPENAI_API_KEYS 或只在后台直连页配了密钥时，OPENAI_API_KEY 为空，也算有 key。
-  const ready =
-    enabled &&
-    (Boolean(runtimeSecret('OPENAI_API_KEY', process.env.OPENAI_API_KEY?.trim() ?? '')) ||
-      gptDirectEnabledKeyCount() > 0)
+  const directReady = image26DirectListed()
   return {
     ...channel,
     models: channel.models.flatMap((model) => {
       if (!isGptImage26Model(model.id)) return [model]
       if (!enabled) return []
-      return ready ? [model] : [{ ...model, unavailable: true }]
+      return directReady ? [model] : [{ ...model, imageSizes: ['1K'] }]
     }),
   }
 }

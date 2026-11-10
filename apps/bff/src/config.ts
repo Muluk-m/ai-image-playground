@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { databasePoolFromEnv } from '@image-playground/db'
-import { QUEUE_TIMEOUTS } from '@image-playground/shared'
+import { GPT_IMAGE_26_UPSTREAM_MODELS, QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { type LoginOriginPolicy, parseLoginMethodsByOrigin } from './lib/auth-origin-config'
 import { normalizeKeyPrefix } from './lib/objectKeyPrefix'
 import {
@@ -236,13 +236,24 @@ export const config = {
     sub2apiBreakerCooldownMs: positiveIntEnv('GPT_SUB2API_BREAKER_COOLDOWN_MS', 60_000),
   },
   /**
-   * GPT Image 2.6（flare / sunburst）单独的开关，默认关。开了才走 OpenAI 直连，
-   * 用上面的 OPENAI_API_KEY，不回退 sub2api，也不换模型。SVG 必须带 svg.model，
-   * 实测 gpt-6-sol 可用，用 GPT_IMAGE_26_SVG_MODEL 换。
+   * GPT Image 2.6（flare / sunburst）单独的开关，默认关。开了之后：直连 key 可用时走
+   * OpenAI 直连；没有启用 key、预算用尽或 key 被停用时，静态图走 sub2api。
+   * GIF / SVG 仍只要直连。sub2api 的模型名默认与产品 id 相同，可用环境变量换。
+   * SVG 必须带 svg.model，实测 gpt-6-sol 可用，用 GPT_IMAGE_26_SVG_MODEL 换。
    */
   gptImage26: {
     enabled: booleanEnv('GPT_IMAGE_26_ENABLED', false),
     svgModel: env('GPT_IMAGE_26_SVG_MODEL', 'gpt-6-sol'),
+    sub2apiModels: {
+      'gpt-image-2.6-flare': env(
+        'GPT_IMAGE_26_SUB2API_FLARE',
+        GPT_IMAGE_26_UPSTREAM_MODELS['gpt-image-2.6-flare'],
+      ),
+      'gpt-image-2.6-sunburst': env(
+        'GPT_IMAGE_26_SUB2API_SUNBURST',
+        GPT_IMAGE_26_UPSTREAM_MODELS['gpt-image-2.6-sunburst'],
+      ),
+    },
   },
   /**
    * 跨 worker 的上游调度配额（公开库 scheduler_buckets / scheduler_leases，按行锁抢）。每个环境各算各的。
