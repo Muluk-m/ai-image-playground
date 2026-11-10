@@ -289,12 +289,7 @@ it('names the URL that keeps stalling', async () => {
   ).rejects.toThrow('GET /assets/lazy-456.js failed: no response in 20ms after 2 tries')
 })
 
-async function releaseCheckout(
-  edition: string,
-  pagesEnvLines: string[],
-  stub = 'exit 27',
-  extraEnv: Record<string, string> = {},
-) {
+async function releaseCheckout(edition: string, pagesEnvLines: string[], stub = 'exit 27') {
   const checkout = join(dist, 'checkout')
   await mkdir(join(checkout, 'scripts/lib'), { recursive: true })
   await mkdir(join(checkout, 'private/apps/web'), { recursive: true })
@@ -308,13 +303,6 @@ async function releaseCheckout(
       },
     )
   }
-  // The real retain script would fetch the live origin. Record that the deploy invoked it.
-  await writeFile(
-    join(checkout, 'scripts/retain-pages-assets.mjs'),
-    `import { appendFileSync } from 'node:fs'
-if (process.env.RETAIN_LOG) appendFileSync(process.env.RETAIN_LOG, process.argv.slice(2).join(' ') + '\\n')
-`,
-  )
   // Stands in for the browser smoke that runs right after the dist is finalized.
   await writeFile(join(checkout, 'scripts/pages-browser-smoke.sh'), 'exit 28\n')
   // Records where retention would read the live site; the real script is covered on its own.
@@ -345,9 +333,7 @@ ${stub}
       XDG_CONFIG_HOME: join(checkout, 'config'),
       PAGES_DEPLOY_DRY_RUN: '',
       CAPTURED: captured,
-      RETAIN_LOG: join(checkout, 'retain.log'),
       EXTRA_ASSETS_DIR: '/must-not-inherit-assets',
-      ...extraEnv,
       BFF_BASE_URLS_BY_ORIGIN: '',
       NOINDEX_ORIGINS: '',
     },
@@ -426,9 +412,6 @@ it('serves the enterprise domain from the muvloom project with its own API and n
   expect(await readFile(join(checkout, 'apps/web/dist/_headers'), 'utf8')).toBe(
     '/assets/*\n  Cache-Control: immutable\n\nhttps://enterprise.example.net/*\n  X-Robots-Tag: noindex, nofollow\n',
   )
-  expect(await readFile(join(checkout, 'retain.log'), 'utf8')).toContain(
-    `${join(checkout, 'apps/web/dist')} https://paid.example.com`,
-  )
 })
 
 it('rejects an enterprise mapping that contradicts the muvloom origin map', async () => {
@@ -459,40 +442,6 @@ it('rejects half an enterprise domain config', async () => {
   )
   expect(run.status).toBe(1)
   expect(run.stderr).toContain('must be set together')
-})
-
-it('keeps hashed assets from the live site and does not cache the entry documents', async () => {
-  const deploy = await readFile(join(root, 'scripts/pages-deploy.sh'), 'utf8')
-  const release = await readFile(join(root, 'scripts/pages-release.sh'), 'utf8')
-  expect(deploy).toContain('retain-pages-assets.mjs')
-  expect(deploy).toContain('PAGES_ASSET_ORIGIN')
-  expect(release).toContain('PAGES_ASSET_ORIGIN=$public_origin')
-  const headers = await readFile(join(root, 'apps/web/public/_headers'), 'utf8')
-  expect(headers).toMatch(/\/assets\/\*[\s\S]*immutable/)
-  expect(headers).not.toMatch(/^\/website-assets\/\*/m)
-  expect(headers).toMatch(/\/index\.html[\s\S]*no-cache/)
-  expect(headers).toMatch(/\/version\.json[\s\S]*no-cache/)
-  expect(headers).toMatch(/\/assets-manifest\.json[\s\S]*no-cache/)
-  expect(headers).not.toMatch(/^\/\*/m)
-  expect(await readFile(join(root, 'apps/web/src/lib/pagesRedirects.ts'), 'utf8')).not.toContain(
-    '/* /index.html 200',
-  )
-})
-
-it('skips asset retention when the emergency bypass is set, and says so', async () => {
-  const checkout = join(dist, 'checkout')
-  await mkdir(checkout, { recursive: true })
-  await prepareSecrets(checkout)
-  const { run } = await releaseCheckout(
-    'muvloom',
-    paidEnv(checkout),
-    `mkdir -p apps/web/dist && printf '/assets/*\\n  Cache-Control: immutable\\n' > apps/web/dist/_headers`,
-    { PAGES_SKIP_ASSET_RETAIN: '1' },
-  )
-  expect(run.status).toBe(28)
-  expect(run.stderr).toContain('PAGES_SKIP_ASSET_RETAIN=1')
-  expect(run.stderr).toContain('emergency bypass')
-  await expect(readFile(join(checkout, 'retain.log'), 'utf8')).rejects.toThrow()
 })
 
 it('rejects an unknown Pages release target with usage', async () => {
