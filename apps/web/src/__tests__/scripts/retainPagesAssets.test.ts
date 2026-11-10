@@ -265,3 +265,27 @@ it('drops the oldest releases instead of failing when the file limit is near', a
   expect((await manifest()).releases).toHaveLength(2)
   expect(log.mock.calls.flat().join('\n')).toContain('dropping the release')
 })
+
+it('skips oversized files and an oversized manifest without reading them whole', async () => {
+  const huge = (type: string) =>
+    new Response('x', {
+      headers: { 'content-type': type, 'content-length': String(26 * 1024 * 1024) },
+    })
+  const result = await run(
+    site({
+      '/assets-manifest.json': () =>
+        json({
+          version: 1,
+          releases: [{ publishedAt: daysAgo(1), files: ['assets/big-BBBBBBBB.js'] }],
+        }),
+      '/assets/big-BBBBBBBB.js': () => huge('application/javascript'),
+    }),
+  )
+  expect(result.missing).toEqual(['assets/big-BBBBBBBB.js'])
+  expect(await exists('assets/big-BBBBBBBB.js')).toBe(false)
+
+  log.mockClear()
+  await run(site({ '/assets-manifest.json': () => huge('application/json') }))
+  expect((await manifest()).releases).toHaveLength(1)
+  expect(log.mock.calls.flat().join('\n')).toContain('larger than')
+})

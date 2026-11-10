@@ -17,6 +17,10 @@ export const KEEP_RELEASES = 5
 export const KEEP_DAYS = 14
 /** Pages allows 20,000 files per deployment; older releases are dropped above this. */
 export const MAX_FILES = 15_000
+/** Pages rejects larger files, so a bigger response is not a real asset. */
+export const MAX_FILE_BYTES = 25 * 1024 * 1024
+export const MAX_TOTAL_BYTES = 200 * 1024 * 1024
+const MAX_MANIFEST_BYTES = 5 * 1024 * 1024
 const ROOTS = ['assets', 'website-assets']
 /** Vite's default `[name]-[hash].[ext]`: 8 url-safe base64 characters. */
 const HASHED = /-[A-Za-z0-9_-]{8}\.[A-Za-z0-9]+$/
@@ -74,6 +78,24 @@ async function get(fetchImpl, url, delayMs) {
   throw lastError
 }
 
+const declaredBytes = (response) => Number(response.headers.get('content-length') ?? 0)
+
+/** Reads at most `limit` bytes; returns null once the body goes past it. */
+async function readCapped(response, limit) {
+  if (declaredBytes(response) > limit) {
+    await response.body?.cancel()
+    return null
+  }
+  const chunks = []
+  let size = 0
+  for await (const chunk of response.body ?? []) {
+    size += chunk.length
+    if (size > limit) return null
+    chunks.push(chunk)
+  }
+  return Buffer.concat(chunks, size)
+}
+
 const contentType = (response) => (response.headers.get('content-type') ?? '').toLowerCase()
 const isHtml = (response) => contentType(response).includes('text/html')
 /** A 200 with the wrong type would be published under an immutable hashed name. */
@@ -104,7 +126,9 @@ async function readLiveManifest(origin, fetchImpl, delayMs, log) {
     return null
   }
   try {
-    const data = await response.json()
+    const body = await readCapped(response, MAX_MANIFEST_BYTES)
+    if (!body) throw new Error(`larger than ${MAX_MANIFEST_BYTES} bytes`)
+    const data = JSON.parse(body.toString('utf8'))
     if (!Array.isArray(data?.releases)) throw new Error('no releases array')
     return data.releases.filter(
       (release) =>
@@ -173,6 +197,10 @@ export async function retainPagesAssets({
   let copied = 0
   let bytes = 0
   await mapPool([...wanted], CONCURRENCY, async (file) => {
+    if (bytes >= MAX_TOTAL_BYTES) {
+      missing.add(file)
+      return
+    }
     let response
     try {
       response = await get(fetchImpl, new URL(`/${file}`, origin), retryDelayMs)
@@ -190,14 +218,14 @@ export async function retainPagesAssets({
     }
     let body
     try {
-      body = Buffer.from(await response.arrayBuffer())
+      body = await readCapped(response, MAX_FILE_BYTES)
     } catch (error) {
       log(`WARNING: reading /${file} failed (${error.message}); skipped.`)
       missing.add(file)
       return
     }
-    if (!body.length) {
-      log(`WARNING: /${file} is empty; skipped.`)
+    if (!body?.length) {
+      log(`WARNING: /${file} is ${body ? 'empty' : `over ${MAX_FILE_BYTES} bytes`}; skipped.`)
       missing.add(file)
       return
     }
@@ -219,6 +247,9 @@ export async function retainPagesAssets({
     join(distDir, MANIFEST),
     `${JSON.stringify({ version: 1, releases }, null, 2)}\n`,
   )
+  if (bytes >= MAX_TOTAL_BYTES) {
+    log(`WARNING: stopped downloading at ${MAX_TOTAL_BYTES} bytes; the rest is skipped.`)
+  }
   log(
     `Retained ${kept.length} previous release(s): copied ${copied} file(s), ${(bytes / 1024 / 1024).toFixed(1)} MiB; ${missing.size} unavailable.`,
   )
