@@ -15,7 +15,7 @@
 // __vite__mapDeps 裸字符串 "assets/…"）把当前正在服务的 /assets 与 /website-assets
 // 爬下来保留。入口持续 5xx 或超时则中止发布，不拿「只有本次构建」盖掉线上哈希。
 // 四个入口都是明确 404 才算第一次上线。PAGES_SKIP_ASSET_RETAIN=1 可在原点读不了时跳过。
-import { readdir, readFile, stat, writeFile, mkdir } from 'node:fs/promises'
+import { readdir, readFile, rm, stat, writeFile, mkdir } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
@@ -58,14 +58,24 @@ function acceptableFile(file, limits) {
 
 function publishedAtMs(release) {
   const value = Date.parse(release?.publishedAt ?? '')
-  return Number.isFinite(value) ? value : Number.NaN
+  // 无效时间排到最旧，避免 NaN 把 sort 比成无序。
+  return Number.isFinite(value) ? value : Number.NEGATIVE_INFINITY
+}
+
+/** 工作台与官网客户端的脚本和样式。website-assets 里的图片、海报不算这一版的依赖。 */
+export function isReleaseDependency(path) {
+  if (typeof path !== 'string' || !safeAssetPath(path)) return false
+  if (path.startsWith('assets/') && /\.(?:m?js|css|wasm)$/.test(path)) return true
+  if (path.startsWith('website-assets/') && /\.(?:m?js|css)$/.test(path)) return true
+  return false
 }
 
 /**
  * 决定这次 dist 要从旧发布里复制哪些 /assets 文件，以及新的清单。
  * 保留最近 keepReleases 次，或 14 天内的发布（两者取并集）。
- * 超出文件数或字节上限时，先丢掉较大的 /website-assets，再丢掉其它 /assets，最后才丢掉 /assets 里的 JS。
- * 当前构建里小于 25 MiB 的文件始终留在清单里，不会被上限删掉。
+ * 每一版的清单是它的完整依赖：/assets 的脚本和样式，以及它引用的 /website-assets 脚本和样式。
+ * 营销图不算依赖。复制时按路径去重。超出文件数或字节上限时，从最旧的一版开始整版丢掉，不拆开同一版的 JS 和 CSS。
+ * 当前构建的依赖始终完整保留。
  */
 export function planAssetRetention({
   now,
@@ -76,15 +86,18 @@ export function planAssetRetention({
   limits = DEFAULT_LIMITS,
 }) {
   const nowMs = now instanceof Date ? now.getTime() : now
-  const currentFiles = (current.files ?? []).filter((file) => acceptableFile(file, limits))
+  const currentFiles = (current.files ?? []).filter(
+    (file) => acceptableFile(file, limits) && isReleaseDependency(file.path),
+  )
   const currentPaths = new Set(currentFiles.map((file) => file.path))
-  const seen = new Set(currentPaths)
   const previous = previousReleases
     .filter((release) => release && release.id && release.id !== current.id)
     .map((release) => ({
       id: String(release.id),
       publishedAt: typeof release.publishedAt === 'string' ? release.publishedAt : '',
-      files: (release.files ?? []).filter((file) => acceptableFile(file, limits)),
+      files: (release.files ?? []).filter(
+        (file) => acceptableFile(file, limits) && isReleaseDependency(file.path),
+      ),
     }))
     .sort((left, right) => publishedAtMs(right) - publishedAtMs(left))
 
@@ -95,51 +108,49 @@ export function planAssetRetention({
     if (index < limits.keepReleases || withinWindow) selected.push(previous[index])
   }
 
-  const candidates = []
-  for (const release of selected) {
+  const costOf = (releases) => {
+    const owned = new Set(currentPaths)
+    let files = 0
+    let bytes = 0
+    for (const release of releases) {
+      for (const file of release.files) {
+        if (owned.has(file.path)) continue
+        owned.add(file.path)
+        files += 1
+        bytes += file.bytes
+      }
+    }
+    return { files, bytes }
+  }
+  // selected 是从新到旧。超限时从最旧的整版丢掉，留下的每一版依赖都是完整的。
+  const active = [...selected]
+  while (active.length > 0) {
+    const cost = costOf(active)
+    const over =
+      occupiedFiles + cost.files > limits.maxDeployFiles ||
+      retainedBytes + cost.bytes > limits.maxRetainedBytes
+    if (!over) break
+    active.pop()
+  }
+  const keptIds = new Set(active.map((release) => release.id))
+  const kept = active
+  const droppedReleaseIds = selected
+    .filter(
+      (release) =>
+        !keptIds.has(release.id) && release.files.some((file) => !currentPaths.has(file.path)),
+    )
+    .map((release) => release.id)
+  const copySeen = new Set(currentPaths)
+  const copy = []
+  let bytes = retainedBytes
+  for (const release of kept) {
     for (const file of release.files) {
-      if (seen.has(file.path)) continue
-      seen.add(file.path)
-      candidates.push({ ...file, releaseId: release.id, publishedAt: release.publishedAt })
+      if (copySeen.has(file.path)) continue
+      copySeen.add(file.path)
+      copy.push({ ...file, releaseId: release.id })
+      bytes += file.bytes
     }
   }
-  // 0 = /assets JS（打开的工作台最需要），1 = 其它 /assets，2 = website-assets（大图最后留）。
-  const rank = (path) => {
-    if (path.startsWith('assets/') && /\.m?js$/.test(path)) return 0
-    if (path.startsWith('assets/')) return 1
-    return 2
-  }
-  candidates.sort((left, right) => {
-    const byRank = rank(left.path) - rank(right.path)
-    if (byRank) return byRank
-    const byTime = publishedAtMs(right) - publishedAtMs(left)
-    if (byTime) return byTime
-    return left.bytes - right.bytes
-  })
-
-  let files = occupiedFiles
-  let bytes = retainedBytes
-  const keptByRelease = new Map()
-  const keptIds = new Set()
-  for (const file of candidates) {
-    if (files + 1 > limits.maxDeployFiles || bytes + file.bytes > limits.maxRetainedBytes) continue
-    files += 1
-    bytes += file.bytes
-    const bucket = keptByRelease.get(file.releaseId) ?? []
-    bucket.push({ path: file.path, bytes: file.bytes })
-    keptByRelease.set(file.releaseId, bucket)
-    keptIds.add(file.releaseId)
-  }
-  const kept = selected
-    .filter((release) => keptIds.has(release.id))
-    .map((release) => ({
-      id: release.id,
-      publishedAt: release.publishedAt,
-      files: keptByRelease.get(release.id),
-    }))
-  const droppedReleaseIds = selected
-    .filter((release) => !keptIds.has(release.id) && release.files.some((file) => !currentPaths.has(file.path)))
-    .map((release) => release.id)
 
   const byPath = (left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0)
   const releases = [
@@ -154,9 +165,7 @@ export function planAssetRetention({
     })),
   ]
   return {
-    copy: kept.flatMap((release) =>
-      release.files.map((file) => ({ ...file, releaseId: release.id })),
-    ),
+    copy,
     releases,
     droppedReleaseIds,
     retainedBytes: bytes,
@@ -291,10 +300,11 @@ function sleep(ms) {
 }
 
 function transientStatus(status) {
-  return status === 404 || status === 408 || status === 429 || (status >= 500 && status <= 599)
+  // 404 是文件确实不在，不重试。超时、429 和 5xx 才重试。
+  return status === 408 || status === 429 || (status >= 500 && status <= 599)
 }
 
-async function requestWithRetries(fetchImpl, url, { attempts, delayMs, retryNotFound }) {
+async function requestWithRetries(fetchImpl, url, { attempts, delayMs }) {
   let response
   let lastError
   for (let attempt = 0; attempt < attempts; attempt++) {
@@ -310,8 +320,7 @@ async function requestWithRetries(fetchImpl, url, { attempts, delayMs, retryNotF
       response = undefined
       continue
     }
-    if (response.ok) return response
-    if (response.status === 404 && !retryNotFound) return response
+    if (response.ok || response.status === 404) return response
     if (!transientStatus(response.status)) return response
   }
   if (response) return response
@@ -360,6 +369,7 @@ export async function bootstrapLiveRelease({
   const base = new URL(origin.endsWith('/') ? origin : `${origin}/`)
   const queue = []
   const seen = new Set()
+  let missingEntries = 0
   for (const page of ENTRY_PAGES) {
     const url = new URL(page, base)
     url.searchParams.set('retain-check', String(now.getTime()))
@@ -368,7 +378,6 @@ export async function bootstrapLiveRelease({
       response = await requestWithRetries(fetchImpl, url, {
         attempts: 3,
         delayMs: retryDelayMs,
-        retryNotFound: false,
       })
     } catch (error) {
       throw new Error(
@@ -376,18 +385,39 @@ export async function bootstrapLiveRelease({
         { cause: error },
       )
     }
-    // A clear 404 means that entry is absent. 5xx after retries must not look like a first release.
-    if (response.status === 404) continue
+    // 只有明确 404 表示这个入口不存在。四个入口都 404 才是第一次上线。
+    if (response.status === 404) {
+      missingEntries += 1
+      continue
+    }
     if (!response.ok) {
       throw new Error(
         `GET ${url.pathname || '/'} failed: ${response.status} after retries; refusing to publish without the live asset graph. Set PAGES_SKIP_ASSET_RETAIN=1 to bypass.`,
       )
     }
     const { overflow, bytes } = await readBounded(response, limits.maxFileBytes)
-    if (overflow || !bytes || !looksLikeHtml(bytes)) continue
-    for (const path of assetReferencesFrom(bytes.toString('utf8'), '', base.origin)) queue.push(path)
+    const label = url.pathname || '/'
+    if (overflow || !bytes || !looksLikeHtml(bytes)) {
+      throw new Error(
+        `GET ${label} did not return HTML with a recoverable asset graph; refusing to publish the current build alone. Set PAGES_SKIP_ASSET_RETAIN=1 to bypass.`,
+      )
+    }
+    const refs = assetReferencesFrom(bytes.toString('utf8'), '', base.origin).filter((path) =>
+      isReleaseDependency(path),
+    )
+    if (!refs.length) {
+      throw new Error(
+        `GET ${label} has no hashed /assets or /website-assets script or style references; refusing to publish the current build alone. Set PAGES_SKIP_ASSET_RETAIN=1 to bypass.`,
+      )
+    }
+    for (const path of refs) queue.push(path)
   }
-  if (!queue.length) return null
+  if (!queue.length) {
+    if (missingEntries === ENTRY_PAGES.length) return null
+    throw new Error(
+      'Could not recover the live asset graph. Set PAGES_SKIP_ASSET_RETAIN=1 to bypass.',
+    )
+  }
 
   const files = []
   const bodies = new Map()
@@ -409,14 +439,18 @@ export async function bootstrapLiveRelease({
         response = await requestWithRetries(fetchImpl, url, {
           attempts: 3,
           delayMs: retryDelayMs,
-          retryNotFound: true,
         })
       } catch (error) {
-        throw new Error(`GET /${path} failed: ${error.message}`, { cause: error })
+        throw new Error(
+          `GET /${path} failed: ${error.message}. Set PAGES_SKIP_ASSET_RETAIN=1 to bypass.`,
+          { cause: error },
+        )
       }
       if (response.status === 404) return
       if (!response.ok) {
-        throw new Error(`GET /${path} failed: ${response.status}; refusing to drop live assets`)
+        throw new Error(
+          `GET /${path} failed: ${response.status}; refusing to drop live assets. Set PAGES_SKIP_ASSET_RETAIN=1 to bypass.`,
+        )
       }
       const { overflow, bytes } = await readBounded(response, limits.maxFileBytes)
       const type = response.headers.get('content-type') ?? ''
@@ -425,18 +459,43 @@ export async function bootstrapLiveRelease({
       bodies.set(path, bytes)
       if (/\.(?:m?js|css)$/.test(path)) {
         for (const next of assetReferencesFrom(bytes.toString('utf8'), path, base.origin)) {
-          if (!seen.has(next)) discovered.push(next)
+          if (!seen.has(next) && isReleaseDependency(next)) discovered.push(next)
         }
       }
     })
     frontier = discovered
   }
-  if (!files.length) return null
+  if (!files.length) {
+    throw new Error(
+      'Live pages referenced hashed assets but none could be downloaded. Set PAGES_SKIP_ASSET_RETAIN=1 to bypass.',
+    )
+  }
   log(`No asset manifest at ${origin}; bootstrapped ${files.length} live hashed file(s) from the current pages.`)
   return {
     release: { id: `live-${now.toISOString()}`, publishedAt: now.toISOString(), files },
     bodies,
   }
+}
+
+function mergeReleaseFiles(lists) {
+  const byId = new Map()
+  for (const release of lists.flat()) {
+    if (!release?.id) continue
+    const existing = byId.get(release.id)
+    if (!existing) {
+      byId.set(release.id, {
+        id: release.id,
+        publishedAt: release.publishedAt,
+        files: [...(release.files ?? [])],
+      })
+      continue
+    }
+    const paths = new Set(existing.files.map((file) => file.path))
+    for (const file of release.files ?? []) {
+      if (file?.path && !paths.has(file.path)) existing.files.push(file)
+    }
+  }
+  return [...byId.values()]
 }
 
 /**
@@ -474,7 +533,6 @@ export async function retainPagesAssets({
       response = await requestWithRetries(fetchImpl, manifestUrl, {
         attempts: 3,
         delayMs: retryDelayMs,
-        retryNotFound: false,
       })
     } catch (error) {
       throw new Error(`GET /assets-manifest.json failed: ${error.message}; refusing to publish without retained assets`, { cause: error })
@@ -532,7 +590,6 @@ export async function retainPagesAssets({
         response = await requestWithRetries(fetchImpl, url, {
           attempts: 3,
           delayMs: retryDelayMs,
-          retryNotFound: true,
         })
       } catch (error) {
         throw new Error(`GET /${file.path} failed: ${error.message}`, { cause: error })
@@ -569,8 +626,8 @@ export async function retainPagesAssets({
       now,
       current,
       previousReleases: releases,
-      occupiedFiles: occupied + copied.length,
-      retainedBytes: copied.reduce((sum, file) => sum + file.bytes, 0),
+      occupiedFiles: occupied,
+      retainedBytes: 0,
       limits,
     })
 
@@ -578,29 +635,29 @@ export async function retainPagesAssets({
   await mapPool(plan.copy, 6, downloadOne)
 
   // A deploy that finished while this one was downloading is already live. Union its
-  // manifest with the one we started from so neither release's hashes are dropped.
+  // manifest with the one we started from and plan again from the complete dependency
+  // sets. A release that no longer fits is removed whole, including files already copied.
   const again = await loadManifest()
   let releaseLists = plan.releases
   if (again?.length) {
-    const late = planOf(
-      again.map((release) => ({
-        ...release,
-        files: (release.files ?? []).filter(
-          (file) => !have.has(file.path) && !skipped.includes(file.path),
-        ),
-      })),
+    const replanned = planOf(mergeReleaseFiles([previousReleases, again]))
+    const keep = new Set(replanned.copy.map((file) => file.path))
+    for (const file of copied) {
+      if (keep.has(file.path)) continue
+      await rm(join(root, file.path), { force: true })
+      have.delete(file.path)
+    }
+    const keptCopies = copied.filter((file) => keep.has(file.path))
+    copied.splice(0, copied.length, ...keptCopies)
+    const fresh = replanned.copy.filter(
+      (file) => !have.has(file.path) && !skipped.includes(file.path),
     )
-    const fresh = late.copy.filter((file) => !have.has(file.path) && !skipped.includes(file.path))
     if (fresh.length) {
       log(`Live manifest gained ${fresh.length} file(s) during this retain; merging them before upload.`)
       await mapPool(fresh, 6, downloadOne)
     }
-    plan = {
-      ...plan,
-      copy: [...plan.copy, ...fresh],
-      droppedReleaseIds: [...new Set([...plan.droppedReleaseIds, ...late.droppedReleaseIds])],
-    }
-    releaseLists = [...plan.releases, ...late.releases]
+    plan = replanned
+    releaseLists = plan.releases
   }
 
   if (plan.copy.length >= 4 && skipped.length * 2 > plan.copy.length) {

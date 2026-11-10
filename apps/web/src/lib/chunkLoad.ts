@@ -15,7 +15,7 @@ export const CHUNK_IMPORT_BACKOFF_MS = 400
 
 /** 启动守卫内联脚本与这里共用同一条判断，避免只改一边。 */
 export const DYNAMIC_IMPORT_FAILURE =
-  /failed to fetch dynamically imported module|error loading dynamically imported module|importing a module script failed|failed to load module script|loading chunk [\w-]+ failed/i
+  /failed to fetch dynamically imported module|error loading dynamically imported module|importing a module script failed|failed to load module script|loading chunk [\w-]+ failed|\bload failed\b/i
 
 const CHUNK_LOAD_PATTERNS = [
   DYNAMIC_IMPORT_FAILURE,

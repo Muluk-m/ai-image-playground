@@ -123,18 +123,44 @@ describe('planAssetRetention', () => {
     expect(result.releases[0].files).toEqual([{ path: 'assets/new-a.js', bytes: 10 }])
   })
 
-  it('keeps an older script ahead of a newer oversized website file', () => {
+  it('keeps the newest old release whole when the cap is hit', () => {
     const limits = { ...DEFAULT_LIMITS, maxRetainedBytes: 12 }
     const result = plan(
       [
-        release('new', 1, [['website-assets/hero.wasm', 15]]),
-        release('old', 2, [['assets/app.js', 8]]),
+        release('newest', 1, [
+          ['assets/app.js', 6],
+          ['assets/app.css', 4],
+          ['website-assets/site.js', 0],
+        ]),
+        release('older', 2, [
+          ['assets/old.js', 6],
+          ['assets/old.css', 4],
+        ]),
       ],
       [['assets/current.js', 1]],
       limits,
     )
-    expect(result.copy.map((file: { path: string }) => file.path)).toEqual(['assets/app.js'])
-    expect(result.droppedReleaseIds).toEqual(['new'])
+    expect(result.copy.map((file: { path: string }) => file.path).sort()).toEqual([
+      'assets/app.css',
+      'assets/app.js',
+    ])
+    expect(result.releases[1].files.map((file: { path: string }) => file.path).sort()).toEqual([
+      'assets/app.css',
+      'assets/app.js',
+    ])
+    expect(result.droppedReleaseIds).toEqual(['older'])
+  })
+
+  it('sorts a release with an invalid timestamp as the oldest', () => {
+    const result = plan([
+      { id: 'undated', publishedAt: 'not-a-date', files: [{ path: 'assets/old.js', bytes: 1 }] },
+      release('dated', 1, [['assets/new.js', 1]]),
+    ])
+    expect(result.releases.map((item: { id: string }) => item.id)).toEqual([
+      'current',
+      'dated',
+      'undated',
+    ])
   })
 
   it('stops before the deployment file cap, counting files already in dist', () => {
@@ -150,8 +176,8 @@ describe('planAssetRetention', () => {
       limits,
       11,
     )
-    expect(result.copy).toEqual([{ path: 'assets/one.js', bytes: 1, releaseId: 'old' }])
-    expect(result.droppedReleaseIds).toEqual([])
+    expect(result.copy).toEqual([])
+    expect(result.droppedReleaseIds).toEqual(['old'])
   })
 })
 
@@ -355,6 +381,37 @@ describe('retainPagesAssets', () => {
     ])
   })
 
+  it('fetches a missing asset once', async () => {
+    await setup()
+    let fetches = 0
+    bodies.set('/assets-manifest.json', {
+      status: 200,
+      type: 'application/json',
+      body: JSON.stringify({
+        version: 1,
+        releases: [
+          {
+            id: 'live',
+            publishedAt: '2026-11-09T00:00:00.000Z',
+            files: [{ path: 'assets/gone.js', bytes: 4 }],
+          },
+        ],
+      }),
+    })
+    await retainPagesAssets({
+      distDir: dist,
+      origin: 'https://muvloom.online',
+      now: NOW,
+      log: () => {},
+      retryDelayMs: 0,
+      fetchImpl: (url: URL) => {
+        if (url.pathname === '/assets/gone.js') fetches += 1
+        return fetcher(url)
+      },
+    })
+    expect(fetches).toBe(1)
+  })
+
   it('refuses to publish when most retained assets are missing', async () => {
     await setup()
     const files = ['a', 'b', 'c', 'd'].map((name) => ({
@@ -548,6 +605,107 @@ describe('retainPagesAssets', () => {
     ).toBe(false)
   })
 
+  it('treats every entry 404 as a first release and aborts on an unreadable page', async () => {
+    await setup()
+    const logs: string[] = []
+    await retainPagesAssets({
+      distDir: dist,
+      origin: 'https://muvloom.online',
+      fetchImpl: fetcher,
+      now: NOW,
+      log: (message: string) => logs.push(message),
+      retryDelayMs: 0,
+    })
+    expect(logs.join('\n')).toContain('not serving hashed assets')
+    await expect(
+      retainPagesAssets({
+        distDir: dist,
+        origin: 'https://muvloom.online',
+        now: NOW,
+        log: () => {},
+        retryDelayMs: 0,
+        fetchImpl: (url: URL) =>
+          url.pathname === '/assets-manifest.json'
+            ? new Response('missing', { status: 404 })
+            : new Response('maintenance', {
+                status: 200,
+                headers: { 'content-type': 'text/plain' },
+              }),
+      }),
+    ).rejects.toThrow('PAGES_SKIP_ASSET_RETAIN=1')
+    await expect(
+      retainPagesAssets({
+        distDir: dist,
+        origin: 'https://muvloom.online',
+        now: NOW,
+        log: () => {},
+        retryDelayMs: 0,
+        fetchImpl: (url: URL) =>
+          url.pathname === '/assets-manifest.json'
+            ? new Response('missing', { status: 404 })
+            : new Response('<!doctype html><title>maintenance</title>', {
+                status: 200,
+                headers: { 'content-type': 'text/html' },
+              }),
+      }),
+    ).rejects.toThrow('no hashed')
+    await expect(
+      retainPagesAssets({
+        distDir: dist,
+        origin: 'https://muvloom.online',
+        now: NOW,
+        log: () => {},
+        retryDelayMs: 0,
+        fetchImpl: (url: URL) => {
+          if (url.pathname === '/assets-manifest.json')
+            return new Response('missing', { status: 404 })
+          if (url.pathname === '/assets/gone.js') return new Response('missing', { status: 404 })
+          return new Response(
+            '<!doctype html><script type="module" src="/assets/gone.js"></script>',
+            { status: 200, headers: { 'content-type': 'text/html' } },
+          )
+        },
+      }),
+    ).rejects.toThrow('none could be downloaded')
+    await expect(
+      retainPagesAssets({
+        distDir: dist,
+        origin: 'https://muvloom.online',
+        now: NOW,
+        log: () => {},
+        retryDelayMs: 0,
+        fetchImpl: (url: URL) => {
+          if (url.pathname === '/assets-manifest.json')
+            return new Response('missing', { status: 404 })
+          if (url.pathname === '/website-assets/logo.png') {
+            return new Response('png', { headers: { 'content-type': 'image/png' } })
+          }
+          if (url.pathname === '/assets/app.js') return new Response('missing', { status: 404 })
+          return new Response(
+            '<!doctype html><script type="module" src="/assets/app.js"></script><img src="/website-assets/logo.png">',
+            { status: 200, headers: { 'content-type': 'text/html' } },
+          )
+        },
+      }),
+    ).rejects.toThrow('none could be downloaded')
+    await expect(
+      retainPagesAssets({
+        distDir: dist,
+        origin: 'https://muvloom.online',
+        now: NOW,
+        log: () => {},
+        retryDelayMs: 0,
+        fetchImpl: (url: URL) =>
+          url.pathname === '/assets-manifest.json'
+            ? new Response('missing', { status: 404 })
+            : new Response('<!doctype html><img src="/website-assets/logo.png">', {
+                status: 200,
+                headers: { 'content-type': 'text/html' },
+              }),
+      }),
+    ).rejects.toThrow('no hashed')
+  })
+
   it('aborts when an entry stays 5xx instead of publishing the current build only', async () => {
     await setup()
     await expect(
@@ -566,7 +724,7 @@ describe('retainPagesAssets', () => {
     await expect(readFile(join(dist, 'assets-manifest.json'))).rejects.toThrow()
   })
 
-  it('does not copy a late hash that would exceed the shared byte budget', async () => {
+  it('drops the whole release when a later manifest makes its dependency set exceed the cap', async () => {
     await setup()
     let reads = 0
     const result = await retainPagesAssets({
@@ -603,8 +761,12 @@ describe('retainPagesAssets', () => {
         return fetcher(url)
       },
     })
-    expect(result.copied.map((file: { path: string }) => file.path)).toEqual(['assets/first.js'])
+    expect(result.copied).toEqual([])
+    await expect(readFile(join(dist, 'assets/first.js'))).rejects.toThrow()
     await expect(readFile(join(dist, 'assets/second.js'))).rejects.toThrow()
+    expect(result.manifest.releases.map((item: { id: string }) => item.id)).toEqual([
+      'abc-20261110',
+    ])
   })
 
   it('stops before reading a body whose Content-Length is already over the cap', async () => {

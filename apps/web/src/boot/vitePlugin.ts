@@ -174,7 +174,12 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
     }catch{return null}
   };
   let chunkRecovery=false;
-  const loadChunk=(url)=>window.__aipImportChunk?window.__aipImportChunk(url):import(url);
+  // A failed module stays in the browser map. Give the refetch a bound, then reload if it never settles.
+  const loadChunk=(url)=>new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>reject(new Error('chunk timeout')),1500);
+    const pending=window.__aipImportChunk?window.__aipImportChunk(url):import(url);
+    Promise.resolve(pending).then((value)=>{clearTimeout(timer);resolve(value)},(error)=>{clearTimeout(timer);reject(error)});
+  });
   const recoverChunk=(reason)=>{
     if(chunkRecovery||fatal||reloading||rendered)return;
     chunkRecovery=true;
@@ -254,6 +259,26 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
   // Edge-injected tags (Cloudflare Web Analytics adds a cross-origin module script, /cdn-cgi/ is
   // same-origin) are often blocked by privacy tools and must not cause a reload or a failure panel.
   const firstParty=(src)=>{try{const url=new URL(src,location.href);return url.origin===location.origin&&(url.pathname.startsWith('/assets/')||url.pathname.startsWith('/src/'))}catch{return false}};
+  // Vite records a stylesheet after the first preload and will not request it again.
+  // Drop the failed link and insert a new one so the browser actually refetches.
+  const cssRetried=new Set();
+  // A stylesheet error and Vite's preloadError are one failure. The other event must not reload.
+  const cssPair=new Set();
+  const refetchStyle=(href,via)=>{
+    let url;
+    try{url=new URL(href,location.href)}catch{return false}
+    if(!firstParty(url.href)||!url.pathname.endsWith('.css'))return false;
+    const key=url.href;
+    if(cssPair.has(key+':'+via)){cssPair.delete(key+':'+via);return true}
+    if(cssRetried.has(key))return false;
+    cssRetried.add(key);
+    cssPair.add(key+':'+(via==='link'?'preload':'link'));
+    const links=[...document.querySelectorAll('link')].filter((link)=>link.relList.contains('stylesheet')&&link.href===key);
+    const mount=(link)=>{const fresh=document.createElement('link');fresh.rel='stylesheet';fresh.setAttribute('href',url.pathname+url.search);if(link&&link.media)fresh.media=link.media;return fresh};
+    if(!links.length){(document.head||document.documentElement).append(mount());return true}
+    for(const link of links)link.replaceWith(mount(link));
+    return true;
+  };
   const onError=(event)=>{
     const target=event.target;
     let detail;
@@ -262,6 +287,7 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
     else if(target instanceof HTMLScriptElement&&target.type==='module'){if(!firstParty(target.src))return;source=target.src;detail={tag:'script',src:clip(source,300)}}
     else if(event instanceof ErrorEvent)note({type:'error',message:clip(event.message,300),stack:clip(event.error&&event.error.stack,1200),source:clip(event.filename,200)});
     if(detail){
+      if(detail.tag==='stylesheet'&&!recovery&&refetchStyle(source,'link'))return;
       if(recovery){if(!recoverResource(detail,source))fail('resource',detail);return}
       if(!retry()&&!recoverResource(detail,source))fail('resource',detail);
     }
@@ -270,10 +296,15 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
     const reason=event.reason;
     note({type:'rejection',message:clip(reason&&reason.message,300)||clip(String(reason),300),stack:clip(reason&&reason.stack,1200)});
     // A failed dynamic import used to be recorded and then left for the 30s boot timeout.
-    if(!rendered&&!recovery&&dynamicImportFailure(reason))recoverChunk(reason);
+    // Safari says "Load failed" for any fetch. Only a message that names a chunk may reload.
+    if(!rendered&&!recovery&&dynamicImportFailure(reason)){
+      const message=typeof reason==='string'?reason:reason&&reason.message||'';
+      if(chunkScriptUrl(reason)||!/\\bload failed\\b/i.test(message))recoverChunk(reason);
+    }
   };
   const onPreloadError=(event)=>{
     const message=event.payload&&event.payload.message;
+    if(!recovery&&typeof message==='string'&&message.startsWith('Unable to preload CSS for ')&&refetchStyle(message.slice('Unable to preload CSS for '.length),'preload'))return;
     // Once React has painted the shell, a rejected dynamic route chunk owns the
     // failure. Entry-graph assets still use the startup guard's stale-HTML recovery.
     const routeSource =
