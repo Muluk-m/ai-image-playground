@@ -57,8 +57,7 @@ export async function availableImageModels(): Promise<CliImageModel[]> {
   return channels.flatMap((channel) =>
     channel.models.flatMap((model) => {
       if ((model.media ?? 'image') !== 'image') return []
-      // 2.6 只走直连：没配好时一张都提交不了，不能出现在清单里、更不能被当成默认模型。
-      if (isGptImage26Model(model.id) && !gptImage26Configured()) return []
+      // 开关关掉时渠道清单里没有 2.6。直连不可用时静态图仍可提交，GIF / SVG 不列。
       const spec = findCatalogModel(model.id)
       const queue = resolveQueueModel('image', model.id)
       if (!spec || !queue) return []
@@ -95,11 +94,11 @@ const GIF_DEFAULT_SIZE = GPT_IMAGE_26_GIF_DEFAULT_SIZE
 const OUTPUT_FORMAT_VALUES = ['image', 'png', 'gif', 'svg'] as const
 
 /**
- * 与网站一致：只有 GPT Image 2.6 能直出 GIF / SVG，规则见 `gpt-image-26.ts`。2.6 没配好直连时
- * 一张都出不了，也就不列 GIF / SVG。
+ * 与网站一致：只有 GPT Image 2.6 能直出 GIF / SVG，规则见 `gpt-image-26.ts`。
+ * 直连不可用时格式仍列出来，提交层再回 MODEL_UNAVAILABLE，而不是说模型不支持这个格式。
  */
 export function outputFormatsFor(model: string): readonly CliOutputFormat[] {
-  return isGptImage26Model(model) && gptImage26Configured() ? ['image', 'gif', 'svg'] : ['image']
+  return isGptImage26Model(model) ? ['image', 'gif', 'svg'] : ['image']
 }
 
 export interface CliImageRequestBody {
@@ -211,6 +210,8 @@ function outputFormatFields(
     },
     gptImage26Configured(),
   )
+  if (reason === 'unavailable')
+    throw new CliRequestError('MODEL_UNAVAILABLE', { message: OUTPUT_REJECTION[reason] })
   if (reason)
     throw new CliRequestError('INVALID_REQUEST', {
       message: OUTPUT_REJECTION[reason],

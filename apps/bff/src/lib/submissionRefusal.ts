@@ -15,6 +15,8 @@ export function submissionRefusalResponse(outcome: SubmissionRefusal) {
       return status(400, { error: 'invalid_request', message: '提示词不能为空' })
     case 'invalid_image_request':
       return status(400, { error: 'invalid_request', message: outcome.message })
+    case 'model_unavailable':
+      return status(400, { error: 'model_unavailable', message: outcome.message })
     case 'invalid_input_image':
       return status(400, { error: 'invalid_input_image', message: outcome.message })
     case 'idempotency_conflict':
