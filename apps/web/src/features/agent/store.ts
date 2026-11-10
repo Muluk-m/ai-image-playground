@@ -2441,6 +2441,41 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           await turnDelivery.settled()
           return
         }
+        if (outcome.kind === 'confirmed') {
+          accepted = true
+          notifyPrivateSubmissionSettled()
+          if (turnDelivery.isCurrent()) {
+            set((state) => ({
+              turn: 'idle',
+              stopping: false,
+              reconnecting: false,
+              activeTurn: null,
+              error: null,
+              errorDiagnostic: null,
+              messages: state.messages
+                .filter((one) => one.kind !== 'text' || !one.pending)
+                .map((one) => {
+                  const updated = outcome.messages.find((message) => message.id === one.id)
+                  if (!updated) return one
+                  const card = panelMessage(
+                    updated.id,
+                    updated.turnId,
+                    updated.role,
+                    updated.content,
+                  )
+                  return card.kind === 'tool' ? card : one
+                }),
+            }))
+            for (const view of outcome.messages) {
+              const card = panelMessage(view.id, view.turnId, view.role, view.content)
+              if (card.kind === 'tool') jobs.track(target, card, { kind: 'reserve' })
+            }
+            if (outcome.continued) jobs.followContinuation(target)
+          }
+          onAccepted?.()
+          await turnDelivery.settled()
+          return
+        }
         if (outcome.kind === 'frames' && sourceProject)
           void useCanvasProjectStore
             .getState()

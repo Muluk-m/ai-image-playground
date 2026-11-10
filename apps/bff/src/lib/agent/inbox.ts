@@ -356,6 +356,10 @@ async function awaitingClarificationSince(
   return row?.createdAt ?? null
 }
 
+export async function conversationAwaitingClarification(conversationId: string): Promise<boolean> {
+  return (await awaitingClarificationSince(conversationId)) !== null
+}
+
 /**
  * 收件箱这一行是问澄清之前就排着的普通消息、而那条澄清还没人答：它得等答复先处理。与
  * {@link awaitingClarificationSince} 同一个口径，写成相关子查询，好让巡查在 SQL 里就把它
