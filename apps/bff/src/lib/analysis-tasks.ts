@@ -1,9 +1,10 @@
 import type { Context } from '@earendil-works/pi-ai'
-import type {
-  AgentBatchPriceSnapshot,
-  AgentMediaReference,
-  AnalysisFinding,
-  AnalysisInputSnapshot,
+import {
+  type AgentBatchPriceSnapshot,
+  type AgentMediaReference,
+  type AnalysisFinding,
+  type AnalysisInputSnapshot,
+  queueTask,
 } from '@image-playground/shared'
 import { and, asc, eq, gt, inArray, isNull, lte } from 'drizzle-orm'
 import { config } from '../config'
@@ -349,7 +350,7 @@ export async function claimAnalysisTask(taskId: string) {
     await tx
       .update(schema.tasks)
       .set({
-        status: 'in_progress',
+        status: queueTask.step('queued', 'claim'),
         execution_token: token,
         lease_expires_at: Date.now() + ANALYSIS_LEASE_MS,
         started_at: task.started_at ?? Date.now(),
