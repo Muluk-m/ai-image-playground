@@ -1,9 +1,10 @@
-import {
-  type AgentCanvasEdit,
-  type AgentToolErrorCode,
-  PROJECT_META_VALUE_MAX_CHARS,
-} from '@image-playground/shared'
+import { type AgentCanvasEdit, PROJECT_META_VALUE_MAX_CHARS } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
+import {
+  activityFromCanvas,
+  applyGenerationActivity,
+  canvasProjection,
+} from '../../../lib/generationActivity'
 import type {
   AgentCanvasSink,
   AgentPlaceOutcome,
@@ -11,7 +12,7 @@ import type {
 } from '../../agent/lib/canvasSink'
 import { type CanvasEditor, containedImageBox } from './editor'
 import { focusNodeCanvas, revealNodeCanvas } from './nodeCanvasFocus'
-import { markPlaceholderStatus, placeImagesIntoTargets } from './placeholderShapeOps'
+import { placeImagesIntoTargets, settlePlaceholderActivity } from './placeholderShapeOps'
 import { computePlaceholderTargets, type PlacementTarget } from './placement'
 import { recoverVideoPoster } from './recoverVideoPoster'
 import { placeTimelinePlan } from './timeline'
@@ -103,13 +104,13 @@ export function createAgentCanvasSink(
       for (const id of ids) {
         // 云端失败占位的失败状态归服务端写（本机改了它，保存会被拒）；拉回来的就是它的终局。
         if (editor.getPlaceholder(id)?.meta.cloudGeneration) continue
-        if (errorCode)
-          editor.updatePlaceholder(id, {
-            status: 'error',
-            message,
-            meta: { agentErrorCode: errorCode },
-          })
-        else markPlaceholderStatus(editor, id, 'error', message)
+        settlePlaceholderActivity(
+          editor,
+          id,
+          'fail',
+          message,
+          errorCode ? { agentErrorCode: errorCode } : undefined,
+        )
       }
     },
 
@@ -123,7 +124,13 @@ export function createAgentCanvasSink(
           pull = true
           continue
         }
-        editor.updatePlaceholder(id, { status: 'loading', message: '' })
+        const activity = applyGenerationActivity(activityFromCanvas(placeholder), 'retry')
+        const projected = canvasProjection(activity)
+        editor.updatePlaceholder(id, {
+          status: projected.status,
+          message: '',
+          meta: { activity, queuePhase: projected.queuePhase },
+        })
       }
       // 拉不下来也不卡住：下一次轮询会把它换过来，服务端对同一个占位的重复重试只给回原来那条。
       if (pull) await cloud?.refresh().catch(() => {})

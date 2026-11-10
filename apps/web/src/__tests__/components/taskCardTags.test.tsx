@@ -87,3 +87,21 @@ it('被取消的任务显示「已取消」，不显示红色「失败」', () =
   expect(host.textContent).toContain('已取消')
   expect(host.textContent).not.toContain('失败')
 })
+
+it('过期任务显示「已过期」，图片区不再是空白', () => {
+  const noop = () => {}
+  act(() =>
+    root.render(
+      <TaskCard
+        task={{ ...task, status: 'error', activity: { phase: 'stale' }, outputImages: [] }}
+        onReuse={noop}
+        onEditOutputs={noop}
+        onSendToCanvas={noop}
+        onDelete={noop}
+        onClick={noop}
+      />,
+    ),
+  )
+  expect(host.textContent).toContain('已过期')
+  expect(host.querySelector('.animate-spin')).toBeNull()
+})
