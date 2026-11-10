@@ -4,6 +4,11 @@ import {
   PROJECT_META_VALUE_MAX_CHARS,
 } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
+import {
+  activityFromCanvas,
+  applyGenerationActivity,
+  canvasProjection,
+} from '../../../lib/generationActivity'
 import type {
   AgentCanvasSink,
   AgentPlaceOutcome,
@@ -123,7 +128,13 @@ export function createAgentCanvasSink(
           pull = true
           continue
         }
-        editor.updatePlaceholder(id, { status: 'loading', message: '' })
+        const activity = applyGenerationActivity(activityFromCanvas(placeholder), 'retry')
+        const projected = canvasProjection(activity)
+        editor.updatePlaceholder(id, {
+          status: projected.status,
+          message: '',
+          meta: { activity, queuePhase: projected.queuePhase },
+        })
       }
       // 拉不下来也不卡住：下一次轮询会把它换过来，服务端对同一个占位的重复重试只给回原来那条。
       if (pull) await cloud?.refresh().catch(() => {})

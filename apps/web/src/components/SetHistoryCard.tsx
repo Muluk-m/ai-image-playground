@@ -3,6 +3,7 @@ import { taskExportSources } from '../features/image-export/sources'
 import { openImageExport } from '../features/image-export/store'
 import AssetThumb from '../features/library/components/AssetThumb'
 import { useTranslation } from '../i18n'
+import { activityFromRecord, isGenerationOpen } from '../lib/generationActivity'
 import { taskRecordErrorText } from '../lib/taskError'
 import { retryTask, useStore } from '../store'
 import type { TaskRecord } from '../types'
@@ -63,7 +64,8 @@ function BatchTile({
 }) {
   const { t } = useTranslation('task')
   const imageId = task.outputImages[0]
-  if (task.status === 'done' && imageId)
+  const activity = activityFromRecord(task)
+  if (task.status === 'done' && imageId && activity.phase === 'done')
     return onOpen ? (
       <Button
         type="button"
@@ -81,7 +83,17 @@ function BatchTile({
         <AssetThumb imageId={imageId} alt={t('set.resultAlt', { name })} />
       </div>
     )
-  const queued = task.batchQueued === true
+  if (!isGenerationOpen(activity)) {
+    return (
+      <div
+        data-batch-tile={activity.phase}
+        className="flex aspect-square items-center justify-center rounded-lg border border-border bg-muted/60 text-muted-foreground"
+      >
+        <Icon name={activity.phase === 'cancelled' ? 'close' : 'error'} className="size-4" />
+      </div>
+    )
+  }
+  const queued = activity.phase === 'batch-queued'
   return (
     <div
       data-batch-tile={queued ? 'queued' : 'running'}
@@ -218,16 +230,23 @@ export default function SetHistoryCard({
   itemHandlers?: BatchItemHandlers
 }) {
   const { t } = useTranslation(['task', 'common'])
-  const done = tasks.filter((task) => task.status === 'done').length
-  const queued = tasks.filter((task) => task.status === 'running' && task.batchQueued).length
-  const running = tasks.filter((task) => task.status === 'running').length - queued
-  // 排队中被撤回的那几张记成「已取消」：积分已退，不是失败，不进失败清单、不给重试。
-  const cancelled = tasks.filter((task) => task.status === 'error' && task.cancelled).length
-  const failedTasks = tasks.filter((task) => task.status === 'error' && !task.cancelled)
+  const done = tasks.filter((task) => activityFromRecord(task).phase === 'done').length
+  const queued = tasks.filter((task) => activityFromRecord(task).phase === 'batch-queued').length
+  const running = tasks.filter((task) => isGenerationOpen(activityFromRecord(task))).length - queued
+  const cancelled = tasks.filter((task) => activityFromRecord(task).phase === 'cancelled').length
+  const failedTasks = tasks.filter((task) => {
+    const phase = activityFromRecord(task).phase
+    return phase === 'failed' || phase === 'stale'
+  })
   const failed = failedTasks.length
   const previews = tasks.flatMap((task) => task.outputImages).slice(0, PREVIEW_LIMIT)
   // 失败的那几张单独列在下面，格子里只摆出了图的、在跑的和排队的。
-  const tiles = batch ? tasks.filter((task) => task.status !== 'error') : []
+  const tiles = batch
+    ? tasks.filter(
+        (task) =>
+          isGenerationOpen(activityFromRecord(task)) || activityFromRecord(task).phase === 'done',
+      )
+    : []
   const shownTiles = tiles.length > BATCH_TILE_LIMIT ? tiles.slice(0, BATCH_TILE_LIMIT - 1) : tiles
   const hiddenTiles = tiles.length - shownTiles.length
   const now = useClock(batch && running > 0)
