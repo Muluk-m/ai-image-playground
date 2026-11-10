@@ -9,6 +9,9 @@ interface RouteChunkBoundaryProps {
   description: string
   retryLabel: string
   onRetry?: () => void
+  /** 套餐层这类浮层把故障画进自己的表面上，而不是文档流里一块离屏的占位。 */
+  renderError?: (fallback: ReactNode) => ReactNode
+  compact?: boolean
 }
 
 interface RouteChunkBoundaryState {
@@ -48,8 +51,14 @@ export class RouteChunkBoundary extends Component<
   render() {
     if (this.state.hasUnhandledError) throw this.state.unhandledError
     if (!this.state.error) return this.props.children
-    return (
-      <div className="flex min-h-[min(32rem,calc(100dvh-8rem))] items-center justify-center p-6">
+    const fallback = (
+      <div
+        className={
+          this.props.compact
+            ? 'flex items-center justify-center p-6'
+            : 'flex min-h-[min(32rem,calc(100dvh-8rem))] items-center justify-center p-6'
+        }
+      >
         <div className="max-w-md text-center">
           <p role="alert" className="text-sm text-destructive">
             {this.props.title}
@@ -61,6 +70,7 @@ export class RouteChunkBoundary extends Component<
         </div>
       </div>
     )
+    return this.props.renderError ? this.props.renderError(fallback) : fallback
   }
 }
 export default RouteChunkBoundary

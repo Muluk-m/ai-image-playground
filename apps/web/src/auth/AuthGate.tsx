@@ -1,10 +1,11 @@
 import type { AuthUserView } from '@image-playground/shared'
-import { type ReactNode, Suspense, useCallback, useEffect, useState } from 'react'
+import { type ReactNode, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { signalBootReady, signalBootStage } from '../boot/ready'
+import Overlay from '../components/patterns/Overlay'
 import RouteChunkBoundary from '../components/RouteChunkBoundary'
 import { Button } from '../components/ui/button'
 import { Icon } from '../components/ui/icon'
-import { usePricingSheetOpen } from '../features/pricing/pricingSheetState'
+import { closePricingSheet, usePricingSheetOpen } from '../features/pricing/pricingSheetState'
 import { useTranslation } from '../i18n'
 import {
   AUTH_SESSION_EXPIRED_EVENT,
@@ -37,10 +38,35 @@ const App = lazyWithRetry(() => import('../App'))
 const LoginDialog = lazyWithRetry(() =>
   import('./LoginDialog').then((module) => ({ default: module.LoginDialog })),
 )
-// 套餐层关掉时不下载。失败只留在这一层，不占用整页的自动刷新预算。
-const PricingSheet = lazyWithRetry(() => import('../features/pricing/PricingSheet'), {
-  reload: false,
-})
+// 套餐层关掉时不下载。失败只留在弹层里，不占用整页的自动刷新预算。
+// attempt 变了就换一个 lazy()：React 会记住上一次 reject 的 promise。
+function PricingSheetLoader() {
+  const { t } = useTranslation('pricing')
+  const { t: tRoute } = useTranslation('shell')
+  const [attempt, setAttempt] = useState(0)
+  const Sheet = useMemo(
+    () => lazyWithRetry(() => import('../features/pricing/PricingSheet'), { reload: false }),
+    [attempt],
+  )
+  return (
+    <RouteChunkBoundary
+      title={tRoute('route.loadFailed')}
+      description={tRoute('route.loadFailedDescription')}
+      retryLabel={tRoute('route.retry')}
+      compact
+      onRetry={() => setAttempt((value) => value + 1)}
+      renderError={(fallback) => (
+        <Overlay onClose={closePricingSheet} tier="alert" layout="center" label={t('nav.pricing')}>
+          {fallback}
+        </Overlay>
+      )}
+    >
+      <Suspense fallback={null}>
+        <Sheet />
+      </Suspense>
+    </RouteChunkBoundary>
+  )
+}
 
 type Phase = 'checking' | 'ready' | 'reconnecting'
 
@@ -321,7 +347,7 @@ export function AuthGate() {
             />,
           )
         : null}
-      {pricingOpen ? chunk(<PricingSheet />) : null}
+      {pricingOpen ? <PricingSheetLoader /> : null}
     </AuthContextProvider>
   )
 }

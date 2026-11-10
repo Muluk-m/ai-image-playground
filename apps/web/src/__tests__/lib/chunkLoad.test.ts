@@ -89,6 +89,23 @@ describe('importWithRetry', () => {
     pending.catch(() => {})
   })
 
+  it('uses one reload when several chunks fail together', async () => {
+    const reload = vi.fn(() => true)
+    const fail = () =>
+      Promise.reject(new TypeError('Failed to fetch dynamically imported module: /assets/A.js'))
+    const first = importWithRetry(fail, { attempts: 1, reload })
+    const second = importWithRetry(fail, { attempts: 1, reload })
+    const outcome = await Promise.race([
+      Promise.all([first, second]).then(
+        () => 'resolved',
+        () => 'rejected',
+      ),
+      new Promise((resolve) => setTimeout(() => resolve('pending'), 30)),
+    ])
+    expect(outcome).toBe('pending')
+    expect(reload).toHaveBeenCalledOnce()
+  })
+
   it('throws when the one-shot reload is already spent', async () => {
     const reload = vi.fn(() => false)
     const load = vi.fn().mockRejectedValue(new TypeError('Loading chunk 8 failed.'))
