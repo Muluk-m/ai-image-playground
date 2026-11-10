@@ -23,6 +23,10 @@ set -eu
 # silent release: the manifest still ships, but running tabs migrate on their next natural reload.
 # The manifest itself is written by build:static-host, not here.
 #
+# PAGES_SKIP_ASSET_RETAIN=1 skips merging the previous build's hashed /assets and
+# /website-assets. Use it only when the live origin is too broken to read and a hotfix
+# must ship. Open tabs on the previous build will fail those chunk loads until they reload.
+#
 # The edition is asserted against the working copy instead of inferred, because the overlay is
 # included by mere file presence (apps/web/src/lib/privateOverlay.tsx globs
 # ../../private/apps/web/index.tsx).
@@ -128,6 +132,17 @@ if [ -n "${NOINDEX_ORIGINS:-}" ]; then
     printf '\n%s/*\n  X-Robots-Tag: noindex, nofollow\n' "${origin%/}" >> "$dist_dir/_headers"
   done
   echo "Added host-scoped noindex headers for: $NOINDEX_ORIGINS"
+fi
+
+# Open tabs keep importing the previous build's hashed files. Merge those files into
+# this dist immediately before smoke and upload, so a deploy that went live while this
+# one was building is included. PAGES_ASSET_ORIGIN is set by pages-release.sh.
+# Preview deploys without it publish the current build only.
+if [ "${PAGES_SKIP_ASSET_RETAIN:-}" = 1 ]; then
+  echo "WARNING: PAGES_SKIP_ASSET_RETAIN=1 — not retaining previous hashed assets from ${PAGES_ASSET_ORIGIN:-the live origin}." >&2
+  echo "WARNING: tabs left open on the previous build will fail to load those chunks until they reload. This is an emergency bypass, not a normal release." >&2
+elif [ -n "${PAGES_ASSET_ORIGIN:-}" ]; then
+  node "$repo_root/scripts/retain-pages-assets.mjs" "$dist_dir" "$PAGES_ASSET_ORIGIN"
 fi
 
 if [ "$app" = web ]; then

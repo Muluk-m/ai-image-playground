@@ -1,4 +1,6 @@
 import { Component, type ReactNode } from 'react'
+import { signalBootReady } from '../boot/ready'
+import { hardReload, isChunkLoadError } from '../lib/chunkLoad'
 import { Button } from './ui/button'
 
 interface RouteChunkBoundaryProps {
@@ -7,28 +9,15 @@ interface RouteChunkBoundaryProps {
   description: string
   retryLabel: string
   onRetry?: () => void
+  /** 套餐层这类浮层把故障画进自己的表面上，而不是文档流里一块离屏的占位。 */
+  renderError?: (fallback: ReactNode) => ReactNode
+  compact?: boolean
 }
 
 interface RouteChunkBoundaryState {
   error: unknown | null
   unhandledError: unknown
   hasUnhandledError: boolean
-}
-
-function isRouteChunkError(error: unknown) {
-  if (error && typeof error === 'object' && 'name' in error && error.name === 'ChunkLoadError') {
-    return true
-  }
-  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : ''
-  return [
-    /failed to fetch(?: dynamically imported module)?/i,
-    /error loading dynamically imported module/i,
-    /importing a module script failed/i,
-    /failed to load module script/i,
-    /loading chunk .* failed/i,
-    /\bload failed\b/i,
-    /unable to preload (?:css|js) for/i,
-  ].some((pattern) => pattern.test(message))
 }
 
 /** 路由 chunk 下载失败时保留工作台外壳，并给用户一个明确的恢复动作。 */
@@ -39,25 +28,37 @@ export class RouteChunkBoundary extends Component<
   state: RouteChunkBoundaryState = { error: null, unhandledError: null, hasUnhandledError: false }
 
   static getDerivedStateFromError(error: unknown): RouteChunkBoundaryState {
-    if (isRouteChunkError(error)) return { error, unhandledError: null, hasUnhandledError: false }
+    if (isChunkLoadError(error)) return { error, unhandledError: null, hasUnhandledError: false }
     return { error: null, unhandledError: error, hasUnhandledError: true }
   }
 
   componentDidCatch(error: unknown) {
-    if (isRouteChunkError(error)) console.error('Route chunk failed to load', error)
+    if (!isChunkLoadError(error)) return
+    console.error('Route chunk failed to load', error)
+    // App 自己还没挂上时，闪屏会一直盖到超时。故障页先出来，用户才能点重新加载。
+    signalBootReady()
   }
 
   handleRetry = () => {
-    this.setState({ error: null, unhandledError: null, hasUnhandledError: false })
-    if (this.props.onRetry) this.props.onRetry()
-    else window.location.reload()
+    if (this.props.onRetry) {
+      this.setState({ error: null, unhandledError: null, hasUnhandledError: false })
+      this.props.onRetry()
+      return
+    }
+    hardReload()
   }
 
   render() {
     if (this.state.hasUnhandledError) throw this.state.unhandledError
     if (!this.state.error) return this.props.children
-    return (
-      <div className="flex min-h-[min(32rem,calc(100dvh-8rem))] items-center justify-center p-6">
+    const fallback = (
+      <div
+        className={
+          this.props.compact
+            ? 'flex items-center justify-center p-6'
+            : 'flex min-h-[min(32rem,calc(100dvh-8rem))] items-center justify-center p-6'
+        }
+      >
         <div className="max-w-md text-center">
           <p role="alert" className="text-sm text-destructive">
             {this.props.title}
@@ -69,6 +70,7 @@ export class RouteChunkBoundary extends Component<
         </div>
       </div>
     )
+    return this.props.renderError ? this.props.renderError(fallback) : fallback
   }
 }
 export default RouteChunkBoundary
