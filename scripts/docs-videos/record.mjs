@@ -8,9 +8,10 @@
  *   npm install --prefix /tmp/pw --no-package-lock --no-save playwright@1.58.2
  *   PLAYWRIGHT_MODULE=/tmp/pw/node_modules/playwright node scripts/docs-videos/record.mjs 01
  *
- * 原始 webm 落在 scripts/docs-videos/raw/（gitignore）。再用 encode.mjs 压成指南成片。
+ * 原始文件落在 scripts/docs-videos/raw/（gitignore）。1080p 母带再用 finish.py 剪成片，不要用 encode.mjs。
  */
 import { createRequire } from 'node:module'
+import { spawn } from 'node:child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -29,7 +30,12 @@ const password = process.env.DOCS_VIDEO_PASSWORD
 if (!email || !password) throw new Error('DOCS_VIDEO_EMAIL and DOCS_VIDEO_PASSWORD are required')
 
 const rawDir = resolve(root, 'scripts/docs-videos/raw')
-mkdirSync(rawDir, { recursive: true })
+const hdDir = resolve(rawDir, 'hd')
+mkdirSync(hdDir, { recursive: true })
+/** 1080p 逐帧采集。Playwright 自带录像锁在约 1 Mbps，界面文字会糊。 */
+const HD = process.env.DOCS_VIDEO_HD !== '0'
+const VIEW_W = HD ? 1920 : 1280
+const VIEW_H = HD ? 1080 : 800
 const mug1 = resolve(root, 'docs/plans/docs-site-rewrite/mug-1.png')
 const mug2 = resolve(root, 'docs/plans/docs-site-rewrite/mug-2.png')
 
@@ -463,19 +469,105 @@ await login(bootPage)
 await boot.storageState({ path: resolve(rawDir, 'storage.json') })
 await boot.close()
 
+/**
+ * 把 Chrome 的高画质截帧收成 30fps H.264。静态画面浏览器会停发帧，这里按墙钟补帧。
+ * 母带用 CRF 16，成片再另压，避免从已经压过的文件二次压缩。
+ */
+async function attachCapture(page, dest) {
+  const client = await page.context().newCDPSession(page)
+  const ffmpeg = spawn(
+    'ffmpeg',
+    [
+      '-y',
+      '-f',
+      'image2pipe',
+      '-framerate',
+      '30',
+      '-vcodec',
+      'mjpeg',
+      '-i',
+      'pipe:0',
+      '-an',
+      '-c:v',
+      'libx264',
+      '-pix_fmt',
+      'yuv420p',
+      '-crf',
+      '16',
+      '-preset',
+      'veryfast',
+      '-movflags',
+      '+faststart',
+      dest,
+    ],
+    { stdio: ['pipe', 'ignore', 'inherit'] },
+  )
+  const fps = 30
+  const step = 1000 / fps
+  let nextDue = 0
+  let last = null
+  let closed = false
+  let exitCode = null
+  const closedPromise = new Promise((resolveClose) => {
+    ffmpeg.on('error', () => {
+      exitCode = 1
+      resolveClose()
+    })
+    ffmpeg.on('close', (code) => {
+      exitCode = code ?? 1
+      resolveClose()
+    })
+  })
+  client.on('Page.screencastFrame', (evt) => {
+    if (closed || exitCode !== null) return
+    const frame = Buffer.from(evt.data, 'base64')
+    // 先应答，避免补帧堵住事件循环时 Chrome 停发下一帧。
+    client.send('Page.screencastFrameAck', { sessionId: evt.sessionId }).catch(() => {})
+    const now = Date.now()
+    if (!nextDue) nextDue = now
+    // 错过的槽位用上一帧补，新画面只写当前槽，避免把变化提前到缺口开头。
+    while (last && nextDue <= now - step) {
+      if (!ffmpeg.stdin.destroyed) ffmpeg.stdin.write(last)
+      nextDue += step
+    }
+    last = frame
+    if (nextDue <= now + 1 && !ffmpeg.stdin.destroyed) {
+      ffmpeg.stdin.write(frame)
+      nextDue += step
+    }
+  })
+  await client.send('Page.startScreencast', {
+    format: 'jpeg',
+    quality: 95,
+    maxWidth: VIEW_W,
+    maxHeight: VIEW_H,
+    everyNthFrame: 1,
+  })
+  return async () => {
+    closed = true
+    await client.send('Page.stopScreencast').catch(() => {})
+    if (exitCode === null && !ffmpeg.stdin.destroyed) ffmpeg.stdin.end()
+    await closedPromise
+    if (exitCode !== 0) throw new Error(`ffmpeg exited ${exitCode}`)
+  }
+}
+
 const report = []
 for (const id of ids) {
   const fn = shots[id]
   if (!fn) throw new Error(`unknown shot ${id}`)
   const context = await browser.newContext({
     storageState: resolve(rawDir, 'storage.json'),
-    viewport: { width: 1280, height: 800 },
+    viewport: { width: VIEW_W, height: VIEW_H },
+    deviceScaleFactor: 1,
     locale: 'zh-CN',
-    recordVideo: { dir: rawDir, size: { width: 1280, height: 800 } },
+    ...(HD ? {} : { recordVideo: { dir: rawDir, size: { width: VIEW_W, height: VIEW_H } } }),
   })
   await context.addInitScript(CURSOR)
   const page = await context.newPage()
   page.setDefaultTimeout(25000)
+  const dest = resolve(HD ? hdDir : rawDir, HD ? `${id}.mp4` : `${id}.webm`)
+  const stopCapture = HD ? await attachCapture(page, dest) : null
   let result = { ok: false, note: '' }
   try {
     result = await fn(page)
@@ -483,19 +575,28 @@ for (const id of ids) {
     const detail = error instanceof Error ? (error.stack || error.message) : 'failed'
     const buttons = await page
       .getByRole('button')
-      .evaluateAll((nodes) => nodes.slice(0, 25).map((node) => (node.getAttribute('aria-label') || node.textContent || '').trim().slice(0, 40)))
+      .evaluateAll((nodes) =>
+        nodes
+          .slice(0, 25)
+          .map((node) => (node.getAttribute('aria-label') || node.textContent || '').trim().slice(0, 40)),
+      )
       .catch(() => [])
-    result = { ok: false, note: `${detail.split('\n').slice(0, 3).join(' | ')} | buttons=${buttons.join(',')}` }
+    result = {
+      ok: false,
+      note: `${detail.split('\n').slice(0, 3).join(' | ')} | buttons=${buttons.join(',')}`,
+    }
     await page.screenshot({ path: resolve(rawDir, `${id}-error.png`) }).catch(() => {})
   }
   await sleep(page, 800)
+  if (stopCapture) await stopCapture()
   const video = page.video()
   await context.close()
-  const src = video ? await video.path() : ''
-  const dest = resolve(rawDir, `${id}.webm`)
-  if (src) {
-    const { renameSync } = await import('node:fs')
-    renameSync(src, dest)
+  if (!HD && video) {
+    const src = await video.path()
+    if (src) {
+      const { renameSync } = await import('node:fs')
+      renameSync(src, dest)
+    }
   }
   const row = { id, ok: Boolean(result.ok), skip: Boolean(result.skip), note: result.note || '', file: dest }
   report.push(row)
