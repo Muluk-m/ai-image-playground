@@ -599,6 +599,46 @@ describe('gpt image 2.6 routes', () => {
     }
   })
 
+  it('does not send a 2K or high-quality still to sub2api when direct is down', async () => {
+    const keys = envDirectKeys()
+    noteDirectKeySnapshot({
+      admin: keys.map((key) => ({ ...key, enabled: false })),
+    })
+    await expect(
+      call26({
+        prompt: 'a paper crane',
+        output_format: 'png',
+        size: '2048x2048',
+        quality: 'low',
+        n: 1,
+      }),
+    ).rejects.toBeInstanceOf(GptImage26RouteUnavailableError)
+    await expect(
+      call26({
+        prompt: 'a paper crane',
+        output_format: 'png',
+        size: '1024x1024',
+        quality: 'high',
+        n: 1,
+      }),
+    ).rejects.toBeInstanceOf(GptImage26RouteUnavailableError)
+    expect(sent).toEqual([])
+  })
+
+  it('opens the sub2api breaker from a 2.6 fallback failure and then stops calling it', async () => {
+    const keys = envDirectKeys()
+    noteDirectKeySnapshot({
+      admin: keys.map((key) => ({ ...key, enabled: false })),
+    })
+    behaviour.sub2api.status = 502
+    await expect(call26()).rejects.toThrow()
+    await expect(call26()).rejects.toThrow()
+    expect(sub2apiBreakerOpen()).toBe(true)
+    sent = []
+    await expect(call26()).rejects.toBeInstanceOf(GptImage26RouteUnavailableError)
+    expect(sent).toEqual([])
+  })
+
   it('does not dispatch a GIF when direct cannot take it', async () => {
     const keys = envDirectKeys()
     noteDirectKeySnapshot({

@@ -34,7 +34,11 @@ import { declaredImageSizes, getDiscoveredChannels, resolveQueueModel } from '..
 import { refreshInactiveModels, withoutInactiveModels } from '../model-availability'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { strictImageRequestAllowed } from '../taskSubmission'
-import { gptDirectConfigured, gptImage26Configured } from '../upstream/gpt-routing'
+import {
+  gptDirectConfigured,
+  gptImage26Configured,
+  gptImage26DirectKey,
+} from '../upstream/gpt-routing'
 import { CliRequestError } from './envelope'
 
 export const CLI_PROMPT_MAX_CHARS = 32_000
@@ -547,6 +551,10 @@ export async function imageCapabilities(userId: string) {
     for (const model of models) {
       const caps = model.image
       const gpt = isGptDirectModel(model.id)
+      const image26 = isGptImage26Model(model.id)
+      const image26Direct =
+        image26 &&
+        (await gptImage26DirectKey(model.id, { size: '1024x1024', quality: 'low' })) !== null
       const memberTier = await strictImageRequestAllowed(tx, userId, model.provider, model.id, {
         prompt: '',
         ...(gpt ? { size: '3840x2160', quality: 'high' } : { image_size: '4K' }),
@@ -555,6 +563,7 @@ export async function imageCapabilities(userId: string) {
       const tiers = caps.tiers
         .map((tier) => tier.id)
         .filter((id) => {
+          if (image26 && !image26Direct) return id === '1K'
           if (id === '4K') return memberTier
           if (gpt && id !== '1K') return direct
           return true
@@ -576,9 +585,10 @@ export async function imageCapabilities(userId: string) {
         aspect_ratios: [...(caps.autoRatio ? ['auto'] : []), ...caps.surfaces.direct.ratios],
         image_sizes: tiers,
         default_image_size: tiers.includes(caps.defaultTier) ? caps.defaultTier : tiers[0]!,
-        qualities: (caps.quality?.values ?? []).filter(
-          (quality) => !gpt || memberTier || quality !== 'high',
-        ),
+        qualities: (caps.quality?.values ?? []).filter((quality) => {
+          if (image26 && !image26Direct) return quality !== 'high'
+          return !gpt || memberTier || quality !== 'high'
+        }),
         max_reference_images: caps.references.max,
         price: quote ? { estimated_credits: quote.estimatedCredits } : null,
         typical_duration_seconds: model.etaSeconds ?? null,

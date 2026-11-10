@@ -51,7 +51,12 @@ import {
 import { findCatalogModel, publishModelCapabilities } from '@image-playground/shared/model-catalog'
 import { isObject } from './type-guards'
 import { capabilitiesForModel } from './upstream/adapters'
-import { gptDirectEnabledKeyCount, gptDirectSizeEnabled } from './upstream/gpt-direct-availability'
+import {
+  adminDirectKeys,
+  directKeyKnownDisabled,
+  gptDirectEnabledKeyCount,
+  gptDirectSizeEnabled,
+} from './upstream/gpt-direct-availability'
 import { runtimeSecret, upstreamSecretRevision } from './upstream-secret-cache'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
@@ -735,17 +740,27 @@ function withDeliverableGptSize(channel: InternalChannel): InternalChannel {
 }
 
 /**
- * 2.6 默认不出现。开关打开就列出来，即使直连 key 不可用：静态图改走 sub2api。
- * GIF / SVG 在提交时再拒绝，不在清单上把整个模型标成不可选。
+ * 2.6 默认不出现。开关打开就列出来，即使直连 key 不可用：1K、非高画质走 sub2api。
+ * 直连不可用时目录只标 1K。GIF / SVG、2K/4K/高画质在提交时拒绝。
  */
+/** 目录用的同步判断，不连数据库。预算用尽仍要到提交时拒绝。 */
+function image26DirectListed(): boolean {
+  const admin = adminDirectKeys()
+  if (admin) return admin.some((key) => key.enabled && !directKeyKnownDisabled(key.fingerprint))
+  if (process.env.OPENAI_API_KEYS?.split(',').some((part) => part.trim())) return true
+  return Boolean(process.env.OPENAI_API_KEY?.trim())
+}
+
 function withGptImage26(channel: InternalChannel): InternalChannel {
   if (!channel.models.some((model) => isGptImage26Model(model.id))) return channel
   const enabled = process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true'
+  const directReady = image26DirectListed()
   return {
     ...channel,
     models: channel.models.flatMap((model) => {
       if (!isGptImage26Model(model.id)) return [model]
-      return enabled ? [model] : []
+      if (!enabled) return []
+      return directReady ? [model] : [{ ...model, imageSizes: ['1K'] }]
     }),
   }
 }

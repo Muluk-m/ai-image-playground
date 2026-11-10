@@ -155,6 +155,52 @@ it('creates a still Image 2.6 task when the direct key is unavailable', async ()
   }
 })
 
+it('rejects a 2K Image 2.6 still before billing when direct cannot deliver it', async () => {
+  const enabled = config.gptImage26.enabled
+  const apiKey = process.env.OPENAI_API_KEY
+  config.gptImage26.enabled = true
+  delete process.env.OPENAI_API_KEY
+  let billingCalled = false
+  _setPrivateBffOverlayForTesting({
+    ...EMPTY_PRIVATE_BFF_OVERLAY,
+    present: true,
+    taskHooks: {
+      ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks,
+      canSubmitTask: async () => {
+        billingCalled = true
+        return true
+      },
+    },
+  })
+  try {
+    const result = await createQueueTask({
+      entry: 'web-direct',
+      provider: 'openai-compat',
+      model: 'gpt-image-2.6-flare',
+      userId: null,
+      request: {
+        prompt: 'A paper crane',
+        device_id: 'still-2k',
+        output_format: 'png',
+        size: '2048x2048',
+        quality: 'high',
+        n: 1,
+      },
+    })
+    expect(result).toMatchObject({
+      kind: 'model_unavailable',
+      message: '当前高分辨率/高画质需要 OpenAI 直连，暂不可用',
+    })
+    expect(billingCalled).toBe(false)
+    expect(await db.select().from(schema.tasks)).toEqual([])
+  } finally {
+    config.gptImage26.enabled = enabled
+    if (apiKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = apiKey
+    _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
+  }
+})
+
 it('rejects a GIF when the direct key is unavailable instead of calling it an invalid request', async () => {
   const enabled = config.gptImage26.enabled
   const apiKey = process.env.OPENAI_API_KEY
