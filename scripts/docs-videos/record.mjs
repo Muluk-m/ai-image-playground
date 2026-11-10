@@ -93,7 +93,7 @@ async function login(page) {
   await page.locator('input[name="password"]').fill(password)
   await click(page, page.getByRole('button', { name: '登录', exact: true }))
   await page.waitForURL(/\/image/, { timeout: 30000 })
-  await page.getByRole('button', { name: /积分/ }).waitFor({ timeout: 20000 })
+  await page.getByRole('button', { name: /积分/ }).first().waitFor({ timeout: 20000 })
 }
 
 async function goImage(page) {
@@ -203,6 +203,38 @@ async function uploadReference(page, files) {
   await click(page, item)
   await (await chooser).setFiles(files)
   await sleep(page, 1200)
+}
+
+function watchTraffic(page) {
+  const rows = []
+  const logs = []
+  page.on('response', (response) => {
+    const url = response.url()
+    const method = response.request().method()
+    if (!/\/api\/|muvloom\.online/.test(url)) return
+    if (method === 'GET' && !/media|job|task|queue|submit|generat/i.test(url)) return
+    const path = url.split('?')[0].slice(0, 180)
+    if (/\/content$/.test(path) || response.headers()['content-type']?.includes('video')) {
+      rows.push({ status: response.status(), method, url: path, body: '' })
+      return
+    }
+    response
+      .text()
+      .then((text) => {
+        const body = text
+          .replace(/"(token|access_token|refresh_token|password|authorization)"\s*:\s*"[^"]*"/gi, '"$1":"…"')
+          .slice(0, 360)
+        rows.push({ status: response.status(), method, url: path, body })
+      })
+      .catch(() => {
+        rows.push({ status: response.status(), method, url: path, body: '' })
+      })
+  })
+  page.on('console', (msg) => {
+    if (msg.type() === 'error' || msg.type() === 'warning') logs.push(`${msg.type()}: ${msg.text().slice(0, 300)}`)
+  })
+  page.on('pageerror', (error) => logs.push(`pageerror: ${String(error.message || error).slice(0, 300)}`))
+  return { rows, logs }
 }
 
 const shots = {
@@ -318,104 +350,225 @@ const shots = {
     return { ok: false, note: 'agent timeout' }
   },
   async '08'(page) {
+    const trace = watchTraffic(page)
     await goImage(page)
     await pickTarget(page, '视频生成')
     await sleep(page, 800)
-    const model = await modelTrigger(page)
-    const modelName = ((await model.getAttribute('aria-label')) || '').replace(/^模型\s*/, '')
-    await openSettings(page)
-    const five = page.getByRole('group', { name: '时长' }).getByRole('button', { name: '5 秒' })
-    if (await five.isVisible().catch(() => false)) await click(page, five)
-    const ratio = page.getByRole('group', { name: '比例' }).getByRole('button', { name: '16:9' })
-    if (await ratio.isVisible().catch(() => false)) await click(page, ratio)
-    const res = page.getByRole('button', { name: '720p' }).first()
-    if (await res.isVisible().catch(() => false)) await click(page, res)
-    await finishSettings(page)
-    await typeInto(page, promptBox(page), '一杯冷萃咖啡放在石台上，冰块轻微融化，午后窗光缓慢扫过杯壁，镜头稍微推近')
+    const model = page.getByRole('combobox', { name: /模型/ }).first()
+    const modelName = ((await model.getAttribute('aria-label').catch(() => '')) || (await model.innerText().catch(() => '')) || '').replace(/\s+/g, ' ').slice(0, 80)
+    const settings = page.getByRole('button', { name: /视频设置/ }).first()
+    if (await settings.isVisible().catch(() => false)) {
+      await click(page, settings)
+      const five = page.getByRole('group', { name: '时长' }).getByRole('button', { name: '5 秒' })
+      if (await five.isVisible().catch(() => false)) await click(page, five)
+      const ratio = page.getByRole('group', { name: '比例' }).getByRole('button', { name: '16:9' })
+      if (await ratio.isVisible().catch(() => false)) await click(page, ratio)
+      const res = page.getByRole('button', { name: /^720p/ }).first()
+      if (await res.isVisible().catch(() => false)) await click(page, res)
+      const done = page.getByRole('button', { name: '完成', exact: true })
+      if (await done.isVisible().catch(() => false)) await click(page, done)
+    }
+    const box = page.getByRole('textbox', { name: /描述/ }).first()
+    await typeInto(page, box, '冰块在玻璃杯里轻轻晃动，镜头缓慢推近')
     await submit(page)
-    const start = Date.now()
-    while (Date.now() - start < 80000) {
-      if (/\/p\//.test(page.url())) {
-        await sleep(page, 5000)
-        return { ok: true, note: `model=${modelName}; entered canvas project` }
+    await page.waitForURL(/\/p\//, { timeout: 30000 }).catch(() => {})
+    await sleep(page, 1500)
+    const chat = page.getByRole('button', { name: '与 AI 对话' })
+    if (await chat.isVisible().catch(() => false)) {
+      await click(page, chat)
+      await sleep(page, 2000)
+    }
+    // 首页这条会先交给智能体。智能体若不出视频节点，再在画布上加一个视频节点直接提交。
+    if ((await page.locator('video').count()) === 0) {
+      await page.mouse.dblclick(1100, 520)
+      await sleep(page, 700)
+      const addVideo = page.locator('.studio-node-menu').getByText('视频', { exact: true })
+      if (await addVideo.isVisible().catch(() => false)) {
+        await click(page, addVideo)
+        await sleep(page, 800)
+        const nodeBox = page.getByRole('textbox', { name: /描述画面/ }).first()
+        if (await nodeBox.isVisible().catch(() => false)) {
+          await typeInto(page, nodeBox, '冰块在玻璃杯里轻轻晃动，镜头缓慢推近')
+          const mode = page.getByRole('combobox', { name: '生成方式' })
+          if (await mode.isVisible().catch(() => false)) {
+            await click(page, mode)
+            const textMode = page.getByRole('option', { name: '文生视频' })
+            if (await textMode.isVisible().catch(() => false)) await click(page, textMode)
+          }
+          const settings = page.getByRole('button', { name: /视频设置/ }).last()
+          if (await settings.isVisible().catch(() => false)) {
+            await click(page, settings)
+            const five = page.getByRole('group', { name: '时长' }).getByRole('button', { name: '5 秒' })
+            if (await five.isVisible().catch(() => false)) await click(page, five)
+            const ratio = page.getByRole('group', { name: '比例' }).getByRole('button', { name: '16:9' })
+            if (await ratio.isVisible().catch(() => false)) await click(page, ratio)
+            const res = page.getByRole('button', { name: /^720p/ }).first()
+            if (await res.isVisible().catch(() => false)) await click(page, res)
+            const done = page.getByRole('button', { name: '完成', exact: true })
+            if (await done.isVisible().catch(() => false)) await click(page, done)
+          }
+          await click(page, page.getByRole('button', { name: '生成', exact: true }).last())
+        }
       }
-      const text = await page.locator('body').innerText()
-      if (/积分不够|积分不足|暂时没有可用的视频模型/.test(text)) {
-        return { ok: false, note: 'video unavailable or credits' }
+    }
+    const start = Date.now()
+    let taskId = ''
+    let errorText = ''
+    while (Date.now() - start < 240000) {
+      const state = await page.evaluate(() => {
+        const videos = [...document.querySelectorAll('video')]
+        const live = videos.find((node) => node.videoWidth > 0 && node.readyState >= 2)
+        const task = document.querySelector('[data-task-id]')
+        const body = document.body.innerText.replace(/\s+/g, ' ')
+        const fail = body.match(/未能完成|生成服务异常|生成失败|积分不足|积分不够|暂时没有可用的视频模型|不支持视频生成/)
+        return {
+          playing: Boolean(live && !live.paused && live.currentTime > 0.2),
+          ready: Boolean(live),
+          current: live ? Number(live.currentTime.toFixed(2)) : 0,
+          taskId: task?.getAttribute('data-task-id') || '',
+          fail: fail ? fail[0] : '',
+          body: body.slice(0, 500),
+        }
+      })
+      if (state.taskId) taskId = state.taskId
+      const fromNet = trace.rows.find((row) => /"id"\s*:/.test(row.body) && /task|job|video/i.test(row.url + row.body))
+      if (!taskId && fromNet) {
+        const match = fromNet.body.match(/"id"\s*:\s*"([^"]+)"/)
+        if (match) taskId = match[1]
+      }
+      if (state.playing) {
+        await sleep(page, 4000)
+        writeFileSync(resolve(rawDir, '08-trace.json'), JSON.stringify({ ok: true, taskId, modelName, rows: trace.rows.slice(-30) }, null, 2))
+        return { ok: true, note: `played task=${taskId || 'unknown'} model=${modelName}` }
+      }
+      if (state.ready && !state.playing) {
+        const play = page.getByRole('button', { name: '播放' }).first()
+        if (await play.isVisible().catch(() => false)) await click(page, play)
+        else {
+          await page.evaluate(() => {
+            const node = [...document.querySelectorAll('video')].find((video) => video.videoWidth > 0)
+            if (node) node.play().catch(() => {})
+          })
+        }
+      }
+      if (state.fail && !/生成中|排队|上传中/.test(state.body)) {
+        errorText = state.fail
+        if (Date.now() - start > 12000) {
+          writeFileSync(resolve(rawDir, '08-trace.json'), JSON.stringify({ ok: false, taskId, errorText, body: state.body, rows: trace.rows.slice(-40), console: trace.logs.slice(-20) }, null, 2))
+          return { ok: false, note: `error=${errorText} task=${taskId || 'none'} ${state.body.slice(0, 220)}` }
+        }
       }
       await sleep(page, 1000)
     }
-    return { ok: false, note: `video timeout model=${modelName}` }
+    const body = await page.locator('body').innerText().catch(() => '')
+    writeFileSync(resolve(rawDir, '08-trace.json'), JSON.stringify({ ok: false, taskId, errorText, body: body.replace(/\s+/g, ' ').slice(0, 500), rows: trace.rows.slice(-40), console: trace.logs.slice(-20) }, null, 2))
+    return { ok: false, note: `timeout task=${taskId || 'none'} error=${errorText || 'none'} ${body.replace(/\s+/g, ' ').slice(0, 180)}` }
   },
   async '09'(page) {
+    const trace = watchTraffic(page)
     await goImage(page)
-    const existing = page.getByRole('link', { name: /陶瓷咖啡杯|窗光下的陶瓷/ }).first()
-    if (await existing.isVisible().catch(() => false)) {
-      await click(page, existing)
-    } else {
-      await pickTarget(page, '画布创作')
-      await typeInto(page, promptBox(page), '一只陶瓷咖啡杯放在木桌上，侧面能看到杯把，自然窗光')
-      await submit(page)
-    }
-    try {
-      await page.waitForURL(/\/p\//, { timeout: 25000 })
-    } catch {
-      const link = page.getByRole('link', { name: /陶瓷咖啡杯/ }).first()
-      if (await link.isVisible().catch(() => false)) await click(page, link)
+    if (process.env.DOCS_VIDEO_HOLD === '1') {
+      const project = page.getByText('一只陶瓷咖啡杯放在木', { exact: false }).first()
+      await click(page, project)
       await page.waitForURL(/\/p\//, { timeout: 20000 })
-    }
-    const start = Date.now()
-    let imageBox = null
-    while (Date.now() - start < 120000) {
-      if (!/\/p\//.test(page.url())) {
-        await sleep(page, 500)
-        continue
-      }
-      imageBox = await page.evaluate(() => {
-        const imgs = [...document.querySelectorAll('img')].filter((img) => {
-          const rect = img.getBoundingClientRect()
-          return img.naturalWidth > 200 && rect.width > 160 && rect.x > 200
-        })
-        const big = imgs.sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0]
-        if (!big || big.clientWidth < 80) return null
-        const rect = big.getBoundingClientRect()
-        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+      await page.getByText('1086', { exact: false }).first().waitFor({ timeout: 20000 })
+      const mug = await page.evaluate(() => {
+        const img = [...document.querySelectorAll('img')].find((node) => node.naturalWidth >= 700)
+        if (!img) return null
+        const rect = img.getBoundingClientRect()
+        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
       })
-      if (imageBox) break
-      const text = await page.locator('body').innerText()
-      if (/积分不够|积分不足|生成失败/.test(text)) return { ok: false, note: 'canvas generate failed' }
-      await sleep(page, 1000)
+      if (mug) await page.mouse.move(mug.x, mug.y, { steps: 20 })
+      await sleep(page, 5000)
+      return { ok: true, note: 'result hold' }
     }
-    if (!imageBox) return { ok: false, note: 'canvas image did not land' }
-    await page.keyboard.press('v')
+    const project = page.getByText('一只陶瓷咖啡杯放在木', { exact: false }).first()
+    if (!(await project.isVisible().catch(() => false))) {
+      return { ok: false, note: '没有已上传的咖啡杯项目，未再生成新图' }
+    }
+    await click(page, project)
+    await page.waitForURL(/\/p\//, { timeout: 20000 })
+    await sleep(page, 1500)
+    const imageBox = await page.evaluate(() => {
+      const imgs = [...document.querySelectorAll('img')].filter((img) => img.naturalWidth >= 700)
+      const big = imgs.sort((a, b) => b.clientWidth * b.clientHeight - a.clientWidth * a.clientHeight)[0]
+      if (!big) return null
+      const rect = big.getBoundingClientRect()
+      return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+    })
+    if (!imageBox) return { ok: false, note: '画布上没有已解码的杯子图' }
+    await page.mouse.move(imageBox.x + imageBox.width * 0.55, imageBox.y + 48, { steps: 12 })
     await sleep(page, 300)
-    await page.mouse.move(imageBox.x + imageBox.width / 2, imageBox.y + imageBox.height / 2, { steps: 12 })
-    await sleep(page, 400)
-    await page.mouse.click(imageBox.x + imageBox.width / 2, imageBox.y + imageBox.height / 2)
-    await sleep(page, 700)
-    const inpaint = page.getByRole('button', { name: '智能改图' })
-    if (!(await inpaint.isVisible().catch(() => false))) {
-      return { ok: false, note: '智能改图按钮未出现' }
+    await page.mouse.click(imageBox.x + imageBox.width * 0.55, imageBox.y + 48)
+    await sleep(page, 800)
+    const edit = page.getByRole('button', { name: '编辑图片' })
+    if (!(await edit.isVisible().catch(() => false))) {
+      const text = (await page.locator('body').innerText()).replace(/\s+/g, ' ')
+      const uploads = trace.rows.filter((row) => /\/api\/media\/uploads|\/complete/.test(row.url))
+      writeFileSync(resolve(rawDir, '09-trace.json'), JSON.stringify({ stuck: /图片上传中/.test(text), uploads, body: text.slice(0, 400), console: trace.logs.slice(-20) }, null, 2))
+      return { ok: false, note: /图片上传中/.test(text) ? '仍显示图片上传中，编辑图片未出现' : '选中图片后没有编辑图片按钮' }
     }
-    if (await inpaint.isDisabled()) return { ok: false, note: '智能改图置灰，未改走整图编辑' }
-    await click(page, inpaint)
-    const rect = page.getByRole('radio', { name: '框选区域' })
-    if (await rect.isVisible().catch(() => false)) await click(page, rect)
-    const layer = page.getByRole('application', { name: '智能改图标记区' })
-    await layer.waitFor({ timeout: 10000 })
-    const box = await layer.boundingBox()
-    if (!box) return { ok: false, note: 'no inpaint layer' }
-    await page.mouse.move(box.x + box.width * 0.32, box.y + box.height * 0.28, { steps: 10 })
+    await click(page, edit)
+    const local = page.getByRole('button', { name: '局部重绘', exact: true })
+    await local.waitFor({ timeout: 15000 })
+    await click(page, local)
+    await sleep(page, 600)
+    const alert = page.getByRole('alert')
+    if (await alert.isVisible().catch(() => false)) {
+      const reason = (await alert.innerText()).replace(/\s+/g, ' ')
+      writeFileSync(resolve(rawDir, '09-trace.json'), JSON.stringify({ ok: false, reason, rows: trace.rows.slice(-20), console: trace.logs.slice(-20) }, null, 2))
+      return { ok: false, note: `局部重绘不可用：${reason}` }
+    }
+    const rectTool = page.getByRole('button', { name: '框选', exact: true })
+    await click(page, rectTool)
+    const stage = page.locator('canvas').last()
+    const box = await stage.boundingBox()
+    if (!box) return { ok: false, note: '局部重绘画布没有出现' }
+    await page.mouse.move(box.x + box.width * 0.38, box.y + box.height * 0.34, { steps: 10 })
     await page.mouse.down()
-    await page.mouse.move(box.x + box.width * 0.72, box.y + box.height * 0.78, { steps: 16 })
+    await page.mouse.move(box.x + box.width * 0.58, box.y + box.height * 0.72, { steps: 16 })
     await page.mouse.up()
     await sleep(page, 500)
-    await typeInto(page, page.getByRole('textbox', { name: '修改要求' }), '把杯身釉色换成雾面墨绿，杯把保持原样')
-    const send = page.getByRole('button', { name: '发送给智能体' })
-    if (await send.isDisabled()) return { ok: false, note: '改图发送按钮仍禁用' }
+    await typeInto(page, page.getByRole('textbox', { name: '描述希望修改的内容…' }), '把杯身釉色换成雾面墨绿，杯把保持原样')
+    const send = page.getByRole('button', { name: '生成新候选' })
+    if (await send.isDisabled()) {
+      const reason = await page.getByRole('alert').innerText().catch(() => '')
+      writeFileSync(resolve(rawDir, '09-trace.json'), JSON.stringify({ ok: false, reason, rows: trace.rows.slice(-20), console: trace.logs.slice(-20) }, null, 2))
+      return { ok: false, note: `生成新候选仍禁用。${reason.replace(/\s+/g, ' ')}` }
+    }
     await click(page, send)
-    await sleep(page, 4000)
-    return { ok: true, note: 'inpaint submitted' }
+    const sent = Date.now()
+    while (Date.now() - sent < 90000) {
+      const text = (await page.locator('body').innerText()).replace(/\s+/g, ' ')
+      if (/生成失败|积分不足|积分不够|未能完成|生成服务异常|当前模型不支持/.test(text) && Date.now() - sent > 3000) {
+        const errorText = text.match(/生成失败|积分不足|积分不够|未能完成|生成服务异常|当前模型不支持遮罩重绘，请切到 GPT Image 系列/)?.[0] || ''
+        writeFileSync(resolve(rawDir, '09-trace.json'), JSON.stringify({ ok: false, errorText, body: text.slice(0, 500), rows: trace.rows.slice(-30), console: trace.logs.slice(-20) }, null, 2))
+        return { ok: false, note: `局部重绘已提交后失败：${errorText}` }
+      }
+      if (!(await local.isVisible().catch(() => false)) && Date.now() - sent > 4000) {
+        const closed = Date.now()
+        while (Date.now() - closed < 90000) {
+          const after = (await page.locator('body').innerText()).replace(/\s+/g, ' ')
+          if (/生成失败|积分不足|积分不够|未能完成|生成服务异常/.test(after)) {
+            const errorText = after.match(/生成失败|积分不足|积分不够|未能完成|生成服务异常/)?.[0] || ''
+            writeFileSync(resolve(rawDir, '09-trace.json'), JSON.stringify({ ok: false, errorText, body: after.slice(0, 500), rows: trace.rows.slice(-30), console: trace.logs.slice(-20) }, null, 2))
+            return { ok: false, note: `局部重绘任务失败：${errorText}` }
+          }
+          const images = await page.evaluate(() => [...document.querySelectorAll('img')].filter((img) => img.naturalWidth >= 700).length)
+          if (images >= 2) {
+            await sleep(page, 2500)
+            writeFileSync(resolve(rawDir, '09-trace.json'), JSON.stringify({ ok: true, rows: trace.rows.slice(-30), console: trace.logs.slice(-20) }, null, 2))
+            return { ok: true, note: '局部重绘结果已出现' }
+          }
+          await sleep(page, 1000)
+        }
+        writeFileSync(resolve(rawDir, '09-trace.json'), JSON.stringify({ ok: false, rows: trace.rows.slice(-30), console: trace.logs.slice(-20) }, null, 2))
+        return { ok: false, note: '编辑器已关闭，90 秒内没有第二张结果图' }
+      }
+      await sleep(page, 1000)
+    }
+    writeFileSync(resolve(rawDir, '09-trace.json'), JSON.stringify({ ok: false, rows: trace.rows.slice(-30), console: trace.logs.slice(-20) }, null, 2))
+    return { ok: false, note: '局部重绘提交后 90 秒编辑器仍未关闭' }
   },
   async '10'(page) {
     await page.goto(`${BASE}/explore`, { waitUntil: 'domcontentloaded' })
@@ -461,7 +614,7 @@ const ids = wanted.length ? wanted : Object.keys(shots)
 const browser = await chromium.launch({
   channel: 'chrome',
   headless: true,
-  args: ['--disable-dev-shm-usage'],
+  args: ['--disable-dev-shm-usage', '--window-size=1920,1080'],
 })
 const boot = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: 'zh-CN' })
 const bootPage = await boot.newPage()
@@ -488,6 +641,8 @@ async function attachCapture(page, dest) {
       '-i',
       'pipe:0',
       '-an',
+      '-vf',
+      'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1',
       '-c:v',
       'libx264',
       '-pix_fmt',
@@ -502,6 +657,7 @@ async function attachCapture(page, dest) {
     ],
     { stdio: ['pipe', 'ignore', 'inherit'] },
   )
+  ffmpeg.stdin.on('error', () => {})
   const fps = 30
   const step = 1000 / fps
   let nextDue = 0
@@ -546,6 +702,11 @@ async function attachCapture(page, dest) {
   return async () => {
     closed = true
     await client.send('Page.stopScreencast').catch(() => {})
+    const now = Date.now()
+    while (last && nextDue <= now && exitCode === null && !ffmpeg.stdin.destroyed) {
+      ffmpeg.stdin.write(last)
+      nextDue += step
+    }
     if (exitCode === null && !ffmpeg.stdin.destroyed) ffmpeg.stdin.end()
     await closedPromise
     if (exitCode !== 0) throw new Error(`ffmpeg exited ${exitCode}`)
