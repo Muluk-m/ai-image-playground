@@ -13,6 +13,7 @@ import {
   copyTextToClipboard,
   getClipboardFailureMessage,
 } from '../lib/clipboard'
+import { activityFromRecord, showsGenerationTimer } from '../lib/generationActivity'
 import { loadImageOriginal } from '../lib/imageSource'
 import { ActualValueBadge, DetailParamValue, measuredSizeOf } from '../lib/paramDisplay'
 import { taskErrorText, taskRecordErrorText } from '../lib/taskError'
@@ -304,18 +305,20 @@ export default function DetailModal() {
     void setTaskFavorite(task, !task.isFavorite)
   }
 
-  const errorText = task.cancelled
-    ? t('common:state.cancelled')
-    : (taskRecordErrorText(task) ?? t('detail.errorUnavailable'))
+  const activity = activityFromRecord(task)
+  const errorText =
+    activity.phase === 'cancelled'
+      ? t('common:state.cancelled')
+      : (taskRecordErrorText(task) ?? t('detail.errorUnavailable'))
 
   const handleCopyError = async () => {
     const diagnostics = JSON.stringify(
       {
         // 复制给运营排查：带存下的原文，界面上那句是按分类换过的。
-        message: (!task.cancelled && task.error?.trim()) || errorText,
+        message: (activity.phase !== 'cancelled' && task.error?.trim()) || errorText,
         taskId: task.id,
         requestId: task.bffRequestId,
-        status: task.cancelled ? 'cancelled' : task.status,
+        status: activity.phase === 'cancelled' ? 'cancelled' : task.status,
         errorType: task.errorCode ?? null,
         provider: task.apiProvider ?? task.cloudProvider,
         model: task.apiModel,
@@ -501,12 +504,12 @@ export default function DetailModal() {
                   <Icon name="clock" size="xs" />
                   {formatDuration()}
                 </div>
-                {task.status === 'running' && (
+                {showsGenerationTimer(activity) && (
                   <Icon name="loading" size="lg" className="animate-spin text-primary" />
                 )}
               </>
             )}
-            {task.status === 'error' && task.cancelled && (
+            {activity.phase === 'cancelled' && (
               <div className="w-full max-w-md px-4 text-center">
                 <Icon name="close" size="lg" className="mx-auto mb-2 text-muted-foreground" />
                 <p className="text-sm leading-6 text-muted-foreground">
@@ -524,7 +527,7 @@ export default function DetailModal() {
                 </Button>
               </div>
             )}
-            {task.status === 'error' && !task.cancelled && (
+            {activity.phase === 'failed' && (
               <div className="w-full max-w-md px-4 text-center">
                 <Icon name="error" size="lg" className="mx-auto mb-2 text-destructive" />
                 <p
