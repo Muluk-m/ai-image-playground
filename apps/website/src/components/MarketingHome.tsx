@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../../web/src/components/ui/button'
 import { Icon } from '../../../web/src/components/ui/icon'
+import { guideClipUrl } from '../../../web/src/features/guide/content/media'
 import { initTheme, setThemeChoice } from '../../../web/src/theme'
 import { editions, type Locale } from '../catalog'
 import { rememberSiteLocale } from '../localeSelection'
@@ -64,8 +65,8 @@ function Film({ label, caption }: { label: string; caption: string }) {
           height={720}
           aria-label={label}
         >
-          <source src="/guide-assets/zh/clips/promo-site-zh.webm" type="video/webm" />
-          <source src="/guide-assets/zh/clips/promo-site-zh.mp4" type="video/mp4" />
+          <source src={guideClipUrl('promo-site-zh.webm')} type="video/webm" />
+          <source src={guideClipUrl('promo-site-zh.mp4')} type="video/mp4" />
         </video>
         <p>{caption}</p>
       </div>
