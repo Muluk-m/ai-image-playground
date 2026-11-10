@@ -18,10 +18,10 @@
 
 ### 中 — 读消息时顺带结算任务积分
 
-- 位置：`apps/bff/src/lib/agent/conversations.ts:325` 调用 `settleAgentJobs`；`apps/bff/src/lib/agent/background-jobs.ts` 里在计费能力打开时读 `taskHooks.taskCredits`
-- 问题：每次拉取会话消息都会跑结算。失败只在 `requireCharges` 时升级，否则记 warn。读路径带写，热点是刷新和轮询。
-- 为什么没直接修：结算时机牵动扣费是否漏掉，动它等于动计费接缝。
-- 建议做法：先量一条长会话的读延迟和结算次数，再决定能不能把结算挪到 worker，读路径只看已落库的状态。
+- 位置：读路径是 `apps/bff/src/lib/agent/conversations.ts:361` 的 `settleAgentJobs`（不传 `requireCharges`，失败只打 warn）。同文件 `:325` 是另一条：`settleAgentConversationJobs` 在清任务行之前调用，带 `requireCharges: true`，失败会抛。计费读取在 `apps/bff/src/lib/agent/background-jobs.ts` 的 `taskHooks.taskCredits`。
+- 问题：每次拉取会话消息都会跑结算。读路径带写，热点是刷新和轮询。
+- 为什么没直接修：结算时机牵动扣费是否漏掉，动它等于动计费接缝。不要把 `:325` 的强制结算和 `:361` 的读路径当成同一次调用。
+- 建议做法：先量一条长会话的读延迟和结算次数，再决定能不能把 `:361` 挪到 worker，读路径只看已落库的状态。`:325` 保持清任务前的强制结算。
 - 风险等级：中
 
 ## 高
@@ -78,12 +78,12 @@
 - 建议做法：页脚用一次 `inArray` 取回；恢复仍按轮串行。
 - 风险等级：中
 
-### 轮事件落库失败被吞掉
+### 轮事件落库失败只记 warn，且日志没有 conversationId
 
-- 位置：`apps/bff/src/lib/agent/events.ts:155-164`
-- 问题：`writes.catch(() => {})` 后继续。流式事件已经发给客户端，库里可能没有对应的 `agent_turn_events`。
+- 位置：`apps/bff/src/lib/agent/events.ts:157-170`
+- 问题：`writes.catch(() => {})` 让下一次写入继续。失败已经 `log.warn`（`agent.event_persist_failed`，带 `turnId` 和 `err`），但没有 `conversationId`。流式事件可能已经发给客户端，库里却没有对应的 `agent_turn_events`。
 - 为什么没直接修：设计是落库失败不要打断这一轮。改成向客户端报错会改协议。
-- 建议做法：保留不中断，至少打带 `conversationId` / `turnId` 的错误日志，方便对账。
+- 建议做法：保留不中断和现有 warn，补上 `conversationId`。
 - 风险等级：中
 
 ### 密码重置把所有异常都报成邮件失败
@@ -130,10 +130,10 @@
 
 ### 澄清工具抛普通 Error
 
-- 位置：`apps/bff/src/lib/agent/clarification.ts:31-32`
-- 问题：`askClarification` 不在 `AgentToolName` 里，校验失败抛 `Error` 而不是 `AgentToolError`。失败计数会把它记成 `unknown`。
-- 为什么没直接修：改错误类型会改模型看到的失败文本和连续失败熔断。
-- 建议做法：改成 `AgentToolError('invalid_params', ...)`，并补一条工具失败测试。
+- 位置：`apps/bff/src/lib/agent/clarification.ts:31-32`；包装之外见 `apps/bff/src/lib/agent/tools/index.ts:255`；`apps/bff/src/lib/agent/turn.ts:755-765`
+- 问题：`askClarification` 不在注册表包装里，校验失败抛 `Error` 而不是 `AgentToolError`。`streaks.failed` 只包注册工具。澄清的 `tool_execution_end` 在没有结果块时直接 return，不会记成 `unknown`，也不会触发连续失败熔断。错误文本回到模型。
+- 为什么没直接修：改错误类型会改模型看到的失败文本。
+- 建议做法：若要和注册工具一致，改成 `AgentToolError('invalid_params', ...)`，并补一条工具失败测试。不是熔断漏洞。
 - 风险等级：低
 
 ### 工具 schema 允许的张数大于运行时上限
@@ -198,6 +198,14 @@
 - 问题：文档容易读成「改了测试就会跑云端测试」。workflow 的 `pull_request.paths` 只覆盖 cloud-test 相关脚本和该 workflow。文档也没有写 CI 里的 `TEST_DATABASE_URL` 与 workflow 的 `CLOUD_TEST_DATABASE_URL` 是两个名字。
 - 为什么没直接修：没把文档和 workflow 逐段对完，避免改错运行说明。
 - 建议做法：按 workflow 的 `on.pull_request.paths` 改文档，并写明两个数据库 URL 谁注入给测试进程。
+- 风险等级：低
+
+### 直接访问未知地址走静态 404，不走官网 React
+
+- 位置：`apps/web/public/404.html`；说明见 `docs/deploy/image-release.md` 关于顶层 `404.html` 关闭 SPA 回退
+- 问题：Pages 和容器对未知路径返回这份静态页（`lang="zh-CN"`，正文已经是「页面不存在 / Page not found」）。官网 `notFoundComponent` 只在开发服务器，或已打开的官网页面里再进未知地址时出现。两套文案不一致。
+- 为什么没直接修：静态页已经中英并列，改它会影响工作台和资源路径的全部缺失页，不只是官网。本轮只改了官网路由里的那一套。
+- 建议做法：若希望 `/en/*` 的直接 404 也是纯英文，在 `404.html` 里按路径换文案，并保持 `pagesRelease` 测试仍能看到 `Page not found`。
 - 风险等级：低
 
 ### 模型目录的 family 字段前端还没读
