@@ -1028,7 +1028,7 @@ export default function AgentComposer({
     if (loading || submitting || historyBlocked || uploadsBlocked) return
     if (
       !bypassConfirmation.current &&
-      shouldSubmitPendingDraftsFromChat(draft.prompt, pendingConfirmations)
+      shouldSubmitPendingDraftsFromChat(draft.prompt, pendingConfirmations, draft.references.length)
     ) {
       const snapshot = draft
       const release = session.beginSubmission()
@@ -1049,7 +1049,14 @@ export default function AgentComposer({
               )
             return
           }
-          session.accept(snapshot)
+          if (result.confirmed > 0) {
+            session.accept(snapshot)
+            return
+          }
+          // 待确认卡已经不在了：别把输入清掉，改走普通发送。
+          release()
+          bypassConfirmation.current = true
+          submit()
         })
         .finally(release)
       return

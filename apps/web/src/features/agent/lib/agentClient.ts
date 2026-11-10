@@ -497,6 +497,13 @@ export async function startTurn(
           ...(body.continued === true ? { continued: true as const } : {}),
         }
       }
+      throw new AgentRequestError(
+        response.status,
+        'unexpected_json',
+        undefined,
+        undefined,
+        response.headers.get('x-request-id') ?? undefined,
+      )
     }
     if (response.status === 409) {
       // 读副本：不是「已有一轮」的 409（排队已满等）还要从原件里读出错误码。

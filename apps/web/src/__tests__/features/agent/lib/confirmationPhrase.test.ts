@@ -29,4 +29,5 @@ it('submits pending generation drafts from a short confirmation in chat', () => 
   expect(shouldSubmitPendingDraftsFromChat('确认', [{ kind: 'nodeRun' }])).toBe(false)
   expect(shouldSubmitPendingDraftsFromChat('确认', [])).toBe(false)
   expect(shouldSubmitPendingDraftsFromChat('换成狗', [{ kind: 'draft' }])).toBe(false)
+  expect(shouldSubmitPendingDraftsFromChat('确认', [{ kind: 'draft' }], 1)).toBe(false)
 })
