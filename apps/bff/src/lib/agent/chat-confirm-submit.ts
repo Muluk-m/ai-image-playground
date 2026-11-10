@@ -67,17 +67,12 @@ export async function listPendingConfirmableDrafts(conversationId: string): Prom
     .orderBy(asc(schema.agent_messages.created_at), asc(schema.agent_messages.seq))
 
   const cards: PendingCard[] = []
-  const seen = new Set<string>()
   for (const row of rows) {
-    for (const block of row.content) {
-      if (block.type !== 'toolResult' || block.status !== 'awaiting_confirmation') continue
-      if (block.productionDraftRevision !== undefined || block.snapshot?.params?.production)
-        continue
-      // confirmAgentGeneration 按消息取第一张 toolResult，同一条消息只确认一次。
-      if (seen.has(row.id)) continue
-      seen.add(row.id)
-      cards.push({ messageId: row.id, prompt: block.prompt ?? '' })
-    }
+    // confirmAgentGeneration / readToolCard 只看该消息的第一张 toolResult。
+    const block = row.content.find((item) => item.type === 'toolResult')
+    if (!block || block.status !== 'awaiting_confirmation') continue
+    if (block.productionDraftRevision !== undefined || block.snapshot?.params?.production) continue
+    cards.push({ messageId: row.id, prompt: block.prompt ?? '' })
   }
   return cards
 }

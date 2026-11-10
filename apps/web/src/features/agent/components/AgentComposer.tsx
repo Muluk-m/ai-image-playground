@@ -1024,6 +1024,28 @@ export default function AgentComposer({
     setConfirmationHeld(false)
   }, [draft.prompt])
 
+  const sendDraft = () => {
+    bypassConfirmation.current = false
+    setConfirmationHeld(false)
+    if (draft.prompt.trim()) holdStop()
+    void useAgentStore.getState().submitDraft({
+      session,
+      snapshot: draft,
+      mode,
+      onConsumed: () => {
+        selection.sent()
+        browsingRef.current = null
+      },
+      onNotice: (notice) =>
+        useStore
+          .getState()
+          .showToast(
+            notice === 'cancelled' ? t('composer.abortedToast') : t('composer.sendFailedToast'),
+            notice === 'cancelled' ? 'info' : 'error',
+          ),
+    })
+  }
+
   const submit = () => {
     if (loading || submitting || historyBlocked || uploadsBlocked) return
     if (
@@ -1053,10 +1075,10 @@ export default function AgentComposer({
             session.accept(snapshot)
             return
           }
-          // 待确认卡已经不在了：别把输入清掉，改走普通发送。
+          // 待确认卡已经不在了：别把输入清掉。不要递归 submit()——
+          // 当前渲染的 submitting 仍是 true，会在入口直接 return。
           release()
-          bypassConfirmation.current = true
-          submit()
+          sendDraft()
         })
         .finally(release)
       return
@@ -1068,25 +1090,7 @@ export default function AgentComposer({
       setConfirmationHeld(true)
       return
     }
-    bypassConfirmation.current = false
-    setConfirmationHeld(false)
-    if (draft.prompt.trim()) holdStop()
-    void useAgentStore.getState().submitDraft({
-      session,
-      snapshot: draft,
-      mode,
-      onConsumed: () => {
-        selection.sent()
-        browsingRef.current = null
-      },
-      onNotice: (notice) =>
-        useStore
-          .getState()
-          .showToast(
-            notice === 'cancelled' ? t('composer.abortedToast') : t('composer.sendFailedToast'),
-            notice === 'cancelled' ? 'info' : 'error',
-          ),
-    })
+    sendDraft()
   }
 
   /**
