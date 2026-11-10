@@ -352,6 +352,31 @@ const shots = {
   async '08'(page) {
     const trace = watchTraffic(page)
     await goImage(page)
+    if (process.env.DOCS_VIDEO_PLAY === '1') {
+      const project = page.getByText('冰块在玻璃杯里轻轻晃动', { exact: false }).first()
+      await click(page, project)
+      await page.waitForURL(/\/p\//, { timeout: 20000 })
+      const play = page.getByRole('button', { name: '播放' }).first()
+      await play.waitFor({ timeout: 20000 })
+      await click(page, play)
+      const started = Date.now()
+      let advanced = false
+      while (Date.now() - started < 20000) {
+        advanced = await page.evaluate(() => {
+          const node = document.querySelector('video')
+          return Boolean(node && node.videoWidth > 0 && !node.paused && node.currentTime > 0.4)
+        })
+        if (advanced) break
+        await sleep(page, 400)
+      }
+      await sleep(page, 4500)
+      const at = await page.evaluate(() => {
+        const node = document.querySelector('video')
+        return node ? { t: Number(node.currentTime.toFixed(2)), w: node.videoWidth, paused: node.paused } : null
+      })
+      writeFileSync(resolve(rawDir, '08-play.json'), JSON.stringify({ advanced, at }, null, 2))
+      return { ok: advanced, note: advanced ? `played to ${at?.t}` : 'play button did not start the video' }
+    }
     await pickTarget(page, '视频生成')
     await sleep(page, 800)
     const model = page.getByRole('combobox', { name: /模型/ }).first()
@@ -414,7 +439,7 @@ const shots = {
     const start = Date.now()
     let taskId = ''
     let errorText = ''
-    while (Date.now() - start < 240000) {
+    while (Date.now() - start < 360000) {
       const state = await page.evaluate(() => {
         const videos = [...document.querySelectorAll('video')]
         const live = videos.find((node) => node.videoWidth > 0 && node.readyState >= 2)
@@ -431,13 +456,13 @@ const shots = {
         }
       })
       if (state.taskId) taskId = state.taskId
-      const fromNet = trace.rows.find((row) => /"id"\s*:/.test(row.body) && /task|job|video/i.test(row.url + row.body))
+      const fromNet = [...trace.rows].reverse().find((row) => /request_id|"id"\s*:/.test(row.body) && /queue|submit|task|video/i.test(row.url))
       if (!taskId && fromNet) {
-        const match = fromNet.body.match(/"id"\s*:\s*"([^"]+)"/)
+        const match = fromNet.body.match(/"request_id"\s*:\s*"([^"]+)"/) || fromNet.body.match(/"id"\s*:\s*"([^"]+)"/)
         if (match) taskId = match[1]
       }
       if (state.playing) {
-        await sleep(page, 4000)
+        await sleep(page, 5000)
         writeFileSync(resolve(rawDir, '08-trace.json'), JSON.stringify({ ok: true, taskId, modelName, rows: trace.rows.slice(-30) }, null, 2))
         return { ok: true, note: `played task=${taskId || 'unknown'} model=${modelName}` }
       }

@@ -555,6 +555,31 @@ def build_webm(names: list[str] | None = None) -> None:
         encode_webm(mp4, webm)
 
 
+def build_video() -> None:
+    """08：首页提交、画布文生视频、生成中，然后是成片播放。"""
+    spans = [
+        (HD / "08-gen.mp4", 5.4, 8.2, 1),
+        (HD / "08-gen.mp4", 15.2, 17.6, 1),
+        (HD / "08-gen.mp4", 34.6, 38.4, 1),
+        (HD / "08-gen.mp4", 42.0, 70.0, 16),
+        (HD / "08-gen.mp4", 74.4, 77.2, 1),
+        (HD / "08-play.mp4", 6.6, 11.3, 1),
+    ]
+    work = HD / "guide-build" / "08-video"
+    work.mkdir(parents=True, exist_ok=True)
+    parts: list[Path] = []
+    for index, (src, start, end, speed) in enumerate(spans):
+        part = work / f"{index:02d}.mp4"
+        encode_span(src, start, end, speed, part)
+        parts.append(part)
+    mp4 = OUT / "08-video.mp4"
+    concat(parts, mp4)
+    duration = probe(mp4)
+    poster(mp4, OUT / "08-video-poster.webp", max(0.4, duration - 1.2))
+    print("08-video", round(duration, 2), "MB", round(mp4.stat().st_size / 1048576, 2))
+    encode_webm(mp4, OUT / "08-video.webm")
+
+
 def build_inpaint() -> None:
     """09 的母带是两段：编辑器里的框选，和出片后的墨绿杯。"""
     spans = [
@@ -581,6 +606,9 @@ def build_inpaint() -> None:
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     only = sys.argv[1:]
+    if only == ["08"]:
+        build_video()
+        return
     if only == ["09"]:
         build_inpaint()
         return
