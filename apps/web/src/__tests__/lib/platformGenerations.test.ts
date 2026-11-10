@@ -501,7 +501,7 @@ it('另一台设备提交、已在执行的任务按生成中显示，不停在�
   expect(running).toMatchObject({ status: 'running', queuePhase: 'generating' })
   expect(awaitingQueuePhase(running)).toBe(false)
   expect(taskFromGeneration({ ...summary, status: 'queued', completedAt: null }).queuePhase).toBe(
-    undefined,
+    'queued',
   )
 })
 
