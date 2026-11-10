@@ -32,6 +32,23 @@ export function validationMessage(error: Pick<ValidationError, 'valueError'>): s
   return first.path ? `${first.path}: ${first.message}` : first.message
 }
 
+/** 路径片段可能带畸形百分号。解不开就当没有这段，不要让 URIError 变成 500。 */
+export function safeDecodeURIComponent(value: string): string | undefined {
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return undefined
+  }
+}
+
+/** 校验失败的字段名。不返回字段值，避免把提示词或密钥写进日志。 */
+export function validationFieldNames(error: Pick<ValidationError, 'valueError'>): string[] {
+  const path = error.valueError?.path
+  if (!path) return []
+  const name = path.split('/').find((part) => part.length > 0 && !/^\d+$/.test(part))
+  return name ? [name] : []
+}
+
 /** Elysia 默认对 body schema 校验失败返 422；规范要求 400，统一在路由作用域拦截。 */
 export const badRequestOnValidation = () =>
   new Elysia().onError({ as: 'scoped' }, ({ code, error, set }) => {

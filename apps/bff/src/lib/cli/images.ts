@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import {
+  degradeGptImage26ForSub2api,
   GPT_IMAGE_26_GIF_DEFAULT_DURATION_MS,
   GPT_IMAGE_26_GIF_DEFAULT_FRAMES,
   GPT_IMAGE_26_GIF_DEFAULT_SIZE,
@@ -14,9 +15,11 @@ import {
   type GptImage26Rejection,
   gifSpriteExceedsLimit,
   gptImage26Rejection,
+  gptImage26RequiresDirect,
   imageRateMultiplier,
   isGptDirectModel,
   isGptImage26Model,
+  isGptSub2apiDeliverable,
   type QueueProvider,
   type SubmitRequest,
 } from '@image-playground/shared'
@@ -34,7 +37,8 @@ import { declaredImageSizes, getDiscoveredChannels, resolveQueueModel } from '..
 import { refreshInactiveModels, withoutInactiveModels } from '../model-availability'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { strictImageRequestAllowed } from '../taskSubmission'
-import { gptDirectConfigured, gptImage26Configured } from '../upstream/gpt-routing'
+import { gptImage26DirectListed, gptImage26Enabled } from '../upstream/gpt-direct-availability'
+import { gptDirectConfigured, gptImage26DirectKey } from '../upstream/gpt-routing'
 import { CliRequestError } from './envelope'
 
 export const CLI_PROMPT_MAX_CHARS = 32_000
@@ -57,8 +61,7 @@ export async function availableImageModels(): Promise<CliImageModel[]> {
   return channels.flatMap((channel) =>
     channel.models.flatMap((model) => {
       if ((model.media ?? 'image') !== 'image') return []
-      // 2.6 只走直连：没配好时一张都提交不了，不能出现在清单里、更不能被当成默认模型。
-      if (isGptImage26Model(model.id) && !gptImage26Configured()) return []
+      // 开关关掉时渠道清单里没有 2.6。直连不可用时静态图仍可提交，GIF / SVG 不列。
       const spec = findCatalogModel(model.id)
       const queue = resolveQueueModel('image', model.id)
       if (!spec || !queue) return []
@@ -95,11 +98,11 @@ const GIF_DEFAULT_SIZE = GPT_IMAGE_26_GIF_DEFAULT_SIZE
 const OUTPUT_FORMAT_VALUES = ['image', 'png', 'gif', 'svg'] as const
 
 /**
- * 与网站一致：只有 GPT Image 2.6 能直出 GIF / SVG，规则见 `gpt-image-26.ts`。2.6 没配好直连时
- * 一张都出不了，也就不列 GIF / SVG。
+ * 与网站一致：只有 GPT Image 2.6 能直出 GIF / SVG。直连接不了单时仍列出，
+ * 提交会降级成静态图，能力清单用 `degraded` 标明。
  */
 export function outputFormatsFor(model: string): readonly CliOutputFormat[] {
-  return isGptImage26Model(model) && gptImage26Configured() ? ['image', 'gif', 'svg'] : ['image']
+  return isGptImage26Model(model) ? ['image', 'gif', 'svg'] : ['image']
 }
 
 export interface CliImageRequestBody {
@@ -192,6 +195,11 @@ function outputFormatFields(
           frame_size: body.frame_size ?? GIF_DEFAULT_SIZE,
         }
       : {}
+  // 严格入口不降级。直连清单接不了动图或矢量时，在这里拒绝，而不是改成静态图再报价。
+  if (!gptImage26DirectListed())
+    throw new CliRequestError('MODEL_UNAVAILABLE', {
+      message: '动图和矢量图需要 OpenAI 直连，当前直连不可用',
+    })
   const reason = gptImage26Rejection(
     model.id,
     {
@@ -209,7 +217,7 @@ function outputFormatFields(
               : undefined,
           }),
     },
-    gptImage26Configured(),
+    true,
   )
   if (reason)
     throw new CliRequestError('INVALID_REQUEST', {
@@ -397,6 +405,23 @@ export interface CliImagePreview {
   readonly planRequired: boolean
 }
 
+/**
+ * 和提交用同一把直连 key 判断。严格入口不降级：接不了的高档和动图直接拒绝，
+ * 报价不会按 1K 的 330 积分报出去。能走 sub2api 的 1K 非高画质仍按原请求报价。
+ */
+async function assertCliImage26Available(model: string, request: SubmitRequest): Promise<void> {
+  if (!isGptImage26Model(model)) return
+  if (!gptImage26Enabled())
+    throw new CliRequestError('MODEL_UNAVAILABLE', { message: 'Image 2.6 暂不可用' })
+  if (await gptImage26DirectKey(model, request)) return
+  if (gptImage26RequiresDirect(request) || !isGptSub2apiDeliverable(request))
+    throw new CliRequestError('MODEL_UNAVAILABLE', {
+      message: gptImage26RequiresDirect(request)
+        ? '动图和矢量图需要 OpenAI 直连，当前直连不可用'
+        : '当前高分辨率/高画质需要 OpenAI 直连，暂不可用',
+    })
+}
+
 /** 预检：报价与会员档判断放在同一个只读事务里，不建任务、不预扣。 */
 export async function previewImageRequest(
   userId: string,
@@ -404,13 +429,15 @@ export async function previewImageRequest(
   request: SubmitRequest,
 ): Promise<CliImagePreview> {
   const hooks = (await loadPrivateBffOverlay()).taskHooks
+  await assertCliImage26Available(prepared.model.id, request)
+  const priced = request
   return db.transaction(async (tx) => {
     const planRequired = !(await strictImageRequestAllowed(
       tx,
       userId,
       prepared.model.provider,
       prepared.model.id,
-      request,
+      priced,
     ))
     if (planRequired) return { planRequired, quote: null }
     const quote = await hooks.quoteTask?.({
@@ -420,7 +447,7 @@ export async function previewImageRequest(
       quantity: 1,
       unitMultiplier: imageRateMultiplier(
         prepared.model.id,
-        request,
+        priced,
         declaredImageSizes(prepared.model.id),
       ),
     })
@@ -445,6 +472,8 @@ export interface CliModelCapability {
   readonly typical_duration_seconds: number | null
   /** `image` 是常规图片；`gif`、`svg` 是模型直出的动图与矢量图，限制见 `gif` / `svg`。 */
   readonly output_formats: readonly CliOutputFormat[]
+  /** 直连暂时接不了。高档、动图和矢量图仍列出，提交时降级成 1K 静态图。 */
+  readonly degraded?: true
   readonly gif?: CliGifCapability
   readonly svg?: CliSvgCapability
 }
@@ -488,12 +517,14 @@ async function specialFormatCapabilities(
   hooks: Awaited<ReturnType<typeof loadPrivateBffOverlay>>['taskHooks'],
 ): Promise<{ gif: CliGifCapability; svg: CliSvgCapability }> {
   const quote = async (request: SubmitRequest) => {
+    const direct = !isGptImage26Model(model) || (await gptImage26DirectKey(model, request))
+    const billed = direct ? request : (degradeGptImage26ForSub2api(request)?.request ?? request)
     const one = await hooks.quoteTask?.({
       tx,
       userId,
       model,
       quantity: 1,
-      unitMultiplier: imageRateMultiplier(model, request, declaredImageSizes(model)),
+      unitMultiplier: imageRateMultiplier(model, billed, declaredImageSizes(model)),
     })
     return one ? { estimated_credits: one.estimatedCredits } : null
   }
@@ -546,6 +577,8 @@ export async function imageCapabilities(userId: string) {
     for (const model of models) {
       const caps = model.image
       const gpt = isGptDirectModel(model.id)
+      const image26 = isGptImage26Model(model.id)
+      const image26Direct = image26 && gptImage26DirectListed()
       const memberTier = await strictImageRequestAllowed(tx, userId, model.provider, model.id, {
         prompt: '',
         ...(gpt ? { size: '3840x2160', quality: 'high' } : { image_size: '4K' }),
@@ -582,6 +615,7 @@ export async function imageCapabilities(userId: string) {
         price: quote ? { estimated_credits: quote.estimatedCredits } : null,
         typical_duration_seconds: model.etaSeconds ?? null,
         output_formats: outputFormatsFor(model.id),
+        ...(image26 && !image26Direct ? { degraded: true as const } : {}),
         ...(outputFormatsFor(model.id).includes('gif')
           ? await specialFormatCapabilities(tx, userId, model.id, hooks)
           : {}),

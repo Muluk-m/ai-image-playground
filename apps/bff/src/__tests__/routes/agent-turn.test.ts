@@ -1,12 +1,15 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
+import type { AgentInboxUserMessagePayload } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import {
   type AgentMessageView,
   type AgentTurnEvent,
   DEVICE_ID_HEADER,
 } from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
+import { queueParamsFor } from '../../lib/agent/tools/queueParams'
 import {
   type AgentCall,
   completion,
@@ -121,6 +124,42 @@ afterAll(async () => {
 })
 
 describe('POST /api/agent/conversations/:id/turns', () => {
+  it('keeps an explicit 12-frame GIF through the turn route and into queue params', async () => {
+    setAgentFetchForTesting(recordingAgentFetch([], () => completionStream('收到')))
+    const conversationId = await startConversation()
+    const response = await app.handle(
+      new Request(`http://localhost/api/agent/conversations/${conversationId}/turns`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          deviceId: DEVICE,
+          text: '出一张动图',
+          params: {
+            model: 'gpt-image-2.6-flare',
+            output_format: 'gif',
+            size: '768x768',
+            frame_count: 12,
+            frame_duration_ms: 100,
+          },
+        }),
+      }),
+    )
+    expect(response.status).toBe(200)
+    await response.text()
+    const [row] = await db
+      .select({ payload: schema.agent_inbox.payload })
+      .from(schema.agent_inbox)
+      .where(eq(schema.agent_inbox.conversation_id, conversationId))
+    const params = (row?.payload as AgentInboxUserMessagePayload).params
+    expect(queueParamsFor('openai-compat', params)).toMatchObject({
+      output_format: 'gif',
+      size: '768x768',
+      quality: 'medium',
+      frame_count: 12,
+      frame_duration_ms: 100,
+    })
+  })
+
   it('continues once after a length stop and completes when the next reply finishes', async () => {
     const calls: AgentCall[] = []
     setAgentFetchForTesting(
@@ -395,6 +434,16 @@ describe('POST /api/agent/conversations/:id/turns', () => {
     expect((await post(path, { deviceId: DEVICE, text: '' })).status).toBe(400)
     expect((await post(path, { deviceId: DEVICE, text: 'x'.repeat(4001) })).status).toBe(400)
     expect((await post(path, { deviceId: 'short', text: '你好' })).status).toBe(400)
+  })
+
+  it('rejects a 25ms GIF frame duration before the turn starts', async () => {
+    const conversationId = await startConversation()
+    const { status } = await post(`/api/agent/conversations/${conversationId}/turns`, {
+      deviceId: DEVICE,
+      text: '出一张动图',
+      params: { output_format: 'gif', frame_count: 6, frame_duration_ms: 25 },
+    })
+    expect(status).toBe(400)
   })
 
   /**

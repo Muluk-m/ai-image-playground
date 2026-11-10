@@ -506,11 +506,11 @@ describe('key failover', () => {
         model: 'gpt-image-2.6-flare',
         request: { prompt: 'a cat' },
       })
-    await expect(generate()).rejects.toThrow('direct route is not configured')
-    expect(sent).toEqual([])
+    await generate()
+    expect(sent).toEqual(['sub2api'])
     await restoreDirectKey(primaryId.fingerprint, 'ops')
     await generate()
-    expect(sent).toEqual(['primary'])
+    expect(sent).toEqual(['sub2api', 'primary'])
   })
 
   it('uses a restored key again, and ignores last month when judging the budget', async () => {

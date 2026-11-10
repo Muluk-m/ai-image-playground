@@ -1,4 +1,8 @@
-import type { PartialImageFailure, StageAuthorizationSubmission } from '@image-playground/shared'
+import type {
+  Image26DegradeKind,
+  PartialImageFailure,
+  StageAuthorizationSubmission,
+} from '@image-playground/shared'
 import { isContentPolicyRejection, type TaskProgressPhase } from '@image-playground/shared'
 import { i18next, UserFacingError } from '../i18n'
 import type { AppSettings, TaskParams } from '../types'
@@ -46,6 +50,8 @@ export interface CallApiResult {
   rawImageUrls?: string[]
   /** 一单多张里有几张没出来；`images` 是交付的那几张 */
   partialFailure?: PartialImageFailure
+  /** 直连不可用时的降级类别。 */
+  degradeNotice?: Image26DegradeKind
 }
 
 export function isHttpUrl(value: unknown): value is string {

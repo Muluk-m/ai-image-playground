@@ -42,6 +42,27 @@ describe('toAgentTurnParams', () => {
       }),
     ).toMatchObject({ n: 8 })
   })
+
+  it('动图把设置卡上的帧数和每帧时长带给智能体，避免提交时被收成 6 帧', () => {
+    expect(
+      toAgentTurnParams(
+        {
+          ...DEFAULT_PARAMS,
+          output_format: 'gif',
+          size: '768x768',
+          frame_count: 12,
+          frame_duration_ms: 100,
+        },
+        'gpt-image-2.6-flare',
+        true,
+      ),
+    ).toMatchObject({
+      output_format: 'gif',
+      size: '768x768',
+      frame_count: 12,
+      frame_duration_ms: 100,
+    })
+  })
 })
 
 describe('imageCountChoices', () => {

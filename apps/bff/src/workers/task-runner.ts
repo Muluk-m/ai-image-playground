@@ -42,7 +42,7 @@ import {
   UpstreamResultUnknownError,
   UpstreamTimeoutError,
 } from '../lib/upstream'
-import { ImagePlanRequiredError } from '../lib/upstream/errors'
+import { GptImage26RouteUnavailableError, ImagePlanRequiredError } from '../lib/upstream/errors'
 import { gptDirectConfigured } from '../lib/upstream/gpt-routing'
 import { partialFailureOf } from '../lib/upstream/partial'
 import { claimTaskExecution, type TaskExecution } from './task-execution'
@@ -245,7 +245,9 @@ async function executeTask(execution: TaskExecution): Promise<void> {
             gptMember: !isGptSub2apiDeliverable(request) || (await isActiveMember(task.user_id)),
           }
         : {}),
+      persistedGptRoute: task.gpt_route,
       onGptRoute: (route) => execution.recordGptRoute(route),
+      onImage26Degrade: (record) => execution.recordImage26Degrade(record),
       onGptKey: (fingerprint) => execution.recordGptKey(fingerprint),
       provider: task.provider,
       // 截图模式：落库的是整张原图与选区，送上游的只是选区周围那一块。
@@ -294,7 +296,13 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       if (!persisted) throw error
       return callUpstream({
         ...upstreamCall,
-        resume: { ...persisted, pollOnly: true },
+        persistedGptRoute: persisted.gptRoute,
+        resume: {
+          taskIds: persisted.taskIds,
+          invocationCount: persisted.invocationCount,
+          submittedAt: persisted.submittedAt,
+          pollOnly: true,
+        },
       })
     })
     const meta = extractMeta(task.provider, payload)
@@ -431,21 +439,24 @@ async function executeTask(execution: TaskExecution): Promise<void> {
     const errorType: TaskErrorType =
       err instanceof ImagePlanRequiredError
         ? 'plan_required'
-        : isStorageError
-          ? 'object_storage_error'
-          : isUnknownResult
-            ? 'upstream_result_unknown'
-            : isContentPolicyRejection({
-                  status: upstreamFailure.status,
-                  message,
-                  payload: upstreamFailure.body,
-                })
-              ? 'content_policy'
-              : isModelUnavailableRejection({ message, payload: upstreamFailure.body })
-                ? 'model_unavailable'
-                : upstreamFailure.status === 429
-                  ? 'rate_limited'
-                  : 'upstream_error'
+        : err instanceof GptImage26RouteUnavailableError
+          ? // 不要用 model_unavailable：那个终态会把整个模型下架，静态图就再也不能走 sub2api。
+            'upstream_error'
+          : isStorageError
+            ? 'object_storage_error'
+            : isUnknownResult
+              ? 'upstream_result_unknown'
+              : isContentPolicyRejection({
+                    status: upstreamFailure.status,
+                    message,
+                    payload: upstreamFailure.body,
+                  })
+                ? 'content_policy'
+                : isModelUnavailableRejection({ message, payload: upstreamFailure.body })
+                  ? 'model_unavailable'
+                  : upstreamFailure.status === 429
+                    ? 'rate_limited'
+                    : 'upstream_error'
 
     const attemptJustFailed = task.attempt_count + 1
     if (
