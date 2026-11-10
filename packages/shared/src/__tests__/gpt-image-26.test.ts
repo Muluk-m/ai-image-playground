@@ -6,7 +6,9 @@ import {
   gptImage26RateMultiplier,
   gptImage26Rejection,
   isGptImage26Model,
+  withGptImage26GifDefaults,
 } from '../gpt-image-26'
+import { IMAGE_SIZE_PRESETS } from '../image'
 
 const FLARE = 'gpt-image-2.6-flare'
 
@@ -134,5 +136,44 @@ describe('gpt image 2.6 rejection', () => {
     )
     expect(gptImage26Rejection(FLARE, { output_format: 'svg', n: 2 }, true)).toBe('svg_count')
     expect(gptImage26Rejection('gpt-image-2.5-flare', gif, false)).toBe(null)
+  })
+
+  it('fills the frame defaults the settings control already shows, and leaves an explicit 16-frame request alone', () => {
+    expect(
+      withGptImage26GifDefaults({ output_format: 'gif', size: '768x768', quality: 'medium' }),
+    ).toEqual({
+      output_format: 'gif',
+      size: '768x768',
+      quality: 'medium',
+      frame_count: 6,
+      frame_duration_ms: 200,
+    })
+    const explicit = {
+      output_format: 'gif' as const,
+      size: '768x768',
+      frame_count: 16,
+      frame_duration_ms: 300,
+    }
+    expect(withGptImage26GifDefaults(explicit)).toBe(explicit)
+    expect(gptImage26Rejection(FLARE, withGptImage26GifDefaults(explicit), true)).toBe('gif_sprite')
+    expect(
+      gptImage26Rejection(
+        FLARE,
+        withGptImage26GifDefaults({ output_format: 'gif', size: '768x768' }),
+        true,
+      ),
+    ).toBe(null)
+  })
+
+  it('accepts every still-image preset at low, medium, and high quality', () => {
+    for (const tier of ['1K', '2K', '4K'] as const) {
+      for (const size of Object.values(IMAGE_SIZE_PRESETS[tier])) {
+        for (const quality of ['low', 'medium', 'high'] as const) {
+          expect(
+            gptImage26Rejection(FLARE, { size, quality, output_format: 'png', n: 4 }, true),
+          ).toBe(null)
+        }
+      }
+    }
   })
 })

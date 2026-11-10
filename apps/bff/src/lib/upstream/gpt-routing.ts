@@ -4,8 +4,8 @@ import { log } from '../logger'
 import { runtimeSecret } from '../upstream-secret-cache'
 import { ImagePlanRequiredError } from './errors'
 import { estimateDirectCostMicroUsd } from './gpt-budget'
-import { directKeyKnownDisabled, gptDirectEnabledKeyCount } from './gpt-direct-availability'
-import { adminDirectKeys, safeEnvDirectKeys } from './gpt-key-config'
+import { gptDirectEnabledKeyCount } from './gpt-direct-availability'
+import { gptImage26KeysReady } from './gpt-key-config'
 import { selectDirectKey } from './gpt-keys'
 import { gptSchedulerBuckets, tryAcquireSchedulerSlots } from './scheduler'
 
@@ -34,12 +34,7 @@ export function gptDirectConfigured(model: string): boolean {
 
 /** 2.6 用自己的开关和同一把可替换的 OpenAI key。关着或没 key 时不走 sub2api。 */
 export function gptImage26Configured(): boolean {
-  return (
-    config.gptImage26.enabled &&
-    (adminDirectKeys() ?? safeEnvDirectKeys()).some(
-      (key) => key.enabled && !directKeyKnownDisabled(key.fingerprint),
-    )
-  )
+  return config.gptImage26.enabled && gptImage26KeysReady()
 }
 
 // ---- sub2api 熔断：本进程内计数，每个环境各管各的 ----

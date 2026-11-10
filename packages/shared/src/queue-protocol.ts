@@ -62,6 +62,8 @@ export interface StoredImageRef {
  * - `object_storage_error`: object storage read/write failed, or archiving could not fetch the
  *   upstream result URL, after the retry budget was spent
  * - `plan_required`: strict CLI premium parameters cannot be fulfilled; terminal failure, no downgrade
+ * - `invalid_request`: 提交被参数校验拒绝，任务没有建成。只出现在浏览器这次提交的失败分类里，
+ *   不写入 `tasks.error_type`。
  * - `unknown`: 兜底（理论上不应出现）
  */
 export type TaskErrorType =
@@ -70,6 +72,7 @@ export type TaskErrorType =
   | 'upstream_error'
   | 'content_policy'
   | 'plan_required'
+  | 'invalid_request'
   | 'model_unavailable'
   | 'rate_limited'
   | 'upstream_no_image'

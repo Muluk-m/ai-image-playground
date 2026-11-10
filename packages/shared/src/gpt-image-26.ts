@@ -150,6 +150,52 @@ export type GptImage26Rejection =
   | 'gif_size'
 
 /**
+ * 界面把没写的帧数和每帧时长显示成默认值。提交前补上同一组默认值，
+ * 省略和点选默认档才会是同一单；已经写明的尺寸和帧数原样保留。
+ */
+export function withGptImage26GifDefaults<
+  T extends GptImage26QuoteInput & { frame_duration_ms?: number },
+>(request: T): T & { frame_count?: number; frame_duration_ms?: number; size?: string } {
+  if (request.output_format !== 'gif') return request
+  const frame_count = request.frame_count ?? GPT_IMAGE_26_GIF_DEFAULT_FRAMES
+  const frame_duration_ms = request.frame_duration_ms ?? GPT_IMAGE_26_GIF_DEFAULT_DURATION_MS
+  const size = request.size ?? GPT_IMAGE_26_GIF_DEFAULT_SIZE
+  if (
+    frame_count === request.frame_count &&
+    frame_duration_ms === request.frame_duration_ms &&
+    size === request.size
+  )
+    return request
+  return { ...request, frame_count, frame_duration_ms, size }
+}
+
+/** 拒绝原因对应的请求字段。日志只记这些名字，不记字段值。 */
+export function gptImage26RejectionFields(reason: GptImage26Rejection): readonly string[] {
+  switch (reason) {
+    case 'unavailable':
+      return []
+    case 'gif_edit':
+    case 'svg_edit':
+      return ['output_format', 'input_images']
+    case 'gif_count':
+    case 'svg_count':
+      return ['n', 'output_format']
+    case 'gif_frames':
+      return ['frame_count']
+    case 'gif_duration':
+      return ['frame_duration_ms']
+    case 'gif_sprite':
+      return ['size', 'frame_count']
+    case 'gif_size':
+      return ['size']
+    default: {
+      const unhandled: never = reason
+      return unhandled
+    }
+  }
+}
+
+/**
  * 提交前的拒绝原因。返回 null 表示这单可以建任务、可以扣积分。
  * 尺寸乘帧数过线、编辑里要 GIF/SVG，都在扣积分之前 400。
  */

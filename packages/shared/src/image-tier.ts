@@ -7,6 +7,7 @@ import {
   isGptNonMemberRequest,
   isGptSub2apiDeliverable,
 } from './gpt-direct'
+import { isGptImage26Model, withGptImage26GifDefaults } from './gpt-image-26'
 import { imageSizeTier } from './image'
 
 /**
@@ -104,15 +105,25 @@ function requiresOf(
 export function resolveImageTier<T extends ImageRateRequest>(
   input: ImageTierInput<T>,
 ): ImageTierDecision<T> {
-  const policy = ENTRY_POLICY[input.entry]
-  const gptAligned = alignGpt(input, policy.gpt)
+  // 动图设置卡把没写的帧数显示成 6 帧、200ms。这里补成同一组数，再校验、再计价，
+  // 省略和点选默认档的哈希与扣费才一致。已经写明的帧数（包括 768×16 这种非法组合）不改。
+  const request = isGptImage26Model(input.model)
+    ? withGptImage26GifDefaults(input.request)
+    : input.request
+  const normalized = request === input.request ? input : { ...input, request }
+  const policy = ENTRY_POLICY[normalized.entry]
+  const gptAligned = alignGpt(normalized, policy.gpt)
   const effectiveRequest =
-    input.provider === 'gemini' && policy.gemini === 'by-member'
-      ? clampGeminiNonMemberRequest(gptAligned, input.member)
+    normalized.provider === 'gemini' && policy.gemini === 'by-member'
+      ? clampGeminiNonMemberRequest(gptAligned, normalized.member)
       : gptAligned
   return {
     effectiveRequest,
-    rateMultiplier: imageRateMultiplier(input.model, effectiveRequest, input.supportedTiers),
-    requires: requiresOf(input, effectiveRequest),
+    rateMultiplier: imageRateMultiplier(
+      normalized.model,
+      effectiveRequest,
+      normalized.supportedTiers,
+    ),
+    requires: requiresOf(normalized, effectiveRequest),
   }
 }

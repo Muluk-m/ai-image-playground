@@ -5,11 +5,25 @@ const quota = { ok: false, count: 20, quota: 20, reset_at: '2026-11-09T00:00:00.
 
 // 单张提交与批量提交共用这张表，每种拒绝结局一行。
 const table: ReadonlyArray<readonly [SubmissionRefusal, number, Record<string, unknown>]> = [
-  [{ kind: 'invalid_prompt' }, 400, { error: 'invalid_request', message: '提示词不能为空' }],
   [
-    { kind: 'invalid_image_request', message: 'bad size' },
+    { kind: 'invalid_prompt' },
     400,
-    { error: 'invalid_request', message: 'bad size' },
+    { error: 'invalid_request', message: '提示词不能为空', fields: ['prompt'] },
+  ],
+  [
+    { kind: 'invalid_image_request', message: 'bad size', code: 'gif_size', fields: ['size'] },
+    400,
+    { error: 'invalid_request', message: 'bad size', fields: ['size'] },
+  ],
+  [
+    {
+      kind: 'invalid_image_request',
+      message: 'Image 2.6 暂不可用',
+      code: 'unavailable',
+      fields: [],
+    },
+    400,
+    { error: 'model_unavailable', message: 'Image 2.6 暂不可用' },
   ],
   [
     { kind: 'invalid_input_image', message: 'bad ref' },
