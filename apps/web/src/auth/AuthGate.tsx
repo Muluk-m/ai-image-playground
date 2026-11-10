@@ -1,5 +1,5 @@
 import type { AuthUserView } from '@image-playground/shared'
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { Suspense, useCallback, useEffect, useState } from 'react'
 import { signalBootReady, signalBootStage } from '../boot/ready'
 import { Button } from '../components/ui/button'
 import { Icon } from '../components/ui/icon'
@@ -19,6 +19,7 @@ import {
 } from '../lib/authClient'
 import { setClientStorageScope, setRecoveryBackend } from '../lib/authScope'
 import { bootstrapChannels } from '../lib/channels/bootstrapChannels'
+import { lazyWithReload } from '../lib/chunkLoad'
 import { clearScopedClientStorage } from '../lib/clearScopedStorage'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { recoverStorageUser } from '../lib/localRecovery'
@@ -30,7 +31,7 @@ import { type LoginPromptReason, setSignedIn, subscribeLoginPrompt } from './log
 import { discardPendingSubmission, hasPendingSubmission } from './pendingSubmission'
 import { SessionExpiredCard } from './SessionExpiredCard'
 
-const App = lazy(() => import('../App'))
+const App = lazyWithReload(() => import('../App'))
 
 type Phase = 'checking' | 'ready' | 'reconnecting'
 

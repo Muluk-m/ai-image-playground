@@ -8,6 +8,7 @@ import {
   BOOT_STAGES,
   BUILD_META_NAME,
   DEVICE_ID_STORAGE_KEY,
+  DYNAMIC_IMPORT_FAILURE,
   PRELOAD_RELOAD_STORAGE_KEY,
   PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY,
   RELOAD_QUERY_PARAM,
@@ -222,6 +223,10 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
   const onRejection=(event)=>{
     const reason=event.reason;
     note({type:'rejection',message:clip(reason&&reason.message,300)||clip(String(reason),300),stack:clip(reason&&reason.stack,1200)});
+    // A tab opened on the previous release can ask for a chunk that no longer exists. Without this
+    // the rejection only waited for the 30s timeout.
+    const message=typeof reason==='string'?reason:reason&&reason.message;
+    if(!rendered&&!recovery&&typeof message==='string'&&${DYNAMIC_IMPORT_FAILURE}.test(message)&&!retry())fail('chunk',{message:clip(message,300)});
   };
   const onPreloadError=(event)=>{
     const message=event.payload&&event.payload.message;
