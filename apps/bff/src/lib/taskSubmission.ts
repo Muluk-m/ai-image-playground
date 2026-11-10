@@ -23,9 +23,11 @@ import {
   type GptImage26Rejection,
   gptImage26Rejection,
   gptImage26RejectionFields,
+  gptImage26RequiresDirect,
   imageSizeTier,
   isBlankPrompt,
   isGptImage26Model,
+  isGptSub2apiDeliverable,
   nearestImageSize,
   QUEUE_TIMEOUTS,
   resolveImageTier,
@@ -56,7 +58,7 @@ import { publicTaskErrorMessage } from './public-task-error'
 import { asQueueProvider } from './queueProvider'
 import { type QuotaConsumeResult, tryConsumeQuotaInTransaction } from './quota'
 import { isObject } from './type-guards'
-import { gptDirectConfigured, gptImage26Configured } from './upstream/gpt-routing'
+import { gptDirectConfigured, gptImage26DirectKey } from './upstream/gpt-routing'
 
 /**
  * 一条已经归档好输入的提交，只在本 module 内流转（见 `submitPrepared`）。
@@ -148,6 +150,7 @@ export type CreateQueueTaskOutcome =
       readonly code: GptImage26Rejection
       readonly fields: readonly string[]
     }
+  | { readonly kind: 'model_unavailable'; readonly message: string }
   | { readonly kind: 'authentication_required' }
   | { readonly kind: 'metering_denied'; readonly reason: string }
   | { readonly kind: 'private_billing_denied' }
@@ -747,12 +750,29 @@ const GPT_IMAGE_26_REJECTION_MESSAGE = {
   gif_size: '动图尺寸无效',
 } as const
 
-/** 2.6 的格式和雪碧图限制在建任务、扣积分之前拒绝。 */
-function gptImage26RequestProblem(
+const GPT_IMAGE_26_DIRECT_ONLY_MESSAGE = '动图和矢量图需要 OpenAI 直连，当前直连不可用'
+const GPT_IMAGE_26_TIER_MESSAGE = '当前高分辨率/高画质需要 OpenAI 直连，暂不可用'
+
+/**
+ * 2.6 的格式和雪碧图限制在建任务、扣积分之前拒绝。
+ * 静态图在直连不可用时不拒绝，交给执行时走 sub2api。GIF / SVG 没有第二条路。
+ */
+async function gptImage26RequestProblem(
   input: CreateQueueTaskInput,
-): Extract<CreateQueueTaskOutcome, { kind: 'invalid_image_request' }> | null {
+): Promise<Extract<
+  CreateQueueTaskOutcome,
+  { kind: 'invalid_image_request' | 'model_unavailable' }
+> | null> {
   if (!isGptImage26Model(input.model) || input.video) return null
-  const reason = gptImage26Rejection(input.model, input.request, gptImage26Configured())
+  if (!config.gptImage26.enabled)
+    return { kind: 'model_unavailable', message: GPT_IMAGE_26_REJECTION_MESSAGE.unavailable }
+  const directKey = await gptImage26DirectKey(input.model, input.request)
+  if (!directKey && gptImage26RequiresDirect(input.request))
+    return { kind: 'model_unavailable', message: GPT_IMAGE_26_DIRECT_ONLY_MESSAGE }
+  // sub2api 不兑现 2K/4K/高画质。先拒绝再计价，避免按高档扣了费却出默认尺寸。
+  if (!directKey && !isGptSub2apiDeliverable(input.request))
+    return { kind: 'model_unavailable', message: GPT_IMAGE_26_TIER_MESSAGE }
+  const reason = gptImage26Rejection(input.model, input.request, true)
   if (!reason) return null
   return {
     kind: 'invalid_image_request',
@@ -786,7 +806,7 @@ async function submitQueueTask(
     throw new TypeError('maxCredits must be a finite, non-negative number')
   // 只有空白、控制符或零宽字符的提示词和空的一样：所有入口都不建任务，也就不预扣积分。
   if (isBlankPrompt(input.request.prompt)) return { kind: 'invalid_prompt' }
-  const image26 = gptImage26RequestProblem(input)
+  const image26 = await gptImage26RequestProblem(input)
   if (image26) return image26
   if (input.reconciliationRequired && input.video)
     throw new TypeError('reconciliation_requires_image_task')

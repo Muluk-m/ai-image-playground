@@ -27,17 +27,6 @@ export function submissionRefusalResponse(
         fields: ['prompt'],
       })
     case 'invalid_image_request':
-      // 直连没开时模型仍可能出现在选择器里。这不是参数问题，按模型不可用返回，
-      // 否则前端会把所有 invalid_request 显示成「参数不符合要求」。
-      if (outcome.code === 'unavailable') {
-        logSubmitRejection({
-          error: 'model_unavailable',
-          reason: outcome.code,
-          fields: outcome.fields,
-          ...(context?.model ? { model: context.model } : {}),
-        })
-        return status(400, { error: 'model_unavailable', message: outcome.message })
-      }
       logSubmitRejection({
         error: 'invalid_request',
         reason: outcome.code,
@@ -49,6 +38,13 @@ export function submissionRefusalResponse(
         message: outcome.message,
         ...(outcome.fields.length ? { fields: outcome.fields } : {}),
       })
+    case 'model_unavailable':
+      logSubmitRejection({
+        error: 'model_unavailable',
+        fields: [],
+        ...(context?.model ? { model: context.model } : {}),
+      })
+      return status(400, { error: 'model_unavailable', message: outcome.message })
     case 'invalid_input_image':
       return status(400, { error: 'invalid_input_image', message: outcome.message })
     case 'idempotency_conflict':

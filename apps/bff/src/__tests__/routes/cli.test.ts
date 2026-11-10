@@ -863,6 +863,26 @@ describe('CLI tokens', () => {
 describe('native GIF and SVG', () => {
   const IMAGE_26 = 'gpt-image-2.6-flare'
 
+  it('omits gif, svg, 2K and high quality when Image 2.6 direct cannot take an order', async () => {
+    const saved = process.env.GPT_DIRECT_ENABLED
+    process.env.GPT_DIRECT_ENABLED = 'false'
+    try {
+      const user = await createUser('formats-no-direct')
+      const { access_token } = await connect(user)
+      const caps = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
+      const model = caps.json.data.models.find((item: { id: string }) => item.id === IMAGE_26)
+      expect(model).toMatchObject({
+        output_formats: ['image'],
+        image_sizes: ['1K'],
+        qualities: ['auto', 'low', 'medium'],
+      })
+      expect(model.gif).toBeUndefined()
+    } finally {
+      if (saved === undefined) delete process.env.GPT_DIRECT_ENABLED
+      else process.env.GPT_DIRECT_ENABLED = saved
+    }
+  })
+
   it('lists the formats each model can output, with the GIF limits', async () => {
     const user = await createUser('formats')
     const { access_token } = await connect(user)
@@ -873,6 +893,9 @@ describe('native GIF and SVG', () => {
     expect(byId['gemini-3-pro-image'].output_formats).toEqual(['image'])
     expect(byId['gemini-3-pro-image'].gif).toBeUndefined()
     expect(byId[IMAGE_26]).toMatchObject({
+      // 非会员与网站一致：直连可用时给到 2K 和高画质，4K 不列出。
+      image_sizes: ['1K', '2K'],
+      qualities: ['auto', 'low', 'medium', 'high'],
       output_formats: ['image', 'gif', 'svg'],
       gif: {
         frame_count: { min: 2, max: 16, default: 6 },

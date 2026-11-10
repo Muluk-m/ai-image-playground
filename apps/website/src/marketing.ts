@@ -50,6 +50,7 @@ export interface MarketingCopy {
     guide: string
     shotAlt: string
   }
+  film: { label: string; caption: string }
   cases: {
     title: string
     input: string
@@ -98,6 +99,7 @@ const zh: MarketingCopy = {
     guide: '使用指南',
     shotAlt: '幕芽对话页',
   },
+  film: { label: '幕芽宣传片', caption: '说出画面，幕芽成片' },
   cases: {
     title: '案例',
     input: '输入',
@@ -180,6 +182,7 @@ const en: MarketingCopy = {
     guide: 'Guide',
     shotAlt: 'The Muvloom chat page',
   },
+  film: { label: 'Muvloom film', caption: 'Subtitles are in Chinese.' },
   cases: {
     title: 'Examples',
     input: 'Prompt',
