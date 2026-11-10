@@ -192,7 +192,8 @@ export function imageRateMultiplier(
 ): number {
   // 参数还没载入（store 未初始化、测试桩缺 params）时按无档位计：倍率 1，不抛错。
   if (!request) return 1
-  // 2.6 不在 GPT_DIRECT_MODELS 里（那张表会回退 sub2api），但倍率仍走 gptImageRateMultiplier。
+  // 2.6 不在这张 2.5 直连表里。那张表的 sub2api 回落会把高档结算改成 1 倍；
+  // 2.6 自己的回落不改积分，倍率仍走 gptImageRateMultiplier。
   if (isGptDirectModel(model) || isGptImage26Model(model))
     return gptImageRateMultiplier(model, request)
   const table =

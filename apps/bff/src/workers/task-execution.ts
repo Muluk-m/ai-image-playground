@@ -79,6 +79,7 @@ export type ClaimedTask = Pick<
   | 'upstream_submitted_at'
   | 'upstream_invocation_count'
   | 'submitted_at'
+  | 'gpt_route'
 >
 
 /** 已提交的上游异步任务：回读只为补提交缺口，已落库的 id 一律只轮不重提。 */
@@ -86,6 +87,7 @@ export interface UpstreamSubmission {
   taskIds: string[]
   submittedAt: number
   invocationCount: number
+  gptRoute: 'direct' | 'sub2api' | null
 }
 
 export interface TaskExecution {
@@ -300,6 +302,7 @@ class TaskExecutionHandle implements TaskExecution {
         taskIds: schema.tasks.upstream_task_ids,
         submittedAt: schema.tasks.upstream_submitted_at,
         invocationCount: schema.tasks.upstream_invocation_count,
+        gptRoute: schema.tasks.gpt_route,
       })
       .from(schema.tasks)
       .where(and(eq(schema.tasks.id, this.taskId), this.#fence()))
@@ -309,6 +312,7 @@ class TaskExecutionHandle implements TaskExecution {
       taskIds: row.taskIds,
       submittedAt: row.submittedAt,
       invocationCount: row.invocationCount,
+      gptRoute: row.gptRoute,
     }
   }
 
@@ -633,6 +637,7 @@ export async function claimTaskExecution(
         upstream_submitted_at: schema.tasks.upstream_submitted_at,
         upstream_invocation_count: schema.tasks.upstream_invocation_count,
         submitted_at: schema.tasks.submitted_at,
+        gpt_route: schema.tasks.gpt_route,
       })
     if (row) await publishGenerations(tx, [id])
     return row

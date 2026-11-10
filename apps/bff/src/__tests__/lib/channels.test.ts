@@ -677,6 +677,49 @@ describe('shipped channels.json', () => {
     }
   })
 
+  it('lists Image 2.6 for sub2api when the switch is on and no direct key exists', () => {
+    const saved = {
+      enabled: process.env.GPT_IMAGE_26_ENABLED,
+      direct: process.env.GPT_DIRECT_ENABLED,
+      key: process.env.OPENAI_API_KEY,
+      keys: process.env.OPENAI_API_KEYS,
+    }
+    delete process.env.OPENAI_API_KEY
+    delete process.env.OPENAI_API_KEYS
+    process.env.GPT_DIRECT_ENABLED = 'false'
+    resetAdminDirectKeySnapshot()
+    try {
+      delete process.env.GPT_IMAGE_26_ENABLED
+      initChannels()
+      const hidden =
+        getDiscoveredChannels()
+          .find((channel) => channel.id === 'openai-images')
+          ?.models.map((model) => model.id) ?? []
+      expect(hidden).not.toContain('gpt-image-2.6-flare')
+
+      process.env.GPT_IMAGE_26_ENABLED = 'true'
+      initChannels()
+      const openai = getDiscoveredChannels().find((channel) => channel.id === 'openai-images')
+      expect(openai?.models.map((model) => model.id)).toEqual([
+        'gpt-image-2.6-flare',
+        'gpt-image-2.6-sunburst',
+      ])
+      expect(openai?.models.every((model) => model.unavailable !== true)).toBe(true)
+      expect(openai?.models.every((model) => model.imageSizes?.join() === '1K')).toBe(true)
+    } finally {
+      if (saved.enabled === undefined) delete process.env.GPT_IMAGE_26_ENABLED
+      else process.env.GPT_IMAGE_26_ENABLED = saved.enabled
+      if (saved.direct === undefined) delete process.env.GPT_DIRECT_ENABLED
+      else process.env.GPT_DIRECT_ENABLED = saved.direct
+      if (saved.key === undefined) delete process.env.OPENAI_API_KEY
+      else process.env.OPENAI_API_KEY = saved.key
+      if (saved.keys === undefined) delete process.env.OPENAI_API_KEYS
+      else process.env.OPENAI_API_KEYS = saved.keys
+      resetAdminDirectKeySnapshot()
+      initChannels()
+    }
+  })
+
   it('keeps GPT Image 2.6 off the selector until its own switch is on', () => {
     const savedFlag = process.env.GPT_IMAGE_26_ENABLED
     const savedKey = process.env.OPENAI_API_KEY
