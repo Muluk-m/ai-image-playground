@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../../web/src/components/ui/button'
 import { Icon } from '../../../web/src/components/ui/icon'
 import { initTheme, setThemeChoice } from '../../../web/src/theme'
@@ -27,6 +27,50 @@ function pageUrl(hash: string): string {
 // 和工作台同一份主题设置（aip.theme）。官网只给亮、暗两档，跟随系统仍可在工作台里选。
 function toggleTheme() {
   setThemeChoice(document.documentElement.classList.contains('dark') ? 'light' : 'dark')
+}
+
+function Film({ label, caption }: { label: string; caption: string }) {
+  const ref = useRef<HTMLVideoElement>(null)
+  useEffect(() => {
+    const video = ref.current
+    if (!video || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    video.muted = true
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!video) return
+        if (entry?.isIntersecting) {
+          video.preload = 'auto'
+          video.play().catch(() => {
+            video.controls = true
+          })
+        } else video.pause()
+      },
+      { threshold: 0.4 },
+    )
+    observer.observe(video)
+    return () => observer.disconnect()
+  }, [])
+  return (
+    <section className="mkt-promo">
+      <div className="mkt-wrap">
+        <video
+          ref={ref}
+          controls
+          muted
+          playsInline
+          preload="none"
+          poster="/guide-assets/zh/clips/promo-site-zh-poster.webp"
+          width={1280}
+          height={720}
+          aria-label={label}
+        >
+          <source src="/guide-assets/zh/clips/promo-site-zh.webm" type="video/webm" />
+          <source src="/guide-assets/zh/clips/promo-site-zh.mp4" type="video/mp4" />
+        </video>
+        <p>{caption}</p>
+      </div>
+    </section>
+  )
 }
 
 export function MarketingHome({ locale, start }: { locale: Locale; start: () => void }) {
@@ -140,6 +184,7 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
             <img src={HOME_IMAGES.hero} width={1560} height={1200} alt={text.hero.shotAlt} />
           </div>
         </header>
+        <Film label={text.film.label} caption={text.film.caption} />
       </div>
 
       <section className="mkt-band" id="cases">
