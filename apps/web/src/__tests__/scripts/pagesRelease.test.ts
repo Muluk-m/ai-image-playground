@@ -460,7 +460,7 @@ it('keeps hashed assets from the live site and does not cache the entry document
   expect(release).toContain('PAGES_ASSET_ORIGIN=$public_origin')
   const headers = await readFile(join(root, 'apps/web/public/_headers'), 'utf8')
   expect(headers).toMatch(/\/assets\/\*[\s\S]*immutable/)
-  expect(headers).toMatch(/\/website-assets\/\*[\s\S]*immutable/)
+  expect(headers).not.toMatch(/^\/website-assets\/\*/m)
   expect(headers).toMatch(/\/index\.html[\s\S]*no-cache/)
   expect(headers).toMatch(/\/version\.json[\s\S]*no-cache/)
   expect(headers).toMatch(/\/assets-manifest\.json[\s\S]*no-cache/)

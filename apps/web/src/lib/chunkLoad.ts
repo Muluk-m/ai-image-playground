@@ -133,6 +133,9 @@ export async function importWithRetry<T>(
   options: ImportRetryOptions = {},
 ): Promise<T> {
   const attempts = options.attempts ?? CHUNK_IMPORT_ATTEMPTS
+  if (!Number.isInteger(attempts) || attempts < 1) {
+    throw new TypeError('importWithRetry attempts must be an integer >= 1')
+  }
   const backoffMs = options.backoffMs ?? CHUNK_IMPORT_BACKOFF_MS
   const sleep = options.sleep ?? defaultSleep
   let last: unknown

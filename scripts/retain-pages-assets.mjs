@@ -11,9 +11,10 @@
 // - CI 和应急的 pages-release.sh 都已经知道公开 origin，不需要新的密钥或桶。
 // - Actions 缓存盖不住应急发布，过期还会把链条剪断。
 //
-// 清单 404：第一次上线，只发本次构建。清单请求失败或返回 HTML：中止发布，避免用一份
-// 没有历史的站点盖掉还能用的旧哈希。单个旧文件 404 或其实是 HTML：跳过（线上已经没有），
-// 不把首页写进 .js。
+// 清单 404 且页面已经在提供带哈希的脚本：从 HTML 顺着引用（含 Vite 的
+// __vite__mapDeps 裸字符串 "assets/…"）把当前正在服务的 /assets 与 /website-assets
+// 爬下来保留。入口持续 5xx 或超时则中止发布，不拿「只有本次构建」盖掉线上哈希。
+// 四个入口都是明确 404 才算第一次上线。PAGES_SKIP_ASSET_RETAIN=1 可在原点读不了时跳过。
 import { readdir, readFile, stat, writeFile, mkdir } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -71,6 +72,7 @@ export function planAssetRetention({
   current,
   previousReleases = [],
   occupiedFiles,
+  retainedBytes = 0,
   limits = DEFAULT_LIMITS,
 }) {
   const nowMs = now instanceof Date ? now.getTime() : now
@@ -116,7 +118,7 @@ export function planAssetRetention({
   })
 
   let files = occupiedFiles
-  let bytes = 0
+  let bytes = retainedBytes
   const keptByRelease = new Map()
   const keptIds = new Set()
   for (const file of candidates) {
@@ -215,11 +217,14 @@ async function mapPool(items, limit, fn) {
 
 /** Stop reading once the body reaches the Pages per-file cap. The oversized bytes are discarded. */
 export async function readBounded(response, maxBytes) {
+  const declared = Number(response.headers?.get?.('content-length'))
+  if (Number.isFinite(declared) && declared >= maxBytes) {
+    await response.body?.cancel?.().catch(() => {})
+    return { overflow: true, bytes: null }
+  }
   const reader = response.body?.getReader?.()
   if (!reader) {
-    const buf = Buffer.from(await response.arrayBuffer())
-    if (buf.length >= maxBytes) return { overflow: true, bytes: null }
-    return { overflow: false, bytes: buf }
+    throw new Error('response body is not a stream; refusing to buffer it without a size cap')
   }
   const chunks = []
   let total = 0
@@ -265,6 +270,11 @@ export function assetReferencesFrom(text, basePath = '', pageOrigin = '') {
     }
   }
   for (const match of text.matchAll(/(?:^|[\s"'`(])\/((?:assets|website-assets)\/[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~-]+)*)/g)) {
+    accept(match[1])
+  }
+  // Vite __vite__mapDeps / __vitePreload store site-root paths without a leading slash:
+  // "assets/CanvasMode-CkYmZLXv.css"
+  for (const match of text.matchAll(/(?:^|[\s"'`(])((?:assets|website-assets)\/[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~-]+)*)/g)) {
     accept(match[1])
   }
   if (basePath) {
@@ -361,9 +371,18 @@ export async function bootstrapLiveRelease({
         retryNotFound: false,
       })
     } catch (error) {
-      throw new Error(`GET ${url.pathname || '/'} failed: ${error.message}`, { cause: error })
+      throw new Error(
+        `GET ${url.pathname || '/'} failed: ${error.message}; refusing to publish without the live asset graph. Set PAGES_SKIP_ASSET_RETAIN=1 to bypass.`,
+        { cause: error },
+      )
     }
-    if (!response.ok) continue
+    // A clear 404 means that entry is absent. 5xx after retries must not look like a first release.
+    if (response.status === 404) continue
+    if (!response.ok) {
+      throw new Error(
+        `GET ${url.pathname || '/'} failed: ${response.status} after retries; refusing to publish without the live asset graph. Set PAGES_SKIP_ASSET_RETAIN=1 to bypass.`,
+      )
+    }
     const { overflow, bytes } = await readBounded(response, limits.maxFileBytes)
     if (overflow || !bytes || !looksLikeHtml(bytes)) continue
     for (const path of assetReferencesFrom(bytes.toString('utf8'), '', base.origin)) queue.push(path)
@@ -372,36 +391,45 @@ export async function bootstrapLiveRelease({
 
   const files = []
   const bodies = new Map()
-  while (queue.length && seen.size < BOOTSTRAP_FILE_CAP) {
-    const path = queue.shift()
-    if (!path || seen.has(path) || !safeAssetPath(path)) continue
-    seen.add(path)
-    const url = new URL(path, base)
-    url.searchParams.set('retain-check', String(now.getTime()))
-    let response
-    try {
-      response = await requestWithRetries(fetchImpl, url, {
-        attempts: 3,
-        delayMs: retryDelayMs,
-        retryNotFound: true,
-      })
-    } catch (error) {
-      throw new Error(`GET /${path} failed: ${error.message}`, { cause: error })
+  let frontier = queue
+  while (frontier.length && seen.size < BOOTSTRAP_FILE_CAP) {
+    const batch = []
+    for (const path of frontier) {
+      if (!path || seen.has(path) || !safeAssetPath(path)) continue
+      seen.add(path)
+      batch.push(path)
+      if (seen.size >= BOOTSTRAP_FILE_CAP) break
     }
-    if (response.status === 404) continue
-    if (!response.ok) {
-      throw new Error(`GET /${path} failed: ${response.status}; refusing to drop live assets`)
-    }
-    const { overflow, bytes } = await readBounded(response, limits.maxFileBytes)
-    const type = response.headers.get('content-type') ?? ''
-    if (overflow || !bytes || bytes.length === 0 || type.includes('text/html') || looksLikeHtml(bytes)) continue
-    files.push({ path, bytes: bytes.length })
-    bodies.set(path, bytes)
-    if (/\.(?:m?js|css)$/.test(path)) {
-      for (const next of assetReferencesFrom(bytes.toString('utf8'), path, base.origin)) {
-        if (!seen.has(next)) queue.push(next)
+    const discovered = []
+    await mapPool(batch, 6, async (path) => {
+      const url = new URL(path, base)
+      url.searchParams.set('retain-check', String(now.getTime()))
+      let response
+      try {
+        response = await requestWithRetries(fetchImpl, url, {
+          attempts: 3,
+          delayMs: retryDelayMs,
+          retryNotFound: true,
+        })
+      } catch (error) {
+        throw new Error(`GET /${path} failed: ${error.message}`, { cause: error })
       }
-    }
+      if (response.status === 404) return
+      if (!response.ok) {
+        throw new Error(`GET /${path} failed: ${response.status}; refusing to drop live assets`)
+      }
+      const { overflow, bytes } = await readBounded(response, limits.maxFileBytes)
+      const type = response.headers.get('content-type') ?? ''
+      if (overflow || !bytes || bytes.length === 0 || type.includes('text/html') || looksLikeHtml(bytes)) return
+      files.push({ path, bytes: bytes.length })
+      bodies.set(path, bytes)
+      if (/\.(?:m?js|css)$/.test(path)) {
+        for (const next of assetReferencesFrom(bytes.toString('utf8'), path, base.origin)) {
+          if (!seen.has(next)) discovered.push(next)
+        }
+      }
+    })
+    frontier = discovered
   }
   if (!files.length) return null
   log(`No asset manifest at ${origin}; bootstrapped ${files.length} live hashed file(s) from the current pages.`)
@@ -542,6 +570,7 @@ export async function retainPagesAssets({
       current,
       previousReleases: releases,
       occupiedFiles: occupied + copied.length,
+      retainedBytes: copied.reduce((sum, file) => sum + file.bytes, 0),
       limits,
     })
 
@@ -553,7 +582,14 @@ export async function retainPagesAssets({
   const again = await loadManifest()
   let releaseLists = plan.releases
   if (again?.length) {
-    const late = planOf(again)
+    const late = planOf(
+      again.map((release) => ({
+        ...release,
+        files: (release.files ?? []).filter(
+          (file) => !have.has(file.path) && !skipped.includes(file.path),
+        ),
+      })),
+    )
     const fresh = late.copy.filter((file) => !have.has(file.path) && !skipped.includes(file.path))
     if (fresh.length) {
       log(`Live manifest gained ${fresh.length} file(s) during this retain; merging them before upload.`)
