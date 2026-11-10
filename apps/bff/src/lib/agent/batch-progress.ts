@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { sqlCoalesceIntegerFromDigitText } from '@image-playground/db'
 import { type AgentBatchAttemptSnapshot, taskFailureCode } from '@image-playground/shared'
 import { and, asc, eq, inArray, isNull, lte, ne, or, type SQL, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
@@ -39,7 +40,10 @@ export async function pauseBatchForAnalysisAuthentication(
         eq(schema.agent_batch_attempts.item_key, schema.agent_batch_items.key),
         eq(
           schema.agent_batch_attempts.attempt,
-          sql<number>`coalesce((${schema.agent_batch_plans.attempt_targets} ->> ${schema.agent_batch_items.key})::integer, 1)`,
+          sqlCoalesceIntegerFromDigitText(
+            sql`${schema.agent_batch_plans.attempt_targets} ->> ${schema.agent_batch_items.key}`,
+            sql`1`,
+          ),
         ),
       ),
     )
@@ -279,7 +283,7 @@ export async function reconcileAgentBatchProgress(batchId: string): Promise<void
           eq(attempts.batch_id, items.batch_id),
           eq(attempts.item_key, items.key),
           lte(attempts.version, items.version),
-          sql`${attempts.attempt} = COALESCE((${schema.agent_batch_plans.attempt_targets} ->> ${items.key})::integer, 1)`,
+          sql`${attempts.attempt} = ${sqlCoalesceIntegerFromDigitText(sql`${schema.agent_batch_plans.attempt_targets} ->> ${items.key}`, sql`1`)}`,
         ),
       )
       .where(and(eq(items.batch_id, batchId), eq(items.version, batch.confirmed_version)))

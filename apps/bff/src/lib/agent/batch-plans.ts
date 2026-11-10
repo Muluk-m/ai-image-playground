@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { sqlCoalesceIntegerFromDigitText } from '@image-playground/db'
 import type {
   AgentBatchEstimates,
   AgentBatchItem,
@@ -585,7 +586,7 @@ export async function readAgentBatchPlan(
             eq(schema.agent_batch_attempts.batch_id, schema.agent_batch_items.batch_id),
             eq(schema.agent_batch_attempts.item_key, schema.agent_batch_items.key),
             lte(schema.agent_batch_attempts.version, plan.version),
-            sql`${schema.agent_batch_attempts.attempt} = coalesce((${schema.agent_batch_plans.attempt_targets} ->> ${schema.agent_batch_items.key})::integer, 1)`,
+            sql`${schema.agent_batch_attempts.attempt} = ${sqlCoalesceIntegerFromDigitText(sql`${schema.agent_batch_plans.attempt_targets} ->> ${schema.agent_batch_items.key}`, sql`1`)}`,
           ),
         )
         .leftJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
