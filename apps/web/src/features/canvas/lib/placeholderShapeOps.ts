@@ -1,5 +1,10 @@
 import { i18next } from '../../../i18n'
 import { getImageDimensions } from '../../../lib/canvasImage'
+import {
+  activityFromCanvas,
+  applyGenerationActivity,
+  canvasProjection,
+} from '../../../lib/generationActivity'
 import type { CallApiResult } from '../../../lib/imageApiShared'
 import type { CanvasEditor, CanvasTaskStatus, PlacedImage, PlaceholderView } from './editor'
 import { Box } from './geometry'
@@ -25,7 +30,20 @@ export function markPlaceholderStatus(
   message: string,
   errorCode?: string,
 ): void {
-  editor.updatePlaceholder(id, { status, message, ...(errorCode ? { meta: { errorCode } } : {}) })
+  const placeholder = editor.getPlaceholder(id)
+  if (!placeholder) return
+  const event = status === 'stale' ? 'expire' : 'fail'
+  const activity = applyGenerationActivity(activityFromCanvas(placeholder), event)
+  const projected = canvasProjection(activity)
+  editor.updatePlaceholder(id, {
+    status: projected.status,
+    message,
+    meta: {
+      ...(errorCode ? { errorCode } : {}),
+      activity,
+      queuePhase: projected.queuePhase,
+    },
+  })
 }
 
 /**

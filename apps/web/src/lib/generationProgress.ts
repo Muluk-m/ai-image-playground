@@ -1,4 +1,5 @@
 import type { TaskRecord } from '../types'
+import { activityFromRecord } from './generationActivity'
 
 /** 本机还没有同模型完成记录时按这个时长估算（QA R1 实测首图 32–51 秒）。 */
 export const DEFAULT_TYPICAL_MS = 40_000
@@ -38,7 +39,8 @@ type ProgressTask = Pick<
   'id' | 'queuePhase' | 'batchStartedAt' | 'createdAt' | 'platformTask' | 'bffRequestId'
 >
 
-type PhaseTask = ProgressTask & Pick<TaskRecord, 'status' | 'batchQueued'>
+type PhaseTask = ProgressTask &
+  Pick<TaskRecord, 'status' | 'batchQueued' | 'cancelled' | 'activity'>
 
 const generatingSince = new Map<string, number>()
 
@@ -52,13 +54,16 @@ function isQueued(task: ProgressTask): boolean {
  * 刚提交、阶段还没回来时不算，否则卡片会先闪一下「生成中 0%」再跳回「排队中」。
  */
 export function inGeneratingPhase(task: PhaseTask): boolean {
-  if (task.status !== 'running' || task.batchQueued) return false
-  return isQueued(task) ? task.queuePhase === 'generating' : true
+  const phase = activityFromRecord(task).phase
+  if (phase === 'generating') return true
+  // 还没拿到服务端阶段的本机直连才按生成中估算；平台任务这时仍是排队。
+  if (phase !== 'submitting') return false
+  return !isQueued(task)
 }
 
 /** 平台任务提交后、服务端还没回报阶段时，按排队中显示。 */
 export function awaitingQueuePhase(task: PhaseTask): boolean {
-  return task.status === 'running' && !task.batchQueued && isQueued(task) && task.queuePhase == null
+  return activityFromRecord(task).phase === 'submitting' && isQueued(task)
 }
 
 /**
