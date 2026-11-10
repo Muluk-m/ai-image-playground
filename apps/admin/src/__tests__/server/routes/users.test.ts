@@ -442,6 +442,7 @@ describe('admin user routes', () => {
     })
     try {
       expect((await getUserKpis(1_000 + 5_000)).total_users).toBe(2)
+      expect((await getUserKpis(1_000 + 5_000, true)).total_users).toBe(3)
       expect((await getUserKpis(1_000 + USER_KPI_CACHE_MS)).total_users).toBe(3)
     } finally {
       await writer.db

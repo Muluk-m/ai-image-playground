@@ -10,6 +10,7 @@ import { ErrorState, Page, PendingState } from '@/components/Page'
 import { UserFormDialog } from '@/components/UserFormDialog'
 import { UserTable } from '@/components/UserTable'
 import { Button } from '@/components/ui/button'
+import { apiClient } from '@/lib/api-client'
 import { useUserKpis, useUsers } from '@/lib/queries'
 import { parseUsersSearch } from '@/lib/search-params'
 import type { ListUsersResult, UserKpis } from '@/lib/types'
@@ -62,7 +63,10 @@ function UsersPage() {
             onClick={() =>
               void Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['users'] }),
-                queryClient.invalidateQueries({ queryKey: ['user-kpis'] }),
+                queryClient.fetchQuery({
+                  queryKey: ['user-kpis'],
+                  queryFn: () => apiClient.get<UserKpis>('/api/users/kpis?fresh=1'),
+                }),
                 queryClient.invalidateQueries({ queryKey: ['private-billing', 'user-summaries'] }),
               ])
             }

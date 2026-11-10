@@ -7,6 +7,7 @@ export {
 } from './client'
 export { runMigrations } from './migrate'
 export {
+  sqlBatchAttemptTarget,
   sqlCoalesceIntegerFromDigitText,
   sqlIntegerFromDigitText,
   sqlSumIntegerFromDigitText,

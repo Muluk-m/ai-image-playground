@@ -1,7 +1,11 @@
 import { afterAll, expect, it } from 'bun:test'
 import { sql } from 'drizzle-orm'
 import { createDb } from '../client'
-import { sqlCoalesceIntegerFromDigitText, sqlSumIntegerFromDigitText } from '../safe-integer'
+import {
+  sqlBatchAttemptTarget,
+  sqlCoalesceIntegerFromDigitText,
+  sqlSumIntegerFromDigitText,
+} from '../safe-integer'
 import { resetTestDatabase } from '../testing'
 
 const url = await resetTestDatabase('db_safe_integer')
@@ -34,6 +38,19 @@ it('casts only 1-9 digit text and leaves decimals, blanks, and junk as the fallb
     ['1000000000', 1],
     ['0', 0],
     ['-1', 1],
+  ])
+})
+
+it('treats a missing batch target as attempt 1 and an illegal target as no attempt', async () => {
+  const rows = (await handle.db.execute(sql`
+    SELECT v AS raw, ${sqlBatchAttemptTarget(sql`v`)} AS n
+    FROM (VALUES ('2'::text), ('1.5'::text), (''::text), (NULL::text)) AS t(v)
+  `)) as unknown as Array<{ raw: string | null; n: number | null }>
+  expect(rows.map((row) => [row.raw, row.n === null ? null : Number(row.n)])).toEqual([
+    ['2', 2],
+    ['1.5', null],
+    ['', null],
+    [null, 1],
   ])
 })
 
