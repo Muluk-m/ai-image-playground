@@ -20,7 +20,7 @@ import {
 } from '../lib/authClient'
 import { setClientStorageScope, setRecoveryBackend } from '../lib/authScope'
 import { bootstrapChannels } from '../lib/channels/bootstrapChannels'
-import { lazyWithReload } from '../lib/chunkLoad'
+import { isChunkFailure, lazyWithReload } from '../lib/chunkLoad'
 import { clearScopedClientStorage } from '../lib/clearScopedStorage'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { recoverStorageUser } from '../lib/localRecovery'
@@ -288,6 +288,8 @@ export function AuthGate() {
         title={t('route.loadFailed', { ns: 'shell' })}
         description={t('route.loadFailedDescription', { ns: 'shell' })}
         retryLabel={t('route.retry', { ns: 'shell' })}
+        isChunkError={isChunkFailure}
+        onChunkError={signalBootReady}
       >
         <Suspense fallback={<LoadingScreen />}>
           <App adoptedTaskCount={adoptedTaskCount} />
