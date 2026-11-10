@@ -7,6 +7,7 @@ import type {
   InspirationReferenceInput,
   InspirationWriteInput,
 } from '@image-playground/shared'
+import { inspirationPublication, inspirationStatusEvent } from '@image-playground/shared'
 import { and, asc, desc, eq, ilike, max, or, sql } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
@@ -492,7 +493,7 @@ export async function deleteInspirationItem(id: string, operatorId = 'admin'): P
       .where(eq(schema.inspiration_items.id, id))
       .limit(1)
     if (!current) throw new InspirationOperationError('item_not_found')
-    if (current.status === 'published') {
+    if (!inspirationPublication.allows(current.status, 'remove')) {
       throw new InspirationOperationError('published_item_must_be_archived')
     }
     await tx.delete(schema.inspiration_items).where(eq(schema.inspiration_items.id, id))
@@ -508,12 +509,13 @@ export async function setInspirationStatus(
   const current = await getInspirationItem(id)
   if (!current) throw new InspirationOperationError('item_not_found')
   if (status === 'published') await validateForPublish(current)
+  const next = inspirationPublication.step(current.status, inspirationStatusEvent(status))
   return db.transaction(async (tx) => {
     const now = Date.now()
     const [updated] = await tx
       .update(schema.inspiration_items)
       .set({
-        status,
+        status: next,
         updated_at: now,
         updated_by: operatorId,
         published_at: status === 'published' ? (current.publishedAt ?? now) : current.publishedAt,
