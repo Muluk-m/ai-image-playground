@@ -10,7 +10,9 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 
 const root = resolve(__dirname, '../../../../..')
 const require = createRequire(join(root, 'package.json'))
-const { serveDist, checkWorkspace } = require(join(root, 'scripts/pages-browser-smoke.cjs'))
+const { serveDist, checkWorkspace, checkMarketing, isGuideClipRequest } = require(
+  join(root, 'scripts/pages-browser-smoke.cjs'),
+)
 let dist: string
 let server: { origin: string; close: () => Promise<void> }
 const html =
@@ -76,6 +78,32 @@ it('stops the release before Wrangler when the final build fails browser startup
     ),
   ).rejects.toMatchObject({ code: 23 })
   expect(await readFile(calls, 'utf8')).toBe('--filter @image-playground/web build:static-host\n')
+})
+
+it('treats only cms-r2 video files as guide clip requests', () => {
+  const request = (method: string, url: string) => ({
+    method: () => method,
+    url: () => url,
+  })
+  expect(
+    isGuideClipRequest(
+      request('GET', 'https://cms-r2.deepclick.com/02-reference-image-a5ecdea930d2.webm'),
+    ),
+  ).toBe(true)
+  expect(
+    isGuideClipRequest(
+      request('GET', 'https://cms-r2.deepclick.com/promo-site-zh-1162a0afec22.mp4'),
+    ),
+  ).toBe(true)
+  expect(isGuideClipRequest(request('GET', 'https://cms-r2.deepclick.com/clip.mov'))).toBe(true)
+  expect(isGuideClipRequest(request('POST', 'https://cms-r2.deepclick.com/clip.mp4'))).toBe(false)
+  expect(isGuideClipRequest(request('GET', 'https://cms-r2.deepclick.com/app.js'))).toBe(false)
+  expect(isGuideClipRequest(request('GET', 'https://cms-r2.deepclick.com/photo.jpg'))).toBe(false)
+  expect(isGuideClipRequest(request('GET', 'http://cms-r2.deepclick.com/clip.webm'))).toBe(false)
+  expect(isGuideClipRequest(request('GET', 'https://cdn.example/clip.webm'))).toBe(false)
+  expect(isGuideClipRequest(request('GET', 'https://cms-r2.deepclick.com.evil/clip.webm'))).toBe(
+    false,
+  )
 })
 
 // The dedicated browser CI step provisions Chromium; the ordinary Vitest job remains lightweight.
@@ -200,4 +228,72 @@ describe.skipIf(!process.env.PAGES_SMOKE_RUNTIME_DIR)('Chromium startup regressi
     )
     await expect(check()).rejects.toThrow('Unexpected startup network request: POST')
   })
+  it('stubs a guide clip on the workbench and still rejects media from another host', async () => {
+    await writeFile(
+      join(dist, 'workbench.html'),
+      `<video src="https://cms-r2.deepclick.com/02-reference-image-a5ecdea930d2.webm"></video>${html}`,
+    )
+    await check()
+    await writeFile(
+      join(dist, 'workbench.html'),
+      `<video src="https://cdn.example/clip.webm"></video>${html}`,
+    )
+    await expect(check()).rejects.toThrow(
+      'Unexpected startup network request: GET https://cdn.example/clip.webm',
+    )
+  })
+  it('lets marketing and guide pages load cms-r2 clips and still rejects other cross-origin requests', async () => {
+    const page = async (lang: string, body: string, title = 'fixture') =>
+      `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><title>${title}</title></head><body>${body}</body></html>`
+    const clip =
+      '<video preload="auto" src="https://cms-r2.deepclick.com/02-reference-image-a5ecdea930d2.webm"></video>'
+    await mkdir(join(dist, 'guide/create/composer'), { recursive: true })
+    await mkdir(join(dist, 'guide/en/create/composer'), { recursive: true })
+    await mkdir(join(dist, 'guide/create/settings'), { recursive: true })
+    await mkdir(join(dist, 'en'), { recursive: true })
+    await mkdir(join(dist, 'login'), { recursive: true })
+    await writeFile(
+      join(dist, 'index.html'),
+      await page(
+        'zh-CN',
+        `<nav><button>登录</button></nav><h1>幕芽：图片和视频的在线创作工具</h1>${clip}<dialog aria-label="登录"><button>关闭登录框</button></dialog><script>document.querySelector('nav button').onclick=()=>document.querySelector('dialog').showModal();document.querySelector('dialog button').onclick=()=>document.querySelector('dialog').close()</script>`,
+        '幕芽 Muvloom：图片和视频的在线创作工具',
+      ),
+    )
+    await writeFile(
+      join(dist, 'guide/create/composer/index.html'),
+      await page('zh-CN', `<h1>参考图</h1>${clip}`),
+    )
+    await writeFile(
+      join(dist, 'guide/en/create/composer/index.html'),
+      await page('en', '<h1>Reference</h1>'),
+    )
+    await writeFile(
+      join(dist, 'en/index.html'),
+      await page(
+        'en',
+        '<h1>Muvloom: online creation tool for images and video</h1>',
+        'Muvloom: online creation tool for images and video',
+      ),
+    )
+    await writeFile(
+      join(dist, 'login/index.html'),
+      await page(
+        'zh-CN',
+        `<h1>登录</h1><script>fetch('/api/auth/oauth/providers').then(r=>r.json()).then(body=>{if(body.loginMethods.password){const form=document.createElement('form');form.setAttribute('aria-label','用户登录');form.innerHTML='<input>';document.body.append(form)}if(body.loginMethods.registration){const button=document.createElement('button');button.textContent='立即注册';document.body.append(button)}})</script>`,
+      ),
+    )
+    await writeFile(
+      join(dist, 'guide/create/index.html'),
+      await page(
+        'zh-CN',
+        `<script>location.replace('/guide/create/settings/#models-params')</script>`,
+      ),
+    )
+    await writeFile(
+      join(dist, 'guide/create/settings/index.html'),
+      await page('zh-CN', '<h1>设置</h1>'),
+    )
+    await checkMarketing(browser, server.origin, { local: true })
+  }, 30000)
 })
