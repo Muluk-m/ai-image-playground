@@ -722,7 +722,7 @@ const skills: GuidePage = {
 const videoPage: GuidePage = {
   id: 'video',
   title: 'Video',
-  summary: 'How a video job is submitted, and what the test environment could not show.',
+  summary: 'How a video job is submitted. This test ended on a model-unavailable error.',
   meta: {
     title: 'Video - Muvloom guide',
     description: 'Muvloom video duration, ratio, resolution and first frame.',
@@ -730,7 +730,7 @@ const videoPage: GuidePage = {
   updated,
   intro: [
     note(
-      'On 2026-11-10 the test creation menu did not include Video generation. There is no recording. The steps below match the product copy and the video model table.',
+      'On 2026-11-10 Video generation was in the menu, default model Grok Imagine Video 1.5 Lite. Submitting from the home page opened a canvas project. The agent did not return a video. A canvas video node set to text-to-video, 5 seconds, 16:9, 720p, then Generate, showed the toast「该模型暂不可用，请换其他模型」and the node text「生成失败」. Queue request id `b980d817-4d94-42cc-9d8c-4ec89303764d`. Nothing played.',
     ),
   ],
   sections: [
@@ -765,6 +765,11 @@ const videoPage: GuidePage = {
       id: 'video-canvas',
       title: 'Wait on the canvas',
       blocks: [
+        demo(
+          '08-video',
+          'The video node shows 生成失败 and a toast that this model is unavailable',
+          '2026-11-10 test recording. The job was submitted. No video file was produced.',
+        ),
         p(
           'A queued or running node means the job was accepted. Leaving the page does not cancel it. A failure is written on the node and the charge is returned. Extend and Edit video appear only on models that support them.',
         ),
@@ -862,17 +867,22 @@ const canvasInpaint: GuidePage = {
       id: 'inpaint-steps',
       title: 'Select and send',
       blocks: [
+        demo(
+          '09-inpaint',
+          'After a rectangle on the cup body, the glaze turns matte dark green and the handle stays light',
+          '2026-11-10 test recording. Local redraw finished.',
+        ),
         steps(
           'Have a still on the canvas. Canvas mode can generate the first one, for example a ceramic mug on a wooden table with the handle visible.',
-          'Press {{V}}, select the still, and press Inpaint.',
-          'Choose Rectangle. Drag over the area to change, and keep the handle outside the box. Brush fills an irregular edge.',
-          'Write the change in the instruction field.',
-          'Press Send to agent. The new still should keep everything outside the box.',
+          'Select the still. On the node canvas press Edit image, then Local redraw. The older image toolbar calls the same step Inpaint.',
+          'Choose Rectangle and drag it over the area to change. Brush fills an irregular edge.',
+          'Write the change.',
+          'Press Generate candidate. The new still should keep everything outside the box.',
         ),
         prompt('Example', '把杯身釉色换成雾面墨绿，杯把保持原样'),
-        still('zh', 'canvas-inpaint', 'Inpaint rectangle and instruction'),
+        still('zh', 'canvas-inpaint', 'Local redraw rectangle and instruction'),
         note(
-          'On 2026-11-10 a canvas project did generate a real mug still. The inpaint button was not available on that image before the recording stopped, because the image toolbar did not show it. The steps above are the product path. The recording is not included, so this page does not pretend the mask edit was completed.',
+          'On 2026-11-10 the uploaded mug could be selected. Edit image, then 局部重绘, a rectangle on the cup body, the instruction「把杯身釉色换成雾面墨绿，杯把保持原样」, then 生成新候选. The body turned dark green and the handle stayed light. Queue request id `e5a96636-d49e-4d1c-8e3f-e2152bb466d2`. A「图片上传中 0/1」chip appeared briefly after the result and then cleared.',
         ),
       ],
     },

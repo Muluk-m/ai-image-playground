@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
@@ -45,6 +46,7 @@ GUIDE = {
     "03": "03-generation-settings",
     "06": "06-batch-each",
     "07": "07-agent-chat",
+    "08": "08-video",
 }
 # 成果已经出现的时刻（对过母带帧）。这一刻起保持原速，并在 2.3 秒后收尾。
 REVEAL = {
@@ -53,8 +55,24 @@ REVEAL = {
     "03": 51.15,
     "06": 78.2,
     "07": 65.0,
+    # 节点出现「生成失败」，顶部同时有「该模型暂不可用，请换其他模型」。
+    "08": 37.6,
 }
 HOLD = 2.3
+# 暗界面上的点击差分太小，自动等待检测会把选模式、设置和点生成整段快进。
+# 这些时刻对过母带帧，只保留能看清的操作，中间的空等剪掉。
+MANUAL = {
+    "08": [
+        (3.6, 5.2, 1),
+        (7.4, 10.2, 1),
+        (13.2, 15.6, 1),
+        (16.2, 21.4, 8),
+        (21.4, 23.2, 1),
+        (28.8, 32.4, 1),
+        (33.6, 37.2, 1),
+        (37.5, 41.2, 1),
+    ],
+}
 
 # (shot, start, source_dur, speed, cx, cy, zoom, subtitle key or None)
 # 播放时长 = source_dur / speed。zoom 为 0 表示不推近。
@@ -446,14 +464,18 @@ def still_video(image: Path, dur: float, dest: Path) -> None:
     )
 
 
-def build_guides() -> None:
-    for shot, name in GUIDE.items():
+def build_guides(selected: dict[str, str] | None = None) -> None:
+    for shot, name in (selected or GUIDE).items():
         src = HD / f"{shot}.mp4"
         if not src.exists():
             raise SystemExit(f"missing master {src}")
         duration = probe(src)
-        spans = waits(motion(src), duration)
-        pieces = compress(duration, spans, REVEAL[shot])
+        if shot in MANUAL:
+            pieces = MANUAL[shot]
+            spans = []
+        else:
+            spans = waits(motion(src), duration)
+            pieces = compress(duration, spans, REVEAL[shot])
         print(shot, "dur", round(duration, 1), "waits", [(round(a, 1), round(b, 1)) for a, b in spans])
         print(" ", [(round(a, 1), round(b, 1), round(s, 1)) for a, b, s in pieces])
         out = encode_guide(src, pieces, name)
@@ -524,8 +546,8 @@ def build_promo() -> None:
     )
 
 
-def build_webm() -> None:
-    names = [GUIDE[shot] for shot in GUIDE] + ["promo-site-zh"]
+def build_webm(names: list[str] | None = None) -> None:
+    names = names if names is not None else [GUIDE[shot] for shot in GUIDE] + ["promo-site-zh"]
     for name in names:
         mp4 = OUT / f"{name}.mp4"
         webm = OUT / f"{name}.webm"
@@ -533,8 +555,40 @@ def build_webm() -> None:
         encode_webm(mp4, webm)
 
 
+def build_inpaint() -> None:
+    """09 的母带是两段：编辑器里的框选，和出片后的墨绿杯。"""
+    spans = [
+        (HD / "09-editor.mp4", 3.6, 6.0, 1),
+        (HD / "09-editor.mp4", 11.2, 18.6, 1),
+        (HD / "09-editor.mp4", 19.6, 22.4, 1),
+        (HD / "09-result.mp4", 7.0, 9.4, 1),
+    ]
+    work = HD / "guide-build" / "09-inpaint"
+    work.mkdir(parents=True, exist_ok=True)
+    parts: list[Path] = []
+    for index, (src, start, end, speed) in enumerate(spans):
+        part = work / f"{index:02d}.mp4"
+        encode_span(src, start, end, speed, part)
+        parts.append(part)
+    mp4 = OUT / "09-inpaint.mp4"
+    concat(parts, mp4)
+    duration = probe(mp4)
+    poster(mp4, OUT / "09-inpaint-poster.webp", duration - 0.5)
+    print("09-inpaint", round(duration, 2), "MB", round(mp4.stat().st_size / 1048576, 2))
+    encode_webm(mp4, OUT / "09-inpaint.webm")
+
+
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
+    only = sys.argv[1:]
+    if only == ["09"]:
+        build_inpaint()
+        return
+    if only:
+        selected = {shot: GUIDE[shot] for shot in only}
+        build_guides(selected)
+        build_webm([GUIDE[shot] for shot in only])
+        return
     build_guides()
     build_promo()
     build_webm()
