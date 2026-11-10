@@ -12,6 +12,11 @@ const table: ReadonlyArray<readonly [SubmissionRefusal, number, Record<string, u
     { error: 'invalid_request', message: 'bad size' },
   ],
   [
+    { kind: 'model_unavailable', message: '动图和矢量图需要 OpenAI 直连，当前直连不可用' },
+    400,
+    { error: 'model_unavailable', message: '动图和矢量图需要 OpenAI 直连，当前直连不可用' },
+  ],
+  [
     { kind: 'invalid_input_image', message: 'bad ref' },
     400,
     { error: 'invalid_input_image', message: 'bad ref' },

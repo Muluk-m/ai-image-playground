@@ -718,22 +718,17 @@ function withDeliverableGptSize(channel: InternalChannel): InternalChannel {
 }
 
 /**
- * 2.6 默认不出现。开关打开但直连 key 不在时仍列出来，标成不可用，前端不能改去别的模型。
+ * 2.6 默认不出现。开关打开就列出来，即使直连 key 不可用：静态图改走 sub2api。
+ * GIF / SVG 在提交时再拒绝，不在清单上把整个模型标成不可选。
  */
 function withGptImage26(channel: InternalChannel): InternalChannel {
   if (!channel.models.some((model) => isGptImage26Model(model.id))) return channel
   const enabled = process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true'
-  // 只配了 OPENAI_API_KEYS 或只在后台直连页配了密钥时，OPENAI_API_KEY 为空，也算有 key。
-  const ready =
-    enabled &&
-    (Boolean(runtimeSecret('OPENAI_API_KEY', process.env.OPENAI_API_KEY?.trim() ?? '')) ||
-      gptDirectEnabledKeyCount() > 0)
   return {
     ...channel,
     models: channel.models.flatMap((model) => {
       if (!isGptImage26Model(model.id)) return [model]
-      if (!enabled) return []
-      return ready ? [model] : [{ ...model, unavailable: true }]
+      return enabled ? [model] : []
     }),
   }
 }

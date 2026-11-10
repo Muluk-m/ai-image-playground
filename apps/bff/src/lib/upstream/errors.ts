@@ -1,6 +1,16 @@
 import { isObject } from '../type-guards'
 
 /** Premium CLI parameters cannot be fulfilled; ordinary terminal failure refunds the hold. */
+/** 2.6 的 GIF / SVG 只有直连能出。直连不可用时直接失败，不改走 sub2api，也不当参数错误重试。 */
+export class GptImage26RouteUnavailableError extends Error {
+  readonly retryable = false
+
+  constructor(message = 'Image 2.6 暂不可用') {
+    super(message)
+    this.name = 'GptImage26RouteUnavailableError'
+  }
+}
+
 export class ImagePlanRequiredError extends Error {
   readonly retryable = false
 

@@ -379,6 +379,8 @@ export const cliApiRoutes = new Elysia()
           throw new CliRequestError('INVALID_REQUEST', { message: 'prompt is required' })
         case 'invalid_image_request':
           throw new CliRequestError('INVALID_REQUEST', { message: outcome.message })
+        case 'model_unavailable':
+          throw new CliRequestError('MODEL_UNAVAILABLE', { message: outcome.message })
         case 'invalid_input_image':
           throw new CliRequestError('INVALID_REQUEST', { message: 'a reference image is invalid' })
         case 'authentication_required':

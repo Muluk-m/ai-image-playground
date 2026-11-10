@@ -1,13 +1,27 @@
 import { imageSizeTier, parseImageSize } from './image'
 
 /**
- * GPT Image 2.6 只走 OpenAI 直连，不进 2.5 的双通道，也不能换到别的模型。
- * 开关是 `GPT_IMAGE_26_ENABLED`（默认关），和 `GPT_DIRECT_ENABLED` 分开：
- * 现网直连是关的，2.6 不能跟着被静默送到 sub2api。
+ * GPT Image 2.6（flare / sunburst）。产品开关是 `GPT_IMAGE_26_ENABLED`（默认关），
+ * 和 `GPT_DIRECT_ENABLED` 分开。直连 key 可用时仍只走 OpenAI 直连；直连没有启用 key、
+ * 预算用尽或 key 被停用时，静态图改走 sub2api，上游模型名默认与产品 id 相同。
+ * GIF / SVG 仍只要直连，直连不可用时拒绝，不改送到别的模型。
  */
 export const GPT_IMAGE_26_MODELS = ['gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'] as const
 
 export type GptImage26Model = (typeof GPT_IMAGE_26_MODELS)[number]
+
+/**
+ * sub2api 与直连默认使用的上游模型名。只在这里声明；BFF 可用环境变量覆盖 sub2api 那一路。
+ */
+export const GPT_IMAGE_26_UPSTREAM_MODELS = {
+  'gpt-image-2.6-flare': 'gpt-image-2.6-flare',
+  'gpt-image-2.6-sunburst': 'gpt-image-2.6-sunburst',
+} as const satisfies Record<GptImage26Model, string>
+
+/** GIF 帧参数与 SVG 的 svg.model 只有 OpenAI 直连兑现。静态图可以走 sub2api。 */
+export function gptImage26RequiresDirect(request: { output_format?: string }): boolean {
+  return request.output_format === 'gif' || request.output_format === 'svg'
+}
 
 export function isGptImage26Model(model: string): model is GptImage26Model {
   return (GPT_IMAGE_26_MODELS as readonly string[]).includes(model)
@@ -159,7 +173,8 @@ export function gptImage26Rejection(
   available: boolean,
 ): GptImage26Rejection | null {
   if (!isGptImage26Model(model)) return null
-  if (!available) return 'unavailable'
+  // 直连不可用时静态图留给 sub2api。GIF / SVG 没有第二条路，在看帧数之前就拒绝。
+  if (!available) return gptImage26RequiresDirect(request) ? 'unavailable' : null
   const format = request.output_format
   const editing = referenceCount(request) > 0
   const count = request.n ?? 1

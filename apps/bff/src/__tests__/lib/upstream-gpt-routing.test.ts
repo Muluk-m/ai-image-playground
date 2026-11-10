@@ -35,7 +35,9 @@ const {
 } = await import('../../lib/upstream/gpt-budget')
 const { fingerprintOf, envDirectKeys, noteDirectKeySnapshot, resetAdminDirectKeySnapshot } =
   await import('../../lib/upstream/gpt-key-config')
-const { ImagePlanRequiredError } = await import('../../lib/upstream/errors')
+const { GptImage26RouteUnavailableError, ImagePlanRequiredError } = await import(
+  '../../lib/upstream/errors'
+)
 const { config } = await import('../../config')
 const { gptSchedulerBuckets, tryAcquireSchedulerSlots } = await import(
   '../../lib/upstream/scheduler'
@@ -53,6 +55,7 @@ const USAGE = {
 
 interface Sent {
   route: 'direct' | 'sub2api'
+  url?: string
   body: Record<string, unknown>
   headers: Record<string, string>
 }
@@ -67,6 +70,7 @@ function stub(): void {
     const route = new URL(String(input)).hostname === 'api.openai.com' ? 'direct' : 'sub2api'
     sent.push({
       route,
+      url: String(input),
       body: JSON.parse(String(init?.body)) as Record<string, unknown>,
       headers: init?.headers ?? {},
     })
@@ -208,18 +212,19 @@ describe('route choice', () => {
   it.each([
     'gpt-image-2.6-flare',
     'gpt-image-2.6-sunburst',
-  ])('does not dispatch %s while every key is manually or automatically disabled', async (model) => {
+  ])('sends a still %s to sub2api while every key is disabled, then back to direct', async (model) => {
     const keys = envDirectKeys()
     for (const automatic of [false, true]) {
+      sent = []
       noteDirectKeySnapshot({
         admin: keys.map((key) => ({ ...key, enabled: automatic })),
         hardDisabled: automatic ? new Set(keys.map((key) => key.fingerprint)) : new Set(),
       })
-      await expect(
-        callUpstream({ provider: 'openai-compat', model, request: { prompt: 'a cat' } }),
-      ).rejects.toThrow()
-      expect(sent).toEqual([])
+      await callUpstream({ provider: 'openai-compat', model, request: { prompt: 'a cat' } })
+      expect(sent.map((request) => request.route)).toEqual(['sub2api'])
+      expect(sent[0]?.body.model).toBe(model)
     }
+    sent = []
     noteDirectKeySnapshot({ admin: keys, hardDisabled: new Set() })
     await callUpstream({ provider: 'openai-compat', model, request: { prompt: 'a cat' } })
     expect(sent.map((request) => request.route)).toEqual(['direct'])
@@ -498,6 +503,118 @@ describe('failover', () => {
     behaviour.direct.status = 400
     await expect(call({}, true)).rejects.toBeDefined()
     expect(sent.map((one) => one.route)).toEqual(['direct'])
+  })
+})
+
+describe('gpt image 2.6 routes', () => {
+  const still = {
+    prompt: 'a paper crane',
+    output_format: 'png',
+    size: '1024x1024',
+    quality: 'low',
+    n: 1,
+  }
+  const call26 = (
+    request: {
+      prompt: string
+      output_format?: string
+      size?: string
+      quality?: string
+      n?: number
+      frame_count?: number
+      frame_duration_ms?: number
+    } = still,
+  ) =>
+    callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2.6-flare',
+      taskId: 'task-26',
+      request,
+      onGptRoute: async (route) => {
+        routes.push(route)
+      },
+    })
+
+  it('keeps a still image on direct when a key can take it', async () => {
+    await call26()
+    expect(sent.map((one) => one.route)).toEqual(['direct'])
+    expect(routes).toEqual(['direct'])
+    expect(sent[0]?.body.model).toBe('gpt-image-2.6-flare')
+    expect(sent[0]?.url).toContain('api.openai.com')
+    const usage = await db.select().from(schema.gpt_direct_usage)
+    expect(usage).toHaveLength(1)
+    expect(usage[0]).toMatchObject({
+      model: 'gpt-image-2.6-flare',
+      key_fingerprint: fingerprintOf('direct-key').fingerprint,
+    })
+    expect(JSON.stringify(usage)).not.toContain('direct-key')
+  })
+
+  it('sends a still image to sub2api generations when the direct key is disabled', async () => {
+    const keys = envDirectKeys()
+    noteDirectKeySnapshot({
+      admin: keys,
+      hardDisabled: new Set(keys.map((key) => key.fingerprint)),
+    })
+    const responses = config.upstream.imageResponsesModel
+    config.upstream.imageResponsesModel = 'gpt-6-astra'
+    try {
+      await call26()
+      expect(sent.map((one) => one.route)).toEqual(['sub2api'])
+      expect(routes).toEqual(['sub2api'])
+      expect(sent[0]?.body).toMatchObject({
+        model: 'gpt-image-2.6-flare',
+        size: '1024x1024',
+        quality: 'low',
+        output_format: 'png',
+      })
+      expect(sent[0]?.url).toContain('/images/generations')
+      expect(sent[0]?.url).not.toContain('responses')
+      expect(await db.select().from(schema.gpt_direct_usage)).toHaveLength(0)
+    } finally {
+      config.upstream.imageResponsesModel = responses
+    }
+  })
+
+  it('sends a still image to the configured sub2api model when the monthly budget is spent', async () => {
+    await db.insert(schema.gpt_direct_usage).values({
+      id: 'image-26-spent',
+      model: 'gpt-image-2.6-flare',
+      images: 1,
+      cost_micro_usd: 999_000,
+      estimated: false,
+      created_at: Date.now(),
+    })
+    const models = config.gptImage26.sub2apiModels
+    const saved = models['gpt-image-2.6-flare']
+    models['gpt-image-2.6-flare'] = 'gateway-gpt-image-2.6-flare'
+    try {
+      await call26()
+      expect(sent.map((one) => one.route)).toEqual(['sub2api'])
+      expect(sent[0]?.body.model).toBe('gateway-gpt-image-2.6-flare')
+      expect(await db.select().from(schema.gpt_direct_usage)).toHaveLength(1)
+    } finally {
+      models['gpt-image-2.6-flare'] = saved
+    }
+  })
+
+  it('does not dispatch a GIF when direct cannot take it', async () => {
+    const keys = envDirectKeys()
+    noteDirectKeySnapshot({
+      admin: keys.map((key) => ({ ...key, enabled: false })),
+    })
+    await expect(
+      call26({
+        prompt: 'a bouncing ball',
+        output_format: 'gif',
+        size: '768x768',
+        frame_count: 6,
+        frame_duration_ms: 200,
+        n: 1,
+      }),
+    ).rejects.toBeInstanceOf(GptImage26RouteUnavailableError)
+    expect(sent).toEqual([])
+    expect(routes).toEqual([])
   })
 })
 

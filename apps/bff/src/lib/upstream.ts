@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer'
 import {
+  gptImage26RequiresDirect,
   isGptDirectModel,
   isGptImage26Model,
   isGptSub2apiDeliverable,
@@ -36,6 +37,7 @@ import {
 import { acquireChannelSlot } from './upstream/concurrency'
 import {
   extractErrorMessage,
+  GptImage26RouteUnavailableError,
   ImagePlanRequiredError,
   stringifyUpstreamPayload,
   UpstreamPartialResultError,
@@ -63,7 +65,7 @@ import {
   type GptRoute,
   gptDirectApiKey,
   gptDirectConfigured,
-  gptImage26Configured,
+  gptImage26Sub2apiModel,
   recordSub2apiOutcome,
   sub2apiBreakerOpen,
 } from './upstream/gpt-routing'
@@ -307,6 +309,11 @@ export interface UpstreamCallParams {
   strictImageRequest?: boolean
   /** 直连请求派发时记录安全指纹；与响应一起等待落库，不推迟传输启动。 */
   onGptKey?: (fingerprint: string) => Promise<void>
+  /**
+   * 2.6 走 sub2api 时强制 `/images/generations`。Responses 桥接的模型不是 2.6，
+   * 不能把静态图改送到那条路。
+   */
+  imageProtocol?: 'generations'
   /** GPT Image 每条路开跑前调用（换路时再调一次）；调用方据此记下最后走的通道，结算用。 */
   onGptRoute?: (route: GptRoute) => Promise<void>
   provider: QueueProvider
@@ -382,17 +389,98 @@ const GPT_FAILOVER_MIN_REMAINING_MS = 60_000
 /** 会员选了直连、却在直连额度上排了这么久还没发出，就改走 sub2api。 */
 const GPT_DIRECT_QUEUE_WAIT_MS = 5_000
 
+function gptImage26Sub2apiCall(params: UpstreamCallParams): UpstreamCallParams {
+  const model = gptImage26Sub2apiModel(params.model)
+  return { ...params, model, imageProtocol: 'generations' }
+}
+
+const GPT_IMAGE_26_DIRECT_ONLY_MESSAGE = '动图和矢量图需要 OpenAI 直连，当前直连不可用'
+
+/**
+ * 直连这一路的落账。出了图按 usage 记；发出后结果未知按档位估算。
+ * 明确的 HTTP 错误且一张图都没出，不记入直连花费。sub2api 不走这里。
+ */
+async function settleDirectAttempt(input: {
+  params: UpstreamCallParams
+  ok: boolean
+  payload?: unknown
+  error?: unknown
+  fingerprint?: string
+  reservationId?: string
+  dispatched: boolean
+  produced: boolean
+}): Promise<void> {
+  const request = input.params.request
+  const reservationId = input.ok ? input.reservationId : directReservationId(input.error)
+  const dispatched = input.ok || input.dispatched || directKeyDispatched(input.error)
+  if (!dispatched) {
+    if (reservationId) await releaseDirectKeyReservation(reservationId)
+    return
+  }
+  if (!input.ok && upstreamStatusOf(input.error) !== undefined && !input.produced) {
+    if (reservationId) await releaseDirectKeyReservation(reservationId)
+    return
+  }
+  const payload = input.ok ? input.payload : undefined
+  const partial = payload ? partialFailureOf(payload) : undefined
+  const images = partial
+    ? Math.max(0, partial.requested - partial.failed)
+    : Math.max(1, request.n ?? 1)
+  await recordDirectUsage({
+    ...(input.params.taskId ? { taskId: input.params.taskId } : {}),
+    model: input.params.model,
+    ...(request.size ? { size: request.size } : {}),
+    ...(request.quality ? { quality: request.quality } : {}),
+    images,
+    ...(input.fingerprint ? { keyFingerprint: input.fingerprint } : {}),
+    ...(payload !== undefined ? { payload } : {}),
+    ...(reservationId ? { reservationId } : {}),
+  })
+}
+
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
-  // 2.6 只有直连这一条路。没开、没 key、上游失败、重启续跑都不换 sub2api，也不换模型。
+  // 2.6：直连接得下就按原来的直连发出，不改去 sub2api，失败也不换路。
+  // 没有启用 key、预算用尽或 key 被停用时，静态图走 sub2api 的同名模型；GIF / SVG 没有第二条路。
+  // 已经向 sub2api 提交过的异步任务只在原路续轮询。
   if (isGptImage26Model(params.model) && !params.request.video) {
-    if (!params.resume && !gptImage26Configured())
-      throw new Error('gpt-image-2.6 direct route is not configured')
-    await params.onGptRoute?.('direct')
-    const format = params.request.output_format
-    return callUpstreamVia(params, {
-      ...directRoute(params.model),
-      supportsNativeN: format !== 'gif' && format !== 'svg',
-    })
+    const sub2api = resolveUpstream(params.provider, params.model)
+    if (params.resume?.taskIds.length) {
+      await params.onGptRoute?.('sub2api')
+      return callUpstreamVia(gptImage26Sub2apiCall(params), sub2api)
+    }
+    if (!config.gptImage26.enabled) throw new GptImage26RouteUnavailableError()
+    // 直连走和 2.5 同一套预占、落账、停用和冷却。失败不换 sub2api，除非一把 key 都接不了。
+    let fingerprint: string | undefined
+    try {
+      const invoked = await callDirectTryingKeys(params, params.model, {}, (next) => {
+        fingerprint = next
+        return params.onGptRoute?.('direct')
+      })
+      await settleDirectAttempt({
+        params,
+        ok: true,
+        payload: invoked.result.payload,
+        fingerprint: invoked.fingerprint,
+        reservationId: invoked.reservationId,
+        dispatched: true,
+        produced: true,
+      })
+      return invoked.result
+    } catch (error) {
+      await settleDirectAttempt({
+        params,
+        ok: false,
+        error,
+        fingerprint,
+        dispatched: directKeyDispatched(error),
+        produced: false,
+      })
+      if (!(error instanceof DirectKeysExhaustedError)) throw error
+      if (gptImage26RequiresDirect(params.request))
+        throw new GptImage26RouteUnavailableError(GPT_IMAGE_26_DIRECT_ONLY_MESSAGE)
+      await params.onGptRoute?.('sub2api')
+      return callUpstreamVia(gptImage26Sub2apiCall(params), sub2api)
+    }
   }
   const route = resolveUpstream(params.provider, params.model)
   // 已提交的任务沿原路续轮询，不因直连配置后来变化而放弃上游结果。
@@ -686,33 +774,15 @@ async function callGptDualRoute(
       else if (outcome.state.timedOut || isRouteFailure(outcome.error)) recordSub2apiOutcome(false)
       return
     }
-    // 直连按张计费：出了图按回报的 usage 记；发出后结果未知（超时、中断）按档位估算，平台承担。
-    // 明确的 HTTP 错误且一张图都没出，上游不计费。已经出过图再失败也不换 key，按已出的张数记。
-    const reservationId = outcome.ok ? outcome.reservationId : directReservationId(outcome.error)
-    const produced = outcome.state.responded
-    const thisKeyDispatched = outcome.ok || directKeyDispatched(outcome.error)
-    if (!thisKeyDispatched) {
-      if (reservationId) await releaseDirectKeyReservation(reservationId)
-      return
-    }
-    if (!outcome.ok && upstreamStatusOf(outcome.error) !== undefined && !produced) {
-      if (reservationId) await releaseDirectKeyReservation(reservationId)
-      return
-    }
-    const payload = outcome.ok ? outcome.result.payload : undefined
-    const partial = payload ? partialFailureOf(payload) : undefined
-    const images = partial
-      ? Math.max(0, partial.requested - partial.failed)
-      : Math.max(1, request.n ?? 1)
-    await recordDirectUsage({
-      ...(params.taskId ? { taskId: params.taskId } : {}),
-      model,
-      ...(request.size ? { size: request.size } : {}),
-      ...(request.quality ? { quality: request.quality } : {}),
-      images,
-      ...(outcome.fingerprint ? { keyFingerprint: outcome.fingerprint } : {}),
-      ...(payload !== undefined ? { payload } : {}),
-      ...(reservationId ? { reservationId } : {}),
+    await settleDirectAttempt({
+      params,
+      ok: outcome.ok,
+      payload: outcome.ok ? outcome.result.payload : undefined,
+      error: outcome.ok ? undefined : outcome.error,
+      fingerprint: outcome.fingerprint,
+      reservationId: outcome.ok ? outcome.reservationId : undefined,
+      dispatched: outcome.ok || directKeyDispatched(outcome.error),
+      produced: outcome.state.responded,
     })
   }
 
@@ -1151,6 +1221,7 @@ async function callUpstreamVia(
           : await normalizeGrokEditInputs(imageRequest, deadline.signal)
       }
       const useImageResponses =
+        params.imageProtocol !== 'generations' &&
         !useNativeN &&
         style === 'openai-images' &&
         gptRoute !== 'direct' &&

@@ -118,6 +118,77 @@ it('denies ended subscriptions before creating a task or hold', async () => {
   expect(await db.select().from(schema.tasks)).toHaveLength(0)
 })
 
+it('creates a still Image 2.6 task when the direct key is unavailable', async () => {
+  const enabled = config.gptImage26.enabled
+  const apiKey = process.env.OPENAI_API_KEY
+  config.gptImage26.enabled = true
+  delete process.env.OPENAI_API_KEY
+  try {
+    const result = await createQueueTask({
+      entry: 'web-direct',
+      provider: 'openai-compat',
+      model: 'gpt-image-2.6-flare',
+      userId: null,
+      request: {
+        prompt: 'A paper crane',
+        device_id: 'still-fallback',
+        output_format: 'png',
+        size: '1024x1024',
+        quality: 'low',
+        n: 1,
+      },
+    })
+    expect(result.kind).toBe('created')
+    if (result.kind !== 'created') return
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, result.taskId))
+    expect(task?.request_payload).toMatchObject({
+      output_format: 'png',
+      size: '1024x1024',
+      quality: 'low',
+      n: 1,
+    })
+    expect(task?.model).toBe('gpt-image-2.6-flare')
+  } finally {
+    config.gptImage26.enabled = enabled
+    if (apiKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = apiKey
+  }
+})
+
+it('rejects a GIF when the direct key is unavailable instead of calling it an invalid request', async () => {
+  const enabled = config.gptImage26.enabled
+  const apiKey = process.env.OPENAI_API_KEY
+  config.gptImage26.enabled = true
+  delete process.env.OPENAI_API_KEY
+  try {
+    const result = await createQueueTask({
+      entry: 'web-direct',
+      provider: 'openai-compat',
+      model: 'gpt-image-2.6-flare',
+      userId: null,
+      request: {
+        prompt: 'A bouncing ball',
+        device_id: 'gif-no-direct',
+        output_format: 'gif',
+        size: '768x768',
+        frame_count: 6,
+        frame_duration_ms: 200,
+        quality: 'medium',
+        n: 1,
+      },
+    })
+    expect(result).toMatchObject({
+      kind: 'model_unavailable',
+      message: '动图和矢量图需要 OpenAI 直连，当前直连不可用',
+    })
+    expect(await db.select().from(schema.tasks)).toEqual([])
+  } finally {
+    config.gptImage26.enabled = enabled
+    if (apiKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = apiKey
+  }
+})
+
 it('rejects a 768×16 GIF before creating a task or invoking billing', async () => {
   const enabled = config.gptImage26.enabled
   const apiKey = process.env.OPENAI_API_KEY

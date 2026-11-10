@@ -42,7 +42,7 @@ import {
   UpstreamResultUnknownError,
   UpstreamTimeoutError,
 } from '../lib/upstream'
-import { ImagePlanRequiredError } from '../lib/upstream/errors'
+import { GptImage26RouteUnavailableError, ImagePlanRequiredError } from '../lib/upstream/errors'
 import { gptDirectConfigured } from '../lib/upstream/gpt-routing'
 import { partialFailureOf } from '../lib/upstream/partial'
 import { claimTaskExecution, type TaskExecution } from './task-execution'
@@ -431,21 +431,24 @@ async function executeTask(execution: TaskExecution): Promise<void> {
     const errorType: TaskErrorType =
       err instanceof ImagePlanRequiredError
         ? 'plan_required'
-        : isStorageError
-          ? 'object_storage_error'
-          : isUnknownResult
-            ? 'upstream_result_unknown'
-            : isContentPolicyRejection({
-                  status: upstreamFailure.status,
-                  message,
-                  payload: upstreamFailure.body,
-                })
-              ? 'content_policy'
-              : isModelUnavailableRejection({ message, payload: upstreamFailure.body })
-                ? 'model_unavailable'
-                : upstreamFailure.status === 429
-                  ? 'rate_limited'
-                  : 'upstream_error'
+        : err instanceof GptImage26RouteUnavailableError
+          ? // 不要用 model_unavailable：那个终态会把整个模型下架，静态图就再也不能走 sub2api。
+            'upstream_error'
+          : isStorageError
+            ? 'object_storage_error'
+            : isUnknownResult
+              ? 'upstream_result_unknown'
+              : isContentPolicyRejection({
+                    status: upstreamFailure.status,
+                    message,
+                    payload: upstreamFailure.body,
+                  })
+                ? 'content_policy'
+                : isModelUnavailableRejection({ message, payload: upstreamFailure.body })
+                  ? 'model_unavailable'
+                  : upstreamFailure.status === 429
+                    ? 'rate_limited'
+                    : 'upstream_error'
 
     const attemptJustFailed = task.attempt_count + 1
     if (

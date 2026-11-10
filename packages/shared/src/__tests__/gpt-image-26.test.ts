@@ -11,7 +11,7 @@ import {
 const FLARE = 'gpt-image-2.6-flare'
 
 describe('gpt image 2.6 identity', () => {
-  it('is not a 2.5 direct model, so it cannot fall back to sub2api', () => {
+  it('is not a 2.5 direct model, so a sub2api fallback does not use that settlement table', () => {
     expect(isGptImage26Model(FLARE)).toBe(true)
     expect(isGptImage26Model('gpt-image-2.6-sunburst')).toBe(true)
     expect(isGptImage26Model('gpt-image-2.5-flare')).toBe(false)
@@ -120,8 +120,16 @@ describe('gpt image 2.6 credits', () => {
 describe('gpt image 2.6 rejection', () => {
   const gif = { output_format: 'gif', size: '768x768', frame_count: 6, frame_duration_ms: 200 }
 
-  it('rejects before billing when direct is off, the sprite is too big, or the format is an edit', () => {
-    expect(gptImage26Rejection(FLARE, { size: '1024x1024' }, false)).toBe('unavailable')
+  it('lets a still through when direct is off, and still rejects gif, svg, and bad sprites', () => {
+    expect(
+      gptImage26Rejection(
+        FLARE,
+        { size: '1024x1024', quality: 'low', output_format: 'png' },
+        false,
+      ),
+    ).toBe(null)
+    expect(gptImage26Rejection(FLARE, gif, false)).toBe('unavailable')
+    expect(gptImage26Rejection(FLARE, { output_format: 'svg' }, false)).toBe('unavailable')
     expect(gptImage26Rejection(FLARE, gif, true)).toBe(null)
     expect(gptImage26Rejection(FLARE, { ...gif, size: '1024x1024' }, true)).toBe('gif_sprite')
     expect(gptImage26Rejection(FLARE, { ...gif, frame_count: 16 }, true)).toBe('gif_sprite')
