@@ -11,3 +11,6 @@
 
 /version.json
   Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0
+
+/assets-manifest.json
+  Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0
