@@ -12,7 +12,12 @@ import { db, schema } from '../db/client'
 import { StageAuthorizationError } from '../lib/agent/stage-authorizations'
 import { isModelDisabled, resolveModelMedia } from '../lib/channels'
 import { resolveImageBytesRef } from '../lib/extractImages'
-import { deviceIdSchema, validationFieldNames, validationMessage } from '../lib/http'
+import {
+  deviceIdSchema,
+  safeDecodeURIComponent,
+  validationFieldNames,
+  validationMessage,
+} from '../lib/http'
 import { log } from '../lib/logger'
 import { MEDIA_INPUT_PATTERN, MediaInputError, resolveMediaInputs } from '../lib/mediaInputs'
 import { asQueueProvider } from '../lib/queueProvider'
@@ -131,7 +136,8 @@ export const submitRoutes = new Elysia()
     }
     if (code === 'VALIDATION') {
       const fields = validationFieldNames(error)
-      const model = decodeURIComponent(new URL(request.url).pathname.split('/').at(-2) ?? '')
+      const segment = new URL(request.url).pathname.split('/').at(-2)
+      const model = segment ? safeDecodeURIComponent(segment) : undefined
       log.warn(
         {
           event: 'queue.submit_rejected',

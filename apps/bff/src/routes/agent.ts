@@ -23,6 +23,10 @@ import {
   AGENT_TURN_MAX_REFERENCES,
   AGENT_USER_MESSAGE_MAX_CHARS,
   DEVICE_ID_HEADER,
+  GPT_IMAGE_26_GIF_DURATION_MAX_MS,
+  GPT_IMAGE_26_GIF_DURATION_MIN_MS,
+  GPT_IMAGE_26_GIF_FRAME_MAX,
+  GPT_IMAGE_26_GIF_FRAME_MIN,
   isAgentSurface,
   parseAgentCanvasSnapshot,
   SYNC_NAME_MAX_LENGTH,
@@ -238,6 +242,15 @@ const paramsSchema = t.Optional(
     quality: t.Optional(t.String({ maxLength: 16 })),
     output_format: t.Optional(t.String({ maxLength: 16 })),
     output_compression: t.Optional(t.Integer({ minimum: 0, maximum: 100 })),
+    frame_count: t.Optional(
+      t.Integer({ minimum: GPT_IMAGE_26_GIF_FRAME_MIN, maximum: GPT_IMAGE_26_GIF_FRAME_MAX }),
+    ),
+    frame_duration_ms: t.Optional(
+      t.Integer({
+        minimum: GPT_IMAGE_26_GIF_DURATION_MIN_MS,
+        maximum: GPT_IMAGE_26_GIF_DURATION_MAX_MS,
+      }),
+    ),
     gemini_aspect_ratio: t.Optional(t.String({ maxLength: 16 })),
     gemini_image_size: t.Optional(t.String({ maxLength: 16 })),
     gemini_thinking_level: t.Optional(t.String({ maxLength: 16 })),

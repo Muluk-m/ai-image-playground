@@ -149,6 +149,12 @@ describe('BFF queue routes', () => {
     expect(taskStatus.json).toMatchObject({ status: 'queued' })
   })
 
+  it('returns 400 when the model path has a malformed percent escape', async () => {
+    const { status, json } = await jsonReq('POST', '/v1/queue/openai-compat/%ZZ/submit', {})
+    expect(status).toBe(400)
+    expect(json).toMatchObject({ error: 'invalid_request' })
+  })
+
   it('POST submit drops client extra so it cannot override the billed count or model', async () => {
     const bodies: Array<Record<string, unknown>> = []
     setUpstreamFetchForTesting(
