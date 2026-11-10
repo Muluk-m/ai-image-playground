@@ -705,6 +705,7 @@ describe('shipped channels.json', () => {
         'gpt-image-2.6-sunburst',
       ])
       expect(openai?.models.every((model) => model.unavailable !== true)).toBe(true)
+      expect(openai?.models.every((model) => model.imageSizes?.join() === '1K')).toBe(true)
     } finally {
       if (saved.enabled === undefined) delete process.env.GPT_IMAGE_26_ENABLED
       else process.env.GPT_IMAGE_26_ENABLED = saved.enabled

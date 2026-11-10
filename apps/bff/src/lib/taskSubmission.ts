@@ -24,6 +24,7 @@ import {
   imageSizeTier,
   isBlankPrompt,
   isGptImage26Model,
+  isGptSub2apiDeliverable,
   nearestImageSize,
   QUEUE_TIMEOUTS,
   resolveImageTier,
@@ -742,6 +743,7 @@ const GPT_IMAGE_26_REJECTION_MESSAGE = {
 } as const
 
 const GPT_IMAGE_26_DIRECT_ONLY_MESSAGE = '动图和矢量图需要 OpenAI 直连，当前直连不可用'
+const GPT_IMAGE_26_TIER_MESSAGE = '当前高分辨率/高画质需要 OpenAI 直连，暂不可用'
 
 /**
  * 2.6 的格式和雪碧图限制在建任务、扣积分之前拒绝。
@@ -756,12 +758,12 @@ async function gptImage26RequestProblem(
   if (!isGptImage26Model(input.model) || input.video) return null
   if (!config.gptImage26.enabled)
     return { kind: 'model_unavailable', message: GPT_IMAGE_26_REJECTION_MESSAGE.unavailable }
-  if (
-    gptImage26RequiresDirect(input.request) &&
-    !(await gptImage26DirectKey(input.model, input.request))
-  ) {
+  const directKey = await gptImage26DirectKey(input.model, input.request)
+  if (!directKey && gptImage26RequiresDirect(input.request))
     return { kind: 'model_unavailable', message: GPT_IMAGE_26_DIRECT_ONLY_MESSAGE }
-  }
+  // sub2api 不兑现 2K/4K/高画质。先拒绝再计价，避免按高档扣了费却出默认尺寸。
+  if (!directKey && !isGptSub2apiDeliverable(input.request))
+    return { kind: 'model_unavailable', message: GPT_IMAGE_26_TIER_MESSAGE }
   const reason = gptImage26Rejection(input.model, input.request, true)
   if (!reason) return null
   return { kind: 'invalid_image_request', message: GPT_IMAGE_26_REJECTION_MESSAGE[reason] }

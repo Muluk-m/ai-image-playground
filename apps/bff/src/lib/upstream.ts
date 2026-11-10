@@ -80,7 +80,7 @@ import {
   mergeOpenAIImageResults,
   withoutModeration,
 } from './upstream/openai'
-import { partialFailureOf, withPartialFailure } from './upstream/partial'
+import { directAttemptImages, directAttemptPayload, withPartialFailure } from './upstream/partial'
 import {
   coolDownSchedulerBuckets,
   gptSchedulerBuckets,
@@ -400,6 +400,7 @@ function gptImage26Sub2apiCall(params: UpstreamCallParams): UpstreamCallParams {
 }
 
 const GPT_IMAGE_26_DIRECT_ONLY_MESSAGE = '动图和矢量图需要 OpenAI 直连，当前直连不可用'
+const GPT_IMAGE_26_TIER_MESSAGE = '当前高分辨率/高画质需要 OpenAI 直连，暂不可用'
 
 /**
  * 直连这一路的落账。出了图按 usage 记；发出后结果未知按档位估算。
@@ -427,11 +428,8 @@ async function settleDirectAttempt(input: {
     if (reservationId) await releaseDirectKeyReservation(reservationId)
     return
   }
-  const payload = input.ok ? input.payload : undefined
-  const partial = payload ? partialFailureOf(payload) : undefined
-  const images = partial
-    ? Math.max(0, partial.requested - partial.failed)
-    : Math.max(1, request.n ?? 1)
+  const payload = directAttemptPayload(input.ok, input.payload, input.error)
+  const images = directAttemptImages(request.n ?? 1, payload)
   await recordDirectUsage({
     ...(input.params.taskId ? { taskId: input.params.taskId } : {}),
     model: input.params.model,
@@ -491,8 +489,19 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
       if (!(error instanceof DirectKeysExhaustedError)) throw error
       if (gptImage26RequiresDirect(params.request))
         throw new GptImage26RouteUnavailableError(GPT_IMAGE_26_DIRECT_ONLY_MESSAGE)
+      if (!isGptSub2apiDeliverable(params.request))
+        throw new GptImage26RouteUnavailableError(GPT_IMAGE_26_TIER_MESSAGE)
+      if (sub2apiBreakerOpen()) throw new GptImage26RouteUnavailableError()
       await params.onGptRoute?.('sub2api')
-      return callUpstreamVia(gptImage26Sub2apiCall(params), sub2api)
+      try {
+        const result = await callUpstreamVia(gptImage26Sub2apiCall(params), sub2api)
+        recordSub2apiOutcome(true)
+        return result
+      } catch (sub2apiError) {
+        if (isRouteFailure(sub2apiError) || sub2apiError instanceof UpstreamTimeoutError)
+          recordSub2apiOutcome(false)
+        throw sub2apiError
+      }
     }
   }
   const route = resolveUpstream(params.provider, params.model)

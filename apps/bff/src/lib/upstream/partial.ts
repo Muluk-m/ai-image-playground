@@ -1,6 +1,10 @@
 import type { PartialImageFailure, TaskErrorType } from '@image-playground/shared'
 import { isObject } from '../type-guards'
-import { UpstreamResultUnknownError, UpstreamTimeoutError } from './errors'
+import {
+  UpstreamPartialResultError,
+  UpstreamResultUnknownError,
+  UpstreamTimeoutError,
+} from './errors'
 import type { UpstreamCallResult } from './shared'
 
 /** {@link failureType} 会写进缺口记录的几种分类；读回时只认这几种。 */
@@ -40,6 +44,25 @@ export function withPartialFailure(
  * 结果里记下的缺口；整单都出了图的结果没有。这条记录既回给客户端又决定结算张数，
  * 读回时要求张数是非负整数、缺的不多于要的、分类是写入时会用的那几种，否则当没有缺口。
  */
+/**
+ * 直连落账看的结果。成功用返回体；部分成功抛 `UpstreamPartialResultError` 时用错误上的结果，
+ * 才能按 requested-failed 计张数，而不是整单 `n`。
+ */
+export function directAttemptPayload(
+  ok: boolean,
+  payload: unknown | undefined,
+  error: unknown,
+): unknown {
+  if (ok) return payload
+  return error instanceof UpstreamPartialResultError ? error.payload : undefined
+}
+
+/** 有缺口记录时只算已经出的张数，否则按请求张数。 */
+export function directAttemptImages(requested: number, payload: unknown): number {
+  const partial = partialFailureOf(payload)
+  return partial ? Math.max(0, partial.requested - partial.failed) : Math.max(1, requested)
+}
+
 export function partialFailureOf(payload: unknown): PartialImageFailure | undefined {
   const record = isObject(payload) ? payload.partial_failure : undefined
   if (!isObject(record)) return undefined
