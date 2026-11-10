@@ -45,6 +45,7 @@ import {
 } from './upstream/errors'
 import { mergeGeminiCandidateResults } from './upstream/gemini'
 import { estimateDirectCostMicroUsd, recordDirectUsage } from './upstream/gpt-budget'
+import { directKeyKnownDisabled } from './upstream/gpt-direct-availability'
 import { configuredDirectKeys, type DirectKey } from './upstream/gpt-key-config'
 import {
   classifyDirectKeyFailure,
@@ -143,6 +144,8 @@ interface UpstreamRoute {
   schedulerBuckets?: readonly SchedulerBucket[]
   /** GPT Image 走的是哪条通道；决定发送前的参数适配（见 {@link adaptGptRequest}）。 */
   gptRoute?: GptRoute
+  /** 实际选中的直连 key；所有模型在共同派发边界记录，不保存密钥本身。 */
+  keyFingerprint?: string
   /** 直连可选的 OpenAI-Organization 头。 */
   organization?: string
   /**
@@ -272,7 +275,11 @@ function directRoute(
   key?: DirectKey,
   options?: { skipSharedRateLimitCooldown?: boolean },
 ): UpstreamRoute {
-  const chosen = key ?? configuredDirectKeys()[0]
+  const chosen =
+    key ??
+    configuredDirectKeys().find(
+      (candidate) => candidate.enabled && !directKeyKnownDisabled(candidate.fingerprint),
+    )
   return {
     baseUrl: config.gptDirect.baseUrl,
     key: chosen?.secret ?? gptDirectApiKey(),
@@ -283,6 +290,7 @@ function directRoute(
     supportsNativeN: true,
     schedulerBuckets: gptSchedulerBuckets(model, 'direct'),
     gptRoute: 'direct',
+    ...(chosen ? { keyFingerprint: chosen.fingerprint } : {}),
     ...(options?.skipSharedRateLimitCooldown ? { skipSharedRateLimitCooldown: true } : {}),
     ...(config.gptDirect.organization ? { organization: config.gptDirect.organization } : {}),
   }
@@ -491,11 +499,10 @@ async function callDirectTryingKeys(
         directRoute(model, key, { skipSharedRateLimitCooldown: another !== null }),
         {
           ...attempt,
-          onDispatched: async () => {
+          onDispatched: () => {
             thisKeyDispatched = true
             onAttempt(key.fingerprint)
-            attempt.onDispatched?.()
-            await params.onGptKey?.(key.fingerprint)
+            return attempt.onDispatched?.()
           },
           onResponse: () => {
             produced = true
@@ -903,15 +910,17 @@ async function callUpstreamVia(
       })
       deadline.signal.addEventListener('abort', relayAbort, { once: true })
       if (deadline.signal.aborted) relayAbort()
+      let keyRecorded: Promise<void> | undefined
       try {
+        if (counted && route.keyFingerprint) keyRecorded = params.onGptKey?.(route.keyFingerprint)
         const recorded = dispatchId ? params.onRequestDispatched?.(dispatchId) : undefined
         let response: UpstreamResponse
         try {
-          ;[response] = await Promise.all([responsePromise, recorded, attributed])
+          ;[response] = await Promise.all([responsePromise, recorded, attributed, keyRecorded])
         } catch (error) {
           requestAbort.abort()
           // 旧通道的写入必须结束再允许换路，避免覆盖后续 sub2api 的清空结果。
-          await Promise.allSettled([attributed])
+          await Promise.allSettled([attributed, keyRecorded])
           throw error
         }
         if (dispatchId) dispatchIdentities.set(response, dispatchId)

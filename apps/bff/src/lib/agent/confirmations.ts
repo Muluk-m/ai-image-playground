@@ -15,7 +15,7 @@ import type {
 import {
   AGENT_CONFIRMATION_PROMPT_MAX_CHARS,
   agentTitleLine,
-  unshapeQueuePrompt,
+  restoreQueuePrompt,
 } from '@image-playground/shared'
 import { and, eq, isNull, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
@@ -33,7 +33,6 @@ import {
   validateImageParameters,
   validateProductionConfirmation,
 } from './production-generation-validation'
-import { shapeQueuePrompt } from './prompt-shaping'
 import {
   GATE_VOIDED_MESSAGE,
   isPendingGate,
@@ -242,16 +241,7 @@ export async function confirmAgentGeneration(
           return { kind: 'refused', code: 'invalid_params' }
       }
 
-      // 构图句只在提交时补；防改写保留为参数，等实际选路后再添加。
-      const upstreamPrompt =
-        draft.media === 'image'
-          ? shapeQueuePrompt({
-              provider: draft.provider,
-              model: draft.model,
-              prompt,
-              size: prepared.request.size,
-            })
-          : prompt
+      const upstreamPrompt = prompt
 
       if (prepared.video) {
         const rejected = agentVideoRequestError(
@@ -267,6 +257,8 @@ export async function confirmAgentGeneration(
         tx,
         provider: draft.provider,
         model: draft.model,
+        ...(prepared.video ? { video: prepared.video } : {}),
+        promptShaping: draft.media === 'image' ? { originalPrompt: prompt } : undefined,
         request: {
           ...prepared.request,
           prompt: upstreamPrompt,
@@ -274,7 +266,6 @@ export async function confirmAgentGeneration(
           device_id: input.deviceId,
           client_request_id: draft.id,
         },
-        ...(prepared.video ? { video: prepared.video } : {}),
         userId: input.userId,
         agent: {
           conversationId: draft.conversation_id,
@@ -610,10 +601,11 @@ async function taskOfCommand(
     )
     .limit(1)
   if (!task) return null
-  // 落库那一句带着提交时钉上去的机器指令，卡片要回的是用户当初确认的原文。
+  // 任务 facts 优先于从机器后缀反推，旧任务才走兼容剥离。
   return {
     taskId: task.id,
-    prompt: unshapeQueuePrompt({
+    prompt: restoreQueuePrompt({
+      shaping: task.request.prompt_shaping,
       provider: draft.provider,
       prompt: task.request.prompt,
       stripRewriteGuard: task.request.no_rewrite === undefined,

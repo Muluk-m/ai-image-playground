@@ -221,6 +221,7 @@ export const submitRoutes = new Elysia()
         model,
         request: inputImages ? { ...commandRequest, input_images: inputImages } : commandRequest,
         ...(persistedVideo ? { video: persistedVideo } : {}),
+        ...(media === 'image' ? { promptShaping: { originalPrompt: commandRequest.prompt } } : {}),
         userId: authUser?.id ?? null,
         ...(stageAuthorization ? { stageAuthorization } : {}),
         dedupeRepeats: true,

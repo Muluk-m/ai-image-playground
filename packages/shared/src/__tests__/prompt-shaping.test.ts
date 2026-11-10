@@ -2,6 +2,8 @@ import { describe, expect, it } from 'bun:test'
 import {
   applyPromptRewriteGuard,
   buildAspectInstruction,
+  promptVariants,
+  restoreQueuePrompt,
   unshapeQueuePrompt,
 } from '../prompt-shaping'
 
@@ -15,6 +17,37 @@ describe('buildAspectInstruction', () => {
 
   it('returns null for auto size', () => {
     expect(buildAspectInstruction('auto')).toBeNull()
+  })
+})
+describe('promptVariants', () => {
+  it('keeps the original and guarded spellings aligned with the same ratio suffix', () => {
+    const original = 'a red cat'
+    const instruction = buildAspectInstruction('1536x1024')
+    expect(
+      promptVariants({
+        prompt: original,
+        facts: {
+          provider: 'openai-compat',
+          model: 'gpt-image-2.5-flare',
+          size: '1536x1024',
+          no_rewrite: true,
+          ratio_via_prompt: true,
+        },
+      }),
+    ).toEqual([
+      `${original}\n\n${instruction}`,
+      applyPromptRewriteGuard(`${original}\n\n${instruction}`),
+    ])
+  })
+
+  it('uses recorded facts instead of stripping user-authored machine-like text', () => {
+    const original = `${applyPromptRewriteGuard('literal user text')}\n\ncustom suffix`
+    expect(
+      restoreQueuePrompt({
+        prompt: 'wire prompt',
+        shaping: { original_prompt: original },
+      }),
+    ).toBe(original)
   })
 })
 

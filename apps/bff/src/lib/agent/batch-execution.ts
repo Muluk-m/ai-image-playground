@@ -41,7 +41,6 @@ import { lockConversation } from './confirmations'
 import { type ResolvedAgentImage, readConversationMedia } from './images'
 import { prepareMaskedEdit } from './masked-edit'
 import { editSourceByteLimit, toEditInputDataUrl } from './modelImage'
-import { shapeQueuePrompt } from './prompt-shaping'
 import { imageSelection } from './selection-preview'
 import { AgentToolError } from './tools/errors'
 import { queueParamsFor } from './tools/queueParams'
@@ -267,22 +266,19 @@ async function prepareItem(
     Buffer.byteLength(masked?.mask ?? '', 'utf8')
   if (preparedBytes > visualByteLimit()) throw new BatchPlanError('batch_input_limit', 422)
   const params = queueParamsFor(item.params.provider, item.params)
+  const originalPrompt = masked?.prompt ?? item.prompt
   return {
     entry: 'batch',
     provider: item.params.provider,
     model: item.params.model,
     userId: batch.user_id,
     reconciliationRequired: true,
+    promptShaping: { originalPrompt },
     request: {
       ...params,
       n: 1,
       no_rewrite: item.params.provider !== 'gemini',
-      prompt: shapeQueuePrompt({
-        provider: item.params.provider,
-        model: item.params.model,
-        prompt: masked?.prompt ?? item.prompt,
-        size: params.size,
-      }),
+      prompt: originalPrompt,
       // 纯文字生图项（BUG-25）不带 input_images，与单张 generateImage 的请求一致。
       ...(inputImages.length ? { input_images: inputImages } : {}),
       ...(masked?.mask ? { mask: masked.mask } : {}),

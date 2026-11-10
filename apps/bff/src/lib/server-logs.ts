@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/bun-sql'
 import { config } from '../config'
 import { schema } from '../db/client'
+import { type MaintenanceTransaction, startSharedMaintenance } from './shared-maintenance'
 
 function createLogDatabase() {
   const client = new SQL(process.env.DATABASE_URL?.trim() || config.databaseUrl, {
@@ -33,8 +34,11 @@ export async function writeServerLogs(entries: ServerLogEntry[]): Promise<void> 
 }
 
 /** Seven days, capped at 200,000 rows; bounded deletes avoid long cleanup locks. */
-export async function purgeServerLogs(now = Date.now()): Promise<void> {
-  const db = getLogDatabase().db
+export async function purgeServerLogs(
+  now = Date.now(),
+  database?: MaintenanceTransaction,
+): Promise<void> {
+  const db = database ?? getLogDatabase().db
   await db.execute(sql`
     DELETE FROM server_logs WHERE id IN (
       SELECT id FROM server_logs WHERE at < ${new Date(now - 7 * 86400_000)}
@@ -48,25 +52,15 @@ export async function purgeServerLogs(now = Date.now()): Promise<void> {
   `)
 }
 
-/** Retention runs in every BFF and worker; the bounded deletes make overlapping runs harmless. */
+/** One shared leader performs bounded retention; failures never block business processing. */
 export function startServerLogs() {
-  let cleaning = false
-  const cleanup = async () => {
-    if (cleaning) return
-    cleaning = true
-    try {
-      await purgeServerLogs()
-    } catch {
-      /* Keep stdout and business processing available. */
-    } finally {
-      cleaning = false
-    }
-  }
-  void cleanup()
-  const retention = setInterval(() => void cleanup(), 60_000)
-  retention.unref()
+  const stopMaintenance = startSharedMaintenance({
+    job: 'server-logs',
+    intervalMs: 60_000,
+    work: (transaction) => purgeServerLogs(Date.now(), transaction),
+  })
   return async () => {
-    clearInterval(retention)
+    await stopMaintenance()
     await closeServerLogDatabase()
   }
 }

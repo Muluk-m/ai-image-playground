@@ -1438,14 +1438,8 @@ it('only accepts dispatch shaping the selected model would actually get', async 
         { prompt, inputCount: 0 },
         { provider, model, size: '1536x1024' },
       )
-    // gpt-image-2.5-flare 不认 size：guard、后缀、两者都有都是分发层的合法产物。
-    for (const prompt of [
-      '嫩芽',
-      applyPromptRewriteGuard('嫩芽'),
-      `嫩芽\n\n${instruction}`,
-      `${applyPromptRewriteGuard('嫩芽')}\n\n${instruction}`,
-    ])
-      expect(accepts(prompt, 'gpt-image-2.5-flare', 'openai-compat')).toBe(true)
+    const prompt = `${applyPromptRewriteGuard('嫩芽')}\n\n${instruction}`
+    expect(accepts(prompt, 'gpt-image-2.5-flare', 'openai-compat')).toBe(true)
     // 认 size 的模型分发层不加构图后缀，只可能加 guard。
     expect(accepts(`嫩芽\n\n${instruction}`, 'sized-image', 'openai-compat')).toBe(false)
     expect(accepts(applyPromptRewriteGuard('嫩芽'), 'sized-image', 'openai-compat')).toBe(true)
@@ -1463,7 +1457,7 @@ it('only accepts dispatch shaping the selected model would actually get', async 
         { provider: 'openai-compat', model: 'sized-image', size: '1536x1024' },
       ),
     ).toBe(true)
-    // 网页分发层不看原文是否已带 guard，原文以 guard 开头时会被再钉一次，这也是合法产物。
+    // 已带 guard 的原文再次加 guard 不属于分发层合法产物。
     const guardedOriginal = { ...binding, prompt: applyPromptRewriteGuard('嫩芽') }
     expect(
       stageBindingAccepts(
@@ -1471,7 +1465,7 @@ it('only accepts dispatch shaping the selected model would actually get', async 
         { prompt: applyPromptRewriteGuard(guardedOriginal.prompt), inputCount: 0 },
         { provider: 'openai-compat', model: 'gpt-image-2.5-flare', size: '1536x1024' },
       ),
-    ).toBe(true)
+    ).toBe(false)
     // 不带 shaping（视频）只做逐字比。
     expect(
       stageBindingAccepts(
