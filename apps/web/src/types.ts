@@ -10,6 +10,7 @@ import {
   GEMINI_THINKING_LEVELS,
 } from '@image-playground/shared'
 import type { ClientProfile } from './lib/channels/types'
+import type { GenerationActivity } from './lib/generationActivity'
 
 // ===== 设置 =====
 
@@ -154,11 +155,11 @@ export interface TaskRecord {
   platformTask?: true
   /** BFF queue 模式的 request_id，刷新页面后用于恢复轮询 */
   bffRequestId?: string
-  /** Server-reported durable queue phase; absent for older BFFs. */
+  /** BFF 队列报上来的阶段。新写入以 `activity` 为准，这个字段只是它的投影。 */
   queuePhase?: TaskProgressPhase
-  /** `status: 'error'` 里被取消的那一种（排队中被撤回）：积分已退，卡片显示「已取消」而不是「失败」。 */
+  /** `activity.phase === 'cancelled'` 的投影。 */
   cancelled?: true
-  /** 逐张生成里还在本机排队、没发出去的一张（同时只发 BATCH_GENERATE_CONCURRENCY 张）。 */
+  /** `activity.phase === 'batch-queued'` 的投影。 */
   batchQueued?: true
   /** 逐张生成的那张真正发出去的时刻；计时从这里起，而不是从排队起。 */
   batchStartedAt?: number
@@ -203,6 +204,8 @@ export interface TaskRecord {
   errorCode?: TaskErrorType
   /** 完成了但一单多张里有几张没出来：那几张不扣积分，详情里说一句。 */
   partialFailure?: PartialImageFailure
+  /** 工作台和画布共用的生成阶段。缺席的旧记录由标志折出来。 */
+  activity?: GenerationActivity
   createdAt: number
   finishedAt: number | null
   /** 总耗时毫秒 */
