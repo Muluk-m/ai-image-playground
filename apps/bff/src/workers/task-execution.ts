@@ -79,6 +79,7 @@ export type ClaimedTask = Pick<
   | 'upstream_submitted_at'
   | 'upstream_invocation_count'
   | 'submitted_at'
+  | 'gpt_route'
 >
 
 /** 已提交的上游异步任务：回读只为补提交缺口，已落库的 id 一律只轮不重提。 */
@@ -86,6 +87,7 @@ export interface UpstreamSubmission {
   taskIds: string[]
   submittedAt: number
   invocationCount: number
+  gptRoute: 'direct' | 'sub2api' | null
 }
 
 export interface TaskExecution {
@@ -101,6 +103,11 @@ export interface TaskExecution {
   abort(): void
   /** GPT Image 这一单正要走的通道（换路时覆盖成后一条）；结算按它判断是否降了档。 */
   recordGptRoute(route: 'direct' | 'sub2api'): Promise<void>
+  /** 执行时才降级：写回任务，结果卡片才能显示提示。 */
+  recordImage26Degrade(record: {
+    kind: string
+    fields: readonly { field: string; from?: string; to?: string }[]
+  }): Promise<void>
   /** 记录最后一把真正发出直连请求的 key 指纹；切到 sub2api 时清空。 */
   recordGptKey(fingerprint: string | null): Promise<void>
   /** 记账：上游真的被调用过。返回 false 表示这一行已经不归本次执行。 */
@@ -194,6 +201,18 @@ class TaskExecutionHandle implements TaskExecution {
 
   abort(): void {
     this.#controller.abort()
+  }
+
+  async recordImage26Degrade(record: {
+    kind: string
+    fields: readonly { field: string; from?: string; to?: string }[]
+  }): Promise<void> {
+    await db
+      .update(schema.tasks)
+      .set({
+        request_payload: sql`${schema.tasks.request_payload} || ${JSON.stringify({ image26_degrade: record })}::jsonb`,
+      })
+      .where(this.#own())
   }
 
   async recordGptRoute(route: 'direct' | 'sub2api'): Promise<void> {
@@ -300,6 +319,7 @@ class TaskExecutionHandle implements TaskExecution {
         taskIds: schema.tasks.upstream_task_ids,
         submittedAt: schema.tasks.upstream_submitted_at,
         invocationCount: schema.tasks.upstream_invocation_count,
+        gptRoute: schema.tasks.gpt_route,
       })
       .from(schema.tasks)
       .where(and(eq(schema.tasks.id, this.taskId), this.#fence()))
@@ -309,6 +329,7 @@ class TaskExecutionHandle implements TaskExecution {
       taskIds: row.taskIds,
       submittedAt: row.submittedAt,
       invocationCount: row.invocationCount,
+      gptRoute: row.gptRoute,
     }
   }
 
@@ -633,6 +654,7 @@ export async function claimTaskExecution(
         upstream_submitted_at: schema.tasks.upstream_submitted_at,
         upstream_invocation_count: schema.tasks.upstream_invocation_count,
         submitted_at: schema.tasks.submitted_at,
+        gpt_route: schema.tasks.gpt_route,
       })
     if (row) await publishGenerations(tx, [id])
     return row

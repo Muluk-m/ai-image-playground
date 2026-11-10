@@ -1,11 +1,19 @@
-import { isGptDirectModel, isGptSub2apiDeliverable } from '@image-playground/shared'
+import {
+  isGptDirectModel,
+  isGptImage26Model,
+  isGptSub2apiDeliverable,
+} from '@image-playground/shared'
 import { config } from '../../config'
 import { log } from '../logger'
 import { runtimeSecret } from '../upstream-secret-cache'
 import { ImagePlanRequiredError } from './errors'
 import { estimateDirectCostMicroUsd } from './gpt-budget'
-import { directKeyKnownDisabled, gptDirectEnabledKeyCount } from './gpt-direct-availability'
-import { adminDirectKeys, safeEnvDirectKeys } from './gpt-key-config'
+import {
+  gptDirectEnabledKeyCount,
+  gptDirectSwitchOn,
+  gptImage26Enabled,
+} from './gpt-direct-availability'
+import { type DirectKey, gptImage26KeysReady } from './gpt-key-config'
 import { selectDirectKey } from './gpt-keys'
 import { gptSchedulerBuckets, tryAcquireSchedulerSlots } from './scheduler'
 
@@ -32,14 +40,33 @@ export function gptDirectConfigured(model: string): boolean {
   return isGptDirectModel(model) && gptDirectEnabledKeyCount() > 0
 }
 
-/** 2.6 用自己的开关和同一把可替换的 OpenAI key。关着或没 key 时不走 sub2api。 */
+/**
+ * 2.6 直连此刻能不能接单。产品开关、直连开关、启用且没被停用的 key 都要有。
+ * 预算用尽不算在这里，选路时再查。开关关掉等同没有 key，不能去记直连花费。
+ */
 export function gptImage26Configured(): boolean {
-  return (
-    config.gptImage26.enabled &&
-    (adminDirectKeys() ?? safeEnvDirectKeys()).some(
-      (key) => key.enabled && !directKeyKnownDisabled(key.fingerprint),
-    )
-  )
+  return gptImage26Enabled() && gptDirectSwitchOn() && gptImage26KeysReady()
+}
+
+/**
+ * 这一单直连现在用哪一把 key。开关关掉、没有启用 key、预算用尽或 key 被停用都是 null。
+ * 返回的就是随后直连要发的那一把，避免探测通过后仍打到一把已经超预算的 key。
+ */
+export async function gptImage26DirectKey(
+  model: string,
+  request: { size?: string; quality?: string; n?: number },
+): Promise<DirectKey | null> {
+  if (!isGptImage26Model(model) || !gptImage26Configured()) return null
+  const images = Math.max(1, request.n ?? 1)
+  return selectDirectKey({
+    estimateMicroUsd: estimateDirectCostMicroUsd(request.size, request.quality, images),
+  })
+}
+
+/** sub2api 请求体里的模型名。默认与产品 id 相同，只从配置读，不在调用点再写一遍。 */
+export function gptImage26Sub2apiModel(model: string): string {
+  if (!isGptImage26Model(model)) return model
+  return config.gptImage26.sub2apiModels[model]
 }
 
 // ---- sub2api 熔断：本进程内计数，每个环境各管各的 ----

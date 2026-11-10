@@ -1,5 +1,10 @@
 import type { PersistedVideoRequest, StoredImageRef, VideoRequest } from '@image-playground/shared'
 import {
+  GPT_IMAGE_26_GIF_DURATION_MAX_MS,
+  GPT_IMAGE_26_GIF_DURATION_MIN_MS,
+  GPT_IMAGE_26_GIF_DURATION_STEP_MS,
+  GPT_IMAGE_26_GIF_FRAME_MAX,
+  GPT_IMAGE_26_GIF_FRAME_MIN,
   QUEUE_MAX_INPUT_IMAGES,
   QUEUE_PROMPT_MAX_CHARS,
   stageAuthorizedVideoDuration,
@@ -12,7 +17,13 @@ import { db, schema } from '../db/client'
 import { StageAuthorizationError } from '../lib/agent/stage-authorizations'
 import { isModelDisabled, resolveModelMedia } from '../lib/channels'
 import { resolveImageBytesRef } from '../lib/extractImages'
-import { deviceIdSchema, validationMessage } from '../lib/http'
+import {
+  deviceIdSchema,
+  safeDecodeURIComponent,
+  validationFieldNames,
+  validationMessage,
+} from '../lib/http'
+import { log } from '../lib/logger'
 import { MEDIA_INPUT_PATTERN, MediaInputError, resolveMediaInputs } from '../lib/mediaInputs'
 import { asQueueProvider } from '../lib/queueProvider'
 import { submissionRefusalResponse } from '../lib/submissionRefusal'
@@ -38,8 +49,20 @@ const submitBodySchema = t.Object({
   size: t.Optional(t.String()),
   quality: t.Optional(t.String()),
   output_format: t.Optional(t.String()),
-  frame_count: t.Optional(t.Number({ minimum: 2, maximum: 16, multipleOf: 1 })),
-  frame_duration_ms: t.Optional(t.Number({ minimum: 20, maximum: 2000 })),
+  frame_count: t.Optional(
+    t.Number({
+      minimum: GPT_IMAGE_26_GIF_FRAME_MIN,
+      maximum: GPT_IMAGE_26_GIF_FRAME_MAX,
+      multipleOf: 1,
+    }),
+  ),
+  frame_duration_ms: t.Optional(
+    t.Number({
+      minimum: GPT_IMAGE_26_GIF_DURATION_MIN_MS,
+      maximum: GPT_IMAGE_26_GIF_DURATION_MAX_MS,
+      multipleOf: GPT_IMAGE_26_GIF_DURATION_STEP_MS,
+    }),
+  ),
   output_compression: t.Optional(t.Number({ minimum: 0, maximum: 100 })),
   moderation: t.Optional(t.String()),
   aspect_ratio: t.Optional(t.String()),
@@ -123,14 +146,30 @@ async function resolveSourceVideo(
 export const submitRoutes = new Elysia()
   .use(requireUser)
   // Elysia 默认对 body schema 校验失败返 422；规范要求 400，统一在路由作用域拦截。
-  .onError({ as: 'scoped' }, ({ code, error, set }) => {
+  .onError({ as: 'scoped' }, ({ code, error, set, request }) => {
     if (error instanceof StageAuthorizationError) {
       set.status = error.status
       return { error: error.code }
     }
     if (code === 'VALIDATION') {
+      const fields = validationFieldNames(error)
+      const segment = new URL(request.url).pathname.split('/').at(-2)
+      const model = segment ? safeDecodeURIComponent(segment) : undefined
+      log.warn(
+        {
+          event: 'queue.submit_rejected',
+          error: 'invalid_request',
+          fields,
+          ...(model ? { model } : {}),
+        },
+        'queue submit rejected',
+      )
       set.status = 400
-      return { error: 'invalid_request', message: validationMessage(error) }
+      return {
+        error: 'invalid_request',
+        message: validationMessage(error),
+        ...(fields.length ? { fields } : {}),
+      }
     }
   })
   .post(
@@ -239,7 +278,7 @@ export const submitRoutes = new Elysia()
           }
         }
       }
-      if (outcome.kind !== 'created') return submissionRefusalResponse(outcome)
+      if (outcome.kind !== 'created') return submissionRefusalResponse(outcome, { model })
 
       return {
         request_id: outcome.taskId,

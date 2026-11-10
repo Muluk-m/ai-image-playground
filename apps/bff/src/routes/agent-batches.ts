@@ -1,3 +1,10 @@
+import {
+  GPT_IMAGE_26_GIF_DURATION_MAX_MS,
+  GPT_IMAGE_26_GIF_DURATION_MIN_MS,
+  GPT_IMAGE_26_GIF_DURATION_STEP_MS,
+  GPT_IMAGE_26_GIF_FRAME_MAX,
+  GPT_IMAGE_26_GIF_FRAME_MIN,
+} from '@image-playground/shared'
 import { and, asc, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
@@ -61,6 +68,16 @@ const generationParams = t.Object({
   quality: t.Optional(t.String({ maxLength: 16 })),
   output_format: t.Optional(t.String({ maxLength: 16 })),
   output_compression: t.Optional(t.Integer({ minimum: 0, maximum: 100 })),
+  frame_count: t.Optional(
+    t.Integer({ minimum: GPT_IMAGE_26_GIF_FRAME_MIN, maximum: GPT_IMAGE_26_GIF_FRAME_MAX }),
+  ),
+  frame_duration_ms: t.Optional(
+    t.Integer({
+      minimum: GPT_IMAGE_26_GIF_DURATION_MIN_MS,
+      maximum: GPT_IMAGE_26_GIF_DURATION_MAX_MS,
+      multipleOf: GPT_IMAGE_26_GIF_DURATION_STEP_MS,
+    }),
+  ),
   gemini_aspect_ratio: t.Optional(t.String({ maxLength: 16 })),
   gemini_image_size: t.Optional(t.String({ maxLength: 16 })),
   gemini_thinking_level: t.Optional(t.String({ maxLength: 16 })),

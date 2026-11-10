@@ -45,6 +45,15 @@
       "confirming": "Confirming result...",
       "reconciling": "Checking the result (already submitted, no extra charge)"
     },
+    "degraded": {
+      "size": "Direct is busy. Delivered as 1K",
+      "quality": "Direct is busy. Delivered at standard quality",
+      "format": "Direct is busy. Delivered as a still image",
+      "size_quality": "Direct is busy. Delivered as 1K at standard quality",
+      "size_format": "Direct is busy. Delivered as a 1K still",
+      "quality_format": "Direct is busy. Delivered as a still at standard quality",
+      "size_quality_format": "Direct is busy. Delivered as a 1K still at standard quality"
+    },
     "inpaint": "Inpaint",
     "transparentBackground": "Transparent"
   },

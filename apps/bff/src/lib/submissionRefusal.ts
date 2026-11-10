@@ -1,4 +1,5 @@
 import { status } from 'elysia'
+import { log } from './logger'
 import { reservationFailureResponse } from './private-overlay'
 import type { CreateQueueTaskOutcome } from './taskSubmission'
 
@@ -9,12 +10,41 @@ export type SubmissionRefusal = Exclude<CreateQueueTaskOutcome, { kind: 'created
  * 网页提交接口被拒时的线上契约。单张与批量共用这一张表，别在各自路由里再写一遍；
  * CLI 有自己的错误信封，不走这里。
  */
-export function submissionRefusalResponse(outcome: SubmissionRefusal) {
+export function submissionRefusalResponse(
+  outcome: SubmissionRefusal,
+  context?: { model?: string },
+) {
   switch (outcome.kind) {
     case 'invalid_prompt':
-      return status(400, { error: 'invalid_request', message: '提示词不能为空' })
+      logSubmitRejection({
+        error: 'invalid_request',
+        fields: ['prompt'],
+        ...(context?.model ? { model: context.model } : {}),
+      })
+      return status(400, {
+        error: 'invalid_request',
+        message: '提示词不能为空',
+        fields: ['prompt'],
+      })
     case 'invalid_image_request':
-      return status(400, { error: 'invalid_request', message: outcome.message })
+      logSubmitRejection({
+        error: 'invalid_request',
+        reason: outcome.code,
+        fields: outcome.fields,
+        ...(context?.model ? { model: context.model } : {}),
+      })
+      return status(400, {
+        error: 'invalid_request',
+        message: outcome.message,
+        ...(outcome.fields.length ? { fields: outcome.fields } : {}),
+      })
+    case 'model_unavailable':
+      logSubmitRejection({
+        error: 'model_unavailable',
+        fields: [],
+        ...(context?.model ? { model: context.model } : {}),
+      })
+      return status(400, { error: 'model_unavailable', message: outcome.message })
     case 'invalid_input_image':
       return status(400, { error: 'invalid_input_image', message: outcome.message })
     case 'idempotency_conflict':
@@ -51,4 +81,14 @@ export function submissionRefusalResponse(outcome: SubmissionRefusal) {
       throw new Error(`unhandled submission refusal ${JSON.stringify(unhandled)}`)
     }
   }
+}
+
+/** 被拒字段名。不写 prompt 原文、尺寸值和密钥。 */
+function logSubmitRejection(fields: {
+  error: string
+  reason?: string
+  fields: readonly string[]
+  model?: string
+}) {
+  log.warn({ event: 'queue.submit_rejected', ...fields }, 'queue submit rejected')
 }

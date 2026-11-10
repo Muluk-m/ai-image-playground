@@ -10,6 +10,7 @@ import {
   type SubmitResponse,
   type TaskErrorType,
   type VideoRequest,
+  withGptImage26GifDefaults,
 } from '@image-playground/shared'
 import { i18next, UserFacingError } from '../../i18n'
 import type { TaskParams } from '../../types'
@@ -154,6 +155,7 @@ async function pollAndFetch(
     const actualParams = narrowActualParams(meta.actual_params)
     return {
       images,
+      ...(meta.degrade_notice ? { degradeNotice: meta.degrade_notice } : {}),
       revisedPrompts,
       actualParams,
       actualParamsList: meta.images.map(() => actualParams),
@@ -202,10 +204,17 @@ async function submit(
     }
     if (opts.params.output_format === 'gif') {
       // 帧尺寸和标准画质以动图自己的参数为准，自定义宽高失焦不能把 816 写回来。
-      body.size = gifFrameSize(opts.params.size)
+      // 设置卡把没点过的帧数显示成 6 帧、200ms；这里发出同一组数，省略不再被服务端当成非法帧数。
+      const gif = withGptImage26GifDefaults({
+        size: gifFrameSize(opts.params.size),
+        frame_count: opts.params.frame_count,
+        frame_duration_ms: opts.params.frame_duration_ms,
+        output_format: 'gif',
+      })
+      body.size = gif.size
       body.quality = 'medium'
-      body.frame_count = opts.params.frame_count
-      body.frame_duration_ms = opts.params.frame_duration_ms
+      body.frame_count = gif.frame_count
+      body.frame_duration_ms = gif.frame_duration_ms
       body.n = 1
     }
     if (opts.params.output_format === 'svg') {
@@ -320,8 +329,12 @@ async function postSubmit(
       i18next.t('queue.submitFailed', { ns: 'lib', reason }),
     ) as Error & {
       submitErrorCode?: string
+      taskErrorType?: TaskErrorType
     }
     if (code) err.submitErrorCode = code
+    // 提交被拒时任务还没建成，轮询路径上的 error.type 不会出现。分类跟着这次错误走，
+    // 详情里的 errorType 才不会一直是 null。
+    if (code === 'invalid_request' || code === 'model_unavailable') err.taskErrorType = code
     throw err
   }
   const json = (await res.json()) as SubmitResponse

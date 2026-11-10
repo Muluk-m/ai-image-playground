@@ -388,6 +388,7 @@ function refusalPauseReason(
     case 'quota_exceeded':
       return 'quota_exceeded'
     case 'price_unavailable':
+    case 'model_unavailable':
       return 'model_unavailable'
     case 'invalid_input_image':
       return 'input_limit'

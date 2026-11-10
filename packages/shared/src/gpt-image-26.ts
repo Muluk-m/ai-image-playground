@@ -1,13 +1,28 @@
-import { imageSizeTier, parseImageSize } from './image'
+import { IMAGE_PRESET_RATIOS, IMAGE_SIZE_PRESETS, imageSizeTier, parseImageSize } from './image'
 
 /**
- * GPT Image 2.6 只走 OpenAI 直连，不进 2.5 的双通道，也不能换到别的模型。
- * 开关是 `GPT_IMAGE_26_ENABLED`（默认关），和 `GPT_DIRECT_ENABLED` 分开：
- * 现网直连是关的，2.6 不能跟着被静默送到 sub2api。
+ * GPT Image 2.6（flare / sunburst）。产品开关是 `GPT_IMAGE_26_ENABLED`（默认关），
+ * 和 `GPT_DIRECT_ENABLED` 分开。直连 key 可用时仍只走 OpenAI 直连；直连没有启用 key、
+ * 预算用尽或 key 被停用时，静态图改走 sub2api，上游模型名默认与产品 id 相同。
+ * 直连不可用时不拒绝：2K/4K 收到 1K，高画质收到 medium，GIF/SVG 收成 PNG 静态图，
+ * 按收口后的请求计价，再走 sub2api。
  */
 export const GPT_IMAGE_26_MODELS = ['gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'] as const
 
 export type GptImage26Model = (typeof GPT_IMAGE_26_MODELS)[number]
+
+/**
+ * sub2api 与直连默认使用的上游模型名。只在这里声明；BFF 可用环境变量覆盖 sub2api 那一路。
+ */
+export const GPT_IMAGE_26_UPSTREAM_MODELS = {
+  'gpt-image-2.6-flare': 'gpt-image-2.6-flare',
+  'gpt-image-2.6-sunburst': 'gpt-image-2.6-sunburst',
+} as const satisfies Record<GptImage26Model, string>
+
+/** GIF 帧参数与 SVG 的 svg.model 只有 OpenAI 直连兑现。静态图可以走 sub2api。 */
+export function gptImage26RequiresDirect(request: { output_format?: string }): boolean {
+  return request.output_format === 'gif' || request.output_format === 'svg'
+}
 
 export function isGptImage26Model(model: string): model is GptImage26Model {
   return (GPT_IMAGE_26_MODELS as readonly string[]).includes(model)
@@ -150,6 +165,150 @@ export type GptImage26Rejection =
   | 'gif_size'
 
 /**
+ * 界面把没写的帧数和每帧时长显示成默认值。提交前补上同一组默认值，
+ * 省略和点选默认档才会是同一单；已经写明的尺寸和帧数原样保留。
+ */
+export function withGptImage26GifDefaults<
+  T extends GptImage26QuoteInput & { frame_duration_ms?: number },
+>(request: T): T & { frame_count?: number; frame_duration_ms?: number; size?: string } {
+  if (request.output_format !== 'gif') return request
+  const frame_count = request.frame_count ?? GPT_IMAGE_26_GIF_DEFAULT_FRAMES
+  const frame_duration_ms = request.frame_duration_ms ?? GPT_IMAGE_26_GIF_DEFAULT_DURATION_MS
+  const size = request.size ?? GPT_IMAGE_26_GIF_DEFAULT_SIZE
+  if (
+    frame_count === request.frame_count &&
+    frame_duration_ms === request.frame_duration_ms &&
+    size === request.size
+  )
+    return request
+  return { ...request, frame_count, frame_duration_ms, size }
+}
+
+export const IMAGE26_DEGRADE_KINDS = [
+  'size',
+  'quality',
+  'format',
+  'size_quality',
+  'size_format',
+  'quality_format',
+  'size_quality_format',
+] as const
+
+export type Image26DegradeKind = (typeof IMAGE26_DEGRADE_KINDS)[number]
+
+export interface Image26DegradeField {
+  readonly field: 'size' | 'quality' | 'output_format' | 'frame_count' | 'frame_duration_ms'
+  readonly from?: string
+  readonly to?: string
+}
+
+export interface Image26Degrade<T> {
+  readonly request: T
+  readonly kind: Image26DegradeKind
+  readonly fields: readonly Image26DegradeField[]
+}
+
+/** 同一比例的 1K 预设。认不出的尺寸按最接近的比例收。已经是 1K 预设则原样返回。 */
+function oneKPreset(size: string | undefined): string {
+  const parsed = size ? parseImageSize(size) : null
+  if (!parsed) return IMAGE_SIZE_PRESETS['1K']['1:1']
+  for (const tier of ['1K', '2K', '4K'] as const) {
+    for (const ratio of IMAGE_PRESET_RATIOS) {
+      if (IMAGE_SIZE_PRESETS[tier][ratio] === size) return IMAGE_SIZE_PRESETS['1K'][ratio]
+    }
+  }
+  const value = parsed.width / parsed.height
+  let best: (typeof IMAGE_PRESET_RATIOS)[number] = '1:1'
+  let bestDiff = Number.POSITIVE_INFINITY
+  for (const ratio of IMAGE_PRESET_RATIOS) {
+    const [width, height] = ratio.split(':').map(Number) as [number, number]
+    const diff = Math.abs(Math.log(value) - Math.log(width / height))
+    if (diff < bestDiff) {
+      best = ratio
+      bestDiff = diff
+    }
+  }
+  return IMAGE_SIZE_PRESETS['1K'][best]
+}
+
+function degradeKind(size: boolean, quality: boolean, format: boolean): Image26DegradeKind {
+  if (size && quality && format) return 'size_quality_format'
+  if (size && quality) return 'size_quality'
+  if (size && format) return 'size_format'
+  if (quality && format) return 'quality_format'
+  if (size) return 'size'
+  if (quality) return 'quality'
+  return 'format'
+}
+
+/**
+ * 直连接不了时，收成 sub2api 能出的静态图：2K/4K → 同比例 1K，high → medium，
+ * GIF/SVG → png，并丢掉帧参数。没有需要改的字段时返回 null。
+ */
+export function degradeGptImage26ForSub2api<
+  T extends GptImage26QuoteInput & { frame_duration_ms?: number },
+>(request: T): Image26Degrade<T> | null {
+  const next: T = { ...request }
+  const fields: Image26DegradeField[] = []
+  const format = request.output_format
+  if (format === 'gif' || format === 'svg') {
+    fields.push({ field: 'output_format', from: format, to: 'png' })
+    next.output_format = 'png'
+    if (request.frame_count !== undefined) {
+      fields.push({ field: 'frame_count', from: String(request.frame_count) })
+      delete next.frame_count
+    }
+    if (request.frame_duration_ms !== undefined) {
+      fields.push({ field: 'frame_duration_ms', from: String(request.frame_duration_ms) })
+      delete next.frame_duration_ms
+    }
+  }
+  const preset = oneKPreset(next.size)
+  if (!next.size && (format === 'gif' || format === 'svg')) {
+    fields.push({ field: 'size', to: preset })
+    next.size = preset
+  } else if (next.size && next.size !== preset) {
+    fields.push({ field: 'size', from: next.size, to: preset })
+    next.size = preset
+  }
+  if (next.quality === 'high') {
+    fields.push({ field: 'quality', from: 'high', to: 'medium' })
+    next.quality = 'medium'
+  }
+  if (fields.length === 0) return null
+  const size = fields.some((field) => field.field === 'size')
+  const quality = fields.some((field) => field.field === 'quality')
+  const changedFormat = fields.some((field) => field.field === 'output_format')
+  return { request: next, kind: degradeKind(size, quality, changedFormat), fields }
+}
+
+/** 拒绝原因对应的请求字段。日志只记这些名字，不记字段值。 */
+export function gptImage26RejectionFields(reason: GptImage26Rejection): readonly string[] {
+  switch (reason) {
+    case 'unavailable':
+      return []
+    case 'gif_edit':
+    case 'svg_edit':
+      return ['output_format', 'input_images']
+    case 'gif_count':
+    case 'svg_count':
+      return ['n', 'output_format']
+    case 'gif_frames':
+      return ['frame_count']
+    case 'gif_duration':
+      return ['frame_duration_ms']
+    case 'gif_sprite':
+      return ['size', 'frame_count']
+    case 'gif_size':
+      return ['size']
+    default: {
+      const unhandled: never = reason
+      return unhandled
+    }
+  }
+}
+
+/**
  * 提交前的拒绝原因。返回 null 表示这单可以建任务、可以扣积分。
  * 尺寸乘帧数过线、编辑里要 GIF/SVG，都在扣积分之前 400。
  */
@@ -159,7 +318,8 @@ export function gptImage26Rejection(
   available: boolean,
 ): GptImage26Rejection | null {
   if (!isGptImage26Model(model)) return null
-  if (!available) return 'unavailable'
+  // 直连不可用时静态图留给 sub2api。GIF / SVG 没有第二条路，在看帧数之前就拒绝。
+  if (!available) return gptImage26RequiresDirect(request) ? 'unavailable' : null
   const format = request.output_format
   const editing = referenceCount(request) > 0
   const count = request.n ?? 1
