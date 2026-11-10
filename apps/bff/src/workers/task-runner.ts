@@ -245,6 +245,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
             gptMember: !isGptSub2apiDeliverable(request) || (await isActiveMember(task.user_id)),
           }
         : {}),
+      persistedGptRoute: task.gpt_route,
       onGptRoute: (route) => execution.recordGptRoute(route),
       onGptKey: (fingerprint) => execution.recordGptKey(fingerprint),
       provider: task.provider,
@@ -294,7 +295,13 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       if (!persisted) throw error
       return callUpstream({
         ...upstreamCall,
-        resume: { ...persisted, pollOnly: true },
+        persistedGptRoute: persisted.gptRoute,
+        resume: {
+          taskIds: persisted.taskIds,
+          invocationCount: persisted.invocationCount,
+          submittedAt: persisted.submittedAt,
+          pollOnly: true,
+        },
       })
     })
     const meta = extractMeta(task.provider, payload)

@@ -303,6 +303,11 @@ export interface UpstreamCallParams {
   reconciliationRequired?: boolean
   /** 任务 id，只用于 OpenAI 直连的成本记账。 */
   taskId?: string
+  /**
+   * 任务行上已经记下的通道。2.6 续轮询只认它：确认是 sub2api 才回网关，
+   * 直连或还没记下通道的都留在直连，不用上游 id 猜路。
+   */
+  persistedGptRoute?: 'direct' | 'sub2api' | null
   /** 账号是会员：GPT Image 默认走 OpenAI 直连（见 upstream/gpt-routing.ts）。 */
   gptMember?: boolean
   /** Server-persisted CLI contract; premium GPT requests may only execute on direct. */
@@ -413,11 +418,12 @@ async function settleDirectAttempt(input: {
   const request = input.params.request
   const reservationId = input.ok ? input.reservationId : directReservationId(input.error)
   const dispatched = input.ok || input.dispatched || directKeyDispatched(input.error)
+  const produced = input.ok || input.produced || directAttemptProduced(input.error)
   if (!dispatched) {
     if (reservationId) await releaseDirectKeyReservation(reservationId)
     return
   }
-  if (!input.ok && upstreamStatusOf(input.error) !== undefined && !input.produced) {
+  if (!input.ok && upstreamStatusOf(input.error) !== undefined && !produced) {
     if (reservationId) await releaseDirectKeyReservation(reservationId)
     return
   }
@@ -445,16 +451,23 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
   if (isGptImage26Model(params.model) && !params.request.video) {
     const sub2api = resolveUpstream(params.provider, params.model)
     if (params.resume?.taskIds.length) {
-      await params.onGptRoute?.('sub2api')
-      return callUpstreamVia(gptImage26Sub2apiCall(params), sub2api)
+      // 不改写 gpt_route：续轮询沿用落库的那条路。没记下通道时按直连，避免拿 OpenAI 的 id 去问网关。
+      if (params.persistedGptRoute === 'sub2api')
+        return callUpstreamVia(gptImage26Sub2apiCall(params), sub2api)
+      const format = params.request.output_format
+      return callUpstreamVia(params, {
+        ...directRoute(params.model),
+        supportsNativeN: format !== 'gif' && format !== 'svg',
+      })
     }
     if (!config.gptImage26.enabled) throw new GptImage26RouteUnavailableError()
     // 直连走和 2.5 同一套预占、落账、停用和冷却。失败不换 sub2api，除非一把 key 都接不了。
+    // 通道先落库再发请求，避免和 key 指纹、结算抢同一行。
     let fingerprint: string | undefined
     try {
-      const invoked = await callDirectTryingKeys(params, params.model, {}, (next) => {
+      const invoked = await callDirectTryingKeys(params, params.model, {}, async (next) => {
         fingerprint = next
-        return params.onGptRoute?.('direct')
+        await params.onGptRoute?.('direct')
       })
       await settleDirectAttempt({
         params,
@@ -473,7 +486,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         error,
         fingerprint,
         dispatched: directKeyDispatched(error),
-        produced: false,
+        produced: directAttemptProduced(error),
       })
       if (!(error instanceof DirectKeysExhaustedError)) throw error
       if (gptImage26RequiresDirect(params.request))
@@ -548,6 +561,11 @@ function directKeyDispatched(error: unknown): boolean {
   return (error as { directKeyDispatched?: unknown } | null)?.directKeyDispatched === true
 }
 
+/** 抛错前这一路有没有已经出过图。没标过的按没出。 */
+function directAttemptProduced(error: unknown): boolean {
+  return (error as { directAttemptProduced?: unknown } | null)?.directAttemptProduced === true
+}
+
 /** 服务端问题（换一条路可能就好）：429、5xx、连接或响应中断。参数错、审核拒绝之类换路也没用。 */
 function isRouteFailure(error: unknown): boolean {
   if (error instanceof UpstreamPartialResultError || error instanceof UpstreamQueueTimeoutError)
@@ -565,7 +583,7 @@ async function callDirectTryingKeys(
   params: UpstreamCallParams,
   model: string,
   attempt: AttemptOptions,
-  onAttempt: (fingerprint: string) => void,
+  onAttempt: (fingerprint: string) => void | Promise<void>,
 ): Promise<{ result: UpstreamCallResult; fingerprint: string; reservationId?: string }> {
   const images = Math.max(1, params.request.n ?? 1)
   const estimate = estimateDirectCostMicroUsd(params.request.size, params.request.quality, images)
@@ -580,6 +598,8 @@ async function callDirectTryingKeys(
     let produced = false
     let thisKeyDispatched = false
     try {
+      // 通道和指纹回调在请求发出前落完。派发回调里再写，会和 key 记录抢同一行。
+      await onAttempt(key.fingerprint)
       // 探下一把放在 try 里：它抛错时，上面刚建的预占也要走下面的释放。
       const another = await selectDirectKey({ estimateMicroUsd: estimate, exclude })
       const result = await callUpstreamVia(
@@ -589,7 +609,6 @@ async function callDirectTryingKeys(
           ...attempt,
           onDispatched: () => {
             thisKeyDispatched = true
-            onAttempt(key.fingerprint)
             return attempt.onDispatched?.()
           },
           onResponse: () => {
@@ -605,7 +624,10 @@ async function callDirectTryingKeys(
         typeof caught === 'object' && caught !== null
           ? caught
           : new Error(String(caught), { cause: caught })
-      Object.assign(error as object, { directKeyDispatched: thisKeyDispatched })
+      Object.assign(error as object, {
+        directKeyDispatched: thisKeyDispatched,
+        directAttemptProduced: produced,
+      })
       if (thisKeyDispatched && (produced || upstreamStatusOf(error) === undefined)) {
         // 已经发出但结果未知，或已经出过图。预留留到 settle 的落账事务里一次转成用量。
         // 先删掉的话，落账前这段两边都没算这笔钱，月度上限会被超。

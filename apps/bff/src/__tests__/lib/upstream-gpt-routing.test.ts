@@ -523,6 +523,7 @@ describe('gpt image 2.6 routes', () => {
       n?: number
       frame_count?: number
       frame_duration_ms?: number
+      input_images?: string[]
     } = still,
   ) =>
     callUpstream({
@@ -615,6 +616,137 @@ describe('gpt image 2.6 routes', () => {
     ).rejects.toBeInstanceOf(GptImage26RouteUnavailableError)
     expect(sent).toEqual([])
     expect(routes).toEqual([])
+  })
+
+  it('polls a resumed direct task on OpenAI and does not rewrite the route', async () => {
+    setUpstreamFetchForTesting((async (input: unknown) => {
+      sent.push({
+        route: new URL(String(input)).hostname === 'api.openai.com' ? 'direct' : 'sub2api',
+        url: String(input),
+        body: {},
+        headers: {},
+      })
+      return new Response(JSON.stringify({ status: 'completed', data: [{ b64_json: 'ok' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as TestFetch)
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2.6-flare',
+      request: { prompt: 'a cat', output_format: 'png' },
+      persistedGptRoute: 'direct',
+      resume: { taskIds: ['resp_direct'], submittedAt: Date.now(), invocationCount: 1 },
+      onGptRoute: async (route) => {
+        routes.push(route)
+      },
+    }).catch(() => undefined)
+    expect(sent[0]?.route).toBe('direct')
+    expect(sent[0]?.url).toContain('api.openai.com')
+    expect(routes).toEqual([])
+  })
+
+  it('polls a resumed sub2api task on the gateway only when that route was stored', async () => {
+    setUpstreamFetchForTesting((async (input: unknown) => {
+      sent.push({
+        route: new URL(String(input)).hostname === 'api.openai.com' ? 'direct' : 'sub2api',
+        url: String(input),
+        body: {},
+        headers: {},
+      })
+      return new Response(JSON.stringify({ status: 'completed', data: [{ b64_json: 'ok' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as TestFetch)
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2.6-flare',
+      request: { prompt: 'a cat', output_format: 'png' },
+      persistedGptRoute: null,
+      resume: { taskIds: ['resp_unknown'], submittedAt: Date.now(), invocationCount: 1 },
+    }).catch(() => undefined)
+    expect(sent[0]?.route).toBe('direct')
+    sent = []
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2.6-flare',
+      request: { prompt: 'a cat', output_format: 'png' },
+      persistedGptRoute: 'sub2api',
+      resume: { taskIds: ['resp_gateway'], submittedAt: Date.now(), invocationCount: 1 },
+      onGptRoute: async (route) => {
+        routes.push(route)
+      },
+    }).catch(() => undefined)
+    expect(sent[0]?.route).toBe('sub2api')
+    expect(sent[0]?.url).toContain('sub2api.example.com')
+    expect(routes).toEqual([])
+  })
+
+  it('records the direct route before the request is sent', async () => {
+    let routeSettled = false
+    setUpstreamFetchForTesting((async (input: unknown) => {
+      sent.push({
+        route: routeSettled ? 'direct' : 'sub2api',
+        url: String(input),
+        body: {},
+        headers: {},
+      })
+      return new Response(JSON.stringify({ data: [{ b64_json: 'ok' }], usage: USAGE }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as TestFetch)
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2.6-flare',
+      request: still,
+      onGptRoute: async () => {
+        await Promise.resolve()
+        routeSettled = true
+      },
+    })
+    expect(sent[0]?.route).toBe('direct')
+  })
+
+  it('keeps the direct budget when a later image fails after one was produced', async () => {
+    let calls = 0
+    setUpstreamFetchForTesting((async (input: unknown) => {
+      calls += 1
+      sent.push({
+        route: new URL(String(input)).hostname === 'api.openai.com' ? 'direct' : 'sub2api',
+        url: String(input),
+        body: {},
+        headers: {},
+      })
+      if (calls === 1) {
+        return new Response(JSON.stringify({ data: [{ b64_json: 'ok' }], usage: USAGE }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      return new Response(JSON.stringify({ error: { message: 'upstream 500' } }), { status: 500 })
+    }) as unknown as TestFetch)
+    await expect(
+      callUpstream({
+        provider: 'openai-compat',
+        model: 'gpt-image-2.6-flare',
+        reconciliationRequired: true,
+        request: {
+          prompt: 'a paper crane',
+          output_format: 'png',
+          size: '1024x1024',
+          quality: 'low',
+          n: 2,
+          input_images: [
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+          ],
+        },
+      }),
+    ).rejects.toThrow()
+    expect(calls).toBeGreaterThan(1)
+    expect(sent.every((one) => one.route === 'direct')).toBe(true)
+    expect(await db.select().from(schema.gpt_direct_usage)).toHaveLength(1)
   })
 })
 
