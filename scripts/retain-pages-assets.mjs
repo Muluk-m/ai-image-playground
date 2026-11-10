@@ -6,7 +6,8 @@
 // Usage: node scripts/retain-pages-assets.mjs <dist-dir> <live-origin>
 //
 // Never blocks a release: if the live site or a file cannot be read, it warns and publishes
-// what it has. Tabs that still miss a chunk reload once (apps/web/src/lib/chunkLoad.ts).
+// what it has. Tabs that still miss a chunk reload once (startup guard in
+// apps/web/src/boot/vitePlugin.ts, and apps/web/src/lib/chunkLoad.ts for the workbench).
 import { mkdir, readdir, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -14,7 +15,7 @@ import { pathToFileURL } from 'node:url'
 export const MANIFEST = 'assets-manifest.json'
 export const KEEP_RELEASES = 5
 export const KEEP_DAYS = 14
-/** Pages allows 20,000 files per deployment; leave room for the rest of the site. */
+/** Pages allows 20,000 files per deployment; older releases are dropped above this. */
 export const MAX_FILES = 15_000
 const ROOTS = ['assets', 'website-assets']
 /** Vite's default `[name]-[hash].[ext]`: 8 url-safe base64 characters. */
@@ -73,8 +74,15 @@ async function get(fetchImpl, url, delayMs) {
   throw lastError
 }
 
-const isHtml = (response) =>
-  (response.headers.get('content-type') ?? '').toLowerCase().includes('text/html')
+const contentType = (response) => (response.headers.get('content-type') ?? '').toLowerCase()
+const isHtml = (response) => contentType(response).includes('text/html')
+/** A 200 with the wrong type would be published under an immutable hashed name. */
+function typeMatches(file, response) {
+  const type = contentType(response)
+  if (file.endsWith('.js')) return type.includes('javascript')
+  if (file.endsWith('.css')) return type.includes('text/css')
+  return !isHtml(response)
+}
 
 /** Returns the previous releases, `[]` when the site has no manifest, or `null` when unreadable. */
 async function readLiveManifest(origin, fetchImpl, delayMs, log) {
@@ -110,6 +118,18 @@ async function readLiveManifest(origin, fetchImpl, delayMs, log) {
   }
 }
 
+function wantedFiles(kept, present) {
+  const wanted = new Set()
+  for (const release of kept) {
+    for (const file of release.files) {
+      if (typeof file === 'string' && SAFE_PATH.test(file) && !file.includes('..') && !present.has(file)) {
+        wanted.add(file)
+      }
+    }
+  }
+  return wanted
+}
+
 export function selectReleases(releases, now) {
   const cutoff = now.getTime() - KEEP_DAYS * 24 * 60 * 60 * 1000
   return releases
@@ -132,20 +152,21 @@ export async function retainPagesAssets({
   fetchImpl = fetch,
   now = new Date(),
   retryDelayMs = 1000,
+  maxFiles = MAX_FILES,
   log = console.log,
 }) {
   const current = await listHashedFiles(distDir)
   const previous = (await readLiveManifest(origin, fetchImpl, retryDelayMs, log)) ?? []
   const kept = selectReleases(previous, now)
-
   const present = new Set(current)
-  const wanted = new Set()
-  for (const release of kept) {
-    for (const file of release.files) {
-      if (typeof file === 'string' && SAFE_PATH.test(file) && !file.includes('..') && !present.has(file)) {
-        wanted.add(file)
-      }
-    }
+  // Stay under the Pages file limit by dropping the oldest releases, never by failing the release.
+  // +1 for the manifest written below.
+  const siteFiles = (await listAllFiles(distDir)).length + 1
+  let wanted = wantedFiles(kept, present)
+  while (kept.length && siteFiles + wanted.size > maxFiles) {
+    const dropped = kept.pop()
+    log(`WARNING: dropping the release from ${dropped.publishedAt} to stay under ${maxFiles} files.`)
+    wanted = wantedFiles(kept, present)
   }
 
   const missing = new Set()
@@ -160,25 +181,32 @@ export async function retainPagesAssets({
       missing.add(file)
       return
     }
-    if (!response.ok || isHtml(response)) {
-      if (response.status !== 404) log(`WARNING: GET /${file} returned ${response.status}; skipped.`)
+    if (!response.ok || !typeMatches(file, response)) {
+      if (response.status !== 404) {
+        log(`WARNING: GET /${file} returned ${response.status} ${contentType(response)}; skipped.`)
+      }
       missing.add(file)
       return
     }
-    const body = Buffer.from(await response.arrayBuffer())
+    let body
+    try {
+      body = Buffer.from(await response.arrayBuffer())
+    } catch (error) {
+      log(`WARNING: reading /${file} failed (${error.message}); skipped.`)
+      missing.add(file)
+      return
+    }
+    if (!body.length) {
+      log(`WARNING: /${file} is empty; skipped.`)
+      missing.add(file)
+      return
+    }
     const target = join(distDir, file)
     await mkdir(dirname(target), { recursive: true })
     await writeFile(target, body)
     copied++
     bytes += body.length
   })
-
-  const total = (await listAllFiles(distDir)).length
-  if (total > MAX_FILES) {
-    throw new Error(
-      `dist has ${total} files after retaining old assets, above ${MAX_FILES}. Lower KEEP_RELEASES in scripts/retain-pages-assets.mjs.`,
-    )
-  }
 
   const releases = [
     { publishedAt: now.toISOString(), files: current },

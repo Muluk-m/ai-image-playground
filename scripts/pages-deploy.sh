@@ -135,7 +135,10 @@ fi
 
 # Open tabs keep importing the previous releases' hashed chunks, which a new Pages deployment no
 # longer serves. pages-release.sh sets PAGES_ASSET_ORIGIN; preview deploys publish this build only.
-if [ -n "${PAGES_ASSET_ORIGIN:-}" ]; then
+# PAGES_RETAIN_ASSETS=0 publishes this build only, so old hashed URLs 404 at once.
+if [ "${PAGES_RETAIN_ASSETS:-1}" = 0 ]; then
+  echo "PAGES_RETAIN_ASSETS=0: not retaining previous hashed assets; open tabs on older releases reload once."
+elif [ -n "${PAGES_ASSET_ORIGIN:-}" ]; then
   node "$repo_root/scripts/retain-pages-assets.mjs" "$dist_dir" "$PAGES_ASSET_ORIGIN"
 fi
 

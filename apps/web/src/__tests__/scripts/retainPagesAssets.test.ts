@@ -42,8 +42,16 @@ function site(routes: Record<string, () => Response | Promise<Response>>) {
 async function manifest() {
   return JSON.parse(await readFile(join(dist, 'assets-manifest.json'), 'utf8'))
 }
-const run = (fetchImpl: ReturnType<typeof site>) =>
-  retainPagesAssets({ distDir: dist, origin: ORIGIN, fetchImpl, now: NOW, retryDelayMs: 0, log })
+const run = (fetchImpl: ReturnType<typeof site>, options: { maxFiles?: number } = {}) =>
+  retainPagesAssets({
+    distDir: dist,
+    origin: ORIGIN,
+    fetchImpl,
+    now: NOW,
+    retryDelayMs: 0,
+    log,
+    ...options,
+  })
 
 beforeEach(async () => {
   dist = await mkdtemp(join(tmpdir(), 'retain-pages-'))
@@ -192,4 +200,68 @@ it('never writes an HTML fallback or a path outside the asset roots', async () =
   expect(await readFile(join(dist, 'index.html'), 'utf8')).toBe('<html>')
   const requested = fetchImpl.mock.calls.map(([url]) => new URL(url).pathname)
   expect(requested).toEqual(['/assets-manifest.json', '/assets/html-HHHHHHHH.js'])
+})
+
+it('skips empty, mistyped or unreadable bodies instead of publishing them', async () => {
+  const broken = new Response(
+    new ReadableStream({
+      start(controller) {
+        controller.error(new Error('connection reset'))
+      },
+    }),
+    { headers: { 'content-type': 'application/javascript' } },
+  )
+  const result = await run(
+    site({
+      '/assets-manifest.json': () =>
+        json({
+          version: 1,
+          releases: [
+            {
+              publishedAt: daysAgo(1),
+              files: [
+                'assets/empty-EEEEEEEE.js',
+                'assets/plain-PPPPPPPP.css',
+                'assets/reset-RRRRRRRR.js',
+                'assets/ok-OOOOOOOO.css',
+              ],
+            },
+          ],
+        }),
+      '/assets/empty-EEEEEEEE.js': () => js(''),
+      '/assets/plain-PPPPPPPP.css': () =>
+        new Response('body{}', { headers: { 'content-type': 'text/plain' } }),
+      '/assets/reset-RRRRRRRR.js': () => broken,
+      '/assets/ok-OOOOOOOO.css': () =>
+        new Response('body{}', { headers: { 'content-type': 'text/css; charset=utf-8' } }),
+    }),
+  )
+  expect(result.missing).toEqual([
+    'assets/empty-EEEEEEEE.js',
+    'assets/plain-PPPPPPPP.css',
+    'assets/reset-RRRRRRRR.js',
+  ])
+  expect(await exists('assets/ok-OOOOOOOO.css')).toBe(true)
+  expect(await exists('assets/empty-EEEEEEEE.js')).toBe(false)
+})
+
+it('drops the oldest releases instead of failing when the file limit is near', async () => {
+  // The site already has 5 files plus the manifest; room for exactly one retained file.
+  const fetchImpl = site({
+    '/assets-manifest.json': () =>
+      json({
+        version: 1,
+        releases: [
+          { publishedAt: daysAgo(1), files: ['assets/newer-NNNNNNNN.js'] },
+          { publishedAt: daysAgo(2), files: ['assets/older-OOOOOOOO.js'] },
+        ],
+      }),
+    '/assets/newer-NNNNNNNN.js': () => js('newer'),
+    '/assets/older-OOOOOOOO.js': () => js('older'),
+  })
+  await run(fetchImpl, { maxFiles: 7 })
+  expect(await exists('assets/newer-NNNNNNNN.js')).toBe(true)
+  expect(await exists('assets/older-OOOOOOOO.js')).toBe(false)
+  expect((await manifest()).releases).toHaveLength(2)
+  expect(log.mock.calls.flat().join('\n')).toContain('dropping the release')
 })
