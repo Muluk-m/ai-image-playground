@@ -5,6 +5,8 @@ import { setAgentCanvasSink } from '../../../../features/agent/lib/canvasSink'
 import { createAgentCanvasSink } from '../../../../features/canvas/lib/agentCanvasSink'
 import { CanvasDoc } from '../../../../features/canvas/lib/canvasDoc'
 import { CanvasEditor } from '../../../../features/canvas/lib/editor'
+import { settlePlaceholderActivity } from '../../../../features/canvas/lib/placeholderShapeOps'
+import { activityFromCanvas } from '../../../../lib/generationActivity'
 
 const IMAGES = [{ artifactId: 'agent_image_1', dataUrl: 'data:image/png;base64,AQID' }]
 
@@ -370,6 +372,16 @@ describe('工具起跑占位', () => {
     expect(editor.getPlaceholder(id!)).toBeDefined()
   })
 
+  it('取消还在提交的占位时，阶段写成已取消', async () => {
+    const [id] = await sink.reserve({ count: 1 })
+
+    settlePlaceholderActivity(editor, id!, 'cancel', '已取消')
+
+    const placeholder = editor.getPlaceholder(id!)!
+    expect(placeholder.status).toBe('error')
+    expect(activityFromCanvas(placeholder).phase).toBe('cancelled')
+  })
+
   it('工具失败时占位框转错误态，带上原因', async () => {
     const [id] = await sink.reserve({ count: 1 })
 
@@ -388,8 +400,9 @@ describe('工具起跑占位', () => {
 
     expect(editor.getPlaceholder(id!)).toMatchObject({
       status: 'error',
-      meta: { agent: true, agentErrorCode: 'insufficient_credits' },
+      meta: { agent: true, agentErrorCode: 'insufficient_credits', activity: { phase: 'failed' } },
     })
+    expect(activityFromCanvas(editor.getPlaceholder(id!)!).phase).toBe('failed')
     const restored = new CanvasDoc()
     restored.restore([...doc.elements], doc.files)
     expect(new CanvasEditor(restored).getPlaceholder(id!)?.meta.agentErrorCode).toBe(

@@ -137,6 +137,44 @@ describe('legacy flags fold into one phase', () => {
     expect(canvasProjection({ phase: 'stale' }).status).toBe('stale')
   })
 
+  it('lets a terminal status override a leftover in-progress activity', () => {
+    expect(
+      activityFromCanvas({
+        status: 'error',
+        meta: { activity: { phase: 'submitting' }, queuePhase: 'confirming' },
+      }).phase,
+    ).toBe('failed')
+    expect(
+      activityFromCanvas({
+        status: 'stale',
+        meta: { activity: { phase: 'generating' } },
+      }).phase,
+    ).toBe('stale')
+    expect(
+      activityFromCanvas({
+        status: 'error',
+        meta: { activity: { phase: 'cancelled' } },
+      }).phase,
+    ).toBe('cancelled')
+    expect(activityFromRecord({ status: 'error', activity: { phase: 'queued' } }).phase).toBe(
+      'failed',
+    )
+    expect(activityFromRecord({ status: 'done', activity: { phase: 'generating' } }).phase).toBe(
+      'done',
+    )
+    expect(
+      activityFromRecord({
+        status: 'running',
+        cancelled: true,
+        activity: { phase: 'generating' },
+      }).phase,
+    ).toBe('cancelled')
+    expect(activityFromRecord({ status: 'error', activity: { phase: 'stale' } }).phase).toBe(
+      'stale',
+    )
+    expect(showsGenerationTimer({ phase: 'stale' })).toBe(false)
+  })
+
   it('projects a server queued task as queued, and an in-progress task as generating', () => {
     expect(projectGenerationActivity(activityFromServerStatus('queued')).queuePhase).toBe('queued')
     expect(projectGenerationActivity(activityFromServerStatus('in_progress')).queuePhase).toBe(
