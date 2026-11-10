@@ -4,6 +4,7 @@ import { type ReactNode, StrictMode, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { signalBootReady, signalBootStage } from './boot/ready'
 import { bootstrapLocale, i18next } from './i18n'
+import { importWithRetry } from './lib/chunkLoad'
 import './index.css'
 import {
   configureErrorReporting,
@@ -40,7 +41,9 @@ async function start(): Promise<void> {
   ) {
     initTheme()
     await localeReady
-    const { default: CreationReview } = await import('./features/creation-review/CreationReview')
+    const { default: CreationReview } = await importWithRetry(
+      () => import('./features/creation-review/CreationReview'),
+    )
     createRoot(document.getElementById('root')!).render(
       <StrictMode>
         <BootReady>
@@ -51,9 +54,9 @@ async function start(): Promise<void> {
     return
   }
   const gateModules = Promise.all([
-    import('./auth/AuthGate'),
-    import('./lib/channels/bootstrapChannels'),
-    import('./lib/clientCapabilities'),
+    importWithRetry(() => import('./auth/AuthGate')),
+    importWithRetry(() => import('./lib/channels/bootstrapChannels')),
+    importWithRetry(() => import('./lib/clientCapabilities')),
   ])
 
   // Capabilities and channel discovery share one startup round trip. The channel request can return
