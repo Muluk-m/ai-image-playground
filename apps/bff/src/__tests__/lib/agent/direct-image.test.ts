@@ -24,6 +24,11 @@ it('图片生成模式的一句话直接进生图工具，不填张数（沿用�
   expect(directImageCall(imageTurn(), false)).toEqual({ prompt: '一个牛' })
 })
 
+it('短确认语不直接进生图工具', () => {
+  expect(directImageCall(imageTurn({ text: '确认，执行生成' }), false)).toBeNull()
+  expect(directImageCall(imageTurn({ text: '确认' }), false)).toBeNull()
+})
+
 it('不是干净的图片生成轮就交给模型', () => {
   expect(directImageCall(imageTurn({ directImage: false }), false)).toBeNull()
   expect(directImageCall(imageTurn(), true)).toBeNull()

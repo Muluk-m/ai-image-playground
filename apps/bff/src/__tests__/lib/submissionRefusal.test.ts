@@ -23,7 +23,12 @@ const table: ReadonlyArray<readonly [SubmissionRefusal, number, Record<string, u
       fields: [],
     },
     400,
-    { error: 'model_unavailable', message: 'Image 2.6 暂不可用' },
+    { error: 'invalid_request', message: 'Image 2.6 暂不可用' },
+  ],
+  [
+    { kind: 'model_unavailable', message: '动图和矢量图需要 OpenAI 直连，当前直连不可用' },
+    400,
+    { error: 'model_unavailable', message: '动图和矢量图需要 OpenAI 直连，当前直连不可用' },
   ],
   [
     { kind: 'invalid_input_image', message: 'bad ref' },

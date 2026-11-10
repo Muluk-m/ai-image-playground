@@ -52,7 +52,7 @@ import { findCatalogModel, publishModelCapabilities } from '@image-playground/sh
 import { isObject } from './type-guards'
 import { capabilitiesForModel } from './upstream/adapters'
 import { gptDirectEnabledKeyCount, gptDirectSizeEnabled } from './upstream/gpt-direct-availability'
-import { gptImage26KeysReady } from './upstream/gpt-key-config'
+import { gptImage26DirectListed } from './upstream/gpt-routing'
 import { runtimeSecret, upstreamSecretRevision } from './upstream-secret-cache'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
@@ -483,9 +483,26 @@ export function parseChannelsConfig(
 
     const secret = envLookup(ch.auth.secretRef)?.trim() ?? ''
     const adminDirectKeys = ch.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0
+    const image26WithoutDirectKey =
+      process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true' &&
+      ch.models.some((model) => isGptImage26Model(model.id))
     if (!secret && !adminDirectKeys) {
       // 直连上游没有 key 就只是个必然失败的模型，宁可整条不广播；缺省的宽容留给网关部署。
       // 后台直连页里启用的 key 也算有密钥，清掉 OPENAI_API_KEY 之后模型还留在列表里。
+      // 2.6 开关开着时仍留下 2.6：静态图走 sub2api，不依赖这把直连 key。
+      if (ch.requiresSecret && image26WithoutDirectKey) {
+        warnings.push(
+          `channel '${ch.id}': env '${ch.auth.secretRef}' is empty or unset; only Image 2.6 stays listed and uses sub2api`,
+        )
+        channels.push(
+          toInternal(
+            { ...ch, models: ch.models.filter((model) => isGptImage26Model(model.id)) },
+            resolved.baseUrl,
+            secret,
+          ),
+        )
+        return
+      }
       if (ch.requiresSecret) {
         warnings.push(
           `channel '${ch.id}': env '${ch.auth.secretRef}' is empty or unset; the channel is disabled and will not be advertised`,
@@ -585,7 +602,7 @@ export function refreshChannelsIfChanged(filePath = defaultChannelsPath()): void
   } catch (error) {
     if (!isFileNotFoundError(error)) throw error
   }
-  const signature = `${filePath}:${fileVersion}:${upstreamSecretRevision()}:${gptDirectEnabledKeyCount()}:${gptDirectSizeEnabled()}:${gptImage26KeysReady()}`
+  const signature = `${filePath}:${fileVersion}:${upstreamSecretRevision()}:${gptDirectEnabledKeyCount()}:${gptDirectSizeEnabled()}:${gptImage26DirectListed()}`
   if (signature === refreshSignature) return
   initChannels(filePath)
   refreshSignature = signature
@@ -719,20 +736,19 @@ function withDeliverableGptSize(channel: InternalChannel): InternalChannel {
 }
 
 /**
- * 2.6 默认不出现。开关打开但直连 key 不在时仍列出来，标成不可用，前端不能改去别的模型。
+ * 2.6 默认不出现。开关打开就列出来，即使直连 key 不可用：1K、非高画质走 sub2api。
+ * 直连不可用时不把整个模型下架，只把目录档位收到 1K、非高画质。
  */
 function withGptImage26(channel: InternalChannel): InternalChannel {
   if (!channel.models.some((model) => isGptImage26Model(model.id))) return channel
   const enabled = process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true'
-  // 与提交时的 gptImage26Configured 同一把可用密钥：后台停用、硬停用或密钥清单解析失败时
-  // 标成不可用，而不是让选择器放行、每次提交再回「参数不符合要求」。
-  const ready = enabled && gptImage26KeysReady()
+  const directReady = gptImage26DirectListed()
   return {
     ...channel,
     models: channel.models.flatMap((model) => {
       if (!isGptImage26Model(model.id)) return [model]
       if (!enabled) return []
-      return ready ? [model] : [{ ...model, unavailable: true }]
+      return directReady ? [model] : [{ ...model, imageSizes: ['1K'] }]
     }),
   }
 }
@@ -776,15 +792,29 @@ function withCatalogCapabilities(model: ChannelModel): ChannelModel {
     capabilitiesForModel(model.id, { member: false, directOn: gptDirectSizeEnabled() })
       ?.memberTiers ?? []
   const memberOnly = new Set<string>(memberTiers)
+  const directReady = !isGptImage26Model(model.id) || gptImage26DirectListed()
+  const tiers = published.image.tiers
+    .filter((tier) => directReady || tier.id === '1K')
+    .map((tier) => ({
+      ...tier,
+      memberOnly: memberOnly.has(tier.id),
+    }))
+  const quality = published.image.quality
   return {
     ...model,
     ...published,
     image: {
       ...published.image,
-      tiers: published.image.tiers.map((tier) => ({
-        ...tier,
-        memberOnly: memberOnly.has(tier.id),
-      })),
+      tiers,
+      ...(quality
+        ? {
+            quality: {
+              values: directReady
+                ? quality.values
+                : quality.values.filter((value) => value !== 'high'),
+            },
+          }
+        : {}),
     },
   }
 }

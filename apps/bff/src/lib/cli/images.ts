@@ -34,7 +34,12 @@ import { declaredImageSizes, getDiscoveredChannels, resolveQueueModel } from '..
 import { refreshInactiveModels, withoutInactiveModels } from '../model-availability'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { strictImageRequestAllowed } from '../taskSubmission'
-import { gptDirectConfigured, gptImage26Configured } from '../upstream/gpt-routing'
+import {
+  gptDirectConfigured,
+  gptImage26Configured,
+  gptImage26DirectKey,
+  gptImage26DirectListed,
+} from '../upstream/gpt-routing'
 import { CliRequestError } from './envelope'
 
 export const CLI_PROMPT_MAX_CHARS = 32_000
@@ -57,8 +62,7 @@ export async function availableImageModels(): Promise<CliImageModel[]> {
   return channels.flatMap((channel) =>
     channel.models.flatMap((model) => {
       if ((model.media ?? 'image') !== 'image') return []
-      // 2.6 只走直连：没配好时一张都提交不了，不能出现在清单里、更不能被当成默认模型。
-      if (isGptImage26Model(model.id) && !gptImage26Configured()) return []
+      // 开关关掉时渠道清单里没有 2.6。直连不可用时静态图仍可提交，GIF / SVG 不列。
       const spec = findCatalogModel(model.id)
       const queue = resolveQueueModel('image', model.id)
       if (!spec || !queue) return []
@@ -95,11 +99,11 @@ const GIF_DEFAULT_SIZE = GPT_IMAGE_26_GIF_DEFAULT_SIZE
 const OUTPUT_FORMAT_VALUES = ['image', 'png', 'gif', 'svg'] as const
 
 /**
- * 与网站一致：只有 GPT Image 2.6 能直出 GIF / SVG，规则见 `gpt-image-26.ts`。2.6 没配好直连时
- * 一张都出不了，也就不列 GIF / SVG。
+ * 与网站一致：只有 GPT Image 2.6 能直出 GIF / SVG。直连接不了单时不列出这两种格式，
+ * 避免用户选了再在提交时被拒。
  */
 export function outputFormatsFor(model: string): readonly CliOutputFormat[] {
-  return isGptImage26Model(model) && gptImage26Configured() ? ['image', 'gif', 'svg'] : ['image']
+  return isGptImage26Model(model) && gptImage26DirectListed() ? ['image', 'gif', 'svg'] : ['image']
 }
 
 export interface CliImageRequestBody {
@@ -211,6 +215,8 @@ function outputFormatFields(
     },
     gptImage26Configured(),
   )
+  if (reason === 'unavailable')
+    throw new CliRequestError('MODEL_UNAVAILABLE', { message: OUTPUT_REJECTION[reason] })
   if (reason)
     throw new CliRequestError('INVALID_REQUEST', {
       message: OUTPUT_REJECTION[reason],
@@ -546,6 +552,11 @@ export async function imageCapabilities(userId: string) {
     for (const model of models) {
       const caps = model.image
       const gpt = isGptDirectModel(model.id)
+      const image26 = isGptImage26Model(model.id)
+      const image26Direct =
+        image26 &&
+        gptImage26DirectListed() &&
+        (await gptImage26DirectKey(model.id, { size: '1024x1024', quality: 'low' })) !== null
       const memberTier = await strictImageRequestAllowed(tx, userId, model.provider, model.id, {
         prompt: '',
         ...(gpt ? { size: '3840x2160', quality: 'high' } : { image_size: '4K' }),
@@ -554,6 +565,7 @@ export async function imageCapabilities(userId: string) {
       const tiers = caps.tiers
         .map((tier) => tier.id)
         .filter((id) => {
+          if (image26 && !image26Direct) return id === '1K'
           if (id === '4K') return memberTier
           if (gpt && id !== '1K') return direct
           return true
@@ -575,9 +587,10 @@ export async function imageCapabilities(userId: string) {
         aspect_ratios: [...(caps.autoRatio ? ['auto'] : []), ...caps.surfaces.direct.ratios],
         image_sizes: tiers,
         default_image_size: tiers.includes(caps.defaultTier) ? caps.defaultTier : tiers[0]!,
-        qualities: (caps.quality?.values ?? []).filter(
-          (quality) => !gpt || memberTier || quality !== 'high',
-        ),
+        qualities: (caps.quality?.values ?? []).filter((quality) => {
+          if (image26 && !image26Direct) return quality !== 'high'
+          return !gpt || memberTier || quality !== 'high'
+        }),
         max_reference_images: caps.references.max,
         price: quote ? { estimated_credits: quote.estimatedCredits } : null,
         typical_duration_seconds: model.etaSeconds ?? null,

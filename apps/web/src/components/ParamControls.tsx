@@ -12,6 +12,8 @@ import {
 import { memo, type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from '../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../lib/apiProfiles'
+import { publishedImageOf } from '../lib/channels/profileSelectors'
+import { getPublicChannels } from '../lib/channels/publicChannels'
 import type { ClientProfile } from '../lib/channels/types'
 import { useGptPremiumLocked } from '../lib/gptPremium'
 import {
@@ -147,8 +149,25 @@ export function ImageSettings({
   const hasMask = useStore((s) => (controlled ? false : Boolean(s.maskDraft)))
   const editing = referenceCount > 0 || hasMask
   const premium = useGptPremiumLocked(activeView.model, capabilities.size)
-  // 2.6 自己锁 4K，不走非会员 2K 上限；其它 GPT 跟会员档位走。
-  const maxTier: SizeTier = activeView.codexCli ? '1K' : image26 ? '4K' : premium.maxTier
+  const publishedImage = publishedImageOf(activeProfile, getPublicChannels())
+  const catalogTiers = publishedImage?.tiers
+    .map((tier) => tier.id)
+    .filter((id): id is SizeTier => id === '1K' || id === '2K' || id === '4K')
+  const catalogMax: SizeTier | undefined = catalogTiers?.includes('4K')
+    ? '4K'
+    : catalogTiers?.includes('2K')
+      ? '2K'
+      : catalogTiers?.length
+        ? '1K'
+        : undefined
+  // 目录给了 image.tiers 就以它为上限。2.6 没下发目录时仍开放到 4K，其它 GPT 跟会员档位走。
+  const maxTier: SizeTier = activeView.codexCli
+    ? '1K'
+    : (catalogMax ?? (image26 ? '4K' : premium.maxTier))
+  const catalogQualities = publishedImage?.quality?.values
+  const highQualityAllowed = catalogQualities
+    ? catalogQualities.includes('high')
+    : premium.highQuality
   const rules = useMemo<SizeRules>(
     () => ({ ratioOnly: !capabilities.size, maxTier }),
     [capabilities.size, maxTier],
@@ -160,10 +179,11 @@ export function ImageSettings({
   // 已存的 4K / 高画质在非会员这里改成服务端会执行的那一档，避免界面写着 2K、发出去却是另一组像素。
   // 会员查询还没回来时不改，免得把会员的 4K 收掉。
   useEffect(() => {
-    // 2.6 的 2K、高画质对所有人开放，4K 只是锁住，不把已存参数收成 2K。
-    if (image26 || !premium.settled || activeView.codexCli || !capabilities.size) return
+    // 目录把 2.6 收到 1K、非高画质时，已存的更高档要收回来。没下发目录时 2.6 不在这里改。
+    if ((!image26 && !premium.settled) || activeView.codexCli || !capabilities.size) return
+    if (image26 && !catalogTiers) return
     const patch: Partial<TaskParams> = {}
-    if (params.quality === 'high' && !premium.highQuality) patch.quality = 'medium'
+    if (params.quality === 'high' && !highQualityAllowed) patch.quality = 'medium'
     if (maxTier === '4K') {
       if (patch.quality !== undefined) setParams(patch)
       return
@@ -180,8 +200,9 @@ export function ImageSettings({
     if (patch.size !== undefined || patch.quality !== undefined) setParams(patch)
   }, [
     image26,
+    catalogTiers,
     premium.settled,
-    premium.highQuality,
+    highQualityAllowed,
     activeView.codexCli,
     capabilities.size,
     maxTier,
@@ -450,8 +471,11 @@ export function ImageSettings({
                     options={SIZE_TIERS.map((tier) => ({
                       value: tier,
                       label: tier,
+                      // 2.6 的档位以目录 image.tiers 为准（maxTier）。目录含 4K 时，非会员仍然不能选。
                       disabled: image26
-                        ? selection.kind === 'auto' || (tier === '4K' && !premium.member)
+                        ? selection.kind === 'auto' ||
+                          !tierFits(tier, maxTier) ||
+                          (tier === '4K' && !premium.member)
                         : selection.kind === 'auto' || !tierFits(tier, rules.maxTier),
                     }))}
                     value={selection.kind === 'preset' && !customOpen ? selection.tier : null}
@@ -550,7 +574,7 @@ export function ImageSettings({
                   {
                     value: 'high',
                     label: t('settings.quality.high'),
-                    disabled: !premium.highQuality,
+                    disabled: !highQualityAllowed,
                   },
                 ]}
                 value={params.quality}

@@ -55,7 +55,10 @@
 .dark .mkt-theme .moon { display: block; }
 .mkt-signin { padding: 0; border: 0; background: none; font: inherit; color: var(--mkt-ink); cursor: pointer; }
 .mkt a:focus-visible, .mkt button:focus-visible { outline: 2px solid var(--mkt-accent); outline-offset: 3px; border-radius: 4px; }
-.mkt-hero { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 52px; align-items: center; padding: 64px 0 80px; }
+.mkt-hero { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 52px; align-items: center; padding: 64px 0 48px; }
+.mkt-promo { padding: 0 0 72px; }
+.mkt-promo video { width: 100%; height: auto; border-radius: 18px; background: #111311; }
+.mkt-promo p { margin-top: 12px; text-align: center; color: var(--mkt-muted); }
 .mkt-title { font-size: 32px; line-height: 1.42; font-weight: 600; }
 .mkt-lead { margin-top: 18px; font-size: 16px; color: var(--mkt-muted); }
 .mkt-cta { margin-top: 28px; display: flex; align-items: center; gap: 22px; font-size: 14px; }
