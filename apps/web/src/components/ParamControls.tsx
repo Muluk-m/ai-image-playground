@@ -191,9 +191,10 @@ export function ImageSettings({
     [params.size, capabilities.size, maxTier],
   )
   // 已存的 4K / 高画质在非会员这里改成服务端会执行的那一档，避免界面写着 2K、发出去却是另一组像素。
-  // 会员查询还没回来时不改，免得把会员的 4K 收掉。
+  // 会员查询还没回来时不改，免得把会员的 4K 收掉。动图尺寸只认 512/768，不能按静图档位收。
   useEffect(() => {
-    if ((!image26 && !premium.settled) || activeView.codexCli || !capabilities.size) return
+    if (params.output_format === 'gif' || params.output_format === 'svg') return
+    if (!premium.settled || activeView.codexCli || !capabilities.size) return
     const patch: Partial<TaskParams> = {}
     if (params.quality === 'high' && !highQualityAllowed) patch.quality = 'medium'
     if (maxTier === '4K') {
@@ -211,13 +212,13 @@ export function ImageSettings({
     }
     if (patch.size !== undefined || patch.quality !== undefined) setParams(patch)
   }, [
-    image26,
     catalogTiers,
     premium.settled,
     highQualityAllowed,
     activeView.codexCli,
     capabilities.size,
     maxTier,
+    params.output_format,
     params.size,
     params.quality,
     selection,

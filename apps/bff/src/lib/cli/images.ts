@@ -15,9 +15,11 @@ import {
   type GptImage26Rejection,
   gifSpriteExceedsLimit,
   gptImage26Rejection,
+  gptImage26RequiresDirect,
   imageRateMultiplier,
   isGptDirectModel,
   isGptImage26Model,
+  isGptSub2apiDeliverable,
   type QueueProvider,
   type SubmitRequest,
 } from '@image-playground/shared'
@@ -35,7 +37,7 @@ import { declaredImageSizes, getDiscoveredChannels, resolveQueueModel } from '..
 import { refreshInactiveModels, withoutInactiveModels } from '../model-availability'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { strictImageRequestAllowed } from '../taskSubmission'
-import { gptImage26DirectListed } from '../upstream/gpt-direct-availability'
+import { gptImage26DirectListed, gptImage26Enabled } from '../upstream/gpt-direct-availability'
 import { gptDirectConfigured, gptImage26DirectKey } from '../upstream/gpt-routing'
 import { CliRequestError } from './envelope'
 
@@ -193,8 +195,11 @@ function outputFormatFields(
           frame_size: body.frame_size ?? GIF_DEFAULT_SIZE,
         }
       : {}
-  // 直连接不了时不在这里拒绝：提交会把 GIF / SVG 收成 PNG，再按静态图计价。
-  if (!gptImage26DirectListed()) return { output_format: format as 'gif' | 'svg', ...gif }
+  // 严格入口不降级。直连清单接不了动图或矢量时，在这里拒绝，而不是改成静态图再报价。
+  if (!gptImage26DirectListed())
+    throw new CliRequestError('MODEL_UNAVAILABLE', {
+      message: '动图和矢量图需要 OpenAI 直连，当前直连不可用',
+    })
   const reason = gptImage26Rejection(
     model.id,
     {
@@ -400,10 +405,21 @@ export interface CliImagePreview {
   readonly planRequired: boolean
 }
 
-/** 直连接不了时，预检和提交按同一份降级请求报价，避免预览按高档、实扣按 1K。 */
-async function pricedImageRequest(model: string, request: SubmitRequest): Promise<SubmitRequest> {
-  if (!isGptImage26Model(model) || (await gptImage26DirectKey(model, request))) return request
-  return degradeGptImage26ForSub2api(request)?.request ?? request
+/**
+ * 和提交用同一把直连 key 判断。严格入口不降级：接不了的高档和动图直接拒绝，
+ * 报价不会按 1K 的 330 积分报出去。能走 sub2api 的 1K 非高画质仍按原请求报价。
+ */
+async function assertCliImage26Available(model: string, request: SubmitRequest): Promise<void> {
+  if (!isGptImage26Model(model)) return
+  if (!gptImage26Enabled())
+    throw new CliRequestError('MODEL_UNAVAILABLE', { message: 'Image 2.6 暂不可用' })
+  if (await gptImage26DirectKey(model, request)) return
+  if (gptImage26RequiresDirect(request) || !isGptSub2apiDeliverable(request))
+    throw new CliRequestError('MODEL_UNAVAILABLE', {
+      message: gptImage26RequiresDirect(request)
+        ? '动图和矢量图需要 OpenAI 直连，当前直连不可用'
+        : '当前高分辨率/高画质需要 OpenAI 直连，暂不可用',
+    })
 }
 
 /** 预检：报价与会员档判断放在同一个只读事务里，不建任务、不预扣。 */
@@ -413,7 +429,8 @@ export async function previewImageRequest(
   request: SubmitRequest,
 ): Promise<CliImagePreview> {
   const hooks = (await loadPrivateBffOverlay()).taskHooks
-  const priced = await pricedImageRequest(prepared.model.id, request)
+  await assertCliImage26Available(prepared.model.id, request)
+  const priced = request
   return db.transaction(async (tx) => {
     const planRequired = !(await strictImageRequestAllowed(
       tx,
@@ -500,12 +517,14 @@ async function specialFormatCapabilities(
   hooks: Awaited<ReturnType<typeof loadPrivateBffOverlay>>['taskHooks'],
 ): Promise<{ gif: CliGifCapability; svg: CliSvgCapability }> {
   const quote = async (request: SubmitRequest) => {
+    const direct = !isGptImage26Model(model) || (await gptImage26DirectKey(model, request))
+    const billed = direct ? request : (degradeGptImage26ForSub2api(request)?.request ?? request)
     const one = await hooks.quoteTask?.({
       tx,
       userId,
       model,
       quantity: 1,
-      unitMultiplier: imageRateMultiplier(model, request, declaredImageSizes(model)),
+      unitMultiplier: imageRateMultiplier(model, billed, declaredImageSizes(model)),
     })
     return one ? { estimated_credits: one.estimatedCredits } : null
   }

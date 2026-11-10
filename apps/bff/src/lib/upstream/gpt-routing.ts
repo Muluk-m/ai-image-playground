@@ -8,7 +8,11 @@ import { log } from '../logger'
 import { runtimeSecret } from '../upstream-secret-cache'
 import { ImagePlanRequiredError } from './errors'
 import { estimateDirectCostMicroUsd } from './gpt-budget'
-import { gptDirectEnabledKeyCount, gptDirectSwitchOn } from './gpt-direct-availability'
+import {
+  gptDirectEnabledKeyCount,
+  gptDirectSwitchOn,
+  gptImage26Enabled,
+} from './gpt-direct-availability'
 import { type DirectKey, gptImage26KeysReady } from './gpt-key-config'
 import { selectDirectKey } from './gpt-keys'
 import { gptSchedulerBuckets, tryAcquireSchedulerSlots } from './scheduler'
@@ -41,7 +45,7 @@ export function gptDirectConfigured(model: string): boolean {
  * 预算用尽不算在这里，选路时再查。开关关掉等同没有 key，不能去记直连花费。
  */
 export function gptImage26Configured(): boolean {
-  return config.gptImage26.enabled && gptDirectSwitchOn() && gptImage26KeysReady()
+  return gptImage26Enabled() && gptDirectSwitchOn() && gptImage26KeysReady()
 }
 
 /**

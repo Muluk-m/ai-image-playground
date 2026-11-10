@@ -50,8 +50,11 @@ beforeEach(async () => {
   await db.delete(schema.tasks)
   _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 })
+const savedImage26Flag = process.env.GPT_IMAGE_26_ENABLED
 afterEach(() => {
   setObjectStoreForTesting()
+  if (savedImage26Flag === undefined) delete process.env.GPT_IMAGE_26_ENABLED
+  else process.env.GPT_IMAGE_26_ENABLED = savedImage26Flag
 })
 
 const BILLING_USER = '4k-billing-user'
@@ -122,6 +125,7 @@ it('creates a still Image 2.6 task when the direct key is unavailable', async ()
   const enabled = config.gptImage26.enabled
   const apiKey = process.env.OPENAI_API_KEY
   config.gptImage26.enabled = true
+  process.env.GPT_IMAGE_26_ENABLED = 'true'
   delete process.env.OPENAI_API_KEY
   try {
     const result = await createQueueTask({
@@ -159,6 +163,7 @@ it('degrades a 2K high Image 2.6 still to 1K medium before billing when direct c
   const enabled = config.gptImage26.enabled
   const apiKey = process.env.OPENAI_API_KEY
   config.gptImage26.enabled = true
+  process.env.GPT_IMAGE_26_ENABLED = 'true'
   delete process.env.OPENAI_API_KEY
   try {
     const result = await createQueueTask({
@@ -196,6 +201,7 @@ it('degrades a GIF to a 1K still when the direct key is unavailable', async () =
   const enabled = config.gptImage26.enabled
   const apiKey = process.env.OPENAI_API_KEY
   config.gptImage26.enabled = true
+  process.env.GPT_IMAGE_26_ENABLED = 'true'
   delete process.env.OPENAI_API_KEY
   try {
     const result = await createQueueTask({
@@ -238,6 +244,7 @@ it('rejects a 768×16 GIF before creating a task or invoking billing', async () 
   const apiKey = process.env.OPENAI_API_KEY
   const direct = process.env.GPT_DIRECT_ENABLED
   config.gptImage26.enabled = true
+  process.env.GPT_IMAGE_26_ENABLED = 'true'
   process.env.GPT_DIRECT_ENABLED = 'true'
   process.env.OPENAI_API_KEY = 'gif-test-key'
   let billingCalled = false
@@ -291,6 +298,7 @@ it('accepts a GIF that omits the frame defaults shown in the settings control', 
   const apiKey = process.env.OPENAI_API_KEY
   const direct = process.env.GPT_DIRECT_ENABLED
   config.gptImage26.enabled = true
+  process.env.GPT_IMAGE_26_ENABLED = 'true'
   process.env.GPT_DIRECT_ENABLED = 'true'
   process.env.OPENAI_API_KEY = 'gif-test-key'
   try {
@@ -333,6 +341,7 @@ it('keeps an explicit 12-frame GIF instead of filling the 6-frame default', asyn
   const apiKey = process.env.OPENAI_API_KEY
   const direct = process.env.GPT_DIRECT_ENABLED
   config.gptImage26.enabled = true
+  process.env.GPT_IMAGE_26_ENABLED = 'true'
   process.env.GPT_DIRECT_ENABLED = 'true'
   process.env.OPENAI_API_KEY = 'gif-test-key'
   try {
@@ -370,6 +379,7 @@ it('accepts a still 2K high-quality Image 2.6 request without rewriting it', asy
   const apiKey = process.env.OPENAI_API_KEY
   const direct = process.env.GPT_DIRECT_ENABLED
   config.gptImage26.enabled = true
+  process.env.GPT_IMAGE_26_ENABLED = 'true'
   process.env.GPT_DIRECT_ENABLED = 'true'
   process.env.OPENAI_API_KEY = 'still-test-key'
   try {
@@ -403,6 +413,112 @@ it('accepts a still 2K high-quality Image 2.6 request without rewriting it', asy
     if (apiKey === undefined) delete process.env.OPENAI_API_KEY
     else process.env.OPENAI_API_KEY = apiKey
   }
+})
+
+it('rejects Image 2.6 when its product switch is off, even for a 1K still', async () => {
+  const enabled = config.gptImage26.enabled
+  config.gptImage26.enabled = true
+  const saved = process.env.GPT_IMAGE_26_ENABLED
+  delete process.env.GPT_IMAGE_26_ENABLED
+  try {
+    const before = (await db.select({ id: schema.tasks.id }).from(schema.tasks)).length
+    const result = await createQueueTask({
+      entry: 'web-direct',
+      provider: 'openai-compat',
+      model: 'gpt-image-2.6-sunburst',
+      userId: null,
+      request: {
+        prompt: 'A paper crane',
+        device_id: 'flag-off',
+        output_format: 'png',
+        size: '1024x1024',
+        quality: 'low',
+        n: 1,
+      },
+    })
+    expect(result).toMatchObject({ kind: 'model_unavailable', message: 'Image 2.6 暂不可用' })
+    expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toHaveLength(before)
+  } finally {
+    config.gptImage26.enabled = enabled
+    if (saved === undefined) delete process.env.GPT_IMAGE_26_ENABLED
+    else process.env.GPT_IMAGE_26_ENABLED = saved
+  }
+})
+
+it('does not degrade a strict Image 2.6 request when direct is down', async () => {
+  process.env.GPT_IMAGE_26_ENABLED = 'true'
+  delete process.env.OPENAI_API_KEY
+  const result = await createQueueTask({
+    entry: 'cli-strict',
+    provider: 'openai-compat',
+    model: 'gpt-image-2.6-flare',
+    strictImageRequest: true,
+    userId: null,
+    request: {
+      prompt: 'A paper crane',
+      device_id: 'strict-2k',
+      output_format: 'png',
+      size: '2048x2048',
+      quality: 'high',
+      n: 1,
+    },
+  })
+  expect(result).toMatchObject({
+    kind: 'model_unavailable',
+    message: '当前高分辨率/高画质需要 OpenAI 直连，暂不可用',
+  })
+})
+
+it('replays the same Image 2.6 command when direct availability flips', async () => {
+  await ensureBillingUser()
+  process.env.GPT_IMAGE_26_ENABLED = 'true'
+  process.env.GPT_DIRECT_ENABLED = 'true'
+  process.env.OPENAI_API_KEY = 'replay-key'
+  const command = crypto.randomUUID()
+  const input = {
+    entry: 'web-direct' as const,
+    provider: 'openai-compat' as const,
+    model: 'gpt-image-2.6-flare',
+    userId: BILLING_USER,
+    request: {
+      prompt: 'A paper crane',
+      device_id: 'replay-26',
+      output_format: 'png' as const,
+      size: '2048x2048',
+      quality: 'high' as const,
+      n: 1,
+      client_request_id: command,
+    },
+  }
+  const before = (await db.select({ id: schema.tasks.id }).from(schema.tasks)).length
+  const up = await createQueueTask(input)
+  expect(up.kind).toBe('created')
+  if (up.kind !== 'created') return
+  process.env.GPT_DIRECT_ENABLED = 'false'
+  const down = await createQueueTask(input)
+  expect(down).toMatchObject({ kind: 'created', taskId: up.taskId })
+  expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toHaveLength(before + 1)
+
+  const commandDown = crypto.randomUUID()
+  const downFirst = await createQueueTask({
+    ...input,
+    request: { ...input.request, client_request_id: commandDown },
+  })
+  expect(downFirst.kind).toBe('created')
+  if (downFirst.kind !== 'created') return
+  const [degraded] = await db
+    .select()
+    .from(schema.tasks)
+    .where(eq(schema.tasks.id, downFirst.taskId))
+  expect(degraded?.request_payload.image26_degrade?.kind).toBe('size_quality')
+  expect(degraded?.metering).toMatchObject({ unitMultiplier: 3.3 })
+  process.env.GPT_DIRECT_ENABLED = 'true'
+  const upAgain = await createQueueTask({
+    ...input,
+    request: { ...input.request, client_request_id: commandDown },
+  })
+  expect(upAgain).toMatchObject({ kind: 'created', taskId: downFirst.taskId })
+  expect(await db.select({ id: schema.tasks.id }).from(schema.tasks)).toHaveLength(before + 2)
 })
 
 it('denies 4K by default when the private billing hook is missing', async () => {

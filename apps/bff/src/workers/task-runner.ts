@@ -247,6 +247,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         : {}),
       persistedGptRoute: task.gpt_route,
       onGptRoute: (route) => execution.recordGptRoute(route),
+      onImage26Degrade: (record) => execution.recordImage26Degrade(record),
       onGptKey: (fingerprint) => execution.recordGptKey(fingerprint),
       provider: task.provider,
       // 截图模式：落库的是整张原图与选区，送上游的只是选区周围那一块。

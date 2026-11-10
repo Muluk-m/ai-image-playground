@@ -220,4 +220,12 @@ describe('degradeGptImage26ForSub2api', () => {
       degradeGptImage26ForSub2api({ size: '1024x1024', quality: 'low', output_format: 'png' }),
     ).toBeNull()
   })
+
+  it('动图没写尺寸时收成 1K，并记在降级字段里', () => {
+    const degraded = degradeGptImage26ForSub2api({ output_format: 'svg', quality: 'low' })
+    const request = degraded?.request as { size?: string; output_format?: string }
+    expect(request?.output_format).toBe('png')
+    expect(request?.size).toBe('1024x1024')
+    expect(degraded?.fields).toContainEqual({ field: 'size', to: '1024x1024' })
+  })
 })
