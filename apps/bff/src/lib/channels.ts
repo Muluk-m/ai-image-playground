@@ -482,9 +482,26 @@ export function parseChannelsConfig(
 
     const secret = envLookup(ch.auth.secretRef)?.trim() ?? ''
     const adminDirectKeys = ch.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0
+    const image26WithoutDirectKey =
+      process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true' &&
+      ch.models.some((model) => isGptImage26Model(model.id))
     if (!secret && !adminDirectKeys) {
       // 直连上游没有 key 就只是个必然失败的模型，宁可整条不广播；缺省的宽容留给网关部署。
       // 后台直连页里启用的 key 也算有密钥，清掉 OPENAI_API_KEY 之后模型还留在列表里。
+      // 2.6 开关开着时仍留下 2.6：静态图走 sub2api，不依赖这把直连 key。
+      if (ch.requiresSecret && image26WithoutDirectKey) {
+        warnings.push(
+          `channel '${ch.id}': env '${ch.auth.secretRef}' is empty or unset; only Image 2.6 stays listed and uses sub2api`,
+        )
+        channels.push(
+          toInternal(
+            { ...ch, models: ch.models.filter((model) => isGptImage26Model(model.id)) },
+            resolved.baseUrl,
+            secret,
+          ),
+        )
+        return
+      }
       if (ch.requiresSecret) {
         warnings.push(
           `channel '${ch.id}': env '${ch.auth.secretRef}' is empty or unset; the channel is disabled and will not be advertised`,
