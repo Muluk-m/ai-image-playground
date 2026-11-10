@@ -1,6 +1,7 @@
 import type { AuthUserView } from '@image-playground/shared'
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { Suspense, useCallback, useEffect, useState } from 'react'
 import { signalBootReady, signalBootStage } from '../boot/ready'
+import RouteChunkBoundary from '../components/RouteChunkBoundary'
 import { Button } from '../components/ui/button'
 import { Icon } from '../components/ui/icon'
 import PricingSheet from '../features/pricing/PricingSheet'
@@ -19,6 +20,7 @@ import {
 } from '../lib/authClient'
 import { setClientStorageScope, setRecoveryBackend } from '../lib/authScope'
 import { bootstrapChannels } from '../lib/channels/bootstrapChannels'
+import { isChunkFailure, lazyWithReload } from '../lib/chunkLoad'
 import { clearScopedClientStorage } from '../lib/clearScopedStorage'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { recoverStorageUser } from '../lib/localRecovery'
@@ -30,7 +32,7 @@ import { type LoginPromptReason, setSignedIn, subscribeLoginPrompt } from './log
 import { discardPendingSubmission, hasPendingSubmission } from './pendingSubmission'
 import { SessionExpiredCard } from './SessionExpiredCard'
 
-const App = lazy(() => import('../App'))
+const App = lazyWithReload(() => import('../App'))
 
 type Phase = 'checking' | 'ready' | 'reconnecting'
 
@@ -281,9 +283,18 @@ export function AuthGate() {
         logout,
       }}
     >
-      <Suspense fallback={<LoadingScreen />}>
-        <App adoptedTaskCount={adoptedTaskCount} />
-      </Suspense>
+      {/* 预算用完仍取不到工作台分片时留一个重新加载入口，不让整棵树卸成白屏。 */}
+      <RouteChunkBoundary
+        title={t('route.loadFailed', { ns: 'shell' })}
+        description={t('route.loadFailedDescription', { ns: 'shell' })}
+        retryLabel={t('route.retry', { ns: 'shell' })}
+        isChunkError={isChunkFailure}
+        onChunkError={signalBootReady}
+      >
+        <Suspense fallback={<LoadingScreen />}>
+          <App adoptedTaskCount={adoptedTaskCount} />
+        </Suspense>
+      </RouteChunkBoundary>
       {sessionExpired && loginReason === null ? (
         <SessionExpiredCard
           onRelogin={() => setLoginReason('session-expired')}

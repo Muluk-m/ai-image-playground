@@ -757,6 +757,89 @@ describe('gpt image 2.6 routes', () => {
     expect(routes).toEqual([])
   })
 
+  it('reapplies Image 2.6 degrade when a sub2api task resumes', async () => {
+    const degraded: { kind: string }[] = []
+    setUpstreamFetchForTesting((async (input: unknown, init?: { body?: unknown }) => {
+      const url = String(input)
+      sent.push({
+        route: new URL(url).hostname === 'api.openai.com' ? 'direct' : 'sub2api',
+        url,
+        body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : {},
+        headers: {},
+      })
+      if (url.endsWith('/async')) {
+        return new Response(JSON.stringify({ task_id: 'imgtask_new', status: 'processing' }), {
+          status: 202,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      return new Response(JSON.stringify({ status: 'completed', data: [{ b64_json: 'ok' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as unknown as TestFetch)
+    const request = {
+      prompt: 'a bouncing ball',
+      output_format: 'gif' as const,
+      size: '2048x2048',
+      quality: 'high' as const,
+      frame_count: 12,
+      frame_duration_ms: 100,
+      n: 1,
+    }
+    const result = await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2.6-flare',
+      request,
+      persistedGptRoute: 'sub2api',
+      resume: { taskIds: ['imgtask_gif'], submittedAt: Date.now(), invocationCount: 1 },
+      onGptRoute: async (route) => {
+        routes.push(route)
+      },
+      onImage26Degrade: async (record) => {
+        degraded.push(record)
+      },
+    })
+    expect(routes).toEqual([])
+    expect(degraded.map((record) => record.kind)).toEqual(['size_quality_format'])
+    expect(sent.every((one) => one.route === 'sub2api')).toBe(true)
+    expect(sent.some((one) => one.url?.includes('api.openai.com'))).toBe(false)
+    expect(result.payload).toMatchObject({ output_format: 'png', data: [{ b64_json: 'ok' }] })
+    expect(await db.select().from(schema.gpt_direct_usage)).toHaveLength(0)
+
+    sent = []
+    degraded.length = 0
+    await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2.6-flare',
+      request,
+      persistedGptRoute: 'sub2api',
+      resume: {
+        taskIds: ['imgtask_gif'],
+        submittedAt: Date.now(),
+        invocationCount: 2,
+      },
+      onGptRoute: async (route) => {
+        routes.push(route)
+      },
+      onImage26Degrade: async (record) => {
+        degraded.push(record)
+      },
+    })
+    const posted = sent.filter((one) => one.url?.endsWith('/async'))
+    expect(posted).toHaveLength(1)
+    expect(posted[0]?.body).toMatchObject({
+      size: '1024x1024',
+      quality: 'medium',
+      output_format: 'png',
+    })
+    expect(posted[0]?.body.frame_count).toBeUndefined()
+    expect(posted[0]?.body.frame_duration_ms).toBeUndefined()
+    expect(posted[0]?.body.svg).toBeUndefined()
+    expect(routes).toEqual([])
+    expect(degraded.map((record) => record.kind)).toEqual(['size_quality_format'])
+  })
+
   it('records the direct route before the request is sent', async () => {
     let routeSettled = false
     setUpstreamFetchForTesting((async (input: unknown) => {
