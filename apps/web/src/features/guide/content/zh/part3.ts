@@ -456,7 +456,7 @@ export const membership: GuidePage = {
       title: '命令行',
       blocks: [
         p(
-          '`muvloom images validate --prompt "a poster" --image-size 4K` 可以只报价、不扣费。非会员得到 `PLAN_REQUIRED`，退出码 4。处理方式是改成 1K 或 2K，或告诉使用的人需要会员。不要换一个模型 id 假装这就是 4K。',
+          '`muvloom images validate --prompt "a poster" --image-size 4K` 可以只报价、不扣费。`--quality high` 同样要会员。非会员得到 `PLAN_REQUIRED`，退出码 4。改成 1K 或 2K，或把画质改成 low / medium。不要写 `3840x2160` 这种像素串，命令行只认 1K、2K、4K。',
         ),
         note('本指南的演示视频都没有使用 4K 或高画质。'),
       ],
@@ -498,8 +498,8 @@ export const plugins: GuidePage = {
       blocks: [
         list(
           '分发物是单个原生二进制：macOS arm64/x64、Linux x64/arm64、Windows x64。不需要 Node、npm 或 Python。',
-          '`muvloom skill install --host` 只接受 `claude-code` 和 `codex`。写成 workbuddy 或 doubao 会得到 `USAGE`，退出码 2。',
-          'WorkBuddy 用 `/cli/workbuddy.md` 和单独的压缩包。豆包要在它自己的客户端里上传技能。两边都没有对应的 `--host`。',
+          '`muvloom skill install --host` 只接受 `claude-code` 和 `codex`。写成 workbuddy 或 doubao 是 `USAGE`，退出码 2。`--scope` 只接受 `user` 和 `project`，写错是 `INVALID_REQUEST`，也是退出码 2。',
+          'WorkBuddy 走 `/cli/workbuddy.md`。压缩包地址是 `/cli/muvloom-workbuddy.zip`，由网页构建脚本生成，仓库检出里默认没有这个文件。豆包要在它自己的客户端里上传技能。两边都没有 `--host`。',
           '没有 `--n` 张数参数，也没有视频子命令。一次 `images create` 出一张。多张要分多次，技能会自己拆。',
         ),
         warn(
@@ -559,16 +559,16 @@ export const plugins: GuidePage = {
       title: '安装技能并登录',
       blocks: [
         steps(
-          '`muvloom skill install --host claude-code` 或 `--host codex`。加 `--scope project` 只装在当前目录，默认 `--scope user` 给所有项目。',
+          '`muvloom skill install --host claude-code` 装到 `~/.claude/skills/muvloom`，`--host codex` 装到 `~/.agents/skills/muvloom`。`--scope project` 只装在当前目录，默认 `user`。',
           '`muvloom skill status` 看装在哪、是不是这一版。',
-          '`muvloom auth status`。不是 ready 就 `muvloom auth login`。',
-          '`muvloom capabilities` 成功之后才说可以生成。用返回的 label 和 default_model，不要写死一张模型表。',
+          '`muvloom auth status`。状态是 ready、unauthenticated、outdated、unreachable 或 service_mismatch。不是 ready 就按状态处理，不要一律再登录。从 0.2.2 起，status 会把没改过的旧技能正文换成当前二进制里的那一份。',
+          '`muvloom capabilities` 成功之后才说可以生成。用返回的 label、default_model，以及 GIF 的 `max_frames_by_size`。菜单里没有 Image 2.6，是服务端没开 `GPT_IMAGE_26_ENABLED`。',
         ),
         p(
           'Claude Code 里用 `/muvloom` 加上你的要求。Codex 用 `/` 或 `/skills` 选中 Muvloom，或 `$muvloom`。这是聊天里的叫法，终端里的命令永远是 `muvloom`。',
         ),
         p(
-          '登录是设备码。命令行请求批准，打开或打印 `/device`，你在已经登录的浏览器里点批准。它再轮询拿令牌。`auth login --no-wait` 只打印完整链接。`--timeout` 最多 3600 秒。超时后再次运行同一条 `auth login` 会继续这一轮，不会新开一个码。用户拒绝是 `AUTH_DENIED`。只有 `AUTH_EXPIRED` 才需要重新开始。不要把密码、Cookie 或令牌交给智能体。',
+          '登录是设备码，有效期 20 分钟。命令行打开或打印 `/device`，你在已经登录的浏览器里点批准。`auth login --no-wait` 只打印完整链接。`--timeout` 最多 3600 秒；省略时会等到设备码过期后再多等 1 分钟，因为服务端过期后短时间内仍可能兑成令牌。超时后再跑同一条 `auth login` 会继续这一轮。用户拒绝是 `AUTH_DENIED`。只有 `AUTH_EXPIRED` 才重新开始。不要把密码、Cookie 或令牌交给智能体。',
         ),
       ],
     },
@@ -593,7 +593,7 @@ export const plugins: GuidePage = {
           '`images create` 和 `validate` 共用 `--prompt`、`--prompt-file`、`--model`、`--aspect-ratio`、`--image-size`、`--quality`、可重复的 `--ref`、`--max-credits`、`--output-format gif|svg`、`--frames`、`--frame-duration-ms`、`--frame-size`。只有 create 还有 `--idempotency-key`（8 到 64 位，字符为字母、数字、`_` `.` `:` `-`）、`--wait`（最多 3600，0 表示提交完就返回）、`--download DIR`。',
         ),
         p(
-          'GIF 或 SVG 不要带 `--ref`、`--aspect-ratio`、`--image-size`、`--quality`。任意命令可加 `--json`。省略幂等键时，命令行会自己生成一个。',
+          'GIF 或 SVG 不要带 `--ref`、`--aspect-ratio`、`--image-size`、`--quality`。帧数接口是 2 到 16，但 768 配 16 帧会被拼图上限拒绝，以 capabilities 里的 `gif.max_frames_by_size` 为准。`--image-size` 只写 `1K`、`2K`、`4K`，不要写像素串。`jobs wait` 不写 `--timeout` 时默认 300 秒。`jobs list --limit` 默认 20、最大 50；`media list` 最大 100。参考图本地只查扩展名 png、jpg、jpeg、webp，超过 50MB 由服务端回 `REQUEST_TOO_LARGE`，退出码 4。任意命令可加 `--json`。省略幂等键时，命令行会自己生成一个。`update check` 只报告有没有新版本，不会自己下载，升级仍走上面的安装脚本。',
         ),
         prompt(
           '静态图',
@@ -641,7 +641,7 @@ export const plugins: GuidePage = {
           ['AUTH_PENDING', '再跑一次 auth login，继续这一轮'],
           ['AUTH_DENIED', '停。不要反复申请'],
           ['CREDENTIAL_STORE_UNWRITABLE', '退出码 4。让目录可写，或设置 MUVLOOM_CONFIG_DIR'],
-          ['PLAN_REQUIRED', '退出码 4。换小尺寸，或说明需要会员'],
+          ['PLAN_REQUIRED', '退出码 4。4K 或 --quality high 都要会员。改成 1K/2K 或低/中画质'],
           [
             'INSUFFICIENT_CREDITS / QUOTA_EXCEEDED / MAX_CREDITS_EXCEEDED',
             '退出码 5。告诉用户，不要重试',
@@ -658,8 +658,11 @@ export const plugins: GuidePage = {
             'RATE_LIMITED / NETWORK_ERROR / TEMPORARILY_UNAVAILABLE / INTERNAL_ERROR',
             '退出码 6。稍后用同一步骤重试',
           ],
-          ['CAPABILITY_UNAVAILABLE', '这台服务器没开命令行'],
-          ['UNSUPPORTED_VERSION / UPGRADE_REQUIRED', '按钉死的版本重装'],
+          ['CAPABILITY_UNAVAILABLE', '命令行要同时开着 cli:api 和 accounts:sync。缺一个就是这个码'],
+          [
+            'UNSUPPORTED_VERSION',
+            '退出码 7。客户端太旧或 schema 对不上。服务端当前的最低版本常量是 0.1.0。auth status 本地比较出 outdated 时也要重装。UPGRADE_REQUIRED 只在命令行映射表里，服务端错误表没有这一码',
+          ],
           [
             'FORBIDDEN / CONFLICT / MEDIA_NOT_READY / REQUEST_TOO_LARGE',
             '退出码 4。不要重试同一份过大的文件或未就绪的素材',

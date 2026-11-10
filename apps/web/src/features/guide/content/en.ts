@@ -471,7 +471,7 @@ const gpt26: GuidePage = {
         list(
           '2.6 is still Image generation. You only change the model.',
           'Inpaint masks use a GPT image model that supports masks. GIF and SVG are not mask targets.',
-          'Non-members see the 2K ceiling and the High-quality lock. The CLI returns PLAN_REQUIRED, exit code 4.',
+          'Non-members see the 2K ceiling and the High-quality lock. The CLI returns PLAN_REQUIRED, exit 4, for `--image-size 4K` and for `--quality high`. The size flag is 1K, 2K, or 4K, not a pixel string.',
         ),
       ],
     },
@@ -1190,7 +1190,7 @@ const membership: GuidePage = {
       title: 'CLI',
       blocks: [
         p(
-          '`muvloom images validate --prompt "a poster" --image-size 4K` quotes without charging. Non-members get PLAN_REQUIRED, exit code 4. Switch to 1K or 2K, or say a membership is required. Do not rename the model and call the result 4K.',
+          '`muvloom images validate --prompt "a poster" --image-size 4K` quotes without charging. `--quality high` needs a membership too. Non-members get PLAN_REQUIRED, exit 4. Use 1K or 2K, or low / medium. Do not pass a pixel string such as 3840x2160.',
         ),
         note('None of the recordings use 4K or High quality.'),
       ],
@@ -1232,8 +1232,8 @@ const plugins: GuidePage = {
       blocks: [
         list(
           'One native binary: macOS arm64/x64, Linux x64/arm64, Windows x64. No Node, npm or Python.',
-          '`skill install --host` accepts only `claude-code` and `codex`. `workbuddy` or `doubao` is USAGE, exit code 2.',
-          'WorkBuddy uses `/cli/workbuddy.md` and its zip. Doubao is uploaded inside that client. Neither has a `--host` value.',
+          '`skill install --host` accepts only `claude-code` and `codex`. Any other host is USAGE, exit 2. A bad `--scope` is INVALID_REQUEST, also exit 2. Scope is `user` or `project`.',
+          'WorkBuddy follows `/cli/workbuddy.md`. The zip URL is `/cli/muvloom-workbuddy.zip`, produced by the web build and absent from a bare checkout. Doubao is uploaded in that client. Neither has a `--host`.',
           'There is no `--n` count and no video subcommand. One `images create` makes one file.',
         ),
         warn('The HTTP paths the CLI calls are not a curl tutorial. Run `muvloom`.'),
@@ -1288,13 +1288,13 @@ const plugins: GuidePage = {
       title: 'Install the skill and sign in',
       blocks: [
         steps(
-          '`muvloom skill install --host claude-code` or `--host codex`. Add `--scope project` for this directory only. The default scope is user.',
+          '`muvloom skill install --host claude-code` installs to `~/.claude/skills/muvloom`. `--host codex` installs to `~/.agents/skills/muvloom`. `--scope project` is this directory only. The default is user.',
           '`muvloom skill status`.',
-          '`muvloom auth status`. If it is not ready, `muvloom auth login`.',
-          '`muvloom capabilities` must succeed before you generate. Use the returned label and default model. Do not hard-code a table.',
+          '`muvloom auth status`. States are ready, unauthenticated, outdated, unreachable, and service_mismatch. Since 0.2.2, status replaces an unmodified older skill with the copy bundled in the binary.',
+          '`muvloom capabilities` must succeed before you generate. Use its label, default model, and `gif.max_frames_by_size`. Image 2.6 is missing when `GPT_IMAGE_26_ENABLED` is off.',
         ),
         p(
-          'In Claude Code the chat invocation is `/muvloom`. In Codex use `/`, `/skills`, or `$muvloom`. The terminal command is always `muvloom`. Sign-in is a device code. The CLI opens or prints `/device`. You approve in a browser that is already signed in. `--no-wait` only prints the link. `--timeout` is at most 3600 seconds. Running `auth login` again after a timeout resumes the same attempt. AUTH_DENIED stops. Only AUTH_EXPIRED starts over. Do not give the agent a password, cookie or token.',
+          'In Claude Code the chat invocation is `/muvloom`. In Codex use `/`, `/skills`, or `$muvloom`. The terminal command is always `muvloom`. Sign-in is a device code that lasts 20 minutes. The CLI opens or prints `/device`. You approve in a browser that is already signed in. `--no-wait` only prints the link. `--timeout` is at most 3600 seconds. Omitting it waits until the code expires and then one more minute, because the server can still redeem it briefly after expiry. Running `auth login` again after a timeout resumes the same attempt. AUTH_DENIED stops. Only AUTH_EXPIRED starts over. Do not give the agent a password, cookie or token.',
         ),
       ],
     },
@@ -1316,7 +1316,7 @@ const plugins: GuidePage = {
           ['update check / version', 'Look for a release, or print the version'],
         ),
         p(
-          'Create and validate share `--prompt`, `--prompt-file`, `--model`, `--aspect-ratio`, `--image-size`, `--quality`, repeatable `--ref`, `--max-credits`, `--output-format gif|svg`, `--frames`, `--frame-duration-ms` and `--frame-size`. Only create adds `--idempotency-key` (8–64 of letters, digits, `_` `.` `:` `-`), `--wait` (max 3600, 0 returns after submit) and `--download DIR`. GIF and SVG must not use `--ref`, `--aspect-ratio`, `--image-size` or `--quality`. Any command accepts `--json`.',
+          'Create and validate share `--prompt`, `--prompt-file`, `--model`, `--aspect-ratio`, `--image-size`, `--quality`, repeatable `--ref`, `--max-credits`, `--output-format gif|svg`, `--frames`, `--frame-duration-ms` and `--frame-size`. Only create adds `--idempotency-key` (8–64 of letters, digits, `_` `.` `:` `-`), `--wait` (max 3600, 0 returns after submit) and `--download DIR`. GIF and SVG must not use `--ref`, `--aspect-ratio`, `--image-size` or `--quality`. Frame counts are integers 2–16, but 768 with 16 frames is rejected; read `gif.max_frames_by_size` from capabilities. `--image-size` is `1K`, `2K`, or `4K`, not a pixel string. `jobs wait` defaults to `--timeout 300`. `jobs list --limit` defaults to 20 and stops at 50. `media list` stops at 100. The CLI only checks that a reference is png, jpg, jpeg, or webp. A file over 50 MB is `REQUEST_TOO_LARGE`, exit 4, from the server. Any command accepts `--json`. `update check` reports a newer release and does not download it.',
         ),
         prompt(
           'Still',
@@ -1366,7 +1366,7 @@ const plugins: GuidePage = {
             'CREDENTIAL_STORE_UNWRITABLE',
             'Exit 4. Make the directory writable or set MUVLOOM_CONFIG_DIR',
           ],
-          ['PLAN_REQUIRED', 'Exit 4. Smaller size, or say a membership is required'],
+          ['PLAN_REQUIRED', 'Exit 4. Both --image-size 4K and --quality high need a membership'],
           ['INSUFFICIENT_CREDITS / QUOTA_EXCEEDED / MAX_CREDITS_EXCEEDED', 'Exit 5. Do not retry'],
           ['IDEMPOTENCY_CONFLICT', 'Use a new key'],
           ['JOB_NOT_CANCELLABLE', 'It is already saving'],
@@ -1375,8 +1375,11 @@ const plugins: GuidePage = {
             'RATE_LIMITED / NETWORK_ERROR / TEMPORARILY_UNAVAILABLE / INTERNAL_ERROR',
             'Exit 6. Retry later, same operation',
           ],
-          ['CAPABILITY_UNAVAILABLE', 'This server has no CLI'],
-          ['UNSUPPORTED_VERSION / UPGRADE_REQUIRED', 'Reinstall the pinned version'],
+          ['CAPABILITY_UNAVAILABLE', 'The CLI needs both cli:api and accounts:sync'],
+          [
+            'UNSUPPORTED_VERSION',
+            'Exit 7. The client is too old or the schema does not match. The server minimum constant is 0.1.0. auth status can also say outdated locally. UPGRADE_REQUIRED is mapped by the CLI only; the server error list does not emit it',
+          ],
           [
             'FORBIDDEN / CONFLICT / MEDIA_NOT_READY / REQUEST_TOO_LARGE',
             'Exit 4. Do not retry the same oversized file',
