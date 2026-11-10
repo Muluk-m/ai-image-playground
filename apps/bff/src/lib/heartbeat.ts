@@ -39,8 +39,11 @@ export async function writeHeartbeat(beat: Heartbeat): Promise<void> {
     })
 }
 
-export async function purgeStaleHeartbeats(now: number = Date.now()): Promise<void> {
-  await db
+export async function purgeStaleHeartbeats(
+  now: number = Date.now(),
+  database: Pick<typeof db, 'delete'> = db,
+): Promise<void> {
+  await database
     .delete(schema.service_heartbeats)
     .where(lt(schema.service_heartbeats.last_seen_at, now - STALE_HEARTBEAT_MS))
 }

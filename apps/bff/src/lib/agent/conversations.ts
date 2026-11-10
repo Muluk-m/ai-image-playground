@@ -6,7 +6,7 @@ import type {
   AgentMessageView,
   AgentToolCallSnapshot,
 } from '@image-playground/shared'
-import { agentConversationTitle } from '@image-playground/shared'
+import { agentConversationTitle, restoreQueuePrompt } from '@image-playground/shared'
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, type SQL, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
@@ -381,7 +381,12 @@ async function readAgentMessages(
         eq(schema.tasks.agent_conversation_id, conversationId),
       ),
     )
-  const prompts = new Map(tasks.map((task) => [task.id, task.request.prompt]))
+  const prompts = new Map(
+    tasks.map((task) => [
+      task.id,
+      restoreQueuePrompt({ shaping: task.request.prompt_shaping, prompt: task.request.prompt }),
+    ]),
+  )
   return sanitizeAssistantMessages(
     messages.map((message) => ({
       ...message,

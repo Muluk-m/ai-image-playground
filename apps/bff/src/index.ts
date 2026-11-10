@@ -7,7 +7,7 @@ import { purgeOldAgentTurnEvents } from './lib/agent/events'
 import { expireStaleStageAuthorizations } from './lib/agent/stage-authorizations'
 import { canvasSyncRooms } from './lib/canvasSyncRooms'
 import { isCapabilityEnabled } from './lib/capabilities'
-import { initChannels } from './lib/channels'
+import { initChannels, refreshChannelsIfChanged } from './lib/channels'
 import { purgeOldClientErrors } from './lib/client-errors'
 import { bffDrain } from './lib/drain'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
@@ -251,7 +251,10 @@ const operatorConfigTimer = setInterval(() => {
     ),
   )
 }, 10_000)
+let upstreamRefreshRunning = false
 const upstreamSecretTimer = setInterval(() => {
+  if (upstreamRefreshRunning) return
+  upstreamRefreshRunning = true
   // 刷新失败只记日志，渠道清单照样重建（否则一次读库失败会让这个定时器每轮都白跑）。
   void refreshUpstreamKeySources()
     .catch((error) =>
@@ -263,7 +266,7 @@ const upstreamSecretTimer = setInterval(() => {
         'upstream secret refresh failed',
       ),
     )
-    .then(() => initChannels(config.channelsFile ?? undefined))
+    .then(() => refreshChannelsIfChanged(config.channelsFile ?? undefined))
     .catch((error) =>
       log.error(
         {
@@ -273,6 +276,9 @@ const upstreamSecretTimer = setInterval(() => {
         'channels refresh failed',
       ),
     )
+    .finally(() => {
+      upstreamRefreshRunning = false
+    })
 }, UPSTREAM_SECRET_REFRESH_MS)
 
 let shuttingDown = false

@@ -29,7 +29,6 @@ import {
 import { and, eq, inArray, like } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { accountConcurrencyLimit } from '../account-concurrency'
-import { shapeQueuePrompt } from '../agent/prompt-shaping'
 import { canonicalJson } from '../canonicalJson'
 import { declaredImageSizes, getDiscoveredChannels, resolveQueueModel } from '../channels'
 import { refreshInactiveModels, withoutInactiveModels } from '../model-availability'
@@ -334,12 +333,7 @@ export function toSubmitRequest(prepared: PreparedImageRequest): SubmitRequest {
   const pixels = ratio === 'auto' ? undefined : tier?.pixels[ratio as keyof typeof tier.pixels]
   const request: SubmitRequest = {
     no_rewrite: model.provider !== 'gemini',
-    prompt: shapeQueuePrompt({
-      provider: model.provider,
-      model: model.id,
-      prompt: normalized.prompt,
-      ...(pixels ? { size: pixels } : {}),
-    }),
+    prompt: normalized.prompt,
     n: 1,
   }
   if (model.provider === 'gemini') {

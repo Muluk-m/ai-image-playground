@@ -104,7 +104,7 @@ describe('callImageApi', () => {
     return { fetchMock }
   }
 
-  it('appends the requested portrait composition for builtin-edge models without size capability', async () => {
+  it('sends the raw prompt; BFF applies composition shaping from the requested size', async () => {
     const channel: PublicChannel = {
       id: 'test-no-size',
       kind: 'openai-queue',
@@ -126,9 +126,7 @@ describe('callImageApi', () => {
       String(url).endsWith('/submit'),
     )!
     const body = JSON.parse(String((submitCall[1] as RequestInit).body))
-    expect(body.prompt).toBe(
-      'a red cat\n\nComposition: a tall 9:16 vertical frame, portrait orientation.',
-    )
+    expect(body.prompt).toBe('a red cat')
   })
 
   it('does not append a composition for auto size', async () => {
@@ -187,7 +185,7 @@ describe('callImageApi', () => {
     expect(body.prompt).toBe('a red cat')
   })
 
-  it('keeps composition separate from the prompt-rewrite option', async () => {
+  it('keeps composition shaping separate from the prompt-rewrite option', async () => {
     const channel: PublicChannel = {
       id: 'test-no-size-guard',
       kind: 'openai-queue',
@@ -209,9 +207,7 @@ describe('callImageApi', () => {
       String(url).endsWith('/submit'),
     )!
     const body = JSON.parse(String((submitCall[1] as RequestInit).body))
-    expect(body.prompt).toBe(
-      'a red cat\n\n' + 'Composition: a tall 9:16 vertical frame, portrait orientation.',
-    )
+    expect(body.prompt).toBe('a red cat')
   })
 
   it('passes the default rewrite option separately and drops codex quality', async () => {
