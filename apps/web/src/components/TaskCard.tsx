@@ -21,6 +21,7 @@ import { retryTask, setTaskFavorite, useStore } from '../store'
 import type { TaskRecord } from '../types'
 import { JobProgress } from './assistant-ui/elements/job-progress'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
+import { GenerationTerminalFace, generationTerminalPhase } from './generationTerminal'
 import { compactModelName, ModelLogo } from './ModelIdentity'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
@@ -96,10 +97,11 @@ export default function TaskCard({
   const [swipeActionActive, setSwipeActionActive] = useState(false)
   const toggleTaskSelection = useStore((s) => s.toggleTaskSelection)
   const settings = useStore((s) => s.settings)
-  const typicalMs = useStore((s) =>
-    showsGenerationTimer(activityFromRecord(task)) ? typicalDurationMs(s.tasks, task.apiModel) : 0,
-  )
   const activity = activityFromRecord(task)
+  const terminal = generationTerminalPhase(activity.phase)
+  const typicalMs = useStore((s) =>
+    showsGenerationTimer(activity) ? typicalDurationMs(s.tasks, task.apiModel) : 0,
+  )
   const exportLabel = t('download.export')
   const handleExport = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -340,21 +342,18 @@ export default function TaskCard({
                   <span className="text-center text-xs text-muted-foreground">{runningLabel}</span>
                 </div>
               ))}
-            {activity.phase === 'cancelled' && (
-              <div className="flex flex-col items-center gap-1 px-2">
-                <Icon name="close" size="lg" className="text-muted-foreground" />
-                <span className="text-xs text-muted-foreground text-center leading-tight">
-                  {t('common:state.cancelled')}
-                </span>
-              </div>
-            )}
-            {activity.phase === 'failed' && (
-              <div className="flex flex-col items-center gap-1 px-2">
-                <Icon name="error" size="lg" className="text-destructive" />
-                <span className="text-xs text-destructive text-center leading-tight">
-                  {t('common:state.failed')}
-                </span>
-              </div>
+            {terminal && (
+              <GenerationTerminalFace
+                layout="card"
+                phase={terminal}
+                label={
+                  {
+                    cancelled: t('common:state.cancelled'),
+                    failed: t('common:state.failed'),
+                    stale: t('common:state.stale'),
+                  }[terminal]
+                }
+              />
             )}
             {task.status === 'done' && thumbSrc && (
               <>

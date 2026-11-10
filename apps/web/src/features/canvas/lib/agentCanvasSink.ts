@@ -1,8 +1,4 @@
-import {
-  type AgentCanvasEdit,
-  type AgentToolErrorCode,
-  PROJECT_META_VALUE_MAX_CHARS,
-} from '@image-playground/shared'
+import { type AgentCanvasEdit, PROJECT_META_VALUE_MAX_CHARS } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
 import {
   activityFromCanvas,
@@ -16,7 +12,7 @@ import type {
 } from '../../agent/lib/canvasSink'
 import { type CanvasEditor, containedImageBox } from './editor'
 import { focusNodeCanvas, revealNodeCanvas } from './nodeCanvasFocus'
-import { markPlaceholderStatus, placeImagesIntoTargets } from './placeholderShapeOps'
+import { placeImagesIntoTargets, settlePlaceholderActivity } from './placeholderShapeOps'
 import { computePlaceholderTargets, type PlacementTarget } from './placement'
 import { recoverVideoPoster } from './recoverVideoPoster'
 import { placeTimelinePlan } from './timeline'
@@ -108,13 +104,13 @@ export function createAgentCanvasSink(
       for (const id of ids) {
         // 云端失败占位的失败状态归服务端写（本机改了它，保存会被拒）；拉回来的就是它的终局。
         if (editor.getPlaceholder(id)?.meta.cloudGeneration) continue
-        if (errorCode)
-          editor.updatePlaceholder(id, {
-            status: 'error',
-            message,
-            meta: { agentErrorCode: errorCode },
-          })
-        else markPlaceholderStatus(editor, id, 'error', message)
+        settlePlaceholderActivity(
+          editor,
+          id,
+          'fail',
+          message,
+          errorCode ? { agentErrorCode: errorCode } : undefined,
+        )
       }
     },
 

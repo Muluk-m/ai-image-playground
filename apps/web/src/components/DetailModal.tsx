@@ -29,6 +29,7 @@ import {
   useStore,
 } from '../store'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
+import { GenerationTerminalFace, generationTerminalPhase } from './generationTerminal'
 import { ModelLogo } from './ModelIdentity'
 import Overlay from './patterns/Overlay'
 import { Button } from './ui/button'
@@ -306,6 +307,7 @@ export default function DetailModal() {
   }
 
   const activity = activityFromRecord(task)
+  const terminal = generationTerminalPhase(activity.phase)
   const errorText =
     activity.phase === 'cancelled'
       ? t('common:state.cancelled')
@@ -509,12 +511,12 @@ export default function DetailModal() {
                 )}
               </>
             )}
-            {activity.phase === 'cancelled' && (
-              <div className="w-full max-w-md px-4 text-center">
-                <Icon name="close" size="lg" className="mx-auto mb-2 text-muted-foreground" />
-                <p className="text-sm leading-6 text-muted-foreground">
-                  {t('common:state.cancelled')}
-                </p>
+            {terminal === 'cancelled' && (
+              <GenerationTerminalFace
+                layout="detail"
+                phase="cancelled"
+                label={t('common:state.cancelled')}
+              >
                 <Button
                   type="button"
                   variant="outline"
@@ -525,21 +527,31 @@ export default function DetailModal() {
                 >
                   <Icon name="copy" />
                 </Button>
-              </div>
+              </GenerationTerminalFace>
             )}
-            {activity.phase === 'failed' && (
-              <div className="w-full max-w-md px-4 text-center">
-                <Icon name="error" size="lg" className="mx-auto mb-2 text-destructive" />
-                <p
-                  className="overflow-hidden whitespace-pre-line text-sm leading-6 text-destructive break-words"
-                  style={{
-                    display: '-webkit-box',
-                    WebkitBoxOrient: 'vertical',
-                    WebkitLineClamp: 4,
-                  }}
-                >
-                  {blockedByContentPolicy ? t('detail.contentPolicy') : errorText}
-                </p>
+            {terminal === 'stale' && (
+              <GenerationTerminalFace layout="detail" phase="stale" label={t('common:state.stale')}>
+                <div className="mt-3 flex items-center justify-center">
+                  <Hint tooltip={t('action.retryTask')}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon-sm"
+                      onClick={handleRetry}
+                      aria-label={t('action.retryTask')}
+                    >
+                      <Icon name="refresh" />
+                    </Button>
+                  </Hint>
+                </div>
+              </GenerationTerminalFace>
+            )}
+            {terminal === 'failed' && (
+              <GenerationTerminalFace
+                layout="detail"
+                phase="failed"
+                label={blockedByContentPolicy ? t('detail.contentPolicy') : errorText}
+              >
                 {blockedByContentPolicy && (
                   <Button
                     type="button"
@@ -618,7 +630,7 @@ export default function DetailModal() {
                     </Hint>
                   )}
                 </div>
-              </div>
+              </GenerationTerminalFace>
             )}
           </div>
 

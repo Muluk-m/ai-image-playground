@@ -155,32 +155,59 @@ export function showsGenerationTimer(activity: GenerationActivity): boolean {
 }
 
 /**
+ * 终态 status 盖过仍写着进行中的 activity。
+ * 旧记录只改了 status、没改 activity 时，不能再被读成还在提交。
+ * activity 自己已经是终态时保留它：取消和过期都落在 error 上，不能被收成普通失败。
+ */
+function activityUnlessTerminalStatus(
+  stored: GenerationActivity | undefined,
+  terminal: GenerationActivity | undefined,
+  fallback: () => GenerationActivity,
+): GenerationActivity {
+  if (stored && !isGenerationOpen(stored)) return stored
+  if (terminal) return terminal
+  if (stored) return stored
+  return fallback()
+}
+
+/**
  * 旧记录没有 activity。读的时候把叠在一起的标志折成一个阶段，
  * 终态上残留的排队阶段、已取消却仍标着进行中、完成后还挂着本机排队，都收掉。
  */
 export function activityFromRecord(
   task: Pick<TaskRecord, 'status' | 'queuePhase' | 'cancelled' | 'batchQueued' | 'activity'>,
 ): GenerationActivity {
-  if (task.activity) return task.activity
-  if (task.status === 'done') return { phase: 'done' }
-  if (task.cancelled) return { phase: 'cancelled' }
-  if (task.status === 'error') return { phase: 'failed' }
-  if (task.batchQueued) return { phase: 'batch-queued' }
-  if (task.queuePhase && SERVER_PHASES.has(task.queuePhase)) return { phase: task.queuePhase }
-  return { phase: 'submitting' }
+  const terminal: GenerationActivity | undefined =
+    task.status === 'done'
+      ? { phase: 'done' }
+      : task.cancelled
+        ? { phase: 'cancelled' }
+        : task.status === 'error'
+          ? { phase: 'failed' }
+          : undefined
+  return activityUnlessTerminalStatus(task.activity, terminal, () => {
+    if (task.batchQueued) return { phase: 'batch-queued' }
+    if (task.queuePhase && SERVER_PHASES.has(task.queuePhase)) return { phase: task.queuePhase }
+    return { phase: 'submitting' }
+  })
 }
 
 export function activityFromCanvas(placeholder: {
   status: 'loading' | 'error' | 'stale'
   meta: { queuePhase?: TaskProgressPhase; activity?: GenerationActivity }
 }): GenerationActivity {
-  if (placeholder.meta.activity) return placeholder.meta.activity
-  if (placeholder.status === 'stale') return { phase: 'stale' }
-  if (placeholder.status === 'error') return { phase: 'failed' }
-  if (placeholder.meta.queuePhase && SERVER_PHASES.has(placeholder.meta.queuePhase)) {
-    return { phase: placeholder.meta.queuePhase }
-  }
-  return { phase: 'submitting' }
+  const terminal: GenerationActivity | undefined =
+    placeholder.status === 'stale'
+      ? { phase: 'stale' }
+      : placeholder.status === 'error'
+        ? { phase: 'failed' }
+        : undefined
+  return activityUnlessTerminalStatus(placeholder.meta.activity, terminal, () => {
+    if (placeholder.meta.queuePhase && SERVER_PHASES.has(placeholder.meta.queuePhase)) {
+      return { phase: placeholder.meta.queuePhase }
+    }
+    return { phase: 'submitting' }
+  })
 }
 
 /** 服务端任务状态第一次投影到客户端。不是从某个旧阶段转过来的。 */

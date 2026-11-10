@@ -139,6 +139,19 @@ it('排队中被取消的任务：详情写「已取消」，可复制取消诊�
   })
 })
 
+it('过期任务的详情写「已过期」，并给出重试', async () => {
+  useStore.setState({
+    tasks: [{ ...task, status: 'error', activity: { phase: 'stale' }, outputImages: [] }],
+    detailTaskId: task.id,
+  })
+
+  await act(async () => root.render(<DetailModal />))
+
+  expect(document.body.textContent).toContain('已过期')
+  expect(document.body.querySelector('[aria-label="重试任务"]')).not.toBeNull()
+  expect(document.body.querySelector('.animate-spin')).toBeNull()
+})
+
 it('认不出分类的失败照旧显示上游原文', async () => {
   useStore.setState({
     tasks: [{ ...task, status: 'error', error: 'HTTP 502 bad gateway', outputImages: [] }],

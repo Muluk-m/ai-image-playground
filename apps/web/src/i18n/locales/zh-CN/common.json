@@ -30,7 +30,8 @@
   "state": {
     "generating": "生成中",
     "failed": "失败",
-    "cancelled": "已取消"
+    "cancelled": "已取消",
+    "stale": "已过期"
   },
   "toast": {
     "copySucceeded": "复制成功",

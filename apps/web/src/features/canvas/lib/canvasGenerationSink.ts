@@ -15,7 +15,7 @@ import { addCompletedCanvasTask, type CanvasProfileSnapshot, useStore } from '..
 import type { TaskParams } from '../../../types'
 import type { CanvasEditor, CanvasTaskMeta, PlaceholderView } from './editor'
 import type { Box } from './geometry'
-import { markPlaceholderStatus, settleGeneration, targetFromShape } from './placeholderShapeOps'
+import { settleGeneration, settlePlaceholderActivity, targetFromShape } from './placeholderShapeOps'
 import { computePlaceholderTargets, type PlacementTarget, spreadTargets } from './placement'
 
 /**
@@ -239,7 +239,13 @@ export function canvasGenerationSink(
     },
 
     failed(handle, failure) {
-      markPlaceholderStatus(editor, handle.placeholderId, 'error', failure.text, failure.code)
+      settlePlaceholderActivity(
+        editor,
+        handle.placeholderId,
+        failure.cancelled ? 'cancel' : 'fail',
+        failure.text,
+        failure.code ? { errorCode: failure.code } : undefined,
+      )
     },
   }
 }
