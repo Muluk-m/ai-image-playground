@@ -13,11 +13,14 @@ stateDiagram-v2
   in_progress --> completed: succeed
   in_progress --> failed: fail
   in_progress --> cancelled: cancel
+  queued --> reconciling: reconcile
   reconciling --> completed: succeed
   reconciling --> failed: fail
+  reconciling --> cancelled: cancel
+  reconciling --> in_progress: resume
 ```
 
-`reconciling` 不能取消、不能直接重试。取消已发出的上游请求时，先进入核查，预扣留在那里。
+生图取消只发生在 `queued` 和 `in_progress`。已经派出的分析任务从这两个状态进入 `reconciling`，不退款。零派发的分析核查会从 `reconciling` 写成 `cancelled`。人工确认分析核查时先 `resume` 回 `in_progress` 再结算。
 
 CLI 不暴露这六态。`projectCliJobStatus` 把 `completed` 映成 `succeeded`，`cancelled` 映成 `canceled`，进度阶段 `confirming` 映成 `persisting`，`reconciling` 仍是 `running`。
 

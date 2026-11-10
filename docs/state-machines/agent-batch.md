@@ -6,17 +6,15 @@
 stateDiagram-v2
   [*] --> draft
   draft --> running: confirm
-  draft --> paused: confirm_held
+  draft --> paused: confirm_held / pause
   paused --> running: confirm / resume
   paused --> paused: confirm_held / pause
   running --> paused: pause
   running --> closed: close
   paused --> closed: close
   draft --> cancelled: cancel
-  running --> cancelled: cancel
-  paused --> cancelled: cancel
-  closed --> cancelled: cancel
   cancelled --> cancelled: cancel
+  cancelled --> paused: pause
 ```
 
-`confirm_held` 是确认时计划要求先停住（改价或重新确认）。若干取消写入不读当前状态，所以 closed 和 cancelled 再写成 cancelled 也在表里，与现网 SQL 一致。
+`confirm_held` 是确认时计划要求先停住（改价或重新确认）。取消只打在草稿上。删除会话时，除了已关闭的批次，其余都标成 paused，包括已经取消的草稿。已关闭的批次不会因此再被取消或暂停。
