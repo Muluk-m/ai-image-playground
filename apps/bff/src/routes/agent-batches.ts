@@ -1,6 +1,7 @@
 import {
   GPT_IMAGE_26_GIF_DURATION_MAX_MS,
   GPT_IMAGE_26_GIF_DURATION_MIN_MS,
+  GPT_IMAGE_26_GIF_DURATION_STEP_MS,
   GPT_IMAGE_26_GIF_FRAME_MAX,
   GPT_IMAGE_26_GIF_FRAME_MIN,
 } from '@image-playground/shared'
@@ -74,6 +75,7 @@ const generationParams = t.Object({
     t.Integer({
       minimum: GPT_IMAGE_26_GIF_DURATION_MIN_MS,
       maximum: GPT_IMAGE_26_GIF_DURATION_MAX_MS,
+      multipleOf: GPT_IMAGE_26_GIF_DURATION_STEP_MS,
     }),
   ),
   gemini_aspect_ratio: t.Optional(t.String({ maxLength: 16 })),
