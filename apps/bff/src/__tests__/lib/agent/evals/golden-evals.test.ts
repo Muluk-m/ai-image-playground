@@ -438,10 +438,27 @@ describe('黄金评测：容错', () => {
   })
 })
 
-describe('黄金评测：短确认语（当前行为，拦截见 PR 1）', () => {
-  it('short-confirmation-current：批次完成后短确认语仍会问模型，系统事实已提示不要再生成', async () => {
+const GENERATION_TOOLS = [
+  'generateImage',
+  'editImage',
+  'generateVideo',
+  'runNodes',
+  'planImageBatch',
+  'proposeBatchGeneration',
+  'runStoryboardFrames',
+] as const
+
+describe('黄金评测：短确认语（拦截后）', () => {
+  it('short-confirmation-current：批次完成后短确认语被拦截，不再问模型，并给出固定回复', async () => {
     setAgentFetchForTesting(
-      scriptedAgentFetch(calls, [() => completionStream('这一批已经出完，产物在卡片里。')]),
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'should-not-run',
+            name: 'generateImage',
+            args: { prompt: '确认，执行生成' },
+          }),
+      ]),
     )
     const conversationId = await startConversation(client)
     await seedCompletedBatch(conversationId, 'batch-confirmed')
@@ -451,16 +468,44 @@ describe('黄金评测：短确认语（当前行为，拦截见 PR 1）', () =>
       { text: '确认，执行生成', params: { autoSubmit: false }, experience: 'chat' },
       idle,
     )
-    // 当前没有服务端硬拦截：短确认语仍会派发对话模型。
-    expect(calls).toHaveLength(1)
-    const user = lastUserText(calls[0]!)
-    expect(user).toContain('确认，执行生成')
-    expect(user).toContain('批次 batch-confirmed「秋日海报批次」：已执行完毕，完成 2/2')
-    expect(user).toContain('不要为这类话重新调用生成工具')
+    expect(calls).toHaveLength(0)
+    const messages = await snapshotMessages(client, conversationId)
+    const serialized = JSON.stringify(messages)
+    expect(serialized).toContain('这批已经出完了，不用再确认执行，我不会重新提交生成。')
+    expect(serialized).toContain('批次 batch-confirmed「秋日海报批次」已完成 2/2')
+    expect(toolCards(messages).map((card) => card.toolName)).toEqual([])
     expect(await queueTasks(conversationId)).toEqual([])
   })
 
-  it.todo(
-    'short-confirmation-intercept：批次已完成后说「确认，执行生成」不应再调对话模型或生成工具（待 PR 1 合并后启用）',
-  )
+  it('short-confirmation-intercept：批次已完成后说「确认，执行生成」不应再调对话模型或生成工具', async () => {
+    setAgentFetchForTesting(
+      scriptedAgentFetch(calls, [
+        () =>
+          toolCallCompletion({
+            id: 'should-not-run',
+            name: 'generateImage',
+            args: { prompt: '确认，执行生成' },
+          }),
+      ]),
+    )
+    const conversationId = await startConversation(client)
+    await seedCompletedBatch(conversationId, 'batch-intercept')
+    await runTurn(
+      client,
+      conversationId,
+      { text: '确认，执行生成', params: { autoSubmit: false }, experience: 'chat' },
+      idle,
+    )
+    expect(calls).toHaveLength(0)
+    const cards = toolCards(await snapshotMessages(client, conversationId))
+    for (const name of GENERATION_TOOLS) {
+      expect(cards.some((card) => card.toolName === name)).toBe(false)
+    }
+    expect(await queueTasks(conversationId)).toEqual([])
+    const drafts = await db
+      .select()
+      .from(schema.agent_generation_drafts)
+      .where(eq(schema.agent_generation_drafts.conversation_id, conversationId))
+    expect(drafts).toEqual([])
+  })
 })
