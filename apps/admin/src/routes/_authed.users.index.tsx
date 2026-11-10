@@ -10,9 +10,9 @@ import { ErrorState, Page, PendingState } from '@/components/Page'
 import { UserFormDialog } from '@/components/UserFormDialog'
 import { UserTable } from '@/components/UserTable'
 import { Button } from '@/components/ui/button'
-import { useUsers } from '@/lib/queries'
+import { useUserKpis, useUsers } from '@/lib/queries'
 import { parseUsersSearch } from '@/lib/search-params'
-import type { ListUsersResult } from '@/lib/types'
+import type { ListUsersResult, UserKpis } from '@/lib/types'
 
 export const Route = createFileRoute('/_authed/users/')({
   validateSearch: parseUsersSearch,
@@ -34,6 +34,7 @@ function UsersPage() {
       : preset === 'today' || preset === '7d' || preset === '30d'
         ? presetWindow(preset, clock)
         : undefined
+  const kpisQuery = useUserKpis()
   const query = useUsers(term, {
     status: search.status,
     registeredFrom: search.registeredFrom,
@@ -56,17 +57,20 @@ function UsersPage() {
           <Button
             size="sm"
             variant="outline"
-            disabled={query.isFetching}
-            aria-busy={query.isFetching}
+            disabled={query.isFetching || kpisQuery.isFetching}
+            aria-busy={query.isFetching || kpisQuery.isFetching}
             onClick={() =>
               void Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['users'] }),
+                queryClient.invalidateQueries({ queryKey: ['user-kpis'] }),
                 queryClient.invalidateQueries({ queryKey: ['private-billing', 'user-summaries'] }),
               ])
             }
           >
-            <RefreshCw className={query.isFetching ? 'animate-spin' : undefined} />
-            {query.isFetching ? '刷新中…' : '刷新'}
+            <RefreshCw
+              className={query.isFetching || kpisQuery.isFetching ? 'animate-spin' : undefined}
+            />
+            {query.isFetching || kpisQuery.isFetching ? '刷新中…' : '刷新'}
           </Button>
           <Button size="sm" variant="brand" onClick={() => setCreating(true)}>
             <Plus />
@@ -80,17 +84,18 @@ function UsersPage() {
       ) : query.isError ? (
         <ErrorState label="加载用户失败" error={query.error} />
       ) : (
-        <UsersContent data={query.data} />
+        <UsersContent data={query.data} kpis={kpisQuery.data} />
       )}
       <UserFormDialog mode="create" open={creating} onOpenChange={setCreating} />
     </Page>
   )
 }
 
-function UsersContent({ data }: { data: ListUsersResult }) {
+function UsersContent({ data, kpis }: { data: ListUsersResult; kpis: UserKpis | undefined }) {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
-  const { users, kpis, total, page, pageSize } = data
+  const { users, total, page, pageSize } = data
+  const metric = (value: number | undefined) => (value === undefined ? '—' : String(value))
   const chips: FilterChip[] = []
   if (search.status)
     chips.push({
@@ -117,12 +122,12 @@ function UsersContent({ data }: { data: ListUsersResult }) {
   return (
     <>
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" aria-label="用户指标">
-        <Kpi label="用户总数" value={String(kpis.total_users)} note="所有用户" />
-        <Kpi label="7 日活跃" value={String(kpis.active_users_7d)} note="登录或提交过任务" />
-        <Kpi label="24h 提交" value={String(kpis.submissions_24h)} note="全部用户任务" />
+        <Kpi label="用户总数" value={metric(kpis?.total_users)} note="所有用户" />
+        <Kpi label="7 日活跃" value={metric(kpis?.active_users_7d)} note="登录或提交过任务" />
+        <Kpi label="24h 提交" value={metric(kpis?.submissions_24h)} note="全部用户任务" />
         <Kpi
           label="24h 失败率"
-          value={`${Math.round(kpis.failure_rate_24h * 1000) / 10}%`}
+          value={kpis ? `${Math.round(kpis.failure_rate_24h * 1000) / 10}%` : '—'}
           note="失败 / 提交"
         />
       </section>
