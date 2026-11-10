@@ -317,6 +317,11 @@ if (process.env.RETAIN_LOG) appendFileSync(process.env.RETAIN_LOG, process.argv.
   )
   // Stands in for the browser smoke that runs right after the dist is finalized.
   await writeFile(join(checkout, 'scripts/pages-browser-smoke.sh'), 'exit 28\n')
+  // Records where retention would read the live site; the real script is covered on its own.
+  await writeFile(
+    join(checkout, 'scripts/retain-pages-assets.mjs'),
+    `import { writeFileSync } from 'node:fs'\nwriteFileSync(${JSON.stringify(join(checkout, 'retained'))}, process.argv.slice(2).join('\\n'))\n`,
+  )
   await writeFile(join(checkout, 'private/apps/web/index.tsx'), 'export {}\n')
   const captured = join(checkout, 'build-env')
   // Stop at the real build boundary: never build, upload, or call a live origin in this test.
@@ -414,6 +419,10 @@ it('serves the enterprise domain from the muvloom project with its own API and n
     'https://enterprise.example.net': 'https://enterprise-api.example.net',
   })
   expect(lines[9]).toBe('https://enterprise.example.net')
+  expect((await readFile(join(checkout, 'retained'), 'utf8')).split('\n')).toEqual([
+    join(checkout, 'apps/web/dist'),
+    'https://paid.example.com',
+  ])
   expect(await readFile(join(checkout, 'apps/web/dist/_headers'), 'utf8')).toBe(
     '/assets/*\n  Cache-Control: immutable\n\nhttps://enterprise.example.net/*\n  X-Robots-Tag: noindex, nofollow\n',
   )

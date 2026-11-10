@@ -19,13 +19,12 @@ set -eu
 # NOINDEX_ORIGINS="<https origin> ..." appends a host-scoped `X-Robots-Tag: noindex` rule per
 # origin to dist/_headers, for extra custom domains of the same project that must not be indexed.
 #
+# PAGES_ASSET_ORIGIN=<https origin> copies the hashed files of recent releases from that live site
+# into dist before upload (scripts/retain-pages-assets.mjs). pages-release.sh sets it.
+#
 # NOTIFY_UPDATE=true makes open tabs show the update banner for this release. The default is a
 # silent release: the manifest still ships, but running tabs migrate on their next natural reload.
 # The manifest itself is written by build:static-host, not here.
-#
-# PAGES_SKIP_ASSET_RETAIN=1 skips merging the previous build's hashed /assets and
-# /website-assets. Use it only when the live origin is too broken to read and a hotfix
-# must ship. Open tabs on the previous build will fail those chunk loads until they reload.
 #
 # The edition is asserted against the working copy instead of inferred, because the overlay is
 # included by mere file presence (apps/web/src/lib/privateOverlay.tsx globs
@@ -134,13 +133,11 @@ if [ -n "${NOINDEX_ORIGINS:-}" ]; then
   echo "Added host-scoped noindex headers for: $NOINDEX_ORIGINS"
 fi
 
-# Open tabs keep importing the previous build's hashed files. Merge those files into
-# this dist immediately before smoke and upload, so a deploy that went live while this
-# one was building is included. PAGES_ASSET_ORIGIN is set by pages-release.sh.
-# Preview deploys without it publish the current build only.
-if [ "${PAGES_SKIP_ASSET_RETAIN:-}" = 1 ]; then
-  echo "WARNING: PAGES_SKIP_ASSET_RETAIN=1 — not retaining previous hashed assets from ${PAGES_ASSET_ORIGIN:-the live origin}." >&2
-  echo "WARNING: tabs left open on the previous build will fail to load those chunks until they reload. This is an emergency bypass, not a normal release." >&2
+# Open tabs keep importing the previous releases' hashed chunks, which a new Pages deployment no
+# longer serves. pages-release.sh sets PAGES_ASSET_ORIGIN; preview deploys publish this build only.
+# PAGES_RETAIN_ASSETS=0 publishes this build only, so old hashed URLs 404 at once.
+if [ "${PAGES_RETAIN_ASSETS:-1}" = 0 ]; then
+  echo "PAGES_RETAIN_ASSETS=0: not retaining previous hashed assets; open tabs on older releases reload once."
 elif [ -n "${PAGES_ASSET_ORIGIN:-}" ]; then
   node "$repo_root/scripts/retain-pages-assets.mjs" "$dist_dir" "$PAGES_ASSET_ORIGIN"
 fi

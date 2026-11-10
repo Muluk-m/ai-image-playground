@@ -164,4 +164,34 @@ describe('RouteChunkBoundary', () => {
     expect(host.querySelector('[role="parent-error"]')?.textContent).toBe('canvas render failed')
     expect(host.querySelector('[role="alert"]')).toBeNull()
   })
+  it('uses a stricter matcher when given one and reports the failure screen', () => {
+    const strict = (error: unknown) =>
+      error instanceof Error && error.message.startsWith('Failed to fetch dynamically imported')
+    const onChunkError = vi.fn()
+    let message = 'Load failed'
+    function BrokenPage(): JSX.Element {
+      throw new Error(message)
+    }
+    const tree = () =>
+      createElement(ParentBoundary, {
+        children: createElement(RouteChunkBoundary, {
+          title: 'Page unavailable',
+          description: 'Try again',
+          retryLabel: 'Reload',
+          isChunkError: strict,
+          onChunkError,
+          children: createElement(BrokenPage),
+        }),
+      })
+    act(() => root.render(tree()))
+    expect(host.querySelector('[role="parent-error"]')?.textContent).toBe('Load failed')
+    expect(onChunkError).not.toHaveBeenCalled()
+
+    act(() => root.unmount())
+    root = createRoot(host)
+    message = 'Failed to fetch dynamically imported module: /assets/App-old.js'
+    act(() => root.render(tree()))
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe('Page unavailable')
+    expect(onChunkError).toHaveBeenCalledOnce()
+  })
 })
