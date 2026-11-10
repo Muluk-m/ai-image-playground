@@ -6,7 +6,7 @@ import {
   useRouterState,
 } from '@tanstack/react-router'
 import { THEME_BOOT_SCRIPT } from '../../../web/src/theme/bootScript'
-import { copy, findPage } from '../catalog'
+import { copy, findPage, localeFromPath } from '../catalog'
 import { ROOT_LOCALE_SELECTION_SCRIPT } from '../localeSelection'
 import { ROOT_SESSION_SELECTION_SCRIPT } from '../rootSessionSelection'
 import cssUrl from '../site.css?url'
@@ -28,17 +28,24 @@ export const Route = createRootRoute({
     ],
   }),
   component: Document,
-  notFoundComponent: () => (
-    <main className="site-missing">
-      <h1>{copy['zh-CN'].notFound}</h1>
-      <a href="/">返回官网 / Home</a>
-    </main>
-  ),
+  notFoundComponent: NotFound,
 })
+function NotFound() {
+  const path = useRouterState({ select: (state) => state.location.pathname })
+  const locale = localeFromPath(path)
+  const text = copy[locale]
+  return (
+    <main className="site-missing">
+      <h1>{text.notFound}</h1>
+      <a href={locale === 'en' ? '/en/' : '/'}>{text.back}</a>
+    </main>
+  )
+}
 function Document() {
   const path = useRouterState({ select: (state) => state.location.pathname })
+  const locale = findPage(path)?.locale ?? localeFromPath(path)
   return (
-    <html lang={findPage(path)?.locale ?? 'zh-CN'} suppressHydrationWarning>
+    <html lang={locale} suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>
