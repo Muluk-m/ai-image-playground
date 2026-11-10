@@ -18,7 +18,9 @@ import type { AgentTurnContinuation } from './turn-input'
  *
  * - 用户确认：`confirmations.ts` 按冻结的材料提交，这一轮拦下的卡都确认完时排一次续跑；续跑把
  *   那几次调用与它们的回执接在历史末尾，`Agent.continue()` 接着往下走，不给模型任何额外说明。
- * - 用户没确认就发了新消息：这张卡作废（`voidPendingToolGates`），模型在历史里看到这次没有执行。
+ * - 用户在聊天里发了短确认语（确认 / 好的 / ok 等）：入箱之前按卡片确认同一条路径提交，
+ *   不作废、不另开一轮对话模型。
+ * - 用户没确认就发了别的新消息：这张卡作废（`voidPendingToolGates`），模型在历史里看到这次没有执行。
  *
  * pi 的 `beforeToolCall` 只能放行或拦成一条错误结果，没有挂起；Agent 的 `continue()` 要求最后一条是
  * 用户消息或工具结果。所以这里不在 `beforeToolCall` 里 block（那会把一条错误回执写进模型的上下文），

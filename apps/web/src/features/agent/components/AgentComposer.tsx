@@ -140,7 +140,10 @@ import {
 } from '../lib/attachmentUploads'
 import { batchDraftSnapshot, subscribeBatchDrafts } from '../lib/batchDrafts'
 import { agentComposerFillPrompt, useComposerFillTarget } from '../lib/composerFill'
-import { shouldHoldConfirmation } from '../lib/confirmationPhrase'
+import {
+  shouldHoldConfirmation,
+  shouldSubmitPendingDraftsFromChat,
+} from '../lib/confirmationPhrase'
 import { conversationImages } from '../lib/conversationImages'
 import { followUpGhostAction, visibleFollowUps } from '../lib/followUps'
 import { referenceTileLabel } from '../lib/imageMentions'
@@ -169,6 +172,7 @@ import {
   setReferenceMask,
 } from '../lib/references'
 import { createSelectionReferences } from '../lib/selectionReferences'
+import { agentToolFailureText } from '../lib/toolFailure'
 import { useAgentSkills } from '../lib/useAgentSkills'
 import { useAttachmentStackProgress } from '../lib/useAttachmentStackProgress'
 import { useAgentStore } from '../store'
@@ -1020,15 +1024,7 @@ export default function AgentComposer({
     setConfirmationHeld(false)
   }, [draft.prompt])
 
-  const submit = () => {
-    if (loading || submitting || historyBlocked || uploadsBlocked) return
-    if (
-      !bypassConfirmation.current &&
-      shouldHoldConfirmation(draft.prompt, pendingConfirmations.length)
-    ) {
-      setConfirmationHeld(true)
-      return
-    }
+  const sendDraft = () => {
     bypassConfirmation.current = false
     setConfirmationHeld(false)
     if (draft.prompt.trim()) holdStop()
@@ -1048,6 +1044,53 @@ export default function AgentComposer({
             notice === 'cancelled' ? 'info' : 'error',
           ),
     })
+  }
+
+  const submit = () => {
+    if (loading || submitting || historyBlocked || uploadsBlocked) return
+    if (
+      !bypassConfirmation.current &&
+      shouldSubmitPendingDraftsFromChat(draft.prompt, pendingConfirmations, draft.references.length)
+    ) {
+      const snapshot = draft
+      const release = session.beginSubmission()
+      void useAgentStore
+        .getState()
+        .confirmAllPrompts()
+        .then((result) => {
+          if (result.failure && !result.failure.ok) {
+            useStore
+              .getState()
+              .showToast(
+                result.failure.reason === 'drafting'
+                  ? t('confirm.drafting')
+                  : ((result.failure.reason === 'refused'
+                      ? agentToolFailureText(result.failure.code)
+                      : null) ?? t('confirm.allFailed', { count: result.confirmed })),
+                'error',
+              )
+            return
+          }
+          if (result.confirmed > 0) {
+            session.accept(snapshot)
+            return
+          }
+          // 待确认卡已经不在了：别把输入清掉。不要递归 submit()——
+          // 当前渲染的 submitting 仍是 true，会在入口直接 return。
+          release()
+          sendDraft()
+        })
+        .finally(release)
+      return
+    }
+    if (
+      !bypassConfirmation.current &&
+      shouldHoldConfirmation(draft.prompt, pendingConfirmations.length)
+    ) {
+      setConfirmationHeld(true)
+      return
+    }
+    sendDraft()
   }
 
   /**

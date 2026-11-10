@@ -1,12 +1,15 @@
 import type {
+  AgentMessageView,
   AgentQueuedMessageView,
   AgentQueueInterjectResult,
   AgentQueueWithdrawResult,
   AgentReturnedQueuedMessage,
+  AgentToolErrorCode,
 } from '@image-playground/shared'
 import { bffDrain } from '../drain'
 import { log } from '../logger'
 import { cancelStoppedTurnJobs } from './background-jobs'
+import { tryConfirmPendingDraftsFromChat } from './chat-confirm-submit'
 import { notifyConversation } from './events'
 import type { EnqueueUserMessage, InboxEntry } from './inbox'
 import {
@@ -101,6 +104,14 @@ export type InboxSendResult =
   | { readonly kind: 'queued'; readonly entry: InboxEntry; readonly runningTurnId?: string }
   /** 轮到它却开不了轮（余额不足等）：它已经撤出队列，原因原样交回，草稿留在输入框。 */
   | { readonly kind: 'not_started'; readonly failure: TurnNotStarted }
+  /** 短确认语直接提交了待确认卡，没有入箱、也没有开对话轮。 */
+  | {
+      readonly kind: 'confirmed'
+      readonly messages: readonly AgentMessageView[]
+      readonly continued?: true
+    }
+  /** 短确认语去提交待确认卡时被拒（积分不够等），卡片仍在，没有入箱。 */
+  | { readonly kind: 'confirmation_refused'; readonly code: AgentToolErrorCode }
 
 /** 这一条此刻的状态；记录没了（会话刚被删）就按已撤回报。 */
 async function settledEntry(conversationId: string, entry: InboxEntry): Promise<InboxEntry> {
@@ -164,6 +175,23 @@ export async function sendToConversationInbox(
   // 上一轮的终帧已经发出、租约还没放：等它交接完再进收件箱，这一条才能自己开轮、拿到自己的流。
   // 等待有上限，收尾卡住时照常入队、退回排队回执（见 `awaitConversationHandoff`）。
   await awaitConversationHandoff(conversationId)
+  const confirmed = await tryConfirmPendingDraftsFromChat({
+    conversationId,
+    text: message.text,
+    deviceId: message.deviceId,
+    clarificationAnswer: message.clarificationAnswer,
+    referenceCount: message.references.length,
+  })
+  if (confirmed.kind === 'refused') return { kind: 'confirmation_refused', code: confirmed.code }
+  if (confirmed.kind === 'submitted') {
+    // 与 POST /confirmations 相同：卡都确认完时续跑已经排进收件箱，这里当场去开轮。
+    if (confirmed.continued) pickUpGateContinuation(conversationId)
+    return {
+      kind: 'confirmed',
+      messages: confirmed.messages,
+      ...(confirmed.continued ? { continued: true as const } : {}),
+    }
+  }
   const enqueued = await enqueueAgentUserMessage(conversationId, message)
   if (enqueued.kind === 'full') return { kind: 'full' }
   const { entry } = enqueued
