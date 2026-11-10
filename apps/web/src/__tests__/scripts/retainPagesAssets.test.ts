@@ -1,5 +1,6 @@
 // @vitest-environment node
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { spawnSync } from 'node:child_process'
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -289,3 +290,17 @@ it('skips oversized files and an oversized manifest without reading them whole',
   expect((await manifest()).releases).toHaveLength(1)
   expect(log.mock.calls.flat().join('\n')).toContain('larger than')
 })
+
+it('runs as a CLI even when invoked through a symlinked directory', async () => {
+  const link = join(dist, 'linked-scripts')
+  await symlink(join(root, 'scripts'), link)
+  // Port 9 refuses at once: the manifest is unreadable, so only this build is recorded.
+  const run = spawnSync(
+    process.execPath,
+    [join(link, 'retain-pages-assets.mjs'), dist, 'http://127.0.0.1:9'],
+    { encoding: 'utf8', timeout: 20_000 },
+  )
+  expect(run.status, run.stderr).toBe(0)
+  expect(run.stdout).toContain('Retained 0 previous release(s)')
+  expect((await manifest()).releases).toHaveLength(1)
+}, 30_000)

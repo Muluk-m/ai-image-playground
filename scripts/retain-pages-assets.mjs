@@ -8,9 +8,10 @@
 // Never blocks a release: if the live site or a file cannot be read, it warns and publishes
 // what it has. Tabs that still miss a chunk reload once (startup guard in
 // apps/web/src/boot/vitePlugin.ts, and apps/web/src/lib/chunkLoad.ts for the workbench).
+import { realpathSync } from 'node:fs'
 import { mkdir, readdir, writeFile } from 'node:fs/promises'
 import { dirname, join, relative, sep } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 
 export const MANIFEST = 'assets-manifest.json'
 export const KEEP_RELEASES = 5
@@ -256,7 +257,9 @@ export async function retainPagesAssets({
   return { copied, bytes, missing: [...missing].sort(), releases }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+// Compare real paths: Node resolves symlinks for import.meta.url but not for argv[1], so a
+// checkout under a symlinked directory (macOS /tmp, /var) would otherwise skip retention silently.
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [distDir, origin] = process.argv.slice(2)
   if (!distDir || !origin) {
     console.error('Usage: node scripts/retain-pages-assets.mjs <dist-dir> <live-origin>')
