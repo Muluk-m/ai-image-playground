@@ -312,7 +312,11 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     const facts = await readConversationStateFacts(conversationId)
     const conversationState = renderConversationState(facts)
     confirmationGuard =
-      source.kind === 'message' ? shortConfirmationGuard(content.text, facts) : undefined
+      source.kind === 'message'
+        ? shortConfirmationGuard(content.text, facts, {
+            inClarification: clarificationChainStart(window.messages) < window.messages.length,
+          })
+        : undefined
     let modelHistory: AgentTurnInput['modelHistory']
     if (
       source.kind === 'message' &&

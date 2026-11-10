@@ -85,3 +85,13 @@ it('does not resubmit while a batch is still running or paused', () => {
   expect(running?.reason).toBe('in_progress')
   expect(running?.reply).toContain('还在执行中')
 })
+
+it('does not intercept a confirmation that is answering a clarification', () => {
+  expect(
+    shortConfirmationGuard(
+      '可以',
+      { ...emptyFacts, batches: [completedBatch] },
+      { inClarification: true },
+    ),
+  ).toBeUndefined()
+})
