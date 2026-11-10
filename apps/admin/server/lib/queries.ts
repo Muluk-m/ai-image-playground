@@ -29,7 +29,11 @@ export type { Range, SortKey } from '../../contracts'
 
 import { and, asc, eq, getViewSelectedFields, sql } from 'drizzle-orm'
 import { getDbHandle as getHandle } from './db'
-import { redactTaskRequestPayload, redactUpstreamBody } from './redact-task-detail'
+import {
+  redactTaskErrorMessage,
+  redactTaskRequestPayload,
+  redactUpstreamBody,
+} from './redact-task-detail'
 import { taskSourceSql } from './task-source'
 
 function rangeMs(range: Range): number {
@@ -384,8 +388,8 @@ async function loadUserKpis(): Promise<UserKpis> {
   }
 }
 
-export function getUserKpis(now = Date.now()): Promise<UserKpis> {
-  if (userKpiCache && now - userKpiCache.at < USER_KPI_CACHE_MS)
+export function getUserKpis(now = Date.now(), fresh = false): Promise<UserKpis> {
+  if (!fresh && userKpiCache && now - userKpiCache.at < USER_KPI_CACHE_MS)
     return Promise.resolve(userKpiCache.value)
   if (!userKpiPending) {
     const at = now
@@ -1159,7 +1163,7 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
     request_payload: redactTaskRequestPayload(request_payload),
     user_id: task.user_id,
     result_meta: { images },
-    error_message: task.error_message,
+    error_message: redactTaskErrorMessage(task.error_message),
     upstream_status: task.upstream_status,
     upstream_body: redactUpstreamBody(task.upstream_body),
     device_id,

@@ -39,7 +39,7 @@ await writer.db.insert(writer.schema.tasks).values({
       },
     ],
   } as never,
-  error_message: 'upstream rejected the request',
+  error_message: 'upstream rejected Bearer sk-abcdefghijklmnopqrstuvwxyz',
   error_type: 'upstream_error',
   upstream_status: 401,
   upstream_body:
@@ -100,6 +100,8 @@ describe('getTask', () => {
     expect(payload.contents[0]?.parts[0]?.text).toBe('caption')
     expect(payload.contents[0]?.parts[1]?.inlineData?.mimeType).toBe('image/png')
     expect(payload.contents[0]?.parts[1]?.inlineData?.data).toBe('[BINARY REDACTED]')
+    expect(task!.error_message).toBe('upstream rejected Bearer [REDACTED]')
+    expect(task!.error_message).not.toContain('sk-abcdefghijklmnopqrstuvwxyz')
     expect(task!.error_type).toBe('upstream_error')
     expect(task!.upstream_status).toBe(401)
     expect(task!.upstream_body).toContain('invalid_api_key')

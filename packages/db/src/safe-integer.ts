@@ -17,3 +17,11 @@ export function sqlCoalesceIntegerFromDigitText(value: SQL, fallback: SQL): SQL 
 export function sqlSumIntegerFromDigitText(value: SQL): SQL {
   return sql`SUM(COALESCE(${sqlIntegerFromDigitText(value)}, 0))`
 }
+
+/**
+ * 批次当前 attempt。键不存在时是 1。文本不是 1–9 位数字时是 NULL，
+ * 连接不上任何 attempt，避免把空串或小数当成第一次尝试。
+ */
+export function sqlBatchAttemptTarget(value: SQL): SQL {
+  return sql`CASE WHEN (${value}) IS NULL THEN 1 WHEN btrim((${value})::text) ~ '^[0-9]{1,9}$' THEN btrim((${value})::text)::integer ELSE NULL END`
+}

@@ -67,7 +67,9 @@ export const usersRoutes = new Elysia({ prefix: '/api/users' })
       }),
     },
   )
-  .get('/kpis', () => getUserKpis())
+  .get('/kpis', ({ query }) => getUserKpis(Date.now(), query.fresh === '1'), {
+    query: t.Object({ fresh: t.Optional(t.String()) }),
+  })
   .get(
     '/:id',
     async ({ params, status }) => {

@@ -29,3 +29,9 @@ export function redactUpstreamBody(value: string | null): string | null {
   if (value == null) return null
   return redactLogText(value)
 }
+
+/** 页面上直接展示的错误原文。只去掉凭据形态，不截断，也不按字段名丢掉正文。 */
+export function redactTaskErrorMessage(value: string | null): string | null {
+  if (value == null) return null
+  return redactCredentialFragments(value)
+}

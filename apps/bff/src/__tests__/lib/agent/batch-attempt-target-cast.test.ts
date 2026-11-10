@@ -44,7 +44,7 @@ it('resolves dirty attempt_targets without aborting the batch query', async () =
       title: 'dirty targets',
       rule: 'keep going',
       digest: String(version).repeat(64),
-      item_count: version === 1 ? 3 : 1,
+      item_count: version === 1 ? 4 : 1,
       estimate_snapshot: { analysis: quote, generation: quote },
       attempt_targets: {},
       created_at: now,
@@ -56,7 +56,7 @@ it('resolves dirty attempt_targets without aborting the batch query', async () =
     WHERE batch_id = ${id} AND version = 1
   `)
   await db.insert(schema.agent_batch_items).values([
-    ...['dep', 'ok', 'blank'].map((key, ordinal) => ({
+    ...['dep', 'ok', 'blank', 'gone'].map((key, ordinal) => ({
       batch_id: id,
       version: 1,
       key,
@@ -76,7 +76,7 @@ it('resolves dirty attempt_targets without aborting the batch query', async () =
       inputs: [],
       prompt: 'child',
       params: { model: 'fixture', estimatedInputTokens: 0, evidence: [] },
-      dependencies: ['dep', 'ok', 'blank'],
+      dependencies: ['dep', 'ok', 'blank', 'gone'],
     },
   ])
   await db.insert(schema.agent_batch_attempts).values(
@@ -86,6 +86,7 @@ it('resolves dirty attempt_targets without aborting the batch query', async () =
       ['ok', 1],
       ['ok', 2],
       ['blank', 1],
+      ['gone', 1],
     ].map(([key, attempt]) => ({
       batch_id: id,
       version: 1,
@@ -102,11 +103,12 @@ it('resolves dirty attempt_targets without aborting the batch query', async () =
     id,
     2,
     [1],
-    [{ key: 'child', dependencies: ['dep', 'ok', 'blank'] }],
+    [{ key: 'child', dependencies: ['dep', 'ok', 'blank', 'gone'] }],
   )
   expect(rows.map((row) => [row.key, row.taskId]).sort()).toEqual([
-    ['blank', `${id}-blank-1`],
-    ['dep', `${id}-dep-1`],
+    ['blank', null],
+    ['dep', null],
+    ['gone', `${id}-gone-1`],
     ['ok', `${id}-ok-2`],
   ])
 })
