@@ -58,6 +58,8 @@ PR/main/test 的公开版与带 overlay 构建都在 Chromium 中冷启动官网
 
 Admin（`apps/admin`）同样带顶层 `404.html`，`_redirects` 由 `apps/admin/src/lib/pagesRedirects.ts` 在构建时从 TanStack Router 生成的 `routeTree.gen.ts` 逐条列出（含私有覆盖层的路由），回退目标写 `/`，不写 `/index.html`。`pages-release.sh admin` 发布后同样跑 `verify-pages-release.mjs`（`admin` 模式）：首页和每条深链返回本次构建的 HTML 且不长缓存，所有 JS/CSS 字节一致，缺失的 `/assets/*.js` 返回不可复用的 404。
 
+旧哈希保留：Pages 新部署只提供本次构建的文件，已打开的旧标签再懒加载上一版分片会 404。`pages-release.sh`（muvloom、test、admin）导出 `PAGES_ASSET_ORIGIN`，`pages-deploy.sh` 在浏览器冒烟和上传前运行 `scripts/retain-pages-assets.mjs`：读取线上 `assets-manifest.json`，把 14 天内最近 4 次发布在 `/assets`、`/website-assets` 下带内容哈希、而本次构建没有的文件从线上下载进 dist，再写出含本次在内最多 5 次发布的新清单。线上没有清单、清单读不到或个别文件取不到时只打警告，照常发布；漏掉的分片由客户端「同一份 HTML 自动刷新一次」兜底（`apps/web/src/lib/chunkLoad.ts`）。dist 超过 15,000 个文件时中止，调小脚本里的 `KEEP_RELEASES`。
+
 2026-10-01 启动故障的错误脚本缓存已单 URL 清除。独立内联脚本在入口脚本、必需样式或分片（`vite:preloadError`）加载失败时，自动用带 `__aip_reload` 时间戳的当前页面 URL 重载一次，让 HTML 重新获取对应版本的哈希资源；同一次失败会话中，同源 `/assets/` 的入口或必需样式再次失败时，最多等待 20 秒，每 2 秒探测原始资源 URL（单次最多 5 秒）；构建时记录入口的静态依赖分片和关联 CSS（不包含动态懒加载分片），它们和已报告失败的资源均返回 200、正确 JS/CSS MIME 和非空内容后再刷新一次。两次自动恢复的预算均写入 sessionStorage，跨重载保留且不按时间过期；只有用户显式点击重试才重置预算；首次 React 渲染可能只是登录或加载页，不恢复预算，以免后续懒加载分片持续失败造成刷新循环。持续失败、离线或 sessionStorage 不可写时显示重试，避免循环刷新。同一 CSS 的 link 错误和 Vite 预加载错误共用既有探测期限；仅匹配实际失败的同一资源，无关分片错误仍正常处理。探测不修改资源 URL，不把 SPA HTML 当成资源恢复。按钮也使用新的 HTML URL，保留原路径、其他查询参数和 hash，首次 React 渲染后移除恢复参数；不清理账号、IndexedDB 或用户作品。30 秒仍未渲染时显示重试并禁止晚到的失败事件触发自动导航；随后成功渲染仍可撤下超时面板。React 渲染后的业务加载与错误由应用接管。外部字体样式独立、非阻塞加载，失败回退系统字体，不再触发启动失败。
 
 ### Secrets（仓库 `Muluk-m/ai-image-playground`）

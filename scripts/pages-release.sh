@@ -137,8 +137,10 @@ fi
 # The web build writes canonical URLs, hreflang, sitemap.xml, robots.txt and llms.txt from these two.
 PUBLIC_ORIGIN=$public_origin
 SEARCH_INDEXING=$search_indexing
+# The site this release replaces: pages-deploy.sh carries its recent hashed files forward.
+PAGES_ASSET_ORIGIN=$public_origin
 export BFF_ENABLED BFF_BASE_URL BFF_BASE_URLS_BY_ORIGIN CLOUDFLARE_ACCOUNT_ID \
-  PUBLIC_ORIGIN SEARCH_INDEXING NOINDEX_ORIGINS
+  PUBLIC_ORIGIN SEARCH_INDEXING NOINDEX_ORIGINS PAGES_ASSET_ORIGIN
 unset EXTRA_ASSETS_DIR NOTIFY_UPDATE
 extra_assets_dir=$(edition_var "$prefix" EXTRA_ASSETS_DIR)
 if [ -n "$extra_assets_dir" ]; then

@@ -19,6 +19,9 @@ set -eu
 # NOINDEX_ORIGINS="<https origin> ..." appends a host-scoped `X-Robots-Tag: noindex` rule per
 # origin to dist/_headers, for extra custom domains of the same project that must not be indexed.
 #
+# PAGES_ASSET_ORIGIN=<https origin> copies the hashed files of recent releases from that live site
+# into dist before upload (scripts/retain-pages-assets.mjs). pages-release.sh sets it.
+#
 # NOTIFY_UPDATE=true makes open tabs show the update banner for this release. The default is a
 # silent release: the manifest still ships, but running tabs migrate on their next natural reload.
 # The manifest itself is written by build:static-host, not here.
@@ -128,6 +131,12 @@ if [ -n "${NOINDEX_ORIGINS:-}" ]; then
     printf '\n%s/*\n  X-Robots-Tag: noindex, nofollow\n' "${origin%/}" >> "$dist_dir/_headers"
   done
   echo "Added host-scoped noindex headers for: $NOINDEX_ORIGINS"
+fi
+
+# Open tabs keep importing the previous releases' hashed chunks, which a new Pages deployment no
+# longer serves. pages-release.sh sets PAGES_ASSET_ORIGIN; preview deploys publish this build only.
+if [ -n "${PAGES_ASSET_ORIGIN:-}" ]; then
+  node "$repo_root/scripts/retain-pages-assets.mjs" "$dist_dir" "$PAGES_ASSET_ORIGIN"
 fi
 
 if [ "$app" = web ]; then
