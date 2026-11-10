@@ -52,7 +52,6 @@ import { findCatalogModel, publishModelCapabilities } from '@image-playground/sh
 import { isObject } from './type-guards'
 import { capabilitiesForModel } from './upstream/adapters'
 import { gptDirectEnabledKeyCount, gptDirectSizeEnabled } from './upstream/gpt-direct-availability'
-import { gptImage26DirectListed } from './upstream/gpt-routing'
 import { runtimeSecret, upstreamSecretRevision } from './upstream-secret-cache'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
@@ -602,7 +601,7 @@ export function refreshChannelsIfChanged(filePath = defaultChannelsPath()): void
   } catch (error) {
     if (!isFileNotFoundError(error)) throw error
   }
-  const signature = `${filePath}:${fileVersion}:${upstreamSecretRevision()}:${gptDirectEnabledKeyCount()}:${gptDirectSizeEnabled()}:${gptImage26DirectListed()}`
+  const signature = `${filePath}:${fileVersion}:${upstreamSecretRevision()}:${gptDirectEnabledKeyCount()}:${gptDirectSizeEnabled()}`
   if (signature === refreshSignature) return
   initChannels(filePath)
   refreshSignature = signature
@@ -736,19 +735,17 @@ function withDeliverableGptSize(channel: InternalChannel): InternalChannel {
 }
 
 /**
- * 2.6 默认不出现。开关打开就列出来，即使直连 key 不可用：1K、非高画质走 sub2api。
- * 直连不可用时不把整个模型下架，只把目录档位收到 1K、非高画质。
+ * 2.6 默认不出现。开关打开就列出来，直连不可用也不下架、不裁档位：
+ * 用户仍可选 2K/4K、高画质和 GIF/SVG，提交时由服务端降级。
  */
 function withGptImage26(channel: InternalChannel): InternalChannel {
   if (!channel.models.some((model) => isGptImage26Model(model.id))) return channel
   const enabled = process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true'
-  const directReady = gptImage26DirectListed()
   return {
     ...channel,
     models: channel.models.flatMap((model) => {
       if (!isGptImage26Model(model.id)) return [model]
-      if (!enabled) return []
-      return directReady ? [model] : [{ ...model, imageSizes: ['1K'] }]
+      return enabled ? [model] : []
     }),
   }
 }
@@ -792,29 +789,16 @@ function withCatalogCapabilities(model: ChannelModel): ChannelModel {
     capabilitiesForModel(model.id, { member: false, directOn: gptDirectSizeEnabled() })
       ?.memberTiers ?? []
   const memberOnly = new Set<string>(memberTiers)
-  const directReady = !isGptImage26Model(model.id) || gptImage26DirectListed()
-  const tiers = published.image.tiers
-    .filter((tier) => directReady || tier.id === '1K')
-    .map((tier) => ({
-      ...tier,
-      memberOnly: memberOnly.has(tier.id),
-    }))
-  const quality = published.image.quality
+  const tiers = published.image.tiers.map((tier) => ({
+    ...tier,
+    memberOnly: memberOnly.has(tier.id),
+  }))
   return {
     ...model,
     ...published,
     image: {
       ...published.image,
       tiers,
-      ...(quality
-        ? {
-            quality: {
-              values: directReady
-                ? quality.values
-                : quality.values.filter((value) => value !== 'high'),
-            },
-          }
-        : {}),
     },
   }
 }

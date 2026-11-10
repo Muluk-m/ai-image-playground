@@ -706,14 +706,14 @@ describe('shipped channels.json', () => {
         'gpt-image-2.6-sunburst',
       ])
       expect(openai?.models.every((model) => model.unavailable !== true)).toBe(true)
-      expect(openai?.models.every((model) => model.imageSizes?.join() === '1K')).toBe(true)
       expect(
         openai?.models.every(
-          (model) =>
-            model.image?.tiers.map((tier) => tier.id).join() === '1K' &&
-            !model.image?.quality?.values.includes('high'),
+          (model) => model.image?.tiers.map((tier) => tier.id).join() === '1K,2K,4K',
         ),
       ).toBe(true)
+      expect(openai?.models.every((model) => model.image?.quality?.values.includes('high'))).toBe(
+        true,
+      )
     } finally {
       if (saved.enabled === undefined) delete process.env.GPT_IMAGE_26_ENABLED
       else process.env.GPT_IMAGE_26_ENABLED = saved.enabled
@@ -728,7 +728,7 @@ describe('shipped channels.json', () => {
     }
   })
 
-  it('hides 2K, 4K and high quality when direct is switched off or cannot be reserved', () => {
+  it('keeps 2K, 4K and high quality listed when direct is switched off', () => {
     const saved = {
       enabled: process.env.GPT_IMAGE_26_ENABLED,
       direct: process.env.GPT_DIRECT_ENABLED,
@@ -745,12 +745,12 @@ describe('shipped channels.json', () => {
     try {
       process.env.GPT_DIRECT_ENABLED = 'false'
       initChannels()
-      expect(tiersOf()).toEqual(['1K'])
+      expect(tiersOf()).toEqual(['1K', '2K', '4K'])
 
       process.env.GPT_DIRECT_ENABLED = 'true'
       noteDirectSizeDeliverable(false)
       initChannels()
-      expect(tiersOf()).toEqual(['1K'])
+      expect(tiersOf()).toEqual(['1K', '2K', '4K'])
     } finally {
       noteDirectSizeDeliverable(true)
       if (saved.enabled === undefined) delete process.env.GPT_IMAGE_26_ENABLED
@@ -811,8 +811,8 @@ describe('shipped channels.json', () => {
         .find((channel) => channel.id === 'openai-images')
         ?.models.find((model) => model.id === 'gpt-image-2.6-flare')
       expect(disabledKey?.unavailable).toBeUndefined()
-      expect(disabledKey?.image?.tiers.map((tier) => tier.id)).toEqual(['1K'])
-      expect(disabledKey?.image?.quality?.values).not.toContain('high')
+      expect(disabledKey?.image?.tiers.map((tier) => tier.id)).toEqual(['1K', '2K', '4K'])
+      expect(disabledKey?.image?.quality?.values).toContain('high')
     } finally {
       resetAdminDirectKeySnapshot()
       if (savedFlag === undefined) delete process.env.GPT_IMAGE_26_ENABLED

@@ -1,7 +1,10 @@
 import {
   type AgentToolErrorCode,
+  degradeGptImage26ForSub2api,
   type GptTierInput,
+  gptImage26RateMultiplier,
   isGptDirectModel,
+  isGptImage26Model,
   isGptSub2apiDeliverable,
   QUEUE_TIMEOUTS,
   type TaskErrorType,
@@ -208,17 +211,16 @@ export function gptSettledUsage(
   update: TerminalTaskUpdate,
   task: { model: string; request: GptTierInput & { n?: number }; gptRoute: string | null },
 ): TaskUsage | undefined {
-  if (
-    update.status !== 'completed' ||
-    task.gptRoute !== 'sub2api' ||
-    !isGptDirectModel(task.model) ||
-    isGptSub2apiDeliverable(task.request)
-  )
-    return update.actualUsage
-  return {
-    quantity: update.actualUsage?.quantity ?? Math.max(1, task.request.n ?? 1),
-    unitMultiplier: 1,
+  if (update.status !== 'completed' || task.gptRoute !== 'sub2api') return update.actualUsage
+  const quantity = update.actualUsage?.quantity ?? Math.max(1, task.request.n ?? 1)
+  if (isGptImage26Model(task.model)) {
+    const degraded = degradeGptImage26ForSub2api(task.request)
+    if (!degraded) return update.actualUsage
+    return { quantity, unitMultiplier: gptImage26RateMultiplier(degraded.request) }
   }
+  if (!isGptDirectModel(task.model) || isGptSub2apiDeliverable(task.request))
+    return update.actualUsage
+  return { quantity, unitMultiplier: 1 }
 }
 
 /**
