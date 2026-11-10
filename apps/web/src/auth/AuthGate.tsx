@@ -35,9 +35,43 @@ import { SessionExpiredCard } from './SessionExpiredCard'
 // App 必须排在其它动态 import 前面，启动预取才先找到工作台，而不是先钻进登录框或套餐页。
 const App = lazyWithRetry(() => import('../App'))
 // 登录框和套餐页原先静态打进 AuthGate（线上约 600KB）。它们不参与第一帧，拆出去缩短这次下载。
-const LoginDialog = lazyWithRetry(() =>
-  import('./LoginDialog').then((module) => ({ default: module.LoginDialog })),
-)
+function LoginDialogLoader({
+  reason,
+  onClose,
+}: {
+  reason: LoginPromptReason
+  onClose: () => void
+}) {
+  const { t } = useTranslation('auth')
+  const { t: tRoute } = useTranslation('shell')
+  const [attempt, setAttempt] = useState(0)
+  const Dialog = useMemo(
+    () =>
+      lazyWithRetry(
+        () => import('./LoginDialog').then((module) => ({ default: module.LoginDialog })),
+        { reload: false },
+      ),
+    [attempt],
+  )
+  return (
+    <RouteChunkBoundary
+      title={tRoute('route.loadFailed')}
+      description={tRoute('route.loadFailedDescription')}
+      retryLabel={tRoute('route.retry')}
+      compact
+      onRetry={() => setAttempt((value) => value + 1)}
+      renderError={(fallback) => (
+        <Overlay onClose={onClose} tier="alert" layout="center" label={t('dialog.label')}>
+          {fallback}
+        </Overlay>
+      )}
+    >
+      <Suspense fallback={null}>
+        <Dialog reason={reason} onClose={onClose} />
+      </Suspense>
+    </RouteChunkBoundary>
+  )
+}
 // 套餐层关掉时不下载。失败只留在弹层里，不占用整页的自动刷新预算。
 // attempt 变了就换一个 lazy()：React 会记住上一次 reject 的 promise。
 function PricingSheetLoader() {
@@ -336,17 +370,15 @@ export function AuthGate() {
           onDismiss={() => setSessionExpired(false)}
         />
       ) : null}
-      {loginReason
-        ? chunk(
-            <LoginDialog
-              reason={loginReason}
-              onClose={() => {
-                setLoginReason(null)
-                void discardPendingSubmission()
-              }}
-            />,
-          )
-        : null}
+      {loginReason ? (
+        <LoginDialogLoader
+          reason={loginReason}
+          onClose={() => {
+            setLoginReason(null)
+            void discardPendingSubmission()
+          }}
+        />
+      ) : null}
       {pricingOpen ? <PricingSheetLoader /> : null}
     </AuthContextProvider>
   )
