@@ -14,6 +14,10 @@ export function shouldHoldConfirmation(text: string, pendingCount: number): bool
 export function shouldSubmitPendingDraftsFromChat(
   text: string,
   pending: readonly { readonly kind: string }[],
+  referenceCount = 0,
 ): boolean {
-  return pending.some((one) => one.kind === 'draft') && isShortConfirmation(text)
+  // 带了参考图就按新消息处理，与服务端 `shouldSubmitChatConfirmation` 一致。
+  return (
+    referenceCount === 0 && pending.some((one) => one.kind === 'draft') && isShortConfirmation(text)
+  )
 }
