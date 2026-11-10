@@ -95,7 +95,7 @@ async function seedPendingDraft(conversationId: string, prompt: string): Promise
     prompt,
     request: { prompt, device_id: DEVICE, n: 1 },
     submission: { review: false },
-    created_at: new Date(),
+    created_at: Date.now(),
   })
 }
 
@@ -111,8 +111,8 @@ async function seedCompletedBatch(conversationId: string, batchId: string): Prom
     status: 'closed',
     current_version: 1,
     confirmed_version: 1,
-    created_at: new Date(now),
-    updated_at: new Date(now),
+    created_at: now,
+    updated_at: now,
   })
   await db.insert(schema.agent_batch_plans).values({
     batch_id: batchId,
@@ -135,7 +135,7 @@ async function seedCompletedBatch(conversationId: string, batchId: string): Prom
         snapshots: [],
       },
     },
-    created_at: new Date(now),
+    created_at: now,
   })
   for (const index of [0, 1]) {
     const key = `item-${index}`
@@ -167,7 +167,7 @@ async function seedCompletedBatch(conversationId: string, batchId: string): Prom
       attempt: 1,
       task_id: taskId,
       reserved_credits: 100,
-      submitted_at: new Date(now + index),
+      submitted_at: now + index,
     })
   }
 }

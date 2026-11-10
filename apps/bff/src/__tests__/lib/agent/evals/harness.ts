@@ -19,7 +19,7 @@ type App = { handle(request: Request): Promise<Response> }
 
 export interface EvalClient {
   readonly app: App
-  readonly cookie: string
+  cookie: string
 }
 
 export function request(
