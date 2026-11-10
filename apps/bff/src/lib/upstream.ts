@@ -456,6 +456,19 @@ function image26StrictBlocked(request: UpstreamCallParams['request']): boolean {
   return gptImage26RequiresDirect(request) || !isGptSub2apiDeliverable(request)
 }
 
+/**
+ * 直连接不了时收成 sub2api 能出的 1K medium PNG。
+ * 只改这一次调用的请求，不改落库正文：结算靠原请求重算降级倍率。
+ * 严格入口保持原请求。
+ */
+async function withImage26Sub2apiRequest(params: UpstreamCallParams): Promise<UpstreamCallParams> {
+  if (params.strictImageRequest) return params
+  const degraded = degradeGptImage26ForSub2api(params.request)
+  if (!degraded) return params
+  await params.onImage26Degrade?.({ kind: degraded.kind, fields: degraded.fields })
+  return { ...params, request: degraded.request }
+}
+
 async function callImage26Sub2api(
   params: UpstreamCallParams,
   sub2api: ReturnType<typeof resolveUpstream>,
@@ -467,9 +480,7 @@ async function callImage26Sub2api(
         ? '动图和矢量图需要 OpenAI 直连，当前直连不可用'
         : '当前高分辨率/高画质需要 OpenAI 直连，暂不可用',
     )
-  const degraded = params.strictImageRequest ? null : degradeGptImage26ForSub2api(params.request)
-  if (degraded) await params.onImage26Degrade?.({ kind: degraded.kind, fields: degraded.fields })
-  const next = degraded ? { ...params, request: degraded.request } : params
+  const next = await withImage26Sub2apiRequest(params)
   await params.onGptRoute?.('sub2api')
   try {
     const result = await callUpstreamVia(gptImage26Sub2apiCall(next), sub2api)
@@ -489,8 +500,12 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
     const sub2api = resolveUpstream(params.provider, params.model)
     if (params.resume?.taskIds.length) {
       // 不改写 gpt_route：续轮询沿用落库的那条路。没记下通道时按直连，避免拿 OpenAI 的 id 去问网关。
-      if (params.persistedGptRoute === 'sub2api')
-        return callUpstreamVia(gptImage26Sub2apiCall(params), sub2api)
+      // 执行期降级只落下 image26_degrade 的 kind/fields，正文仍是原档。这里再收口，
+      // 补提交才不会把 2K / 高画质 / GIF / SVG 原样送给 sub2api。
+      if (params.persistedGptRoute === 'sub2api') {
+        const next = await withImage26Sub2apiRequest(params)
+        return callUpstreamVia(gptImage26Sub2apiCall(next), sub2api)
+      }
       const format = params.request.output_format
       return callUpstreamVia(params, {
         ...directRoute(params.model),

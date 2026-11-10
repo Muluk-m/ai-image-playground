@@ -30,6 +30,16 @@ describe('partialFailureOf', () => {
         true,
       ),
     ).toBe(1)
+    const extra = {
+      data: [{ b64_json: 'a' }, { b64_json: 'b' }, { b64_json: 'c' }],
+    }
+    expect(
+      directAttemptImages(
+        2,
+        directAttemptPayload(false, undefined, new UpstreamPartialResultError(extra)),
+        true,
+      ),
+    ).toBe(2)
   })
 
   it('张数不合理或分类不认识时当没有缺口，不拿它结算', () => {
