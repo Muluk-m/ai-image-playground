@@ -89,6 +89,12 @@ describe('importWithRetry', () => {
     pending.catch(() => {})
   })
 
+  it('rejects attempts below 1 before calling the loader', async () => {
+    const load = vi.fn(() => Promise.resolve({ default: 'app' }))
+    await expect(importWithRetry(load, { attempts: 0 })).rejects.toThrow('>= 1')
+    expect(load).not.toHaveBeenCalled()
+  })
+
   it('uses one reload when several chunks fail together', async () => {
     const reload = vi.fn(() => true)
     const fail = () =>

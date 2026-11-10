@@ -22,9 +22,9 @@
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 
-# 官网客户端同样是内容哈希。缺失文件仍走 404，不回首页。
-/website-assets/*
-  Cache-Control: public, max-age=31536000, immutable
+# /website-assets 里多数文件没有内容哈希（creator-hero.webp、home/*、v41/wall）。
+# _headers 无法只匹配带哈希的文件名，所以这里不标 immutable，沿用宿主默认缓存。
+# 缺失文件仍然 404，不回首页。
 
 /sw.js
   Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0

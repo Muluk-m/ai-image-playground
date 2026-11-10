@@ -8,8 +8,15 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 const root = resolve(__dirname, '../../../../..')
 const { serveDist } = createRequire(import.meta.url)(join(root, 'scripts/pages-browser-smoke.cjs'))
-const { DEFAULT_LIMITS, MAX_ASSET_BYTES, planAssetRetention, retainPagesAssets, safeAssetPath } =
-  await import(pathToFileURL(join(root, 'scripts/retain-pages-assets.mjs')).href)
+const {
+  DEFAULT_LIMITS,
+  MAX_ASSET_BYTES,
+  assetReferencesFrom,
+  planAssetRetention,
+  readBounded,
+  retainPagesAssets,
+  safeAssetPath,
+} = await import(pathToFileURL(join(root, 'scripts/retain-pages-assets.mjs')).href)
 
 const DAY = 24 * 60 * 60 * 1000
 const NOW = new Date('2026-11-10T00:00:00.000Z')
@@ -40,6 +47,16 @@ function plan(
     limits,
   })
 }
+
+describe('assetReferencesFrom', () => {
+  it('reads Vite __vite__mapDeps bare asset strings', () => {
+    const source = `const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/CanvasMode-CkYmZLXv.css","assets/CanvasMode-8Ru5DQEN.js"])))=>i.map(i=>d[i])`
+    expect(assetReferencesFrom(source).sort()).toEqual([
+      'assets/CanvasMode-8Ru5DQEN.js',
+      'assets/CanvasMode-CkYmZLXv.css',
+    ])
+  })
+})
 
 describe('planAssetRetention', () => {
   it('keeps the latest five releases and anything newer than 14 days', () => {
@@ -374,7 +391,12 @@ describe('retainPagesAssets', () => {
     bodies.set('/assets/main-abc.js', {
       status: 200,
       type: 'text/javascript',
-      body: 'import"./AuthGate-old.js";const site="/website-assets/Site-xyz.js";const evil="https://cdn.example/assets/evil.js"',
+      body: 'import"./AuthGate-old.js";const site="/website-assets/Site-xyz.js";const evil="https://cdn.example/assets/evil.js";const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["assets/CanvasMode-CkYmZLXv.css"])))=>i.map(i=>d[i])',
+    })
+    bodies.set('/assets/CanvasMode-CkYmZLXv.css', {
+      status: 200,
+      type: 'text/css',
+      body: '.canvas{}',
     })
     bodies.set('/assets/AuthGate-old.js', {
       status: 200,
@@ -400,8 +422,10 @@ describe('retainPagesAssets', () => {
     expect(await readFile(join(dist, 'website-assets/Site-xyz.js'), 'utf8')).toBe(
       'export const site = 1',
     )
+    expect(await readFile(join(dist, 'assets/CanvasMode-CkYmZLXv.css'), 'utf8')).toBe('.canvas{}')
     expect(result.copied.map((file: { path: string }) => file.path).sort()).toEqual([
       'assets/AuthGate-old.js',
+      'assets/CanvasMode-CkYmZLXv.css',
       'assets/main-abc.js',
       'website-assets/Site-xyz.js',
     ])
@@ -522,5 +546,73 @@ describe('retainPagesAssets', () => {
         (file: { path: string }) => file.path === 'assets/too-big.js',
       ),
     ).toBe(false)
+  })
+
+  it('aborts when an entry stays 5xx instead of publishing the current build only', async () => {
+    await setup()
+    await expect(
+      retainPagesAssets({
+        distDir: dist,
+        origin: 'https://muvloom.online',
+        now: NOW,
+        log: () => {},
+        retryDelayMs: 0,
+        fetchImpl: (url: URL) =>
+          url.pathname === '/assets-manifest.json'
+            ? new Response('missing', { status: 404 })
+            : new Response('down', { status: 503 }),
+      }),
+    ).rejects.toThrow('503')
+    await expect(readFile(join(dist, 'assets-manifest.json'))).rejects.toThrow()
+  })
+
+  it('does not copy a late hash that would exceed the shared byte budget', async () => {
+    await setup()
+    let reads = 0
+    const result = await retainPagesAssets({
+      distDir: dist,
+      origin: 'https://muvloom.online',
+      now: NOW,
+      log: () => {},
+      retryDelayMs: 0,
+      limits: { ...DEFAULT_LIMITS, maxRetainedBytes: 10 },
+      fetchImpl: (url: URL) => {
+        if (url.pathname === '/assets-manifest.json') {
+          reads += 1
+          const files =
+            reads === 1
+              ? [{ path: 'assets/first.js', bytes: 8 }]
+              : [
+                  { path: 'assets/first.js', bytes: 8 },
+                  { path: 'assets/second.js', bytes: 8 },
+                ]
+          return new Response(
+            JSON.stringify({
+              version: 1,
+              releases: [{ id: 'live', publishedAt: '2026-11-09T00:00:00.000Z', files }],
+            }),
+            { headers: { 'content-type': 'application/json' } },
+          )
+        }
+        if (url.pathname === '/assets/first.js') {
+          return new Response('12345678', { headers: { 'content-type': 'text/javascript' } })
+        }
+        if (url.pathname === '/assets/second.js') {
+          return new Response('abcdefgh', { headers: { 'content-type': 'text/javascript' } })
+        }
+        return fetcher(url)
+      },
+    })
+    expect(result.copied.map((file: { path: string }) => file.path)).toEqual(['assets/first.js'])
+    await expect(readFile(join(dist, 'assets/second.js'))).rejects.toThrow()
+  })
+
+  it('stops before reading a body whose Content-Length is already over the cap', async () => {
+    const response = new Response('x', {
+      headers: { 'content-length': String(MAX_ASSET_BYTES) },
+    })
+    const read = await readBounded(response, MAX_ASSET_BYTES)
+    expect(read.overflow).toBe(true)
+    expect(read.bytes).toBeNull()
   })
 })
