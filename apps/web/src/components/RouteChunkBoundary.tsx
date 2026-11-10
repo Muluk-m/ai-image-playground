@@ -7,6 +7,10 @@ interface RouteChunkBoundaryProps {
   description: string
   retryLabel: string
   onRetry?: () => void
+  /** 默认判定较宽；包住整个工作台时传严格判定，免得把普通运行时错误当成分片失败。 */
+  isChunkError?: (error: unknown) => boolean
+  /** 失败画面出现时调用，例如通知启动守卫撤下闪屏。 */
+  onChunkError?: () => void
 }
 
 interface RouteChunkBoundaryState {
@@ -44,7 +48,14 @@ export class RouteChunkBoundary extends Component<
   }
 
   componentDidCatch(error: unknown) {
-    if (isRouteChunkError(error)) console.error('Route chunk failed to load', error)
+    if (this.isChunkError(error)) {
+      console.error('Route chunk failed to load', error)
+      this.props.onChunkError?.()
+    }
+  }
+
+  isChunkError(error: unknown) {
+    return this.props.isChunkError ? this.props.isChunkError(error) : isRouteChunkError(error)
   }
 
   handleRetry = () => {
@@ -56,6 +67,8 @@ export class RouteChunkBoundary extends Component<
   render() {
     if (this.state.hasUnhandledError) throw this.state.unhandledError
     if (!this.state.error) return this.props.children
+    // getDerivedStateFromError 拿不到 props：只有默认判定在那里分流，自定义判定在这里补上。
+    if (!this.isChunkError(this.state.error)) throw this.state.error
     return (
       <div className="flex min-h-[min(32rem,calc(100dvh-8rem))] items-center justify-center p-6">
         <div className="max-w-md text-center">

@@ -332,6 +332,27 @@ describe('gptSettledUsage', () => {
         gptRoute: 'sub2api',
       }),
     ).toEqual({ quantity: 2, unitMultiplier: 3.3 })
+    // 崩溃恢复不改落库正文。GIF 高画质收到 1K medium；低画质 SVG 只改格式和尺寸，画质仍是 low。
+    expect(
+      gptSettledUsage(completed, {
+        model: 'gpt-image-2.6-flare',
+        request: {
+          size: '2048x2048',
+          quality: 'high',
+          output_format: 'gif',
+          frame_count: 12,
+          n: 1,
+        },
+        gptRoute: 'sub2api',
+      }),
+    ).toEqual({ quantity: 1, unitMultiplier: 3.3 })
+    expect(
+      gptSettledUsage(completed, {
+        model: 'gpt-image-2.6-flare',
+        request: { output_format: 'svg', quality: 'low', n: 1 },
+        gptRoute: 'sub2api',
+      }),
+    ).toEqual({ quantity: 1, unitMultiplier: 1.9 })
   })
 
   it('keeps the frozen settlement when the order ran direct, was basic, failed or is another model', () => {
