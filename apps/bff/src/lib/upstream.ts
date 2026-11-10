@@ -1,6 +1,9 @@
 import { Buffer } from 'node:buffer'
 import {
   degradeGptImage26ForSub2api,
+  gptImage26RequiresDirect,
+  type Image26DegradeField,
+  type Image26DegradeKind,
   isGptDirectModel,
   isGptImage26Model,
   isGptSub2apiDeliverable,
@@ -322,6 +325,11 @@ export interface UpstreamCallParams {
   imageProtocol?: 'generations'
   /** GPT Image 每条路开跑前调用（换路时再调一次）；调用方据此记下最后走的通道，结算用。 */
   onGptRoute?: (route: GptRoute) => Promise<void>
+  /** 执行时才降级：把降级记录写回任务，卡片才能显示提示。 */
+  onImage26Degrade?: (record: {
+    kind: Image26DegradeKind
+    fields: readonly Image26DegradeField[]
+  }) => Promise<void>
   provider: QueueProvider
   model: string
   request: HydratedSubmitRequest
@@ -444,12 +452,23 @@ async function settleDirectAttempt(input: {
   })
 }
 
+function image26StrictBlocked(request: UpstreamCallParams['request']): boolean {
+  return gptImage26RequiresDirect(request) || !isGptSub2apiDeliverable(request)
+}
+
 async function callImage26Sub2api(
   params: UpstreamCallParams,
   sub2api: ReturnType<typeof resolveUpstream>,
 ): Promise<UpstreamCallResult> {
   if (sub2apiBreakerOpen()) throw new GptImage26RouteUnavailableError()
-  const degraded = degradeGptImage26ForSub2api(params.request)
+  if (params.strictImageRequest && image26StrictBlocked(params.request))
+    throw new GptImage26RouteUnavailableError(
+      gptImage26RequiresDirect(params.request)
+        ? '动图和矢量图需要 OpenAI 直连，当前直连不可用'
+        : '当前高分辨率/高画质需要 OpenAI 直连，暂不可用',
+    )
+  const degraded = params.strictImageRequest ? null : degradeGptImage26ForSub2api(params.request)
+  if (degraded) await params.onImage26Degrade?.({ kind: degraded.kind, fields: degraded.fields })
   const next = degraded ? { ...params, request: degraded.request } : params
   await params.onGptRoute?.('sub2api')
   try {

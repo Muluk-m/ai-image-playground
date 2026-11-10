@@ -24,9 +24,11 @@ import {
   type GptImage26Rejection,
   gptImage26Rejection,
   gptImage26RejectionFields,
+  gptImage26RequiresDirect,
   imageSizeTier,
   isBlankPrompt,
   isGptImage26Model,
+  isGptSub2apiDeliverable,
   nearestImageSize,
   QUEUE_TIMEOUTS,
   resolveImageTier,
@@ -57,6 +59,7 @@ import { publicTaskErrorMessage } from './public-task-error'
 import { asQueueProvider } from './queueProvider'
 import { type QuotaConsumeResult, tryConsumeQuotaInTransaction } from './quota'
 import { isObject } from './type-guards'
+import { gptImage26Enabled } from './upstream/gpt-direct-availability'
 import { gptDirectConfigured, gptImage26DirectKey } from './upstream/gpt-routing'
 
 /**
@@ -462,10 +465,15 @@ async function prepareMaskedSubmission(input: CreateQueueTaskInput) {
  * 预先准备的入口（批量执行、自动提交、灵感套用）的 `entry` 一律让 GPT 收到非会员上限，见 `resolveImageTier`。
  */
 async function prepareQueueTask(input: CreateQueueTaskInput) {
-  return prepareAlignedQueueTask(await alignImageTier(alignStageSubmission(input)))
+  const identity = await alignImageTier(alignStageSubmission(input))
+  const billed = await degradeImage26Alignment(identity)
+  return prepareAlignedQueueTask(billed, identity.input)
 }
 
-async function prepareAlignedQueueTask(alignment: ImageTierAlignment) {
+async function prepareAlignedQueueTask(
+  alignment: ImageTierAlignment,
+  identity?: CreateQueueTaskInput,
+) {
   const { input } = alignment
   const id = crypto.randomUUID()
   let requestPayload: PersistedSubmitRequest
@@ -520,7 +528,12 @@ async function prepareAlignedQueueTask(alignment: ImageTierAlignment) {
 
   return {
     kind: 'prepared' as const,
-    prepared: { taskId: id, requestHash: commandHash(input), requestPayload, alignment },
+    prepared: {
+      taskId: id,
+      requestHash: commandHash(identity ?? input),
+      requestPayload,
+      alignment,
+    },
   }
 }
 
@@ -764,24 +777,49 @@ function tierSnapshot(
  * - 对整理后的最终请求再解一次，让 `requires` 与倍率对应真正落库的请求。
  * 视频没有档位决定，原样返回。
  */
-async function degradeImage26WhenDirectUnavailable(
+const GPT_IMAGE_26_DIRECT_ONLY_MESSAGE = '动图和矢量图需要 OpenAI 直连，当前直连不可用'
+const GPT_IMAGE_26_TIER_MESSAGE = '当前高分辨率/高画质需要 OpenAI 直连，暂不可用'
+
+/** 严格入口不降级：直连接不了高档或动图时，按原来的拒绝交回去。 */
+async function strictImage26Refusal(
   input: CreateQueueTaskInput,
-): Promise<CreateQueueTaskInput> {
-  if (!isGptImage26Model(input.model) || input.video) return input
-  if (await gptImage26DirectKey(input.model, input.request)) return input
+): Promise<Extract<CreateQueueTaskOutcome, { kind: 'model_unavailable' }> | null> {
+  if (!input.strictImageRequest || !isGptImage26Model(input.model) || input.video) return null
+  if (await gptImage26DirectKey(input.model, input.request)) return null
+  if (gptImage26RequiresDirect(input.request))
+    return { kind: 'model_unavailable', message: GPT_IMAGE_26_DIRECT_ONLY_MESSAGE }
+  if (!isGptSub2apiDeliverable(input.request))
+    return { kind: 'model_unavailable', message: GPT_IMAGE_26_TIER_MESSAGE }
+  return null
+}
+
+/**
+ * 直连接不了时改落库请求和倍率。幂等哈希仍用降级前的请求，直连开关来回翻不会变成另一单。
+ * 严格入口保持原请求。
+ */
+async function degradeImage26Alignment(aligned: ImageTierAlignment): Promise<ImageTierAlignment> {
+  const input = aligned.input
+  if (input.strictImageRequest || input.video || !isGptImage26Model(input.model)) return aligned
+  if (await gptImage26DirectKey(input.model, input.request)) return aligned
   const degraded = degradeGptImage26ForSub2api(input.request)
-  if (!degraded) return input
-  return {
-    ...input,
-    request: {
-      ...degraded.request,
-      image26_degrade: { kind: degraded.kind, fields: degraded.fields },
-    },
+  if (!degraded) return aligned
+  const request: SubmitRequest = {
+    ...degraded.request,
+    image26_degrade: { kind: degraded.kind, fields: degraded.fields },
   }
+  const decision = resolveImageTier({
+    model: input.model,
+    provider: input.provider,
+    entry: input.entry,
+    request,
+    member: true,
+    directAvailable: false,
+    supportedTiers: declaredImageSizes(input.model),
+  })
+  return { input: { ...input, request }, decision, member: aligned.member }
 }
 
 async function alignImageTier(input: CreateQueueTaskInput): Promise<ImageTierAlignment> {
-  input = await degradeImage26WhenDirectUnavailable(input)
   if ((input.entry === 'cli-strict') !== (input.strictImageRequest === true))
     throw new TypeError('strict_image_request_entry_mismatch')
   if (input.video) return { input, member: false }
@@ -857,10 +895,20 @@ async function submitQueueTask(
   raw: CreateQueueTaskInput,
   prepared?: PreparedQueueTask,
 ): Promise<CreateQueueTaskOutcome> {
+  const stage = alignStageSubmission(raw)
+  // 产品开关是唯一来源。关着时连 1K 也不降级、不送 sub2api。
+  if (isGptImage26Model(stage.model) && !stage.video && !gptImage26Enabled())
+    return { kind: 'model_unavailable', message: GPT_IMAGE_26_REJECTION_MESSAGE.unavailable }
   // 预先准备的沿用冻结的请求与视频参数（带授权的视频时长在准备时已收口），只换上这次的事务。
+  // 幂等身份是降级前的请求：直连后来不可用或恢复，同一条命令仍是这一单。
+  const identityAligned = prepared ? null : await alignImageTier(stage)
+  if (identityAligned) {
+    const strictRefusal = await strictImage26Refusal(identityAligned.input)
+    if (strictRefusal) return strictRefusal
+  }
   const aligned: ImageTierAlignment = prepared
     ? { ...prepared.alignment, input: { ...prepared.alignment.input, tx: raw.tx } }
-    : await alignImageTier(alignStageSubmission(raw))
+    : await degradeImage26Alignment(identityAligned!)
   const input = aligned.input
   if (
     input.maxCredits !== undefined &&
@@ -874,8 +922,10 @@ async function submitQueueTask(
   if (input.reconciliationRequired && input.video)
     throw new TypeError('reconciliation_requires_image_task')
   const commandId = input.request.client_request_id
-  const hash = commandHash(input)
-  const legacyHashes = legacyCommandHashes(input)
+  // 预先准备的哈希在准备时就按降级前的请求钉死。提交时不能按现在的会员身份重算，
+  // 否则会员中途变化会把同一条准备好的提交判成另一个请求。
+  const hash = prepared ? prepared.requestHash : commandHash(identityAligned!.input)
+  const legacyHashes = prepared ? [] : legacyCommandHashes(identityAligned!.input)
   // 外部事务在场时不走历史命令认领：它自己要开一个事务，握着连接的调用方会因此卡在连接池上。
   // 确认生成用的是新建的命令 id，没有历史任务可认领。
   if (input.userId && commandId) {
@@ -888,7 +938,7 @@ async function submitQueueTask(
   }
   const preparation = prepared
     ? { kind: 'prepared' as const, prepared }
-    : await prepareAlignedQueueTask(aligned)
+    : await prepareAlignedQueueTask(aligned, identityAligned!.input)
   if (preparation.kind !== 'prepared') return preparation
   const { taskId: id, requestPayload, requestHash } = preparation.prepared
   // 同一份冻结的对齐结果算出来的，不相等只能是 module 内部的 bug。

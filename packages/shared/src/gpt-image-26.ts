@@ -264,7 +264,10 @@ export function degradeGptImage26ForSub2api<
     }
   }
   const preset = oneKPreset(next.size)
-  if (next.size && next.size !== preset) {
+  if (!next.size && (format === 'gif' || format === 'svg')) {
+    fields.push({ field: 'size', to: preset })
+    next.size = preset
+  } else if (next.size && next.size !== preset) {
     fields.push({ field: 'size', from: next.size, to: preset })
     next.size = preset
   }
