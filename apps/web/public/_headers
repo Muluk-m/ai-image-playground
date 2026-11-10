@@ -22,6 +22,10 @@
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 
+# 官网客户端同样是内容哈希。缺失文件仍走 404，不回首页。
+/website-assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
 /sw.js
   Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0
 

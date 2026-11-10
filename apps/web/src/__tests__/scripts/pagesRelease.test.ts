@@ -289,7 +289,12 @@ it('names the URL that keeps stalling', async () => {
   ).rejects.toThrow('GET /assets/lazy-456.js failed: no response in 20ms after 2 tries')
 })
 
-async function releaseCheckout(edition: string, pagesEnvLines: string[], stub = 'exit 27') {
+async function releaseCheckout(
+  edition: string,
+  pagesEnvLines: string[],
+  stub = 'exit 27',
+  extraEnv: Record<string, string> = {},
+) {
   const checkout = join(dist, 'checkout')
   await mkdir(join(checkout, 'scripts/lib'), { recursive: true })
   await mkdir(join(checkout, 'private/apps/web'), { recursive: true })
@@ -337,6 +342,7 @@ ${stub}
       CAPTURED: captured,
       RETAIN_LOG: join(checkout, 'retain.log'),
       EXTRA_ASSETS_DIR: '/must-not-inherit-assets',
+      ...extraEnv,
       BFF_BASE_URLS_BY_ORIGIN: '',
       NOINDEX_ORIGINS: '',
     },
@@ -454,6 +460,7 @@ it('keeps hashed assets from the live site and does not cache the entry document
   expect(release).toContain('PAGES_ASSET_ORIGIN=$public_origin')
   const headers = await readFile(join(root, 'apps/web/public/_headers'), 'utf8')
   expect(headers).toMatch(/\/assets\/\*[\s\S]*immutable/)
+  expect(headers).toMatch(/\/website-assets\/\*[\s\S]*immutable/)
   expect(headers).toMatch(/\/index\.html[\s\S]*no-cache/)
   expect(headers).toMatch(/\/version\.json[\s\S]*no-cache/)
   expect(headers).toMatch(/\/assets-manifest\.json[\s\S]*no-cache/)
@@ -461,6 +468,22 @@ it('keeps hashed assets from the live site and does not cache the entry document
   expect(await readFile(join(root, 'apps/web/src/lib/pagesRedirects.ts'), 'utf8')).not.toContain(
     '/* /index.html 200',
   )
+})
+
+it('skips asset retention when the emergency bypass is set, and says so', async () => {
+  const checkout = join(dist, 'checkout')
+  await mkdir(checkout, { recursive: true })
+  await prepareSecrets(checkout)
+  const { run } = await releaseCheckout(
+    'muvloom',
+    paidEnv(checkout),
+    `mkdir -p apps/web/dist && printf '/assets/*\\n  Cache-Control: immutable\\n' > apps/web/dist/_headers`,
+    { PAGES_SKIP_ASSET_RETAIN: '1' },
+  )
+  expect(run.status).toBe(28)
+  expect(run.stderr).toContain('PAGES_SKIP_ASSET_RETAIN=1')
+  expect(run.stderr).toContain('emergency bypass')
+  await expect(readFile(join(checkout, 'retain.log'), 'utf8')).rejects.toThrow()
 })
 
 it('rejects an unknown Pages release target with usage', async () => {

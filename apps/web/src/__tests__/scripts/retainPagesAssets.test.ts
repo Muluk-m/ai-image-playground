@@ -106,6 +106,20 @@ describe('planAssetRetention', () => {
     expect(result.releases[0].files).toEqual([{ path: 'assets/new-a.js', bytes: 10 }])
   })
 
+  it('keeps an older script ahead of a newer oversized website file', () => {
+    const limits = { ...DEFAULT_LIMITS, maxRetainedBytes: 12 }
+    const result = plan(
+      [
+        release('new', 1, [['website-assets/hero.wasm', 15]]),
+        release('old', 2, [['assets/app.js', 8]]),
+      ],
+      [['assets/current.js', 1]],
+      limits,
+    )
+    expect(result.copy.map((file: { path: string }) => file.path)).toEqual(['assets/app.js'])
+    expect(result.droppedReleaseIds).toEqual(['new'])
+  })
+
   it('stops before the deployment file cap, counting files already in dist', () => {
     const limits = { ...DEFAULT_LIMITS, maxDeployFiles: 12 }
     const result = plan(
@@ -119,8 +133,8 @@ describe('planAssetRetention', () => {
       limits,
       11,
     )
-    expect(result.copy).toEqual([])
-    expect(result.droppedReleaseIds).toEqual(['old'])
+    expect(result.copy).toEqual([{ path: 'assets/one.js', bytes: 1, releaseId: 'old' }])
+    expect(result.droppedReleaseIds).toEqual([])
   })
 })
 
@@ -348,5 +362,165 @@ describe('retainPagesAssets', () => {
         retryDelayMs: 0,
       }),
     ).rejects.toThrow('Refusing to publish')
+  })
+
+  it('bootstraps the live graph when the manifest is missing but the app is being served', async () => {
+    await setup()
+    bodies.set('/', {
+      status: 200,
+      type: 'text/html',
+      body: '<!doctype html><script type="module" src="/assets/main-abc.js"></script>',
+    })
+    bodies.set('/assets/main-abc.js', {
+      status: 200,
+      type: 'text/javascript',
+      body: 'import"./AuthGate-old.js";const site="/website-assets/Site-xyz.js";const evil="https://cdn.example/assets/evil.js"',
+    })
+    bodies.set('/assets/AuthGate-old.js', {
+      status: 200,
+      type: 'text/javascript',
+      body: 'export const old = 1',
+    })
+    bodies.set('/website-assets/Site-xyz.js', {
+      status: 200,
+      type: 'text/javascript',
+      body: 'export const site = 1',
+    })
+    const result = await retainPagesAssets({
+      distDir: dist,
+      origin: 'https://muvloom.online',
+      fetchImpl: fetcher,
+      now: NOW,
+      log: () => {},
+      retryDelayMs: 0,
+    })
+    expect(await readFile(join(dist, 'assets/AuthGate-old.js'), 'utf8')).toBe(
+      'export const old = 1',
+    )
+    expect(await readFile(join(dist, 'website-assets/Site-xyz.js'), 'utf8')).toBe(
+      'export const site = 1',
+    )
+    expect(result.copied.map((file: { path: string }) => file.path).sort()).toEqual([
+      'assets/AuthGate-old.js',
+      'assets/main-abc.js',
+      'website-assets/Site-xyz.js',
+    ])
+  })
+
+  it('merges a hash that shows up in the live manifest before upload', async () => {
+    await setup()
+    bodies.set('/assets/first.js', { status: 200, type: 'text/javascript', body: 'one' })
+    bodies.set('/assets/second.js', { status: 200, type: 'text/javascript', body: 'two!' })
+    let reads = 0
+    const result = await retainPagesAssets({
+      distDir: dist,
+      origin: 'https://muvloom.online',
+      now: NOW,
+      log: () => {},
+      retryDelayMs: 0,
+      fetchImpl: (url: URL) => {
+        if (url.pathname === '/assets-manifest.json') {
+          reads += 1
+          const files =
+            reads === 1
+              ? [{ path: 'assets/first.js', bytes: 3 }]
+              : [
+                  { path: 'assets/first.js', bytes: 3 },
+                  { path: 'assets/second.js', bytes: 4 },
+                ]
+          return new Response(
+            JSON.stringify({
+              version: 1,
+              releases: [{ id: 'live', publishedAt: '2026-11-09T00:00:00.000Z', files }],
+            }),
+            { headers: { 'content-type': 'application/json' } },
+          )
+        }
+        return fetcher(url)
+      },
+    })
+    expect(reads).toBeGreaterThan(1)
+    expect(await readFile(join(dist, 'assets/second.js'), 'utf8')).toBe('two!')
+    expect(result.copied.map((file: { path: string }) => file.path).sort()).toEqual([
+      'assets/first.js',
+      'assets/second.js',
+    ])
+  })
+
+  it('retries a transient 503 and does not keep a body past the file cap', async () => {
+    await setup()
+    let tries = 0
+    let pulled = 0
+    bodies.set('/assets-manifest.json', {
+      status: 200,
+      type: 'application/json',
+      body: JSON.stringify({
+        version: 1,
+        releases: [
+          {
+            id: 'live',
+            publishedAt: '2026-11-09T00:00:00.000Z',
+            files: [
+              { path: 'assets/flaky.js', bytes: 2 },
+              { path: 'assets/huge.js', bytes: 10 },
+            ],
+          },
+        ],
+      }),
+    })
+    const result = await retainPagesAssets({
+      distDir: dist,
+      origin: 'https://muvloom.online',
+      now: NOW,
+      log: () => {},
+      retryDelayMs: 0,
+      fetchImpl: (url: URL) => {
+        if (url.pathname === '/assets/flaky.js') {
+          tries += 1
+          if (tries < 3) return new Response('no', { status: 503 })
+          return new Response('ok', { headers: { 'content-type': 'text/javascript' } })
+        }
+        if (url.pathname === '/assets/huge.js') {
+          const stream = new ReadableStream({
+            pull(controller) {
+              pulled += 1
+              if (pulled > 40) {
+                controller.close()
+                return
+              }
+              controller.enqueue(new Uint8Array(1024 * 1024))
+            },
+          })
+          return new Response(stream, { headers: { 'content-type': 'application/javascript' } })
+        }
+        return fetcher(url)
+      },
+    })
+    expect(tries).toBe(3)
+    expect(await readFile(join(dist, 'assets/flaky.js'), 'utf8')).toBe('ok')
+    await expect(readFile(join(dist, 'assets/huge.js'))).rejects.toThrow()
+    expect(pulled).toBeLessThan(40)
+    expect(result.skipped).toContain('assets/huge.js')
+  })
+
+  it('warns about a current file at the Pages size cap and leaves it out of the manifest', async () => {
+    await setup()
+    await writeFile(join(dist, 'assets/too-big.js'), Buffer.alloc(MAX_ASSET_BYTES))
+    const logs: string[] = []
+    await retainPagesAssets({
+      distDir: dist,
+      origin: 'https://muvloom.online',
+      fetchImpl: fetcher,
+      now: NOW,
+      log: (message: string) => logs.push(message),
+      retryDelayMs: 0,
+    })
+    expect(logs.join('\n')).toContain('assets/too-big.js')
+    const manifest = JSON.parse(await readFile(join(dist, 'assets-manifest.json'), 'utf8'))
+    expect(
+      manifest.releases[0].files.some(
+        (file: { path: string }) => file.path === 'assets/too-big.js',
+      ),
+    ).toBe(false)
   })
 })

@@ -62,8 +62,9 @@ function publishedAtMs(release) {
 
 /**
  * 决定这次 dist 要从旧发布里复制哪些 /assets 文件，以及新的清单。
- * 保留最近 keepReleases 次，或 14 天内的发布（两者取并集）；超出文件数或字节上限时从最旧的丢。
- * 当前构建的文件始终留在清单里，不会被上限删掉。
+ * 保留最近 keepReleases 次，或 14 天内的发布（两者取并集）。
+ * 超出文件数或字节上限时，先丢掉较大的 /website-assets，再丢掉其它 /assets，最后才丢掉 /assets 里的 JS。
+ * 当前构建里小于 25 MiB 的文件始终留在清单里，不会被上限删掉。
  */
 export function planAssetRetention({
   now,
@@ -92,36 +93,51 @@ export function planAssetRetention({
     if (index < limits.keepReleases || withinWindow) selected.push(previous[index])
   }
 
-  let files = occupiedFiles
-  let bytes = 0
-  const kept = []
-  const droppedReleaseIds = []
-  let budgetSpent = false
+  const candidates = []
   for (const release of selected) {
-    const fresh = []
     for (const file of release.files) {
       if (seen.has(file.path)) continue
-      fresh.push(file)
-    }
-    const addBytes = fresh.reduce((sum, file) => sum + file.bytes, 0)
-    const overBudget =
-      files + fresh.length > limits.maxDeployFiles || bytes + addBytes > limits.maxRetainedBytes
-    if (budgetSpent || (fresh.length > 0 && overBudget)) {
-      budgetSpent = true
-      droppedReleaseIds.push(release.id)
-      continue
-    }
-    for (const file of fresh) seen.add(file.path)
-    files += fresh.length
-    bytes += addBytes
-    if (fresh.length > 0) {
-      kept.push({
-        id: release.id,
-        publishedAt: release.publishedAt,
-        files: fresh.map((file) => ({ path: file.path, bytes: file.bytes })),
-      })
+      seen.add(file.path)
+      candidates.push({ ...file, releaseId: release.id, publishedAt: release.publishedAt })
     }
   }
+  // 0 = /assets JS（打开的工作台最需要），1 = 其它 /assets，2 = website-assets（大图最后留）。
+  const rank = (path) => {
+    if (path.startsWith('assets/') && /\.m?js$/.test(path)) return 0
+    if (path.startsWith('assets/')) return 1
+    return 2
+  }
+  candidates.sort((left, right) => {
+    const byRank = rank(left.path) - rank(right.path)
+    if (byRank) return byRank
+    const byTime = publishedAtMs(right) - publishedAtMs(left)
+    if (byTime) return byTime
+    return left.bytes - right.bytes
+  })
+
+  let files = occupiedFiles
+  let bytes = 0
+  const keptByRelease = new Map()
+  const keptIds = new Set()
+  for (const file of candidates) {
+    if (files + 1 > limits.maxDeployFiles || bytes + file.bytes > limits.maxRetainedBytes) continue
+    files += 1
+    bytes += file.bytes
+    const bucket = keptByRelease.get(file.releaseId) ?? []
+    bucket.push({ path: file.path, bytes: file.bytes })
+    keptByRelease.set(file.releaseId, bucket)
+    keptIds.add(file.releaseId)
+  }
+  const kept = selected
+    .filter((release) => keptIds.has(release.id))
+    .map((release) => ({
+      id: release.id,
+      publishedAt: release.publishedAt,
+      files: keptByRelease.get(release.id),
+    }))
+  const droppedReleaseIds = selected
+    .filter((release) => !keptIds.has(release.id) && release.files.some((file) => !currentPaths.has(file.path)))
+    .map((release) => release.id)
 
   const byPath = (left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0)
   const releases = [
@@ -197,6 +213,101 @@ async function mapPool(items, limit, fn) {
   await Promise.all(workers)
 }
 
+/** Stop reading once the body reaches the Pages per-file cap. The oversized bytes are discarded. */
+export async function readBounded(response, maxBytes) {
+  const reader = response.body?.getReader?.()
+  if (!reader) {
+    const buf = Buffer.from(await response.arrayBuffer())
+    if (buf.length >= maxBytes) return { overflow: true, bytes: null }
+    return { overflow: false, bytes: buf }
+  }
+  const chunks = []
+  let total = 0
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total >= maxBytes) {
+      await reader.cancel().catch(() => {})
+      return { overflow: true, bytes: null }
+    }
+    chunks.push(Buffer.from(value))
+  }
+  return { overflow: false, bytes: chunks.length ? Buffer.concat(chunks) : Buffer.alloc(0) }
+}
+
+function normalizeRelative(dir, rel) {
+  const parts = []
+  for (const part of `${dir}/${rel}`.split('/')) {
+    if (!part || part === '.') continue
+    if (part === '..') parts.pop()
+    else parts.push(part)
+  }
+  return parts.join('/')
+}
+
+/**
+ * Paths under /assets and /website-assets referenced by an HTML or JS/CSS file.
+ * Absolute URLs on another origin are ignored. Relative imports resolve against `basePath`.
+ */
+export function assetReferencesFrom(text, basePath = '', pageOrigin = '') {
+  const found = new Set()
+  const accept = (path) => {
+    if (safeAssetPath(path) && /\.[A-Za-z0-9]+$/.test(path)) found.add(path)
+  }
+  for (const match of text.matchAll(/https?:\/\/[^\s"'()]+/g)) {
+    try {
+      const url = new URL(match[0])
+      if (pageOrigin && url.origin !== pageOrigin) continue
+      accept(url.pathname.replace(/^\//, ''))
+    } catch {
+      // Not a URL.
+    }
+  }
+  for (const match of text.matchAll(/(?:^|[\s"'`(])\/((?:assets|website-assets)\/[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~-]+)*)/g)) {
+    accept(match[1])
+  }
+  if (basePath) {
+    const dir = basePath.includes('/') ? basePath.slice(0, basePath.lastIndexOf('/')) : ''
+    for (const match of text.matchAll(/(?:^|[\s"'`(])(\.\.?\/[A-Za-z0-9._~-]+(?:\/[A-Za-z0-9._~-]+)*)/g)) {
+      accept(normalizeRelative(dir, match[1]))
+    }
+  }
+  return [...found]
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function transientStatus(status) {
+  return status === 404 || status === 408 || status === 429 || (status >= 500 && status <= 599)
+}
+
+async function requestWithRetries(fetchImpl, url, { attempts, delayMs, retryNotFound }) {
+  let response
+  let lastError
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (attempt) await sleep(delayMs * attempt)
+    try {
+      response = await fetchImpl(url, {
+        cache: 'no-store',
+        redirect: 'follow',
+        signal: AbortSignal.timeout(20_000),
+      })
+    } catch (error) {
+      lastError = error
+      response = undefined
+      continue
+    }
+    if (response.ok) return response
+    if (response.status === 404 && !retryNotFound) return response
+    if (!transientStatus(response.status)) return response
+  }
+  if (response) return response
+  throw lastError ?? new Error(`GET ${url} failed`)
+}
+
 async function readCurrentRelease(distDir, now, releaseId) {
   const files = []
   for (const rootName of ASSET_ROOTS) {
@@ -220,8 +331,88 @@ async function readCurrentRelease(distDir, now, releaseId) {
   return { id, publishedAt: now.toISOString(), files }
 }
 
+const ENTRY_PAGES = ['', 'index.html', 'workbench.html', 'workbench']
+const BOOTSTRAP_FILE_CAP = 4_000
+
 /**
- * @param {{ distDir: string, origin: string, fetchImpl?: typeof fetch, now?: Date, releaseId?: string, limits?: typeof DEFAULT_LIMITS, log?: (message: string) => void }} options
+ * When the live site has no assets-manifest.json yet, recover the hashes it is
+ * serving now by reading the HTML entries and following their JS/CSS graph.
+ * Returns null when the origin is not already an app (nothing to keep).
+ */
+export async function bootstrapLiveRelease({
+  origin,
+  fetchImpl,
+  now,
+  limits = DEFAULT_LIMITS,
+  retryDelayMs = 400,
+  log = console.log,
+}) {
+  const base = new URL(origin.endsWith('/') ? origin : `${origin}/`)
+  const queue = []
+  const seen = new Set()
+  for (const page of ENTRY_PAGES) {
+    const url = new URL(page, base)
+    url.searchParams.set('retain-check', String(now.getTime()))
+    let response
+    try {
+      response = await requestWithRetries(fetchImpl, url, {
+        attempts: 3,
+        delayMs: retryDelayMs,
+        retryNotFound: false,
+      })
+    } catch (error) {
+      throw new Error(`GET ${url.pathname || '/'} failed: ${error.message}`, { cause: error })
+    }
+    if (!response.ok) continue
+    const { overflow, bytes } = await readBounded(response, limits.maxFileBytes)
+    if (overflow || !bytes || !looksLikeHtml(bytes)) continue
+    for (const path of assetReferencesFrom(bytes.toString('utf8'), '', base.origin)) queue.push(path)
+  }
+  if (!queue.length) return null
+
+  const files = []
+  const bodies = new Map()
+  while (queue.length && seen.size < BOOTSTRAP_FILE_CAP) {
+    const path = queue.shift()
+    if (!path || seen.has(path) || !safeAssetPath(path)) continue
+    seen.add(path)
+    const url = new URL(path, base)
+    url.searchParams.set('retain-check', String(now.getTime()))
+    let response
+    try {
+      response = await requestWithRetries(fetchImpl, url, {
+        attempts: 3,
+        delayMs: retryDelayMs,
+        retryNotFound: true,
+      })
+    } catch (error) {
+      throw new Error(`GET /${path} failed: ${error.message}`, { cause: error })
+    }
+    if (response.status === 404) continue
+    if (!response.ok) {
+      throw new Error(`GET /${path} failed: ${response.status}; refusing to drop live assets`)
+    }
+    const { overflow, bytes } = await readBounded(response, limits.maxFileBytes)
+    const type = response.headers.get('content-type') ?? ''
+    if (overflow || !bytes || bytes.length === 0 || type.includes('text/html') || looksLikeHtml(bytes)) continue
+    files.push({ path, bytes: bytes.length })
+    bodies.set(path, bytes)
+    if (/\.(?:m?js|css)$/.test(path)) {
+      for (const next of assetReferencesFrom(bytes.toString('utf8'), path, base.origin)) {
+        if (!seen.has(next)) queue.push(next)
+      }
+    }
+  }
+  if (!files.length) return null
+  log(`No asset manifest at ${origin}; bootstrapped ${files.length} live hashed file(s) from the current pages.`)
+  return {
+    release: { id: `live-${now.toISOString()}`, publishedAt: now.toISOString(), files },
+    bodies,
+  }
+}
+
+/**
+ * @param {{ distDir: string, origin: string, fetchImpl?: typeof fetch, now?: Date, releaseId?: string, limits?: typeof DEFAULT_LIMITS, log?: (message: string) => void, retryDelayMs?: number }} options
  */
 export async function retainPagesAssets({
   distDir,
@@ -236,80 +427,145 @@ export async function retainPagesAssets({
   const root = resolve(distDir)
   const base = new URL(origin.endsWith('/') ? origin : `${origin}/`)
   const current = await readCurrentRelease(root, now, releaseId)
-  const occupied = (await walkFiles(root)).length + 1
-
-  const manifestUrl = new URL('assets-manifest.json', base)
-  manifestUrl.searchParams.set('retain-check', String(now.getTime()))
-  let previousReleases = []
-  const manifestResponse = await fetchImpl(manifestUrl, {
-    cache: 'no-store',
-    redirect: 'follow',
-    signal: AbortSignal.timeout(20_000),
-  })
-  if (manifestResponse.status === 404) {
-    log(`No previous asset manifest at ${origin}; publishing the current build only.`)
-  } else if (!manifestResponse.ok) {
-    throw new Error(
-      `GET ${manifestUrl.pathname} failed: ${manifestResponse.status}; refusing to publish without retained assets`,
+  const oversized = current.files.filter((file) => safeAssetPath(file.path) && file.bytes >= limits.maxFileBytes)
+  if (oversized.length) {
+    log(
+      `WARNING: current build has ${oversized.length} file(s) at or above the ${limits.maxFileBytes} byte Pages limit. ` +
+        `They stay in this upload (Pages will reject the deploy if it cannot store them) and are not listed for later retention: ` +
+        oversized.map((file) => file.path).join(', '),
     )
-  } else {
-    const type = manifestResponse.headers.get('content-type') ?? ''
-    const text = await manifestResponse.text()
-    if (type.includes('text/html') || looksLikeHtml(Buffer.from(text))) {
+  }
+  const occupied = (await walkFiles(root)).length + 1
+  const cached = new Map()
+
+  const loadManifest = async () => {
+    const manifestUrl = new URL('assets-manifest.json', base)
+    manifestUrl.searchParams.set('retain-check', String(now.getTime()))
+    let response
+    try {
+      response = await requestWithRetries(fetchImpl, manifestUrl, {
+        attempts: 3,
+        delayMs: retryDelayMs,
+        retryNotFound: false,
+      })
+    } catch (error) {
+      throw new Error(`GET /assets-manifest.json failed: ${error.message}; refusing to publish without retained assets`, { cause: error })
+    }
+    if (response.status === 404) return null
+    if (!response.ok) {
+      throw new Error(
+        `GET /assets-manifest.json failed: ${response.status}; refusing to publish without retained assets`,
+      )
+    }
+    const { overflow, bytes } = await readBounded(response, limits.maxFileBytes)
+    if (overflow || !bytes) {
+      throw new Error('assets-manifest.json is at or above the 25 MiB Pages file limit')
+    }
+    const type = response.headers.get('content-type') ?? ''
+    if (type.includes('text/html') || looksLikeHtml(bytes)) {
       throw new Error(
         'assets-manifest.json returned HTML. Missing /assets must 404, not fall back to index.html.',
       )
     }
-    previousReleases = parseManifest(text)
+    return parseManifest(bytes.toString('utf8'))
   }
 
-  const plan = planAssetRetention({
-    now,
-    current,
-    previousReleases,
-    occupiedFiles: occupied,
-    limits,
-  })
+  let previousReleases = (await loadManifest()) ?? []
+  if (!previousReleases.length) {
+    const bootstrapped = await bootstrapLiveRelease({
+      origin,
+      fetchImpl,
+      now,
+      limits,
+      retryDelayMs,
+      log,
+    })
+    if (!bootstrapped) {
+      log(`No previous asset manifest at ${origin}; the origin is not serving hashed assets yet. Publishing the current build only.`)
+    } else {
+      previousReleases = [bootstrapped.release]
+      for (const [path, bytes] of bootstrapped.bodies) cached.set(path, bytes)
+    }
+  }
+
   const skipped = []
   const copied = []
-  await mapPool(plan.copy, 6, async (file) => {
-    const url = new URL(file.path, base)
-    url.searchParams.set('retain-check', String(now.getTime()))
-    let response
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt) await new Promise((resolve) => setTimeout(resolve, retryDelayMs * attempt))
+  const have = new Set(current.files.map((file) => file.path))
+
+  const downloadOne = async (file) => {
+    if (have.has(file.path)) return
+    const cachedBytes = cached.get(file.path)
+    let bytes = cachedBytes
+    if (!bytes) {
+      const url = new URL(file.path, base)
+      url.searchParams.set('retain-check', String(now.getTime()))
+      let response
       try {
-        response = await fetchImpl(url, {
-          cache: 'no-store',
-          redirect: 'follow',
-          signal: AbortSignal.timeout(20_000),
+        response = await requestWithRetries(fetchImpl, url, {
+          attempts: 3,
+          delayMs: retryDelayMs,
+          retryNotFound: true,
         })
       } catch (error) {
-        if (attempt === 2) {
-          throw new Error(`GET /${file.path} failed: ${error.message}`, { cause: error })
-        }
-        continue
+        throw new Error(`GET /${file.path} failed: ${error.message}`, { cause: error })
       }
-      if (response.status !== 404 || attempt === 2) break
-    }
-    if (response.status === 404) {
-      skipped.push(file.path)
-      return
-    }
-    if (!response.ok) {
-      throw new Error(`GET /${file.path} failed: ${response.status}; refusing to drop retained assets`)
-    }
-    const bytes = Buffer.from(await response.arrayBuffer())
-    const type = response.headers.get('content-type') ?? ''
-    if (type.includes('text/html') || looksLikeHtml(bytes) || bytes.byteLength === 0 || bytes.byteLength >= limits.maxFileBytes) {
-      skipped.push(file.path)
-      return
+      if (response.status === 404) {
+        skipped.push(file.path)
+        return
+      }
+      if (!response.ok) {
+        throw new Error(`GET /${file.path} failed: ${response.status}; refusing to drop retained assets`)
+      }
+      const read = await readBounded(response, limits.maxFileBytes)
+      if (read.overflow || !read.bytes) {
+        skipped.push(file.path)
+        log(`WARNING: skipped /${file.path}; body reached the ${limits.maxFileBytes} byte cap before it finished.`)
+        return
+      }
+      bytes = read.bytes
+      const type = response.headers.get('content-type') ?? ''
+      if (type.includes('text/html') || looksLikeHtml(bytes) || bytes.length === 0) {
+        skipped.push(file.path)
+        return
+      }
     }
     const target = join(root, file.path)
     await mkdir(dirname(target), { recursive: true })
     await writeFile(target, bytes)
-    copied.push({ ...file, bytes: bytes.byteLength })
-  })
+    have.add(file.path)
+    copied.push({ ...file, bytes: bytes.length })
+  }
+
+  const planOf = (releases) =>
+    planAssetRetention({
+      now,
+      current,
+      previousReleases: releases,
+      occupiedFiles: occupied + copied.length,
+      limits,
+    })
+
+  let plan = planOf(previousReleases)
+  await mapPool(plan.copy, 6, downloadOne)
+
+  // A deploy that finished while this one was downloading is already live. Union its
+  // manifest with the one we started from so neither release's hashes are dropped.
+  const again = await loadManifest()
+  let releaseLists = plan.releases
+  if (again?.length) {
+    const late = planOf(again)
+    const fresh = late.copy.filter((file) => !have.has(file.path) && !skipped.includes(file.path))
+    if (fresh.length) {
+      log(`Live manifest gained ${fresh.length} file(s) during this retain; merging them before upload.`)
+      await mapPool(fresh, 6, downloadOne)
+    }
+    plan = {
+      ...plan,
+      copy: [...plan.copy, ...fresh],
+      droppedReleaseIds: [...new Set([...plan.droppedReleaseIds, ...late.droppedReleaseIds])],
+    }
+    releaseLists = [...plan.releases, ...late.releases]
+  }
 
   if (plan.copy.length >= 4 && skipped.length * 2 > plan.copy.length) {
     throw new Error(
@@ -317,18 +573,32 @@ export async function retainPagesAssets({
     )
   }
   const copiedPaths = new Set(copied.map((file) => file.path))
-  const releases = plan.releases
-    .map((release, index) => {
-      if (index === 0) return release
-      const files = release.files
-        .filter((file) => copiedPaths.has(file.path))
-        .map((file) => {
-          const saved = copied.find((item) => item.path === file.path)
-          return { path: file.path, bytes: saved?.bytes ?? file.bytes }
-        })
-      return { ...release, files }
-    })
-    .filter((release, index) => index === 0 || release.files.length > 0)
+  const grouped = new Map()
+  for (const release of releaseLists) {
+    const existing = grouped.get(release.id)
+    if (!existing) {
+      grouped.set(release.id, { ...release, files: [...release.files] })
+      continue
+    }
+    const paths = new Set(existing.files.map((file) => file.path))
+    for (const file of release.files) {
+      if (!paths.has(file.path)) existing.files.push(file)
+    }
+  }
+  const releases = []
+  for (const release of grouped.values()) {
+    if (release.id === current.id) {
+      releases.push(release)
+      continue
+    }
+    const files = release.files
+      .filter((file) => copiedPaths.has(file.path))
+      .map((file) => {
+        const saved = copied.find((item) => item.path === file.path)
+        return { path: file.path, bytes: saved?.bytes ?? file.bytes }
+      })
+    if (files.length) releases.push({ ...release, files })
+  }
 
   const manifest = { version: 1, releases }
   await writeFile(join(root, 'assets-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)

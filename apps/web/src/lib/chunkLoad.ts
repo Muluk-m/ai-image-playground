@@ -111,6 +111,22 @@ export interface ImportRetryOptions {
 
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
+let reloadFlight: Promise<boolean> | null = null
+
+/** 同一轮失败只导航一次。后来的 import 等这一次，不再各自抛错把故障页闪出来。 */
+function coordinateReload(reload: boolean | (() => boolean)): Promise<boolean> {
+  if (reloadFlight) return reloadFlight
+  if (reload === false) return Promise.resolve(false)
+  const run = typeof reload === 'function' ? reload : reloadOnceForChunkFailure
+  const flight = Promise.resolve()
+    .then(run)
+    .finally(() => {
+      if (reloadFlight === flight) reloadFlight = null
+    })
+  reloadFlight = flight
+  return flight
+}
+
 /** 同一个 import 最多试 `attempts` 次（含第一次）。成功就不刷新；仍失败才走一次性刷新。 */
 export async function importWithRetry<T>(
   load: () => Promise<T>,
@@ -129,10 +145,8 @@ export async function importWithRetry<T>(
       if (!isChunkLoadError(error) || attempt === attempts - 1) break
     }
   }
-  const reload = options.reload ?? true
-  const navigated =
-    isChunkLoadError(last) &&
-    (typeof reload === 'function' ? reload() : reload && reloadOnceForChunkFailure())
+  if (!isChunkLoadError(last)) throw last
+  const navigated = await coordinateReload(options.reload ?? true)
   if (navigated) return new Promise<T>(() => {})
   throw last
 }
