@@ -722,7 +722,7 @@ const skills: GuidePage = {
 const videoPage: GuidePage = {
   id: 'video',
   title: 'Video',
-  summary: 'How a video job is submitted. This test ended on a model-unavailable error.',
+  summary: 'How a video job is submitted, and a 5 second clip that played on the canvas.',
   meta: {
     title: 'Video - Muvloom guide',
     description: 'Muvloom video duration, ratio, resolution and first frame.',
@@ -730,7 +730,7 @@ const videoPage: GuidePage = {
   updated,
   intro: [
     note(
-      'On 2026-11-10 Video generation was in the menu, default model Grok Imagine Video 1.5 Lite. Submitting from the home page opened a canvas project. The agent did not return a video. A canvas video node set to text-to-video, 5 seconds, 16:9, 720p, then Generate, showed the toast「该模型暂不可用，请换其他模型」and the node text「生成失败」. Queue request id `b980d817-4d94-42cc-9d8c-4ec89303764d`. Nothing played.',
+      'On 2026-11-10 a Grok Imagine Video 1.5 Lite job completed. Home page: Video generation, 5 seconds, 16:9, 720p, prompt「冰块在玻璃杯里轻轻晃动，镜头缓慢推近」. The agent did not return a video. A canvas node set to 文生视频, then Generate, became a 1280×720 clip. Play advanced to 0:05. Queue request id `8bd27a1b-7e18-47ee-8a3f-42813b66288e`.',
     ),
   ],
   sections: [
@@ -767,8 +767,8 @@ const videoPage: GuidePage = {
       blocks: [
         demo(
           '08-video',
-          'The video node shows 生成失败 and a toast that this model is unavailable',
-          '2026-11-10 test recording. The job was submitted. No video file was produced.',
+          'After text-to-video finishes, the canvas plays ice moving in a glass',
+          '2026-11-10 test recording. Grok Imagine Video 1.5 Lite, 5 seconds, 720p, played.',
         ),
         p(
           'A queued or running node means the job was accepted. Leaving the page does not cancel it. A failure is written on the node and the charge is returned. Extend and Edit video appear only on models that support them.',
