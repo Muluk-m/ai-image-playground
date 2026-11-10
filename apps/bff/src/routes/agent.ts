@@ -882,6 +882,20 @@ export const agentRoutes = new Elysia()
           const full: AgentQueueFullBody = { error: 'queue_full', limit: AGENT_QUEUE_MAX_PENDING }
           return status(409, full)
         }
+        if (sent.kind === 'confirmation_refused') {
+          const refused: AgentConfirmationRefusedBody = {
+            error: 'confirmation_refused',
+            code: sent.code,
+          }
+          return status(409, refused)
+        }
+        if (sent.kind === 'confirmed') {
+          return {
+            confirmed: true as const,
+            messages: sent.messages,
+            ...(sent.continued ? { continued: true as const } : {}),
+          }
+        }
         if (sent.kind === 'started') return agentTurnStream(sent.turn.read(0))
         if (sent.kind === 'queued') return status(202, queuedBody(sent.entry, sent.runningTurnId))
         // 开不了轮（余额不足等）：照旧把原因交回去，草稿留在输入框。
