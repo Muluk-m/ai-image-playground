@@ -51,12 +51,7 @@ import {
 import { findCatalogModel, publishModelCapabilities } from '@image-playground/shared/model-catalog'
 import { isObject } from './type-guards'
 import { capabilitiesForModel } from './upstream/adapters'
-import {
-  adminDirectKeys,
-  directKeyKnownDisabled,
-  gptDirectEnabledKeyCount,
-  gptDirectSizeEnabled,
-} from './upstream/gpt-direct-availability'
+import { gptDirectEnabledKeyCount, gptDirectSizeEnabled } from './upstream/gpt-direct-availability'
 import { runtimeSecret, upstreamSecretRevision } from './upstream-secret-cache'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
@@ -740,27 +735,17 @@ function withDeliverableGptSize(channel: InternalChannel): InternalChannel {
 }
 
 /**
- * 2.6 默认不出现。开关打开就列出来，即使直连 key 不可用：1K、非高画质走 sub2api。
- * 直连不可用时目录只标 1K。GIF / SVG、2K/4K/高画质在提交时拒绝。
+ * 2.6 默认不出现。开关打开就列出来，直连不可用也不下架、不裁档位：
+ * 用户仍可选 2K/4K、高画质和 GIF/SVG，提交时由服务端降级。
  */
-/** 目录用的同步判断，不连数据库。预算用尽仍要到提交时拒绝。 */
-function image26DirectListed(): boolean {
-  const admin = adminDirectKeys()
-  if (admin) return admin.some((key) => key.enabled && !directKeyKnownDisabled(key.fingerprint))
-  if (process.env.OPENAI_API_KEYS?.split(',').some((part) => part.trim())) return true
-  return Boolean(process.env.OPENAI_API_KEY?.trim())
-}
-
 function withGptImage26(channel: InternalChannel): InternalChannel {
   if (!channel.models.some((model) => isGptImage26Model(model.id))) return channel
   const enabled = process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true'
-  const directReady = image26DirectListed()
   return {
     ...channel,
     models: channel.models.flatMap((model) => {
       if (!isGptImage26Model(model.id)) return [model]
-      if (!enabled) return []
-      return directReady ? [model] : [{ ...model, imageSizes: ['1K'] }]
+      return enabled ? [model] : []
     }),
   }
 }
@@ -804,15 +789,16 @@ function withCatalogCapabilities(model: ChannelModel): ChannelModel {
     capabilitiesForModel(model.id, { member: false, directOn: gptDirectSizeEnabled() })
       ?.memberTiers ?? []
   const memberOnly = new Set<string>(memberTiers)
+  const tiers = published.image.tiers.map((tier) => ({
+    ...tier,
+    memberOnly: memberOnly.has(tier.id),
+  }))
   return {
     ...model,
     ...published,
     image: {
       ...published.image,
-      tiers: published.image.tiers.map((tier) => ({
-        ...tier,
-        memberOnly: memberOnly.has(tier.id),
-      })),
+      tiers,
     },
   }
 }

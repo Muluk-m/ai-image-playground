@@ -8,9 +8,12 @@ import { log } from '../logger'
 import { runtimeSecret } from '../upstream-secret-cache'
 import { ImagePlanRequiredError } from './errors'
 import { estimateDirectCostMicroUsd } from './gpt-budget'
-import { directKeyKnownDisabled, gptDirectEnabledKeyCount } from './gpt-direct-availability'
-import type { DirectKey } from './gpt-key-config'
-import { adminDirectKeys, safeEnvDirectKeys } from './gpt-key-config'
+import {
+  gptDirectEnabledKeyCount,
+  gptDirectSwitchOn,
+  gptImage26Enabled,
+} from './gpt-direct-availability'
+import { type DirectKey, gptImage26KeysReady } from './gpt-key-config'
 import { selectDirectKey } from './gpt-keys'
 import { gptSchedulerBuckets, tryAcquireSchedulerSlots } from './scheduler'
 
@@ -37,20 +40,17 @@ export function gptDirectConfigured(model: string): boolean {
   return isGptDirectModel(model) && gptDirectEnabledKeyCount() > 0
 }
 
-/** 2.6 直连此刻有没有一把启用且没被停用的 key。预算用尽不算在这里，选路时再查。 */
+/**
+ * 2.6 直连此刻能不能接单。产品开关、直连开关、启用且没被停用的 key 都要有。
+ * 预算用尽不算在这里，选路时再查。开关关掉等同没有 key，不能去记直连花费。
+ */
 export function gptImage26Configured(): boolean {
-  return (
-    config.gptImage26.enabled &&
-    (adminDirectKeys() ?? safeEnvDirectKeys()).some(
-      (key) => key.enabled && !directKeyKnownDisabled(key.fingerprint),
-    )
-  )
+  return gptImage26Enabled() && gptDirectSwitchOn() && gptImage26KeysReady()
 }
 
 /**
- * 这一单直连现在用哪一把 key：开关开着、有启用 key、没被停用、没在冷却，并且本月预算装得下。
- * 没有启用 key、预算用尽或 key 被停用都是 null。返回的就是随后直连要发的那一把，
- * 避免探测通过后仍打到一把已经超预算的 key。
+ * 这一单直连现在用哪一把 key。开关关掉、没有启用 key、预算用尽或 key 被停用都是 null。
+ * 返回的就是随后直连要发的那一把，避免探测通过后仍打到一把已经超预算的 key。
  */
 export async function gptImage26DirectKey(
   model: string,

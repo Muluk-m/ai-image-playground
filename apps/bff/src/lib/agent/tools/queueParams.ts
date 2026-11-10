@@ -67,6 +67,12 @@ export function queueParamsFor(
 
   if (provider === 'openai-compat') {
     if (params.output_format) mapped.output_format = params.output_format
+    if (params.output_format === 'gif') {
+      // 与 queueClient 的 GIF 分支同一组字段：帧数必须原样送到队列，不能在这里丢掉后再被默认成 6 帧。
+      mapped.quality = 'medium'
+      if (params.frame_count != null) mapped.frame_count = params.frame_count
+      if (params.frame_duration_ms != null) mapped.frame_duration_ms = params.frame_duration_ms
+    }
     // 压缩率只对有损格式成立，png 带上它上游会拒。
     if (
       params.output_format &&

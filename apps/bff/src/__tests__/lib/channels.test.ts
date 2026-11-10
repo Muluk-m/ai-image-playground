@@ -20,6 +20,7 @@ import {
   resetAdminDirectKeySnapshot,
   setAdminDirectKeySnapshot,
 } from '../../lib/upstream/gpt-direct-availability'
+import { noteDirectSizeDeliverable } from '../../lib/upstream/gpt-key-config'
 
 const SAMPLE_CHANNEL = {
   id: 'sample-openai',
@@ -705,7 +706,14 @@ describe('shipped channels.json', () => {
         'gpt-image-2.6-sunburst',
       ])
       expect(openai?.models.every((model) => model.unavailable !== true)).toBe(true)
-      expect(openai?.models.every((model) => model.imageSizes?.join() === '1K')).toBe(true)
+      expect(
+        openai?.models.every(
+          (model) => model.image?.tiers.map((tier) => tier.id).join() === '1K,2K,4K',
+        ),
+      ).toBe(true)
+      expect(openai?.models.every((model) => model.image?.quality?.values.includes('high'))).toBe(
+        true,
+      )
     } finally {
       if (saved.enabled === undefined) delete process.env.GPT_IMAGE_26_ENABLED
       else process.env.GPT_IMAGE_26_ENABLED = saved.enabled
@@ -715,6 +723,42 @@ describe('shipped channels.json', () => {
       else process.env.OPENAI_API_KEY = saved.key
       if (saved.keys === undefined) delete process.env.OPENAI_API_KEYS
       else process.env.OPENAI_API_KEYS = saved.keys
+      resetAdminDirectKeySnapshot()
+      initChannels()
+    }
+  })
+
+  it('keeps 2K, 4K and high quality listed when direct is switched off', () => {
+    const saved = {
+      enabled: process.env.GPT_IMAGE_26_ENABLED,
+      direct: process.env.GPT_DIRECT_ENABLED,
+      key: process.env.OPENAI_API_KEY,
+    }
+    process.env.GPT_IMAGE_26_ENABLED = 'true'
+    process.env.OPENAI_API_KEY = 'openai-key'
+    resetAdminDirectKeySnapshot()
+    const tiersOf = () =>
+      getDiscoveredChannels()
+        .find((channel) => channel.id === 'openai-images')
+        ?.models.find((model) => model.id === 'gpt-image-2.6-flare')
+        ?.image?.tiers.map((tier) => tier.id)
+    try {
+      process.env.GPT_DIRECT_ENABLED = 'false'
+      initChannels()
+      expect(tiersOf()).toEqual(['1K', '2K', '4K'])
+
+      process.env.GPT_DIRECT_ENABLED = 'true'
+      noteDirectSizeDeliverable(false)
+      initChannels()
+      expect(tiersOf()).toEqual(['1K', '2K', '4K'])
+    } finally {
+      noteDirectSizeDeliverable(true)
+      if (saved.enabled === undefined) delete process.env.GPT_IMAGE_26_ENABLED
+      else process.env.GPT_IMAGE_26_ENABLED = saved.enabled
+      if (saved.direct === undefined) delete process.env.GPT_DIRECT_ENABLED
+      else process.env.GPT_DIRECT_ENABLED = saved.direct
+      if (saved.key === undefined) delete process.env.OPENAI_API_KEY
+      else process.env.OPENAI_API_KEY = saved.key
       resetAdminDirectKeySnapshot()
       initChannels()
     }
@@ -747,7 +791,30 @@ describe('shipped channels.json', () => {
         ?.models.find((model) => model.id === 'gpt-image-2.6-flare')
       expect(flare?.badges).toEqual(['latest'])
       expect(flare?.unavailable).toBeUndefined()
+
+      setAdminDirectKeySnapshot(
+        [
+          {
+            id: null,
+            ordinal: 1,
+            secret: 'disabled-key',
+            budgetUsd: 1,
+            enabled: false,
+            fingerprint: 'abcd1234',
+            label: 'abcd1234…key',
+          },
+        ],
+        false,
+      )
+      initChannels()
+      const disabledKey = getDiscoveredChannels()
+        .find((channel) => channel.id === 'openai-images')
+        ?.models.find((model) => model.id === 'gpt-image-2.6-flare')
+      expect(disabledKey?.unavailable).toBeUndefined()
+      expect(disabledKey?.image?.tiers.map((tier) => tier.id)).toEqual(['1K', '2K', '4K'])
+      expect(disabledKey?.image?.quality?.values).toContain('high')
     } finally {
+      resetAdminDirectKeySnapshot()
       if (savedFlag === undefined) delete process.env.GPT_IMAGE_26_ENABLED
       else process.env.GPT_IMAGE_26_ENABLED = savedFlag
       if (savedKey === undefined) delete process.env.OPENAI_API_KEY

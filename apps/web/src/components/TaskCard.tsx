@@ -1,4 +1,4 @@
-import { formatImageRatio } from '@image-playground/shared'
+import { formatImageRatio, type Image26DegradeKind } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
 import { taskExportSources } from '../features/image-export/sources'
 import { openImageExport } from '../features/image-export/store'
@@ -24,6 +24,25 @@ import { compactModelName, ModelLogo } from './ModelIdentity'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
+
+function degradedNotice(kind: Image26DegradeKind) {
+  switch (kind) {
+    case 'size':
+      return 'card.degraded.size' as const
+    case 'quality':
+      return 'card.degraded.quality' as const
+    case 'format':
+      return 'card.degraded.format' as const
+    case 'size_quality':
+      return 'card.degraded.size_quality' as const
+    case 'size_format':
+      return 'card.degraded.size_format' as const
+    case 'quality_format':
+      return 'card.degraded.quality_format' as const
+    case 'size_quality_format':
+      return 'card.degraded.size_quality_format' as const
+  }
+}
 
 /** task-pop-in 入场动画窗口；超过这个秒数后 mount 的 task 视作历史回放，不再播。 */
 const FRESH_POP_IN_WINDOW_MS = 600
@@ -394,6 +413,11 @@ export default function TaskCard({
               <p className="text-sm text-foreground leading-relaxed line-clamp-3">
                 {task.prompt || t('prompt.empty')}
               </p>
+              {task.degradeNotice ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t(degradedNotice(task.degradeNotice))}
+                </p>
+              ) : null}
             </div>
             <div className="mt-auto flex flex-col gap-1.5 max-sm:contents">
               {/* 参数与信息：横向滚动 */}

@@ -1875,6 +1875,7 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
         const latest = useStore.getState().tasks.find((t) => t.id === job.taskId)
         if (!latest || latest.status !== 'running') return
         updateTaskInStore(job.taskId, {
+          ...(result.degradeNotice ? { degradeNotice: result.degradeNotice } : {}),
           outputImages: outputIds,
           transparentOriginalImages: transparentOriginalImageIds,
           rawImageUrls: result.rawImageUrls?.length ? result.rawImageUrls : undefined,

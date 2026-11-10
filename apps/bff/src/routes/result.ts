@@ -1,4 +1,9 @@
-import type { ResultResponse, TaskErrorType } from '@image-playground/shared'
+import {
+  IMAGE26_DEGRADE_KINDS,
+  type Image26DegradeKind,
+  type ResultResponse,
+  type TaskErrorType,
+} from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
@@ -33,6 +38,7 @@ export const resultRoutes = new Elysia()
           id: schema.tasks.id,
           status: schema.tasks.status,
           provider: schema.tasks.provider,
+          request_payload: schema.tasks.request_payload,
           result_payload: schema.tasks.result_payload,
           error_message: schema.tasks.error_message,
           error_type: schema.tasks.error_type,
@@ -63,6 +69,10 @@ export const resultRoutes = new Elysia()
         const provider = asQueueProvider(task.provider)
         if (!provider) return status(500, { error: `unknown_provider:${task.provider}` })
         const meta = extractMeta(provider, task.result_payload)
+        const degrade = task.request_payload.image26_degrade?.kind
+        const degradeNotice = (IMAGE26_DEGRADE_KINDS as readonly string[]).includes(degrade ?? '')
+          ? (degrade as Image26DegradeKind)
+          : undefined
         const body: ResultResponse = {
           request_id: task.id,
           status: 'completed',
@@ -70,6 +80,7 @@ export const resultRoutes = new Elysia()
           ...(meta.actual_params ? { actual_params: meta.actual_params } : {}),
           ...(meta.raw_image_urls ? { raw_image_urls: meta.raw_image_urls } : {}),
           ...partialFailureField(task.result_payload),
+          ...(degradeNotice ? { degrade_notice: degradeNotice } : {}),
         }
         return jsonResponse(body, request)
       }
