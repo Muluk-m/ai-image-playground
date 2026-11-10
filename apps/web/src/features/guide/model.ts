@@ -128,6 +128,8 @@ export interface GuideContent {
     movedBody: string
   }
   groups: GuideGroup[]
+  /** 指南首页、目录之前的块。宣传片放这里。 */
+  home?: Block[]
   moved: Record<string, GuideMoved>
 }
 
