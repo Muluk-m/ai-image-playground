@@ -137,8 +137,11 @@ fi
 # The web build writes canonical URLs, hreflang, sitemap.xml, robots.txt and llms.txt from these two.
 PUBLIC_ORIGIN=$public_origin
 SEARCH_INDEXING=$search_indexing
+# Live origin of the site we are about to replace. pages-deploy.sh downloads its
+# assets-manifest.json and copies the retained /assets files into dist first.
+PAGES_ASSET_ORIGIN=$public_origin
 export BFF_ENABLED BFF_BASE_URL BFF_BASE_URLS_BY_ORIGIN CLOUDFLARE_ACCOUNT_ID \
-  PUBLIC_ORIGIN SEARCH_INDEXING NOINDEX_ORIGINS
+  PUBLIC_ORIGIN SEARCH_INDEXING NOINDEX_ORIGINS PAGES_ASSET_ORIGIN
 unset EXTRA_ASSETS_DIR NOTIFY_UPDATE
 extra_assets_dir=$(edition_var "$prefix" EXTRA_ASSETS_DIR)
 if [ -n "$extra_assets_dir" ]; then
@@ -154,12 +157,22 @@ fi
 public_sha=-
 private_sha=-
 released=false
+host_lock_inherited=false
 on_exit() {
-  if [ "$?" -ne 0 ] && [ "$released" = false ]; then
+  status=$?
+  # Same host lock as the VPS rollout: two pages-release.sh on this machine cannot upload
+  # at once and drop each other's hashes. CI and a laptop do not share this directory;
+  # retain-pages-assets.mjs re-reads the live manifest immediately before upload so a
+  # deploy that has already gone live is still merged.
+  if [ "$host_lock_inherited" = false ]; then
+    release_deploy_lock "$deploy_lock" || true
+  fi
+  if [ "$status" -ne 0 ] && [ "$released" = false ]; then
     append_deploy_log "$deployment_name" "pages:$pages_project" failed || true
   fi
 }
 trap on_exit EXIT
+acquire_host_deploy_lock "pages:$pages_project edition=$edition" || exit $?
 
 stage "Build and upload the $bundle $app bundle to Pages project $pages_project"
 if [ -n "$token_file" ] && [ ! -f "$token_file" ]; then

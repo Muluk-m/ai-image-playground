@@ -21,6 +21,7 @@ import {
   startupGuardPlugin,
 } from '../../boot/vitePlugin'
 import { LOCALE_STORAGE_KEY } from '../../i18n/storageKey'
+import { CHUNK_IMPORT_ATTEMPTS, CHUNK_IMPORT_BACKOFF_MS } from '../../lib/chunkLoad'
 
 /** jsdom's Blob has no `text()`. */
 function readBlob(blob: Blob): Promise<string> {
@@ -100,9 +101,12 @@ afterEach(() => {
   if (vi.isFakeTimers()) finishReveal()
   vi.useRealTimers()
   document.body.innerHTML = ''
+  document.head.querySelectorAll('link, script').forEach((node) => node.remove())
   localStorage.removeItem(LOCALE_STORAGE_KEY)
   sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
   sessionStorage.removeItem(PRELOAD_RESOURCE_RECOVERY_STORAGE_KEY)
+  Reflect.deleteProperty(window, '__aipImportChunk')
+  Reflect.deleteProperty(window, '__aipChunkImportOk')
   vi.unstubAllGlobals()
   history.replaceState(null, '', '/')
   for (const remove of installed.splice(0)) remove()
@@ -292,6 +296,9 @@ it('keeps recovery available when required styles fail even if React commits', (
   const boot = document.getElementById('boot')!
   boot.remove()
   link.dispatchEvent(new Event('error'))
+  document
+    .querySelector('link[rel="stylesheet"][href="/assets/main-missing.css"]')
+    ?.dispatchEvent(new Event('error'))
   document.body.append(boot)
   ready()
   expect(errorPanelVisible()).toBe(true)
@@ -368,7 +375,12 @@ it('refreshes failed required CSS once and preserves the project, query, and has
   document.head.append(link)
   try {
     link.dispatchEvent(new Event('error'))
-    link.dispatchEvent(new Event('error'))
+    const refreshed = document.querySelector(
+      'link[rel="stylesheet"][href="/assets/main-missing.css"]',
+    )
+    expect(refreshed).not.toBe(link)
+    expect(refreshed?.getAttribute('href')).toBe('/assets/main-missing.css')
+    refreshed?.dispatchEvent(new Event('error'))
     expect(replace).toHaveBeenCalledTimes(1)
     const next = new URL(replace.mock.calls[0]![0])
     expect(next.pathname).toBe('/p/project')
@@ -377,7 +389,12 @@ it('refreshes failed required CSS once and preserves the project, query, and has
     expect(next.searchParams.get(RELOAD_QUERY_PARAM)).toBe(String(Date.now()))
     expect(errorPanelVisible()).toBe(false)
     installGuard()
-    link.dispatchEvent(new Event('error'))
+    document
+      .querySelector('link[rel="stylesheet"][href="/assets/main-missing.css"]')
+      ?.dispatchEvent(new Event('error'))
+    document
+      .querySelector('link[rel="stylesheet"][href="/assets/main-missing.css"]')
+      ?.dispatchEvent(new Event('error'))
     expect(replace).toHaveBeenCalledTimes(1)
     expect(errorPanelVisible()).toBe(true)
   } finally {
@@ -746,6 +763,12 @@ it.each([
   try {
     link.dispatchEvent(new Event('error'))
     expect(preloadError(`Unable to preload CSS for ${link.href}`).defaultPrevented).toBe(false)
+    const refreshed = document.querySelector(
+      'link[rel="stylesheet"][href="/assets/lazy-canvas.css"]',
+    )
+    expect(refreshed).not.toBe(link)
+    refreshed?.dispatchEvent(new Event('error'))
+    expect(preloadError(`Unable to preload CSS for ${link.href}`).defaultPrevented).toBe(false)
     expect(errorPanelVisible()).toBe(false)
     await vi.advanceTimersByTimeAsync(2000)
     expect(replace).not.toHaveBeenCalled()
@@ -785,6 +808,9 @@ it.each([
   document.head.append(link)
   try {
     link.dispatchEvent(new Event('error'))
+    document
+      .querySelector('link[rel="stylesheet"][href="/assets/lazy-canvas.css"]')
+      ?.dispatchEvent(new Event('error'))
     expect(preloadError(message).defaultPrevented).toBe(false)
     expect(errorPanelVisible()).toBe(true)
     await vi.advanceTimersByTimeAsync(20000)
@@ -793,6 +819,101 @@ it.each([
   } finally {
     link.remove()
   }
+})
+
+function chunkRejection(path = '/assets/AuthGate-old.js') {
+  const event = new Event('unhandledrejection')
+  const reason = new TypeError(
+    `Failed to fetch dynamically imported module: ${location.origin}${path}`,
+  )
+  Object.defineProperty(event, 'reason', { value: reason })
+  window.dispatchEvent(event)
+  return reason
+}
+
+it('retries a dynamic import, then reloads once so the rejected boot can resume', async () => {
+  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  const load = vi
+    .fn()
+    .mockRejectedValueOnce(new TypeError('still missing'))
+    .mockResolvedValueOnce({ ok: true })
+  window.__aipImportChunk = load
+  chunkRejection()
+  expect(replace).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(CHUNK_IMPORT_BACKOFF_MS)
+  expect(load).toHaveBeenCalledTimes(CHUNK_IMPORT_ATTEMPTS)
+  expect(replace).toHaveBeenCalledTimes(1)
+  expect(errorPanelVisible()).toBe(false)
+})
+
+it('does not reload on the first lazy stylesheet preload error', async () => {
+  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  const event = preloadError(`Unable to preload CSS for ${location.origin}/assets/lazy-route.css`)
+  expect(event.defaultPrevented).toBe(false)
+  expect(replace).not.toHaveBeenCalled()
+  await vi.advanceTimersByTimeAsync(CHUNK_IMPORT_BACKOFF_MS * 4)
+  expect(replace).not.toHaveBeenCalled()
+  expect(errorPanelVisible()).toBe(false)
+})
+
+it('reloads once when the dynamic import is still missing after the retries', async () => {
+  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  const load = vi.fn().mockRejectedValue(new TypeError('still missing'))
+  window.__aipImportChunk = load
+  chunkRejection()
+  await vi.advanceTimersByTimeAsync(CHUNK_IMPORT_BACKOFF_MS)
+  expect(load).toHaveBeenCalledTimes(CHUNK_IMPORT_ATTEMPTS)
+  expect(replace).toHaveBeenCalledTimes(1)
+  const next = new URL(replace.mock.calls[0]![0])
+  expect(next.pathname).toBe(location.pathname)
+  expect(next.searchParams.get(RELOAD_QUERY_PARAM)).toBe(String(Date.now()))
+  expect(errorPanelVisible()).toBe(false)
+})
+
+it('shows the boot panel instead of looping when a dynamic import already spent its reload', async () => {
+  const load = vi.fn().mockRejectedValue(new TypeError('still missing'))
+  window.__aipImportChunk = load
+  chunkRejection()
+  await vi.advanceTimersByTimeAsync(CHUNK_IMPORT_BACKOFF_MS)
+  expect(replace).not.toHaveBeenCalled()
+  expect(errorPanelVisible()).toBe(true)
+})
+
+it('does not spend the reload budget on Safari Load failed when no chunk url is present', async () => {
+  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  const event = new Event('unhandledrejection')
+  Object.defineProperty(event, 'reason', { value: new TypeError('Load failed') })
+  window.dispatchEvent(event)
+  await vi.advanceTimersByTimeAsync(CHUNK_IMPORT_BACKOFF_MS * 4)
+  expect(replace).not.toHaveBeenCalled()
+  window.__aipImportChunk = vi.fn().mockRejectedValue(new TypeError('still missing'))
+  chunkRejection()
+  await vi.advanceTimersByTimeAsync(CHUNK_IMPORT_BACKOFF_MS)
+  expect(replace).toHaveBeenCalledTimes(1)
+})
+
+it('does not reload the page for an ordinary failed fetch', async () => {
+  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  const event = new Event('unhandledrejection')
+  Object.defineProperty(event, 'reason', { value: new TypeError('Failed to fetch') })
+  window.dispatchEvent(event)
+  await vi.advanceTimersByTimeAsync(CHUNK_IMPORT_BACKOFF_MS * 4)
+  expect(replace).not.toHaveBeenCalled()
+  expect(errorPanelVisible()).toBe(false)
+})
+
+it('does not auto-reload a dynamic import once the app has painted', async () => {
+  ready()
+  sessionStorage.removeItem(PRELOAD_RELOAD_STORAGE_KEY)
+  const event = preloadError(
+    `Failed to fetch dynamically imported module: ${location.origin}/assets/App-x.js`,
+  )
+  expect(event.defaultPrevented).toBe(false)
+  chunkRejection('/assets/App-x.js')
+  await vi.advanceTimersByTimeAsync(CHUNK_IMPORT_BACKOFF_MS * 4)
+  expect(replace).not.toHaveBeenCalled()
+  finishReveal()
+  expect(document.getElementById('boot')).toBeNull()
 })
 
 it('preserves a failed lazy module rejection while the recovery navigation is pending', async () => {
@@ -842,6 +963,8 @@ it('preserves a failed lazy module rejection while the recovery navigation is pe
       (error: unknown) => error,
     )
     .catch((error: unknown) => error)
-  expect(replace).toHaveBeenCalledTimes(1)
+  // The caller caught the rejection, so this is not an unhandled chunk failure.
+  // Cancelling vite:preloadError would resolve the import to undefined.
+  expect(replace).not.toHaveBeenCalled()
   expect(outcome).toBe(original)
 })

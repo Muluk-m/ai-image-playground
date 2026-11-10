@@ -2,6 +2,7 @@
 import { act, Component, createElement, type JSX, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { RELOAD_QUERY_PARAM } from '../../boot/constants'
 import RouteChunkBoundary, { RouteLoading } from '../../components/RouteChunkBoundary'
 
 class ParentBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
@@ -114,6 +115,34 @@ describe('RouteChunkBoundary', () => {
       ),
     )
     expect(host.querySelector('[role="alert"]')?.textContent).toBe('Page unavailable')
+  })
+
+  it('hard-reloads the same URL when the user clicks 重新加载', () => {
+    const replace = vi.fn()
+    vi.stubGlobal('location', {
+      href: 'https://muvloom.online/p/project?mode=canvas#selection',
+      replace,
+    })
+    function BrokenPage(): JSX.Element {
+      throw new Error('Failed to fetch dynamically imported module: /assets/App.js')
+    }
+    act(() =>
+      root.render(
+        createElement(RouteChunkBoundary, {
+          title: '页面暂时无法打开',
+          description: '资源加载失败',
+          retryLabel: '重新加载',
+          children: createElement(BrokenPage),
+        }),
+      ),
+    )
+    act(() => host.querySelector('button')?.click())
+    const next = new URL(replace.mock.calls[0]![0] as string)
+    expect(next.pathname).toBe('/p/project')
+    expect(next.searchParams.get('mode')).toBe('canvas')
+    expect(next.hash).toBe('#selection')
+    expect(next.searchParams.has(RELOAD_QUERY_PARAM)).toBe(true)
+    vi.unstubAllGlobals()
   })
 
   it('passes non-chunk errors to the parent boundary', () => {

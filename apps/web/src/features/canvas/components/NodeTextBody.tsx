@@ -1,13 +1,14 @@
 import type { TextNodeData } from '@image-playground/shared'
-import { createContext, lazy, Suspense, useContext, useState } from 'react'
+import { createContext, Suspense, useContext, useState } from 'react'
 import Overlay from '../../../components/patterns/Overlay'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
+import { lazyWithRetry } from '../../../lib/chunkLoad'
 import type { NodeCanvasDocument } from '../lib/nodeCanvasDocument'
 import NodeTextContent from './NodeTextContent'
 
-const NodeTextEditor = lazy(() => import('./NodeTextEditor'))
+const NodeTextEditor = lazyWithRetry(() => import('./NodeTextEditor'))
 export const TextCanvasContext = createContext<NodeCanvasDocument | null>(null)
 
 export default function NodeTextBody({

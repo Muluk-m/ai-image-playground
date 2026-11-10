@@ -52,7 +52,6 @@ import { nodeCardSize } from '@image-playground/shared'
 import {
   type CSSProperties,
   createContext,
-  lazy,
   memo,
   type RefObject,
   Suspense,
@@ -74,6 +73,7 @@ import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
 import { getStoredChannels, subscribeChannels } from '../../../lib/channels/channelStore'
 import { videoOutputUrl } from '../../../lib/channels/queueClient'
 import { isVideoModeAvailable } from '../../../lib/channels/videoChannels'
+import { lazyWithRetry } from '../../../lib/chunkLoad'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { downloadBlob } from '../../../lib/downloadImages'
 import { fetchDownloadBlob } from '../../../lib/downloadRequest'
@@ -181,7 +181,7 @@ import VideoNodeComposer from './VideoNodeComposer'
 
 /** 批量导入时同时解码的张数。 */
 const IMPORT_DECODE_CONCURRENCY = 4
-const NodeImageEditor = lazy(() => import('./NodeImageEditor'))
+const NodeImageEditor = lazyWithRetry(() => import('./NodeImageEditor'))
 
 type FlowNode = Node<{ node?: CanvasNode; annotation?: CanvasAnnotation; group?: CanvasGroup }>
 const edgeTypes = { reference: NodeFlowEdge }
