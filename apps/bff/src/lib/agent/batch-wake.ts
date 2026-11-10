@@ -1,4 +1,7 @@
-import type { AgentInboxTaskResultPayload } from '@image-playground/db'
+import {
+  type AgentInboxTaskResultPayload,
+  sqlCoalesceIntegerFromDigitText,
+} from '@image-playground/db'
 import type {
   AgentBatchAttemptSnapshot,
   AgentBatchWakeReceipt,
@@ -90,7 +93,7 @@ export async function batchWakeContent(
         eq(attempts.batch_id, items.batch_id),
         eq(attempts.item_key, items.key),
         lte(attempts.version, items.version),
-        sql`${attempts.attempt} = COALESCE((${schema.agent_batch_plans.attempt_targets} ->> ${items.key})::integer, 1)`,
+        sql`${attempts.attempt} = ${sqlCoalesceIntegerFromDigitText(sql`${schema.agent_batch_plans.attempt_targets} ->> ${items.key}`, sql`1`)}`,
       ),
     )
     .where(and(eq(items.batch_id, notice.batchId), eq(items.version, notice.version)))

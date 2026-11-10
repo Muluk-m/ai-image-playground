@@ -1,3 +1,4 @@
+import { sqlCoalesceIntegerFromDigitText } from '@image-playground/db'
 import type { TaskStatus } from '@image-playground/shared'
 import { and, asc, desc, eq, inArray, lte, notInArray, sql } from 'drizzle-orm'
 import type { BunSQLDatabase } from 'drizzle-orm/bun-sql'
@@ -84,7 +85,7 @@ export async function readFrozenDependencyTargets(
         eq(attempt.batch_id, item.batch_id),
         eq(attempt.item_key, item.key),
         lte(attempt.version, item.version),
-        sql`${attempt.attempt} = coalesce((${plan.attempt_targets}->>${item.key})::integer, 1)`,
+        sql`${attempt.attempt} = ${sqlCoalesceIntegerFromDigitText(sql`${plan.attempt_targets}->>${item.key}`, sql`1`)}`,
       ),
     )
     .leftJoin(schema.tasks, eq(schema.tasks.id, attempt.task_id))
