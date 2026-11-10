@@ -302,6 +302,51 @@ describe('生成前确认', () => {
     expect(block.artifacts).toBeUndefined()
   })
 
+  it('聊天里发短确认语时提交待确认卡，不另开一轮、不作废', async () => {
+    const calls: AgentCall[] = []
+    draftingTurn(calls, 'generateImage', { prompt: GREEN_DRAFT })
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '画一版')
+    const pending = await pendingCard(conversationId)
+    setAgentFetchForTesting(async () => {
+      throw new Error('chat confirmation must not call the conversation model')
+    })
+
+    const response = await app.handle(
+      new Request(`http://localhost/api/agent/conversations/${conversationId}/turns`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: `${USER_SESSION_COOKIE}=${sessionToken}`,
+        },
+        body: JSON.stringify({ deviceId: DEVICE, text: '确认' }),
+      }),
+    )
+    const body = (await response.json()) as {
+      confirmed?: boolean
+      messages?: AgentMessageView[]
+    }
+    expect(response.status).toBe(200)
+    expect(body.confirmed).toBe(true)
+    expect(body.messages?.[0]?.id).toBe(pending.messageId)
+    const submitted = body.messages?.flatMap((message) =>
+      message.content.filter((block): block is AgentToolResultBlock => block.type === 'toolResult'),
+    )[0]
+    expect(submitted?.status).toBe('submitted')
+    expect(submitted?.prompt).toBe(GREEN_DRAFT)
+    expect(submitted?.errorCode).not.toBe('cancelled')
+
+    const tasks = await generationTasks(conversationId)
+    expect(tasks).toHaveLength(1)
+    expect(generationHolds()).toHaveLength(1)
+    expect(toolCards(await readMessages(conversationId))[0]?.block.status).toBe('submitted')
+    expect(
+      toolCards(await readMessages(conversationId)).some(
+        (card) => card.block.status === 'awaiting_confirmation',
+      ),
+    ).toBe(false)
+  })
+
   it('拟稿并入了设计意图时，标题也跟着改过的那一句走', async () => {
     const calls: AgentCall[] = []
     draftingTurn(calls, 'generateImage', {

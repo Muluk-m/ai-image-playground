@@ -397,6 +397,12 @@ export type StartTurnOutcome =
   | { readonly kind: 'alreadyRunning'; readonly turnId: string }
   /** 会话忙，这句话进了服务端的排队列表；当前回复结束后按顺序处理。 */
   | { readonly kind: 'queued'; readonly body: AgentMessageQueuedBody }
+  /** 短确认语已按卡片确认提交，没有新的对话轮。 */
+  | {
+      readonly kind: 'confirmed'
+      readonly messages: readonly AgentMessageView[]
+      readonly continued?: true
+    }
 
 /** 409 没带轮标识时按普通失败处理：帧生成器会在第一次读取时抛 `AgentRequestError`。 */
 async function alreadyRunningTurnId(response: Response): Promise<string | null> {
@@ -476,6 +482,21 @@ export async function startTurn(
   try {
     if (response.status === 202) {
       return { kind: 'queued', body: (await response.json()) as AgentMessageQueuedBody }
+    }
+    const contentType = response.headers.get('content-type') ?? ''
+    if (response.ok && contentType.includes('application/json')) {
+      const body = (await response.json()) as {
+        confirmed?: unknown
+        messages?: unknown
+        continued?: unknown
+      }
+      if (body.confirmed === true && Array.isArray(body.messages)) {
+        return {
+          kind: 'confirmed',
+          messages: body.messages as AgentMessageView[],
+          ...(body.continued === true ? { continued: true as const } : {}),
+        }
+      }
     }
     if (response.status === 409) {
       // 读副本：不是「已有一轮」的 409（排队已满等）还要从原件里读出错误码。
