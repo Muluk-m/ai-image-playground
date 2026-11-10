@@ -1,3 +1,4 @@
+import { isShortConfirmation } from '@image-playground/shared'
 import type { AgentTurnInput } from './turn-input'
 import { clarificationChainStart, requestAgentReferences } from './turn-input'
 
@@ -22,6 +23,8 @@ export function directImageCall(
   if (input.mode !== 'image' || input.audience.experience !== 'chat') return null
   const prompt = input.text.trim()
   if (!prompt || prompt.startsWith('/')) return null
+  // 短确认语不是生图提示词：交给会话状态拦截，避免把「确认，执行生成」原样出图。
+  if (isShortConfirmation(prompt)) return null
   const history = input.history.messages
   if (clarificationChainStart(history) < history.length) return null
   if (requestAgentReferences(input).length > 0) return null
