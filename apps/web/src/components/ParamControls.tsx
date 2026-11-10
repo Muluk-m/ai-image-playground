@@ -1,4 +1,6 @@
 import {
+  GPT_IMAGE_26_GIF_DEFAULT_DURATION_MS,
+  GPT_IMAGE_26_GIF_DEFAULT_FRAMES,
   GPT_IMAGE_26_GIF_DURATIONS_MS,
   GPT_IMAGE_26_GIF_FRAMES,
   GPT_IMAGE_26_GIF_SIZES,
@@ -211,9 +213,28 @@ export function ImageSettings({
   useEffect(() => {
     if (!image26 || params.output_format !== 'gif') return
     const size = gifFrameSize(params.size)
-    if (params.size === size && params.quality === 'medium' && params.n === 1) return
-    setParams({ size, quality: 'medium', n: 1 })
-  }, [image26, params.output_format, params.size, params.quality, params.n, setParams])
+    // 帧数控件没点过时界面显示 6 帧、200ms，状态里却是空的。补上之后提交和显示是同一组数。
+    const frame_count = params.frame_count ?? GPT_IMAGE_26_GIF_DEFAULT_FRAMES
+    const frame_duration_ms = params.frame_duration_ms ?? GPT_IMAGE_26_GIF_DEFAULT_DURATION_MS
+    if (
+      params.size === size &&
+      params.quality === 'medium' &&
+      params.n === 1 &&
+      params.frame_count === frame_count &&
+      params.frame_duration_ms === frame_duration_ms
+    )
+      return
+    setParams({ size, quality: 'medium', n: 1, frame_count, frame_duration_ms })
+  }, [
+    image26,
+    params.output_format,
+    params.size,
+    params.quality,
+    params.n,
+    params.frame_count,
+    params.frame_duration_ms,
+    setParams,
+  ])
   const customActive = !isGemini && (selection.kind === 'custom' || customOpen)
   /** 选预设会退出自定义；自定义宽高的提交留在自定义里，免得填完一边输入框就没了。 */
   const applySize = (next: string, { custom = false, wasClamped = false } = {}) => {

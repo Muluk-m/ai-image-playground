@@ -19,7 +19,10 @@ import {
   applyPromptRewriteGuard,
   billedStageQuantity,
   DEFAULT_IMAGE_MODERATION,
+  GPT_IMAGE_26_GIF_DEFAULT_DURATION_MS,
+  type GptImage26Rejection,
   gptImage26Rejection,
+  gptImage26RejectionFields,
   imageSizeTier,
   isBlankPrompt,
   isGptImage26Model,
@@ -139,7 +142,12 @@ export type CreateQueueTaskOutcome =
   | { readonly kind: 'idempotency_mismatch' }
   | { readonly kind: 'duplicate_submission'; readonly taskId: string }
   | { readonly kind: 'invalid_prompt' }
-  | { readonly kind: 'invalid_image_request'; readonly message: string }
+  | {
+      readonly kind: 'invalid_image_request'
+      readonly message: string
+      readonly code: GptImage26Rejection
+      readonly fields: readonly string[]
+    }
   | { readonly kind: 'authentication_required' }
   | { readonly kind: 'metering_denied'; readonly reason: string }
   | { readonly kind: 'private_billing_denied' }
@@ -746,7 +754,12 @@ function gptImage26RequestProblem(
   if (!isGptImage26Model(input.model) || input.video) return null
   const reason = gptImage26Rejection(input.model, input.request, gptImage26Configured())
   if (!reason) return null
-  return { kind: 'invalid_image_request', message: GPT_IMAGE_26_REJECTION_MESSAGE[reason] }
+  return {
+    kind: 'invalid_image_request',
+    code: reason,
+    fields: gptImage26RejectionFields(reason),
+    message: GPT_IMAGE_26_REJECTION_MESSAGE[reason],
+  }
 }
 
 export async function createQueueTask(raw: CreateQueueTaskInput): Promise<CreateQueueTaskOutcome> {
@@ -780,6 +793,16 @@ async function submitQueueTask(
   const commandId = input.request.client_request_id
   const hash = commandHash(input)
   const legacyHashes: string[] = []
+  // 旧 GIF 任务校验时按 200ms 放行，但没把默认时长写进载荷。补进请求后哈希变了，
+  // 同一幂等键要仍能认回那条任务。
+  if (
+    isGptImage26Model(input.model) &&
+    input.request.output_format === 'gif' &&
+    input.request.frame_duration_ms === GPT_IMAGE_26_GIF_DEFAULT_DURATION_MS
+  ) {
+    const { frame_duration_ms: _duration, ...request } = input.request
+    legacyHashes.push(commandHash({ ...input, request }))
+  }
   if (input.request.no_rewrite !== undefined) {
     const { no_rewrite, ...request } = input.request
     const legacyPrompt = shapeQueuePrompt({

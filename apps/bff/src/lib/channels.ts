@@ -52,6 +52,7 @@ import { findCatalogModel, publishModelCapabilities } from '@image-playground/sh
 import { isObject } from './type-guards'
 import { capabilitiesForModel } from './upstream/adapters'
 import { gptDirectEnabledKeyCount, gptDirectSizeEnabled } from './upstream/gpt-direct-availability'
+import { gptImage26KeysReady } from './upstream/gpt-key-config'
 import { runtimeSecret, upstreamSecretRevision } from './upstream-secret-cache'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
@@ -584,7 +585,7 @@ export function refreshChannelsIfChanged(filePath = defaultChannelsPath()): void
   } catch (error) {
     if (!isFileNotFoundError(error)) throw error
   }
-  const signature = `${filePath}:${fileVersion}:${upstreamSecretRevision()}:${gptDirectEnabledKeyCount()}:${gptDirectSizeEnabled()}`
+  const signature = `${filePath}:${fileVersion}:${upstreamSecretRevision()}:${gptDirectEnabledKeyCount()}:${gptDirectSizeEnabled()}:${gptImage26KeysReady()}`
   if (signature === refreshSignature) return
   initChannels(filePath)
   refreshSignature = signature
@@ -723,11 +724,9 @@ function withDeliverableGptSize(channel: InternalChannel): InternalChannel {
 function withGptImage26(channel: InternalChannel): InternalChannel {
   if (!channel.models.some((model) => isGptImage26Model(model.id))) return channel
   const enabled = process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true'
-  // 只配了 OPENAI_API_KEYS 或只在后台直连页配了密钥时，OPENAI_API_KEY 为空，也算有 key。
-  const ready =
-    enabled &&
-    (Boolean(runtimeSecret('OPENAI_API_KEY', process.env.OPENAI_API_KEY?.trim() ?? '')) ||
-      gptDirectEnabledKeyCount() > 0)
+  // 与提交时的 gptImage26Configured 同一把可用密钥：后台停用、硬停用或密钥清单解析失败时
+  // 标成不可用，而不是让选择器放行、每次提交再回「参数不符合要求」。
+  const ready = enabled && gptImage26KeysReady()
   return {
     ...channel,
     models: channel.models.flatMap((model) => {

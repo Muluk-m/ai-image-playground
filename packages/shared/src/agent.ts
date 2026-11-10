@@ -352,6 +352,10 @@ export interface AgentTurnParams {
   readonly quality?: string
   readonly output_format?: string
   readonly output_compression?: number
+  /** Image 2.6 GIF 帧数。缺席时提交按设置卡的默认 6 帧。 */
+  readonly frame_count?: number
+  /** Image 2.6 GIF 每帧毫秒。缺席时提交按设置卡的默认 200ms。 */
+  readonly frame_duration_ms?: number
   readonly gemini_aspect_ratio?: string
   readonly gemini_image_size?: string
   readonly gemini_thinking_level?: string
@@ -549,6 +553,7 @@ export function taskFailureCode(errorType: TaskErrorType | null | undefined): Ag
     case 'upstream_timeout':
       return 'timeout'
     case 'plan_required':
+    case 'invalid_request':
       return 'invalid_params'
     case 'content_policy':
       return 'content_policy'

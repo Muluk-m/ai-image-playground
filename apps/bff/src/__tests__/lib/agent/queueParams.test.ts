@@ -21,6 +21,24 @@ describe('轮参数映射进队列请求', () => {
     expect(queueParamsFor('gemini', { size: '1024x1536' })).not.toHaveProperty('moderation')
   })
 
+  it('动图帧数原样进入队列请求，并固定中等画质', () => {
+    expect(
+      queueParamsFor('openai-compat', {
+        output_format: 'gif',
+        size: '768x768',
+        quality: 'high',
+        frame_count: 12,
+        frame_duration_ms: 100,
+      }),
+    ).toEqual({
+      output_format: 'gif',
+      size: '768x768',
+      quality: 'medium',
+      frame_count: 12,
+      frame_duration_ms: 100,
+    })
+  })
+
   it('png 不带压缩率：这个字段对 png 无意义', () => {
     const mapped = queueParamsFor('openai-compat', { output_format: 'png', output_compression: 80 })
     expect(mapped.output_compression).toBeUndefined()

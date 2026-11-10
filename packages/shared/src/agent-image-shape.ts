@@ -19,7 +19,7 @@ export function withAspectRatio(
   params: AgentTurnParams | undefined,
   ratio: ImagePresetRatio | undefined,
 ): AgentTurnParams | undefined {
-  if (!ratio) return params
+  if (!ratio || params?.output_format === 'gif') return params
   const { gemini_aspect_ratio: _chosen, ...rest } = params ?? {}
   return { ...rest, size: sizeForAspectRatio(params?.size, ratio) }
 }

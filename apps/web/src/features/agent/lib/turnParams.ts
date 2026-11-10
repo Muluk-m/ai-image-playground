@@ -66,6 +66,11 @@ export function toAgentTurnParams(
   if (params.output_format !== DEFAULT_PARAMS.output_format) {
     next.output_format = params.output_format
   }
+  // 动图帧数不在默认参数里。漏传时服务端会按 6 帧、200ms 建成任务，和设置卡上选的 12/16 帧不是同一单。
+  if (params.output_format === 'gif') {
+    if (params.frame_count != null) next.frame_count = params.frame_count
+    if (params.frame_duration_ms != null) next.frame_duration_ms = params.frame_duration_ms
+  }
   if (
     params.output_compression != null &&
     params.output_compression !== DEFAULT_PARAMS.output_compression

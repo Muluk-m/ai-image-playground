@@ -9,6 +9,16 @@ import {
 describe('agentImageShape', () => {
   const chosen = { gemini_aspect_ratio: '9:16', gemini_image_size: '1K' } as const
 
+  it('动图不改写成静态图尺寸，帧数留在轮参数里', () => {
+    const gif = {
+      output_format: 'gif' as const,
+      size: '768x768',
+      frame_count: 12,
+      frame_duration_ms: 100,
+    }
+    expect(withAspectRatio(gif, '16:9')).toBe(gif)
+  })
+
   it('openai 系任务不显示输入框的 gemini 比例，只按实际 size', () => {
     expect(agentImageShape('openai-compat', withAspectRatio(chosen, '16:9'))).toEqual({
       size: '1280x720',

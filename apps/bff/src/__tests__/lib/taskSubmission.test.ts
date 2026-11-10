@@ -152,7 +152,11 @@ it('rejects a 768×16 GIF before creating a task or invoking billing', async () 
         n: 1,
       },
     })
-    expect(result.kind).toBe('invalid_image_request')
+    expect(result).toMatchObject({
+      kind: 'invalid_image_request',
+      code: 'gif_sprite',
+      fields: ['size', 'frame_count'],
+    })
     expect(billingCalled).toBe(false)
     expect(await db.select().from(schema.tasks)).toEqual([])
   } finally {
@@ -160,6 +164,112 @@ it('rejects a 768×16 GIF before creating a task or invoking billing', async () 
     if (apiKey === undefined) delete process.env.OPENAI_API_KEY
     else process.env.OPENAI_API_KEY = apiKey
     _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
+  }
+})
+
+it('accepts a GIF that omits the frame defaults shown in the settings control', async () => {
+  const enabled = config.gptImage26.enabled
+  const apiKey = process.env.OPENAI_API_KEY
+  config.gptImage26.enabled = true
+  process.env.OPENAI_API_KEY = 'gif-test-key'
+  try {
+    const result = await createQueueTask({
+      entry: 'web-direct',
+      provider: 'openai-compat',
+      model: 'gpt-image-2.6-flare',
+      userId: null,
+      request: {
+        prompt: 'A bouncing ball',
+        device_id: 'gif-default',
+        output_format: 'gif',
+        size: '768x768',
+        quality: 'medium',
+        n: 1,
+      },
+    })
+    expect(result.kind).toBe('created')
+    if (result.kind !== 'created') return
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, result.taskId))
+    expect(task?.request_payload).toMatchObject({
+      output_format: 'gif',
+      size: '768x768',
+      frame_count: 6,
+      frame_duration_ms: 200,
+      quality: 'medium',
+      n: 1,
+    })
+  } finally {
+    config.gptImage26.enabled = enabled
+    if (apiKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = apiKey
+  }
+})
+
+it('keeps an explicit 12-frame GIF instead of filling the 6-frame default', async () => {
+  const enabled = config.gptImage26.enabled
+  const apiKey = process.env.OPENAI_API_KEY
+  config.gptImage26.enabled = true
+  process.env.OPENAI_API_KEY = 'gif-test-key'
+  try {
+    const result = await createQueueTask({
+      entry: 'agent',
+      provider: 'openai-compat',
+      model: 'gpt-image-2.6-flare',
+      userId: null,
+      request: {
+        prompt: 'A bouncing ball',
+        device_id: 'gif-twelve',
+        output_format: 'gif',
+        size: '768x768',
+        quality: 'medium',
+        frame_count: 12,
+        frame_duration_ms: 100,
+        n: 1,
+      },
+    })
+    expect(result.kind).toBe('created')
+    if (result.kind !== 'created') return
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, result.taskId))
+    expect(task?.request_payload).toMatchObject({ frame_count: 12, frame_duration_ms: 100 })
+  } finally {
+    config.gptImage26.enabled = enabled
+    if (apiKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = apiKey
+  }
+})
+
+it('accepts a still 2K high-quality Image 2.6 request without rewriting it', async () => {
+  const enabled = config.gptImage26.enabled
+  const apiKey = process.env.OPENAI_API_KEY
+  config.gptImage26.enabled = true
+  process.env.OPENAI_API_KEY = 'still-test-key'
+  try {
+    const result = await createQueueTask({
+      entry: 'web-direct',
+      provider: 'openai-compat',
+      model: 'gpt-image-2.6-flare',
+      userId: null,
+      request: {
+        prompt: 'A red paper crane',
+        device_id: 'still-2k',
+        output_format: 'png',
+        size: '2560x1440',
+        quality: 'high',
+        n: 1,
+      },
+    })
+    expect(result.kind).toBe('created')
+    if (result.kind !== 'created') return
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, result.taskId))
+    expect(task?.request_payload).toMatchObject({
+      size: '2560x1440',
+      quality: 'high',
+      output_format: 'png',
+    })
+  } finally {
+    config.gptImage26.enabled = enabled
+    if (apiKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = apiKey
   }
 })
 

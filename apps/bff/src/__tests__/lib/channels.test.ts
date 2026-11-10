@@ -704,7 +704,29 @@ describe('shipped channels.json', () => {
         ?.models.find((model) => model.id === 'gpt-image-2.6-flare')
       expect(flare?.badges).toEqual(['latest'])
       expect(flare?.unavailable).toBeUndefined()
+
+      setAdminDirectKeySnapshot(
+        [
+          {
+            id: null,
+            ordinal: 1,
+            secret: 'disabled-key',
+            budgetUsd: 1,
+            enabled: false,
+            fingerprint: 'abcd1234',
+            label: 'abcd1234…key',
+          },
+        ],
+        false,
+      )
+      initChannels()
+      expect(
+        getDiscoveredChannels()
+          .find((channel) => channel.id === 'openai-images')
+          ?.models.find((model) => model.id === 'gpt-image-2.6-flare')?.unavailable,
+      ).toBe(true)
     } finally {
+      resetAdminDirectKeySnapshot()
       if (savedFlag === undefined) delete process.env.GPT_IMAGE_26_ENABLED
       else process.env.GPT_IMAGE_26_ENABLED = savedFlag
       if (savedKey === undefined) delete process.env.OPENAI_API_KEY

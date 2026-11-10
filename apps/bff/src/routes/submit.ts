@@ -12,7 +12,8 @@ import { db, schema } from '../db/client'
 import { StageAuthorizationError } from '../lib/agent/stage-authorizations'
 import { isModelDisabled, resolveModelMedia } from '../lib/channels'
 import { resolveImageBytesRef } from '../lib/extractImages'
-import { deviceIdSchema, validationMessage } from '../lib/http'
+import { deviceIdSchema, validationFieldNames, validationMessage } from '../lib/http'
+import { log } from '../lib/logger'
 import { MEDIA_INPUT_PATTERN, MediaInputError, resolveMediaInputs } from '../lib/mediaInputs'
 import { asQueueProvider } from '../lib/queueProvider'
 import { submissionRefusalResponse } from '../lib/submissionRefusal'
@@ -123,14 +124,29 @@ async function resolveSourceVideo(
 export const submitRoutes = new Elysia()
   .use(requireUser)
   // Elysia 默认对 body schema 校验失败返 422；规范要求 400，统一在路由作用域拦截。
-  .onError({ as: 'scoped' }, ({ code, error, set }) => {
+  .onError({ as: 'scoped' }, ({ code, error, set, request }) => {
     if (error instanceof StageAuthorizationError) {
       set.status = error.status
       return { error: error.code }
     }
     if (code === 'VALIDATION') {
+      const fields = validationFieldNames(error)
+      const model = decodeURIComponent(new URL(request.url).pathname.split('/').at(-2) ?? '')
+      log.warn(
+        {
+          event: 'queue.submit_rejected',
+          error: 'invalid_request',
+          fields,
+          ...(model ? { model } : {}),
+        },
+        'queue submit rejected',
+      )
       set.status = 400
-      return { error: 'invalid_request', message: validationMessage(error) }
+      return {
+        error: 'invalid_request',
+        message: validationMessage(error),
+        ...(fields.length ? { fields } : {}),
+      }
     }
   })
   .post(
@@ -239,7 +255,7 @@ export const submitRoutes = new Elysia()
           }
         }
       }
-      if (outcome.kind !== 'created') return submissionRefusalResponse(outcome)
+      if (outcome.kind !== 'created') return submissionRefusalResponse(outcome, { model })
 
       return {
         request_id: outcome.taskId,
