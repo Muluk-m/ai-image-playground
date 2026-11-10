@@ -5,6 +5,7 @@ import { and, eq } from 'drizzle-orm'
 
 process.env.DATABASE_URL = await resetTestDatabase('batch_wake_receipt')
 process.env.PORT = '0'
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 process.env.OPERATOR_CONFIG_FILE = resolve(
   import.meta.dir,
   '../batch-execution-operator-config.json',

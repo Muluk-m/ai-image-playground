@@ -4,6 +4,7 @@ import { resetTestDatabase } from '@image-playground/db/testing'
 import { ANNOUNCEMENT_EXPORT_FORMAT, ANNOUNCEMENT_EXPORT_VERSION } from '@image-playground/shared'
 
 process.env.PORT = '0'
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 process.env.DATABASE_URL = await resetTestDatabase('bff_announcements')
 process.env.INTERNAL_API_TOKEN = 'announcement-test-service-token'
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../../../operator-config.example.json')

@@ -7,6 +7,7 @@ import sharp from 'sharp'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 process.env.PORT = '0'
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-key'
 process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
