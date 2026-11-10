@@ -130,6 +130,14 @@ if [ -n "${NOINDEX_ORIGINS:-}" ]; then
   echo "Added host-scoped noindex headers for: $NOINDEX_ORIGINS"
 fi
 
+# Open tabs keep importing the previous build's hashed /assets files. Merge those
+# files into this dist before smoke and upload, or the next deploy deletes them.
+# PAGES_ASSET_ORIGIN is set by pages-release.sh. Preview deploys without it publish
+# the current build only.
+if [ -n "${PAGES_ASSET_ORIGIN:-}" ]; then
+  node "$repo_root/scripts/retain-pages-assets.mjs" "$dist_dir" "$PAGES_ASSET_ORIGIN"
+fi
+
 if [ "$app" = web ]; then
   # Run the exact final dist before any upload; a failed smoke leaves the current site intact.
   sh "$repo_root/scripts/pages-browser-smoke.sh" --dist "$dist_dir"

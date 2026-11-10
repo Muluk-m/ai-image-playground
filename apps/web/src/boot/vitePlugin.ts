@@ -3,6 +3,11 @@ import type { IndexHtmlTransformContext } from 'vite'
 
 import { LOCALE_STORAGE_KEY } from '../i18n/storageKey'
 import {
+  CHUNK_IMPORT_ATTEMPTS,
+  CHUNK_IMPORT_BACKOFF_MS,
+  DYNAMIC_IMPORT_FAILURE,
+} from '../lib/chunkLoad'
+import {
   BOOT_READY_EVENT,
   BOOT_STAGE_EVENT,
   BOOT_STAGES,
@@ -147,6 +152,48 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
     refresh();
     return true;
   };
+  // Native dynamic import() rejects with "Failed to fetch dynamically imported module" and does
+  // not go through retry() unless we route the unhandled rejection here. Retry the module first;
+  // one reload only if it is still missing and boot has not resumed. vite:preloadError for the
+  // same failure must not reload immediately, or the caller's retry never runs.
+  const dynamicImportFailure=(reason)=>{
+    if(!reason)return false;
+    if(typeof reason==='object'&&reason.name==='ChunkLoadError')return true;
+    const message=typeof reason==='string'?reason:typeof reason.message==='string'?reason.message:'';
+    return ${DYNAMIC_IMPORT_FAILURE}.test(message);
+  };
+  const chunkScriptUrl=(reason)=>{
+    const message=typeof reason==='string'?reason:reason&&typeof reason.message==='string'?reason.message:'';
+    const match=typeof message==='string'?message.match(${/https?:\/\/[^\s)'"]+|\/assets\/[^\s)'"]+/}):null;
+    if(!match)return null;
+    try{
+      const url=new URL(match[0],location.href);
+      if(url.origin!==location.origin||!url.pathname.startsWith('/assets/'))return null;
+      if(!url.pathname.endsWith('.js')&&!url.pathname.endsWith('.mjs'))return null;
+      return url.href;
+    }catch{return null}
+  };
+  let chunkRecovery=false;
+  const loadChunk=(url)=>window.__aipImportChunk?window.__aipImportChunk(url):import(url);
+  const recoverChunk=(reason)=>{
+    if(chunkRecovery||fatal||reloading||rendered)return;
+    chunkRecovery=true;
+    void (async()=>{
+      const url=chunkScriptUrl(reason);
+      if(url&&navigator.onLine!==false){
+        for(let attempt=0;attempt<${CHUNK_IMPORT_ATTEMPTS};attempt++){
+          if(rendered||fatal||reloading)return;
+          if(attempt)await new Promise((resolve)=>setTimeout(resolve,${CHUNK_IMPORT_BACKOFF_MS}*attempt));
+          if(rendered||fatal||reloading)return;
+          try{await loadChunk(url);break}catch{}
+        }
+      }
+      // A successful refetch does not resume the promise that already rejected.
+      // One reload lets boot run again; a spent budget shows the panel now.
+      if(rendered||fatal||reloading)return;
+      if(!retry())fail('preload',{message:clip(reason&&reason.message,300)});
+    })();
+  };
   // A release can expose new HTML before its entry assets reach this edge. The first reload
   // fixes stale HTML; a second failure gets one bounded wait for the ordinary asset URLs.
   const recoverResource=(detail,source)=>{
@@ -222,6 +269,8 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
   const onRejection=(event)=>{
     const reason=event.reason;
     note({type:'rejection',message:clip(reason&&reason.message,300)||clip(String(reason),300),stack:clip(reason&&reason.stack,1200)});
+    // A failed dynamic import used to be recorded and then left for the 30s boot timeout.
+    if(!rendered&&!recovery&&dynamicImportFailure(reason))recoverChunk(reason);
   };
   const onPreloadError=(event)=>{
     const message=event.payload&&event.payload.message;
@@ -245,6 +294,22 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
         const url=new URL(message.slice(cssPrefix.length),location.href);
         if(recovery.failedStyles.has(url.href))return
       }catch{}
+    }
+    // The caller's importWithRetry / lazy() wrapper retries this module. Reloading on the
+    // first vite:preloadError skipped that retry and forced a refresh on every transient miss.
+    if(!recovery&&dynamicImportFailure(event.payload))return;
+    // A lazy chunk's CSS fails before its import() rejects. Required entry styles
+    // still use the propagation wait; everything else must not reload on the first event.
+    if(!recovery&&!rendered&&typeof message==='string'){
+      const preload=message.match(/^Unable to preload (?:CSS|JS) for (.+)$/i);
+      if(preload){
+        try{
+          const url=new URL(preload[1],location.href);
+          const href=url.href;
+          const known=requiredAssets.some(([src])=>new URL(src,location.href).href===href);
+          if(url.origin===location.origin&&url.pathname.startsWith('/assets/')&&!known)return;
+        }catch{}
+      }
     }
     if(!retry()){fail('preload',{message:clip(message,300)});return}
     // Cancelling Vite's event resolves its import helper to undefined, crashing React.lazy.

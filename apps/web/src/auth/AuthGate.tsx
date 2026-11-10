@@ -1,9 +1,10 @@
 import type { AuthUserView } from '@image-playground/shared'
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { type ReactNode, Suspense, useCallback, useEffect, useState } from 'react'
 import { signalBootReady, signalBootStage } from '../boot/ready'
+import RouteChunkBoundary from '../components/RouteChunkBoundary'
 import { Button } from '../components/ui/button'
 import { Icon } from '../components/ui/icon'
-import PricingSheet from '../features/pricing/PricingSheet'
+import { usePricingSheetOpen } from '../features/pricing/pricingSheetState'
 import { useTranslation } from '../i18n'
 import {
   AUTH_SESSION_EXPIRED_EVENT,
@@ -19,18 +20,27 @@ import {
 } from '../lib/authClient'
 import { setClientStorageScope, setRecoveryBackend } from '../lib/authScope'
 import { bootstrapChannels } from '../lib/channels/bootstrapChannels'
+import { lazyWithRetry } from '../lib/chunkLoad'
 import { clearScopedClientStorage } from '../lib/clearScopedStorage'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { recoverStorageUser } from '../lib/localRecovery'
 import { getRuntimeConfig } from '../lib/runtimeConfig'
 import { adoptAnonymousStorage } from '../lib/storageAdoption'
 import { AuthContextProvider } from './AuthContext'
-import { LoginDialog } from './LoginDialog'
 import { type LoginPromptReason, setSignedIn, subscribeLoginPrompt } from './loginPrompt'
 import { discardPendingSubmission, hasPendingSubmission } from './pendingSubmission'
 import { SessionExpiredCard } from './SessionExpiredCard'
 
-const App = lazy(() => import('../App'))
+// App 必须排在其它动态 import 前面，启动预取才先找到工作台，而不是先钻进登录框或套餐页。
+const App = lazyWithRetry(() => import('../App'))
+// 登录框和套餐页原先静态打进 AuthGate（线上约 600KB）。它们不参与第一帧，拆出去缩短这次下载。
+const LoginDialog = lazyWithRetry(() =>
+  import('./LoginDialog').then((module) => ({ default: module.LoginDialog })),
+)
+// 套餐层关掉时不下载。失败只留在这一层，不占用整页的自动刷新预算。
+const PricingSheet = lazyWithRetry(() => import('../features/pricing/PricingSheet'), {
+  reload: false,
+})
 
 type Phase = 'checking' | 'ready' | 'reconnecting'
 
@@ -96,6 +106,8 @@ export function ProblemScreen({
 
 export function AuthGate() {
   const { t } = useTranslation('auth')
+  const { t: tRoute } = useTranslation('shell')
+  const pricingOpen = usePricingSheetOpen()
   const runtime = getRuntimeConfig()
   const accountsLoginEnabled = isClientCapabilityEnabled('accounts:login')
   const localRecoveryEnabled = isClientCapabilityEnabled('accounts:local-recovery')
@@ -272,6 +284,16 @@ export function AuthGate() {
     )
   }
 
+  const chunk = (element: ReactNode, fallback: ReactNode = null) => (
+    <RouteChunkBoundary
+      title={tRoute('route.loadFailed')}
+      description={tRoute('route.loadFailedDescription')}
+      retryLabel={tRoute('route.retry')}
+    >
+      <Suspense fallback={fallback}>{element}</Suspense>
+    </RouteChunkBoundary>
+  )
+
   return (
     <AuthContextProvider
       value={{
@@ -281,25 +303,25 @@ export function AuthGate() {
         logout,
       }}
     >
-      <Suspense fallback={<LoadingScreen />}>
-        <App adoptedTaskCount={adoptedTaskCount} />
-      </Suspense>
+      {chunk(<App adoptedTaskCount={adoptedTaskCount} />, <LoadingScreen />)}
       {sessionExpired && loginReason === null ? (
         <SessionExpiredCard
           onRelogin={() => setLoginReason('session-expired')}
           onDismiss={() => setSessionExpired(false)}
         />
       ) : null}
-      {loginReason ? (
-        <LoginDialog
-          reason={loginReason}
-          onClose={() => {
-            setLoginReason(null)
-            void discardPendingSubmission()
-          }}
-        />
-      ) : null}
-      <PricingSheet />
+      {loginReason
+        ? chunk(
+            <LoginDialog
+              reason={loginReason}
+              onClose={() => {
+                setLoginReason(null)
+                void discardPendingSubmission()
+              }}
+            />,
+          )
+        : null}
+      {pricingOpen ? chunk(<PricingSheet />) : null}
     </AuthContextProvider>
   )
 }
