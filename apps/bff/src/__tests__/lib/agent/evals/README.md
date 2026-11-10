@@ -47,9 +47,9 @@ pnpm --dir apps/bff test --filter src/__tests__/lib/agent/evals/golden-evals.tes
 | `system-facts-completed-batch` | 已完成批次写入系统事实，并附带短确认语指引 |
 | `tool-same-error-circuit` | 同一工具同一错误连续失败达到上限后熔断，不再真正执行 |
 | `overload-no-output-retry` | 对话上游在产出前过载时重试，成功后用户只看到一次完整回复 |
-| `short-confirmation-current` | **当前行为**：批次已完成后用户再说短确认语，服务端仍会问模型（系统事实已提示不要再生成）。服务端硬拦截由并行的 PR 1 实现，见文件中的 `it.todo` |
+| `short-confirmation-current` | 批次已完成后用户再说短确认语，服务端直接拦截：不调用对话模型，回复固定文案，不提交生成 |
+| `short-confirmation-intercept` | 批次已完成后说「确认，执行生成」既不调用对话模型，也不调用任何生成工具（含敌对脚本化 `generateImage`） |
 
-## 短确认语与 PR 1
+## 短确认语
 
-并行 PR 正在做服务端拦截短确认语。本评测集不实现该拦截：
-`short-confirmation-current` 记录合并前的行为；`it.todo` 留给 PR 1 合并后改成「不再调用对话模型或生成工具」。
+#1794 已在服务端拦截短确认语。`short-confirmation-current` 与 `short-confirmation-intercept` 钉住拦截后的行为：不再调用对话模型或生成工具，并给出固定回复。
