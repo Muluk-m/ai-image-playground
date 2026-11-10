@@ -33,6 +33,10 @@ import { wholeImageEditIntent } from './edit-intent'
 import { openTurnEventLog } from './events'
 import { ConversationExecutionLost, type TurnExecution } from './execution'
 import { scheduleAgentFollowUps } from './follow-ups'
+import {
+  GATE_CONTINUATION_EMPTY_REPLY,
+  shouldFillEmptyGateContinuation,
+} from './gate-continuation-empty'
 import { createImageCombinationGuard } from './image-combinations'
 import {
   type AgentImageReference,
@@ -1038,7 +1042,24 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       await writes
       // 没收尾的半截回复也算产出，空轮兜底连它一起看：失败与否必须在决定落不落它之前定死，
       // 否则就成了「因为没落所以判失败、因为失败所以不落」。
-      if (!error && !aborted && !storedAny && !open?.text) error = 'agent_run_failed'
+      const emptyVisible = !error && !aborted && !storedAny && !open?.text
+      if (
+        shouldFillEmptyGateContinuation({
+          continuation: Boolean(input.continuation),
+          error: Boolean(error),
+          aborted,
+          storedAny,
+          openText: Boolean(open?.text),
+        })
+      ) {
+        const messageId = crypto.randomUUID()
+        events.emit({ type: 'assistantStart', messageId })
+        events.emit({ type: 'textDelta', messageId, delta: GATE_CONTINUATION_EMPTY_REPLY })
+        await storeBlock({ type: 'text', text: GATE_CONTINUATION_EMPTY_REPLY }, messageId)
+        await writes
+      } else if (emptyVisible) {
+        error = 'agent_run_failed'
+      }
       // 失败的轮不留这段没收尾的回复：面板在 turnEnd failed 时把它撤掉，历史要跟着撤，
       // 不然刷新回来它又冒出来。中止不在此列——那段话用户还看得见，照旧落库。
       if (error) await discardOpen()
@@ -1057,6 +1078,16 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
         })
 
       const { usage, upstreamInvocationCount } = ledger.settlement()
+      if (emptyVisible && input.continuation && !error) {
+        log.warn(
+          {
+            event: 'agent.gate_continuation_empty',
+            turnId,
+            outputTokens: usage?.outputTokens ?? 0,
+          },
+          'gate continuation produced no visible reply; stored a fallback',
+        )
+      }
       const outcome: TaskOutcome = error ? 'failed' : aborted ? 'cancelled' : 'completed'
       let cost: AgentTurnCost | undefined
       if (settle) {
