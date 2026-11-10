@@ -32,6 +32,7 @@ import type {
   SortKey,
   TaskDetail,
   UserDetailResult,
+  UserKpis,
   UserTasksResult,
 } from './types'
 
@@ -120,6 +121,15 @@ export interface UserListOptions {
   dir?: 'asc' | 'desc'
   page?: number
   pageSize?: 50 | 100
+}
+
+/** 全局指标，不跟列表筛选和页码走。服务端另有 30 秒缓存。 */
+export function useUserKpis() {
+  return useQuery({
+    queryKey: ['user-kpis'],
+    queryFn: () => apiClient.get<UserKpis>('/api/users/kpis'),
+    staleTime: 30_000,
+  })
 }
 
 export function useUsers(search: string, options: UserListOptions = {}) {

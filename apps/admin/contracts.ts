@@ -192,7 +192,6 @@ export interface ListUsersResult {
   total: number
   page: number
   pageSize: number
-  kpis: UserKpis
 }
 
 export interface TaskVolumeBucket {

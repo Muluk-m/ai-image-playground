@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb, OAUTH_ONLY_PASSWORD_HASH } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import { eq } from 'drizzle-orm'
 
 const databaseUrl = await resetTestDatabase('admin_users_route')
 const forwarded: Array<{
@@ -234,7 +235,6 @@ describe('admin user routes', () => {
     expect(response.status).toBe(200)
     const body = (await response.json()) as {
       users: Array<Record<string, unknown>>
-      kpis: Record<string, number>
       truncated: boolean
     }
     expect(body.users).toHaveLength(1)
@@ -253,8 +253,10 @@ describe('admin user routes', () => {
       'google',
     ])
     expect(body.users[0]).not.toHaveProperty('password_hash')
-    expect(body.kpis).toMatchObject({ total_users: 2, active_users_7d: 1, submissions_24h: 2 })
-    expect(body.kpis.failure_rate_24h).toBe(0.5)
+    expect(body).not.toHaveProperty('kpis')
+    const kpis = (await (await call('/api/users/kpis')).json()) as Record<string, number>
+    expect(kpis).toMatchObject({ total_users: 2, active_users_7d: 1, submissions_24h: 2 })
+    expect(kpis.failure_rate_24h).toBe(0.5)
     expect(body.truncated).toBe(false)
     const paged = (await (
       await call('/api/users?page=2&pageSize=50&sort=created&dir=asc')
@@ -421,5 +423,30 @@ describe('admin user routes', () => {
       operator: 'password-admin',
       body: undefined,
     })
+  })
+
+  it('keeps global KPIs cached across page reads and refreshes after the short ttl', async () => {
+    const { USER_KPI_CACHE_MS, getUserKpis, resetUserKpiCacheForTesting } = await import(
+      '../../../../server/lib/queries'
+    )
+    resetUserKpiCacheForTesting()
+    const first = await getUserKpis(1_000)
+    expect(first.total_users).toBe(2)
+    await writer.db.insert(writer.schema.users).values({
+      id: 'user-kpi-extra',
+      username: 'kpi-extra',
+      password_hash: 'hash',
+      status: 'active',
+      created_at: now,
+      updated_at: now,
+    })
+    try {
+      expect((await getUserKpis(1_000 + 5_000)).total_users).toBe(2)
+      expect((await getUserKpis(1_000 + USER_KPI_CACHE_MS)).total_users).toBe(3)
+    } finally {
+      await writer.db
+        .delete(writer.schema.users)
+        .where(eq(writer.schema.users.id, 'user-kpi-extra'))
+    }
   })
 })
