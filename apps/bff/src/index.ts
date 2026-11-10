@@ -197,7 +197,7 @@ const stopMaintenance = startPeriodicSteps(
 if (config.corsOrigins === '*') {
   log.warn(
     { event: 'config.cors_wildcard' },
-    'CORS_ALLOWED_ORIGINS=* — any origin can hit BFF and burn upstream quota; restrict in prod',
+    'CORS_ALLOWED_ORIGINS=* — login and billing are off; any origin can hit BFF. Set an explicit list before enabling accounts:login or billing:credits',
   )
 }
 

@@ -200,7 +200,7 @@ Biome 禁止其它公开代码静态或动态引用 `private/`。
 | `S3_ACCESS_KEY_ID` | — | Object storage access key; keep the real value outside git |
 | `S3_SECRET_ACCESS_KEY` | — | Object storage secret key; keep the real value outside git |
 | `S3_KEY_PREFIX` | `(空)` | 对象 key 前缀；bucket 与其他业务共用时用它隔离，DB 里存的 ref 不含前缀 |
-| `CORS_ALLOWED_ORIGINS` | `*` | CORS 允许的浏览器 origin，多个用逗号分隔；生产请收紧。作为 OAuth 前端 allowlist 的回退时，每项必须是 bare `http(s)` origin |
+| `CORS_ALLOWED_ORIGINS` | `*` | CORS 允许的浏览器 origin，多个用逗号分隔。`accounts:login` 或 `billing:credits` 打开时 `*` 拒绝启动；两项都关着才可以显式写 `*`。作为 OAuth 前端 allowlist 的回退时，每项必须是 bare `http(s)` origin |
 | `AUTH_PUBLIC_ORIGIN` | `(空)` | OAuth provider 注册的主 BFF 回调 origin；配置后必须是 bare `http(s)` origin，回调为 `<origin>/api/auth/oauth/{provider}/callback` |
 | `AUTH_PUBLIC_ORIGINS` | `(空)` | 允许保持当前请求回调主机的精确 API allowlist，逗号分隔的 bare `http(s)` origins；只填写路由到同一 BFF 的可信 API origin，未匹配时仍使用主 `AUTH_PUBLIC_ORIGIN` |
 | `AUTH_FRONTEND_ORIGIN` | `(空)` | OAuth 登录完成后的默认前端 origin；必须是 bare `http(s)` origin |

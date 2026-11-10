@@ -5,6 +5,7 @@ import { CLIENT_ERROR_RECOVERY_OPERATIONS, CLIENT_ERRORS_PATH } from '@image-pla
 
 const bffRoot = resolve(import.meta.dir, '../../..')
 process.env.PORT = '0'
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 process.env.DATABASE_URL = await resetTestDatabase('bff_client_errors')
 process.env.OPERATOR_CONFIG_FILE = resolve(bffRoot, 'operator-config.example.json')
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'

@@ -15,6 +15,7 @@ process.env.RESEND_API_KEY = ''
 process.env.EMAIL_FROM = ''
 process.env.EMAIL_CODE_SECRET = ''
 process.env.PORT = '0'
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 
 // Install the environment before importing process-singleton config and DB consumers.

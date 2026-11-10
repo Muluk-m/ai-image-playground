@@ -33,6 +33,7 @@ import * as Y from 'yjs'
 process.env.DATABASE_URL = await resetTestDatabase('canvas_sync')
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../canvas-sync-operator-config.json')
 process.env.PORT = '0'
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 const { app } = await import('../../app')
 const { startHttpServer } = await import('../../lib/httpServer')
 const { db, schema, close } = await import('../../db/client')
