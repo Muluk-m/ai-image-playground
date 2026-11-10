@@ -10,6 +10,26 @@ const MIME = {
 }
 const PROJECT_ID = '00000000-0000-4000-8000-000000000001'
 const PATHS = ['/image', `/p/${PROJECT_ID}`]
+// 指南和营销页的演示成片在这个桶上，文件名带内容哈希。冒烟不连外网，只放行成片并回空响应。
+const GUIDE_CLIP_ORIGIN = 'https://cms-r2.deepclick.com'
+
+function isGuideClipRequest(request) {
+  if (request.method() !== 'GET') return false
+  let url
+  try {
+    url = new URL(request.url())
+  } catch {
+    return false
+  }
+  return url.origin === GUIDE_CLIP_ORIGIN && /\.(?:mp4|webm|mov)$/i.test(url.pathname)
+}
+
+function fulfillGuideClip(route) {
+  const pathname = new URL(route.request().url()).pathname.toLowerCase()
+  const contentType = pathname.endsWith('.mp4') ? 'video/mp4'
+    : pathname.endsWith('.mov') ? 'video/quicktime' : 'video/webm'
+  return route.fulfill({ status: 200, contentType, body: '' })
+}
 
 function measureRotationLayout() {
   const main = document.querySelector('main')
@@ -206,6 +226,7 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
             headers: { 'access-control-allow-origin': origin, 'access-control-allow-credentials': 'true' },
             contentType: 'application/json', body: JSON.stringify(fixtures[url.pathname]) })
         }
+        if (isGuideClipRequest(request)) return fulfillGuideClip(route)
         if (url.origin !== origin || url.pathname.startsWith('/api/')) {
           fail(`Unexpected startup network request: ${request.method()} ${url.origin}${url.pathname}`)
           return route.abort()
@@ -614,6 +635,8 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
     }
     if (!accountsLogin && request.isNavigationRequest() && url.pathname === '/image') return route.fulfill({contentType:'text/html',body:'<!doctype html><html><body>Workbench destination</body></html>'})
     if (request.method() === 'GET' && Object.hasOwn(fixtures,url.pathname)) return route.fulfill({contentType:'application/json',body:JSON.stringify(fixtures[url.pathname])})
+    // 营销首页、/en/ 和两条指南页共用这条路由，成片进入视口后会请求 cms-r2。
+    if (isGuideClipRequest(request)) return fulfillGuideClip(route)
     if (url.origin !== origin || url.pathname.startsWith('/api/')) throw new Error(`Unexpected marketing request: ${request.method()} ${url.href}`)
     return route.continue()
   })
@@ -691,5 +714,5 @@ async function main() {
   }
 }
 
-module.exports = { serveDist, checkWorkspace, checkMarketing, measureRotationLayout, expectLoginEntryMatchesPolicy }
+module.exports = { serveDist, checkWorkspace, checkMarketing, isGuideClipRequest, measureRotationLayout, expectLoginEntryMatchesPolicy }
 if (require.main === module) main().catch((error) => { console.error(error); process.exitCode = 1 })

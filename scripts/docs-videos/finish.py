@@ -3,7 +3,10 @@
 
 指南片：等待段 8–16 倍快进，只留约两秒，CRF 18，无营销字幕。
 宣传片：片头片尾、圆角字幕、推近，45–60 秒，CRF 18。
-母带在 scripts/docs-videos/raw/hd/。不要用已经压过的 clips 当输入。
+母带在 scripts/docs-videos/raw/hd/。不要用已经压过的成片当输入。
+
+mp4 / webm 写到 scripts/docs-videos/out/（gitignore）。封面 webp 仍写到
+apps/web/public/guide-assets/zh/clips/。上线方式见同目录 README.md。
 """
 
 from __future__ import annotations
@@ -17,7 +20,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[2]
 HD = ROOT / "scripts/docs-videos/raw/hd"
-OUT = ROOT / "apps/web/public/guide-assets/zh/clips"
+# 成片不进仓库。封面仍给页面做 poster，路径保持 /guide-assets/zh/clips/。
+OUT = ROOT / "scripts/docs-videos/out"
+POSTERS = ROOT / "apps/web/public/guide-assets/zh/clips"
 FONT = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
 FONT_INDEX = 2  # Noto Sans CJK SC Bold。0 是日文，2 才是简体。
 W, H = 1920, 1080
@@ -346,7 +351,7 @@ def encode_guide(src: Path, pieces: list[tuple[float, float, float]], name: str)
     mp4 = OUT / f"{name}.mp4"
     concat(parts, mp4)
     duration = probe(mp4)
-    poster(mp4, OUT / f"{name}-poster.webp", duration - 0.6)
+    poster(mp4, POSTERS / f"{name}-poster.webp", duration - 0.6)
     return mp4
 
 
@@ -519,7 +524,7 @@ def build_promo() -> None:
         print("warning: duration outside 45–60")
     if size > 25 * 1048576:
         print("warning: larger than 25MB")
-    poster(promo, OUT / "promo-site-zh-poster.webp", 8.0)
+    poster(promo, POSTERS / "promo-site-zh-poster.webp", 8.0)
     (HD / "promo-report.json").write_text(
         json.dumps(
             {
@@ -575,7 +580,7 @@ def build_video() -> None:
     mp4 = OUT / "08-video.mp4"
     concat(parts, mp4)
     duration = probe(mp4)
-    poster(mp4, OUT / "08-video-poster.webp", max(0.4, duration - 1.2))
+    poster(mp4, POSTERS / "08-video-poster.webp", max(0.4, duration - 1.2))
     print("08-video", round(duration, 2), "MB", round(mp4.stat().st_size / 1048576, 2))
     encode_webm(mp4, OUT / "08-video.webm")
 
@@ -598,13 +603,14 @@ def build_inpaint() -> None:
     mp4 = OUT / "09-inpaint.mp4"
     concat(parts, mp4)
     duration = probe(mp4)
-    poster(mp4, OUT / "09-inpaint-poster.webp", duration - 0.5)
+    poster(mp4, POSTERS / "09-inpaint-poster.webp", duration - 0.5)
     print("09-inpaint", round(duration, 2), "MB", round(mp4.stat().st_size / 1048576, 2))
     encode_webm(mp4, OUT / "09-inpaint.webm")
 
 
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
+    POSTERS.mkdir(parents=True, exist_ok=True)
     only = sys.argv[1:]
     if only == ["08"]:
         build_video()
