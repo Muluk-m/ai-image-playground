@@ -33,7 +33,7 @@ import {
   reserveChatTask,
 } from './chat-task'
 import { voidPendingToolGates } from './confirmations'
-import { conversationStateNote } from './conversation-state'
+import { readConversationStateFacts, renderConversationState } from './conversation-state'
 import {
   type AgentHistoryWindow,
   type AgentOwner,
@@ -63,6 +63,7 @@ import {
 } from './model-history'
 import { resolveConfiguredAgentRuntime } from './model-settings-store'
 import type { ConfiguredAgentRuntime } from './provider-settings'
+import { shortConfirmationGuard } from './short-confirmation'
 import {
   type AgentTurnAudience,
   ensureAgentSkills,
@@ -276,6 +277,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
   // 不留孤儿对象。范围到事务提交为止——提交之后那条用户消息已经指着这些图了。
   let selectedRuntime: ConfiguredAgentRuntime
   let committed: CommittedTurnStart
+  let confirmationGuard: ReturnType<typeof shortConfirmationGuard>
   try {
     const window = await history
     selectedRuntime = await resolveConfiguredAgentRuntime(content.params?.thinkingDepth)
@@ -307,7 +309,14 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       turnExperience,
     )
     const currentTime = new Date().toISOString()
-    const conversationState = await conversationStateNote(conversationId)
+    const facts = await readConversationStateFacts(conversationId)
+    const conversationState = renderConversationState(facts)
+    confirmationGuard =
+      source.kind === 'message'
+        ? shortConfirmationGuard(content.text, facts, {
+            inClarification: clarificationChainStart(window.messages) < window.messages.length,
+          })
+        : undefined
     let modelHistory: AgentTurnInput['modelHistory']
     if (
       source.kind === 'message' &&
@@ -496,6 +505,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       ...(turnContent.canvas ? { canvas: turnContent.canvas } : {}),
       ...(content.wake ? { wake: content.wake } : {}),
       reservedCredits: committed.reserved?.reservedCredits,
+      ...(confirmationGuard ? { confirmationGuard } : {}),
       settle: committed.unmetered
         ? undefined
         : chatTurnSettle(

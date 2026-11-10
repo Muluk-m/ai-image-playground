@@ -446,24 +446,29 @@ export function Guide({ page }: { page: SitePage }) {
             </nav>
           </>
         ) : (
-          <div id="chapters" className="guide-groups">
-            {guide.groups.map((group) => (
-              <section key={group.id}>
-                <h2>{group.title}</h2>
-                {entries
-                  .filter((item) => item.group === group)
-                  .map((item) => (
-                    <a key={item.key} href={item.path}>
-                      <strong>{item.page.title}</strong>
-                      <span>{item.page.summary}</span>
-                    </a>
-                  ))}
-              </section>
+          <>
+            {guide.home?.map((block, i) => (
+              <GuideBlock key={i} block={block} guide={guide} locale={page.locale} />
             ))}
-            {guide.moved['']?.anchors ? (
-              <script dangerouslySetInnerHTML={{ __html: redirectScript(guide, '', null) }} />
-            ) : null}
-          </div>
+            <div id="chapters" className="guide-groups">
+              {guide.groups.map((group) => (
+                <section key={group.id}>
+                  <h2>{group.title}</h2>
+                  {entries
+                    .filter((item) => item.group === group)
+                    .map((item) => (
+                      <a key={item.key} href={item.path}>
+                        <strong>{item.page.title}</strong>
+                        <span>{item.page.summary}</span>
+                      </a>
+                    ))}
+                </section>
+              ))}
+              {guide.moved['']?.anchors ? (
+                <script dangerouslySetInnerHTML={{ __html: redirectScript(guide, '', null) }} />
+              ) : null}
+            </div>
+          </>
         )}
       </article>
       {sections.length ? (
