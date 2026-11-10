@@ -969,8 +969,8 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
   const unregister = registerRunningTurn(turn)
 
   // 未完成澄清链仍是同一请求；实发与预扣共享附图范围及张数限制。
-  void requireAgentImages(images, shownImageRequests(requestAgentReferences(input)))
-    .then(async (references) => {
+  void Promise.resolve()
+    .then(async () => {
       if (aborted) return
       if (prepared.confirmationGuard) {
         confirmationGuarded = true
@@ -990,6 +990,10 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
         await storeBlock({ type: 'text', text }, messageId)
         return
       }
+      const references = await requireAgentImages(
+        images,
+        shownImageRequests(requestAgentReferences(input)),
+      )
       // 复核用预览而不是原件：4K 产物的原件会把整轮请求撑过字节预算。装不下的如实告诉模型。
       const { reviewed, omitted } = await prepareReviewImages(
         images,
@@ -1116,22 +1120,24 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
       ended = true
       await touchAgentConversation(conversationId)
       await events.flush()
-      await saveModelHistoryAfterTurn({
-        outcome,
-        retained,
-        userMessageStored: !!prepared.storedUserMessage,
-        steered: steeringReferences.size > 0,
-        conversationId,
-        turnId,
-        owner: prepared.owner,
-        mode,
-        userId: prepared.userId,
-        experience: audience.experience,
-        expectedHistory: [...history.messages, ...storedMessages.values()],
-        previousSkills: input.skillTexts,
-        messages: agent.state.messages,
-        assertExecution: execution.assert,
-      })
+      if (!confirmationGuarded) {
+        await saveModelHistoryAfterTurn({
+          outcome,
+          retained,
+          userMessageStored: !!prepared.storedUserMessage,
+          steered: steeringReferences.size > 0,
+          conversationId,
+          turnId,
+          owner: prepared.owner,
+          mode,
+          userId: prepared.userId,
+          experience: audience.experience,
+          expectedHistory: [...history.messages, ...storedMessages.values()],
+          previousSkills: input.skillTexts,
+          messages: agent.state.messages,
+          assertExecution: execution.assert,
+        })
+      }
     })
     .catch(async (err) => {
       // 租约已经归了别人：这里不能再写，终帧由接手的一方补（见 `sealAbandonedTurns`）。

@@ -21,8 +21,10 @@ const MAX_LISTED_ARTIFACTS = 12
 export function shortConfirmationGuard(
   text: string,
   facts: ConversationStateFacts,
+  options: { readonly inClarification?: boolean } = {},
 ): ShortConfirmationGuard | undefined {
-  if (!isShortConfirmation(text)) return undefined
+  // 澄清里的「可以 / 确认」是在回答当前问题，不是对旧批次再点一次执行。
+  if (options.inClarification || !isShortConfirmation(text)) return undefined
 
   const pendingDrafts = facts.pendingDrafts.length
   const pendingNodeRuns = facts.pendingNodeRuns.length
