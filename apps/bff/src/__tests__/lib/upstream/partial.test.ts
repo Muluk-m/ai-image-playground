@@ -22,6 +22,14 @@ describe('partialFailureOf', () => {
     expect(directAttemptPayload(false, undefined, error)).toBe(payload)
     expect(directAttemptImages(2, directAttemptPayload(false, undefined, error))).toBe(1)
     expect(directAttemptImages(2, directAttemptPayload(false, undefined, new Error('no')))).toBe(2)
+    const delivered = { data: [{ b64_json: 'a' }] }
+    expect(
+      directAttemptImages(
+        2,
+        directAttemptPayload(false, undefined, new UpstreamPartialResultError(delivered)),
+        true,
+      ),
+    ).toBe(1)
   })
 
   it('张数不合理或分类不认识时当没有缺口，不拿它结算', () => {

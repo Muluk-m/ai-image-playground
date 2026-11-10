@@ -1,9 +1,9 @@
 import { scryptSync } from 'node:crypto'
-import { config } from '../../config'
 import { log } from '../logger'
 import { runtimeSecret } from '../upstream-secret-cache'
 import {
   adminDirectKeys,
+  directKeyKnownDisabled,
   fingerprintMacSource,
   resetAdminDirectKeySnapshot,
   setAdminDirectKeySnapshot,
@@ -156,6 +156,13 @@ export function parseDirectKeyList(rawKeys: string, rawBudgets: string): DirectK
   return keys
 }
 
+/** 至少有一把启用且没被停用的直连密钥。2.6 的清单和提交用同一条，避免选择器放行、提交却拒绝。 */
+export function gptImage26KeysReady(): boolean {
+  return (adminDirectKeys() ?? safeEnvDirectKeys()).some(
+    (key) => key.enabled && !directKeyKnownDisabled(key.fingerprint),
+  )
+}
+
 export function safeEnvDirectKeys(): DirectKey[] {
   try {
     return envDirectKeys()
@@ -172,13 +179,24 @@ export function safeEnvDirectKeys(): DirectKey[] {
  * 只有一把环境变量 key、又没配指纹密钥时，不派生指纹，也不把直连关掉。
  * 多把 key 仍然必须有指纹密钥，否则 parse 会失败关闭。
  */
+/** 与 config.gptDirect.monthlyBudgetUsd 同一默认值。这里不读 config，渠道清单才能在没有 DATABASE_URL 时加载。 */
+function monthlyBudgetUsd(): number {
+  const raw = process.env.GPT_DIRECT_MONTHLY_BUDGET_USD?.trim()
+  if (!raw) return 200
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error('GPT_DIRECT_MONTHLY_BUDGET_USD must be a positive integer')
+  }
+  return value
+}
+
 function legacySingleKey(secret: string): DirectKey {
   const tail = secret.length >= 4 ? secret.slice(-4) : secret
   return {
     id: null,
     ordinal: 1,
     secret,
-    budgetUsd: config.gptDirect.monthlyBudgetUsd,
+    budgetUsd: monthlyBudgetUsd(),
     enabled: true,
     fingerprint: 'legacy',
     label: `legacy…${tail}`,
@@ -188,7 +206,7 @@ function legacySingleKey(secret: string): DirectKey {
 export function envDirectKeys(): DirectKey[] {
   const list = process.env.OPENAI_API_KEYS?.trim()
   if (list) return parseDirectKeyList(list, process.env.OPENAI_API_KEY_BUDGETS_USD ?? '')
-  const single = runtimeSecret('OPENAI_API_KEY', config.gptDirect.apiKey).trim()
+  const single = runtimeSecret('OPENAI_API_KEY', process.env.OPENAI_API_KEY?.trim() ?? '').trim()
   if (!single) return []
   if (fingerprintMacSource() === 'unset') return [legacySingleKey(single)]
   return [
@@ -196,7 +214,7 @@ export function envDirectKeys(): DirectKey[] {
       id: null,
       ordinal: 1,
       secret: single,
-      budgetUsd: config.gptDirect.monthlyBudgetUsd,
+      budgetUsd: monthlyBudgetUsd(),
       enabled: true,
       ...fingerprintOf(single),
     },

@@ -57,10 +57,20 @@ export function directAttemptPayload(
   return error instanceof UpstreamPartialResultError ? error.payload : undefined
 }
 
-/** 有缺口记录时只算已经出的张数，否则按请求张数。 */
-export function directAttemptImages(requested: number, payload: unknown): number {
+/**
+ * 有缺口记录时只算已经出的张数。异步部分成功没有 `partial_failure` 时按结果里的图片张数，
+ * 不再退回整单 `n`。其它情况仍按请求张数。
+ */
+export function directAttemptImages(
+  requested: number,
+  payload: unknown,
+  countDeliveredImages = false,
+): number {
   const partial = partialFailureOf(payload)
-  return partial ? Math.max(0, partial.requested - partial.failed) : Math.max(1, requested)
+  if (partial) return Math.max(0, partial.requested - partial.failed)
+  if (countDeliveredImages && isObject(payload) && Array.isArray(payload.data))
+    return payload.data.length
+  return Math.max(1, requested)
 }
 
 export function partialFailureOf(payload: unknown): PartialImageFailure | undefined {

@@ -149,6 +149,27 @@ describe('BFF queue routes', () => {
     expect(taskStatus.json).toMatchObject({ status: 'queued' })
   })
 
+  it('rejects a 25ms GIF frame duration at submit validation', async () => {
+    const { status, json } = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2.6-flare/submit',
+      submitBody({
+        output_format: 'gif',
+        size: '768x768',
+        frame_count: 6,
+        frame_duration_ms: 25,
+      }),
+    )
+    expect(status).toBe(400)
+    expect(json).toMatchObject({ error: 'invalid_request', fields: ['frame_duration_ms'] })
+  })
+
+  it('returns 400 when the model path has a malformed percent escape', async () => {
+    const { status, json } = await jsonReq('POST', '/v1/queue/openai-compat/%ZZ/submit', {})
+    expect(status).toBe(400)
+    expect(json).toMatchObject({ error: 'invalid_request' })
+  })
+
   it('POST submit drops client extra so it cannot override the billed count or model', async () => {
     const bodies: Array<Record<string, unknown>> = []
     setUpstreamFetchForTesting(

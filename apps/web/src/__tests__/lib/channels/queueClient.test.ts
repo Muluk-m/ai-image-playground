@@ -192,6 +192,22 @@ describe('callQueueChannelApi submit body', () => {
     expect(stale.body.quality).toBe('medium')
   })
 
+  it('GIF 没写帧数时按设置卡显示的 6 帧、200ms 提交', async () => {
+    const { body } = await captureSubmitBody('openai-compat', {
+      size: '768x768',
+      output_format: 'gif',
+      quality: 'low',
+    })
+    expect(body).toMatchObject({
+      size: '768x768',
+      output_format: 'gif',
+      quality: 'medium',
+      frame_count: 6,
+      frame_duration_ms: 200,
+      n: 1,
+    })
+  })
+
   it('openai-compat 的 PNG 输出不发送压缩率', async () => {
     const { body } = await captureSubmitBody('openai-compat', {
       output_format: 'png',
@@ -513,6 +529,25 @@ describe('提交失败时的 BFF 错误码文案', () => {
     expect(message).not.toContain('该模型不支持视频生成')
 
     await setLocale('zh-CN')
+  })
+
+  it('invalid_request 带上错误分类，详情复制不会再是 null', async () => {
+    const call = await loadCallQueueChannelApi()
+    vi.spyOn(globalThis, 'fetch').mockImplementationOnce(
+      async () =>
+        new Response(JSON.stringify({ error: 'invalid_request', fields: ['frame_count'] }), {
+          status: 400,
+        }),
+    )
+    const error = await call(
+      mockOpts(),
+      mockProfile('openai-compat'),
+      mockChannel('openai-compat'),
+    ).catch((caught: unknown) => caught)
+    expect(taskErrorTypeOf(error)).toBe('invalid_request')
+    const failure = generationFailure(error)
+    expect(failure.code).toBe('invalid_request')
+    expect(failure.text).toContain('参数不符合要求')
   })
 
   it('认不得的码退回 getApiErrorMessage 的结果', async () => {

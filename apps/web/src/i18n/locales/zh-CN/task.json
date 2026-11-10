@@ -45,6 +45,15 @@
       "confirming": "结果确认中...",
       "reconciling": "结果确认中（已提交，不会重复扣费）"
     },
+    "degraded": {
+      "size": "直连繁忙，已降级为 1K",
+      "quality": "直连繁忙，已降为普通画质",
+      "format": "直连繁忙，已降级为静态图",
+      "size_quality": "直连繁忙，已降级为 1K 普通画质",
+      "size_format": "直连繁忙，已降级为 1K 静态图",
+      "quality_format": "直连繁忙，已降为普通画质静态图",
+      "size_quality_format": "直连繁忙，已降级为 1K 普通画质静态图"
+    },
     "inpaint": "局部重绘",
     "transparentBackground": "透明背景"
   },

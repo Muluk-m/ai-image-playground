@@ -100,6 +100,12 @@ export function agentToolFailureText(
 export function taskErrorText(code: TaskErrorType): string {
   // 内容审核拒绝只有改提示词一条出路，用带出路的那句长话。
   if (code === 'content_policy') return i18next.t('detail.contentPolicy', { ns: 'task' })
+  // 提交阶段的参数拒绝沿用提交文案，和没带分类时队列客户端抛出的那句相同。
+  if (code === 'invalid_request')
+    return i18next.t('queue.submitFailed', {
+      ns: 'lib',
+      reason: i18next.t('queue.bffInvalidRequest', { ns: 'lib' }),
+    })
   return (
     agentToolFailureText(taskFailureCode(code)) ?? i18next.t('agentTool.fallback', { ns: 'errors' })
   )

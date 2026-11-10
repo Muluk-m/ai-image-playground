@@ -1,4 +1,9 @@
-import type { StatusResponse, TaskErrorType } from '@image-playground/shared'
+import {
+  IMAGE26_DEGRADE_KINDS,
+  type Image26DegradeKind,
+  type StatusResponse,
+  type TaskErrorType,
+} from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { extractMeta } from '../lib/extractImages'
@@ -30,6 +35,7 @@ export const statusRoutes = new Elysia().use(requireUserOrService).get(
         error_message: schema.tasks.error_message,
         error_type: schema.tasks.error_type,
         provider: schema.tasks.provider,
+        request_payload: schema.tasks.request_payload,
         result_payload: schema.tasks.result_payload,
         archive_payload: schema.tasks.archive_payload,
         upstream_task_ids: schema.tasks.upstream_task_ids,
@@ -84,11 +90,16 @@ export const statusRoutes = new Elysia().use(requireUserOrService).get(
       const provider = asQueueProvider(task.provider)
       if (provider) {
         const meta = extractMeta(provider, task.result_payload)
+        const degrade = task.request_payload.image26_degrade?.kind
+        const degradeNotice = (IMAGE26_DEGRADE_KINDS as readonly string[]).includes(degrade ?? '')
+          ? (degrade as Image26DegradeKind)
+          : undefined
         base.result = {
           images: meta.images,
           ...(meta.actual_params ? { actual_params: meta.actual_params } : {}),
           ...(meta.raw_image_urls ? { raw_image_urls: meta.raw_image_urls } : {}),
           ...partialFailureField(task.result_payload),
+          ...(degradeNotice ? { degrade_notice: degradeNotice } : {}),
         }
       }
     }

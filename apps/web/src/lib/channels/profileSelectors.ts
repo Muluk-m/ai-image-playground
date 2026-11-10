@@ -28,6 +28,16 @@ export function getModelCapabilities(
 }
 
 /**
+ * `/api/channels` 下发的 `image`。分辨率和画质的可选项以 `image.tiers`、`image.quality` 为准；
+ * `imageSizes` 只给 Gemini 的分辨率档。
+ */
+export function publishedImageOf(profile: ClientProfile, publicChannels: PublicChannel[]) {
+  const channel = publicChannels.find((item) => item.id === profile.channelId)
+  const model = channel?.models.find((item) => item.id === profile.selectedModelId)
+  return model?.image
+}
+
+/**
  * 当前选中模型可选的 Gemini 分辨率档位：渠道声明了 `imageSizes` 就只给这几档（按共享顺序、
  * 只认共享档位里有的），没声明、或清单还没到就给共享档位全集。浏览器不校验发现清单，
  * 过滤完一档不剩也退回全集，免得面板没得选。

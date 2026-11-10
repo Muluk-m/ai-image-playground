@@ -1,6 +1,9 @@
 import { Buffer } from 'node:buffer'
 import {
+  degradeGptImage26ForSub2api,
   gptImage26RequiresDirect,
+  type Image26DegradeField,
+  type Image26DegradeKind,
   isGptDirectModel,
   isGptImage26Model,
   isGptSub2apiDeliverable,
@@ -65,6 +68,7 @@ import {
   type GptRoute,
   gptDirectApiKey,
   gptDirectConfigured,
+  gptImage26Configured,
   gptImage26Sub2apiModel,
   recordSub2apiOutcome,
   sub2apiBreakerOpen,
@@ -321,6 +325,11 @@ export interface UpstreamCallParams {
   imageProtocol?: 'generations'
   /** GPT Image 每条路开跑前调用（换路时再调一次）；调用方据此记下最后走的通道，结算用。 */
   onGptRoute?: (route: GptRoute) => Promise<void>
+  /** 执行时才降级：把降级记录写回任务，卡片才能显示提示。 */
+  onImage26Degrade?: (record: {
+    kind: Image26DegradeKind
+    fields: readonly Image26DegradeField[]
+  }) => Promise<void>
   provider: QueueProvider
   model: string
   request: HydratedSubmitRequest
@@ -399,9 +408,6 @@ function gptImage26Sub2apiCall(params: UpstreamCallParams): UpstreamCallParams {
   return { ...params, model, imageProtocol: 'generations' }
 }
 
-const GPT_IMAGE_26_DIRECT_ONLY_MESSAGE = '动图和矢量图需要 OpenAI 直连，当前直连不可用'
-const GPT_IMAGE_26_TIER_MESSAGE = '当前高分辨率/高画质需要 OpenAI 直连，暂不可用'
-
 /**
  * 直连这一路的落账。出了图按 usage 记；发出后结果未知按档位估算。
  * 明确的 HTTP 错误且一张图都没出，不记入直连花费。sub2api 不走这里。
@@ -429,7 +435,11 @@ async function settleDirectAttempt(input: {
     return
   }
   const payload = directAttemptPayload(input.ok, input.payload, input.error)
-  const images = directAttemptImages(request.n ?? 1, payload)
+  const images = directAttemptImages(
+    request.n ?? 1,
+    payload,
+    !input.ok && input.error instanceof UpstreamPartialResultError,
+  )
   await recordDirectUsage({
     ...(input.params.taskId ? { taskId: input.params.taskId } : {}),
     model: input.params.model,
@@ -442,10 +452,39 @@ async function settleDirectAttempt(input: {
   })
 }
 
+function image26StrictBlocked(request: UpstreamCallParams['request']): boolean {
+  return gptImage26RequiresDirect(request) || !isGptSub2apiDeliverable(request)
+}
+
+async function callImage26Sub2api(
+  params: UpstreamCallParams,
+  sub2api: ReturnType<typeof resolveUpstream>,
+): Promise<UpstreamCallResult> {
+  if (sub2apiBreakerOpen()) throw new GptImage26RouteUnavailableError()
+  if (params.strictImageRequest && image26StrictBlocked(params.request))
+    throw new GptImage26RouteUnavailableError(
+      gptImage26RequiresDirect(params.request)
+        ? '动图和矢量图需要 OpenAI 直连，当前直连不可用'
+        : '当前高分辨率/高画质需要 OpenAI 直连，暂不可用',
+    )
+  const degraded = params.strictImageRequest ? null : degradeGptImage26ForSub2api(params.request)
+  if (degraded) await params.onImage26Degrade?.({ kind: degraded.kind, fields: degraded.fields })
+  const next = degraded ? { ...params, request: degraded.request } : params
+  await params.onGptRoute?.('sub2api')
+  try {
+    const result = await callUpstreamVia(gptImage26Sub2apiCall(next), sub2api)
+    recordSub2apiOutcome(true)
+    return result
+  } catch (error) {
+    if (isRouteFailure(error) || error instanceof UpstreamTimeoutError) recordSub2apiOutcome(false)
+    throw error
+  }
+}
+
 export async function callUpstream(params: UpstreamCallParams): Promise<UpstreamCallResult> {
-  // 2.6：直连接得下就按原来的直连发出，不改去 sub2api，失败也不换路。
-  // 没有启用 key、预算用尽或 key 被停用时，静态图走 sub2api 的同名模型；GIF / SVG 没有第二条路。
-  // 已经向 sub2api 提交过的异步任务只在原路续轮询。
+  // 2.6：直连开关开着且有 key 就走 OpenAI。开关关掉、没有 key、预算用尽或 key 停用时
+  // 降级后走 sub2api，不记直连花费。熔断或上游失败仍把错误抛出去，由任务失败退款。
+  // 已经提交过的异步任务只在原路续轮询。
   if (isGptImage26Model(params.model) && !params.request.video) {
     const sub2api = resolveUpstream(params.provider, params.model)
     if (params.resume?.taskIds.length) {
@@ -458,8 +497,8 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         supportsNativeN: format !== 'gif' && format !== 'svg',
       })
     }
-    if (!config.gptImage26.enabled) throw new GptImage26RouteUnavailableError()
-    // 直连走和 2.5 同一套预占、落账、停用和冷却。失败不换 sub2api，除非一把 key 都接不了。
+    if (!gptImage26Configured()) return callImage26Sub2api(params, sub2api)
+    // 直连走和 2.5 同一套预占、落账、停用和冷却。一把 key 都接不了就降级，不报模型不可用。
     // 通道先落库再发请求，避免和 key 指纹、结算抢同一行。
     let fingerprint: string | undefined
     try {
@@ -487,21 +526,7 @@ export async function callUpstream(params: UpstreamCallParams): Promise<Upstream
         produced: directAttemptProduced(error),
       })
       if (!(error instanceof DirectKeysExhaustedError)) throw error
-      if (gptImage26RequiresDirect(params.request))
-        throw new GptImage26RouteUnavailableError(GPT_IMAGE_26_DIRECT_ONLY_MESSAGE)
-      if (!isGptSub2apiDeliverable(params.request))
-        throw new GptImage26RouteUnavailableError(GPT_IMAGE_26_TIER_MESSAGE)
-      if (sub2apiBreakerOpen()) throw new GptImage26RouteUnavailableError()
-      await params.onGptRoute?.('sub2api')
-      try {
-        const result = await callUpstreamVia(gptImage26Sub2apiCall(params), sub2api)
-        recordSub2apiOutcome(true)
-        return result
-      } catch (sub2apiError) {
-        if (isRouteFailure(sub2apiError) || sub2apiError instanceof UpstreamTimeoutError)
-          recordSub2apiOutcome(false)
-        throw sub2apiError
-      }
+      return callImage26Sub2api(params, sub2api)
     }
   }
   const route = resolveUpstream(params.provider, params.model)
