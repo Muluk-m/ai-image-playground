@@ -116,10 +116,13 @@ async function attempt(
 }
 
 async function retryableResponse(response: Response): Promise<boolean> {
-  if (response.status === 503 || response.status >= 500) return true
   try {
-    return (await response.clone().json()).retryable === true
-  } catch {
+    const body = (await response.clone().json()) as { retryable?: unknown }
+    if (body?.retryable === true) return true
+    if (body?.retryable === false) return false
     return false
+  } catch {
+    // 网关或断流没有 JSON。5xx 再试，其余状态没有可重试标记。
+    return response.status >= 500
   }
 }

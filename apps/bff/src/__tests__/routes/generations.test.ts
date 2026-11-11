@@ -1586,12 +1586,12 @@ it('retries a canvas promote when object storage blips instead of recording a bl
   await runTask(id)
   const open = durable.open.bind(durable)
   durable.open = async (key) => {
-    if (key.includes('/out/')) throw new Error('storage unavailable')
+    if (key.includes('/out/')) throw new Error('Object read failed (503)')
     return open(key)
   }
   const failed = await request(`/api/generations/${id}/promote`, deviceB, { outputIndex: 0 })
   expect(failed.status).toBe(503)
-  expect(await failed.json()).toMatchObject({ retryable: true })
+  expect(await failed.json()).toMatchObject({ error: 'storage_unavailable', retryable: true })
   expect(await db.select().from(schema.generation_records)).toEqual([])
   durable.open = open
   const promoted = await request(`/api/generations/${id}/promote`, deviceB, { outputIndex: 0 })
@@ -1659,12 +1659,12 @@ it('keeps a shared canvas upload when promote cannot read the candidate', async 
   const reservation = (await reserved.json()) as { id: string }
   const open = durable.open.bind(durable)
   durable.open = async (key) => {
-    if (key.includes('/out/')) throw new Error('storage unavailable')
+    if (key.includes('/out/')) throw new Error('Object read failed (503)')
     return open(key)
   }
   const failed = await request(`/api/generations/${id}/promote`, deviceB, { outputIndex: 0 })
   expect(failed.status).toBe(503)
-  expect(await failed.json()).toMatchObject({ retryable: true })
+  expect(await failed.json()).toEqual({ error: 'storage_unavailable', retryable: true })
   expect(await db.select().from(schema.generation_records)).toEqual([])
   const [row] = await db
     .select()

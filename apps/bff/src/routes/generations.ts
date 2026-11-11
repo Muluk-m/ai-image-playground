@@ -9,9 +9,26 @@ import {
 } from '../lib/generations'
 import { ObjectStorageError } from '../lib/imageArchive'
 import { log } from '../lib/logger'
+import { ObjectStoreHttpError } from '../lib/objectStore'
 import { MediaError } from '../lib/projectMedia'
 import { promoteCanvasCandidate } from '../lib/promoteCanvasCandidate'
 import { resolveAuthUser } from '../lib/user-auth'
+
+function explicitRetryable(error: Error): boolean | undefined {
+  const flagged = (error as { retryable?: unknown }).retryable
+  return typeof flagged === 'boolean' ? flagged : undefined
+}
+
+/** 存储闪断和显式标记可重试。标了 retryable:false 的，以及看不出是存储故障的错误，不让客户端空转。 */
+function storageRetryable(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const flagged = explicitRetryable(error)
+  if (flagged === false) return false
+  if (flagged === true) return true
+  if (error instanceof ObjectStorageError) return true
+  if (error instanceof ObjectStoreHttpError) return error.status >= 500 || error.status === 429
+  return /^Object (read|upload|metadata) failed \(/.test(error.message)
+}
 
 function promoteFailure(error: unknown): {
   status: 404 | 409 | 413 | 422 | 503
@@ -27,16 +44,17 @@ function promoteFailure(error: unknown): {
     }
     return { status: error.status, body: { error: error.message } }
   }
-  const retryable =
-    error instanceof ObjectStorageError ||
-    (error instanceof Error && (error as { retryable?: unknown }).retryable === true)
+  const retryable = storageRetryable(error)
   log.warn(
-    { event: 'canvas_promote.unavailable', err: String(error) },
-    'canvas promote will be retried',
+    { event: 'canvas_promote.unavailable', retryable, err: String(error) },
+    retryable ? 'canvas promote will be retried' : 'canvas promote failed',
   )
   return {
     status: 503,
-    body: { error: retryable ? 'storage_unavailable' : 'promote_unavailable', retryable: true },
+    body: {
+      error: retryable ? 'storage_unavailable' : 'promote_unavailable',
+      ...(retryable ? { retryable: true as const } : {}),
+    },
   }
 }
 
