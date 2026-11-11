@@ -140,9 +140,6 @@
   "select": {
     "dragToReorder": "拖拽排序"
   },
-  "model": {
-    "expandOptions": "展开模型候选"
-  },
   "settings": {
     "title": "生成设置",
     "close": "关闭生成设置",
