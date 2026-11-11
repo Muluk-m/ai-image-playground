@@ -39,7 +39,7 @@
 
 ### 第 4 步：前端报价改读 `resolveImageTier`（4a、4b 已完成）
 
-涉及：`apps/web/src/lib/{gptPremium,imageCharge,gptQuote}.ts`，以及调用方 `InputBar`、`CanvasGenerateBar`、`CanvasBatchBar`、`NodeStoryboard`、`ImageNodeComposer`、`CanvasEditPromptDialog`、`canvasImageEdits`、`generationJob`。
+涉及：`apps/web/src/lib/{gptPremium,imageCharge,gptQuote}.ts`，以及调用方 `InputBar`、`CanvasGenerateBar`、`CanvasBatchBar`、`NodeStoryboard`、`ImageNodeComposer`、`canvasImageEdits`、`generationJob`。
 
 4b 的收口：
 

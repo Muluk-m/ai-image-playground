@@ -145,9 +145,6 @@
   "select": {
     "dragToReorder": "Drag to reorder"
   },
-  "model": {
-    "expandOptions": "Expand model options"
-  },
   "settings": {
     "title": "Generation settings",
     "close": "Close generation settings",
