@@ -1,6 +1,8 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import { queueTask } from '@image-playground/shared'
+import { eq } from 'drizzle-orm'
 
 const TEST_DB = await resetTestDatabase('bff_task_transitions')
 
@@ -13,7 +15,9 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../quota-operator-c
 
 const { app } = await import('../../app')
 const { close: closeDb, db, schema } = await import('../../db/client')
-const { finishTask, gptSettledUsage, heldBy } = await import('../../db/task-transitions')
+const { cancelTasks, finishTask, gptSettledUsage, heldBy } = await import(
+  '../../db/task-transitions'
+)
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
@@ -370,5 +374,148 @@ describe('gptSettledUsage', () => {
     expect(
       gptSettledUsage(update, { ...flare, model: 'gemini-3-pro-image', gptRoute: 'sub2api' }),
     ).toBe(usage)
+  })
+})
+
+describe('queueTask 终态与结算口径', () => {
+  const usage = { quantity: 1, unitMultiplier: 3.5 }
+
+  it('succeed / fail / cancel 的目的地与转移表一致', () => {
+    expect(queueTask.target('succeed')).toBe('completed')
+    expect(queueTask.target('fail')).toBe('failed')
+    expect(queueTask.target('cancel')).toBe('cancelled')
+    expect(queueTask.allows('in_progress', 'succeed')).toBe(true)
+    expect(queueTask.allows('in_progress', 'fail')).toBe(true)
+    expect(queueTask.allows('in_progress', 'cancel')).toBe(true)
+    expect(queueTask.allows('queued', 'cancel')).toBe(true)
+    expect(queueTask.allows('reconciling', 'succeed')).toBe(true)
+    expect(queueTask.allows('reconciling', 'fail')).toBe(true)
+    expect(queueTask.allows('reconciling', 'cancel')).toBe(true)
+  })
+
+  it('每条终态路径的结算 hook 与改前口径相同（扣费/退款决定只看 outcome 与用量）', async () => {
+    const paths = [
+      {
+        id: 'term-completed',
+        from: 'in_progress' as const,
+        run: () =>
+          finishTask(
+            'term-completed',
+            {
+              status: 'completed',
+              resultPayload: { data: [{ url: 'https://example.invalid/ok.png' }] },
+              completedAt: 11,
+              actualUsage: usage,
+            },
+            heldBy(SETTLEMENT_TOKEN),
+          ),
+        status: 'completed' as const,
+        settlement: {
+          outcome: 'completed',
+          upstreamInvocationCount: 1,
+          errorType: null,
+          upstreamStatus: null,
+          actualUsage: usage,
+        },
+      },
+      {
+        id: 'term-failed',
+        from: 'in_progress' as const,
+        run: () =>
+          finishTask(
+            'term-failed',
+            {
+              status: 'failed',
+              errorMessage: 'upstream rejected',
+              errorType: 'upstream_error' as const,
+              upstreamStatus: 403,
+              completedAt: 22,
+            },
+            heldBy(SETTLEMENT_TOKEN),
+          ),
+        status: 'failed' as const,
+        settlement: {
+          outcome: 'failed',
+          upstreamInvocationCount: 1,
+          errorType: 'upstream_error',
+          upstreamStatus: 403,
+          actualUsage: null,
+        },
+      },
+      {
+        id: 'term-finish-cancelled',
+        from: 'in_progress' as const,
+        run: () =>
+          finishTask(
+            'term-finish-cancelled',
+            { status: 'cancelled', completedAt: 33 },
+            heldBy(SETTLEMENT_TOKEN),
+          ),
+        status: 'cancelled' as const,
+        settlement: {
+          outcome: 'cancelled',
+          upstreamInvocationCount: 1,
+          errorType: null,
+          upstreamStatus: null,
+          actualUsage: null,
+        },
+      },
+      {
+        id: 'term-cancel-running',
+        from: 'in_progress' as const,
+        run: () => cancelTasks(eq(schema.tasks.id, 'term-cancel-running')),
+        status: 'cancelled' as const,
+        settlement: {
+          outcome: 'cancelled',
+          upstreamInvocationCount: 1,
+          errorType: null,
+          upstreamStatus: null,
+          actualUsage: null,
+        },
+      },
+      {
+        id: 'term-cancel-queued',
+        from: 'queued' as const,
+        run: () => cancelTasks(eq(schema.tasks.id, 'term-cancel-queued')),
+        status: 'cancelled' as const,
+        settlement: {
+          outcome: 'cancelled',
+          upstreamInvocationCount: 1,
+          errorType: null,
+          upstreamStatus: null,
+          actualUsage: null,
+        },
+      },
+    ]
+
+    for (const path of paths) {
+      settlements = []
+      await db.delete(schema.tasks)
+      await insertTask(path.id, path.from, 1, 'credits')
+      await path.run()
+      const [task] = await db.select().from(schema.tasks)
+      expect(task?.status, path.id).toBe(path.status)
+      expect(settlements, path.id).toEqual([{ taskId: path.id, ...path.settlement }])
+    }
+  })
+
+  it('mode=none 的终态不调用结算 hook', async () => {
+    for (const status of ['completed', 'failed', 'cancelled'] as const) {
+      settlements = []
+      await db.delete(schema.tasks)
+      await insertTask(`none-${status}`, 'in_progress', 1, 'none')
+      await finishTask(
+        `none-${status}`,
+        status === 'completed'
+          ? { status, resultPayload: { data: [] }, completedAt: 1 }
+          : status === 'failed'
+            ? { status, errorMessage: 'free fail', completedAt: 1 }
+            : { status, completedAt: 1 },
+        heldBy(SETTLEMENT_TOKEN),
+      )
+      expect(settlements, status).toEqual([])
+      const [task] = await db.select().from(schema.tasks)
+      expect(task?.status).toBe(status)
+    }
   })
 })
