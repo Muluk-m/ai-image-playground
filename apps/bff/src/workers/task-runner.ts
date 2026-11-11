@@ -9,12 +9,14 @@ import {
   type TaskErrorType,
 } from '@image-playground/shared'
 import { config } from '../config'
+import type { TerminalTaskUpdate } from '../db/task-transitions'
 import { cropMaskedUpstream } from '../lib/agent/masked-input'
 import { MaskedOutputError, protectMaskedOutput } from '../lib/agent/masked-output'
 import { isCapabilityEnabled } from '../lib/capabilities'
 import { describeEmptyResult, extractMeta, resolveImageBytesRef } from '../lib/extractImages'
 import {
   archiveGenerationOutputs,
+  type GenerationMediaLink,
   generationSourceCheckpoint,
   KnownMediaBytes,
   missingGenerationOutputs,
@@ -45,6 +47,7 @@ import {
 import { GptImage26RouteUnavailableError, ImagePlanRequiredError } from '../lib/upstream/errors'
 import { gptDirectConfigured } from '../lib/upstream/gpt-routing'
 import { partialFailureOf } from '../lib/upstream/partial'
+import { archivedGenerationOutcome } from './archivedGenerationOutcome'
 import { claimTaskExecution, type TaskExecution } from './task-execution'
 
 const ARCHIVE_RETRY_BUDGET_MS = 60 * 60_000
@@ -210,24 +213,16 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         missing,
         known,
       )
-      await execution.finish({
-        status: missing.size ? 'failed' : 'completed',
-        ...(missing.size
-          ? {}
-          : deliveredUsage(archivePayload, {
-              model: task.model,
-              request,
-              metering: task.metering,
-            })),
-        ...(missing.size
-          ? {
-              errorType: 'upstream_result_unknown' as const,
-              errorMessage: '部分原件在保存前中断，已保留可恢复的图片；不会自动重新生成',
-            }
-          : {}),
+      await finishArchived(execution, {
+        candidate: request.output_retention === 'candidate',
+        missing: missing.size > 0,
         media,
+        usage: deliveredUsage(archivePayload, {
+          model: task.model,
+          request,
+          metering: task.metering,
+        }),
         resultPayload: archivePayload,
-        completedAt: now(),
       })
       return
     }
@@ -373,17 +368,18 @@ async function executeTask(execution: TaskExecution): Promise<void> {
           known,
         )
       : undefined
-    await execution.finish({
-      status: 'completed',
-      ...deliveredUsage(archivedPayload, {
+    const settled = await finishArchived(execution, {
+      candidate: request.output_retention === 'candidate',
+      missing: false,
+      media,
+      usage: deliveredUsage(archivedPayload, {
         model: task.model,
         request,
         metering: task.metering,
       }),
-      media,
       resultPayload: archivedPayload,
-      completedAt: now(),
     })
+    if (!settled) return
     log.info(
       {
         event: 'task.completed',
@@ -513,6 +509,43 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       )
     }
   }
+}
+
+const ARCHIVE_INTERRUPTED = '部分原件在保存前中断，已保留可恢复的图片；不会自动重新生成'
+const NO_ARCHIVED_OUTPUT = '上游没有留下可保存的图片'
+
+/** 归档收口。失败不带用量，结算走现有的 failed 退款；candidate 的空链接仍算完成。 */
+async function finishArchived(
+  execution: { finish: (update: TerminalTaskUpdate) => Promise<boolean> },
+  input: {
+    candidate: boolean
+    missing: boolean
+    media: readonly GenerationMediaLink[] | undefined
+    usage: { actualUsage?: TaskUsage }
+    resultPayload: TerminalTaskUpdate['resultPayload']
+  },
+): Promise<boolean> {
+  const outcome = archivedGenerationOutcome(input)
+  if (outcome.status === 'failed') {
+    await execution.finish({
+      status: 'failed',
+      errorType: outcome.errorType,
+      errorMessage:
+        outcome.errorType === 'upstream_result_unknown' ? ARCHIVE_INTERRUPTED : NO_ARCHIVED_OUTPUT,
+      ...(input.media ? { media: [...input.media] } : {}),
+      resultPayload: input.resultPayload,
+      completedAt: Date.now(),
+    })
+    return false
+  }
+  await execution.finish({
+    status: 'completed',
+    ...input.usage,
+    ...(input.media ? { media: [...input.media] } : {}),
+    resultPayload: input.resultPayload,
+    completedAt: Date.now(),
+  })
+  return true
 }
 
 /**

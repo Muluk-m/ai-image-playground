@@ -88,6 +88,25 @@ it('被取消的任务显示「已取消」，不显示红色「失败」', () =
   expect(host.textContent).not.toContain('失败')
 })
 
+it('完成但没有产出的作品只显示占位，不给出失败重试', () => {
+  const noop = () => {}
+  act(() =>
+    root.render(
+      <TaskCard
+        task={{ ...task, status: 'done', outputImages: [], error: null }}
+        onReuse={noop}
+        onEditOutputs={noop}
+        onSendToCanvas={noop}
+        onDelete={noop}
+        onClick={noop}
+      />,
+    ),
+  )
+  expect(host.querySelector('[data-empty-output]')).not.toBeNull()
+  expect(host.querySelector('[aria-label="重试任务"]')).toBeNull()
+  expect(host.textContent).not.toContain('失败')
+})
+
 it('过期任务显示「已过期」，图片区不再是空白', () => {
   const noop = () => {}
   act(() =>
