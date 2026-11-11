@@ -1,19 +1,23 @@
 import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
+import { agentHistorySession } from '../lib/historySession'
 import { useAgentStore } from '../store'
 
 export default function AgentHistoryStatus() {
   const { t } = useTranslation('agent')
-  const loading = useAgentStore((state) => state.historyLoading)
-  const cached = useAgentStore((state) => state.historyCached)
-  const failed = useAgentStore((state) => state.historyFailed)
-  if (!loading && !failed) return null
+  const historyCached = useAgentStore((state) => state.historyCached)
+  const historyLoading = useAgentStore((state) => state.historyLoading)
+  const historyFailed = useAgentStore((state) => state.historyFailed)
+  const session = agentHistorySession({ historyCached, historyLoading, historyFailed })
+  if (session.phase === 'idle') return null
+  const failed = session.phase === 'failed'
+  const cached = session.cached
   return (
     <div
       role={failed ? 'alert' : 'status'}
       className={`studio-agent-history-state ${failed ? 'studio-agent-history-state--failed' : ''}`}
     >
-      {loading && (
+      {session.phase === 'loading' && (
         <span className="studio-agent-history-pulse" aria-hidden="true">
           <i />
           <i />
@@ -21,7 +25,7 @@ export default function AgentHistoryStatus() {
         </span>
       )}
       <span>
-        {loading
+        {session.phase === 'loading'
           ? t(cached ? 'history.syncing' : 'history.loading')
           : t(cached ? 'history.syncFailed' : 'history.failed')}
       </span>
