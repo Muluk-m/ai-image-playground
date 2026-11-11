@@ -62,7 +62,7 @@ beforeEach(() => {
         releaseOriginal = resolve
       }),
   )
-  useStore.setState({ tasks: [task], detailTaskId: task.id })
+  useStore.setState({ tasks: [task], detailTaskId: task.id, platformGenerations: [] })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -161,6 +161,22 @@ it('认不出分类的失败照旧显示上游原文', async () => {
   await act(async () => root.render(<DetailModal />))
 
   expect(document.body.textContent).toContain('HTTP 502 bad gateway')
+})
+
+it('画布入选的详情标出画布', async () => {
+  useStore.setState({
+    tasks: [task],
+    detailTaskId: task.id,
+    platformGenerations: [
+      {
+        id: task.id,
+        record: { source: { kind: 'canvas' }, status: 'queued' },
+        fetchedAt: 1,
+      },
+    ] as never,
+  })
+  await act(async () => root.render(<DetailModal />))
+  expect(document.body.textContent).toContain('画布')
 })
 
 it('云端镜下来的卡：来源写 provider 与模型，不拿「未知」凑数', async () => {

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { authenticatedBffFetch } from '../lib/authClient'
 import { scopedStorageName } from '../lib/authScope'
 import { receivePlatformPage } from '../lib/platformGenerations'
+import { canvasWorkPromotedEvent } from '../lib/promoteCanvasWork'
 import { bffBaseUrl } from '../lib/runtimeConfig'
 import { sourceOfRecord, type WorkSource, type WorksSnapshot } from '../lib/works'
 import { useStore } from '../store'
@@ -32,66 +33,79 @@ export function useCloudGenerations(enabled: boolean): CloudGenerations {
   const [failed, setFailed] = useState(false)
   const [snapshot, setSnapshot] = useState<WorksSnapshot | null>(null)
   const request = useRef<AbortController | null>(null)
+  const epoch = useRef(0)
+  const tail = useRef(Promise.resolve())
   const scope = scopedStorageName('generation-history')
 
   const load = useCallback(
     async (next: string | null) => {
+      const ticket = ++epoch.current
       request.current?.abort()
       const controller = new AbortController()
       request.current = controller
       const current = () =>
-        !controller.signal.aborted && scopedStorageName('generation-history') === scope
-      setLoading(true)
-      setFailed(false)
-      const startedAt = Date.now()
-      try {
-        const query = next ? `&cursor=${encodeURIComponent(next)}` : ''
-        const response = await authenticatedBffFetch(
-          `${bffBaseUrl()}/api/generations?limit=${PAGE_SIZE}${query}`,
-          { cache: 'no-store', signal: controller.signal },
-        )
-        if (!response.ok) throw new Error('load_failed')
-        const page: GenerationPage = await response.json()
-        if (!current()) return
-        const { dropped } = await receivePlatformPage(page.items, {
-          until: cursorCreatedAt(next),
-          hasMore: page.nextCursor !== null,
-        })
-        if (!current()) return
-        setCursor(page.nextCursor)
-        const returned = page.items.map((item): [string, WorkSource] => [
-          item.id,
-          sourceOfRecord(item),
-        ])
-        if (!next && page.totals) {
-          // 第一页：总数换新，已在缓存里的记录（第一页窗口内没返回的已经被丢掉）都算服务端确认过的。
-          const known = new Map<string, WorkSource>(
-            useStore
-              .getState()
-              .platformGenerations.map((row): [string, WorkSource] => [
-                row.id,
-                sourceOfRecord(row.record),
-              ]),
+        ticket === epoch.current &&
+        !controller.signal.aborted &&
+        scopedStorageName('generation-history') === scope
+      const run = tail.current.then(async () => {
+        if (ticket !== epoch.current) return
+        setLoading(true)
+        setFailed(false)
+        const startedAt = Date.now()
+        try {
+          const query = next ? `&cursor=${encodeURIComponent(next)}` : ''
+          const response = await authenticatedBffFetch(
+            `${bffBaseUrl()}/api/generations?limit=${PAGE_SIZE}${query}`,
+            { cache: 'no-store', signal: controller.signal },
           )
-          for (const [id, source] of returned) known.set(id, source)
-          setSnapshot({ totals: page.totals, known, at: startedAt })
-        } else {
-          setSnapshot((previous) => {
-            if (!previous) return previous
-            const known = new Map(previous.known)
-            for (const id of dropped) known.delete(id)
-            for (const [id, source] of returned) known.set(id, source)
-            return { ...previous, known }
+          if (!response.ok) throw new Error('load_failed')
+          const page: GenerationPage = await response.json()
+          if (!current()) return
+          const { dropped } = await receivePlatformPage(page.items, {
+            until: cursorCreatedAt(next),
+            hasMore: page.nextCursor !== null,
           })
+          if (!current()) return
+          setCursor(page.nextCursor)
+          const returned = page.items.map((item): [string, WorkSource] => [
+            item.id,
+            sourceOfRecord(item),
+          ])
+          if (!next && page.totals) {
+            // 第一页：总数换新，已在缓存里的记录（第一页窗口内没返回的已经被丢掉）都算服务端确认过的。
+            const known = new Map<string, WorkSource>(
+              useStore
+                .getState()
+                .platformGenerations.map((row): [string, WorkSource] => [
+                  row.id,
+                  sourceOfRecord(row.record),
+                ]),
+            )
+            for (const [id, source] of returned) known.set(id, source)
+            setSnapshot({ totals: page.totals, known, at: startedAt })
+          } else {
+            setSnapshot((previous) => {
+              if (!previous) return previous
+              const known = new Map(previous.known)
+              for (const id of dropped) known.delete(id)
+              for (const [id, source] of returned) known.set(id, source)
+              return { ...previous, known }
+            })
+          }
+        } catch {
+          if (current()) setFailed(true)
+        } finally {
+          if (current()) {
+            request.current = null
+            setLoading(false)
+          }
         }
-      } catch {
-        if (current()) setFailed(true)
-      } finally {
-        if (current()) {
-          request.current = null
-          setLoading(false)
-        }
-      }
+      })
+      tail.current = run.then(
+        () => undefined,
+        () => undefined,
+      )
+      await run
     },
     [scope],
   )
@@ -100,10 +114,18 @@ export function useCloudGenerations(enabled: boolean): CloudGenerations {
     if (!enabled) {
       setCursor(null)
       setSnapshot(null)
+      setLoading(false)
+      setFailed(false)
       return
     }
     void load(null)
-    return () => request.current?.abort()
+    const onPromoted = () => void load(null)
+    window.addEventListener(canvasWorkPromotedEvent, onPromoted)
+    return () => {
+      window.removeEventListener(canvasWorkPromotedEvent, onPromoted)
+      epoch.current += 1
+      request.current?.abort()
+    }
   }, [enabled, load])
 
   const loadMore = useCallback(() => {

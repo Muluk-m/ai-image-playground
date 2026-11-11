@@ -18,6 +18,7 @@ import {
 import { image26DegradeNoticeKey } from '../lib/gptQuote'
 import { loadImageOriginal } from '../lib/imageSource'
 import { ActualValueBadge, getParamDisplay, measuredSizeOf } from '../lib/paramDisplay'
+import { workSource } from '../lib/works'
 import { retryTask, setTaskFavorite, useStore } from '../store'
 import type { TaskRecord } from '../types'
 import { JobProgress } from './assistant-ui/elements/job-progress'
@@ -51,6 +52,9 @@ export default function TaskCard({
   isSelected,
 }: Props) {
   const { t } = useTranslation(['task', 'common'])
+  const platformGenerations = useStore((s) => s.platformGenerations)
+  const canvasWork =
+    workSource(task, new Map(platformGenerations.map((row) => [row.id, row]))) === 'canvas'
   const preview = useImagePreview(task.outputImages?.[0])
   const thumbSrc = preview?.url ?? ''
   const motionFormat = task.params.output_format
@@ -419,6 +423,11 @@ export default function TaskCard({
                 onTouchEnd={(e) => e.stopPropagation()}
                 onTouchCancel={(e) => e.stopPropagation()}
               >
+                {canvasWork && (
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-xs min-w-0 max-w-full">
+                    <span className="min-w-0 truncate">{t('card.canvas')}</span>
+                  </span>
+                )}
                 {/* Model */}
                 {showModel && (
                   <span
