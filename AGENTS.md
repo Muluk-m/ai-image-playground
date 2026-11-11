@@ -6,14 +6,6 @@
 
 This codebase is yours: what it's for and how it's built are your call, and you'll keep building on it.
 
-这句话是说：把重复代码并到一处，理顺结构，并修掉这次干活时碰到的紧邻问题，而不是只在现有结构后面追加，或只把问题报出来。前提是改动留在当前任务范围内，并且有测试覆盖。
-
-下面这些不是你说了算：
-
-- **计费、支付、积分或点数扣减、定价、结算**的代码路径，以及私有计费仓 [Muluk-m/ai-image-playground-private](https://github.com/Muluk-m/ai-image-playground-private) 里相关的部分：没有所有者（本文件其余处的 Nain）明确批准，不要改。把问题列出来，标给 CODEOWNERS 评审。本仓库还没有 `.github/CODEOWNERS`，文件补上之前点名所有者。改模型调用或推理成本时，仍按下文「成本与影响说明」：写清影响就可以按常规流程合并。那一条不授权改这些代码路径。
-- **不要把密钥或 API key 提交进仓库，也不要写进日志。** 真实 key 只留在 BFF 进程环境变量里，见 [apps/bff/AGENTS.md](apps/bff/AGENTS.md)；服务器上 `app.env` 的供应商 key 不进仓库、不进 GitHub secret、不进 PR 或对话，见[发布手册](docs/agents/release.md)。
-- **不要为了变绿去放宽测试、lint 或类型检查。** 提交前仍跑下文「完成任务的硬性检查清单」。不过就停：不要改断言、关掉规则、跳过类型错误，也不要设 `CI` 绕过测试守卫。
-
 ## Agent 模型配置
 
 - 开始任务前，若 `~/.cursor/rules/pstack-models.mdc` 存在，必须完整读取，作为子 Agent 的角色模型与推理预算配置；该用户配置优先于 pstack 技能默认值，Codex 会话也须显式读取。
