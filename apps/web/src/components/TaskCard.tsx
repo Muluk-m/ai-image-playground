@@ -371,7 +371,9 @@ export default function TaskCard({
               </>
             )}
             {task.status === 'done' && !thumbSrc && (
-              <Icon name="image" size="lg" className="text-muted-foreground" />
+              <div data-empty-output="" className="flex items-center justify-center">
+                <Icon name="image" size="lg" className="text-muted-foreground" />
+              </div>
             )}
             {/* 运行中显示耗时，完成后显示封面图比例与分辨率标签 */}
             <div className="absolute top-1.5 left-1.5 flex items-center gap-1">
@@ -526,20 +528,21 @@ export default function TaskCard({
                 className="flex w-full items-center justify-between flex-shrink-0 mt-0.5 max-sm:col-span-2 max-sm:m-0 max-sm:border-t max-sm:[&>button]:h-11 max-sm:[&>button]:flex-1 sm:w-auto sm:justify-end sm:gap-1"
                 onClick={(e) => e.stopPropagation()}
               >
-                {(task.status === 'error' || settings.alwaysShowRetryButton) && (
-                  <Hint tooltip={t('action.retryTask')}>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => retryTask(task)}
-                      className="text-muted-foreground"
-                      aria-label={t('action.retryTask')}
-                    >
-                      <Icon name="refresh" size="xs" />
-                    </Button>
-                  </Hint>
-                )}
+                {(task.status === 'error' || settings.alwaysShowRetryButton) &&
+                  !(task.status === 'done' && !task.outputImages?.length) && (
+                    <Hint tooltip={t('action.retryTask')}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => retryTask(task)}
+                        className="text-muted-foreground"
+                        aria-label={t('action.retryTask')}
+                      >
+                        <Icon name="refresh" size="xs" />
+                      </Button>
+                    </Hint>
+                  )}
                 <Hint tooltip={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}>
                   <Button
                     type="button"
