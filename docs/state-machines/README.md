@@ -7,7 +7,7 @@
 - `target(event)` 用于「来源不唯一、但目的地唯一」的写入（取消、回收）。来源仍由原来的 SQL `WHERE` 限定，避免为了读当前状态多一次查询。
 - 新建一行（入队、抢先占位、直接插入 `in_progress` 的对话轮）不是转移，用常量标出初始状态。
 - 时间派生的视图（公告有效状态、任务进度阶段、CLI 六态）保持纯函数，不写回库存状态。
-- 前端上传和对话轮使用同一套 `defineMachine`。对话轮 store 的 `turn` / `stopping` / `reconnecting` 经 `applyTurnSessionEvent` 写入。
+- 前端上传、对话轮和历史视图使用同一套约定。对话轮 store 的 `turn` / `stopping` / `reconnecting` 经 `applyTurnSessionEvent` 写入；历史阶段仍是只读视图。
 
 计费预扣、结算、退款不改。`apps/bff/src/db/task-transitions.ts` 里的 `finishTask` / `cancelTasks` 与积分结算在同一个函数里，转移表已经描述这些边，接入留在提案里。
 
