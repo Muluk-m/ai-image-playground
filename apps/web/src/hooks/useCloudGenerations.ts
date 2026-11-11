@@ -114,6 +114,8 @@ export function useCloudGenerations(enabled: boolean): CloudGenerations {
     if (!enabled) {
       setCursor(null)
       setSnapshot(null)
+      setLoading(false)
+      setFailed(false)
       return
     }
     void load(null)
@@ -121,6 +123,7 @@ export function useCloudGenerations(enabled: boolean): CloudGenerations {
     window.addEventListener(canvasWorkPromotedEvent, onPromoted)
     return () => {
       window.removeEventListener(canvasWorkPromotedEvent, onPromoted)
+      epoch.current += 1
       request.current?.abort()
     }
   }, [enabled, load])

@@ -1544,6 +1544,29 @@ it('does not create a blank work when the canvas candidate has already expired',
   expect(await db.select().from(schema.generation_records)).toEqual([])
 })
 
+it('does not archive a canvas candidate that is no longer completed', async () => {
+  const bytes = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#99aabb' } })
+    .png()
+    .toBuffer()
+  setUpstreamFetchForTesting((async () =>
+    Response.json({ data: [{ b64_json: bytes.toString('base64') }] })) as NonNullable<
+    Parameters<typeof setUpstreamFetchForTesting>[0]
+  >)
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+    ...input,
+    client_request_id: 'promote-cancelled',
+    prompt: 'cancelled canvas',
+    output_retention: 'candidate',
+  })
+  const { request_id: id } = await submitted.json()
+  await runTask(id)
+  await db.update(schema.tasks).set({ status: 'cancelled' }).where(eq(schema.tasks.id, id))
+  const response = await request(`/api/generations/${id}/promote`, deviceB, { outputIndex: 0 })
+  expect(response.status).toBe(409)
+  expect(await db.select().from(schema.generation_records)).toEqual([])
+  expect(await db.select().from(schema.media_objects)).toEqual([])
+})
+
 it('retries a canvas promote when object storage blips instead of recording a blank work', async () => {
   const bytes = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#778899' } })
     .png()
