@@ -1718,6 +1718,48 @@ it('maps an in-flight attachment reservation to a retryable promote response', a
   expect(row).toMatchObject({ status: 'pending', attachment_managed: true })
 })
 
+it('releases an expired reservation it renewed when confirming the promote fails', async () => {
+  const bytes = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#0f1e2d' } })
+    .png()
+    .toBuffer()
+  setUpstreamFetchForTesting((async () =>
+    Response.json({ data: [{ b64_json: bytes.toString('base64') }] })) as NonNullable<
+    Parameters<typeof setUpstreamFetchForTesting>[0]
+  >)
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+    ...input,
+    client_request_id: 'promote-expired-reservation',
+    prompt: 'expired reservation',
+    output_retention: 'candidate',
+  })
+  const { request_id: id } = await submitted.json()
+  await runTask(id)
+  const now = Date.now()
+  const mediaId = 'expired-reservation-promote'
+  await db.insert(schema.media_objects).values({
+    id: mediaId,
+    user_id: 'owner',
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    bytes: bytes.length,
+    content_type: 'image/png',
+    status: 'pending',
+    attachment_managed: false,
+    reserved_bytes: bytes.length,
+    staging_key: `staging/owner/${mediaId}`,
+    expires_at: now - 1_000,
+    created_at: now - 60_000,
+    updated_at: now - 60_000,
+  })
+  durable.publicationUnavailable = true
+  const failed = await request(`/api/generations/${id}/promote`, deviceB, { outputIndex: 0 })
+  expect(failed.status).toBe(503)
+  expect(await failed.json()).toMatchObject({ retryable: true })
+  expect(await db.select().from(schema.generation_records)).toEqual([])
+  expect(
+    await db.select().from(schema.media_objects).where(eq(schema.media_objects.id, mediaId)),
+  ).toEqual([])
+})
+
 it('does not retag studio or agent generations when promote is called', async () => {
   const bytes = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#445566' } })
     .png()
