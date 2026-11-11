@@ -230,11 +230,11 @@ export function canvasGenerationSink(
       // 内存由上面的有界 LRU 兜住；失败态的占位框同样还留着它用于重试。
       // 留在画布上的每一张都提升进作品；没落上的候选不进。
       // 抠图在本机键出透明，作品归档的是队列里的原件。
-      if (placed) {
-        if (requestId) {
-          images.forEach((image, index) => {
-            if (image) promoteCanvasQueueOutput(requestId, index)
-          })
+      if (placed && requestId) {
+        // 改已有图时只把第一张贴回源图，其余输出没有落在画布上。
+        const outputCount = handle.editKind ? 1 : images.length
+        for (let index = 0; index < outputCount; index++) {
+          if (images[index]) promoteCanvasQueueOutput(requestId, index)
         }
       }
     },

@@ -24,6 +24,7 @@ import { isChunkFailure, lazyWithReload } from '../lib/chunkLoad'
 import { clearScopedClientStorage } from '../lib/clearScopedStorage'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { recoverStorageUser } from '../lib/localRecovery'
+import { resumePendingCanvasPromotes } from '../lib/promoteCanvasWork'
 import { getRuntimeConfig } from '../lib/runtimeConfig'
 import { adoptAnonymousStorage } from '../lib/storageAdoption'
 import { AuthContextProvider } from './AuthContext'
@@ -122,6 +123,7 @@ export function AuthGate() {
           const id = localRecoveryEnabled ? await recoverStorageUser() : null
           if (cancelled) return
           setClientStorageScope(id)
+          resumePendingCanvasPromotes()
           signalBootStage('workspace')
           setPhase('ready')
           consumeLoginIntent()
@@ -153,6 +155,7 @@ export function AuthGate() {
         if (probeSession) clearOAuthSessionLanding()
         setSignedIn(Boolean(currentUser))
         setClientStorageScope(currentUser?.id ?? null)
+        resumePendingCanvasPromotes()
         if (!currentUser) {
           if (refreshed === 'unauthorized') setSessionExpired(true)
           // 匿名可读：channel 清单只列出这个部署提供哪些模型，不含任何凭据。

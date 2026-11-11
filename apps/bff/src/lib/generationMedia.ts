@@ -9,6 +9,7 @@ import {
   archiveOutputImages,
   decodeDataUrl,
   detectMediaMime,
+  fetchSourceImage,
   InputPreservationError,
   MaskedOutputArchiveError,
   ObjectStorageError,
@@ -428,10 +429,19 @@ async function readSelectionBytes(
     return { bytes, mime: ref.mime }
   }
   if (ref.kind === 'url') {
-    const response = await fetch(ref.data)
-    if (response.status === 404 || response.status === 410) throw new CandidateExpiredError()
-    if (!response.ok) throw new Error(`candidate_image_${response.status}`)
-    return { bytes: new Uint8Array(await response.arrayBuffer()), mime: ref.mime }
+    try {
+      const image = await fetchSourceImage(ref.data, {
+        maxBytes: config.operator.quotas['sync:asset-image-bytes'],
+      })
+      return { bytes: image.bytes, mime: image.mime ?? ref.mime }
+    } catch (error) {
+      if (
+        error instanceof SourceImageFetchError &&
+        (error.message.includes('HTTP 404') || error.message.includes('HTTP 410'))
+      )
+        throw new CandidateExpiredError()
+      throw error
+    }
   }
   const store = ref.store === 'durable' ? durableMediaStore() : objectStore()
   // 列得出来又没有这张，才是候选过期。列或读失败是存储故障，交给调用方按 5xx 重试。
