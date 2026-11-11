@@ -53,6 +53,7 @@ export async function publishGenerations(tx: Transaction, taskIds: string[]) {
             jsonb_build_object('kind', 'agent', 'conversationId', agent_conversation_id,
               'turnId', agent_turn_id, 'projectId', (SELECT project_id FROM project_generation_outputs
                 WHERE generation_id = tasks.id AND user_id = tasks.user_id LIMIT 1))
+          WHEN request_payload ->> 'output_retention' = 'canvas' THEN jsonb_build_object('kind', 'canvas')
           ELSE jsonb_build_object('kind', 'studio') END
         FROM ${schema.tasks}
         WHERE ${schema.tasks.user_id} = ${userId}

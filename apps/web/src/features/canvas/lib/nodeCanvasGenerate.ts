@@ -17,7 +17,7 @@ import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/api
 import { getImageDimensions } from '../../../lib/canvasImage'
 import { type GenerationSink, resumeGeneration, startGeneration } from '../../../lib/generationJob'
 import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
-import { addCompletedCanvasTask, type CanvasProfileSnapshot, useStore } from '../../../store'
+import { type CanvasProfileSnapshot, useStore } from '../../../store'
 import type { AppSettings, TaskParams } from '../../../types'
 import type { CanvasEditor } from './editor'
 import { fileToDataUrl } from './importImages'
@@ -205,16 +205,17 @@ function nodeGenerationSink(
       if (!images.length)
         throw new UserFacingError(i18next.t('placeholder.failed', { ns: 'canvas' }))
       const taskId = handle.requestId ?? handle.clientRequestId ?? handle.jobId
-      const history = {
-        id: `canvas:${taskId}`,
-        prompt: handle.prompt,
-        params: handle.params,
-        images,
-        ...(handle.startedAt ? { elapsed: Date.now() - handle.startedAt } : {}),
-        ...(handle.profileView ? { profile: handle.profileView } : {}),
+      // 队列候选先不进作品。入选的那一张由 selectNodeResult 提升；没走队列的才落本机历史。
+      if (!handle.requestId) {
+        await persistLocalNodeResults(doc, handle.nodeId, {
+          id: `canvas:${taskId}`,
+          prompt: handle.prompt,
+          params: handle.params,
+          images,
+          ...(handle.startedAt ? { elapsed: Date.now() - handle.startedAt } : {}),
+          ...(handle.profileView ? { profile: handle.profileView } : {}),
+        })
       }
-      if (handle.requestId) await addCompletedCanvasTask(history)
-      else await persistLocalNodeResults(doc, handle.nodeId, history)
       const results = await Promise.all(
         images.map((dataUrl, outputIndex) =>
           recordNodeOutput(

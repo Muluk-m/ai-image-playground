@@ -3,6 +3,7 @@ import type { SubmitRequest, TaskErrorType, TaskStatus } from './queue-protocol'
 export type GenerationSource =
   | { kind: 'studio' }
   | { kind: 'agent'; conversationId: string; turnId: string; projectId: string | null }
+  | { kind: 'canvas' }
 
 export interface GenerationSummary {
   /** 缺席或 null 表示历史版本未保留来源，不猜测为普通生成。 */
@@ -65,11 +66,13 @@ export interface GenerationDetail extends GenerationSummary {
   outputs: readonly GenerationImage[]
 }
 
-/** 平台上这个账号还在的生成记录条数；`studio` / `agent` 按来源分，历史上没记来源的只算进 `all`。 */
+/** 平台上这个账号还在的生成记录条数；`studio` / `agent` / `canvas` 按来源分，历史上没记来源的只算进 `all`。 */
 export interface GenerationTotals {
   all: number
   studio: number
   agent: number
+  /** 画布入选。旧响应可缺席，按 0。 */
+  canvas?: number
 }
 
 export interface GenerationPage {

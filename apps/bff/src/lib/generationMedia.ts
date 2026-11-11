@@ -4,7 +4,7 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { durableMediaStore } from './durableMediaStore'
-import { extractMeta, resolveImageBytesRef } from './extractImages'
+import { extractMeta, type ImageBytesRef, resolveImageBytesRef } from './extractImages'
 import {
   archiveOutputImages,
   decodeDataUrl,
@@ -357,6 +357,94 @@ export async function missingGenerationOutputs(
   )
 }
 
+/** 画布队列图：候选不进作品，提升后的原件仍留在队列里，直到正常过期。 */
+export function retainsQueueOutputs(request: { output_retention?: string | null }): boolean {
+  return request.output_retention === 'candidate' || request.output_retention === 'canvas'
+}
+
+export class CandidateExpiredError extends Error {
+  constructor() {
+    super('candidate_expired')
+    this.name = 'CandidateExpiredError'
+  }
+}
+
+/**
+ * 把画布候选里选中的那一张（以及还能读到的参考图、遮罩）收进容量计费的媒体。
+ * 原件已经不在队列里时抛 `CandidateExpiredError`，调用方不得为此写一条没有图的作品。
+ */
+export async function archiveCandidateSelection(
+  userId: string,
+  provider: QueueProvider,
+  payload: unknown,
+  request: PersistedSubmitRequest,
+  outputIndex: number,
+): Promise<GenerationMediaLink[]> {
+  const output = resolveImageBytesRef(provider, payload, outputIndex)
+  if (!output?.mime.startsWith('image/')) throw new CandidateExpiredError()
+  return withMediaTransfer(async () => {
+    const links: GenerationMediaLink[] = [
+      {
+        role: 'output',
+        position: outputIndex,
+        mediaId: (await storeSelectionBytes(userId, await readSelectionBytes(output))).id,
+      },
+    ]
+    for (const [position, ref] of (request.input_images ?? []).entries()) {
+      const link = await archiveOptional(userId, 'input', position, ref)
+      if (link) links.push(link)
+    }
+    if (request.mask) {
+      const link = await archiveOptional(userId, 'mask', 0, request.mask)
+      if (link) links.push(link)
+    }
+    return links
+  })
+}
+
+async function archiveOptional(
+  userId: string,
+  role: 'input' | 'mask',
+  position: number,
+  ref: { object: string; mime: string; store?: string },
+): Promise<GenerationMediaLink | undefined> {
+  try {
+    const store = ref.store === 'durable' ? durableMediaStore() : objectStore()
+    const bytes = await readMediaBytes(store, ref.object)
+    const media = await storeMedia(userId, bytes, detectMediaMime(bytes) ?? ref.mime)
+    return { role, position, mediaId: media.id }
+  } catch (error) {
+    if (error instanceof MediaError && error.status === 503) throw error
+    return undefined
+  }
+}
+
+async function readSelectionBytes(
+  ref: ImageBytesRef,
+): Promise<{ bytes: Uint8Array; mime: string }> {
+  if (ref.kind === 'b64') {
+    const bytes = Buffer.from(ref.data, 'base64')
+    if (bytes.byteLength === 0) throw new CandidateExpiredError()
+    return { bytes, mime: ref.mime }
+  }
+  if (ref.kind === 'url') {
+    const response = await fetch(ref.data)
+    if (response.status === 404 || response.status === 410) throw new CandidateExpiredError()
+    if (!response.ok) throw new Error(`candidate_image_${response.status}`)
+    return { bytes: new Uint8Array(await response.arrayBuffer()), mime: ref.mime }
+  }
+  const store = ref.store === 'durable' ? durableMediaStore() : objectStore()
+  // 列得出来又没有这张，才是候选过期。列或读失败是存储故障，交给调用方按 5xx 重试。
+  const listed = await store.listPrefix(ref.data)
+  if (!listed.includes(ref.data)) throw new CandidateExpiredError()
+  return { bytes: await readMediaBytes(store, ref.data), mime: ref.mime }
+}
+
+async function storeSelectionBytes(userId: string, image: { bytes: Uint8Array; mime: string }) {
+  if (image.bytes.byteLength === 0) throw new CandidateExpiredError()
+  return storeMedia(userId, image.bytes, detectMediaMime(image.bytes) ?? image.mime)
+}
+
 export async function archiveGenerationOutputs(
   userId: string,
   provider: QueueProvider,
@@ -365,9 +453,8 @@ export async function archiveGenerationOutputs(
   missing: ReadonlySet<number> = new Set(),
   known?: KnownMediaBytes,
 ) {
-  // Worker/reconciliation still spool and checkpoint the originals before completing.
-  // Only adoption into a project promotes candidate bytes into capacity-counted media.
-  if (request.output_retention === 'candidate') return []
+  // 候选和已经提升的画布任务都不在这条路径上归档：候选不进作品，提升只收当时选中的那一张。
+  if (retainsQueueOutputs(request)) return []
   return withMediaTransfer(async () => {
     const jobs: { role: GenerationMediaLink['role']; position: number; ref: StoredRef }[] = []
     for (const image of extractMeta(provider, payload).images) {
