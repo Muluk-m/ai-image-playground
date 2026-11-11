@@ -10,16 +10,16 @@ Agent 从 PR 到上线的完整链路，以及每一步谁能拍板。命令与�
 
 ## 谁拍板
 
-经发布流水线上线的步骤由 Agent 自己推进，**不等 Nain 批准**（2026-11-08 Nain 决定）：检查齐了就合并，合并后跟进部署，**上线后必须冒烟**（见「四、上线核对」），冒烟不过就修复或按「五、回滚」处理，并在汇报里说明。只有绕过流水线、直接动生产服务器或生产数据的手工操作仍要 Nain 批准，因为它们没有检查、也没有自动回滚。
+合并 PR 与发布生产须所有者（Nain）明确批准，见仓库根 [AGENTS.md](../../AGENTS.md)「代码库归你」。检查、CI、评审齐了就停，不要自行合并、打生产或 CLI 发布标签，也不要自行回滚上线。Codex 30 分钟没回复只在 PR 里注明超时，不据此合并。获准合并并上线之后必须冒烟（见「四、上线核对」）。冒烟不过或出事故先停下并报告，等批准再按「五、回滚」合并 revert 或再发生产。推 `test` 发测试环境不是生产发布。绕过流水线、直接动生产服务器或生产数据仍然要 Nain 批准。2026-11-08「不等 Nain 批准」让位给这一条。
 
 | 步骤 | 谁拍板 | 说明 |
 | --- | --- | --- |
-| 修 bug、功能或行为变更的 PR 合并 main（会发生产） | Agent，检查齐了即可 | 检查见「合并前检查」；涉及成本的要在描述和汇报里写清成本影响 |
-| 带数据库迁移的 PR 合并 main | Agent，检查齐了即可 | 迁移必须兼容新旧两代后端并带回滚 SQL；改编号前按 AGENTS.md 先查两个库已跑过的迁移 |
-| 私有 overlay 仓合并 | Agent，检查齐了即可 | 合并即发生产，并跑私有迁移 |
-| 发布 CLI（打 `cli-vX.Y.Z` 标签） | Agent，检查齐了即可 | 见 [CLI 发布](cli-release.md)；发布后先用官方安装脚本试装，再改接入页钉的版本 |
-| 生产回滚（revert PR、前端回滚） | Agent | 冒烟不过或出事故时直接回滚，事后在汇报里写清现象、影响和回滚目标 |
-| 重跑失败的 Deploy production job | Agent | 只按失败 job 重跑，不重跑整单 |
+| 修 bug、功能或行为变更的 PR 合并 main（会发生产） | **需 Nain 批准** | 检查见「合并前检查」；涉及成本的要在描述和汇报里写清成本影响。检查齐了就停 |
+| 带数据库迁移的 PR 合并 main | **需 Nain 批准** | 迁移必须兼容新旧两代后端并带回滚 SQL；改编号前按 AGENTS.md 先查两个库已跑过的迁移 |
+| 私有 overlay 仓合并 | **需 Nain 批准** | 合并即发生产，并跑私有迁移 |
+| 发布 CLI（打 `cli-vX.Y.Z` 标签） | **需 Nain 批准** | 见 [CLI 发布](cli-release.md)；发布后先用官方安装脚本试装，再改接入页钉的版本 |
+| 生产回滚（revert PR、前端回滚） | **需 Nain 批准** | 冒烟不过或出事故时先报告现象、影响和建议回滚目标，批准后再合并 revert 或再发生产 |
+| 重跑失败的 Deploy production job | Agent | 只重跑已经批准的那一单里失败的 job，不重跑整单，也不新开一版发布 |
 | 绕过流水线手动发布 | **需 Nain 批准** | 正常路径是合并 main 自动发布 |
 | 改服务器上的 `app.env` / `operator-config.json` | **需 Nain 批准** | 手工改，先备份，见下文 |
 | 重启、重建、停止生产容器 | **需 Nain 批准** | 包括 `app-compose.sh up` |
@@ -34,8 +34,8 @@ Agent 从 PR 到上线的完整链路，以及每一步谁能拍板。命令与�
 4. 合并前三项缺一不可：
    - **CI 全绿**：`Web checks` 等 PR 上的检查都通过（`Cost impact` 只打标签提示，不拦合并）。main 没有分支保护和必需检查（2026-10-27 已定先不加：`overlay-bump.yml` 直接往 main 推 overlay 指针，必需检查会把它拦下），所以这条只靠流程守，紧急修复也要等 CI 全绿。
    - **`/review`**：在 PR 评论 `/review` 触发 AI Code Review（`.github/workflows/ai-review.yml`，不阻断合并），处理其中的有效意见。
-   - **`@codex review`**：在 PR 评论 `@codex review`，处理有效意见。评论后 30 分钟仍没有回复就继续，并在 PR 里注明「Codex 30 分钟未回复」。
-5. 用 squash merge 合并，合并说明用中文。检查齐了即可合并，不等 Nain 批准（见上表）；合并后跟进部署并冒烟。
+   - **`@codex review`**：在 PR 评论 `@codex review`，处理有效意见。评论后 30 分钟仍没有回复就在 PR 里注明「Codex 30 分钟未回复」，不据此合并。
+5. 检查齐了就停。所有者明确批准后才用 squash merge，合并说明用中文（见上表）；合并后跟进部署并冒烟。
 
 ## 二、测试环境（test 分支）
 
@@ -75,7 +75,7 @@ Agent 合并后只跟进这个 workflow 的结果，失败就看日志处理（�
 
 私有 overlay 仓合并后，overlay CI 全绿就把 `verified` 指针前移；`.github/workflows/overlay-bump.yml` 每 10 分钟检查一次，构建「公开 main + 新 overlay」通过后把 `private.lock` 提交到 `main`，并直接触发 Deploy production。所以：
 
-- **合并私有 overlay 就会发生产，并在发布里跑私有迁移。** 检查齐了即可合并，上线后冒烟。
+- **合并私有 overlay 就会发生产，并在发布里跑私有迁移。** 检查齐了就停，所有者明确批准后再合并；上线后冒烟。
 - overlay 需要新的宿主面成员时，先把公开树的改动合进 `main`，再合 overlay，顺序反了 overlay CI 会红，`verified` 停在旧版。细节见[私有 overlay 与版本](private-overlay.md)。
 
 ## 四、上线核对
@@ -99,15 +99,15 @@ curl -fsS https://test.muvloom.online/version.json
 
 ## 五、回滚
 
-冒烟不过或出事故时由 Agent 直接回滚，事后在汇报里写清现象、影响范围和回滚到的提交或镜像。需要在服务器上手工操作的（改 `operator-config.json`、`app-compose.sh up`、VPS 上的镜像回滚）仍要 Nain 批准。
+冒烟不过或出事故时先停下并报告现象、影响范围和建议回滚到的提交或镜像。等所有者明确批准，再合并 revert 或再发生产。不要自行回滚上线。需要在服务器上手工操作的（改 `operator-config.json`、`app-compose.sh up`、VPS 上的镜像回滚、前端 `pages-release.sh` 回滚）仍要 Nain 批准。
 
-**先止血，再回滚。** 出问题的是单个功能或单个模型时，先关掉它，往往比回滚整个版本更快、波及更小：
+**先止血，再回滚。** 出问题的是单个功能或单个模型时，关掉它往往比回滚整个版本更快、波及更小。关能力开关、下架模型、改 `operator-config.json` 都是生产写操作，先等所有者批准，再按下面的步骤做：
 
 - **关能力开关**：能力在服务器上的 `operator-config.json` 的 `capabilities` 里（求值见 `apps/bff/src/lib/capabilities.ts`），一律 deny by default。把出问题的能力改成 `false`，按[智能体上线手册「十、回滚」](../deploy/agent-rollout.md)的方式先备份再 `scripts/app-compose.sh up <project>`。配置写坏服务会拒绝启动而不是降级（[ADR 0001](../adr/0001-capability-config-fails-closed.md)），改完先校验 JSON。
 - **下架模型**：在 Admin 的「模型」页把出问题的模型切到下架，写进公开库 `model_availability`（`apps/bff/src/lib/model-availability.ts`），页面和服务端都不再提供它，不用重新发布。
 - 止血之后照样按下面的方式回滚或修复，并在汇报里写明止血做了什么、什么时候恢复。
 
-- **常规**：开一个 revert PR，走正常检查和合并，由 Deploy production 发出。它是新提交，不会被「不回退」规则跳过。
+- **常规**：开一个 revert PR，走正常检查。检查齐了后等所有者批准再合并，由 Deploy production 发出。它是新提交，不会被「不回退」规则跳过。
 - **后端紧急回滚**：在 VPS 上用当前发布目录执行 `scripts/app-compose.sh rollback <project> <旧镜像>`。禁止用 `compose up --force-recreate`、`compose down` 或强停脚本绕过排空。数据库不会跟着回滚，迁移本来就要兼容新旧版本。见[部署手册「回滚与失败处理」](../deploy/image-release.md#回滚与失败处理)。
 - **前端回滚**：在独立检出恢复上一个已验证的公开/私有提交，用同样的生产配置重跑对应的 `scripts/pages-release.sh`，再按「上线核对」验收。
 - **segmenter 回滚**：`scripts/segmenter-deploy.sh rollback`，只能手动跑，会切所有部署，见下文。

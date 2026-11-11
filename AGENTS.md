@@ -2,6 +2,19 @@
 
 本文件是代码 Agent 的工作约定。**严格遵守**，不要按通用 monorepo 直觉走。
 
+## 代码库归你
+
+This codebase is yours: what it's for and how it's built are your call, and you'll keep building on it.
+
+这句话是说：把重复代码并到一处，理顺结构，并修掉这次干活时碰到的紧邻问题，而不是只在现有结构后面追加，或只把问题报出来。前提是改动留在当前任务范围内，并且有测试覆盖。
+
+下面这些不是你说了算：
+
+- **计费、支付、积分或点数扣减、定价、结算**的代码路径，以及私有计费仓 [Muluk-m/ai-image-playground-private](https://github.com/Muluk-m/ai-image-playground-private) 里相关的部分：没有所有者（本文件其余处的 Nain）明确批准，不要改。把问题列出来，标给 CODEOWNERS 评审。本仓库还没有 `.github/CODEOWNERS`，文件补上之前点名所有者。写清影响的范围以下文「成本与影响说明」为准；写清了也不授权改这些路径，也不代替合并和上生产的批准。
+- **未经所有者明确批准，不要合并 PR，也不要发布到生产。** 可以开 PR、等 CI。合并前的检查、squash 与上线后冒烟仍按下文「部署与灾备」「合并门槛」；批准之前停住。冒烟不过或出事故也先停下并报告，等所有者批准再合并回滚 PR 或再发生产，不要自行回滚上线。发布手册里「检查齐了就合并、不等 Nain 批准」和「直接回滚」让位给本条。绕过流水线、手工改生产服务器或生产数据，仍按该手册，同样要批准。
+- **不要把密钥或 API key 提交进仓库，也不要写进日志。** 真实 key 只留在 BFF 进程环境变量里，见 [apps/bff/AGENTS.md](apps/bff/AGENTS.md)；服务器上 `app.env` 的供应商 key 不进仓库、不进 GitHub secret、不进 PR 或对话，见[发布手册](docs/agents/release.md)。
+- **不要为了变绿去放宽测试、lint 或类型检查。** 提交前仍跑下文「完成任务的硬性检查清单」。不过就停：不要改断言、关掉规则、跳过类型错误，也不要设 `CI` 绕过测试守卫。
+
 ## Agent 模型配置
 
 - 开始任务前，若 `~/.cursor/rules/pstack-models.mdc` 存在，必须完整读取，作为子 Agent 的角色模型与推理预算配置；该用户配置优先于 pstack 技能默认值，Codex 会话也须显式读取。
@@ -10,13 +23,13 @@
 
 ## 部署与灾备
 
-- **生产：Pages + VPS，合并 main 即由 GitHub Actions（`.github/workflows/deploy.yml`）部署：镜像在 Actions 构建、经私有 GHCR 按 digest 拉到 VPS；只更新共享 muvloom 后端，再按需发布一个多域名 muvloom Pages 项目和 Admin（见[发布手册](docs/agents/release.md)「三」）。企业域名与 muvloom 共用前后端，登录方式按 origin 决定。会话只合并到 main，不手动发布；手动发布（macmini2 构建）仅作应急。** VPS 只接收镜像，不安装构建依赖或编译。公开提交通过 PR/main CI，私有 overlay 固定到已验证提交；使用独立检出、既有构建锁和发布锁。
+- **生产：Pages + VPS，合并 main 即由 GitHub Actions（`.github/workflows/deploy.yml`）部署：镜像在 Actions 构建、经私有 GHCR 按 digest 拉到 VPS；只更新共享 muvloom 后端，再按需发布一个多域名 muvloom Pages 项目和 Admin（见[发布手册](docs/agents/release.md)「三」）。企业域名与 muvloom 共用前后端，登录方式按 origin 决定。获准之后只合并到 main，不手动发布；手动发布（macmini2 构建）仅作应急。** VPS 只接收镜像，不安装构建依赖或编译。公开提交通过 PR/main CI，私有 overlay 固定到已验证提交；使用独立检出、既有构建锁和发布锁。
 - 前端单项目多域名、后端发布、排空、回滚与验收按[部署手册](docs/deploy/image-release.md)。不得强停在途执行器；迁移须兼容新旧版本。验收 API、登录和业务数据后才报告完成。
 - **改迁移编号前先查两个库已经跑过哪些迁移。** 重新编号、改名或调整 `packages/db/drizzle` 的顺序之前，先确认测试库和生产库的 `drizzle.__drizzle_migrations` 已应用到哪一条，与 `meta/_journal.json` 的 `when` 对照：drizzle 按时间戳判断哪些还没跑，已应用的迁移被改号或挪位，会被跳过或重复执行（2026-10-27 测试环境发布因此中断过）。生产库不能自己查（见[生产只读排查](docs/agents/prod-readonly.md)），请 Nain 查或看发布日志里的迁移输出；已在任一库应用过的迁移不改号，新加一条。带迁移的 PR 按时间戳先后合并：`runMigrations` 发现时间戳不晚于库中最新一条却没跑过的迁移会直接报错、中止发布，不再被 drizzle 静默跳过；真遇到时，核实后手工执行报出的迁移，再按它的 sha256 与 journal `when` 补一行 `drizzle.__drizzle_migrations`。
 - **测试环境**：推 `test` 分支由 `.github/workflows/deploy-test.yml` 先发布独立测试后端（`image-playground-test`，独立数据库与 R2 桶），再发布 https://test.muvloom.online；前端固定连 `https://test-api.muvloom.online`，不读写生产数据。前后端使用同一公开提交与 `private.lock` 钉住的 overlay。test 落后 main 会直接失败，把 main 合进 test 再推；别在 `test` 上直接改代码。细节见[测试环境手册](docs/deploy/test-environment.md)。
 - 前端发布只用 `scripts/pages-release.sh muvloom|test|admin`（企业域名与 muvloom 同属 muvloom 项目，一个项目、多个域名）；各目标的 Pages 项目与域名写在仓库外的 `pages.env`（默认 `$XDG_CONFIG_HOME/ai-image-playground/pages.env`，可用 `PAGES_ENV_FILE` 覆盖）。现存 `PAID_*` 配置键和 VPS `paid` 目标连接共享生产资源；企业域名使用 `ENTERPRISE_PUBLIC_ORIGIN` / `ENTERPRISE_BFF_BASE_URL`，配置切换与固定 runtime 更新见[部署手册](docs/deploy/image-release.md#产品与现存标识)。不要直接调底层 `scripts/pages-deploy.sh`——漏掉分支参数曾把未合并分支发到生产。
 - 灵感库（探索页素材流）批量下架、新增、回滚与验收按[灵感库维护手册](docs/deploy/inspiration-maintenance.md)；灵感图只传 `cms-r2.deepclick.com`。
-- **Agent 发布按[发布手册](docs/agents/release.md)**：合并前检查、`test` 只用 fetch 加快进推送、生产与私有 overlay 发布、上线核对和回滚。经流水线上线的合并、迁移、私有仓合并、CLI 发布与回滚都由 Agent 检查齐了直接推进，不等 Nain 批准，上线后必须冒烟；只有绕过流水线、手工改生产服务器或生产数据要 Nain 批准，表格见该手册。查生产问题默认只读，能做和禁止的操作见[生产只读排查](docs/agents/prod-readonly.md)。
+- **Agent 发布按[发布手册](docs/agents/release.md)**：合并前检查、`test` 只用 fetch 加快进推送、生产与私有 overlay 发布、上线核对和回滚。合并 PR 与发布生产须所有者明确批准，见上文「代码库归你」；批准之前不要推进。手册里「检查齐了就合并、不等 Nain 批准」让位给那一条。绕过流水线、手工改生产服务器或生产数据仍然要批准，表格见该手册。获准合并并上线之后必须冒烟。查生产问题默认只读，能做和禁止的操作见[生产只读排查](docs/agents/prod-readonly.md)。
 - 灾备采用[R2 按需冷恢复](docs/deploy/cold-recovery.md)；macmini2 旧备用已停止。固定 API 切换和跨机器单写者保护尚未上线，恢复演练或同库发布排空都不算完整灾备。
 
 ## 项目概况
@@ -71,7 +84,7 @@ CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）把 `pnpm lint`
 `with-overlay` / `with-overlay (typecheck)` / `with-overlay (build)` 再用 `private.lock` 钉住的 overlay 分别跑 lint + 私有包测试、typecheck + admin 构建、build + 冒烟。
 本地可选 `pnpm hooks:install` 启用 `.githooks/pre-push`：推送前只对改动文件跑 biome 和受影响包的 typecheck（`AIP_PRE_PUSH=lint` 只跑 lint，`skip` 跳过）。
 
-**默认交付到生产。** 代码修改通过检查后，继续创建 PR、等 CI、合并 `main`；合并后由部署 workflow 自动发布，会话不手动发布，只跟进该 workflow 结果并核验线上版本和行为。修 bug、功能或行为变更、带迁移的 PR，检查齐了都直接完成整条链路：合并、跟进部署、上线后冒烟，无需询问是否部署（见[发布手册](docs/agents/release.md)）。用户明确要求仅本地修改或暂不合并时照办。
+**开 PR，合并与上生产另要批准。** 代码修改通过检查后创建 PR、等 CI。合并 `main` 与随后的生产发布须所有者明确批准（见上文「代码库归你」）；批准之前停住。获准合并后由部署 workflow 自动发布，会话不手动发布，只跟进该 workflow 结果并核验线上版本和行为，再冒烟。用户明确要求仅本地修改或暂不合并时照办。
 
 **交付不能停在本地。** 用户指定测试环境或明确暂不上生产时，完成改动后自动走测试环境发布：工作分支提交 → 远端检查 → 将最新 `main` 与工作分支合入 `test` → 跟进 Deploy test → 核对线上版本并实测变更。不再次询问是否部署，不把已提交、已推送或 workflow 已触发当作交付完成；失败继续处理，外部阻塞明确报告且待办保持阻塞状态。测试验收不代表获准上生产。
 
@@ -81,7 +94,7 @@ CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）把 `pnpm lint`
 
 ## 合并门槛
 
-合并前必须 CI 全绿，并处理 `/review` 与 `@codex review` 的有效意见；Codex 30 分钟没回复就继续，在 PR 里注明超时。用 squash merge，合并说明用中文。PR 按 [PR 模板](.github/pull_request_template.md) 填写。
+合并前必须 CI 全绿，并处理 `/review` 与 `@codex review` 的有效意见；Codex 30 分钟没回复就在 PR 里注明超时。这些做完仍要所有者明确批准才合并，见上文「代码库归你」。获准后用 squash merge，合并说明用中文。PR 按 [PR 模板](.github/pull_request_template.md) 填写。
 
 **先验证再开 PR。** 开 PR（包括草稿）之前：
 
@@ -91,11 +104,11 @@ CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）把 `pnpm lint`
 
 **评审。** 怎么评、什么算严重、哪些文件可跳过、输出格式，见 [REVIEW.md](REVIEW.md)。作者 Agent 与 Codex 最多来回 3 轮：第 2 轮起只看新增改动、不重复已提过的问题；3 轮后仍有严重问题就停下，重新想方案或交给 Nain。规则细节见 REVIEW.md「评审轮次上限」。每轮怎么处理的写进 PR 的「评审处理记录」。
 
-**上线后冒烟。** PR 合并不需要 Nain 确认（2026-11-08 决定）。合并后跟进部署 workflow，核对线上版本，再实测改到的功能：接口用只读请求，界面在浏览器里看，关键流程用测试账号；结果写进 PR 评论。冒烟不过就修复或回滚，并在汇报里说明。
+**上线后冒烟。** 合并须所有者明确批准，见上文「代码库归你」；2026-11-08「合并不需要 Nain 确认」让位给那一条。获准合并后跟进部署 workflow，核对线上版本，再实测改到的功能：接口用只读请求，界面在浏览器里看，关键流程用测试账号；结果写进 PR 评论。冒烟不过就停下并报告，等所有者批准再合并回滚或再发生产。
 
 **关键流程证据。** 改到注册/登录、支付/计费、生成（出图、出视频）流程的 PR，必须附测试账号在测试环境（https://test.muvloom.online）走通该流程的截图或录屏，写明账号类型、环境和提交。证据里不能出现密码、验证码、token 或真实用户数据。`scripts/agent-smoke.ts`（[智能体上线手册](docs/deploy/agent-rollout.md)第七节）、`scripts/pages-browser-smoke.sh`（[部署手册](docs/deploy/image-release.md)「前端启动验收」）和[云端测试](docs/agents/cloud-tests.md)只能作补充：它们不走真实登录、付款或生成，不能代替证据。
 
-**成本与影响说明。** 改到模型调用、模型/供应商切换、定价、额度、计费，或任何会改变推理成本的改动（更贵的默认模型、更多调用次数、更长上下文、更大输出、放宽限额），必须在 PR 描述的「成本与影响」和给 Nain 的汇报里写清楚改了什么、对成本的影响。`.github/workflows/cost-impact.yml` 按 `scripts/cost-impact.mjs` 的路径清单检查，命中时打 `cost-impact` 标签提醒，只提示、不拦合并；清单外的成本改动同样要写。成本与扣费本身不需要 Nain 确认（预算充足），写清楚影响即可按常规流程合并。
+**成本与影响说明。** 改到模型调用、模型/供应商切换、定价、额度、计费，或任何会改变推理成本的改动（更贵的默认模型、更多调用次数、更长上下文、更大输出、放宽限额），必须在 PR 描述的「成本与影响」和给 Nain 的汇报里写清楚改了什么、对成本的影响。`.github/workflows/cost-impact.yml` 按 `scripts/cost-impact.mjs` 的路径清单检查，命中时打 `cost-impact` 标签提醒，只提示、不拦合并；清单外的成本改动同样要写。写清楚影响仍然要做。这不代替上文「代码库归你」：计费、支付、扣点、定价、结算代码，以及合并、上生产，仍要所有者明确批准。
 
 **安全扫描（已定，2026-10-27）。** CodeQL（`.github/workflows/codeql.yml`）只报告、不拦合并；落在本 PR 改动上的高危告警按 REVIEW.md 当严重问题处理。Dependabot 只开 `.github/dependabot.yml` 里的版本更新，不开 Dependabot security updates（自动开安全修复 PR）。这是决定，不是待办。
 
