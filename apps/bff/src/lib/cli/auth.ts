@@ -1,5 +1,9 @@
 import { createHash, createHmac, randomBytes, randomInt, randomUUID } from 'node:crypto'
-import { type AccountProfileView, isSessionRefreshRequestKey } from '@image-playground/shared'
+import {
+  type AccountProfileView,
+  deviceAuthorization,
+  isSessionRefreshRequestKey,
+} from '@image-playground/shared'
 import { and, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { accountProfileView } from '../account-profile-view'
@@ -489,10 +493,21 @@ async function createConnection(
   refresh: string | undefined,
   via: 'device_code' | 'authorization_code',
 ): Promise<TokenGrantResult> {
-  await tx
+  if (!deviceAuthorization.allows(row.status, 'consume')) {
+    return { ok: false, error: 'invalid_grant' }
+  }
+  const next = deviceAuthorization.step(row.status, 'consume')
+  const [updated] = await tx
     .update(schema.device_authorizations)
-    .set({ status: 'consumed', last_polled_at: now })
-    .where(eq(schema.device_authorizations.id, row.id))
+    .set({ status: next, last_polled_at: now })
+    .where(
+      and(
+        eq(schema.device_authorizations.id, row.id),
+        eq(schema.device_authorizations.status, 'approved'),
+      ),
+    )
+    .returning({ id: schema.device_authorizations.id })
+  if (!updated) return { ok: false, error: 'invalid_grant' }
   const issued = issueTokens(row.scopes, now, refresh)
   const connectionId = randomUUID()
   await tx.insert(schema.cli_connections).values({
