@@ -1,4 +1,5 @@
 import {
+  degradeGptImage26ForSub2api,
   type ImageRateRequest,
   type ImageTierEntry,
   imageSizeTier,
@@ -20,9 +21,22 @@ export function declaredImageSizesForModel(model: string): readonly string[] | u
 export function directAvailableForModel(model: string): boolean {
   for (const channel of getPublicChannels()) {
     const found = channel.models.find((one) => one.id === model)
-    if (found) return found.capabilities?.includes('size') ?? true
+    if (found) {
+      if (isGptImage26Model(model)) return found.degraded !== true
+      return found.capabilities?.includes('size') ?? true
+    }
   }
   return false
+}
+
+/** 2.6 直连不可用时，报价按服务端同一套 sub2api 降级来算。 */
+export function billedImageRateRequest(
+  model: string,
+  request: ImageRateRequest | null | undefined,
+  directAvailable: boolean,
+): ImageRateRequest | null | undefined {
+  if (!request || !isGptImage26Model(model) || directAvailable) return request
+  return degradeGptImage26ForSub2api(request)?.request ?? request
 }
 
 /** 前端报价统一经 `resolveImageTier`，倍率与服务端提交、结算同一来源。 */
@@ -37,7 +51,7 @@ export function tierRate(
   return resolveImageTier({
     model,
     provider: isGptDirectModel(model) || isGptImage26Model(model) ? 'openai-compat' : 'gemini',
-    request,
+    request: billedImageRateRequest(model, request, directAvailable) ?? request,
     entry,
     member,
     directAvailable,
@@ -60,8 +74,9 @@ export function preparedComposerImageRate(
   model: string,
   request: ImageRateRequest | null | undefined,
   member = false,
+  directAvailable = directAvailableForModel(model),
 ): number {
-  return tierRate(model, request, 'agent', member, true)
+  return tierRate(model, request, 'agent', member, directAvailable)
 }
 
 /** 基础档和渠道已收口的档位不必等待会员查询；2.6 的 4K 即使同价也仍是会员档。 */

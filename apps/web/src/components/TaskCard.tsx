@@ -1,4 +1,4 @@
-import { formatImageRatio, type Image26DegradeKind } from '@image-playground/shared'
+import { formatImageRatio } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
 import { taskExportSources } from '../features/image-export/sources'
 import { openImageExport } from '../features/image-export/store'
@@ -15,6 +15,7 @@ import {
   progressStartedAt,
   typicalDurationMs,
 } from '../lib/generationProgress'
+import { image26DegradeNoticeKey } from '../lib/gptQuote'
 import { loadImageOriginal } from '../lib/imageSource'
 import { ActualValueBadge, getParamDisplay, measuredSizeOf } from '../lib/paramDisplay'
 import { retryTask, setTaskFavorite, useStore } from '../store'
@@ -26,25 +27,6 @@ import { compactModelName, ModelLogo } from './ModelIdentity'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
-
-function degradedNotice(kind: Image26DegradeKind) {
-  switch (kind) {
-    case 'size':
-      return 'card.degraded.size' as const
-    case 'quality':
-      return 'card.degraded.quality' as const
-    case 'format':
-      return 'card.degraded.format' as const
-    case 'size_quality':
-      return 'card.degraded.size_quality' as const
-    case 'size_format':
-      return 'card.degraded.size_format' as const
-    case 'quality_format':
-      return 'card.degraded.quality_format' as const
-    case 'size_quality_format':
-      return 'card.degraded.size_quality_format' as const
-  }
-}
 
 /** task-pop-in 入场动画窗口；超过这个秒数后 mount 的 task 视作历史回放，不再播。 */
 const FRESH_POP_IN_WINDOW_MS = 600
@@ -421,7 +403,7 @@ export default function TaskCard({
               </p>
               {task.degradeNotice ? (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {t(degradedNotice(task.degradeNotice))}
+                  {t(image26DegradeNoticeKey(task.degradeNotice))}
                 </p>
               ) : null}
             </div>
