@@ -107,6 +107,7 @@ describe('选区怎么变成请求', () => {
       ['data:image/png;base64,a'],
       ['data:image/png;base64,b'],
     ])
+    expect(submitted.every((body) => body.output_retention === 'candidate')).toBe(true)
   })
 
   it('不逐张时选区并成一次多图迭代', async () => {

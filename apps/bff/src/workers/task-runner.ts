@@ -20,6 +20,7 @@ import {
   generationSourceCheckpoint,
   KnownMediaBytes,
   missingGenerationOutputs,
+  retainsQueueOutputs,
   spoolGenerationOutputs,
 } from '../lib/generationMedia'
 import { isActiveMember } from '../lib/gpt-membership'
@@ -214,7 +215,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         known,
       )
       await finishArchived(execution, {
-        candidate: request.output_retention === 'candidate',
+        candidate: retainsQueueOutputs(request),
         missing: missing.size > 0,
         media,
         usage: deliveredUsage(archivePayload, {
@@ -369,7 +370,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
         )
       : undefined
     const settled = await finishArchived(execution, {
-      candidate: request.output_retention === 'candidate',
+      candidate: retainsQueueOutputs(request),
       missing: false,
       media,
       usage: deliveredUsage(archivedPayload, {

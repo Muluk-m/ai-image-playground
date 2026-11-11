@@ -175,10 +175,16 @@ export async function countGenerations(userId: string) {
       all: sql<number>`count(*)::int`,
       studio: sql<number>`(count(*) filter (where ${table.source} ->> 'kind' = 'studio'))::int`,
       agent: sql<number>`(count(*) filter (where ${table.source} ->> 'kind' = 'agent'))::int`,
+      canvas: sql<number>`(count(*) filter (where ${table.source} ->> 'kind' = 'canvas'))::int`,
     })
     .from(table)
     .where(listedGeneration(userId))
-  return { all: row?.all ?? 0, studio: row?.studio ?? 0, agent: row?.agent ?? 0 }
+  return {
+    all: row?.all ?? 0,
+    studio: row?.studio ?? 0,
+    agent: row?.agent ?? 0,
+    canvas: row?.canvas ?? 0,
+  }
 }
 
 export async function readGeneration(
