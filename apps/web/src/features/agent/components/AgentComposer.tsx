@@ -146,6 +146,7 @@ import {
 } from '../lib/confirmationPhrase'
 import { conversationImages } from '../lib/conversationImages'
 import { followUpGhostAction, visibleFollowUps } from '../lib/followUps'
+import { agentHistorySession, historyBlocksComposer } from '../lib/historySession'
 import { referenceTileLabel } from '../lib/imageMentions'
 import type { MarkRenderer } from '../lib/markedReferences'
 import { agentNodeRun, agentNodeRunRevision, subscribeAgentNodeRuns } from '../lib/nodeRuns'
@@ -346,7 +347,15 @@ export default function AgentComposer({
   editor?: MarkRenderer
 }) {
   const { t, i18n } = useTranslation(['agent', 'errors', 'composer'])
-  const historyBlocked = useAgentStore((state) => state.historyLoading || state.historyFailed)
+  const historyBlocked = useAgentStore((state) =>
+    historyBlocksComposer(
+      agentHistorySession({
+        historyCached: state.historyCached,
+        historyLoading: state.historyLoading,
+        historyFailed: state.historyFailed,
+      }),
+    ),
+  )
   const running = useAgentStore((state) => state.turn === 'running')
   const stopping = useAgentStore((state) => state.stopping)
   const messages = useAgentStore(
@@ -391,7 +400,13 @@ export default function AgentComposer({
   const followUpLines = useAgentStore((state) =>
     visibleFollowUps({
       idle: state.turn === 'idle',
-      historyBlocked: state.historyLoading || state.historyFailed,
+      historyBlocked: historyBlocksComposer(
+        agentHistorySession({
+          historyCached: state.historyCached,
+          historyLoading: state.historyLoading,
+          historyFailed: state.historyFailed,
+        }),
+      ),
       welcome,
       draft: draft.prompt,
       messages: state.messages,
