@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import type { PersistedSubmitRequest, QueueProvider } from '@image-playground/shared'
 import { and, eq, inArray } from 'drizzle-orm'
@@ -380,6 +381,7 @@ export async function archiveCandidateSelection(
   payload: unknown,
   request: PersistedSubmitRequest,
   outputIndex: number,
+  createdIds: string[],
 ): Promise<GenerationMediaLink[]> {
   const output = resolveImageBytesRef(provider, payload, outputIndex)
   if (!output?.mime.startsWith('image/')) throw new CandidateExpiredError()
@@ -388,15 +390,16 @@ export async function archiveCandidateSelection(
       {
         role: 'output',
         position: outputIndex,
-        mediaId: (await storeSelectionBytes(userId, await readSelectionBytes(output))).id,
+        mediaId: (await storeSelectionBytes(userId, await readSelectionBytes(output), createdIds))
+          .id,
       },
     ]
     for (const [position, ref] of (request.input_images ?? []).entries()) {
-      const link = await archiveOptional(userId, 'input', position, ref)
+      const link = await archiveOptional(userId, 'input', position, ref, createdIds)
       if (link) links.push(link)
     }
     if (request.mask) {
-      const link = await archiveOptional(userId, 'mask', 0, request.mask)
+      const link = await archiveOptional(userId, 'mask', 0, request.mask, createdIds)
       if (link) links.push(link)
     }
     return links
@@ -408,11 +411,16 @@ async function archiveOptional(
   role: 'input' | 'mask',
   position: number,
   ref: { object: string; mime: string; store?: string },
+  createdIds: string[],
 ): Promise<GenerationMediaLink | undefined> {
   try {
     const store = ref.store === 'durable' ? durableMediaStore() : objectStore()
     const bytes = await readMediaBytes(store, ref.object)
-    const media = await storeMedia(userId, bytes, detectMediaMime(bytes) ?? ref.mime)
+    const media = await storeSelectionBytes(
+      userId,
+      { bytes, mime: detectMediaMime(bytes) ?? ref.mime },
+      createdIds,
+    )
     return { role, position, mediaId: media.id }
   } catch (error) {
     if (error instanceof MediaError && error.status === 503) throw error
@@ -450,9 +458,23 @@ async function readSelectionBytes(
   return { bytes: await readMediaBytes(store, ref.data), mime: ref.mime }
 }
 
-async function storeSelectionBytes(userId: string, image: { bytes: Uint8Array; mime: string }) {
+async function storeSelectionBytes(
+  userId: string,
+  image: { bytes: Uint8Array; mime: string },
+  createdIds: string[],
+) {
   if (image.bytes.byteLength === 0) throw new CandidateExpiredError()
-  return storeMedia(userId, image.bytes, detectMediaMime(image.bytes) ?? image.mime)
+  const mime = detectMediaMime(image.bytes) ?? image.mime
+  const hash = createHash('sha256').update(image.bytes).digest('hex')
+  const [prior] = await db
+    .select({ id: schema.media_objects.id, status: schema.media_objects.status })
+    .from(schema.media_objects)
+    .where(and(eq(schema.media_objects.user_id, userId), eq(schema.media_objects.sha256, hash)))
+    .limit(1)
+  const media = await storeMedia(userId, image.bytes, mime)
+  // 已经是 ready 的旧行可能没有作品引用（例如还没关联上）。回滚时不能把它删掉。
+  if (!prior || prior.status !== 'ready') createdIds.push(media.id)
+  return media
 }
 
 export async function archiveGenerationOutputs(
