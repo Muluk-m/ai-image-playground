@@ -74,7 +74,7 @@
 - 状态：三态乘两个布尔。视图见 [agent-turn-session.md](agent-turn-session.md)。
 - 非法组合：`idle` 且 `reconnecting`（旧的跟随者没清掉）；`running` 且没有 `activeTurn`；`failed` 且 `reconnecting`。
 - 风险：和队列阶段、登录门的 `reconnecting` 同名不同义。
-- UX：断流提示、停止。写入点太多，这次只加视图，面板表现不变。
+- UX：断流提示、停止。写入经 `applyTurnSessionEvent`，合法形状与视图一致。
 
 ### 7. stage-authorization（只盘点）
 
@@ -264,7 +264,7 @@
 2. **计费。** 不改预扣、结算、退款、阶段预算、GPT 直连密钥、对账确认。`task-transitions.ts` 的 `requeue` / `reconcile` / `finish` / `cancel` 应改成 `queueTask.step`，但与 `finalizeTask` 同函数，留给下一轮专门的结算 PR。
 3. **设备码兑换。** 更新加上 `status = approved`，更新不到行就不要发令牌。现在按 id 更新。
 4. **工作台与画布任务。** 客户端用一个可辨联合表达本地排队、服务端阶段和终态，替换 `status + queuePhase + cancelled + batchQueued`。要单开，并在测试环境走一遍出图。
-5. **对话轮 store。** 把 `turn` / `stopping` / `reconnecting` 的写入收成 `agentTurnSession` 的事件。视图已经定了合法形状。
+5. **对话轮 store。** 已把 `turn` / `stopping` / `reconnecting` 的写入收成 `applyTurnSessionEvent`。
 6. **智能体历史。** `historyCached`、`historyLoading`、`historyFailed` 收成一个阶段。
 7. **灵感。** 若运营确认不需要 published → draft 以外的跳转，再收紧表。那是接口变化，要单独说明。
 
