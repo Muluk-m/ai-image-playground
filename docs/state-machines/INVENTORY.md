@@ -198,9 +198,9 @@
 
 `apps/web/src/features/canvas/lib/sceneRecord.ts`。`loading`、`loadFailed`、`saveFailed` 三个布尔，不是一个阶段。可以同时表达不清楚的组合。本地画布持久化，不改。
 
-### 33. agent-history（中高，提案）
+### 33. agent-history（中高，视图已落地）
 
-`loaded`、`historyCached`、`historyLoading`、`historyFailed`。类型不禁止「缓存着且正在加载」。错了会显示旧对话。不改存储。
+`historyCached`、`historyLoading`、`historyFailed`。类型不禁止「缓存着且正在加载」。视图见 [agent-history.md](agent-history.md)。错了会显示旧对话。store 写入不改。
 
 ### 34. composer-mode（中高，提案）
 
@@ -265,7 +265,7 @@
 3. **设备码兑换。** 更新加上 `status = approved`，更新不到行就不要发令牌。现在按 id 更新。
 4. **工作台与画布任务。** 客户端用一个可辨联合表达本地排队、服务端阶段和终态，替换 `status + queuePhase + cancelled + batchQueued`。要单开，并在测试环境走一遍出图。
 5. **对话轮 store。** 把 `turn` / `stopping` / `reconnecting` 的写入收成 `agentTurnSession` 的事件。视图已经定了合法形状。
-6. **智能体历史。** `historyCached`、`historyLoading`、`historyFailed` 收成一个阶段。
+6. **智能体历史。** 视图已经定了合法形状（见 [agent-history.md](agent-history.md)）。把 store 写入收成事件仍是提案。
 7. **灵感。** 若运营确认不需要 published → draft 以外的跳转，再收紧表。那是接口变化，要单独说明。
 
 ## 明确不修的行为
