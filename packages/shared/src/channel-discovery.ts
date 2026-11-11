@@ -119,6 +119,11 @@ export interface ChannelModel {
    */
   unavailable?: boolean
   /**
+   * 模型仍列出，但当前直连不可用。2.6 的高档、动图提交会落到 sub2api 能出的静态 1K medium。
+   * 选择器仍显示原档。只增不删：旧前端忽略它。
+   */
+  degraded?: boolean
+  /**
    * Gemini 协议模型认的分辨率档位（`GEMINI_IMAGE_SIZES` 的子集，按实测填）。写了面板就只列这几档，
    * BFF 把绕过面板的其它档位换成最近一档再发；不写按共享档位全列、原样透传。
    */
