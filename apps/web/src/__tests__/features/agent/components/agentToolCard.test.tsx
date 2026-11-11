@@ -65,11 +65,6 @@ vi.mock('../../../../lib/clientCapabilities', () => ({
   isClientCapabilityEnabled: (key: string) => deployment.capabilities.has(key),
 }))
 
-const cutout = vi.hoisted(() => ({ run: vi.fn() }))
-vi.mock('../../../../features/agent/lib/chatCutout', () => ({
-  runChatBackgroundRemoval: cutout.run,
-}))
-
 vi.mock('../../../../features/agent/lib/artifactSource', () => ({
   previewArtifactBitmap: async () => 'data:image/png;base64,preview',
   displayArtifactBitmap: async () => 'data:image/png;base64,preview',
