@@ -30,6 +30,7 @@ function task(id: string, patch: Partial<TaskRecord> = {}): TaskRecord {
 }
 
 const studio: Row = { record: { source: { kind: 'studio' } } }
+const canvas: Row = { record: { source: { kind: 'canvas' } } }
 const agent = (projectId: string | null): Row => ({
   record: {
     source: { kind: 'agent', conversationId: 'c', turnId: 't', projectId },
@@ -52,6 +53,11 @@ it('来源按平台记录认：本机任务都是快速生成，历史上没记�
   expect(matchesWorksFilter('unknown', 'all')).toBe(true)
   expect(matchesWorksFilter('unknown', 'studio')).toBe(false)
   expect(matchesWorksFilter('agent', 'agent')).toBe(true)
+  expect(workSource(task('canvas-1', { remoteOnly: true }), new Map([['canvas-1', canvas]]))).toBe(
+    'canvas',
+  )
+  expect(matchesWorksFilter('canvas', 'canvas')).toBe(true)
+  expect(matchesWorksFilter('canvas', 'studio')).toBe(false)
 })
 
 it('瀑布卡的比例：实测像素优先，再看请求尺寸与 Gemini 比例，并夹在上下限内', () => {
@@ -85,7 +91,7 @@ it('没有服务端总数时按手上的时间线数', () => {
     rows,
     null,
   )
-  expect(counts).toEqual({ all: 3, studio: 1, agent: 1 })
+  expect(counts).toEqual({ all: 3, studio: 1, agent: 1, canvas: 0 })
 })
 
 it('页签数字以服务端总数为准：只翻了一页也显示全部，刚删的减掉、新出的加上', () => {
@@ -108,7 +114,27 @@ it('页签数字以服务端总数为准：只翻了一页也显示全部，刚�
     task('local-old', { bffRequestId: 'server-old', createdAt: 4000 }),
   ]
 
-  expect(worksCounts(tasks, rows, snapshot)).toEqual({ all: 1000, studio: 601, agent: 379 })
+  expect(worksCounts(tasks, rows, snapshot)).toEqual({
+    all: 1000,
+    studio: 601,
+    agent: 379,
+    canvas: 0,
+  })
+})
+
+it('画布入选单独计数，不并进快速生成', () => {
+  const rows = new Map<string, Row>([['c', canvas]])
+  const snapshot = {
+    totals: { all: 4, studio: 1, agent: 1, canvas: 2 },
+    known: new Map<string, WorkSource>([['c', 'canvas']]),
+    at: 5000,
+  }
+  expect(worksCounts([task('c', { remoteOnly: true })], rows, snapshot)).toEqual({
+    all: 4,
+    studio: 1,
+    agent: 1,
+    canvas: 2,
+  })
 })
 
 it('本机任务压住同一条平台记录时不重复计数', () => {
@@ -122,5 +148,6 @@ it('本机任务压住同一条平台记录时不重复计数', () => {
     all: 10,
     studio: 10,
     agent: 0,
+    canvas: 0,
   })
 })

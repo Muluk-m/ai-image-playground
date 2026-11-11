@@ -450,7 +450,7 @@ it('历史按有界页遍历，页面之间新提交不会造成重复或漏掉�
   const first = await (await request('/api/generations?limit=2', deviceB)).json()
   expect(first.items).toHaveLength(2)
   // 总数只在第一页给：资产页的计数照它显示，不用把整段历史拉下来数。
-  expect(first.totals).toEqual({ all: 5, studio: 5, agent: 0 })
+  expect(first.totals).toEqual({ all: 5, studio: 5, agent: 0, canvas: 0 })
   await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
     ...input,
     client_request_id: 'pagination-new-command',
@@ -1443,4 +1443,197 @@ it('实际尺寸取落库原件的真实像素：Gemini 不回报 size，OpenAI 
     expect(listed.actualParameters.size).toBe('16x9')
     expect(listed.cover).toMatchObject({ width: 16, height: 9 })
   }
+})
+
+it('promotes only the selected canvas output into works, and promoting it again is a no-op', async () => {
+  const bytes = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#83b645' } })
+    .png()
+    .toBuffer()
+  setUpstreamFetchForTesting((async () =>
+    Response.json({
+      data: [{ b64_json: bytes.toString('base64') }, { b64_json: bytes.toString('base64') }],
+    })) as NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>)
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+    ...input,
+    client_request_id: 'promote-selected',
+    prompt: 'selected canvas',
+    n: 2,
+    output_retention: 'candidate',
+  })
+  expect(submitted.status).toBe(200)
+  const { request_id: id } = await submitted.json()
+  await runTask(id)
+  const other = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+    ...input,
+    client_request_id: 'promote-other',
+    prompt: 'unselected canvas',
+    output_retention: 'candidate',
+  })
+  const { request_id: otherId } = await other.json()
+  await runTask(otherId)
+  const before = await db
+    .select({ status: schema.tasks.status, metering: schema.tasks.metering })
+    .from(schema.tasks)
+    .where(eq(schema.tasks.id, id))
+
+  expect(
+    (await request(`/api/generations/${id}/promote`, stranger, { outputIndex: 0 })).status,
+  ).toBe(404)
+  expect(await db.select().from(schema.generation_records)).toEqual([])
+
+  const promoted = await request(`/api/generations/${id}/promote`, deviceB, { outputIndex: 0 })
+  expect(promoted.status).toBe(200)
+  const detail = await promoted.json()
+  expect(detail.source).toEqual({ kind: 'canvas' })
+  expect(detail.outputs.map((output: { index: number }) => output.index)).toEqual([0])
+  const mediaId = detail.outputs[0].mediaId
+
+  const again = await request(`/api/generations/${id}/promote`, deviceB, { outputIndex: 0 })
+  expect(again.status).toBe(200)
+  const againBody = await again.json()
+  expect(againBody.outputs).toHaveLength(1)
+  expect(againBody.outputs[0].mediaId).toBe(mediaId)
+
+  const listed = await (await request('/api/generations', deviceB)).json()
+  expect(listed.items.map((item: { id: string }) => item.id)).toEqual([id])
+  expect(listed.items[0].source).toEqual({ kind: 'canvas' })
+  expect(listed.totals).toMatchObject({ all: 1, studio: 0, agent: 0, canvas: 1 })
+  expect((await request(`/api/generations/${otherId}`, deviceB)).status).toBe(404)
+
+  const second = await request(`/api/generations/${id}/promote`, deviceB, { outputIndex: 1 })
+  expect(second.status).toBe(200)
+  expect(
+    (await second.json()).outputs
+      .map((output: { index: number }) => output.index)
+      .sort((a: number, b: number) => a - b),
+  ).toEqual([0, 1])
+  const afterSecond = await (await request('/api/generations', deviceB)).json()
+  expect(afterSecond.totals).toMatchObject({ all: 1, canvas: 1 })
+  expect(afterSecond.items).toHaveLength(1)
+
+  const after = await db
+    .select({ status: schema.tasks.status, metering: schema.tasks.metering })
+    .from(schema.tasks)
+    .where(eq(schema.tasks.id, id))
+  expect(after).toEqual(before)
+})
+
+it('does not create a blank work when the canvas candidate has already expired', async () => {
+  const bytes = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#112233' } })
+    .png()
+    .toBuffer()
+  setUpstreamFetchForTesting((async () =>
+    Response.json({ data: [{ b64_json: bytes.toString('base64') }] })) as NonNullable<
+    Parameters<typeof setUpstreamFetchForTesting>[0]
+  >)
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+    ...input,
+    client_request_id: 'promote-expired',
+    prompt: 'expired canvas',
+    output_retention: 'candidate',
+  })
+  const { request_id: id } = await submitted.json()
+  await runTask(id)
+  await durable.deletePrefix(`${id}/`)
+  const response = await request(`/api/generations/${id}/promote`, deviceB, { outputIndex: 0 })
+  expect(response.status).toBe(409)
+  expect(await response.json()).toEqual({ error: 'candidate_expired' })
+  const listed = await (await request('/api/generations', deviceB)).json()
+  expect(listed.items).toEqual([])
+  expect(listed.totals.all).toBe(0)
+  expect(await db.select().from(schema.generation_records)).toEqual([])
+})
+
+it('does not archive a canvas candidate that is no longer completed', async () => {
+  const bytes = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#99aabb' } })
+    .png()
+    .toBuffer()
+  setUpstreamFetchForTesting((async () =>
+    Response.json({ data: [{ b64_json: bytes.toString('base64') }] })) as NonNullable<
+    Parameters<typeof setUpstreamFetchForTesting>[0]
+  >)
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+    ...input,
+    client_request_id: 'promote-cancelled',
+    prompt: 'cancelled canvas',
+    output_retention: 'candidate',
+  })
+  const { request_id: id } = await submitted.json()
+  await runTask(id)
+  await db.update(schema.tasks).set({ status: 'cancelled' }).where(eq(schema.tasks.id, id))
+  const response = await request(`/api/generations/${id}/promote`, deviceB, { outputIndex: 0 })
+  expect(response.status).toBe(409)
+  expect(await db.select().from(schema.generation_records)).toEqual([])
+  expect(await db.select().from(schema.media_objects)).toEqual([])
+})
+
+it('retries a canvas promote when object storage blips instead of recording a blank work', async () => {
+  const bytes = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#778899' } })
+    .png()
+    .toBuffer()
+  setUpstreamFetchForTesting((async () =>
+    Response.json({ data: [{ b64_json: bytes.toString('base64') }] })) as NonNullable<
+    Parameters<typeof setUpstreamFetchForTesting>[0]
+  >)
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+    ...input,
+    client_request_id: 'promote-storage-blip',
+    prompt: 'storage blip',
+    output_retention: 'candidate',
+  })
+  const { request_id: id } = await submitted.json()
+  await runTask(id)
+  const open = durable.open.bind(durable)
+  durable.open = async (key) => {
+    if (key.includes('/out/')) throw new Error('storage unavailable')
+    return open(key)
+  }
+  const failed = await request(`/api/generations/${id}/promote`, deviceB, { outputIndex: 0 })
+  expect(failed.status).toBe(500)
+  expect(await db.select().from(schema.generation_records)).toEqual([])
+  durable.open = open
+  const promoted = await request(`/api/generations/${id}/promote`, deviceB, { outputIndex: 0 })
+  expect(promoted.status).toBe(200)
+  expect((await promoted.json()).source).toEqual({ kind: 'canvas' })
+})
+
+it('does not retag studio or agent generations when promote is called', async () => {
+  const bytes = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#445566' } })
+    .png()
+    .toBuffer()
+  setUpstreamFetchForTesting((async () =>
+    Response.json({ data: [{ b64_json: bytes.toString('base64') }] })) as NonNullable<
+    Parameters<typeof setUpstreamFetchForTesting>[0]
+  >)
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+    ...input,
+    client_request_id: 'studio-keep',
+    prompt: 'studio stays',
+  })
+  const { request_id: id } = await submitted.json()
+  await runTask(id)
+  expect(
+    (await request(`/api/generations/${id}/promote`, deviceB, { outputIndex: 0 })).status,
+  ).toBe(404)
+  expect((await (await request(`/api/generations/${id}`, deviceB)).json()).source).toEqual({
+    kind: 'studio',
+  })
+
+  const agentId = '33333333-3333-4333-8333-333333333333'
+  await db.insert(schema.tasks).values({
+    id: agentId,
+    provider: 'openai-compat',
+    model: 'gpt-image-2',
+    status: 'completed',
+    user_id: 'owner',
+    submitted_at: Date.now(),
+    completed_at: Date.now(),
+    agent_conversation_id: 'conversation',
+    agent_turn_id: 'turn',
+    request_payload: { prompt: 'agent candidate', output_retention: 'candidate' },
+    result_payload: { data: [{ b64_json: bytes.toString('base64') }] },
+  })
+  expect(
+    (await request(`/api/generations/${agentId}/promote`, deviceB, { outputIndex: 0 })).status,
+  ).toBe(404)
 })

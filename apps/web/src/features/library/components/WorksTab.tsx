@@ -44,11 +44,12 @@ import type { TaskRecord } from '../../../types'
 import { columnsForWidth, MASONRY_GAP, MASONRY_GAP_COMPACT } from '../../inspiration/lib/masonry'
 import { openWorkProject } from '../lib/openWorkProject'
 
-const FILTERS: readonly WorksFilter[] = ['all', 'studio', 'agent']
+const FILTERS: readonly WorksFilter[] = ['all', 'studio', 'agent', 'canvas']
 const FILTER_LABEL = {
   all: 'works.all',
   studio: 'works.studio',
   agent: 'works.agent',
+  canvas: 'works.canvas',
 } as const satisfies Record<WorksFilter, string>
 const SKELETON_RATIOS = [1.33, 1, 1.5, 0.75, 1.25, 1, 1.4, 0.8, 1.2, 1.33, 0.9, 1.1]
 
@@ -71,7 +72,7 @@ function matchesSearch(task: TaskRecord, query: string): boolean {
 }
 
 /**
- * 「资产 → 作品」：快速生成与对话产出的所有图，一条按时间倒序的瀑布。
+ * 「资产 → 作品」：快速生成、对话产出和留在画布上的图，一条按时间倒序的瀑布。
  * 数据与创作页作品同源（本机任务 + 平台记录），平台记录按游标 50 条一页往后读，
  * 离底部 240px 就读下一页；卡片按窗口虚拟化，只挂视口附近的。
  */
@@ -266,6 +267,7 @@ function WorksGrid({ tasks, rowsById, hasMore, loading, onLoadMore }: GridProps)
               <WorkTile
                 key={task.id}
                 task={task}
+                source={workSource(task, rowsById)}
                 projectId={workProjectId(task, rowsById)}
                 selected={selected.has(task.id)}
                 onOpen={openCard}
@@ -291,13 +293,21 @@ function WorksGrid({ tasks, rowsById, hasMore, loading, onLoadMore }: GridProps)
 
 interface TileProps {
   task: TaskRecord
+  source: ReturnType<typeof workSource>
   projectId: string | null
   selected: boolean
   onOpen: (taskId: string, event: ReactMouseEvent) => void
   style: React.CSSProperties
 }
 
-const WorkTile = memo(function WorkTile({ task, projectId, selected, onOpen, style }: TileProps) {
+const WorkTile = memo(function WorkTile({
+  task,
+  source,
+  projectId,
+  selected,
+  onOpen,
+  style,
+}: TileProps) {
   const { t } = useTranslation('library')
   const { t: tTask } = useTranslation('task')
   const format = task.params.output_format
@@ -351,6 +361,11 @@ const WorkTile = memo(function WorkTile({ task, projectId, selected, onOpen, sty
             <Icon name="image" size="lg" />
           )}
         </div>
+      )}
+      {source === 'canvas' && (
+        <span className="absolute bottom-1 right-1 rounded-sm bg-black/60 px-1.5 py-0.5 text-label-sm text-white">
+          {t('works.canvas')}
+        </span>
       )}
       {format === 'gif' && (
         <span className="absolute bottom-1 left-1 rounded-sm bg-black/60 px-1.5 py-0.5 font-mono text-label-sm text-white">

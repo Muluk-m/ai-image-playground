@@ -7,6 +7,7 @@ import {
   listGenerations,
   readGeneration,
 } from '../lib/generations'
+import { promoteCanvasCandidate } from '../lib/promoteCanvasCandidate'
 import { resolveAuthUser } from '../lib/user-auth'
 
 export const generationRoutes = new Elysia()
@@ -42,6 +43,25 @@ export const generationRoutes = new Elysia()
       query: t.Object({
         limit: t.Optional(t.Numeric({ minimum: 1, maximum: 100, multipleOf: 1 })),
         cursor: t.Optional(t.String({ maxLength: 256 })),
+      }),
+    },
+  )
+  .post(
+    '/api/generations/:id/promote',
+    async ({ authUser, params, body, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      const result = await promoteCanvasCandidate(authUser.id, params.id, body.outputIndex ?? 0)
+      if (!result.ok) {
+        return result.error === 'candidate_expired'
+          ? status(409, { error: 'candidate_expired' })
+          : status(404, { error: 'generation_not_found' })
+      }
+      return result.detail
+    },
+    {
+      params: t.Object({ id: t.String({ format: 'uuid' }) }),
+      body: t.Object({
+        outputIndex: t.Optional(t.Integer({ minimum: 0, maximum: 1000 })),
       }),
     },
   )
