@@ -3,7 +3,7 @@ import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { useGptPremiumLocked } from '../../../lib/gptPremium'
-import { composerImageRate } from '../../../lib/imageCharge'
+import { composerImageRate, directAvailableForModel } from '../../../lib/imageCharge'
 import { getParamCapabilities } from '../../../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
@@ -56,12 +56,13 @@ export default function CanvasBatchBar({ editor }: { editor: CanvasEditor }) {
   const exportable = exportableElements(doc, selection)
   const batchModel = clientProfileToApiProfile(getActiveApiProfile(settings)).model
   const profile = getActiveApiProfile(settings)
-  const directAvailable = getParamCapabilities(profile, params.output_format).size
-  const premium = useGptPremiumLocked(batchModel, directAvailable)
+  const honorsSize = getParamCapabilities(profile, params.output_format).size
+  const quoteDirect = directAvailableForModel(batchModel)
+  const premium = useGptPremiumLocked(batchModel, honorsSize)
   const guard = usePrivateSubmissionGuard({
     model: batchModel,
     quantity: images.length,
-    unitMultiplier: composerImageRate(batchModel, params, premium.member, directAvailable),
+    unitMultiplier: composerImageRate(batchModel, params, premium.member, quoteDirect),
   })
 
   if (doc.tool !== 'select' || selection.length < 2 || doc.editingTextId) return null

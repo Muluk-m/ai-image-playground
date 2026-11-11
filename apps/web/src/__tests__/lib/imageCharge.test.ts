@@ -159,4 +159,20 @@ describe('画布报价与服务端实扣一致', () => {
   it('Image 2.6 4K remains membership-gated although 2K and 4K cost the same', () => {
     expect(preparedComposerNeedsMembership('gpt-image-2.6-flare', { size: '3840x2160' })).toBe(true)
   })
+
+  it('quotes Image 2.6 at the sub2api 1K medium rate when direct is unavailable', () => {
+    const high4k = { size: '3840x2160', quality: 'high' } as const
+    const medium1k = { size: '1024x1024', quality: 'medium' } as const
+    const gif = { output_format: 'gif', frame_count: 12, size: '768x768', quality: 'high' } as const
+    expect(composerImageRate('gpt-image-2.6-flare', high4k, true, false)).toBe(3.3)
+    expect(composerImageRate('gpt-image-2.6-flare', high4k, true, false) * 240).toBe(792)
+    expect(quotedGptMultiplier('gpt-image-2.6-flare', high4k, true, true, false)).toBe(3.3)
+    expect(quotedGptMultiplier('gpt-image-2.6-flare', high4k, false, true, false)).toBe(3.3)
+    expect(composerImageRate('gpt-image-2.6-flare', gif, true, false)).toBe(3.3)
+    expect(composerImageRate('gpt-image-2.6-flare', medium1k, true, false)).toBe(
+      composerImageRate('gpt-image-2.6-flare', medium1k, true, true),
+    )
+    expect(composerImageRate('gpt-image-2.6-flare', high4k, true, true)).toBeGreaterThan(3.3)
+    expect(composerImageRate('gpt-image-2.5-flare', high4k, true, true)).toBe(8)
+  })
 })
