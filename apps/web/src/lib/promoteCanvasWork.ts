@@ -104,11 +104,10 @@ async function attempt(
       if (typeof window !== 'undefined') window.dispatchEvent(new Event(canvasWorkPromotedEvent))
       return true
     }
-    // 401 留到下次打开再试。过期、不存在、参数不对是终态。带 retryable 的响应要再试。
+    // 401 留到下次打开再试。只有可重试响应和 5xx 再打；格式、超限、过期都是终态。
     if (response.status === 401) return false
     if (await retryableResponse(response)) throw new Error('promote_retry')
-    if (response.status === 409 || response.status === 404 || response.status === 400) return true
-    throw new Error('promote_retry')
+    return true
   } catch {
     if (!stillThisAccount() || tryIndex >= RETRY_DELAYS_MS.length) return !stillThisAccount()
     await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[tryIndex]))

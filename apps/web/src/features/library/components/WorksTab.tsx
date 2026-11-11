@@ -301,10 +301,15 @@ interface TileProps {
 }
 
 function WorkTileImage({ url, imageId }: { url: string; imageId: string }) {
+  return <WorkTileImageView key={url} url={url} imageId={imageId} />
+}
+
+function WorkTileImageView({ url, imageId }: { url: string; imageId: string }) {
+  const imageRef = useRef<HTMLImageElement>(null)
   const [loaded, setLoaded] = useState(false)
   useEffect(() => {
-    setLoaded(false)
-  }, [url])
+    if (imageRef.current?.complete) setLoaded(true)
+  }, [])
   return (
     <>
       {!loaded && (
@@ -315,6 +320,7 @@ function WorkTileImage({ url, imageId }: { url: string; imageId: string }) {
         />
       )}
       <img
+        ref={imageRef}
         src={url}
         data-image-id={imageId}
         className={cn('saveable-image size-full object-cover', !loaded && 'opacity-0')}
