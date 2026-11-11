@@ -48,6 +48,14 @@ it('retries a retryable promote after one second and then records the work', asy
   expect(fetchMock).toHaveBeenCalledTimes(2)
 })
 
+it('does not retry a 503 that the server did not mark retryable', async () => {
+  fetchMock.mockResolvedValue(json(503, { error: 'promote_unavailable' }))
+  promoteCanvasQueueOutput('55555555-5555-4555-8555-555555555555', 0)
+  await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+  await vi.advanceTimersByTimeAsync(12_000)
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+})
+
 it('does not retry an image the server rejected', async () => {
   fetchMock.mockResolvedValue(json(422, { error: 'media_invalid_image' }))
   promoteCanvasQueueOutput('44444444-4444-4444-8444-444444444444', 0)
