@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeEach, expect, it, spyOn } from 'bun:test'
+import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { eq, sql } from 'drizzle-orm'
@@ -1589,12 +1590,132 @@ it('retries a canvas promote when object storage blips instead of recording a bl
     return open(key)
   }
   const failed = await request(`/api/generations/${id}/promote`, deviceB, { outputIndex: 0 })
-  expect(failed.status).toBe(500)
+  expect(failed.status).toBe(503)
+  expect(await failed.json()).toMatchObject({ retryable: true })
   expect(await db.select().from(schema.generation_records)).toEqual([])
   durable.open = open
   const promoted = await request(`/api/generations/${id}/promote`, deviceB, { outputIndex: 0 })
   expect(promoted.status).toBe(200)
   expect((await promoted.json()).source).toEqual({ kind: 'canvas' })
+})
+
+it('confirms a canvas upload of the same bytes instead of failing the promote', async () => {
+  const bytes = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#123456' } })
+    .png()
+    .toBuffer()
+  setUpstreamFetchForTesting((async () =>
+    Response.json({ data: [{ b64_json: bytes.toString('base64') }] })) as NonNullable<
+    Parameters<typeof setUpstreamFetchForTesting>[0]
+  >)
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+    ...input,
+    client_request_id: 'promote-shared-upload',
+    prompt: 'shared upload',
+    output_retention: 'candidate',
+  })
+  const { request_id: id } = await submitted.json()
+  await runTask(id)
+  const reserved = await request('/api/media/uploads', deviceB, {
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    bytes: bytes.length,
+    contentType: 'image/png',
+  })
+  expect(reserved.status).toBe(200)
+  const reservation = (await reserved.json()) as { id: string; status: string }
+  expect(reservation.status).toBe('pending')
+  const promoted = await request(`/api/generations/${id}/promote`, deviceB, { outputIndex: 0 })
+  expect(promoted.status).toBe(200)
+  const detail = await promoted.json()
+  expect(detail.source).toEqual({ kind: 'canvas' })
+  expect(detail.outputs[0].mediaId).toBe(reservation.id)
+  const [row] = await db
+    .select()
+    .from(schema.media_objects)
+    .where(eq(schema.media_objects.id, reservation.id))
+  expect(row?.status).toBe('ready')
+})
+
+it('keeps a shared canvas upload when promote cannot read the candidate', async () => {
+  const bytes = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#654321' } })
+    .png()
+    .toBuffer()
+  setUpstreamFetchForTesting((async () =>
+    Response.json({ data: [{ b64_json: bytes.toString('base64') }] })) as NonNullable<
+    Parameters<typeof setUpstreamFetchForTesting>[0]
+  >)
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+    ...input,
+    client_request_id: 'promote-shared-blip',
+    prompt: 'shared blip',
+    output_retention: 'candidate',
+  })
+  const { request_id: id } = await submitted.json()
+  await runTask(id)
+  const reserved = await request('/api/media/uploads', deviceB, {
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    bytes: bytes.length,
+    contentType: 'image/png',
+  })
+  const reservation = (await reserved.json()) as { id: string }
+  const open = durable.open.bind(durable)
+  durable.open = async (key) => {
+    if (key.includes('/out/')) throw new Error('storage unavailable')
+    return open(key)
+  }
+  const failed = await request(`/api/generations/${id}/promote`, deviceB, { outputIndex: 0 })
+  expect(failed.status).toBe(503)
+  expect(await failed.json()).toMatchObject({ retryable: true })
+  expect(await db.select().from(schema.generation_records)).toEqual([])
+  const [row] = await db
+    .select()
+    .from(schema.media_objects)
+    .where(eq(schema.media_objects.id, reservation.id))
+  expect(row?.status).toBe('pending')
+  durable.open = open
+})
+
+it('maps an in-flight attachment reservation to a retryable promote response', async () => {
+  const bytes = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#abcdef' } })
+    .png()
+    .toBuffer()
+  setUpstreamFetchForTesting((async () =>
+    Response.json({ data: [{ b64_json: bytes.toString('base64') }] })) as NonNullable<
+    Parameters<typeof setUpstreamFetchForTesting>[0]
+  >)
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+    ...input,
+    client_request_id: 'promote-attachment-pending',
+    prompt: 'attachment pending',
+    output_retention: 'candidate',
+  })
+  const { request_id: id } = await submitted.json()
+  await runTask(id)
+  const now = Date.now()
+  const mediaId = 'attachment-pending-promote'
+  await db.insert(schema.media_objects).values({
+    id: mediaId,
+    user_id: 'owner',
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    bytes: bytes.length,
+    content_type: 'image/png',
+    status: 'pending',
+    attachment_managed: true,
+    attachment_lease_until: now + 60_000,
+    reserved_bytes: bytes.length,
+    staging_key: `staging/owner/${mediaId}`,
+    expires_at: now + 60 * 60 * 1000,
+    created_at: now,
+    updated_at: now,
+  })
+  const failed = await request(`/api/generations/${id}/promote`, deviceB, { outputIndex: 0 })
+  expect(failed.status).toBe(503)
+  expect(await failed.json()).toEqual({ error: 'media_pending', retryable: true })
+  expect(await db.select().from(schema.generation_records)).toEqual([])
+  const [row] = await db
+    .select()
+    .from(schema.media_objects)
+    .where(eq(schema.media_objects.id, mediaId))
+  expect(row).toMatchObject({ status: 'pending', attachment_managed: true })
 })
 
 it('does not retag studio or agent generations when promote is called', async () => {

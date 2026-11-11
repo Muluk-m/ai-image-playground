@@ -7,8 +7,38 @@ import {
   listGenerations,
   readGeneration,
 } from '../lib/generations'
+import { ObjectStorageError } from '../lib/imageArchive'
+import { log } from '../lib/logger'
+import { MediaError } from '../lib/projectMedia'
 import { promoteCanvasCandidate } from '../lib/promoteCanvasCandidate'
 import { resolveAuthUser } from '../lib/user-auth'
+
+function promoteFailure(error: unknown): {
+  status: 404 | 409 | 413 | 422 | 503
+  body: { error: string; retryable?: true }
+} {
+  if (error instanceof MediaError) {
+    if (
+      error.status === 503 ||
+      error.message === 'media_pending' ||
+      error.message === 'media_deleting'
+    ) {
+      return { status: 503, body: { error: error.message, retryable: true } }
+    }
+    return { status: error.status, body: { error: error.message } }
+  }
+  const retryable =
+    error instanceof ObjectStorageError ||
+    (error instanceof Error && (error as { retryable?: unknown }).retryable === true)
+  log.warn(
+    { event: 'canvas_promote.unavailable', err: String(error) },
+    'canvas promote will be retried',
+  )
+  return {
+    status: 503,
+    body: { error: retryable ? 'storage_unavailable' : 'promote_unavailable', retryable: true },
+  }
+}
 
 export const generationRoutes = new Elysia()
   .use(resolveAuthUser)
@@ -50,13 +80,18 @@ export const generationRoutes = new Elysia()
     '/api/generations/:id/promote',
     async ({ authUser, params, body, status }) => {
       if (!authUser) return status(401, { error: 'unauthorized' })
-      const result = await promoteCanvasCandidate(authUser.id, params.id, body.outputIndex ?? 0)
-      if (!result.ok) {
-        return result.error === 'candidate_expired'
-          ? status(409, { error: 'candidate_expired' })
-          : status(404, { error: 'generation_not_found' })
+      try {
+        const result = await promoteCanvasCandidate(authUser.id, params.id, body.outputIndex ?? 0)
+        if (!result.ok) {
+          return result.error === 'candidate_expired'
+            ? status(409, { error: 'candidate_expired' })
+            : status(404, { error: 'generation_not_found' })
+        }
+        return result.detail
+      } catch (error) {
+        const failure = promoteFailure(error)
+        return status(failure.status, failure.body)
       }
-      return result.detail
     },
     {
       params: t.Object({ id: t.String({ format: 'uuid' }) }),
