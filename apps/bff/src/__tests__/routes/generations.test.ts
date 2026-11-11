@@ -1674,6 +1674,34 @@ it('keeps a shared canvas upload when promote cannot read the candidate', async 
   durable.open = open
 })
 
+it('does not retry a permanent object-store rejection', async () => {
+  const bytes = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#fedcba' } })
+    .png()
+    .toBuffer()
+  setUpstreamFetchForTesting((async () =>
+    Response.json({ data: [{ b64_json: bytes.toString('base64') }] })) as NonNullable<
+    Parameters<typeof setUpstreamFetchForTesting>[0]
+  >)
+  const submitted = await request('/v1/queue/openai-compat/gpt-image-2/submit', deviceA, {
+    ...input,
+    client_request_id: 'promote-object-404',
+    prompt: 'missing object',
+    output_retention: 'candidate',
+  })
+  const { request_id: id } = await submitted.json()
+  await runTask(id)
+  const open = durable.open.bind(durable)
+  durable.open = async (key) => {
+    if (key.includes('/out/')) throw new Error('Object read failed (404)')
+    return open(key)
+  }
+  const failed = await request(`/api/generations/${id}/promote`, deviceB, { outputIndex: 0 })
+  expect(failed.status).toBe(503)
+  expect(await failed.json()).toEqual({ error: 'promote_unavailable' })
+  expect(await db.select().from(schema.generation_records)).toEqual([])
+  durable.open = open
+})
+
 it('maps an in-flight attachment reservation to a retryable promote response', async () => {
   const bytes = await sharp({ create: { width: 4, height: 4, channels: 3, background: '#abcdef' } })
     .png()
