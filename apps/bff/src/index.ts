@@ -144,9 +144,10 @@ const stopMaintenance = startPeriodicSteps(
       ? [
           {
             event: 'periodic.purge_attachments_failed',
-            run: async () => {
+            run: async (signal: AbortSignal) => {
               await purgeExpiredAttachmentMedia()
-              await purgeDeletingUnreferencedMedia()
+              if (signal.aborted) return
+              await purgeDeletingUnreferencedMedia(signal)
             },
           },
           {

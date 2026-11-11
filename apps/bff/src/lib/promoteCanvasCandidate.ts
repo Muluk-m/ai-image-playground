@@ -1,8 +1,7 @@
 import type { GenerationDetail, PersistedSubmitRequest } from '@image-playground/shared'
-import { and, eq, isNull, notExists, sql } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { publishGenerations } from '../db/generation-events'
-import { durableMediaStore } from './durableMediaStore'
 import {
   archiveCandidateSelection,
   CandidateExpiredError,
@@ -10,7 +9,7 @@ import {
 } from './generationMedia'
 import { readGeneration } from './generations'
 import { log } from './logger'
-import { lockMediaOwner } from './projectMedia'
+import { finishDeletingMedia } from './projectMedia'
 import { asQueueProvider } from './queueProvider'
 
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0]
@@ -188,64 +187,15 @@ async function markCanvas(userId: string, taskId: string): Promise<void> {
   })
 }
 
-/**
- * 只清理这次新建、最后没有作品引用的媒体。
- * 先标成 deleting 再删字节，字节没删掉就留着行，周期任务还能按 key 再试。
- */
+/** 只清理这次 INSERT 出来、最后没有作品引用的媒体。字节删除发生在持有该用户媒体锁的事务里。 */
 async function releaseUnreferencedMedia(userId: string, mediaIds: readonly string[]) {
-  const ids = [...new Set(mediaIds)]
-  for (const id of ids) {
-    const claimed = await db
-      .transaction(async (tx) => {
-        await lockMediaOwner(tx, userId)
-        const [row] = await tx
-          .update(schema.media_objects)
-          .set({ status: 'deleting', updated_at: Date.now() })
-          .where(
-            and(
-              eq(schema.media_objects.id, id),
-              eq(schema.media_objects.user_id, userId),
-              notExists(
-                tx
-                  .select({ id: schema.media_references.media_id })
-                  .from(schema.media_references)
-                  .where(eq(schema.media_references.media_id, schema.media_objects.id)),
-              ),
-            ),
-          )
-          .returning({
-            id: schema.media_objects.id,
-            stagingKey: schema.media_objects.staging_key,
-            objectKey: schema.media_objects.object_key,
-          })
-        return row ?? null
-      })
-      .catch((error: unknown) => {
-        log.warn(
-          { event: 'canvas_promote.media_release_failed', userId, mediaId: id, err: String(error) },
-          'unreferenced promote media could not be marked deleting',
-        )
-        return null
-      })
-    if (!claimed) continue
+  for (const id of [...new Set(mediaIds)]) {
     try {
-      const store = durableMediaStore()
-      await store.deletePrefix(`objects/${userId}/${claimed.id}/`)
-      await store.deletePrefix(claimed.stagingKey)
-      if (claimed.objectKey) await store.deletePrefix(claimed.objectKey)
-      await db
-        .delete(schema.media_objects)
-        .where(
-          and(eq(schema.media_objects.id, claimed.id), eq(schema.media_objects.status, 'deleting')),
-        )
+      await finishDeletingMedia(userId, id)
     } catch (error) {
       log.warn(
-        {
-          event: 'canvas_promote.media_bytes_release_failed',
-          mediaId: claimed.id,
-          err: String(error),
-        },
-        'deleting promote media kept so a later sweep can remove its bytes',
+        { event: 'canvas_promote.media_release_failed', userId, mediaId: id, err: String(error) },
+        'unreferenced promote media kept for the deleting sweep',
       )
     }
   }
