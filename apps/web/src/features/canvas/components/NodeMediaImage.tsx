@@ -14,15 +14,17 @@ export function useNodeMedia(source: string | undefined): NodeMediaState {
     if (!source || !mediaIdentity(source)) return
     let alive = true
     let attempts = 0
+    let generation = 0
     let timer: ReturnType<typeof setTimeout> | undefined
     const load = () => {
       clearTimeout(timer)
+      const ticket = ++generation
       void resolveMediaSource(source, 'preview').then(
         (value) => {
-          if (alive) setResolved({ source, value })
+          if (alive && ticket === generation) setResolved({ source, value })
         },
         () => {
-          if (!alive) return
+          if (!alive || ticket !== generation) return
           if (attempts++ < 3) timer = setTimeout(load, 1000 * 2 ** (attempts - 1))
           else setFailed(source)
         },
@@ -36,6 +38,7 @@ export function useNodeMedia(source: string | undefined): NodeMediaState {
     load()
     return () => {
       alive = false
+      generation += 1
       clearTimeout(timer)
       window.removeEventListener('online', online)
     }
@@ -77,10 +80,13 @@ export function NodePicture({
   uploadingLabel: string
 }) {
   const media = useNodeMedia(source)
-  const held = useRef<{ identity: string; url: string; mediaId?: string } | undefined>(undefined)
   const incoming = mediaIdentity(source)
-  if (media.status === 'ready' && identity)
-    held.current = { identity, url: media.url, mediaId: incoming }
+  const held = useRef<{ identity: string; url: string; mediaId?: string } | undefined>(undefined)
+  // 只记已经提交的那一帧。渲染阶段写入会把被丢掉的并发渲染也记成上一帧。
+  useEffect(() => {
+    if (media.status === 'ready' && identity)
+      held.current = { identity, url: media.url, mediaId: incoming }
+  }, [media, identity, incoming])
   // 只在存储地址变化、像素还是这一张时沿用上一帧。另一张云媒体即使身份没改，也不再画旧图。
   const carried =
     media.status === 'loading' &&
