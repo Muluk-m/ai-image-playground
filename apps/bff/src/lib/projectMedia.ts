@@ -288,8 +288,8 @@ async function reserveOwnedMedia(
           })
           .returning()
     // 签名在事务内：组装返回值失败时这次预留随事务回滚，不白占额度。
-    // 全新 INSERT，或接手一条已经过期的普通预留，才算本次新建。复用 ready 不算。
-    note(!existing || Boolean(created))
+    // 全新 INSERT，以及接手已经过期的普通预留，才算这次新建。还在有效期内的预留是画布在传，不能清。
+    note(!existing || existing.expires_at <= Date.now())
     return { result: uploadResult(row!) }
   })
   // 已发布的旧记录要核对朝向：存储读放在事务外，不占着这位用户的锁去等对象存储。
@@ -677,8 +677,9 @@ export async function storeMedia(userId: string, bytes: Uint8Array, contentType:
 }
 
 /**
- * 画布提升专用。`createdIds` 只收下这次 INSERT 出来的行：
- * 同哈希的 ready，以及还没到期的 pending（包括附件预留），都原样复用或拒绝，不交给回滚清理。
+ * 画布提升专用。`createdIds` 只收下这次 INSERT 出来的行。
+ * 同哈希的 ready 直接复用。画布还在传的普通预留用手里的字节确认，但不记进清理名单。
+ * 附件预留仍拒绝，交给调用方重试。
  */
 export async function storeGeneratedImage(
   userId: string,
@@ -699,10 +700,8 @@ export async function storeGeneratedImage(
     withOrientedSize,
     created,
   )
-  if (!created.inserted) {
-    if (reserved.status === 'ready') return reserved
-    throw new MediaError(409, 'media_pending')
-  }
+  if (reserved.status === 'ready') return reserved
+  if (!created.inserted) return confirmMedia(userId, reserved.id, bytes)
   createdIds.push(reserved.id)
   return confirmMedia(userId, reserved.id, bytes)
 }

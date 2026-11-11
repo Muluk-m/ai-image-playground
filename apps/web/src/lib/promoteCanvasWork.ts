@@ -47,7 +47,9 @@ export function promoteChosenCanvasResult(result: CanvasResult | undefined): voi
   promoteCanvasQueueOutput(result.source.taskId, result.source.outputIndex)
 }
 
-/** 把队列里这一张收进作品。过期、不是本人的任务都不重试；网络失败会再试两次。 */
+const RETRY_DELAYS_MS = [1000, 3000, 8000]
+
+/** 把队列里这一张收进作品。过期、不是本人的任务都不重试；可重试的失败按 1s、3s、8s 再试。 */
 export function promoteCanvasQueueOutput(taskId: string, outputIndex: number): void {
   if (!TASK_ID.test(taskId) || !Number.isInteger(outputIndex) || outputIndex < 0) return
   const key = `${taskId}:${outputIndex}`
@@ -93,8 +95,6 @@ async function attempt(
       },
     )
     if (!stillThisAccount()) return true
-    // 过期、任务不存在或参数不对都不会因为再试而成功。401 留到下次打开再试。
-    if (response.status === 409 || response.status === 404 || response.status === 400) return true
     if (response.ok) {
       const detail = (await response.json()) as GenerationDetail
       if (!stillThisAccount()) return true
@@ -104,11 +104,25 @@ async function attempt(
       if (typeof window !== 'undefined') window.dispatchEvent(new Event(canvasWorkPromotedEvent))
       return true
     }
+    // 401 留到下次打开再试。只有可重试响应和 5xx 再打；格式、超限、过期都是终态。
     if (response.status === 401) return false
-    throw new Error('promote_failed')
+    if (await retryableResponse(response)) throw new Error('promote_retry')
+    return true
   } catch {
-    if (!stillThisAccount() || tryIndex >= 2) return !stillThisAccount()
-    await new Promise((resolve) => setTimeout(resolve, 1000 * (tryIndex + 1)))
+    if (!stillThisAccount() || tryIndex >= RETRY_DELAYS_MS.length) return !stillThisAccount()
+    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[tryIndex]))
     return attempt(taskId, outputIndex, tryIndex + 1, stillThisAccount)
+  }
+}
+
+async function retryableResponse(response: Response): Promise<boolean> {
+  try {
+    const body = (await response.clone().json()) as { retryable?: unknown }
+    if (body?.retryable === true) return true
+    if (body?.retryable === false) return false
+    return false
+  } catch {
+    // 网关或断流没有 JSON。5xx 再试，其余状态没有可重试标记。
+    return response.status >= 500
   }
 }
