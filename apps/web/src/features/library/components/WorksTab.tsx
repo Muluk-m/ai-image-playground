@@ -300,6 +300,35 @@ interface TileProps {
   style: React.CSSProperties
 }
 
+function WorkTileImage({ url, imageId }: { url: string; imageId: string }) {
+  const [loaded, setLoaded] = useState(false)
+  useEffect(() => {
+    setLoaded(false)
+  }, [url])
+  return (
+    <>
+      {!loaded && (
+        <div
+          data-testid="work-tile-skeleton"
+          className="absolute inset-0 animate-pulse bg-muted motion-reduce:animate-none"
+          aria-hidden="true"
+        />
+      )}
+      <img
+        src={url}
+        data-image-id={imageId}
+        className={cn('saveable-image size-full object-cover', !loaded && 'opacity-0')}
+        loading="lazy"
+        decoding="async"
+        draggable={false}
+        alt=""
+        onLoad={() => setLoaded(true)}
+        onError={() => setLoaded(true)}
+      />
+    </>
+  )
+}
+
 const WorkTile = memo(function WorkTile({
   task,
   source,
@@ -338,15 +367,7 @@ const WorkTile = memo(function WorkTile({
       style={style}
     >
       {preview ? (
-        <img
-          src={preview.url}
-          data-image-id={task.outputImages[0]}
-          className="saveable-image size-full object-cover"
-          loading="lazy"
-          decoding="async"
-          draggable={false}
-          alt=""
-        />
+        <WorkTileImage url={preview.url} imageId={task.outputImages[0] ?? ''} />
       ) : (
         <div className="flex size-full items-center justify-center text-muted-foreground">
           {task.status === 'running' ? (
