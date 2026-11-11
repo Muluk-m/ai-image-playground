@@ -46,7 +46,7 @@ import {
   useStoreApi,
 } from '@xyflow/react'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
-import { useNodeMedia } from './NodeMediaImage'
+import { NodePicture, useNodeMedia } from './NodeMediaImage'
 import '@xyflow/react/dist/style.css'
 import { nodeCardSize } from '@image-playground/shared'
 import {
@@ -468,24 +468,16 @@ function Picture({
   const { t } = useTranslation('canvas')
   const uploadingElsewhere = useUploadingElsewhere(upload, nodeId)
   const files = useContext(FilesContext)
-  const source = useNodeMedia(fileId ? files[fileId] : undefined)
-  if (!source)
-    return (
-      <div className="studio-node-missing text-sm">
-        {/* 别的设备还在上传的图片：文档里先到的只有它的本机 fileId，原图要等那边传完。 */}
-        {fileId && uploadingElsewhere && !files[fileId]
-          ? t('nodes.mediaUploading')
-          : t('nodes.mediaMissing')}
-      </div>
-    )
+  const record = fileId ? files[fileId] : undefined
   return (
-    <img
-      src={source}
-      alt=""
-      draggable={false}
-      className="studio-node-media"
-      // 旧画布绕左上角旋转，节点框按未旋转的尺寸摆。
-      style={rotation ? { transform: `rotate(${rotation}deg)`, transformOrigin: '0 0' } : undefined}
+    <NodePicture
+      source={record}
+      identity={upload.meta?.contentIdentity ?? fileId}
+      // 别的设备还在上传的图片：文档里先到的只有它的本机 fileId，原图要等那边传完。
+      uploading={Boolean(fileId && uploadingElsewhere && !record)}
+      rotation={rotation}
+      missingLabel={t('nodes.mediaMissing')}
+      uploadingLabel={t('nodes.mediaUploading')}
     />
   )
 }
@@ -577,9 +569,10 @@ const VideoNode = memo(function VideoNode({ data: { node } }: NodeProps<FlowNode
   const files = useContext(FilesContext)
   const [playing, setPlaying] = useState(false)
   const playheads = useContext(NodeVideoPlayheadContext)
-  const poster = useNodeMedia(
+  const posterMedia = useNodeMedia(
     !node || !('fileId' in node.data) || !node.data.fileId ? undefined : files[node.data.fileId],
   )
+  const poster = posterMedia.status === 'ready' ? posterMedia.url : undefined
   if (!node || (node.type !== 'video' && node.type !== 'image')) return null
   const { fileId, rotation, pending } = node.data
   const video = node.type === 'video' ? node.data.video : undefined
