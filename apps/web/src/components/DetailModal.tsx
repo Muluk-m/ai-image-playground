@@ -494,6 +494,14 @@ export default function DetailModal() {
                 )}
               </>
             )}
+            {task.status === 'done' && outputLen === 0 && (
+              <div
+                data-empty-output=""
+                className="flex items-center justify-center text-muted-foreground"
+              >
+                <Icon name="image" size="lg" />
+              </div>
+            )}
             {task.status === 'done' && outputLen > 0 && !outputDisplaySrc && (
               <div className="flex flex-col items-center gap-2 text-muted-foreground">
                 <Icon name="loading" size="lg" className="animate-spin text-primary" />
