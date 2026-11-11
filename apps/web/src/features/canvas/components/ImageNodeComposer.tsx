@@ -15,6 +15,7 @@ import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { useGptPremiumLocked } from '../../../lib/gptPremium'
 import { quotedGptMultiplier } from '../../../lib/gptQuote'
+import { directAvailableForModel } from '../../../lib/imageCharge'
 import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
 import { getParamCapabilities } from '../../../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
@@ -77,8 +78,9 @@ export default function ImageNodeComposer({
   const params = useStore((state) => state.params)
   const profile = getActiveApiProfile(settings)
   const view = clientProfileToApiProfile(profile)
-  const directAvailable = getParamCapabilities(profile, params.output_format).size
-  const premium = useGptPremiumLocked(view.model, directAvailable)
+  const honorsSize = getParamCapabilities(profile, params.output_format).size
+  const quoteDirect = directAvailableForModel(view.model)
+  const premium = useGptPremiumLocked(view.model, honorsSize)
   const guard = usePrivateSubmissionGuard({
     model: view.model,
     quantity: preset ? 1 : Math.max(1, params.n),
@@ -87,7 +89,7 @@ export default function ImageNodeComposer({
       params,
       premium.highQuality,
       premium.member,
-      directAvailable,
+      quoteDirect,
     ),
   })
   const activeLook = useActiveLook((state) => (templates ? state.look : null))
