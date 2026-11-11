@@ -21,6 +21,7 @@ import { isVideoModeAvailable, videoModelOptions } from '../../../lib/channels/v
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
 import { useGptPremiumLocked } from '../../../lib/gptPremium'
 import { quotedGptMultiplier } from '../../../lib/gptQuote'
+import { directAvailableForModel } from '../../../lib/imageCharge'
 import { API_MAX_IMAGES, MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
 import { getParamCapabilities } from '../../../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
@@ -147,8 +148,9 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
 
   const activeProfile = getActiveApiProfile(settings)
   const imageView = clientProfileToApiProfile(activeProfile)
-  const directAvailable = getParamCapabilities(activeProfile, params.output_format).size
-  const imagePremium = useGptPremiumLocked(imageView.model, directAvailable)
+  const honorsSize = getParamCapabilities(activeProfile, params.output_format).size
+  const quoteDirect = directAvailableForModel(imageView.model)
+  const imagePremium = useGptPremiumLocked(imageView.model, honorsSize)
   const video = mode === 'video'
   const submissionInput = video
     ? {
@@ -164,7 +166,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
           params,
           imagePremium.highQuality,
           imagePremium.member,
-          directAvailable,
+          quoteDirect,
         ),
       }
   const submissionGuard = usePrivateSubmissionGuard(submissionInput)

@@ -432,6 +432,60 @@ describe('device authorization', () => {
     await db.update(schema.device_authorizations).set({ expires_at: Date.now() - 1 })
     expect((await pollToken(device.device_code)).json).toEqual({ error: 'expired_token' })
   })
+
+  it('does not consume a pending, denied, expired or already-used device code', async () => {
+    const pending = await startDevice()
+    expect((await pollToken(pending.device_code)).json).toEqual({ error: 'authorization_pending' })
+    const [pendingRow] = await db
+      .select()
+      .from(schema.device_authorizations)
+      .where(eq(schema.device_authorizations.device_code_hash, hashCliSecret(pending.device_code)))
+    expect(pendingRow!.status).toBe('pending')
+    expect(await db.select().from(schema.cli_connections)).toHaveLength(0)
+
+    const denier = await createUser('device-consume-denier')
+    const denied = await startDevice()
+    await call('POST', '/api/cli/device', {
+      body: { user_code: denied.user_code, decision: 'deny' },
+      headers: { cookie: denier.cookie },
+    })
+    expect((await pollToken(denied.device_code)).json).toEqual({ error: 'access_denied' })
+    const [deniedRow] = await db
+      .select()
+      .from(schema.device_authorizations)
+      .where(eq(schema.device_authorizations.device_code_hash, hashCliSecret(denied.device_code)))
+    expect(deniedRow!.status).toBe('denied')
+    expect(await db.select().from(schema.cli_connections)).toHaveLength(0)
+
+    const expired = await startDevice()
+    await db
+      .update(schema.device_authorizations)
+      .set({ expires_at: Date.now() - 1 })
+      .where(eq(schema.device_authorizations.device_code_hash, hashCliSecret(expired.device_code)))
+    expect((await pollToken(expired.device_code)).json).toEqual({ error: 'expired_token' })
+    const [expiredRow] = await db
+      .select()
+      .from(schema.device_authorizations)
+      .where(eq(schema.device_authorizations.device_code_hash, hashCliSecret(expired.device_code)))
+    expect(expiredRow!.status).toBe('pending')
+    expect(await db.select().from(schema.cli_connections)).toHaveLength(0)
+
+    const owner = await createUser('device-consume-owner')
+    const used = await startDevice()
+    await call('POST', '/api/cli/device', {
+      body: { user_code: used.user_code, decision: 'approve' },
+      headers: { cookie: owner.cookie },
+    })
+    const issued = await pollToken(used.device_code)
+    expect(issued.status).toBe(200)
+    expect((await pollToken(used.device_code)).json).toEqual({ error: 'invalid_grant' })
+    const [usedRow] = await db
+      .select()
+      .from(schema.device_authorizations)
+      .where(eq(schema.device_authorizations.device_code_hash, hashCliSecret(used.device_code)))
+    expect(usedRow!.status).toBe('consumed')
+    expect(await db.select().from(schema.cli_connections)).toHaveLength(1)
+  })
 })
 
 function pkcePair() {

@@ -706,6 +706,7 @@ describe('shipped channels.json', () => {
         'gpt-image-2.6-sunburst',
       ])
       expect(openai?.models.every((model) => model.unavailable !== true)).toBe(true)
+      expect(openai?.models.every((model) => model.degraded === true)).toBe(true)
       expect(
         openai?.models.every(
           (model) => model.image?.tiers.map((tier) => tier.id).join() === '1K,2K,4K',
@@ -746,11 +747,31 @@ describe('shipped channels.json', () => {
       process.env.GPT_DIRECT_ENABLED = 'false'
       initChannels()
       expect(tiersOf()).toEqual(['1K', '2K', '4K'])
+      expect(
+        getDiscoveredChannels()
+          .find((channel) => channel.id === 'openai-images')
+          ?.models.find((model) => model.id === 'gpt-image-2.6-flare')?.degraded,
+      ).toBe(true)
+
+      process.env.GPT_DIRECT_ENABLED = 'true'
+      noteDirectSizeDeliverable(true)
+      initChannels()
+      expect(tiersOf()).toEqual(['1K', '2K', '4K'])
+      expect(
+        getDiscoveredChannels()
+          .find((channel) => channel.id === 'openai-images')
+          ?.models.find((model) => model.id === 'gpt-image-2.6-flare')?.degraded,
+      ).toBeUndefined()
 
       process.env.GPT_DIRECT_ENABLED = 'true'
       noteDirectSizeDeliverable(false)
       initChannels()
       expect(tiersOf()).toEqual(['1K', '2K', '4K'])
+      expect(
+        getDiscoveredChannels()
+          .find((channel) => channel.id === 'openai-images')
+          ?.models.find((model) => model.id === 'gpt-image-2.6-flare')?.degraded,
+      ).toBe(true)
     } finally {
       noteDirectSizeDeliverable(true)
       if (saved.enabled === undefined) delete process.env.GPT_IMAGE_26_ENABLED

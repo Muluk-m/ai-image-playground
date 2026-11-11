@@ -168,6 +168,7 @@ origin 精确选择映射中的 API；未匹配时沿用默认地址，以保留
 
 不确定该用哪个 skill 就 `/ask-matt`。简单 bug fix 直接动手；难查的 bug 走 `/diagnosing-bugs`；
 大到一个 session 装不下、方向还在雾里的走 `/wayfinder`。`docs/ROADMAP.md` 里的每一项动工都从第 1 步开始。
+这些 slash command 来自开发者本机的 ask-matt 技能包，仓库里没有对应文件；环境里没有这些命令时，不要假装跑过，按本文件其余条款继续，或把缺口写进交付说明。
 
 ## Agent skills
 
@@ -186,5 +187,13 @@ Product directions, dependencies and open decisions live in `docs/ROADMAP.md`; t
 ### Domain docs
 
 Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
+
+### 状态机
+
+生命周期用 [`packages/shared/src/state-machine.ts`](./packages/shared/src/state-machine.ts) 的 `defineMachine`，一张转移表是状态、事件和下一状态的唯一来源。已落地的表、示意图和还没接到写入点的清单见 [docs/state-machines/](docs/state-machines/README.md)。新生命周期先补表和测试再改写入；`task-transitions.ts` 里和积分结算写在一起的边不要顺便改。
+
+### 仓库里有什么、没有什么
+
+编码约定就是根 `AGENTS.md`、各 app 的 `AGENTS.md`、`REVIEW.md`、`.githooks/` 和 `.github/workflows/ai-review.yml`（`/review`）以及 Codex 按 `REVIEW.md` 做的 `@codex review`。没有提交 `.cursor/`、`.claude/`、`.agents/` 或 MCP 配置。根目录和各 app 的 `CLAUDE.md` 只有 `@AGENTS.md`，避免两套约定分叉。
 
 DO NOT send optional commentary
