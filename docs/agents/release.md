@@ -99,7 +99,7 @@ curl -fsS https://test.muvloom.online/version.json
 
 ## 五、回滚
 
-冒烟不过或出事故时由 Agent 直接回滚，事后在汇报里写清现象、影响范围和回滚到的提交或镜像。需要在服务器上手工操作的（改 `operator-config.json`、`app-compose.sh up`、VPS 上的镜像回滚）仍要 Nain 批准。
+冒烟不过或出事故时准备回滚（开 revert PR，或按下面做前端回滚），**经 Nain 确认后再合或执行**；事后在汇报里写清现象、影响范围和回滚到的提交或镜像。需要在服务器上手工操作的（改 `operator-config.json`、`app-compose.sh up`、VPS 上的镜像回滚）同样要 Nain 批准。
 
 **先止血，再回滚。** 出问题的是单个功能或单个模型时，先关掉它，往往比回滚整个版本更快、波及更小：
 
@@ -107,9 +107,9 @@ curl -fsS https://test.muvloom.online/version.json
 - **下架模型**：在 Admin 的「模型」页把出问题的模型切到下架，写进公开库 `model_availability`（`apps/bff/src/lib/model-availability.ts`），页面和服务端都不再提供它，不用重新发布。
 - 止血之后照样按下面的方式回滚或修复，并在汇报里写明止血做了什么、什么时候恢复。
 
-- **常规**：开一个 revert PR，走正常检查和合并，由 Deploy production 发出。它是新提交，不会被「不回退」规则跳过。
+- **常规**：开一个 revert PR，走正常检查，**经 Nain 确认后再合并**，由 Deploy production 发出。它是新提交，不会被「不回退」规则跳过。
 - **后端紧急回滚**：在 VPS 上用当前发布目录执行 `scripts/app-compose.sh rollback <project> <旧镜像>`。禁止用 `compose up --force-recreate`、`compose down` 或强停脚本绕过排空。数据库不会跟着回滚，迁移本来就要兼容新旧版本。见[部署手册「回滚与失败处理」](../deploy/image-release.md#回滚与失败处理)。
-- **前端回滚**：在独立检出恢复上一个已验证的公开/私有提交，用同样的生产配置重跑对应的 `scripts/pages-release.sh`，再按「上线核对」验收。
+- **前端回滚**：经 Nain 确认后，在独立检出恢复上一个已验证的公开/私有提交，用同样的生产配置重跑对应的 `scripts/pages-release.sh`，再按「上线核对」验收。
 - **segmenter 回滚**：`scripts/segmenter-deploy.sh rollback`，只能手动跑，会切所有部署，见下文。
 
 每一次回滚（revert PR 或紧急回滚）都要在 [review-evals](review-evals.md) 加一条：原 PR、从哪个提交到哪个提交、评审本该看出什么，供以后改 ocr 模型或提示词前回放。
