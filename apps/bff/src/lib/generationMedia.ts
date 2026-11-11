@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { setTimeout as delay } from 'node:timers/promises'
 import type { PersistedSubmitRequest, QueueProvider } from '@image-playground/shared'
 import { and, eq, inArray } from 'drizzle-orm'
@@ -20,7 +19,7 @@ import {
 import { log } from './logger'
 import { type ObjectStore, objectStore } from './objectStore'
 import type { BffTransaction } from './private-overlay'
-import { lockMediaOwner, MediaError, storeMedia } from './projectMedia'
+import { lockMediaOwner, MediaError, storeGeneratedImage, storeMedia } from './projectMedia'
 import { isObject } from './type-guards'
 import { UpstreamResultUnknownError } from './upstream'
 import { receiptFields } from './upstream/adapters/platform'
@@ -413,19 +412,20 @@ async function archiveOptional(
   ref: { object: string; mime: string; store?: string },
   createdIds: string[],
 ): Promise<GenerationMediaLink | undefined> {
+  let bytes: Uint8Array
   try {
     const store = ref.store === 'durable' ? durableMediaStore() : objectStore()
-    const bytes = await readMediaBytes(store, ref.object)
-    const media = await storeSelectionBytes(
-      userId,
-      { bytes, mime: detectMediaMime(bytes) ?? ref.mime },
-      createdIds,
-    )
-    return { role, position, mediaId: media.id }
+    bytes = await readMediaBytes(store, ref.object)
   } catch (error) {
     if (error instanceof MediaError && error.status === 503) throw error
     return undefined
   }
+  const media = await storeSelectionBytes(
+    userId,
+    { bytes, mime: detectMediaMime(bytes) ?? ref.mime },
+    createdIds,
+  )
+  return { role, position, mediaId: media.id }
 }
 
 async function readSelectionBytes(
@@ -465,16 +465,7 @@ async function storeSelectionBytes(
 ) {
   if (image.bytes.byteLength === 0) throw new CandidateExpiredError()
   const mime = detectMediaMime(image.bytes) ?? image.mime
-  const hash = createHash('sha256').update(image.bytes).digest('hex')
-  const [prior] = await db
-    .select({ id: schema.media_objects.id, status: schema.media_objects.status })
-    .from(schema.media_objects)
-    .where(and(eq(schema.media_objects.user_id, userId), eq(schema.media_objects.sha256, hash)))
-    .limit(1)
-  const media = await storeMedia(userId, image.bytes, mime)
-  // 已经是 ready 的旧行可能没有作品引用（例如还没关联上）。回滚时不能把它删掉。
-  if (!prior || prior.status !== 'ready') createdIds.push(media.id)
-  return media
+  return storeGeneratedImage(userId, image.bytes, mime, createdIds)
 }
 
 export async function archiveGenerationOutputs(
