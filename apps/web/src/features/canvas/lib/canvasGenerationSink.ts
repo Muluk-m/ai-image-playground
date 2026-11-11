@@ -10,8 +10,9 @@ import type {
   GenerationSink,
   GenerationUnit,
 } from '../../../lib/generationJob'
+import { promoteCanvasQueueOutput } from '../../../lib/promoteCanvasWork'
 import { removeKeyedBackgroundFromDataUrl } from '../../../lib/transparentImage'
-import { addCompletedCanvasTask, type CanvasProfileSnapshot, useStore } from '../../../store'
+import { type CanvasProfileSnapshot, useStore } from '../../../store'
 import type { TaskParams } from '../../../types'
 import type { CanvasEditor, CanvasTaskMeta, PlaceholderView } from './editor'
 import type { Box } from './geometry'
@@ -220,21 +221,21 @@ export function canvasGenerationSink(
     async delivered(handle, result) {
       const images =
         handle.editKind === 'cutout' ? await keyOutBackground(result.images) : result.images
+      const requestId = editor.getPlaceholder(handle.placeholderId)?.meta.bffRequestId
       const placed = await settleGeneration(editor, handle.placeholderId, handle.target, {
         ...result,
         images,
       })
       // 落图成功也**不释放**运行态：结果元素上的 `meta.taskId` 指着它，「重新生成」靠它原样再发。
       // 内存由上面的有界 LRU 兜住；失败态的占位框同样还留着它用于重试。
-      // 落工作台历史（best-effort，addCompletedCanvasTask 内部吞错告警）。
-      if (placed) {
-        void addCompletedCanvasTask({
-          prompt: handle.prompt,
-          params: handle.params,
-          images,
-          ...(handle.startedAt ? { elapsed: Date.now() - handle.startedAt } : {}),
-          ...(handle.profileView ? { profile: handle.profileView } : {}),
-        })
+      // 留在画布上的每一张都提升进作品；没落上的候选不进。
+      // 抠图在本机键出透明，作品归档的是队列里的原件。
+      if (placed && requestId) {
+        // 改已有图时只把第一张贴回源图，其余输出没有落在画布上。
+        const outputCount = handle.editKind ? 1 : images.length
+        for (let index = 0; index < outputCount; index++) {
+          if (images[index]) promoteCanvasQueueOutput(requestId, index)
+        }
       }
     },
 

@@ -106,6 +106,7 @@ function launch(editor: CanvasEditor, batches: CanvasBatch[], params: TaskParams
   const handles = startGeneration<CanvasJobHandle, CanvasJobContext>(
     {
       settings: useStore.getState().settings,
+      outputRetention: 'candidate',
       profile,
       params,
       variants: batches.map((batch) => ({

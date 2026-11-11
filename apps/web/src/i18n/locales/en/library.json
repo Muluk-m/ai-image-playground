@@ -190,6 +190,7 @@
     "all": "All",
     "studio": "Quick generate",
     "agent": "From chats",
+    "canvas": "Canvas",
     "continue": "Generate more",
     "openProject": "Back to project",
     "untitled": "Work",

@@ -200,6 +200,32 @@ it('滚到离底部 240px 内读下一页，读的时候不重复触发', async 
   expect(observers.some((one) => one.nodes.length > 0)).toBe(false)
 })
 
+it('画布作品带画布标签，筛选后只留下这一张', async () => {
+  const canvasTask = { ...task(0), id: 'canvas-work', prompt: '留在画布' }
+  const studioTask = { ...task(1), id: 'studio-work', prompt: '快速一张' }
+  useStore.setState({
+    tasks: [canvasTask, studioTask],
+    platformGenerations: [
+      {
+        id: 'canvas-work',
+        record: { source: { kind: 'canvas' }, status: 'queued' },
+        fetchedAt: 1,
+      },
+    ] as never,
+  })
+  await act(async () => root.render(<WorksTab search="" />))
+  expect(host.querySelector('[data-task-id="canvas-work"]')?.textContent).toContain('画布')
+  expect(host.querySelector('[data-task-id="studio-work"]')?.textContent ?? '').not.toContain(
+    '画布',
+  )
+  const canvasTab = [...host.querySelectorAll<HTMLElement>('[role="tab"], button')].find((one) =>
+    /^画布/.test(one.textContent ?? ''),
+  )
+  expect(canvasTab).toBeDefined()
+  await act(async () => canvasTab!.click())
+  expect(cards().map((card) => card.dataset.taskId)).toEqual(['canvas-work'])
+})
+
 it('筛选「对话产出」时只数服务端记录，本机任务不进来', async () => {
   await act(async () => root.render(<WorksTab search="" />))
   const agentTab = [...host.querySelectorAll<HTMLElement>('[role="tab"], button')].find((one) =>

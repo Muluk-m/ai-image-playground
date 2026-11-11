@@ -20,6 +20,7 @@ import { awaitQueueOutputs, queueOutputUrl } from '../../../lib/channels/queueCl
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { getAllTasks } from '../../../lib/db'
 import { loadImageOriginal } from '../../../lib/imageSource'
+import { promoteChosenCanvasResult } from '../../../lib/promoteCanvasWork'
 import { videoOutputFrame } from '../../agent/lib/artifactSource'
 import { blankVideoPoster } from '../../agent/lib/videoPoster'
 import type { CanvasEditor } from './editor'
@@ -233,7 +234,9 @@ export async function selectNodeResult(
     content() !== initialContent
   )
     return false
-  return chooseCanvasResult(doc, result.nodeId, result.id, projection, origin)
+  const chosen = chooseCanvasResult(doc, result.nodeId, result.id, projection, origin)
+  if (chosen) promoteChosenCanvasResult(result)
+  return chosen
 }
 
 const spreading = new WeakMap<Y.Doc, Set<string>>()
@@ -303,6 +306,7 @@ async function spreadResults(
     }
   }, canvas.origin)
   canvas.undo.stopCapturing()
+  for (const id of ids) promoteChosenCanvasResult(canvasMainResult(canvas.doc, id))
   return ids
 }
 
@@ -369,5 +373,6 @@ export async function insertResultNodes(
     })
   }, canvas.origin)
   canvas.undo.stopCapturing()
+  for (const id of ids) promoteChosenCanvasResult(canvasMainResult(canvas.doc, id))
   return ids
 }
