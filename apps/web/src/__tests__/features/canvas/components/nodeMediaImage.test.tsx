@@ -102,6 +102,25 @@ it('does not keep the previous cloud picture when another cloud image is still l
   expect(host.querySelector('[data-testid="node-media-loading"]')).not.toBeNull()
 })
 
+it('keeps a single retry chain when the network returns during an in-flight preview', async () => {
+  let reject = (_error: Error) => {}
+  const pending = new Promise<string>((_resolve, fail) => {
+    reject = fail
+  })
+  resolveMediaSource.mockReturnValue(pending)
+  await act(async () => root.render(picture(CLOUD, 'same')))
+  await act(async () => {
+    window.dispatchEvent(new Event('online'))
+  })
+  await act(async () => {
+    reject(new Error('offline'))
+  })
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1000)
+  })
+  expect(resolveMediaSource).toHaveBeenCalledTimes(3)
+})
+
 it('does not keep the previous picture when the identity changes', async () => {
   resolveMediaSource.mockReturnValue(new Promise(() => {}))
   await act(async () => root.render(picture(LOCAL, 'first')))
