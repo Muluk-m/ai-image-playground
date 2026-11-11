@@ -663,6 +663,54 @@ export async function storeMedia(userId: string, bytes: Uint8Array, contentType:
   return confirmMedia(userId, reserved.id, bytes)
 }
 
+/**
+ * 提升失败后标成 deleting、但字节没删掉的非附件媒体。附件清理由 purgeExpiredAttachmentMedia 负责。
+ * 先删字节，成功后再删行；删字节失败就留着 deleting，下次还能按 key 再试。
+ */
+export async function purgeDeletingUnreferencedMedia(): Promise<number> {
+  const rows = await db
+    .select({
+      id: media.id,
+      userId: media.user_id,
+      stagingKey: media.staging_key,
+      objectKey: media.object_key,
+    })
+    .from(media)
+    .where(and(eq(media.status, 'deleting'), eq(media.attachment_managed, false)))
+    .limit(50)
+  let removed = 0
+  const store = durableMediaStore()
+  for (const row of rows) {
+    try {
+      await store.deletePrefix(`objects/${row.userId}/${row.id}/`)
+      await store.deletePrefix(row.stagingKey)
+      if (row.objectKey) await store.deletePrefix(row.objectKey)
+      const deleted = await db
+        .delete(media)
+        .where(
+          and(
+            eq(media.id, row.id),
+            eq(media.status, 'deleting'),
+            notExists(
+              db
+                .select({ id: schema.media_references.media_id })
+                .from(schema.media_references)
+                .where(eq(schema.media_references.media_id, media.id)),
+            ),
+          ),
+        )
+        .returning({ id: media.id })
+      removed += deleted.length
+    } catch (error) {
+      log.warn(
+        { event: 'media.deleting_cleanup_failed', mediaId: row.id, err: String(error) },
+        'deleting media kept for the next sweep',
+      )
+    }
+  }
+  return removed
+}
+
 /** Only explicitly managed attachments are eligible; legacy media have incomplete references. */
 export async function purgeExpiredAttachmentMedia(now = Date.now()): Promise<number> {
   const expired = and(
