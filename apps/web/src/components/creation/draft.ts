@@ -1,4 +1,5 @@
 export type CreationMode = 'agent' | 'image' | 'video'
+// 发给服务端的协议模式是 AgentMode（image | video），只经 composerMode.ts 转换。
 export type CreationLayout = 'A' | 'B' | 'C'
 export interface CreationReference {
   id: string
