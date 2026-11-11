@@ -17,7 +17,7 @@ import { activityFromRecord, showsGenerationTimer } from '../lib/generationActiv
 import { loadImageOriginal } from '../lib/imageSource'
 import { ActualValueBadge, DetailParamValue, measuredSizeOf } from '../lib/paramDisplay'
 import { taskErrorText, taskRecordErrorText } from '../lib/taskError'
-import { workProjectId } from '../lib/works'
+import { workProjectId, workSource } from '../lib/works'
 import {
   editOutputImage,
   removeTask,
@@ -86,12 +86,16 @@ export default function DetailModal() {
     [tasks, detailTaskId],
   )
 
-  // 对话里出的图能回到那个项目；快速生成的没有。
-  const projectId = useMemo(
-    () =>
-      task ? workProjectId(task, new Map(platformGenerations.map((row) => [row.id, row]))) : null,
-    [task, platformGenerations],
+  // 对话里出的图能回到那个项目；快速生成的没有。画布入选带来源标签。
+  const generationRows = useMemo(
+    () => new Map(platformGenerations.map((row) => [row.id, row])),
+    [platformGenerations],
   )
+  const projectId = useMemo(
+    () => (task ? workProjectId(task, generationRows) : null),
+    [task, generationRows],
+  )
+  const canvasWork = task ? workSource(task, generationRows) === 'canvas' : false
 
   // Reset index when task changes
   useEffect(() => {
@@ -681,6 +685,11 @@ export default function DetailModal() {
               >
                 {task.prompt || t('prompt.empty')}
               </p>
+              {canvasWork && (
+                <span className="mb-3 inline-flex rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                  {t('card.canvas')}
+                </span>
+              )}
               {(task.prompt?.length ?? 0) > 120 && (
                 <Button
                   type="button"
