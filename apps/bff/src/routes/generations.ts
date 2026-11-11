@@ -27,7 +27,10 @@ function storageRetryable(error: unknown): boolean {
   if (flagged === true) return true
   if (error instanceof ObjectStorageError) return true
   if (error instanceof ObjectStoreHttpError) return error.status >= 500 || error.status === 429
-  return /^Object (read|upload|metadata) failed \(/.test(error.message)
+  const httpStatus = /^Object (?:read|upload|metadata) failed \((\d{3})\)$/.exec(error.message)
+  if (!httpStatus) return false
+  const status = Number(httpStatus[1])
+  return status >= 500 || status === 429
 }
 
 function promoteFailure(error: unknown): {
