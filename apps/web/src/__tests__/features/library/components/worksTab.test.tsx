@@ -12,9 +12,12 @@ const cloud = vi.hoisted(() => ({
   loadMore: vi.fn(),
   reload: vi.fn(),
 }))
+const preview = vi.hoisted(() => ({ url: null as string | null }))
 vi.mock('../../../../hooks/useCloudGenerations', () => ({ useCloudGenerations: () => cloud }))
 vi.mock('../../../../auth/AuthContext', () => ({ useAuth: () => ({ user: null }) }))
-vi.mock('../../../../hooks/useImagePreview', () => ({ useImagePreview: () => null }))
+vi.mock('../../../../hooks/useImagePreview', () => ({
+  useImagePreview: (id?: string) => (id && preview.url ? { url: preview.url } : null),
+}))
 
 import WorksTab from '../../../../features/library/components/WorksTab'
 import { useStore } from '../../../../store'
@@ -51,6 +54,7 @@ let root: Root
 let observers: { callback: IntersectionObserverCallback; nodes: Element[] }[]
 
 beforeEach(() => {
+  preview.url = null
   markHistoryReady()
   cloud.loadMore.mockReset()
   cloud.hasMore = true
@@ -234,6 +238,27 @@ it('筛选「对话产出」时只数服务端记录，本机任务不进来', a
   expect(agentTab).toBeDefined()
   await act(async () => agentTab!.click())
   expect(cards()).toHaveLength(0)
+})
+
+it('图还没加载时卡片是骨架，失败卡仍是原来的错误图标', async () => {
+  preview.url = 'blob:cup'
+  useStore.setState({
+    tasks: [task(0), { ...task(1), id: 'failed-work', status: 'error', outputImages: [] }],
+    platformGenerations: [],
+  })
+  await act(async () => root.render(<WorksTab search="" />))
+  const done = host.querySelector<HTMLElement>('[data-task-id="task-0"]')
+  expect(done?.querySelector('[data-testid="work-tile-skeleton"]')).not.toBeNull()
+  const image = done?.querySelector('img')
+  expect(image?.className).toContain('opacity-0')
+  await act(async () => {
+    image?.dispatchEvent(new Event('load'))
+  })
+  expect(done?.querySelector('[data-testid="work-tile-skeleton"]')).toBeNull()
+  expect(image?.className).not.toContain('opacity-0')
+  const failed = host.querySelector('[data-task-id="failed-work"]')
+  expect(failed?.querySelector('[data-testid="work-tile-skeleton"]')).toBeNull()
+  expect(failed?.querySelector('img')).toBeNull()
 })
 
 it('键盘：卡片自身回车打开详情，卡里按钮的回车留给按钮自己', async () => {
