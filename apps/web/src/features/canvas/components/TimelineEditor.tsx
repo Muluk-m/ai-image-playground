@@ -529,9 +529,10 @@ function ClipCard({
   const [trimming, setTrimming] = useState(false)
   const element = editor.getElement(clip.elementId)
   const missing = !isTimelineSource(element)
-  const poster = useNodeMedia(
+  const posterMedia = useNodeMedia(
     element?.type === 'image' ? editor.doc.files[element.fileId] : undefined,
   )
+  const poster = posterMedia.status === 'ready' ? posterMedia.url : undefined
   const range = clipRange(clip, source)
   const duration = clipDuration(clip, source)
   const width = Math.max(MIN_CARD_WIDTH, duration * TRACK_PX_PER_SECOND)
