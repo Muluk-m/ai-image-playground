@@ -83,6 +83,25 @@ it('shows media missing only after cloud preview retries are exhausted', async (
   expect(host.querySelector('img')).toBeNull()
 })
 
+it('does not keep the previous cloud picture when another cloud image is still loading', async () => {
+  let release: (url: string) => void = () => {}
+  resolveMediaSource.mockImplementation(
+    () =>
+      new Promise<string>((resolve) => {
+        release = resolve
+      }),
+  )
+  await act(async () => root.render(picture(CLOUD, 'same')))
+  await act(async () => release('blob:first'))
+  expect(host.querySelector('img')?.getAttribute('src')).toBe('blob:first')
+
+  resolveMediaSource.mockReturnValue(new Promise(() => {}))
+  await act(async () => root.render(picture(OTHER, 'same')))
+  expect(host.querySelector('img')).toBeNull()
+  expect(host.textContent).not.toContain('素材缺失')
+  expect(host.querySelector('[data-testid="node-media-loading"]')).not.toBeNull()
+})
+
 it('does not keep the previous picture when the identity changes', async () => {
   resolveMediaSource.mockReturnValue(new Promise(() => {}))
   await act(async () => root.render(picture(LOCAL, 'first')))

@@ -77,10 +77,18 @@ export function NodePicture({
   uploadingLabel: string
 }) {
   const media = useNodeMedia(source)
-  const held = useRef<{ identity: string; url: string } | undefined>(undefined)
-  if (media.status === 'ready' && identity) held.current = { identity, url: media.url }
+  const held = useRef<{ identity: string; url: string; mediaId?: string } | undefined>(undefined)
+  const incoming = mediaIdentity(source)
+  if (media.status === 'ready' && identity)
+    held.current = { identity, url: media.url, mediaId: incoming }
+  // 只在存储地址变化、像素还是这一张时沿用上一帧。另一张云媒体即使身份没改，也不再画旧图。
   const carried =
-    media.status === 'loading' && identity && held.current?.identity === identity
+    media.status === 'loading' &&
+    identity &&
+    held.current?.identity === identity &&
+    (incoming === undefined ||
+      held.current.mediaId === undefined ||
+      held.current.mediaId === incoming)
       ? held.current.url
       : undefined
   const url = media.status === 'ready' ? media.url : carried
