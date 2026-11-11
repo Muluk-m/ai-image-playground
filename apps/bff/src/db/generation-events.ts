@@ -17,6 +17,8 @@ export async function publishGenerations(tx: Transaction, taskIds: string[]) {
           isNotNull(schema.tasks.user_id),
           eq(schema.tasks.kind, 'queue'),
           sql`${schema.tasks.request_payload} -> 'video' IS NULL`,
+          // 画布候选只活在队列里，不进作品列表。已经写过的旧行由列表查询排除。
+          sql`${schema.tasks.request_payload} ->> 'output_retention' IS DISTINCT FROM 'candidate'`,
         ),
       )
     for (const task of tasks) {

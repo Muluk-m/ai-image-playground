@@ -1246,6 +1246,77 @@ it('keeps Grok account-pool details out of queue and agent responses while retai
   })
 })
 
+it('hides canvas candidates from the works list and its counts', async () => {
+  const now = Date.now()
+  await db.insert(schema.tasks).values([
+    {
+      id: '11111111-1111-4111-8111-111111111111',
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      status: 'completed',
+      user_id: 'owner',
+      submitted_at: now,
+      completed_at: now,
+      request_payload: { prompt: 'canvas candidate', output_retention: 'candidate' },
+    },
+    {
+      id: '22222222-2222-4222-8222-222222222222',
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      status: 'completed',
+      user_id: 'owner',
+      submitted_at: now + 1,
+      completed_at: now + 1,
+      request_payload: { prompt: 'studio still' },
+    },
+  ])
+  await db.insert(schema.generation_records).values([
+    {
+      id: '11111111-1111-4111-8111-111111111111',
+      user_id: 'owner',
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      status: 'completed',
+      archive_status: 'none',
+      prompt: 'canvas candidate',
+      created_at: now,
+      revision: 1n,
+      source: { kind: 'studio' },
+    },
+    {
+      id: '22222222-2222-4222-8222-222222222222',
+      user_id: 'owner',
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      status: 'completed',
+      archive_status: 'ready',
+      prompt: 'studio still',
+      created_at: now + 1,
+      revision: 1n,
+      source: { kind: 'studio' },
+    },
+  ])
+  const listed = await request('/api/generations', deviceB)
+  expect(listed.status).toBe(200)
+  const body = await listed.json()
+  expect(body.items.map((item: { id: string }) => item.id)).toEqual([
+    '22222222-2222-4222-8222-222222222222',
+  ])
+  expect(body.totals).toMatchObject({ all: 1, studio: 1, agent: 0 })
+  expect(
+    (await request('/api/generations/11111111-1111-4111-8111-111111111111', deviceB)).status,
+  ).toBe(404)
+  expect(
+    (await request('/api/generations/22222222-2222-4222-8222-222222222222', deviceB)).status,
+  ).toBe(200)
+  await db.delete(schema.tasks).where(eq(schema.tasks.id, '11111111-1111-4111-8111-111111111111'))
+  const afterPurge = await (await request('/api/generations', deviceB)).json()
+  expect(afterPurge.items.map((item: { id: string }) => item.id)).toEqual([
+    '22222222-2222-4222-8222-222222222222',
+  ])
+  expect(afterPurge.totals.all).toBe(1)
+})
+
 it('keeps node candidates uncharged and temporary while adopted main media survives queue expiry', async () => {
   const bytes = await sharp({ create: { width: 8, height: 6, channels: 3, background: '#83b645' } })
     .png()
