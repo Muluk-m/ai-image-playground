@@ -1116,8 +1116,9 @@ const credits: GuidePage = {
       title: 'Prices',
       blocks: [
         p(
-          'Many still models show a base near 100 credits per image. That base is what Image 2.6 multipliers start from. The credits you pay for 2.6 are the table below. Flare and Sunburst match.',
+          'Many still models show a base near 100 credits per image. That base is what Image 2.5 and 2.6 multipliers start from. Image 2.5 adds only for resolution: Low, Medium and High cost the same, and a masked edit counts as 1K. That is the first table. The credits you pay for 2.6 are the second table. Flare and Sunburst match in both.',
         ),
+        table(['2.5 still', 'Credits'], ['1K', '100'], ['2K', '120'], ['4K', '150']),
         table(
           ['2.6 still', 'Low', 'Medium', 'High'],
           ['1K', '190', '330', '400'],

@@ -1265,7 +1265,7 @@ describe('CLI GPT image pricing', () => {
       headers: bearer(access_token),
     })
     expect(preview.status).toBe(200)
-    expect(preview.json.data.quote).toEqual({ estimated_credits: 20 })
+    expect(preview.json.data.quote).toEqual({ estimated_credits: 12 })
     const created = await call('POST', '/v1/image-jobs', { body, headers: bearer(access_token) })
     expect(created.status).toBe(200)
     const [task] = await db.select().from(schema.tasks)
@@ -1275,7 +1275,7 @@ describe('CLI GPT image pricing', () => {
       strict_image_request: true,
     })
     expect(billing.reservations).toEqual([
-      { taskId: task!.id, model: 'gpt-image-2.5-flare', credits: 20, unitMultiplier: 2 },
+      { taskId: task!.id, model: 'gpt-image-2.5-flare', credits: 12, unitMultiplier: 1.2 },
     ])
   })
 
@@ -1286,8 +1286,8 @@ describe('CLI GPT image pricing', () => {
       quality: 'medium',
       size: '2048x2048',
       ratio: '1:1',
-      credits: 20,
-      multiplier: 2,
+      credits: 12,
+      multiplier: 1.2,
     },
     {
       image_size: '4K',
@@ -1295,8 +1295,8 @@ describe('CLI GPT image pricing', () => {
       quality: 'medium',
       size: '2880x2880',
       ratio: '1:1',
-      credits: 20,
-      multiplier: 2,
+      credits: 15,
+      multiplier: 1.5,
     },
     {
       image_size: '4K',
@@ -1304,8 +1304,8 @@ describe('CLI GPT image pricing', () => {
       quality: 'high',
       size: '3840x2160',
       ratio: '16:9',
-      credits: 80,
-      multiplier: 8,
+      credits: 15,
+      multiplier: 1.5,
     },
     {
       image_size: '1K',
@@ -1313,8 +1313,8 @@ describe('CLI GPT image pricing', () => {
       quality: 'high',
       size: '1024x1024',
       ratio: '1:1',
-      credits: 40,
-      multiplier: 4,
+      credits: 10,
+      multiplier: 1,
     },
     {
       image_size: '2K',
@@ -1322,8 +1322,8 @@ describe('CLI GPT image pricing', () => {
       quality: 'low',
       size: '2048x2048',
       ratio: '1:1',
-      credits: 10,
-      multiplier: 1,
+      credits: 12,
+      multiplier: 1.2,
     },
   ])('quotes and holds the canonical member parameters %j', async ({
     image_size,
@@ -1418,7 +1418,7 @@ describe('CLI GPT image pricing', () => {
       expect(denied.status).toBe(402)
       expect(denied.json.error).toMatchObject({
         code: 'MAX_CREDITS_EXCEEDED',
-        details: { required: 20, max_credits: 0 },
+        details: { required: 12, max_credits: 0 },
       })
     }
     expect(await db.select().from(schema.tasks)).toHaveLength(0)
@@ -1426,7 +1426,7 @@ describe('CLI GPT image pricing', () => {
     expect(billing.reservations).toHaveLength(0)
     expect(await db.execute(sql`SELECT * FROM cli_test_holds`)).toHaveLength(0)
     const allowed = await call('POST', '/v1/image-jobs', {
-      body: { ...body, max_credits: 20 },
+      body: { ...body, max_credits: 12 },
       headers: bearer(access_token),
     })
     expect(allowed.status).toBe(200)
@@ -1466,18 +1466,18 @@ describe('CLI GPT image pricing', () => {
     const user = await createUser('gpt-price-change')
     billing.members.add(user.id)
     const { access_token } = await connect(user)
-    const body = imageJob({ model: 'gpt-image-2.5-flare', image_size: '2K', max_credits: 20 })
+    const body = imageJob({ model: 'gpt-image-2.5-flare', image_size: '2K', max_credits: 12 })
     const preview = await call('POST', '/v1/image-jobs/validate', {
       body,
       headers: bearer(access_token),
     })
-    expect(preview.json.data.quote.estimated_credits).toBe(20)
+    expect(preview.json.data.quote.estimated_credits).toBe(12)
     billing.quote = 15
     const repriced = await call('POST', '/v1/image-jobs', { body, headers: bearer(access_token) })
     expect(repriced.status).toBe(402)
     expect(repriced.json.error).toMatchObject({
       code: 'MAX_CREDITS_EXCEEDED',
-      details: { required: 30, max_credits: 20 },
+      details: { required: 18, max_credits: 12 },
     })
     expect(billing.reservations).toHaveLength(0)
     billing.quote = 10
@@ -1489,7 +1489,7 @@ describe('CLI GPT image pricing', () => {
     expect(reserveChanged.status).toBe(402)
     expect(reserveChanged.json.error).toMatchObject({
       code: 'MAX_CREDITS_EXCEEDED',
-      details: { required: 30, max_credits: 20 },
+      details: { required: 18, max_credits: 12 },
     })
     expect(billing.reservations).toHaveLength(1)
     expect(await db.select().from(schema.tasks)).toHaveLength(0)
@@ -1498,7 +1498,7 @@ describe('CLI GPT image pricing', () => {
     billing.reservePrice = 10
     const created = await call('POST', '/v1/image-jobs', { body, headers: bearer(access_token) })
     expect(created.status).toBe(200)
-    expect(await db.execute(sql`SELECT credits FROM cli_test_holds`)).toEqual([{ credits: 20 }])
+    expect(await db.execute(sql`SELECT credits FROM cli_test_holds`)).toEqual([{ credits: 12 }])
   })
 
   it('checks actual reserved credits even when both the quote and budget are zero', async () => {
@@ -1539,7 +1539,7 @@ describe('CLI GPT image pricing', () => {
     expect(replay.json.data.request_hash).toBe(created.json.data.request_hash)
     expect(await db.select().from(schema.tasks)).toHaveLength(1)
     expect(billing.reservations).toHaveLength(1)
-    expect(await db.execute(sql`SELECT credits FROM cli_test_holds`)).toEqual([{ credits: 80 }])
+    expect(await db.execute(sql`SELECT credits FROM cli_test_holds`)).toEqual([{ credits: 12 }])
     const mismatch = await call('POST', '/v1/image-jobs', {
       body: { ...body, quality: 'low' },
       headers: bearer(access_token),
@@ -1563,7 +1563,7 @@ describe('CLI GPT image pricing', () => {
     expect(created.status).toBe(200)
     const [task] = await db.select().from(schema.tasks)
     expect(task?.request_payload).toMatchObject({ size: '2720x1536', quality: 'medium' })
-    expect(await db.execute(sql`SELECT credits FROM cli_test_holds`)).toEqual([{ credits: 20 }])
+    expect(await db.execute(sql`SELECT credits FROM cli_test_holds`)).toEqual([{ credits: 12 }])
   })
 
   it('lists only the GPT tiers and qualities the account may submit', async () => {

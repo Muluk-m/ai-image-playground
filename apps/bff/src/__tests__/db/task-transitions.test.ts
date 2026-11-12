@@ -312,7 +312,7 @@ describe('gptSettledUsage', () => {
     // 部分出图已经按交付张数给了用量：张数沿用，只把倍率改回 1。
     expect(
       gptSettledUsage(
-        { ...completed, actualUsage: { quantity: 1, unitMultiplier: 8 } },
+        { ...completed, actualUsage: { quantity: 1, unitMultiplier: 1.2 } },
         { model: 'gpt-image-2.5-flare', request: premium, gptRoute: 'sub2api' },
       ),
     ).toEqual({ quantity: 1, unitMultiplier: 1 })
@@ -356,7 +356,7 @@ describe('gptSettledUsage', () => {
   })
 
   it('keeps the frozen settlement when the order ran direct, was basic, failed or is another model', () => {
-    const usage = { quantity: 1, unitMultiplier: 8 }
+    const usage = { quantity: 1, unitMultiplier: 1.2 }
     const update = { ...completed, actualUsage: usage }
     const flare = { model: 'gpt-image-2.5-flare', request: premium }
     expect(gptSettledUsage(update, { ...flare, gptRoute: 'direct' })).toBe(usage)
