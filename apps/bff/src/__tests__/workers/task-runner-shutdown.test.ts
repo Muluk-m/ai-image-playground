@@ -50,6 +50,7 @@ async function readTask(id: string) {
       next: schema.tasks.next_retry_at,
       errorType: schema.tasks.error_type,
       completedAt: schema.tasks.completed_at,
+      invocations: schema.tasks.upstream_invocation_count,
     })
     .from(schema.tasks)
     .where(eq(schema.tasks.id, id))
@@ -101,13 +102,39 @@ describe('shutdown abort', () => {
 
   it('fails the task once the retry budget is spent', async () => {
     const { running } = await startInflightTask('drain-exhausted', MAX_ATTEMPTS - 1)
+    // startInflightTask only waits until the abort controller is registered. Under
+    // load, beforeRequest often records the invocation before this test aborts, and
+    // recover then correctly writes upstream_result_unknown instead of interrupted.
+    await waitFor(async () => (await readTask('drain-exhausted'))?.invocations === 1, 2_000)
 
     await abortForShutdown(running)
 
     expect(await readTask('drain-exhausted')).toMatchObject({
       status: 'failed',
+      errorType: 'upstream_result_unknown',
+      attempt: MAX_ATTEMPTS,
+    })
+  })
+
+  it('marks an undispatched exhausted retry as interrupted', async () => {
+    await db.insert(schema.tasks).values({
+      id: 'drain-exhausted-undispatched',
+      provider: 'openai-compat',
+      model: 'test-model',
+      status: 'in_progress',
+      request_payload: { prompt: 'drain-exhausted-undispatched' },
+      submitted_at: 1,
+      started_at: 1,
+      attempt_count: MAX_ATTEMPTS - 1,
+    })
+
+    await recoverTasksByIds(['drain-exhausted-undispatched'])
+
+    expect(await readTask('drain-exhausted-undispatched')).toMatchObject({
+      status: 'failed',
       errorType: 'interrupted',
       attempt: MAX_ATTEMPTS,
+      invocations: 0,
     })
   })
 
