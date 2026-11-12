@@ -70,7 +70,7 @@ This codebase is yours: what it's for and how it's built are your call, and you'
 文件串行，并通过 `~/.cache/test-guard/run-owner` 保证整机同一时间只有一组测试（后来者排队）。全量测试用
 `rmake -c "pnpm test"` 或 CI；不要设置 `CI` 绕过守卫。
 
-CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）把 `pnpm lint`、`pnpm typecheck`、`apps/web` 构建 + 浏览器冒烟拆成并行 job；
+CI（`.github/workflows/web.yml`，PR 以及 push 到 main 和 test 都跑）把 `pnpm lint`、`pnpm typecheck`、`apps/web` 构建 + 浏览器冒烟拆成并行 job；
 公开 workspace 的完整 `pnpm test` 也并行分片：web 的 vitest 分 3 片，bff 的 Bun 数据库测试按文件分 3 片（`--shard=i/n`），其余包一个 job，都带 PostgreSQL（Bun 数据库测试 4 路并发）；
 `with-overlay` / `with-overlay (typecheck)` / `with-overlay (build)` 再用 `private.lock` 钉住的 overlay 分别跑 lint + 私有包测试、typecheck + admin 构建、build + 冒烟。
 本地可选 `pnpm hooks:install` 启用 `.githooks/pre-push`：推送前只对改动文件跑 biome 和受影响包的 typecheck（`AIP_PRE_PUSH=lint` 只跑 lint，`skip` 跳过）。

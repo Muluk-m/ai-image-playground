@@ -65,7 +65,8 @@ jobs:
             fi
           done
 
-  # The gate before the rollout is five jobs running side by side, the same split web.yml uses:
+  # The gate before the rollout is five jobs running side by side. web.yml shards bff and web
+  # vitest three ways; this workflow keeps a smaller split:
   # public lint/build/startup (checks), the database-backed suites (tests, two runners), the web
   # vitest (web-tests, two shards), the muvloom build with the pinned overlay (muvloom-checks) and the
   # overlay's own tests (muvloom-tests). The rollout job used to rerun the overlay half itself after
@@ -108,8 +109,8 @@ jobs:
           label: test-startup-public
       - run: pnpm --dir apps/admin build
 
-  # Same split as web.yml: bff's Bun suites on one runner, the other packages on another, and the
-  # web vitest sharded across two. Nothing stacks extra concurrency on one machine: a timing test
+  # Smaller than web.yml's three shards: bff's Bun suites on one runner, the other packages on
+  # another, and the web vitest sharded across two. Nothing stacks extra concurrency on one machine: a timing test
   # in shared times out when it competes for CPU (PR #1458, first attempt).
   tests:
     name: Tests (${{ matrix.part.name }})
