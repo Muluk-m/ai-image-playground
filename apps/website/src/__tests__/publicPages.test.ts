@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import { guideEntries } from '../../../web/src/features/guide/model'
 import { seoFiles } from '../../seo'
-import { alternatePage, counterpartPage, editions, findPage, pageList, pageMeta } from '../catalog'
+import {
+  alternatePage,
+  copy,
+  counterpartPage,
+  editions,
+  findPage,
+  localeFromPath,
+  pageList,
+  pageMeta,
+} from '../catalog'
 import { searchGuide, structuredData } from '../guideData'
 
 describe('public page contract', () => {
@@ -28,6 +37,19 @@ describe('public page contract', () => {
     )
     expect(findPage('/guide/missing/')).toBeUndefined()
     expect(findPage('/p/private-project')).toBeUndefined()
+  })
+  it('picks the 404 language from the path', () => {
+    expect(localeFromPath('/en/missing')).toBe('en')
+    expect(localeFromPath('/en')).toBe('en')
+    expect(localeFromPath('/guide/en/missing/')).toBe('en')
+    expect(copy[localeFromPath('/en/missing')].notFound).toBe('This page has no story yet.')
+    expect(copy[localeFromPath('/en/missing')].back).toBe('Back to home')
+    expect(localeFromPath('/missing')).toBe('zh-CN')
+    expect(localeFromPath('/guide/missing/')).toBe('zh-CN')
+    expect(localeFromPath('/english')).toBe('zh-CN')
+    expect(localeFromPath('/guide/energy')).toBe('zh-CN')
+    expect(copy[localeFromPath('/missing')].notFound).toBe('这一页还没有故事。')
+    expect(copy[localeFromPath('/missing')].back).toBe('返回官网')
   })
   it('names the marketing home after its headline', () => {
     const zh = pageMeta(findPage('/')!)
