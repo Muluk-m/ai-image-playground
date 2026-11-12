@@ -39,12 +39,19 @@ export const SKILL_PACKAGE_PATH: Record<SkillPackageId, string> = {
 }
 
 /**
+ * 构建期常量由 `apps/web/scripts/cli-build-defines.mjs` 注入（应用、官网的 Vite 与 Vitest 配置都注入）。
+ * 只有官网的 vite.config 在 Node 里直接加载指南目录取页面路径时还没有注入，这里不能抛 ReferenceError；
+ * 那一步不产出页面内容。打包出的页面一定带真实值，官网测试会核对。
+ */
+const GUIDE_REV = typeof __CLI_GUIDE_REV__ === 'undefined' ? '' : __CLI_GUIDE_REV__
+
+/**
  * 给智能体的指南网址。`v` 是指南和安装脚本内容的哈希：宿主抓取网页时会缓存，网址不变就可能一直读到旧指南
  * （旧指南里固定着旧的安装版本）；内容一变网址就变，旧缓存自然失效。
  */
 export function guideUrl(path: string, origin: string): string {
   const url = new URL(path, origin)
-  url.searchParams.set('v', __CLI_GUIDE_REV__)
+  url.searchParams.set('v', GUIDE_REV)
   return url.href
 }
 
@@ -59,11 +66,13 @@ export function agentSetupPath(agent: ConnectAgentId): string {
  * 脚本再从 GitHub releases 下载 CLI 二进制并校验其 SHA-256。发新版安装脚本时，setup.md 里的校验和
  * 必须一并更新。
  */
-export const CLI_MIN_VERSION = '0.2.4'
+export const CLI_MIN_VERSION = '0.2.5'
 /** 当前已发布的 CLI；未打 tag 的后续版本在指南里只作为最低版本之上的升级，不在页面上提前钉死。 */
-export const CLI_VERSION = '0.2.4'
-export const INSTALL_SH_SHA256 = __CLI_INSTALL_SH_SHA256__
-export const INSTALL_PS1_SHA256 = __CLI_INSTALL_PS1_SHA256__
+export const CLI_VERSION = '0.2.5'
+export const INSTALL_SH_SHA256 =
+  typeof __CLI_INSTALL_SH_SHA256__ === 'undefined' ? '' : __CLI_INSTALL_SH_SHA256__
+export const INSTALL_PS1_SHA256 =
+  typeof __CLI_INSTALL_PS1_SHA256__ === 'undefined' ? '' : __CLI_INSTALL_PS1_SHA256__
 
 /**
  * 安装脚本跑在子进程里，改不了当前终端的 PATH：安装目录不在 PATH 时，紧接着的 `muvloom`

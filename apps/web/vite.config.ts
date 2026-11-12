@@ -1,5 +1,5 @@
 import react from '@vitejs/plugin-react'
-import { createHash, randomBytes } from 'crypto'
+import { randomBytes } from 'crypto'
 import { readFileSync, writeFileSync } from 'fs'
 import { resolve } from 'path'
 import type { Plugin } from 'vite'
@@ -7,6 +7,7 @@ import { defineConfig } from 'vitest/config'
 import { parseCLI } from 'vitest/node'
 import { vitestGuard } from '../../scripts/test-guard'
 import { writeWorkBuddySkillZip } from './scripts/build-workbuddy-skill.mjs'
+import { cliBuildDefines } from './scripts/cli-build-defines.mjs'
 import { appPreloadPlugin } from './src/boot/appPreload'
 import { startupGuardPlugin } from './src/boot/vitePlugin'
 import { chunkCycleGuardPlugin, vendorChunk } from './src/lib/buildChunks'
@@ -23,26 +24,6 @@ function displayedVersion(): string {
   const fromEnv = process.env.APP_RELEASE?.trim()
   if (fromEnv && /^\d+\.\d+\.\d+$/.test(fromEnv)) return fromEnv
   return rootPkg.version
-}
-
-/**
- * 接入指南的内容版本。给智能体复制的提示词里带着它（`?v=`）：宿主的网页抓取工具会缓存页面，
- * 指南内容变了而网址不变，用户拿到的还是旧指南里固定的旧版本命令。内容一变网址就变。
- */
-function fileSha256(path: string): string {
-  return createHash('sha256').update(readFileSync(path)).digest('hex')
-}
-
-function guideRevision(): string {
-  const cliDir = resolve(__dirname, 'public/cli')
-  const installDir = resolve(__dirname, '../../cli-go/install')
-  const text = ['setup.md', 'workbuddy.md', 'doubao.md']
-    .map((name) => readFileSync(resolve(cliDir, name), 'utf8'))
-    .join('\n')
-  const installers = Buffer.concat(
-    ['install.sh', 'install.ps1'].map((name) => readFileSync(resolve(installDir, name))),
-  )
-  return createHash('sha256').update(text).update(installers).digest('hex').slice(0, 10)
 }
 
 /** 最低支持的浏览器内核。Chrome 80 覆盖仍在使用的国产浏览器旧内核；Safari 14 覆盖 iOS 14。 */
@@ -93,13 +74,7 @@ export default defineConfig(() => {
     base: '/',
     define: {
       __APP_VERSION__: JSON.stringify(displayedVersion()),
-      __CLI_GUIDE_REV__: JSON.stringify(guideRevision()),
-      __CLI_INSTALL_SH_SHA256__: JSON.stringify(
-        fileSha256(resolve(__dirname, '../../cli-go/install/install.sh')),
-      ),
-      __CLI_INSTALL_PS1_SHA256__: JSON.stringify(
-        fileSha256(resolve(__dirname, '../../cli-go/install/install.ps1')),
-      ),
+      ...cliBuildDefines(),
     },
     resolve: {
       alias: {

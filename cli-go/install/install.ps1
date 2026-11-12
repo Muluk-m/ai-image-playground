@@ -1,6 +1,6 @@
 # Installs the native muvloom CLI for Windows x64 from GitHub releases, verifying its SHA-256 checksum.
 #   $env:MUVLOOM_VERSION = "0.1.0"        pin an exact release (never downgrades a newer install)
-#   $env:MUVLOOM_MIN_VERSION = "0.2.4"    install the latest release that is at least this version
+#   $env:MUVLOOM_MIN_VERSION = "0.2.5"    install the latest release that is at least this version
 #   $env:MUVLOOM_INSTALL_DIR = "..."      install directory. Default: where muvloom.exe already is (one
 #                                          copy, and it is the one that runs), else the per-user
 #                                          %LOCALAPPDATA%\Programs\muvloom, which needs no administrator
