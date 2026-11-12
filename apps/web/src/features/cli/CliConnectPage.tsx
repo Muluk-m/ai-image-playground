@@ -10,15 +10,15 @@ import { i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
 import { copyTextToClipboard } from '../../lib/clipboardText'
 import CliConnectionsSection from './CliConnectionsSection'
 import {
-  AGENT_SETUP_PATH,
+  agentSetupPath,
   CONNECT_AGENTS,
   type ConnectAgentId,
   type ConnectPlatform,
   detectPlatform,
   guideUrl,
   manualCommands,
-  WORKBUDDY_SETUP_PATH,
-  WORKBUDDY_SKILL_PATH,
+  SKILL_PACKAGE_PATH,
+  skillPackage,
 } from './connectAgents'
 
 type CopyState = 'idle' | 'done' | 'failed'
@@ -31,6 +31,24 @@ const AGENT_LABEL = {
   codex: 'cliConnect.agent.codex',
   other: 'cliConnect.agent.other',
 } as const satisfies Record<ConnectAgentId, `cliConnect.agent.${ConnectAgentId}`>
+
+const SKILL_COPY = {
+  workbuddy: {
+    title: 'cliConnect.workbuddySkill.title',
+    hint: 'cliConnect.workbuddySkill.hint',
+    download: 'cliConnect.workbuddySkill.download',
+  },
+  doubao: {
+    title: 'cliConnect.doubaoSkill.title',
+    hint: 'cliConnect.doubaoSkill.hint',
+    download: 'cliConnect.doubaoSkill.download',
+  },
+  other: {
+    title: 'cliConnect.otherSkill.title',
+    hint: 'cliConnect.otherSkill.hint',
+    download: 'cliConnect.otherSkill.download',
+  },
+} as const
 
 /** 品牌标记来自 lobe-icons（MIT），见 public/connect-agents/NOTICE.txt。其他没有品牌标记。 */
 const AGENT_ICON: Partial<Record<ConnectAgentId, string>> = {
@@ -129,14 +147,21 @@ export default function CliConnectPage() {
     return () => setDocumentTitleOverride(null)
   }, [])
 
-  const prompt = t(agent === 'workbuddy' ? 'cliConnect.workbuddyPrompt' : 'cliConnect.prompt', {
+  const promptKey =
+    agent === 'workbuddy'
+      ? 'cliConnect.workbuddyPrompt'
+      : agent === 'doubao'
+        ? 'cliConnect.doubaoPrompt'
+        : 'cliConnect.prompt'
+  const prompt = t(promptKey, {
     agent: agent === 'other' ? t('cliConnect.currentAgent') : t(AGENT_LABEL[agent]),
-    setupUrl: guideUrl(
-      agent === 'workbuddy' ? WORKBUDDY_SETUP_PATH : AGENT_SETUP_PATH,
-      window.location.origin,
-    ),
+    setupUrl: guideUrl(agentSetupPath(agent), window.location.origin),
   })
-  const manual = useMemo(() => manualCommands(agent, platform), [agent, platform])
+  const manual = useMemo(
+    () => manualCommands(agent, platform, window.location.origin),
+    [agent, platform],
+  )
+  const pack = skillPackage(agent)
 
   return (
     <main className="flex h-[calc(100dvh-var(--mobile-nav-height,0px)-var(--mobile-topbar-height,0px)-var(--app-inset,0px)*2)] flex-col bg-background text-foreground">
@@ -236,20 +261,16 @@ export default function CliConnectPage() {
                 <StepHeading
                   index={2}
                   title={t(
-                    agent === 'workbuddy' && mode === 'manual'
-                      ? 'cliConnect.workbuddySkill.title'
-                      : 'cliConnect.step2.title',
+                    pack && mode === 'manual' ? SKILL_COPY[pack].title : 'cliConnect.step2.title',
                   )}
                   hint={t(
-                    agent === 'workbuddy' && mode === 'manual'
-                      ? 'cliConnect.workbuddySkill.hint'
-                      : 'cliConnect.step2.hint',
+                    pack && mode === 'manual' ? SKILL_COPY[pack].hint : 'cliConnect.step2.hint',
                   )}
                 />
-                {agent === 'workbuddy' && mode === 'manual' ? (
+                {pack && mode === 'manual' ? (
                   <Button asChild variant="outline" size="sm">
-                    <a href={WORKBUDDY_SKILL_PATH} download>
-                      {t('cliConnect.workbuddySkill.download')}
+                    <a href={SKILL_PACKAGE_PATH[pack]} download>
+                      {t(SKILL_COPY[pack].download)}
                     </a>
                   </Button>
                 ) : null}

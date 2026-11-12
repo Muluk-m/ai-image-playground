@@ -23,6 +23,11 @@ import (
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/auth"
 )
 
+func init() {
+	// Tests must not sleep for the production retry pause.
+	readonlyRetryWait = 0
+}
+
 // fakeServer is a minimal Muvloom API: device flow, rotating tokens, jobs and downloads.
 type fakeServer struct {
 	t              *testing.T
@@ -65,6 +70,14 @@ type fakeServer struct {
 	twoArtifacts bool
 	failArtifact string
 	failJobPoll  bool
+	// meFails, capFails, validateFails and getFails are remaining 503s to emit
+	// before the corresponding read-only endpoint succeeds. 0 means healthy.
+	meFails       int
+	capFails      int
+	validateFails int
+	getFails      int
+	meCalls       int
+	capCalls      int
 	// Loopback sign-in as the service sees it: what the CLI registered, and the code it issued.
 	redirectURI   string
 	codeChallenge string
@@ -201,7 +214,45 @@ func newFakeServer(t *testing.T) *fakeServer {
 		}
 	}
 	mux.HandleFunc("GET /v1/me", authed(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.meCalls++
+		fail := f.meFails > 0
+		if fail {
+			f.meFails--
+		}
+		f.mu.Unlock()
+		if fail {
+			envelope(w, 503, nil, "TEMPORARILY_UNAVAILABLE")
+			return
+		}
 		envelope(w, 200, map[string]any{"account": map[string]any{"id": "u1", "username": "fox"}, "credits": 42, "member": false, "min_cli_version": "0.1.0"}, "")
+	}))
+	mux.HandleFunc("GET /v1/capabilities", authed(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.capCalls++
+		fail := f.capFails > 0
+		if fail {
+			f.capFails--
+		}
+		f.mu.Unlock()
+		if fail {
+			envelope(w, 503, nil, "TEMPORARILY_UNAVAILABLE")
+			return
+		}
+		envelope(w, 200, map[string]any{"models": []any{}, "default_model": ""}, "")
+	}))
+	mux.HandleFunc("POST /v1/image-jobs/validate", authed(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		fail := f.validateFails > 0
+		if fail {
+			f.validateFails--
+		}
+		f.mu.Unlock()
+		if fail {
+			envelope(w, 503, nil, "TEMPORARILY_UNAVAILABLE")
+			return
+		}
+		envelope(w, 200, map[string]any{"credits": 1, "charged": false}, "")
 	}))
 	mux.HandleFunc("POST /v1/image-jobs", authed(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
@@ -239,8 +290,12 @@ func newFakeServer(t *testing.T) *fakeServer {
 		f.jobPolls++
 		done := f.jobPolls >= 3
 		failPoll := f.failJobPoll
+		failOnce := f.getFails > 0
+		if failOnce {
+			f.getFails--
+		}
 		f.mu.Unlock()
-		if failPoll {
+		if failPoll || failOnce {
 			envelope(w, 503, nil, "TEMPORARILY_UNAVAILABLE")
 			return
 		}
@@ -542,6 +597,28 @@ func TestUnknownCommandIsAUsageError(t *testing.T) {
 	}
 	if r := execute(t, app, "jobs", "get"); r.code != ExitInvalid {
 		t.Fatalf("missing argument exit = %d", r.code)
+	}
+}
+
+func TestSkillInstallGenericAndRejectedHosts(t *testing.T) {
+	dir := t.TempDir()
+	app := newApp(t, newFakeServer(t), dir)
+	app.CWD = dir
+	if r := execute(t, app, "skill", "install", "--host", "workbuddy"); r.code != ExitInvalid {
+		t.Fatalf("workbuddy host = %d %s", r.code, r.stdout)
+	}
+	if r := execute(t, app, "skill", "install", "--host", "doubao"); r.code != ExitInvalid {
+		t.Fatalf("doubao host = %d %s", r.code, r.stdout)
+	}
+	if r := execute(t, app, "skill", "install", "--host", "claude-code", "--output", dir); r.code != ExitInvalid {
+		t.Fatalf("output on claude-code = %d %s", r.code, r.stdout)
+	}
+	r := execute(t, app, "skill", "install", "--host", "generic", "--output", dir)
+	if r.code != ExitOK {
+		t.Fatalf("generic install = %d %s", r.code, r.stdout)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "muvloom", "SKILL.md")); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -1307,6 +1384,54 @@ type refusingKeychain struct{}
 func (refusingKeychain) Get(string, string) (string, error) { return "", errors.New("denied") }
 func (refusingKeychain) Set(string, string, string) error   { return errors.New("denied") }
 func (refusingKeychain) Delete(string, string) error        { return errors.New("denied") }
+
+func TestReadonlyCommandsRetryOnceOnATransientError(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	login(t, app)
+	f.mu.Lock()
+	f.meFails, f.capFails, f.validateFails = 1, 1, 1
+	f.mu.Unlock()
+
+	status := execute(t, app, "auth", "status")
+	data := status.out["data"].(map[string]any)
+	if status.code != ExitOK || data["state"] != "ready" {
+		t.Fatalf("status after one 503 = %d %s", status.code, status.stdout)
+	}
+	if r := execute(t, app, "capabilities"); r.code != ExitOK {
+		t.Fatalf("capabilities after one 503 = %d %s", r.code, r.stdout)
+	}
+	if r := execute(t, app, "images", "validate", "--prompt", "setup smoke"); r.code != ExitOK {
+		t.Fatalf("validate after one 503 = %d %s", r.code, r.stdout)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.meCalls < 2 || f.capCalls < 2 {
+		t.Fatalf("read-only calls were not retried: me=%d cap=%d", f.meCalls, f.capCalls)
+	}
+}
+
+func TestReadonlyCommandsDoNotRetryAPersistentOutage(t *testing.T) {
+	f := newFakeServer(t)
+	app := newApp(t, f, t.TempDir())
+	login(t, app)
+	f.mu.Lock()
+	f.meFails, f.capFails = 5, 5
+	f.mu.Unlock()
+
+	status := execute(t, app, "auth", "status")
+	data := status.out["data"].(map[string]any)
+	if status.code != ExitOK || data["state"] != "unreachable" {
+		t.Fatalf("status during a persistent outage = %d %s", status.code, status.stdout)
+	}
+	if r := execute(t, app, "capabilities"); r.code != ExitTemporary {
+		t.Fatalf("capabilities during a persistent outage = %d %s", r.code, r.stdout)
+	}
+	// The existing connection must stay put: unreachable is not a reason to log in again.
+	if creds, err := app.Store.Load(); err != nil || creds.RefreshToken != "refresh-1" {
+		t.Fatalf("the connection was not kept: %v", err)
+	}
+}
 
 func TestTheSubmissionRecordIsUpdatedInPlace(t *testing.T) {
 	f := newFakeServer(t)
