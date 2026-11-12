@@ -62,7 +62,7 @@ SHA-256 of `install.ps1`:
 $script = Join-Path $env:TEMP "muvloom-install.ps1"
 Invoke-WebRequest "<this-guide-origin>/cli/install.ps1?v=<this-page-v>" -OutFile $script
 if ((Get-FileHash $script -Algorithm SHA256).Hash.ToLower() -ne "9f0d1b1c15dcbd0704cc6cdd2dd88e3a5f8cc76d7bc43161e6ccf97bea3ba606") { throw "checksum mismatch" }
-$env:MUVLOOM_MIN_VERSION = "0.2.4"; powershell -NoProfile -ExecutionPolicy Bypass -File $script
+$env:MUVLOOM_MIN_VERSION = "0.2.4"; powershell -NoProfile -ExecutionPolicy Bypass -File $script; if ($LASTEXITCODE -ne 0) { throw "muvloom installer failed with exit code $LASTEXITCODE" }
 $env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")
 ```
 
