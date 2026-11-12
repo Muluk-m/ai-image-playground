@@ -220,7 +220,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
-      # typecheck 在 web job 里跑过，这里不重复；web 的 vitest 在 web-test job 并行跑。
+      # typecheck 在独立的 typecheck job 里跑，这里不重复；web 的 vitest 在 web-test job 并行跑。
       - run: pnpm test --concurrency=1 --env-mode=loose ${{ matrix.part.args }}
   # apps/web 的 vitest 不需要数据库，也是最长的一段；独立出来与 bff job 并行，不再串在它后面。
   # 460 多个文件单台约 4.5 分钟，按 vitest --shard 分到三台机器。
