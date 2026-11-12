@@ -504,7 +504,7 @@ export const plugins: GuidePage = {
         list(
           '分发物是单个原生二进制：macOS arm64/x64、Linux x64/arm64、Windows x64。不需要 Node、npm 或 Python。',
           '`muvloom skill install --host` 只接受 `claude-code` 和 `codex`。写成 workbuddy 或 doubao 是 `USAGE`，退出码 2。`--scope` 只接受 `user` 和 `project`，写错是 `INVALID_REQUEST`，也是退出码 2。',
-          'WorkBuddy 走 `/cli/workbuddy.md`。压缩包地址是 `/cli/muvloom-workbuddy.zip`，由网页构建脚本生成，仓库检出里默认没有这个文件。豆包要在它自己的客户端里上传技能。两边都没有 `--host`。',
+          'WorkBuddy 走 `/cli/workbuddy.md`（压缩包 `/cli/muvloom-workbuddy.zip`）。豆包工作走 `/cli/doubao.md`（压缩包 `/cli/muvloom-doubao.zip`）。其他宿主可用 `/cli/muvloom-skill.zip`。压缩包由网页构建脚本生成，仓库检出里默认没有。不要传 `--host workbuddy` 或 `--host doubao`。',
           '没有 `--n` 张数参数，也没有视频子命令。一次 `images create` 出一张。多张要分多次，技能会自己拆。',
         ),
         warn(
@@ -570,7 +570,7 @@ export const plugins: GuidePage = {
           '`muvloom capabilities` 成功之后才说可以生成。用返回的 label、default_model，以及 GIF 的 `max_frames_by_size`。菜单里没有 Image 2.6，是服务端没开 `GPT_IMAGE_26_ENABLED`。',
         ),
         p(
-          'Claude Code 里用 `/muvloom` 加上你的要求。Codex 用 `/` 或 `/skills` 选中 Muvloom，或 `$muvloom`。这是聊天里的叫法，终端里的命令永远是 `muvloom`。',
+          'Claude Code 里输入 `/muv`（注册的技能是 `/muvloom`，前缀能匹配）。Codex 用 `/` 或 `/skills` 选中 Muvloom，或 `$muvloom`。WorkBuddy 和豆包工作在新任务里输入 `/muv`。这是聊天里的叫法，终端里的命令永远是 `muvloom`。',
         ),
         p(
           '登录是设备码，有效期 20 分钟。命令行打开或打印 `/device`，你在已经登录的浏览器里点批准。`auth login --no-wait` 只打印完整链接。`--timeout` 最多 3600 秒；省略时会等到设备码过期后再多等 1 分钟，因为服务端过期后短时间内仍可能兑成令牌。超时后再跑同一条 `auth login` 会继续这一轮。用户拒绝是 `AUTH_DENIED`。只有 `AUTH_EXPIRED` 才重新开始。不要把密码、Cookie 或令牌交给智能体。',

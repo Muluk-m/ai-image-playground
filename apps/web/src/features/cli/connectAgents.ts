@@ -6,7 +6,8 @@
  * `muvloom skill install --host` 在当前发布里只接受 `claude-code` 与 `codex`
  * （`cli-go/internal/cli/skill.go`）。WorkBuddy 的技能目录是 `~/.workbuddy/skills/`，
  * 豆包工作在客户端「插件·技能·伙伴」里上传技能，都没有对应的 `--host`。
- * WorkBuddy 按专用指南在对话中安装技能；不生成未经 CLI 支持的 `skill install` 命令。
+ * WorkBuddy 和豆包工作按专用指南在对话中安装官方技能；不生成未经当前已发布 CLI
+ * 支持的 `skill install` 命令。其他宿主使用通用技能包。
  */
 
 export const CONNECT_AGENTS = ['workbuddy', 'doubao', 'claude-code', 'codex', 'other'] as const
@@ -14,12 +15,31 @@ export type ConnectAgentId = (typeof CONNECT_AGENTS)[number]
 export type ConnectPlatform = 'unix' | 'windows'
 export const AGENT_SETUP_PATH = '/cli/setup.md'
 export const WORKBUDDY_SETUP_PATH = '/cli/workbuddy.md'
+export const DOUBAO_SETUP_PATH = '/cli/doubao.md'
 export const WORKBUDDY_SKILL_PATH = '/cli/muvloom-workbuddy.zip'
+export const DOUBAO_SKILL_PATH = '/cli/muvloom-doubao.zip'
+export const GENERIC_SKILL_PATH = '/cli/muvloom-skill.zip'
+export const INSTALL_SH_PATH = '/cli/install.sh'
+export const INSTALL_PS1_PATH = '/cli/install.ps1'
 
 const SKILL_HOSTS = new Set<ConnectAgentId>(['claude-code', 'codex'])
 
+export type SkillPackageId = 'workbuddy' | 'doubao' | 'other'
+
+/** 手动安装时需要下载技能包的宿主。Claude Code / Codex 用 CLI 的 skill install。 */
+export function skillPackage(agent: ConnectAgentId): SkillPackageId | null {
+  if (agent === 'workbuddy' || agent === 'doubao' || agent === 'other') return agent
+  return null
+}
+
+export const SKILL_PACKAGE_PATH: Record<SkillPackageId, string> = {
+  workbuddy: WORKBUDDY_SKILL_PATH,
+  doubao: DOUBAO_SKILL_PATH,
+  other: GENERIC_SKILL_PATH,
+}
+
 /**
- * 给智能体的指南网址。`v` 是两份指南内容的哈希：宿主抓取网页时会缓存，网址不变就可能一直读到旧指南
+ * 给智能体的指南网址。`v` 是指南和安装脚本内容的哈希：宿主抓取网页时会缓存，网址不变就可能一直读到旧指南
  * （旧指南里固定着旧的安装版本）；内容一变网址就变，旧缓存自然失效。
  */
 export function guideUrl(path: string, origin: string): string {
@@ -28,18 +48,22 @@ export function guideUrl(path: string, origin: string): string {
   return url.href
 }
 
-/**
- * 官方安装脚本固定到 CLI 发布对应的公开提交，而不是可移动的 `main` 或可重指向的 tag：用户复制的
- * 是已发布版本的脚本，之后分支上的改动不会悄悄变成别人电脑上的命令。脚本再校验下载的 CLI
- * SHA-256；发新版 CLI 时同时更新这两个常量。
- */
-export const CLI_VERSION = '0.2.4'
-export const CLI_RELEASE_REF = '940f1faf1f4147d4b0add11efa5d3684aef0439c'
-const INSTALL_BASE = `https://raw.githubusercontent.com/Muluk-m/ai-image-playground/${CLI_RELEASE_REF}/cli-go/install`
-export const INSTALL_COMMAND: Record<ConnectPlatform, string> = {
-  unix: `curl -fsSL ${INSTALL_BASE}/install.sh | MUVLOOM_VERSION=${CLI_VERSION} sh`,
-  windows: `\$env:MUVLOOM_VERSION = "${CLI_VERSION}"; irm ${INSTALL_BASE}/install.ps1 | iex`,
+export function agentSetupPath(agent: ConnectAgentId): string {
+  if (agent === 'workbuddy') return WORKBUDDY_SETUP_PATH
+  if (agent === 'doubao') return DOUBAO_SETUP_PATH
+  return AGENT_SETUP_PATH
 }
+
+/**
+ * 官网安装脚本随本站 `/cli/install.sh` 与 `/cli/install.ps1` 发布，并用页面里写明的 SHA-256 校验。
+ * 脚本再从 GitHub releases 下载 CLI 二进制并校验其 SHA-256。发新版安装脚本时，setup.md 里的校验和
+ * 必须一并更新。
+ */
+export const CLI_MIN_VERSION = '0.2.4'
+/** 当前已发布的 CLI；未打 tag 的后续版本在指南里只作为最低版本之上的升级，不在页面上提前钉死。 */
+export const CLI_VERSION = '0.2.4'
+export const INSTALL_SH_SHA256 = __CLI_INSTALL_SH_SHA256__
+export const INSTALL_PS1_SHA256 = __CLI_INSTALL_PS1_SHA256__
 
 /**
  * 安装脚本跑在子进程里，改不了当前终端的 PATH：安装目录不在 PATH 时，紧接着的 `muvloom`
@@ -51,16 +75,40 @@ export const SESSION_PATH: Record<ConnectPlatform, string> = {
     '$env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")',
 }
 
-/** 当前 CLI 接受的 `muvloom skill install --host`。没有对应 host 的宿主返回 null。 */
+export function installScriptCommands(platform: ConnectPlatform, origin: string): string[] {
+  if (platform === 'unix') {
+    const url = guideUrl(INSTALL_SH_PATH, origin)
+    return [
+      'tmp="$(mktemp)"',
+      `curl -fsSL "${url}" -o "$tmp"`,
+      `actual="$(command -v sha256sum >/dev/null && sha256sum "$tmp" | awk '{print $1}' || shasum -a 256 "$tmp" | awk '{print $1}')"`,
+      `[ "$actual" = "${INSTALL_SH_SHA256}" ] || { echo "checksum mismatch"; exit 1; }`,
+      `MUVLOOM_MIN_VERSION=${CLI_MIN_VERSION} sh "$tmp"`,
+    ]
+  }
+  const url = guideUrl(INSTALL_PS1_PATH, origin)
+  return [
+    '$script = Join-Path $env:TEMP "muvloom-install.ps1"',
+    `Invoke-WebRequest "${url}" -OutFile $script`,
+    `if ((Get-FileHash $script -Algorithm SHA256).Hash.ToLower() -ne "${INSTALL_PS1_SHA256}") { throw "checksum mismatch" }`,
+    `$env:MUVLOOM_MIN_VERSION = "${CLI_MIN_VERSION}"; & $script`,
+  ]
+}
+
+/** 当前已发布 CLI 接受的 `muvloom skill install --host`。没有对应 host 的宿主返回 null。 */
 export function skillInstallCommand(agent: ConnectAgentId): string | null {
   return SKILL_HOSTS.has(agent) ? `muvloom skill install --host ${agent}` : null
 }
 
 /** 手动做同样的事，终端里逐行执行。安装后立刻补会话 PATH，后面的 `muvloom` 才找得到。 */
-export function manualCommands(agent: ConnectAgentId, platform: ConnectPlatform): string[] {
+export function manualCommands(
+  agent: ConnectAgentId,
+  platform: ConnectPlatform,
+  origin = 'https://muvloom.online',
+): string[] {
   const skill = skillInstallCommand(agent)
   return [
-    INSTALL_COMMAND[platform],
+    ...installScriptCommands(platform, origin),
     SESSION_PATH[platform],
     ...(skill ? [skill] : []),
     'muvloom auth login',
