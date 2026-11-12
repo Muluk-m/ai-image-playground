@@ -106,6 +106,122 @@ func TestInstallGenericWritesALocalMuvloomDirectory(t *testing.T) {
 	}
 }
 
+func TestInstallGenericDoesNotReplaceADirectoryNamedMuvloom(t *testing.T) {
+	parent := t.TempDir()
+	named := filepath.Join(parent, "muvloom")
+	if err := os.MkdirAll(named, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(named, ".git")
+	if err := os.WriteFile(marker, []byte("repo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Install(InstallOptions{Host: "generic", CWD: named, Output: named})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(named, "muvloom")
+	if result.Path != want {
+		t.Fatalf("path = %s, want %s", result.Path, want)
+	}
+	if data, err := os.ReadFile(marker); err != nil || string(data) != "repo\n" {
+		t.Fatalf("project files were changed: %q %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(want, "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	cwdOnly := filepath.Join(t.TempDir(), "muvloom")
+	if err := os.MkdirAll(cwdOnly, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cwdMarker := filepath.Join(cwdOnly, "README")
+	if err := os.WriteFile(cwdMarker, []byte("ok\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwdResult, err := Install(InstallOptions{Host: "generic", CWD: cwdOnly})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cwdResult.Path != filepath.Join(cwdOnly, "muvloom") {
+		t.Fatalf("cwd path = %s, want %s/muvloom", cwdResult.Path, cwdOnly)
+	}
+	if data, err := os.ReadFile(cwdMarker); err != nil || string(data) != "ok\n" {
+		t.Fatalf("cwd project files were changed: %q %v", data, err)
+	}
+}
+
+func TestInstallGenericRefusesANonSkillMuvloomDirectory(t *testing.T) {
+	cwd := t.TempDir()
+	existing := filepath.Join(cwd, "muvloom")
+	if err := os.MkdirAll(existing, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(existing, "notes.txt")
+	if err := os.WriteFile(marker, []byte("keep me\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(InstallOptions{Host: "generic", CWD: cwd}); err == nil {
+		t.Fatal("expected error for a non-skill muvloom directory")
+	}
+	if data, err := os.ReadFile(marker); err != nil || string(data) != "keep me\n" {
+		t.Fatalf("existing files were changed: %q %v", data, err)
+	}
+}
+
+func TestInstallGenericAcceptsAnEmptyMuvloomDirectory(t *testing.T) {
+	cwd := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(cwd, "muvloom"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	result, err := Install(InstallOptions{Host: "generic", CWD: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Path != filepath.Join(cwd, "muvloom") {
+		t.Fatalf("path = %s", result.Path)
+	}
+	if _, err := os.Stat(filepath.Join(result.Path, "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInstallGenericReplacesAnExistingSkillDirectory(t *testing.T) {
+	cwd := t.TempDir()
+	first, err := Install(InstallOptions{Host: "generic", CWD: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Install(InstallOptions{Host: "generic", CWD: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Path != first.Path {
+		t.Fatalf("path changed: %s vs %s", second.Path, first.Path)
+	}
+	if _, err := os.Stat(filepath.Join(second.Path, "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInstallRefusesToReplaceANonSkillHostDestination(t *testing.T) {
+	home := t.TempDir()
+	dest := filepath.Join(home, ".claude", "skills", "muvloom")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(dest, "keep.txt")
+	if err := os.WriteFile(marker, []byte("keep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(InstallOptions{Host: "claude-code", Scope: "user", Home: home}); err == nil {
+		t.Fatal("expected error for a non-skill host destination")
+	}
+	if data, err := os.ReadFile(marker); err != nil || string(data) != "keep\n" {
+		t.Fatalf("existing files were changed: %q %v", data, err)
+	}
+}
+
 func TestInstallStillRejectsWorkbuddyAndDoubaoHosts(t *testing.T) {
 	for _, host := range []string{"workbuddy", "doubao"} {
 		if _, err := Install(InstallOptions{Host: host, Scope: "user"}); err == nil {

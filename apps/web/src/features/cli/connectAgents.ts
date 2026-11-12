@@ -91,7 +91,7 @@ export function installScriptCommands(platform: ConnectPlatform, origin: string)
     '$script = Join-Path $env:TEMP "muvloom-install.ps1"',
     `Invoke-WebRequest "${url}" -OutFile $script`,
     `if ((Get-FileHash $script -Algorithm SHA256).Hash.ToLower() -ne "${INSTALL_PS1_SHA256}") { throw "checksum mismatch" }`,
-    `$env:MUVLOOM_MIN_VERSION = "${CLI_MIN_VERSION}"; & $script`,
+    `$env:MUVLOOM_MIN_VERSION = "${CLI_MIN_VERSION}"; powershell -NoProfile -ExecutionPolicy Bypass -File $script`,
   ]
 }
 
