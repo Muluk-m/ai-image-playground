@@ -62,7 +62,7 @@ SHA-256 of `install.ps1`:
 $script = Join-Path $env:TEMP "muvloom-install.ps1"
 Invoke-WebRequest "<this-guide-origin>/cli/install.ps1?v=<this-page-v>" -OutFile $script
 if ((Get-FileHash $script -Algorithm SHA256).Hash.ToLower() -ne "9f0d1b1c15dcbd0704cc6cdd2dd88e3a5f8cc76d7bc43161e6ccf97bea3ba606") { throw "checksum mismatch" }
-$env:MUVLOOM_MIN_VERSION = "0.2.4"; & $script
+$env:MUVLOOM_MIN_VERSION = "0.2.4"; powershell -NoProfile -ExecutionPolicy Bypass -File $script
 $env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")
 ```
 
@@ -81,7 +81,7 @@ Use the origin of the setup URL supplied by the user's request:
 | https://image-playground.qiliangjia.one | https://image-api.qiliangjia.one |
 | https://test.muvloom.online | https://test-api.muvloom.online |
 
-Set `MUVLOOM_API_URL` only around the first `muvloom auth login` in this setup,
+Set `MUVLOOM_API_URL` before the first `muvloom auth status` in this setup,
 including the production service (`https://api.muvloom.online`).
 On macOS / Linux: `export MUVLOOM_API_URL="<matching URL>"`. In PowerShell:
 `$env:MUVLOOM_API_URL = "<matching URL>"`. Naming the service explicitly lets the
@@ -89,10 +89,12 @@ CLI notice when this machine is signed in to a different one (`service_mismatch`
 instead of quietly reusing that connection: the user may have a test or
 enterprise connection and opened the production page, or the other way round.
 
-Once `auth login` succeeds, unset `MUVLOOM_API_URL` and do not write it into a
-profile or later commands. `auth status` then reports `api_url_source: connection`
-and works without the variable. If the origin is not listed, ask which service
-to connect to instead of guessing.
+Keep the variable set through that first `auth status` and, if needed, the
+following `auth login`. Once the target service reports `state: ready`, unset
+`MUVLOOM_API_URL` and do not write it into a profile or later commands.
+`auth status` then reports `api_url_source: connection` and works without the
+variable. If the origin is not listed, ask which service to connect to instead
+of guessing.
 
 ## 3. Install host instructions
 
@@ -135,9 +137,10 @@ that release is installed, use the official zip above.
 
 ## 4. Connect the account
 
-Run `muvloom auth status` first (see step 5 for retries if it is `unreachable`).
-If it reports `state: ready`, keep the existing connection, unset
-`MUVLOOM_API_URL` if you set it, and proceed to step 5. If it is
+Set `MUVLOOM_API_URL` as in step 2, then run `muvloom auth status` first (see
+step 5 for retries if it is `unreachable`). If it reports `state: ready` for
+the service named by this page, keep the existing connection, unset
+`MUVLOOM_API_URL`, and proceed to step 5. If it is
 `service_mismatch`, `MUVLOOM_API_URL` points at a different service than the one
 this machine is signed in to (`connection_api_url`): do not log in again on your
 own. Unset the variable to use the existing connection, or run
@@ -166,8 +169,8 @@ the host kills the command on timeout, so do not rely on that here.
 
 1. In one reply, tell the user you will give them an approval link to open in
    their **system default browser**, and that you will wait after they approve.
-2. Set `MUVLOOM_NO_BROWSER=1` and run `muvloom auth login --no-wait` (with
-   `MUVLOOM_API_URL` set only for this first login, as in step 2). Paste both
+2. Set `MUVLOOM_NO_BROWSER=1` and run `muvloom auth login --no-wait` (keep
+   `MUVLOOM_API_URL` set as in step 2). Paste both
    `verification_uri_complete` and `user_code` into the chat, clearly, and ask
    the user to open that link in their default browser, sign in, and approve.
 3. Then wait with `muvloom auth login --timeout N` (use a short, host-safe N

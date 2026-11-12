@@ -177,10 +177,9 @@ func installGeneric(opts InstallOptions) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("resolve output directory: %w", err)
 	}
-	destination := parent
-	if filepath.Base(parent) != "muvloom" {
-		destination = filepath.Join(parent, "muvloom")
-	}
+	// Always treat the chosen path as the parent. A project or --output directory
+	// that happens to be named muvloom must receive a muvloom/ child, not be replaced.
+	destination := filepath.Join(parent, "muvloom")
 	if info, err := os.Lstat(destination); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		return Result{}, fmt.Errorf("%s is a symlink; choose another output directory", destination)
 	}
@@ -293,7 +292,42 @@ func hashFiles(files []bundleFile) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// checkReplaceableSkillDir refuses to replace a path that is not an existing
+// Muvloom Skill install (or an empty directory), so a project or user folder
+// named muvloom is never moved aside and deleted.
+func checkReplaceableSkillDir(destination string) error {
+	info, err := os.Lstat(destination)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect %s: %w", destination, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s exists and is not a Skill directory; choose another output directory", destination)
+	}
+	entries, err := os.ReadDir(destination)
+	if err != nil {
+		return fmt.Errorf("inspect %s: %w", destination, err)
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(destination, ".muvloom-skill.json"))
+	if err != nil {
+		return fmt.Errorf("%s already exists and is not a Muvloom Skill install; refusing to replace it", destination)
+	}
+	var meta metadata
+	if err := json.Unmarshal(data, &meta); err != nil || meta.Skill != "muvloom" {
+		return fmt.Errorf("%s already exists and is not a Muvloom Skill install; refusing to replace it", destination)
+	}
+	return nil
+}
+
 func installTree(destination string, files []bundleFile, meta metadata) error {
+	if err := checkReplaceableSkillDir(destination); err != nil {
+		return err
+	}
 	parent := filepath.Dir(destination)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return fmt.Errorf("create Skill parent: %w", err)
