@@ -1,6 +1,10 @@
 import { SUPPORT_CONTACT, SUPPORT_MAILTO } from '@image-playground/shared/support-contact'
+import { CLI_MIN_VERSION, CLI_VERSION, installScriptCommands } from '../../../cli/connectAgents'
 import { faq, type GuidePage, list, note, p, prompt, steps, table, tip, warn } from '../../model'
 import { demo, still } from '../media'
+
+const unixInstall = installScriptCommands('unix', 'https://muvloom.online').join('\n')
+const windowsInstall = installScriptCommands('windows', 'https://muvloom.online').join('\n')
 
 const updated = '2026-11-10'
 
@@ -488,13 +492,12 @@ export const plugins: GuidePage = {
   summary: '安装本机的 muvloom 命令，登录，再让 Claude Code 或 Codex 调用。没有 npm 包。',
   meta: {
     title: '插件集成：Claude Code 与 Codex - 幕芽 Muvloom 使用指南',
-    description:
-      '幕芽 CLI 0.2.4 的安装、设备码登录、生图命令、积分与退出码。正式分发是 Go 二进制 muvloom。',
+    description: `幕芽 CLI ${CLI_VERSION} 的安装、设备码登录、生图命令、积分与退出码。正式分发是 Go 二进制 muvloom。`,
   },
   updated,
   intro: [
     p(
-      '插件是你电脑上的一个命令 `muvloom`，加上装进 Claude Code 或 Codex 的技能说明。仓库里没有 `@muvloom/cli`，也不能 `npx` 安装。发布版本是 0.2.4。给人看的接入页是 `/connect`，设备码批准页是 `/device`。给智能体自动执行的原文是 `/cli/setup.md` 和 `/cli/workbuddy.md`，本页与那两份对照，并以 `cli-go/` 里的命令为准。',
+      `插件是你电脑上的一个命令 \`muvloom\`，加上装进 Claude Code 或 Codex 的技能说明。仓库里没有 \`@muvloom/cli\`，也不能 \`npx\` 安装。发布版本是 ${CLI_VERSION}。给人看的接入页是 \`/connect\`，设备码批准页是 \`/device\`。给智能体自动执行的原文是 \`/cli/setup.md\` 和 \`/cli/workbuddy.md\`，本页与那两份对照，并以 \`cli-go/\` 里的命令为准。`,
     ),
   ],
   sections: [
@@ -515,22 +518,16 @@ export const plugins: GuidePage = {
     },
     {
       id: 'install',
-      title: '安装 0.2.4',
+      title: `安装 ${CLI_MIN_VERSION} 或更新`,
       blocks: [
         p(
-          '安装脚本钉在提交 `940f1faf1f4147d4b0add11efa5d3684aef0439c`，并校验 SHA-256。不要改去跟踪浮动的 main。装好后运行 `muvloom version`，需要 0.2.4 或更新。更低的版本就地替换，已有登录会留着。',
+          `从本站同域下载 \`install.sh\` 或 \`install.ps1\`（与 \`/connect\` 相同来源的 \`/cli/\`），先核对命令里公布的 SHA-256，再以 \`MUVLOOM_MIN_VERSION=${CLI_MIN_VERSION}\` 运行。不要把脚本直接管道进 \`sh\` 或 \`iex\`。不要用 \`MUVLOOM_VERSION\` 钉死精确版本：那样可能把已装的更新版本降级。装好后运行 \`muvloom version\`，需要 ${CLI_MIN_VERSION} 或更新。更低的版本就地替换，已有登录会留着。\`/connect\` 上是同一条经过校验的命令。`,
         ),
-        prompt(
-          'macOS / Linux',
-          'curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/940f1faf1f4147d4b0add11efa5d3684aef0439c/cli-go/install/install.sh | MUVLOOM_VERSION=0.2.4 sh',
-        ),
+        prompt('macOS / Linux', unixInstall),
         p(
           '安装目录：若已经有一份可写的 `muvloom`，就替换那一份；否则在 PATH 上且不用 sudo 就能写的 `/usr/local/bin`；再否则是 `~/.local/bin`。Windows 是已有的 `muvloom.exe` 所在目录，否则 `%LOCALAPPDATA%\\Programs\\muvloom`。可以用 `MUVLOOM_INSTALL_DIR` 指定。接入页附带的 `PATH` 导出把 `~/.local/bin` 加进当前会话；若二进制落在 `/usr/local/bin`，它本来就在 PATH 里。',
         ),
-        prompt(
-          'Windows PowerShell',
-          '$env:MUVLOOM_VERSION = "0.2.4"; irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/940f1faf1f4147d4b0add11efa5d3684aef0439c/cli-go/install/install.ps1 | iex',
-        ),
+        prompt('Windows PowerShell', windowsInstall),
         note(
           'Windows 安装器默认会改用户 PATH。设 `MUVLOOM_NO_MODIFY_PATH=1` 则不改。ARM Windows 不在支持范围。',
         ),
