@@ -19,7 +19,7 @@ import (
 
 // BundleVersion is tied to the native CLI release. Keep the bundled Skill and
 // the executable on the same version so hosts can report what was installed.
-const BundleVersion = "0.2.4"
+const BundleVersion = "0.2.5"
 
 //go:embed assets
 var bundled embed.FS
@@ -27,8 +27,12 @@ var bundled embed.FS
 type InstallOptions struct {
 	Host  string
 	Scope string
-	Home  string
-	CWD   string
+	// Output is the parent directory for --host generic (the Skill is written to
+	// <Output>/muvloom). Empty means the current working directory. It is ignored
+	// for claude-code and codex, which always use their host skill directories.
+	Output string
+	Home   string
+	CWD    string
 	// onlyIf, when set, decides under the install lock whether to replace the copy at the
 	// destination; false skips the install with errNotNeeded, an error stops it.
 	onlyIf func(destination string) (bool, error)
@@ -70,6 +74,9 @@ func hostDir(name string) (string, bool) {
 }
 
 func Install(opts InstallOptions) (Result, error) {
+	if opts.Host == "generic" {
+		return installGeneric(opts)
+	}
 	dir, ok := hostDir(opts.Host)
 	if !ok {
 		return Result{}, fmt.Errorf("unsupported host %q", opts.Host)
@@ -148,6 +155,54 @@ func Install(opts InstallOptions) (Result, error) {
 		return Result{}, err
 	}
 	return Result{Host: opts.Host, Scope: opts.Scope, ProjectDir: projectDir, Path: destination, Version: BundleVersion, FileHash: hash}, nil
+}
+
+// installGeneric writes the bundled Skill to a local muvloom/ directory the user
+// can upload to a host that has no --host value. It never writes into ~/.claude,
+// ~/.agents, or any unverified host configuration directory.
+func installGeneric(opts InstallOptions) (Result, error) {
+	cwd := opts.CWD
+	if cwd == "" {
+		var err error
+		cwd, err = os.Getwd()
+		if err != nil {
+			return Result{}, fmt.Errorf("find current directory: %w", err)
+		}
+	}
+	parent := opts.Output
+	if parent == "" {
+		parent = cwd
+	}
+	parent, err := filepath.Abs(parent)
+	if err != nil {
+		return Result{}, fmt.Errorf("resolve output directory: %w", err)
+	}
+	destination := parent
+	if filepath.Base(parent) != "muvloom" {
+		destination = filepath.Join(parent, "muvloom")
+	}
+	if info, err := os.Lstat(destination); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return Result{}, fmt.Errorf("%s is a symlink; choose another output directory", destination)
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return Result{}, err
+	}
+	release, err := auth.LockFile(filepath.Join(filepath.Dir(destination), ".muvloom-install.lock"), installLockWait)
+	if err != nil {
+		return Result{}, fmt.Errorf("another muvloom is updating %s: %w", destination, err)
+	}
+	defer release()
+	if info, err := os.Lstat(destination); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return Result{}, fmt.Errorf("%s is a symlink; choose another output directory", destination)
+	}
+	files, hash, err := bundleFiles()
+	if err != nil {
+		return Result{}, err
+	}
+	if err := installTree(destination, files, metadata{Skill: "muvloom", Version: BundleVersion, Host: "generic", Scope: "local", FileHash: hash}); err != nil {
+		return Result{}, err
+	}
+	return Result{Host: "generic", Scope: "local", Path: destination, Version: BundleVersion, FileHash: hash}, nil
 }
 
 // checkDestination refuses a destination reached through a symlink.

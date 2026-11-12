@@ -79,6 +79,41 @@ func TestInstallRejectsUnknownHostAndScope(t *testing.T) {
 	}
 }
 
+func TestInstallGenericWritesALocalMuvloomDirectory(t *testing.T) {
+	cwd := t.TempDir()
+	out := filepath.Join(t.TempDir(), "pack")
+	result, err := Install(InstallOptions{Host: "generic", Output: out, CWD: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(out, "muvloom")
+	if result.Path != want || result.Host != "generic" {
+		t.Fatalf("result = %+v, want path %s", result, want)
+	}
+	if _, err := os.Stat(filepath.Join(want, "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	// The default output is cwd/muvloom, never a host directory.
+	fallback, err := Install(InstallOptions{Host: "generic", CWD: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fallback.Path != filepath.Join(cwd, "muvloom") {
+		t.Fatalf("default generic path = %s", fallback.Path)
+	}
+	if _, err := os.Stat(filepath.Join(cwd, ".claude")); !os.IsNotExist(err) {
+		t.Fatalf("generic install wrote a host directory: %v", err)
+	}
+}
+
+func TestInstallStillRejectsWorkbuddyAndDoubaoHosts(t *testing.T) {
+	for _, host := range []string{"workbuddy", "doubao"} {
+		if _, err := Install(InstallOptions{Host: host, Scope: "user"}); err == nil {
+			t.Fatalf("expected error for host %s", host)
+		}
+	}
+}
+
 func TestInstalledReportsUserAndProjectMetadata(t *testing.T) {
 	home := t.TempDir()
 	project := filepath.Join(home, "repo")
