@@ -1243,7 +1243,7 @@ const plugins: GuidePage = {
         list(
           'One native binary: macOS arm64/x64, Linux x64/arm64, Windows x64. No Node, npm or Python.',
           '`skill install --host` accepts only `claude-code` and `codex`. Any other host is USAGE, exit 2. A bad `--scope` is INVALID_REQUEST, also exit 2. Scope is `user` or `project`.',
-          'WorkBuddy follows `/cli/workbuddy.md`. The zip URL is `/cli/muvloom-workbuddy.zip`, produced by the web build and absent from a bare checkout. Doubao is uploaded in that client. Neither has a `--host`.',
+          'WorkBuddy follows `/cli/workbuddy.md` (zip: `/cli/muvloom-workbuddy.zip`). Doubao Work follows `/cli/doubao.md` (zip: `/cli/muvloom-doubao.zip`). Other hosts can use `/cli/muvloom-skill.zip`. The zips are produced by the web build and absent from a bare checkout. Do not pass `--host workbuddy` or `--host doubao`.',
           'There is no `--n` count and no video subcommand. One `images create` makes one file.',
         ),
         warn('The HTTP paths the CLI calls are not a curl tutorial. Run `muvloom`.'),
@@ -1304,7 +1304,7 @@ const plugins: GuidePage = {
           '`muvloom capabilities` must succeed before you generate. Use its label, default model, and `gif.max_frames_by_size`. Image 2.6 is missing when `GPT_IMAGE_26_ENABLED` is off.',
         ),
         p(
-          'In Claude Code the chat invocation is `/muvloom`. In Codex use `/`, `/skills`, or `$muvloom`. The terminal command is always `muvloom`. Sign-in is a device code that lasts 20 minutes. The CLI opens or prints `/device`. You approve in a browser that is already signed in. `--no-wait` only prints the link. `--timeout` is at most 3600 seconds. Omitting it waits until the code expires and then one more minute, because the server can still redeem it briefly after expiry. Running `auth login` again after a timeout resumes the same attempt. AUTH_DENIED stops. Only AUTH_EXPIRED starts over. Do not give the agent a password, cookie or token.',
+          'In Claude Code type `/muv` (the registered skill is `/muvloom`). In Codex use `/`, `/skills`, or `$muvloom`. In WorkBuddy or Doubao Work, type `/muv` in a new task. The terminal command is always `muvloom`. Sign-in is a device code that lasts 20 minutes. The CLI opens or prints `/device`. You approve in a browser that is already signed in. `--no-wait` only prints the link. `--timeout` is at most 3600 seconds. Omitting it waits until the code expires and then one more minute, because the server can still redeem it briefly after expiry. Running `auth login` again after a timeout resumes the same attempt. AUTH_DENIED stops. Only AUTH_EXPIRED starts over. Do not give the agent a password, cookie or token.',
         ),
       ],
     },

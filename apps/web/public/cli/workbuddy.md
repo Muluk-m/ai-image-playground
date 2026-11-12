@@ -6,7 +6,7 @@
 
 ## 1. 安装 CLI
 
-先运行 `muvloom version`；未安装，或版本低于 0.2.4 时，按 [CLI 安装指南](setup.md) 第 1 节安装（取 `setup.md` 时用与本页相同的地址、只替换文件名，并沿用本页网址里的 `?v=`：它随指南内容变化，能避免读到缓存的旧指南）（安装器原地升级并保留已有登录；不要沿用旧版 CLI）。无论 CLI 是否已安装，都先按该指南第 2 节，根据当前 WorkBuddy 指南页面的域名为本次会话选择服务，再检查此服务的登录状态；只有服务一致时才复用已有连接。然后回到本文继续。
+先运行 `muvloom version`；未安装，或版本低于 0.2.4 时，按 [CLI 安装指南](setup.md) 第 1 节安装（取 `setup.md` 时用与本页相同的地址、只替换文件名，并沿用本页网址里的 `?v=`：它随指南内容变化，能避免读到缓存的旧指南）（安装器原地升级并保留已有登录；已比 0.2.4 更新的版本不要重装，以免降级；在第一次 `auth status` 之前设置 `MUVLOOM_API_URL`，完成该服务的状态检查和必要登录后再取消）。无论 CLI 是否已安装，都先按该指南第 2 节，根据当前 WorkBuddy 指南页面的域名为本次会话选择服务，再检查此服务的登录状态；只有服务一致时才复用已有连接。然后回到本文继续。
 
 ## 2. 在对话中安装幕芽技能
 
@@ -25,9 +25,9 @@ CLI 0.2.4 不支持 `muvloom skill install --host workbuddy`，不要发明这�
 
 按包内 `references/workbuddy.md` 执行账号连接与本地权限错误处理。用户点完授权你就自动继续，不需要用户再回复你。关键顺序：
 
-1. 前台运行 `muvloom auth status`，已经 `ready` 就保留连接。
-2. 未登录时，先在这一条回复里告诉用户「授权页马上打开，你点完授权我会自动继续，不需要回复我」；**不要结束本回合**。
-3. 紧接着前台执行 `muvloom auth login`：它自己打开授权页并等待，点完授权即返回 `ready`。返回 `AUTH_PENDING` 或被宿主截断时再执行一次，它会接着同一次登录、不再打开新页面，直到 `ready`、`AUTH_DENIED` 或 `AUTH_EXPIRED`（授权码 20 分钟有效）。
+1. 前台运行 `muvloom auth status`，已经 `ready` 就保留连接。`unreachable` 是短暂故障，按 [安装指南](setup.md) 第 5 节重试，不要因此发起新的登录。
+2. 未登录且当前环境能在用户本机打开浏览器时，先在这一条回复里告诉用户「授权页马上在系统默认浏览器打开，你点完授权我会自动继续，不需要回复我」；**不要结束本回合**。
+3. 授权必须使用系统默认浏览器。用户可能已经在默认浏览器里登录了幕芽。不要指定 Chrome 或任何其他浏览器，不要用 `Start-Process` 打开浏览器，不要用「操作电脑」去寻找浏览器，不要为打开网址申请提高权限。本机可打开浏览器时，紧接着前台执行 `muvloom auth login`：让 CLI 自己打开系统默认浏览器并等待，点完授权即返回 `ready`。CLI 打不开浏览器时，把 `verification_uri_complete` 交给用户在默认浏览器打开。若当前环境控制不了用户的浏览器（云端/远程），改走安装指南第 4 节路径 A：`MUVLOOM_NO_BROWSER=1 muvloom auth login --no-wait`，把链接贴进对话，再用 `auth login --timeout N` 等待。返回 `AUTH_PENDING` 或被宿主截断时再执行一次，它会接着同一次登录、不再打开新页面，直到 `ready`、`AUTH_DENIED` 或 `AUTH_EXPIRED`（授权码 20 分钟有效）。
 4. 只有等待被宿主连续两次打断时，才退回到让用户点完授权后回复一句，再用 `muvloom auth login --timeout 15` 收尾。
 5. 遇到本地写入失败时，暂停并说明必要权限；不要将其说成授权码过期，也不要循环发码。
 
@@ -35,6 +35,6 @@ CLI 0.2.4 不支持 `muvloom skill install --host workbuddy`，不要发明这�
 
 ## 4. 验收
 
-技能安装必须验证已启用，且新任务的 `/muv` 候选中能找到幕芽；只存在技能文件不算验收通过。用户还要求连接账号时，再确认 `muvloom auth status` 返回 `ready`、`muvloom capabilities` 成功。任何一项未完成，就说明当前状态与剩余操作，不能仅凭浏览器显示已授权就宣告成功。
+技能安装必须验证已启用，且新任务的 `/muv` 候选中能找到幕芽；只存在技能文件不算验收通过。用户还要求连接账号时，再按 [安装指南](setup.md) 第 5 节确认 `muvloom auth status` 返回 `ready`、`muvloom capabilities` 成功，并用 `images validate` 做零花费报价。短暂的 `unreachable` / `TEMPORARILY_UNAVAILABLE` 要重试三次（间隔 5 秒、再 15 秒）；仍失败就告诉用户稍后重试，并保留已有连接。任何一项未完成，就说明当前状态与剩余操作，不能仅凭浏览器显示已授权就宣告成功。
 
 参考：[WorkBuddy 官方技能导入说明](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Skills-Market)、[官方权限说明](https://www.codebuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Permission-Modes)。

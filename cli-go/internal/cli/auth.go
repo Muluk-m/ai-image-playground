@@ -300,7 +300,9 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 		return status, nil
 	}
 	var me account
-	if err := c.Do(ctx, http.MethodGet, "/v1/me", nil, &me); err != nil {
+	if err := retryReadonly(ctx, func() error {
+		return c.Do(ctx, http.MethodGet, "/v1/me", nil, &me)
+	}); err != nil {
 		failure := asFailure(err)
 		switch exitByCode[failure.Code] {
 		case ExitAuth:

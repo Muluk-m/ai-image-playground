@@ -19,7 +19,7 @@ import (
 
 // BundleVersion is tied to the native CLI release. Keep the bundled Skill and
 // the executable on the same version so hosts can report what was installed.
-const BundleVersion = "0.2.4"
+const BundleVersion = "0.2.5"
 
 //go:embed assets
 var bundled embed.FS
@@ -27,8 +27,12 @@ var bundled embed.FS
 type InstallOptions struct {
 	Host  string
 	Scope string
-	Home  string
-	CWD   string
+	// Output is the parent directory for --host generic (the Skill is written to
+	// <Output>/muvloom). Empty means the current working directory. It is ignored
+	// for claude-code and codex, which always use their host skill directories.
+	Output string
+	Home   string
+	CWD    string
 	// onlyIf, when set, decides under the install lock whether to replace the copy at the
 	// destination; false skips the install with errNotNeeded, an error stops it.
 	onlyIf func(destination string) (bool, error)
@@ -70,6 +74,9 @@ func hostDir(name string) (string, bool) {
 }
 
 func Install(opts InstallOptions) (Result, error) {
+	if opts.Host == "generic" {
+		return installGeneric(opts)
+	}
 	dir, ok := hostDir(opts.Host)
 	if !ok {
 		return Result{}, fmt.Errorf("unsupported host %q", opts.Host)
@@ -148,6 +155,53 @@ func Install(opts InstallOptions) (Result, error) {
 		return Result{}, err
 	}
 	return Result{Host: opts.Host, Scope: opts.Scope, ProjectDir: projectDir, Path: destination, Version: BundleVersion, FileHash: hash}, nil
+}
+
+// installGeneric writes the bundled Skill to a local muvloom/ directory the user
+// can upload to a host that has no --host value. It never writes into ~/.claude,
+// ~/.agents, or any unverified host configuration directory.
+func installGeneric(opts InstallOptions) (Result, error) {
+	cwd := opts.CWD
+	if cwd == "" {
+		var err error
+		cwd, err = os.Getwd()
+		if err != nil {
+			return Result{}, fmt.Errorf("find current directory: %w", err)
+		}
+	}
+	parent := opts.Output
+	if parent == "" {
+		parent = cwd
+	}
+	parent, err := filepath.Abs(parent)
+	if err != nil {
+		return Result{}, fmt.Errorf("resolve output directory: %w", err)
+	}
+	// Always treat the chosen path as the parent. A project or --output directory
+	// that happens to be named muvloom must receive a muvloom/ child, not be replaced.
+	destination := filepath.Join(parent, "muvloom")
+	if info, err := os.Lstat(destination); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return Result{}, fmt.Errorf("%s is a symlink; choose another output directory", destination)
+	}
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return Result{}, err
+	}
+	release, err := auth.LockFile(filepath.Join(filepath.Dir(destination), ".muvloom-install.lock"), installLockWait)
+	if err != nil {
+		return Result{}, fmt.Errorf("another muvloom is updating %s: %w", destination, err)
+	}
+	defer release()
+	if info, err := os.Lstat(destination); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return Result{}, fmt.Errorf("%s is a symlink; choose another output directory", destination)
+	}
+	files, hash, err := bundleFiles()
+	if err != nil {
+		return Result{}, err
+	}
+	if err := installTree(destination, files, metadata{Skill: "muvloom", Version: BundleVersion, Host: "generic", Scope: "local", FileHash: hash}); err != nil {
+		return Result{}, err
+	}
+	return Result{Host: "generic", Scope: "local", Path: destination, Version: BundleVersion, FileHash: hash}, nil
 }
 
 // checkDestination refuses a destination reached through a symlink.
@@ -238,7 +292,42 @@ func hashFiles(files []bundleFile) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// checkReplaceableSkillDir refuses to replace a path that is not an existing
+// Muvloom Skill install (or an empty directory), so a project or user folder
+// named muvloom is never moved aside and deleted.
+func checkReplaceableSkillDir(destination string) error {
+	info, err := os.Lstat(destination)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect %s: %w", destination, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s exists and is not a Skill directory; choose another output directory", destination)
+	}
+	entries, err := os.ReadDir(destination)
+	if err != nil {
+		return fmt.Errorf("inspect %s: %w", destination, err)
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	data, err := os.ReadFile(filepath.Join(destination, ".muvloom-skill.json"))
+	if err != nil {
+		return fmt.Errorf("%s already exists and is not a Muvloom Skill install; refusing to replace it", destination)
+	}
+	var meta metadata
+	if err := json.Unmarshal(data, &meta); err != nil || meta.Skill != "muvloom" {
+		return fmt.Errorf("%s already exists and is not a Muvloom Skill install; refusing to replace it", destination)
+	}
+	return nil
+}
+
 func installTree(destination string, files []bundleFile, meta metadata) error {
+	if err := checkReplaceableSkillDir(destination); err != nil {
+		return err
+	}
 	parent := filepath.Dir(destination)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return fmt.Errorf("create Skill parent: %w", err)
