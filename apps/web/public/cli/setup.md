@@ -12,17 +12,17 @@ it from the same address as this page with its file name replaced, keeping this
 page's `?v=` query. That value changes whenever the guides or installers change,
 so a cached older copy is never used.
 
-## 1. Install CLI 0.2.4 or newer
+## 1. Install CLI 0.2.5 or newer
 
 Run `muvloom version` first, and also look for a copy that is installed but
 missing from PATH (`~/.local/bin/muvloom`, `/usr/local/bin/muvloom`,
 `/opt/homebrew/bin/muvloom` on macOS / Linux; `%LOCALAPPDATA%\Programs\muvloom\muvloom.exe`
 on Windows).
 
-- If the installed version is already 0.2.4 or newer, do not run the installer.
+- If the installed version is already 0.2.5 or newer, do not run the installer.
   An exact-version pin can downgrade a newer CLI; the installer also refuses to
   downgrade, but you must not paste an install command over a newer copy.
-- If the command is missing, or the version is lower than 0.2.4, install with
+- If the command is missing, or the version is lower than 0.2.5, install with
   the commands below. The installer replaces the existing CLI in place, keeps
   the user's sign-in, and will not install a release older than
   `MUVLOOM_MIN_VERSION`. It installs the latest release that meets that minimum,
@@ -35,14 +35,14 @@ file, verify the SHA-256 published here, then execute. Fetch `install.sh` or
 ### macOS / Linux
 
 SHA-256 of `install.sh`:
-`ca475b8aaa141716604c94444675cefb787f7e49bc750aa510101421943da6b9`
+`a4497cb8ac2fc14cb5bcfc6a96ea6f696f182f66d956ebf2714802ac78a00b27`
 
 ```sh
 tmp="$(mktemp)"
 curl -fsSL "<this-guide-origin>/cli/install.sh?v=<this-page-v>" -o "$tmp"
 actual="$(command -v sha256sum >/dev/null && sha256sum "$tmp" | awk '{print $1}' || shasum -a 256 "$tmp" | awk '{print $1}')"
-[ "$actual" = "ca475b8aaa141716604c94444675cefb787f7e49bc750aa510101421943da6b9" ] || { echo "checksum mismatch"; exit 1; }
-MUVLOOM_MIN_VERSION=0.2.4 sh "$tmp"
+[ "$actual" = "a4497cb8ac2fc14cb5bcfc6a96ea6f696f182f66d956ebf2714802ac78a00b27" ] || { echo "checksum mismatch"; exit 1; }
+MUVLOOM_MIN_VERSION=0.2.5 sh "$tmp"
 export PATH="${MUVLOOM_INSTALL_DIR:-$HOME/.local/bin}:$PATH"
 ```
 
@@ -56,13 +56,13 @@ and a profile change is only picked up by later sessions. Do not write
 ### Windows (PowerShell)
 
 SHA-256 of `install.ps1`:
-`9f0d1b1c15dcbd0704cc6cdd2dd88e3a5f8cc76d7bc43161e6ccf97bea3ba606`
+`453cfa45ba6d41a59fcb9cd6b778db3a0882c06ca75fea753674553576b535fe`
 
 ```powershell
 $script = Join-Path $env:TEMP "muvloom-install.ps1"
 Invoke-WebRequest "<this-guide-origin>/cli/install.ps1?v=<this-page-v>" -OutFile $script
-if ((Get-FileHash $script -Algorithm SHA256).Hash.ToLower() -ne "9f0d1b1c15dcbd0704cc6cdd2dd88e3a5f8cc76d7bc43161e6ccf97bea3ba606") { throw "checksum mismatch" }
-$env:MUVLOOM_MIN_VERSION = "0.2.4"; powershell -NoProfile -ExecutionPolicy Bypass -File $script; if ($LASTEXITCODE -ne 0) { throw "muvloom installer failed with exit code $LASTEXITCODE" }
+if ((Get-FileHash $script -Algorithm SHA256).Hash.ToLower() -ne "453cfa45ba6d41a59fcb9cd6b778db3a0882c06ca75fea753674553576b535fe") { throw "checksum mismatch" }
+$env:MUVLOOM_MIN_VERSION = "0.2.5"; powershell -NoProfile -ExecutionPolicy Bypass -File $script; if ($LASTEXITCODE -ne 0) { throw "muvloom installer failed with exit code $LASTEXITCODE" }
 $env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")
 ```
 
@@ -128,7 +128,7 @@ skills through its UI, upload that zip or the `muvloom/` folder with the host's
 add/upload-skill action. After setup, tell the user to type `/muv` (or the
 host's equivalent slash) to find 幕芽.
 
-CLI 0.2.4's `skill install --host` only accepts `claude-code` and `codex`. Do
+CLI 0.2.5's `skill install --host` only accepts `claude-code` and `codex`. Do
 not invent `--host workbuddy` or `--host doubao`, and do not write into an
 unverified host configuration directory as the default method. A later CLI
 release may add `muvloom skill install --host generic` as an escape hatch that

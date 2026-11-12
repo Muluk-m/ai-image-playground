@@ -59,9 +59,9 @@ export function agentSetupPath(agent: ConnectAgentId): string {
  * 脚本再从 GitHub releases 下载 CLI 二进制并校验其 SHA-256。发新版安装脚本时，setup.md 里的校验和
  * 必须一并更新。
  */
-export const CLI_MIN_VERSION = '0.2.4'
+export const CLI_MIN_VERSION = '0.2.5'
 /** 当前已发布的 CLI；未打 tag 的后续版本在指南里只作为最低版本之上的升级，不在页面上提前钉死。 */
-export const CLI_VERSION = '0.2.4'
+export const CLI_VERSION = '0.2.5'
 export const INSTALL_SH_SHA256 = __CLI_INSTALL_SH_SHA256__
 export const INSTALL_PS1_SHA256 = __CLI_INSTALL_PS1_SHA256__
 
