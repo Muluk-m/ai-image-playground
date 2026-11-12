@@ -1,6 +1,7 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, posix } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { dirname, join, posix, resolve } from 'node:path'
 import { strFromU8, unzipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 import {
@@ -137,4 +138,13 @@ describe('generic Skill package', () => {
     expect(files['muvloom/references/doubao.md']).toBeUndefined()
     expect(Object.keys(files).every((name) => name.startsWith('muvloom/'))).toBe(true)
   })
+})
+
+it('Docker 构建上下文放行技能包要读的宿主说明', () => {
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../')
+  const ignore = readFileSync(resolve(repoRoot, '.dockerignore'), 'utf8')
+  for (const directory of ['apps/web/workbuddy-skill', 'apps/web/doubao-skill']) {
+    expect(ignore).toContain(`!${directory}/`)
+    expect(ignore).toContain(`!${directory}/**`)
+  }
 })
