@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs the native muvloom CLI from GitHub releases, verifying its SHA-256 checksum.
 #   MUVLOOM_VERSION=0.1.0        pin an exact release (never downgrades a newer install)
-#   MUVLOOM_MIN_VERSION=0.2.4    install the latest release that is at least this version
+#   MUVLOOM_MIN_VERSION=0.2.5    install the latest release that is at least this version
 #   MUVLOOM_INSTALL_DIR=...      install directory. Default: where muvloom already is (one copy, and
 #                                it is the one that runs), else /usr/local/bin when that is on PATH and
 #                                writable without sudo, else ~/.local/bin. For a system-wide install

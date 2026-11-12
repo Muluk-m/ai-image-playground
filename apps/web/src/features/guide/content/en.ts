@@ -1,4 +1,5 @@
 import { SUPPORT_CONTACT, SUPPORT_MAILTO } from '@image-playground/shared/support-contact'
+import { CLI_MIN_VERSION, CLI_VERSION, installScriptCommands } from '../../cli/connectAgents'
 import {
   faq,
   type GuideContent,
@@ -14,6 +15,9 @@ import {
 } from '../model'
 import { GUIDE_PATHS } from '../paths'
 import { demo, promoFilm, still } from './media'
+
+const unixInstall = installScriptCommands('unix', 'https://muvloom.online').join('\n')
+const windowsInstall = installScriptCommands('windows', 'https://muvloom.online').join('\n')
 
 const updated = '2026-11-10'
 const ui = 'The recording shows the Chinese interface.'
@@ -1227,12 +1231,12 @@ const plugins: GuidePage = {
     'Install the muvloom binary, sign in, then call it from Claude Code or Codex. There is no npm package.',
   meta: {
     title: 'CLI plugin - Muvloom guide',
-    description: 'Install Muvloom CLI 0.2.4, sign in with a device code, and read the exit codes.',
+    description: `Install Muvloom CLI ${CLI_VERSION}, sign in with a device code, and read the exit codes.`,
   },
   updated,
   intro: [
     p(
-      'The plugin is the `muvloom` command plus a skill installed into Claude Code or Codex. The repo has no `@muvloom/cli` package and no `npx` install. The published version is 0.2.4. People use `/connect`. Approval is `/device`. Agents still read `/cli/setup.md` and `/cli/workbuddy.md`. This page follows `cli-go/`.',
+      `The plugin is the \`muvloom\` command plus a skill installed into Claude Code or Codex. The repo has no \`@muvloom/cli\` package and no \`npx\` install. The published version is ${CLI_VERSION}. People use \`/connect\`. Approval is \`/device\`. Agents still read \`/cli/setup.md\` and \`/cli/workbuddy.md\`. This page follows \`cli-go/\`.`,
     ),
   ],
   sections: [
@@ -1251,22 +1255,16 @@ const plugins: GuidePage = {
     },
     {
       id: 'install',
-      title: 'Install 0.2.4',
+      title: `Install ${CLI_MIN_VERSION} or newer`,
       blocks: [
         p(
-          'The installer is pinned to commit `940f1faf1f4147d4b0add11efa5d3684aef0439c` and checks SHA-256. Do not track floating main. After install, `muvloom version` must be 0.2.4 or newer. A lower binary is replaced in place and the saved sign-in is kept.',
+          `Download \`install.sh\` or \`install.ps1\` from this site (\`/cli/\` on the same origin as \`/connect\`), verify the SHA-256 published in the command, then run it with \`MUVLOOM_MIN_VERSION=${CLI_MIN_VERSION}\`. Do not pipe a script into \`sh\` or \`iex\`. Prefer the minimum version over pinning \`MUVLOOM_VERSION\` to an exact release: an exact pin can downgrade a newer CLI. After install, \`muvloom version\` must be ${CLI_MIN_VERSION} or newer. A lower binary is replaced in place and the saved sign-in is kept. The same verified command is on \`/connect\`.`,
         ),
-        prompt(
-          'macOS / Linux',
-          'curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/940f1faf1f4147d4b0add11efa5d3684aef0439c/cli-go/install/install.sh | MUVLOOM_VERSION=0.2.4 sh',
-        ),
+        prompt('macOS / Linux', unixInstall),
         p(
           'Install directory: the directory of a `muvloom` that is already on PATH and writable; otherwise `/usr/local/bin` when it is on PATH and writable without sudo; otherwise `~/.local/bin`. Windows uses the existing `muvloom.exe` directory, or `%LOCALAPPDATA%\\Programs\\muvloom`. Override with `MUVLOOM_INSTALL_DIR`. Windows can set `MUVLOOM_NO_MODIFY_PATH=1` to leave PATH alone. ARM Windows is not supported.',
         ),
-        prompt(
-          'Windows PowerShell',
-          '$env:MUVLOOM_VERSION = "0.2.4"; irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/940f1faf1f4147d4b0add11efa5d3684aef0439c/cli-go/install/install.ps1 | iex',
-        ),
+        prompt('Windows PowerShell', windowsInstall),
       ],
     },
     {
