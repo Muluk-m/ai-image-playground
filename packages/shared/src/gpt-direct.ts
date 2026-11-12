@@ -119,23 +119,21 @@ export function clampGptBasicRequest<T extends GptTierInput>(model: string, requ
 }
 
 /**
- * 每张图按档位与画质的积分倍率，以 1K medium 为 1。2026-10-31 直连实测输出 token（两个模型相同）：
- * 1K 196/439/1756、2K 397/892/3568、4K(3840x2160) 371/865/3336（low/medium/high）。
- * 低画质不打折；auto 与没写按 medium 计（直连把 auto 改发 medium，成本才有上限）。
+ * 2.5 直连每张图的积分倍率，以 1K 为 1，只看档位：1K 100、2K 120（+20%）、4K 150（+50%）。
+ * 这是产品定价（Nain，2026-11-12），不再按 2026-10-31 的直连 token 成本表把高画质乘 4/8 倍。
+ * 画质（low / medium / high / auto）不影响价格；高画质仍只开给会员，是权益而不是加价项。
  */
-const GPT_IMAGE_MULTIPLIERS = {
-  '1K': { low: 1, medium: 1, high: 4 },
-  '2K': { low: 1, medium: 2, high: 8 },
-  '4K': { low: 1, medium: 2, high: 8 },
+const GPT_IMAGE_TIER_MULTIPLIERS = {
+  '1K': 1,
+  '2K': 1.2,
+  '4K': 1.5,
 } as const
 
 export function gptImageRateMultiplier(model: string, request: GptTierInput): number {
-  // 2.6 用绝对积分换算成「100 积分 = 1」的倍率，不走 2.5 那张 1/1/4 表。
+  // 2.6 用绝对积分换算成「100 积分 = 1」的倍率，不走 2.5 这张档位表。
   if (isGptImage26Model(model)) return gptImage26RateMultiplier(request)
   if (!isGptDirectModel(model)) return 1
-  const { quality } = request
-  const level = quality === 'low' || quality === 'high' ? quality : 'medium'
-  return GPT_IMAGE_MULTIPLIERS[tierOf(request)][level]
+  return GPT_IMAGE_TIER_MULTIPLIERS[tierOf(request)]
 }
 
 /**
@@ -183,7 +181,7 @@ function billableImageTier(
 
 /**
  * 每张图的积分倍率，乘在价目表单价上，再由 `ceil(单价 × 张数 × 倍率)` 取整。
- * GPT 直连仍按档位 × 画质；Nano 2.1 / Pro 按可出的请求档；没写档位、认不出的档、以及其余模型为 1。
+ * GPT 2.5 直连只按档位；Nano 2.1 / Pro 按可出的请求档；没写档位、认不出的档、以及其余模型为 1。
  */
 export function imageRateMultiplier(
   model: string,
