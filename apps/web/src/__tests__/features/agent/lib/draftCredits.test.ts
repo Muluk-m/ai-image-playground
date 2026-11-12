@@ -51,10 +51,10 @@ it('prices a Gemini draft at the requested tier and a prepared GPT 2K high draft
       }),
       quote,
     ),
-  ).toBe(20)
+  ).toBe(12)
   expect(seen).toEqual([
     { model: 'gemini-nano-banana-2.1', unitMultiplier: 1.5 },
-    { model: 'gpt-image-2.5-flare', unitMultiplier: 2 },
+    { model: 'gpt-image-2.5-flare', unitMultiplier: 1.2 },
   ])
 })
 
