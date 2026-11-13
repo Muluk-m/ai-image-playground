@@ -53,6 +53,7 @@ export type {
   TaskStatus,
   TaskVolumeBucket,
   UserDetailResult,
+  UserKpis,
   UserStatus,
   UserTasksResult,
   VolumeBucketUnit,

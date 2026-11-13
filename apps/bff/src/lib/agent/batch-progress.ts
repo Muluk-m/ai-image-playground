@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { sqlBatchAttemptTarget } from '@image-playground/db'
 import {
   type AgentBatchAttemptSnapshot,
   agentBatch,
@@ -43,7 +44,9 @@ export async function pauseBatchForAnalysisAuthentication(
         eq(schema.agent_batch_attempts.item_key, schema.agent_batch_items.key),
         eq(
           schema.agent_batch_attempts.attempt,
-          sql<number>`coalesce((${schema.agent_batch_plans.attempt_targets} ->> ${schema.agent_batch_items.key})::integer, 1)`,
+          sqlBatchAttemptTarget(
+            sql`${schema.agent_batch_plans.attempt_targets} ->> ${schema.agent_batch_items.key}`,
+          ),
         ),
       ),
     )
@@ -283,7 +286,7 @@ export async function reconcileAgentBatchProgress(batchId: string): Promise<void
           eq(attempts.batch_id, items.batch_id),
           eq(attempts.item_key, items.key),
           lte(attempts.version, items.version),
-          sql`${attempts.attempt} = COALESCE((${schema.agent_batch_plans.attempt_targets} ->> ${items.key})::integer, 1)`,
+          sql`${attempts.attempt} = ${sqlBatchAttemptTarget(sql`${schema.agent_batch_plans.attempt_targets} ->> ${items.key}`)}`,
         ),
       )
       .where(and(eq(items.batch_id, batchId), eq(items.version, batch.confirmed_version)))

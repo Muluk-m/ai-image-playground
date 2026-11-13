@@ -131,6 +131,7 @@ import {
   CreationToolbar,
 } from './creation/CreationFrame'
 import { CreationReferenceStack } from './creation/CreationReferenceStack'
+import { agentModeOf, creationModeOf } from './creation/composerMode'
 import HomeTargetPicker from './creation/HomeTargetPicker'
 import { useReferenceDisplay } from './creation/referenceDisplay'
 import { LookCapsule } from './LookChips'
@@ -466,10 +467,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       failedIndexes.length === 0 &&
       quickCheck.pending === 0,
   )
-  const creationMode = toCanvas ? (createTarget === 'video' ? 'video' : 'agent') : 'image'
+  const creationMode = creationModeOf(createTarget, { inline })
   const apiReady = toCanvas || hasSubmitApiConfig
   // 技能只有画布里的智能体认得。生成档开头挂着 `/技能` 时不提交：否则这行命令会被当成提示词直接拿去出图。
-  const skills = useAgentSkills(creationMode === 'video' ? 'video' : 'image')
+  const skills = useAgentSkills(agentModeOf(creationMode))
   const leadingSkill = useMemo(() => getLeadingAgentSkill(prompt, skills), [prompt, skills])
   const skillNeedsCanvas = Boolean(leadingSkill) && !toCanvas
   // 模板准备中按钮变成停止：只有点按钮才取消，回车不取消、也不发新的一条。
@@ -513,7 +514,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           await startCanvasFromComposer(
             draft,
             createTarget === 'chat' ? 'chat' : 'canvas',
-            creationMode === 'video' ? 'video' : 'image',
+            agentModeOf(creationMode),
           )
         } finally {
           canvasSubmittingRef.current = false

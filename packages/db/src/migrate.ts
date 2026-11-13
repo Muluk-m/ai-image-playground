@@ -8,6 +8,7 @@ import { migrate } from 'drizzle-orm/bun-sql/migrator'
 const migrationsFolder = fileURLToPath(new URL('../drizzle', import.meta.url))
 const MIGRATION_LOCK = 'ai-image-playground:migrations'
 
+// Journal idx 13 and 80 were never issued. See packages/db/README.md before adding a migration.
 // Audited equivalences, not a general exemption for missing historical migrations.
 // Pin both SQL bytes and journal stamps so a later edit cannot silently widen an exception.
 const migrationSupersessions = [
