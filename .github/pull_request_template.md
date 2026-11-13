@@ -6,6 +6,8 @@
 修 bug 的 PR 还要写根因：哪里错了、为什么会错，这次是在根因那一层修的还是先止血（REVIEW.md「修 bug 的 PR」）。
 -->
 
+> 修复生产问题的 PR：打 `escape` 和对应类别标签（`escape:refresh|multi-tab|sync|race|visual|auth|upstream|billing|pipeline|logic`），台账见 docs/research/escape-ledger-2026-11.md。
+
 ## 怎么测的
 
 <!--
