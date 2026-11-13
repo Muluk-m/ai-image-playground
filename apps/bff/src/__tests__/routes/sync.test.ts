@@ -13,6 +13,7 @@ import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 const TEST_DB = await resetTestDatabase('bff_sync_routes')
 
 process.env.PORT = '0'
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 process.env.DATABASE_URL = TEST_DB
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../sync-operator-config.json')

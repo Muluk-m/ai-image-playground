@@ -32,6 +32,7 @@ process.env.RESEND_API_KEY = 'fixture-email-key'
 process.env.EMAIL_FROM = 'fixture@example.com'
 process.env.EMAIL_CODE_SECRET = 'fixture-email-code-secret-at-least-32-characters'
 process.env.PORT = '0'
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 
 const { close, db, schema } = await import('../../db/client')

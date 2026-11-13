@@ -6,6 +6,7 @@ import { inArray, sql } from 'drizzle-orm'
 
 process.env.DATABASE_URL = await resetTestDatabase('batch_page_pool')
 process.env.PORT = '0'
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 process.env.DATABASE_POOL_MAX = '1'
 // A pool checkout deadlock must fail deterministically and release the reserved connection.
 process.env.DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS = '1000'

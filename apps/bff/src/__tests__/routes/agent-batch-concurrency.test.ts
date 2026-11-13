@@ -19,6 +19,7 @@ import { waitFor } from '../helpers/upstreamStubs'
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_agent_batch_concurrency')
 process.env.PORT = '0'
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 process.env.WORKER_OPENAI_CONCURRENCY = '3'
 process.env.INTERNAL_API_TOKEN = 'batch-reconciliation-token'
 process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
