@@ -1,5 +1,9 @@
 import { createHash } from 'node:crypto'
-import { type AgentBatchAttemptSnapshot, taskFailureCode } from '@image-playground/shared'
+import {
+  type AgentBatchAttemptSnapshot,
+  agentBatch,
+  taskFailureCode,
+} from '@image-playground/shared'
 import { and, asc, eq, inArray, isNull, lte, ne, or, type SQL, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { log } from '../logger'
@@ -73,7 +77,7 @@ export async function pauseBatchForAnalysisAuthentication(
   await tx
     .update(schema.agent_batches)
     .set({
-      status: 'paused',
+      status: agentBatch.target('pause'),
       pause_reason: 'upstream_auth',
       dispatch_generation: batch.dispatch_generation + 1,
       updated_at: Date.now(),
@@ -220,7 +224,7 @@ export async function reconcileAgentBatchProgress(batchId: string): Promise<void
       await tx
         .update(schema.agent_batches)
         .set({
-          status: 'paused',
+          status: agentBatch.target('pause'),
           pause_reason: 'upstream_auth',
           dispatch_generation: batch.dispatch_generation + 1,
           updated_at: Date.now(),
@@ -314,7 +318,7 @@ export async function reconcileAgentBatchProgress(batchId: string): Promise<void
     ) {
       await tx
         .update(schema.agent_batches)
-        .set({ status: 'closed', updated_at: Date.now() })
+        .set({ status: agentBatch.target('close'), updated_at: Date.now() })
         .where(eq(schema.agent_batches.id, batchId))
       await enqueueAgentWake(
         tx,
@@ -430,6 +434,6 @@ async function discardSettledDetachedBatch(tx: BffTransaction, batchId: string):
     .where(eq(schema.agent_batch_plans.batch_id, batchId))
   await tx
     .update(schema.agent_batches)
-    .set({ status: 'closed', pause_reason: null, updated_at: Date.now() })
+    .set({ status: agentBatch.target('close'), pause_reason: null, updated_at: Date.now() })
     .where(eq(schema.agent_batches.id, batchId))
 }

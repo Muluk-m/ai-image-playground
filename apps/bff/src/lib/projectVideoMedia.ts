@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { mediaObject } from '@image-playground/shared'
 import { and, eq, gt } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
@@ -128,7 +129,7 @@ async function promote(userId: string, taskId: string, outputIndex: number) {
         const [saved] = await tx
           .update(schema.media_objects)
           .set({
-            status: 'ready',
+            status: mediaObject.step('pending', 'publish'),
             object_key: key,
             preview_key: key,
             preview_bytes: 0,

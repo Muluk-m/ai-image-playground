@@ -151,6 +151,18 @@ export function findPage(path: string): SitePage | undefined {
   const normalized = `${path.replace(/\/+$/, '')}/`
   return pageList.find((page) => page.path === normalized)
 }
+/** 未知地址的语言。英文站在 `/en` 与 `/guide/en`，其余按中文。 */
+export function localeFromPath(path: string): Locale {
+  const normalized = path.replace(/\/+$/, '') || '/'
+  if (
+    normalized === '/en' ||
+    normalized.startsWith('/en/') ||
+    normalized === '/guide/en' ||
+    normalized.startsWith('/guide/en/')
+  )
+    return 'en'
+  return 'zh-CN'
+}
 /** 另一语言里内容对应的页面；没有对应页时返回 undefined（不写 hreflang）。 */
 export function counterpartPage(page: SitePage): SitePage | undefined {
   return pageList.find(

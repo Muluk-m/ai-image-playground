@@ -7,12 +7,12 @@ import type {
   AnnouncementLocale,
   AnnouncementPublicItem,
   AnnouncementPublicList,
-  AnnouncementStatus,
   AnnouncementType,
 } from '@image-playground/shared'
 import {
   announcementIsVisible,
   announcementMatchesAudience,
+  announcementPublication,
   effectiveAnnouncementStatus,
   localizeAnnouncement,
   parseAnnouncementDraft,
@@ -302,7 +302,9 @@ export async function updateAnnouncement(
 ): Promise<AnnouncementAdminItem> {
   const draft = requireDraft(input)
   const existing = await loadRow(id)
-  if (existing.status === 'archived') throw new AnnouncementOperationError('invalid_announcement')
+  if (!announcementPublication.allows(existing.status, 'revise')) {
+    throw new AnnouncementOperationError('invalid_announcement')
+  }
   const now = Date.now()
   return db.transaction(async (tx) => {
     const [updated] = await tx
@@ -326,7 +328,7 @@ function publishFields(draft: AnnouncementDraft, requestedAt: number | null, now
   if (!draft.titleZh.trim() || !draft.bodyZh.trim()) {
     throw new AnnouncementOperationError('invalid_announcement')
   }
-  const status: AnnouncementStatus = publishAt > now ? 'scheduled' : 'published'
+  const status = announcementPublication.target(publishAt > now ? 'schedule' : 'publish')
   return { status, publish_at: publishAt }
 }
 
@@ -338,7 +340,12 @@ export async function publishAnnouncement(
 ): Promise<AnnouncementAdminItem> {
   const why = requireReason(reason)
   const existing = await loadRow(id)
-  if (existing.status === 'archived') throw new AnnouncementOperationError('invalid_announcement')
+  if (
+    !announcementPublication.allows(existing.status, 'publish') &&
+    !announcementPublication.allows(existing.status, 'schedule')
+  ) {
+    throw new AnnouncementOperationError('invalid_announcement')
+  }
   const next = publishFields(draftFromRow(existing), publishAt, Date.now())
   const now = Date.now()
   return db.transaction(async (tx) => {
@@ -366,14 +373,18 @@ export async function unpublishAnnouncement(
 ): Promise<AnnouncementAdminItem> {
   const why = requireReason(reason)
   const existing = await loadRow(id)
-  if (existing.status !== 'published' && existing.status !== 'scheduled') {
+  if (!announcementPublication.allows(existing.status, 'unpublish')) {
     throw new AnnouncementOperationError('invalid_announcement')
   }
   const now = Date.now()
   return db.transaction(async (tx) => {
     const [updated] = await tx
       .update(schema.announcements)
-      .set({ status: 'draft', updated_at: now, updated_by: operatorId })
+      .set({
+        status: announcementPublication.target('unpublish'),
+        updated_at: now,
+        updated_by: operatorId,
+      })
       .where(eq(schema.announcements.id, id))
       .returning()
     if (!updated) throw new AnnouncementOperationError('not_found')
@@ -395,7 +406,11 @@ export async function archiveAnnouncement(
   return db.transaction(async (tx) => {
     const [updated] = await tx
       .update(schema.announcements)
-      .set({ status: 'archived', updated_at: now, updated_by: operatorId })
+      .set({
+        status: announcementPublication.target('archive'),
+        updated_at: now,
+        updated_by: operatorId,
+      })
       .where(eq(schema.announcements.id, id))
       .returning()
     if (!updated) throw new AnnouncementOperationError('not_found')

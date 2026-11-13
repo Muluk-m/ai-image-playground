@@ -16,4 +16,4 @@ stateDiagram-v2
   ready --> failed: fail
 ```
 
-`reuse` 是摘要已经传过。`uploading → ready` 是预留接口直接返回 ready、不再确认。`ready → failed` 保留现有 catch：成功之后的计时上报若抛错，仍会把回调打成 failed。这是现行为，不是新的用户可见分支。
+`reuse` 是摘要已经传过。`uploading → ready` 是预留接口直接返回 ready、不再确认。`ready → failed` 保留现有 catch：成功之后的计时上报若抛错，仍会把回调打成 failed。上传回调已经按这张表前进。

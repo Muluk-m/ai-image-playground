@@ -1,11 +1,15 @@
 import { useTranslation } from '../../../i18n'
 import { INK_3 } from '../agentStyles'
+import { agentTurnSession } from '../lib/turnSession'
 import { useAgentStore } from '../store'
 
 /** 跟着的那一轮断了流、正在续播时，面板顶部的一条细提示；接上就消失，界面不像卡死。 */
 export default function AgentConnectionHint() {
   const { t } = useTranslation('agent')
-  const reconnecting = useAgentStore((state) => state.reconnecting && state.turn === 'running')
+  const reconnecting = useAgentStore((state) => {
+    const session = agentTurnSession(state)
+    return session.phase === 'running' && session.stream === 'reconnecting'
+  })
   if (!reconnecting) return null
   return (
     <p

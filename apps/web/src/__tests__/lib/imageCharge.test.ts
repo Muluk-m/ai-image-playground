@@ -117,7 +117,7 @@ describe('前端报价与旧实现逐项等价', () => {
         true,
         false,
       ),
-    ).toBe(2)
+    ).toBe(1.2)
     expect(
       quotedGptMultiplier(
         'gpt-image-2.5-flare',
@@ -125,7 +125,7 @@ describe('前端报价与旧实现逐项等价', () => {
         true,
         true,
       ),
-    ).toBe(8)
+    ).toBe(1.5)
   })
 
   it('stage / batch / look 与 agent 入口的收口策略一致（前端 prepared 报价固定按 agent 算）', () => {
@@ -173,6 +173,12 @@ describe('画布报价与服务端实扣一致', () => {
       composerImageRate('gpt-image-2.6-flare', medium1k, true, true),
     )
     expect(composerImageRate('gpt-image-2.6-flare', high4k, true, true)).toBeGreaterThan(3.3)
-    expect(composerImageRate('gpt-image-2.5-flare', high4k, true, true)).toBe(8)
+    expect(composerImageRate('gpt-image-2.5-flare', high4k, true, true)).toBe(1.5)
+    // 2.5 只按档位计价：1K 高画质与 1K 中等同价，报价 100 / 120 / 150。
+    const high1k = { size: '1024x1024', quality: 'high' } as const
+    const high2k = { size: '2048x2048', quality: 'high' } as const
+    expect(composerImageRate('gpt-image-2.5-flare', high1k, true, true) * 100).toBe(100)
+    expect(composerImageRate('gpt-image-2.5-flare', high2k, true, true) * 100).toBe(120)
+    expect(composerImageRate('gpt-image-2.5-flare', high4k, true, true) * 100).toBe(150)
   })
 })
