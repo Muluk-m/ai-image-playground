@@ -13,4 +13,4 @@ stateDiagram-v2
   consumed --> pending: requeue
 ```
 
-`requeue` 只发生在插话没能进当前轮、且 `consumed_turn_id` 仍是那一轮的时候。已 consumed 不能撤回。
+`requeue` 只发生在插话没能进当前轮、且 `consumed_turn_id` 仍是那一轮的时候。已 consumed 不能撤回。收件箱写入已改用这张表。
