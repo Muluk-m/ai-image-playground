@@ -342,7 +342,7 @@ export const USER_KPI_CACHE_MS = 30_000
 type DbHandle = ReturnType<typeof getHandle>
 // 缓存跟着数据库句柄走：同一进程换了 DATABASE_URL 时不拿别的库的数字。
 let userKpiCache: { at: number; value: UserKpis; db: DbHandle } | null = null
-let userKpiPending: { promise: Promise<UserKpis>; db: DbHandle } | null = null
+let userKpiPending: { promise: Promise<UserKpis>; db: DbHandle; fresh: boolean } | null = null
 let userKpiGeneration = 0
 let userKpiCacheGeneration = 0
 
@@ -393,7 +393,9 @@ export function getUserKpis(now = Date.now(), fresh = false): Promise<UserKpis> 
   const handle = getHandle()
   if (!fresh && userKpiCache?.db === handle && now - userKpiCache.at < USER_KPI_CACHE_MS)
     return Promise.resolve(userKpiCache.value)
-  if (!fresh && userKpiPending?.db === handle) return userKpiPending.promise
+  // 强制刷新不搭普通查询的车（它可能早于刚才的写入），但多次强制刷新共用一次扫描。
+  if (userKpiPending?.db === handle && (!fresh || userKpiPending.fresh))
+    return userKpiPending.promise
   // 手动刷新另起一次查询；代数让更早发起的查询晚到时不覆盖更新的缓存。
   const generation = ++userKpiGeneration
   const promise: Promise<UserKpis> = loadUserKpis(handle)
@@ -407,7 +409,7 @@ export function getUserKpis(now = Date.now(), fresh = false): Promise<UserKpis> 
     .finally(() => {
       if (userKpiPending?.promise === promise) userKpiPending = null
     })
-  userKpiPending = { promise, db: handle }
+  userKpiPending = { promise, db: handle, fresh }
   return promise
 }
 
