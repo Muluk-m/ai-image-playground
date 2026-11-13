@@ -6,7 +6,7 @@ import {
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { requireAuth } from '../lib/middleware'
-import { getUserDetail, getUserTasks, listUsers } from '../lib/queries'
+import { getUserDetail, getUserKpis, getUserTasks, listUsers } from '../lib/queries'
 import { forwardUserOperation } from '../lib/users'
 
 const VALID_STATUSES = ['all', ...TASK_STATUSES]
@@ -67,6 +67,9 @@ export const usersRoutes = new Elysia({ prefix: '/api/users' })
       }),
     },
   )
+  .get('/kpis', ({ query }) => getUserKpis(Date.now(), query.fresh === '1'), {
+    query: t.Object({ fresh: t.Optional(t.String()) }),
+  })
   .get(
     '/:id',
     async ({ params, status }) => {

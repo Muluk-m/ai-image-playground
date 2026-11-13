@@ -1,5 +1,10 @@
 import type { GptDirectAdminView } from '@image-playground/shared'
-import { replaceEqualDeep, useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import {
+  type QueryClient,
+  replaceEqualDeep,
+  useInfiniteQuery,
+  useQuery,
+} from '@tanstack/react-query'
 import { useEffect, useMemo, useState } from 'react'
 import type {
   AgentPromptFilters,
@@ -30,6 +35,7 @@ import type {
   SortKey,
   TaskDetail,
   UserDetailResult,
+  UserKpis,
   UserTasksResult,
 } from './types'
 
@@ -118,6 +124,26 @@ export interface UserListOptions {
   dir?: 'asc' | 'desc'
   page?: number
   pageSize?: 50 | 100
+}
+
+/** 全局指标，不跟列表筛选和页码走。服务端另有 30 秒缓存。 */
+/** 绕过服务端 30 秒缓存取最新 KPI。全局默认 staleTime 是 Infinity，不写 0 会直接返回缓存。 */
+export function refreshUserKpis(queryClient: QueryClient): Promise<UserKpis | undefined> {
+  return queryClient
+    .fetchQuery({
+      queryKey: ['user-kpis'],
+      queryFn: () => apiClient.get<UserKpis>('/api/users/kpis?fresh=1'),
+      staleTime: 0,
+    })
+    .catch(() => undefined)
+}
+
+export function useUserKpis() {
+  return useQuery({
+    queryKey: ['user-kpis'],
+    queryFn: () => apiClient.get<UserKpis>('/api/users/kpis'),
+    staleTime: 30_000,
+  })
 }
 
 export function useUsers(search: string, options: UserListOptions = {}) {
