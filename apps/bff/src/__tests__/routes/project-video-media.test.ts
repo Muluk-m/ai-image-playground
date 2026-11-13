@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 process.env.PORT = '0'
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 process.env.DATABASE_URL = await resetTestDatabase('project_video_media')
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../projects-operator-config.json')
 const { app } = await import('../../app')

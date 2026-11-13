@@ -18,7 +18,7 @@ process.env.PORT = '0'
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test'
 process.env.DATABASE_URL = TEST_DB
-process.env.CORS_ALLOWED_ORIGINS = '*'
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.test,https://studio.example.test'
 process.env.OPERATOR_CONFIG_FILE = resolve(
   import.meta.dir,
   '../billing-reserve-operator-config.json',

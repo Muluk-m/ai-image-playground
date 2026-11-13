@@ -24,6 +24,7 @@ import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 process.env.PORT = '0'
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'fixture'
 process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
