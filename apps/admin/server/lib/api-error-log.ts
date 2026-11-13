@@ -1,3 +1,5 @@
+import { redactLogText } from '@image-playground/shared'
+
 const BODY_ERROR_CODES = new Set(['VALIDATION', 'PARSE'])
 
 function errorCode(error: unknown): string | undefined {
@@ -22,8 +24,9 @@ export function logAdminApiError(request: Request, error: unknown): void {
     console.error(`[admin] ${request.method} ${pathname} failed: ${code}`)
     return
   }
-  const message = error instanceof Error ? error.message : String(error)
-  const stack = error instanceof Error ? error.stack : undefined
+  const message = redactLogText(error instanceof Error ? error.message : String(error))
+  const stack =
+    error instanceof Error && error.stack ? redactLogText(error.stack, 0, 16_000) : undefined
   console.error(
     `[admin] ${request.method} ${pathname} failed: ${message}${stack ? `\n${stack}` : ''}`,
   )
