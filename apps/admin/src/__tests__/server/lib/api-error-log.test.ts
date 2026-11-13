@@ -95,4 +95,24 @@ describe('logAdminApiError', () => {
       spy.mockRestore()
     }
   })
+
+  it('redacts bearer tokens and API keys that leak into the message or stack', () => {
+    const spy = spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const error = new Error(
+        'upstream failed Bearer sk-abcdefghijklmnopqrstuvwxyz AIzaSyabcdefghijklmnopqrstuvwxyz',
+      )
+      error.stack = `${error.stack ?? ''}\nhttps://user:pass@upstream.test/callback`
+      logAdminApiError(new Request('http://localhost/api/tasks/task-1'), error)
+      const logged = spy.mock.calls.map((call) => call.map(String).join(' ')).join('\n')
+      expect(logged).toContain('GET /api/tasks/task-1 failed: upstream failed Bearer [REDACTED]')
+      expect(logged).toContain('[REDACTED]@upstream.test')
+      expect(logged).not.toContain('sk-abcdefghijklmnopqrstuvwxyz')
+      expect(logged).not.toContain('AIzaSyabcdefghijklmnopqrstuvwxyz')
+      expect(logged).not.toContain('user:pass')
+      expect(logged).toContain('api-error-log.test.ts')
+    } finally {
+      spy.mockRestore()
+    }
+  })
 })
