@@ -71,7 +71,7 @@ const result = (api: boolean, web: boolean, admin: boolean) =>
 const nothing = result(false, false, false)
 const everything = result(true, true, true)
 
-function decide(target: string, event = 'workflow_run', webOrigins = `${paidSite}/`) {
+function decide(target: string, event = 'schedule', webOrigins = `${paidSite}/`) {
   const output = join(root, 'output')
   writeFileSync(output, '')
   const run = spawnSync('sh', [script, target, event, `${paidApi}/`], {
@@ -152,6 +152,13 @@ describe('ci-deploy-target.sh', () => {
     serveSides({ api: commits[2], web: commits[2], admin: commits[2] })
     expect(decide(commits[2]).decision).toBe(nothing)
     expect(decide(commits[2], 'workflow_dispatch').decision).toBe(everything)
+  })
+
+  it('ships every side when only the pinned overlay lock changed', () => {
+    const previous = commits[2]
+    const tip = commitOnTip('private.lock', `${'a'.repeat(40)}\n`)
+    serveSides({ api: previous, web: previous, admin: previous })
+    expect(decide(tip).decision).toBe(everything)
   })
 
   it('ships only the user-facing sites when only the web bundle changed', () => {
@@ -243,7 +250,7 @@ describe('ci-deploy-target.sh', () => {
       [`${paidSite}/version.json`]: manifest(commits[1], true),
       [`${adminSite}/version.json`]: JSON.stringify({ notify: false }),
     })
-    const { decision, log } = decide(tip, 'workflow_run', `${enterpriseSite} ${paidSite}/`)
+    const { decision, log } = decide(tip, 'schedule', `${enterpriseSite} ${paidSite}/`)
     expect(decision).toBe(everything)
     expect(log).toContain(
       `::warning::${paidSite} runs ${commits[1]} while another copy runs ${previous}`,
@@ -268,7 +275,7 @@ describe('ci-deploy-target.sh', () => {
       [`${paidSite}/version.json`]: manifest(tip, true),
       [`${adminSite}/version.json`]: manifest(tip, true),
     })
-    expect(decide(tip, 'workflow_run', `${enterpriseSite} ${paidSite}/`).decision).toBe(
+    expect(decide(tip, 'schedule', `${enterpriseSite} ${paidSite}/`).decision).toBe(
       result(false, true, false),
     )
   })

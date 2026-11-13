@@ -35,11 +35,11 @@ Pages 发布入口为 `muvloom|test|admin`；后端生产目标只有 `paid`，�
 
 设置里的 `v…` 来自这次部署注入的 `APP_RELEASE`。本地和 PR 构建没有这个变量，显示根 `package.json` 里的 `MAJOR.MINOR.0`。`/health` 的 `version` 仍是提交号（muvloom 版再加私有提交）；产品版本在旁边的 `release` 字段。
 
-## 默认：合并 main 即部署
+## 默认：合并 main 后按窗口部署
 
 负责人决定（2026-09-18）：会话只负责合并到 `main`，不再手动发布；部署由 [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml) 完成。下文手动步骤仅作应急（CI 不可用、需发布非 main 提交时）。
 
-1. 触发：`Web checks` 在 main 的 push 上成功（`workflow_run`），或在 main 上手动 `workflow_dispatch`。main 上的 `Web checks` 先由 `prior` 核对：提交与其同仓 PR 头的代码树相同、且该 PR 头的 `Web checks` 已通过时，其余检查跳过（结论仍为 success），直接进入部署；PR 落后于 main、来自 fork 或找不到通过记录时照常全跑。并发组 `production-deploy` 不取消在跑的发布，排队只留最新一次。
+1. 触发：`schedule` 窗口，北京时间 12:30、18:30、23:30（cron UTC `30 4,10,15 * * *`），只发当时 `origin/main` 的 tip，且该提交的 `Web checks` 须已在 main 上成功，未完成或失败则跳过本窗口（notice，不报错）；overlay-bump 用 `GITHUB_TOKEN` 推的 lock 提交没有 `Web checks`，改看其父提交。紧急通道是在 main 上手动 `workflow_dispatch`，必填 `reason`（写入 job summary），全量重发，用于紧急修复与 overlay 即时发布。main 上的 `Web checks` 先由 `prior` 核对：提交与其同仓 PR 头的代码树相同、且该 PR 头的 `Web checks` 已通过时，其余检查跳过（结论仍为 success），直接进入部署；PR 落后于 main、来自 fork 或找不到通过记录时照常全跑。并发组 `production-deploy` 不取消在跑的发布，排队只留最新一次。
 2. `target`：[`scripts/ci-deploy-target.sh`](../../scripts/ci-deploy-target.sh) 判定共享 muvloom API、muvloom Pages 项目（企业域名与 muvloom 域名共用）、Admin 是否需要发布。前端扫描 `PAID_PUBLIC_ORIGIN` 的 `/version.json`，同一项目的其他域名随之更新。提交不是 `origin/main` 最新、或任一受管 API / 站点已运行其后代提交（不回退）则整单跳过；版本读不到或副本不一致照常发布。
 3. `release`：在同一个 `production-deploy` 并发组里根据根 `package.json` 的主次版本和已有 `vMAJOR.MINOR.*` 标签算出下一个补丁，打上 `vMAJOR.MINOR.PATCH` 并推送，避免两次发布抢同一个补丁。不把版本提交回 main。
 4. `backend`：仅在 API 树有变化时检出该提交，用 deploy key 按 `private.lock` 钉住的提交检出私有仓库到 `private/`，`GITHUB_TOKEN` 登录 GHCR，构建发布目录并经 forced command 执行 `deploy <id> paid <run_id>`，更新共享 muvloom 后端。
