@@ -1,9 +1,14 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, posix } from 'node:path'
+import { dirname, join, posix, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { strFromU8, unzipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
-import { createWorkBuddySkillZip } from '../../../scripts/build-workbuddy-skill.mjs'
+import {
+  createDoubaoSkillZip,
+  createGenericSkillZip,
+  createWorkBuddySkillZip,
+} from '../../../scripts/build-workbuddy-skill.mjs'
 
 describe('WorkBuddy Skill package', () => {
   it('imports as one skill with WorkBuddy metadata and complete local references', () => {
@@ -45,6 +50,8 @@ describe('WorkBuddy Skill package', () => {
     const files = unzipSync(createWorkBuddySkillZip())
     const guide = strFromU8(files['muvloom/references/workbuddy.md'])
     expect(guide).toContain('前台运行 `muvloom auth login`')
+    expect(guide).toContain('系统默认浏览器')
+    expect(guide).toContain('不要指定 Chrome')
     expect(guide).not.toContain('muvloom auth login --timeout 60')
     expect(guide).toContain('不会再打开新页面')
     expect(guide).toContain('AUTH_PENDING')
@@ -76,4 +83,68 @@ describe('WorkBuddy Skill package', () => {
       rmSync(sourceDirectory, { recursive: true, force: true })
     }
   })
+})
+
+describe('Doubao Skill package', () => {
+  it('imports as one skill with Doubao metadata and complete local references', () => {
+    const files = unzipSync(createDoubaoSkillZip())
+    const skill = strFromU8(files['muvloom/SKILL.md'])
+    const frontmatter = skill.match(/^---\n([\s\S]+?)\n---\n/)?.[1] ?? ''
+    expect(frontmatter).toMatch(/^name: muvloom$/m)
+    expect(frontmatter).toMatch(/^description: .+/m)
+    expect(Object.keys(files).filter((name) => name.endsWith('/SKILL.md'))).toEqual([
+      'muvloom/SKILL.md',
+    ])
+    expect(files['muvloom/references/doubao.md']).toBeDefined()
+    expect(skill).toContain('[Doubao Work setup](references/doubao.md)')
+    for (const [name, bytes] of Object.entries(files)) {
+      expect(name.startsWith('muvloom/')).toBe(true)
+      if (!name.endsWith('.md')) continue
+      for (const match of strFromU8(bytes).matchAll(/\[[^\]]*\]\(([^)]+)\)/g)) {
+        const href = match[1].split('#')[0]
+        if (!href || /^[a-z]+:/i.test(href)) continue
+        const target = posix.normalize(posix.join(posix.dirname(name), href))
+        expect(target.startsWith('muvloom/')).toBe(true)
+        expect(files[target], `${name} links to missing ${target}`).toBeDefined()
+      }
+    }
+  })
+
+  it('tells the agent to use the system default browser and not to hunt for Chrome', () => {
+    const files = unzipSync(createDoubaoSkillZip())
+    const guide = strFromU8(files['muvloom/references/doubao.md'])
+    expect(guide).toContain('系统默认浏览器')
+    expect(guide).toContain('不要指定 Chrome')
+    expect(guide).toContain('Start-Process')
+    expect(guide).toContain('操作电脑')
+    expect(guide).toContain('附属浏览器')
+    expect(guide).toContain('verification_uri_complete')
+    expect(guide).toContain('AUTH_PENDING')
+    expect(guide).toContain('MUVLOOM_NO_BROWSER=1')
+    expect(guide).not.toContain('muvloom skill install --host doubao')
+    expect(guide).toContain('/muv')
+  })
+
+  it('produces identical bytes from the same checked-in source', () => {
+    expect(createDoubaoSkillZip()).toEqual(createDoubaoSkillZip())
+  })
+})
+
+describe('generic Skill package', () => {
+  it('ships the official SKILL.md pack under a muvloom/ root', () => {
+    const files = unzipSync(createGenericSkillZip())
+    expect(strFromU8(files['muvloom/SKILL.md'])).toContain('name: muvloom')
+    expect(files['muvloom/references/workbuddy.md']).toBeUndefined()
+    expect(files['muvloom/references/doubao.md']).toBeUndefined()
+    expect(Object.keys(files).every((name) => name.startsWith('muvloom/'))).toBe(true)
+  })
+})
+
+it('Docker 构建上下文放行技能包要读的宿主说明', () => {
+  const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../')
+  const ignore = readFileSync(resolve(repoRoot, '.dockerignore'), 'utf8')
+  for (const directory of ['apps/web/workbuddy-skill', 'apps/web/doubao-skill']) {
+    expect(ignore).toContain(`!${directory}/`)
+    expect(ignore).toContain(`!${directory}/**`)
+  }
 })

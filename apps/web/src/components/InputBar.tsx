@@ -79,7 +79,8 @@ import { confirmImageBatch } from '../lib/confirmImageBatch'
 import { getSafeBoundingClientRect } from '../lib/domRect'
 import { downloadImagesByIds } from '../lib/downloadImages'
 import { useGptPremiumLocked } from '../lib/gptPremium'
-import { quotedGptMultiplier } from '../lib/gptQuote'
+import { image26DegradeNoticeKey, quotedGptMultiplier, quotedImage26Degrade } from '../lib/gptQuote'
+import { directAvailableForModel } from '../lib/imageCharge'
 import {
   compressUploadFiles,
   filesFromFolderInput,
@@ -178,7 +179,7 @@ function referenceUploadGate(references: readonly { dataUrl: string }[]) {
 }
 
 export default function InputBar({ inline = false }: { inline?: boolean } = {}) {
-  const { t, i18n } = useTranslation(['composer', 'common', 'agent', 'lib'])
+  const { t, i18n } = useTranslation(['composer', 'common', 'agent', 'lib', 'task'])
   const prompt = useStore((s) => s.prompt)
   const setPrompt = useStore((s) => s.setPrompt)
   const inputImages = useStore((s) => s.inputImages)
@@ -299,15 +300,18 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     : 0
   // GPT 直连按实际会执行的档计价。非会员，以及交给智能体的请求，服务端收到 ≤2K、非高画质。
   // Gemini 先按会员身份收口，再按渠道开放档位计价。
-  const directAvailable = getParamCapabilities(activeProfile, params.output_format).size
-  const premium = useGptPremiumLocked(activeView.model, directAvailable)
+  const honorsSize = getParamCapabilities(activeProfile, params.output_format).size
+  const quoteDirect = directAvailableForModel(activeView.model)
+  const premium = useGptPremiumLocked(activeView.model, honorsSize)
+  const quoteRequest = { ...params, ...(maskDraft ? { mask: true } : {}) }
   const unitMultiplier = quotedGptMultiplier(
     activeView.model,
-    { ...params, ...(maskDraft ? { mask: true } : {}) },
+    quoteRequest,
     !toCanvas && premium.highQuality,
     premium.member,
-    directAvailable,
+    quoteDirect,
   )
+  const quoteDegrade = quotedImage26Degrade(activeView.model, quoteRequest, quoteDirect)
   const submissionGuard = usePrivateSubmissionGuard({
     model: activeView.model,
     quantity: batchActive ? batchImageCount : submitImageCount,
@@ -1775,6 +1779,11 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     blockedAction={submissionGuard.blockedAction}
                     className="text-xs"
                   />
+                  {quoteDegrade && (
+                    <span className="text-xs leading-snug text-muted-foreground">
+                      {t(image26DegradeNoticeKey(quoteDegrade.kind), { ns: 'task' })}
+                    </span>
+                  )}
                 </>
               )
             }

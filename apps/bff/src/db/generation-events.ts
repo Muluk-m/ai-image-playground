@@ -17,6 +17,8 @@ export async function publishGenerations(tx: Transaction, taskIds: string[]) {
           isNotNull(schema.tasks.user_id),
           eq(schema.tasks.kind, 'queue'),
           sql`${schema.tasks.request_payload} -> 'video' IS NULL`,
+          // 画布候选只活在队列里，不进作品列表。已经写过的旧行由列表查询排除。
+          sql`${schema.tasks.request_payload} ->> 'output_retention' IS DISTINCT FROM 'candidate'`,
         ),
       )
     for (const task of tasks) {
@@ -51,6 +53,7 @@ export async function publishGenerations(tx: Transaction, taskIds: string[]) {
             jsonb_build_object('kind', 'agent', 'conversationId', agent_conversation_id,
               'turnId', agent_turn_id, 'projectId', (SELECT project_id FROM project_generation_outputs
                 WHERE generation_id = tasks.id AND user_id = tasks.user_id LIMIT 1))
+          WHEN request_payload ->> 'output_retention' = 'canvas' THEN jsonb_build_object('kind', 'canvas')
           ELSE jsonb_build_object('kind', 'studio') END
         FROM ${schema.tasks}
         WHERE ${schema.tasks.user_id} = ${userId}

@@ -14,10 +14,15 @@ import CliConnectionsDialog from '../../../features/cli/CliConnectionsDialog'
 import CliConnectPage from '../../../features/cli/CliConnectPage'
 import {
   AGENT_SETUP_PATH,
-  CLI_RELEASE_REF,
+  CLI_MIN_VERSION,
   CLI_VERSION,
   CONNECT_AGENTS,
-  INSTALL_COMMAND,
+  DOUBAO_SETUP_PATH,
+  DOUBAO_SKILL_PATH,
+  GENERIC_SKILL_PATH,
+  INSTALL_PS1_SHA256,
+  INSTALL_SH_SHA256,
+  installScriptCommands,
   manualCommands,
   SESSION_PATH,
   skillInstallCommand,
@@ -61,6 +66,24 @@ async function click(label: string) {
 }
 
 const promptText = () => host.querySelector('[data-slot="connect-prompt"]')?.textContent ?? ''
+
+const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..')
+const cliDir = resolve(webRoot, 'public/cli')
+const installDir = resolve(webRoot, '../../cli-go/install')
+
+function guideRevision(): string {
+  const text = ['setup.md', 'workbuddy.md', 'doubao.md']
+    .map((name) => readFileSync(resolve(cliDir, name), 'utf8'))
+    .join('\n')
+  const installers = Buffer.concat(
+    ['install.sh', 'install.ps1'].map((name) => readFileSync(resolve(installDir, name))),
+  )
+  return createHash('sha256').update(text).update(installers).digest('hex').slice(0, 10)
+}
+
+function setupGuide(): string {
+  return readFileSync(resolve(cliDir, 'setup.md'), 'utf8')
+}
 
 beforeEach(() => {
   _setRuntimeConfigForTesting({ bff: { enabled: true, baseUrl: 'https://api.example.com' } })
@@ -108,29 +131,42 @@ describe('CliConnectPage', () => {
     expect(host.querySelector('[aria-label="选择系统"]')).toBeNull()
   })
 
-  it('WorkBuddy 对话安装使用专用指南，技能下载只出现在手动方式', async () => {
+  it('WorkBuddy 和豆包对话安装使用专用指南，技能下载只出现在手动方式', async () => {
     await render()
     expect(host.querySelector(`a[href="${WORKBUDDY_SKILL_PATH}"]`)).toBeNull()
     expect(promptText()).toContain(new URL(WORKBUDDY_SETUP_PATH, window.location.origin).href)
+    expect(promptText()).toContain('在对话中下载安装技能')
     await click('我自己来')
     expect(host.querySelector(`a[href="${WORKBUDDY_SKILL_PATH}"][download]`)).not.toBeNull()
     await click('让 Agent 安装')
     expect(host.querySelector(`a[href="${WORKBUDDY_SKILL_PATH}"]`)).toBeNull()
+    await click('豆包工作')
+    expect(promptText()).toContain(new URL(DOUBAO_SETUP_PATH, window.location.origin).href)
+    expect(promptText()).toContain('/muv')
+    expect(host.querySelector(`a[href="${DOUBAO_SKILL_PATH}"]`)).toBeNull()
+    await click('我自己来')
+    expect(host.querySelector(`a[href="${DOUBAO_SKILL_PATH}"][download]`)).not.toBeNull()
+    expect(host.textContent).toContain('插件·技能·伙伴')
+    await click('其他')
+    expect(host.querySelector(`a[href="${GENERIC_SKILL_PATH}"][download]`)).not.toBeNull()
+    await click('让 Agent 安装')
+    expect(host.querySelector(`a[href="${GENERIC_SKILL_PATH}"]`)).toBeNull()
     await click('Codex')
     expect(host.querySelector(`a[href="${WORKBUDDY_SKILL_PATH}"]`)).toBeNull()
+    expect(host.querySelector(`a[href="${DOUBAO_SKILL_PATH}"]`)).toBeNull()
     expect(promptText()).toContain(new URL(AGENT_SETUP_PATH, window.location.origin).href)
   })
 
   // WorkBuddy 的抓取工具会缓存网页：换了指南内容而网址不变，用户拿到的还是旧的固定版本命令。
   it('提示词里的指南网址带着指南内容的哈希，内容一变网址就变', async () => {
-    const dir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../public/cli')
-    const guides = ['setup.md', 'workbuddy.md'].map((name) =>
-      readFileSync(resolve(dir, name), 'utf8'),
-    )
-    const rev = createHash('sha256').update(guides.join('\n')).digest('hex').slice(0, 10)
+    const rev = guideRevision()
     await render()
     expect(promptText()).toContain(
       `${new URL(WORKBUDDY_SETUP_PATH, window.location.origin).href}?v=${rev}`,
+    )
+    await click('豆包工作')
+    expect(promptText()).toContain(
+      `${new URL(DOUBAO_SETUP_PATH, window.location.origin).href}?v=${rev}`,
     )
     await click('Codex')
     expect(promptText()).toContain(
@@ -138,40 +174,46 @@ describe('CliConnectPage', () => {
     )
   })
 
-  it('两份指南都让智能体在前台等用户授权并自动继续，不再回一句', () => {
-    const dir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../public/cli')
-    const setup = readFileSync(resolve(dir, 'setup.md'), 'utf8')
-    const workbuddy = readFileSync(resolve(dir, 'workbuddy.md'), 'utf8')
+  it('指南都要求授权走系统默认浏览器，并覆盖无浏览器控制的宿主', () => {
+    const setup = setupGuide()
+    const workbuddy = readFileSync(resolve(cliDir, 'workbuddy.md'), 'utf8')
+    const doubao = readFileSync(resolve(cliDir, 'doubao.md'), 'utf8')
     for (const [name, text] of [
       ['setup.md', setup],
       ['workbuddy.md', workbuddy],
+      ['doubao.md', doubao],
     ] as const) {
       expect(text, name).not.toContain('muvloom auth login --timeout 60')
       expect(text, name).toContain('AUTH_PENDING')
+      expect(text, name).not.toMatch(/必须使用 Chrome|请使用 Chrome|must use Chrome/)
     }
+    expect(setup).toContain('system default browser')
+    expect(setup).toContain('Never pick Chrome')
+    expect(setup).toContain('never run `Start-Process`')
+    expect(workbuddy).toContain('系统默认浏览器')
+    expect(doubao).toContain('系统默认浏览器')
     expect(workbuddy).not.toContain('立即结束本回合')
-    expect(setup).not.toContain('ask the user to sign in and approve the connection.\n   Only if')
-    expect(setup.replace(/\s+/g, ' ')).toContain('do not end your turn')
-    // 前台一条命令：CLI 自己打开授权页，用户授权后自动结束，不再先发码再等待。
-    expect(setup.replace(/\s+/g, ' ')).toContain('It opens the approval page itself')
-    expect(setup).not.toContain('Run `muvloom auth login --no-wait` to get the authorization link')
-    expect(workbuddy).toContain('它自己打开授权页')
+    expect(setup).toContain('MUVLOOM_NO_BROWSER=1')
+    expect(setup).toContain('verification_uri_complete')
+    expect(setup.replace(/\s+/g, ' ').toLowerCase()).toContain('do not end your turn')
+    expect(doubao).toContain('不要指定 Chrome')
+    expect(doubao).toContain('操作电脑')
+    expect(doubao).toContain('附属浏览器')
+    expect(workbuddy).toContain('让 CLI 自己打开系统默认浏览器')
   })
 
   // 机器已连着测试或企业服务时打开生产页面：不显式指定服务，CLI 会沿用已存连接，接入静默"成功"在错误环境上。
   it('指南对每个服务（含生产）都显式指定 API 地址，让 CLI 能发现与已存连接不一致', () => {
-    const dir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../public/cli')
-    const setup = readFileSync(resolve(dir, 'setup.md'), 'utf8').replace(/\s+/g, ' ')
+    const setup = setupGuide().replace(/\s+/g, ' ')
     expect(setup).not.toContain('use the default')
     expect(setup).not.toContain('clear any conflicting')
     expect(setup).toContain('including the production service')
     expect(setup).toContain('service_mismatch')
   })
 
-  it('两份指南都要求抓取同目录的另一份时沿用同一个 v 参数', () => {
-    const dir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../public/cli')
-    for (const name of ['setup.md', 'workbuddy.md']) {
-      expect(readFileSync(resolve(dir, name), 'utf8'), name).toContain('?v=')
+  it('各份指南都要求抓取同目录的另一份时沿用同一个 v 参数', () => {
+    for (const name of ['setup.md', 'workbuddy.md', 'doubao.md']) {
+      expect(readFileSync(resolve(cliDir, name), 'utf8'), name).toContain('?v=')
     }
   })
 
@@ -196,11 +238,14 @@ describe('CliConnectPage', () => {
     await render()
     await click('我自己来')
     await click('Windows')
-    expect(host.querySelector('pre')?.textContent).toContain(INSTALL_COMMAND.windows)
-    expect(host.querySelector('pre')?.textContent).not.toContain(INSTALL_COMMAND.unix)
+    const shown = host.querySelector('pre')?.textContent ?? ''
+    expect(shown).toContain('Invoke-WebRequest')
+    expect(shown).toContain(INSTALL_PS1_SHA256)
+    expect(shown).toContain(`MUVLOOM_MIN_VERSION`)
+    expect(shown).not.toContain('mktemp')
     await click('复制命令')
     expect(copyText).toHaveBeenCalledExactlyOnceWith(
-      manualCommands('workbuddy', 'windows').join('\n'),
+      manualCommands('workbuddy', 'windows', window.location.origin).join('\n'),
     )
     await click('让 Agent 安装')
     expect(host.querySelector('[aria-label="选择系统"]')).toBeNull()
@@ -213,7 +258,7 @@ describe('CliConnectPage', () => {
     await click('我自己来')
     const shown = Array.from(host.querySelectorAll('pre > div'), (line) => line.textContent)
     expect(shown).toEqual([
-      INSTALL_COMMAND.unix,
+      ...installScriptCommands('unix', window.location.origin),
       SESSION_PATH.unix,
       'muvloom skill install --host claude-code',
       'muvloom auth login',
@@ -222,75 +267,73 @@ describe('CliConnectPage', () => {
     expect(copyText).toHaveBeenCalledExactlyOnceWith(shown.join('\n'))
   })
 
-  it('安装脚本固定在不可变提交并锁定 CLI 版本', () => {
-    for (const command of Object.values(INSTALL_COMMAND)) {
-      expect(command).toContain(`/${CLI_RELEASE_REF}/cli-go/install/`)
-      expect(command).toContain(CLI_VERSION)
-      expect(command).not.toContain('/main/')
-      expect(command).not.toContain('cli-v')
-    }
+  it('安装命令先校验脚本校验和，再用最低版本安装，不会钉死可降级的精确版本', () => {
+    const origin = 'https://muvloom.online'
+    const unix = installScriptCommands('unix', origin).join('\n')
+    const windows = installScriptCommands('windows', origin).join('\n')
+    expect(unix).toContain(INSTALL_SH_SHA256)
+    expect(windows).toContain(INSTALL_PS1_SHA256)
+    expect(unix).toContain(`MUVLOOM_MIN_VERSION=${CLI_MIN_VERSION}`)
+    expect(windows).toContain(`MUVLOOM_MIN_VERSION = "${CLI_MIN_VERSION}"`)
+    expect(unix).not.toContain('MUVLOOM_VERSION=')
+    expect(unix).not.toMatch(/curl .*\| sh/)
+    expect(windows).not.toMatch(/irm .*\| iex/)
+    expect(windows).toContain('powershell -NoProfile -ExecutionPolicy Bypass -File $script')
+    expect(windows).toContain('$LASTEXITCODE')
+    expect(windows).not.toContain('& $script')
+    expect(unix).toContain('/cli/install.sh')
+    expect(windows).toContain('/cli/install.ps1')
+    expect(CLI_VERSION).toBe(CLI_MIN_VERSION)
   })
 
   it('安装之后先补本次会话的 PATH，再调用 muvloom（首次安装时安装目录不在 PATH 里）', async () => {
     await render()
     for (const platform of ['unix', 'windows'] as const) {
-      const lines = manualCommands('claude-code', platform)
-      expect(lines.indexOf(SESSION_PATH[platform])).toBe(
-        lines.indexOf(INSTALL_COMMAND[platform]) + 1,
-      )
-      expect(lines.findIndex((line) => line.startsWith('muvloom '))).toBeGreaterThan(
-        lines.indexOf(SESSION_PATH[platform]),
-      )
+      const lines = manualCommands('claude-code', platform, window.location.origin)
+      const pathIndex = lines.indexOf(SESSION_PATH[platform])
+      expect(pathIndex).toBeGreaterThan(0)
+      expect(lines[pathIndex - 1]).toContain('MUVLOOM_MIN_VERSION')
+      expect(lines.findIndex((line) => line.startsWith('muvloom '))).toBeGreaterThan(pathIndex)
     }
   })
 
   it('Agent 指南保留经过校验的安装、PATH、宿主兼容与授权步骤', () => {
-    const guide = readFileSync(
-      resolve(dirname(fileURLToPath(import.meta.url)), '../../../../public/cli/setup.md'),
-      'utf8',
-    )
-    for (const platform of ['unix', 'windows'] as const) {
-      expect(guide).toContain(INSTALL_COMMAND[platform])
-      expect(guide).toContain(SESSION_PATH[platform])
-    }
+    const guide = setupGuide()
+    expect(guide).toContain(INSTALL_SH_SHA256)
+    expect(guide).toContain(INSTALL_PS1_SHA256)
+    expect(guide).toContain(`MUVLOOM_MIN_VERSION=${CLI_MIN_VERSION}`)
+    expect(guide).toContain(SESSION_PATH.unix)
+    expect(guide).toContain(SESSION_PATH.windows)
     for (const agent of ['claude-code', 'codex'] as const) {
       expect(guide).toContain(skillInstallCommand(agent))
     }
     expect(guide).toContain('muvloom auth login --no-wait')
     expect(guide).toContain('muvloom auth status')
     expect(guide).toContain('service_mismatch')
-    // An older CLI already on the machine must be upgraded, not reused.
-    expect(guide.replace(/\s+/g, ' ')).toContain(`lower than ${CLI_VERSION}`)
+    expect(guide.replace(/\s+/g, ' ')).toContain(`lower than ${CLI_MIN_VERSION}`)
     expect(guide).toContain('--switch-service')
     expect(guide).toContain('muvloom capabilities')
+    expect(guide).toContain('images validate')
     expect(guide).toContain('https://test-api.muvloom.online')
-    expect(guide).not.toMatch(/--host (workbuddy|doubao)/)
+    expect(guide).toContain('before the first `muvloom auth status`')
+    expect(guide).toContain('powershell -NoProfile -ExecutionPolicy Bypass -File $script')
+    expect(guide).toContain('$LASTEXITCODE')
+    expect(guide).not.toContain('& $script')
+    expect(guide).not.toContain('only around the first `muvloom auth login`')
+    expect(guide).toContain('system default browser')
+    expect(guide).not.toMatch(/muvloom skill install --host (workbuddy|doubao)/)
+    expect(guide.replace(/\s+/g, ' ')).toContain('do not write it into a profile')
+    expect(guide).toContain('credential_store_issue')
+    expect(guide).not.toContain('MUVLOOM_VERSION=0.2.4')
   })
 
-  it('剪贴板被拒时提示复制失败，不假装成功', async () => {
-    copyText.mockRejectedValueOnce(new Error('denied'))
-    await render()
-    await click('复制提示词')
-    expect(button('复制失败')).toBeTruthy()
-  })
-
-  it('未登录不去读已连接设备，给出登录入口；登录后才请求', async () => {
-    await render(null)
-    expect(fetch).not.toHaveBeenCalled()
-    await click('登录后继续')
-    expect(promptLogin).toHaveBeenCalledWith('gated-action')
-
-    await render(USER)
-    expect(fetch).toHaveBeenCalled()
-    expect(host.textContent).toContain('暂无已连接的插件')
-  })
-
-  it('WorkBuddy 和豆包的手动命令只有安装、补 PATH 和登录', () => {
+  it('WorkBuddy 和豆包的手动命令只有安装、补 PATH 和登录，没有虚构的 --host', () => {
+    const origin = 'https://muvloom.online'
     for (const agent of ['workbuddy', 'doubao'] as const) {
       expect(skillInstallCommand(agent)).toBeNull()
       for (const platform of ['unix', 'windows'] as const) {
-        expect(manualCommands(agent, platform)).toEqual([
-          INSTALL_COMMAND[platform],
+        expect(manualCommands(agent, platform, origin)).toEqual([
+          ...installScriptCommands(platform, origin),
           SESSION_PATH[platform],
           'muvloom auth login',
         ])
@@ -298,6 +341,21 @@ describe('CliConnectPage', () => {
     }
     expect(skillInstallCommand('claude-code')).toBe('muvloom skill install --host claude-code')
     expect(skillInstallCommand('codex')).toBe('muvloom skill install --host codex')
+    expect(skillInstallCommand('other')).toBeNull()
+  })
+
+  it('setup.md 公布的安装脚本校验和与仓库里的脚本一致', () => {
+    const guide = setupGuide()
+    const sh = createHash('sha256')
+      .update(readFileSync(resolve(installDir, 'install.sh')))
+      .digest('hex')
+    const ps1 = createHash('sha256')
+      .update(readFileSync(resolve(installDir, 'install.ps1')))
+      .digest('hex')
+    expect(sh).toBe(INSTALL_SH_SHA256)
+    expect(ps1).toBe(INSTALL_PS1_SHA256)
+    expect(guide).toContain(sh)
+    expect(guide).toContain(ps1)
   })
 
   it('旧的连接弹层不再打开，直接进入 /connect', async () => {

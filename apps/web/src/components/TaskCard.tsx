@@ -1,4 +1,4 @@
-import { formatImageRatio, type Image26DegradeKind } from '@image-playground/shared'
+import { formatImageRatio } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
 import { taskExportSources } from '../features/image-export/sources'
 import { openImageExport } from '../features/image-export/store'
@@ -15,8 +15,10 @@ import {
   progressStartedAt,
   typicalDurationMs,
 } from '../lib/generationProgress'
+import { image26DegradeNoticeKey } from '../lib/gptQuote'
 import { loadImageOriginal } from '../lib/imageSource'
 import { ActualValueBadge, getParamDisplay, measuredSizeOf } from '../lib/paramDisplay'
+import { workSource } from '../lib/works'
 import { retryTask, setTaskFavorite, useStore } from '../store'
 import type { TaskRecord } from '../types'
 import { JobProgress } from './assistant-ui/elements/job-progress'
@@ -26,25 +28,6 @@ import { compactModelName, ModelLogo } from './ModelIdentity'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
-
-function degradedNotice(kind: Image26DegradeKind) {
-  switch (kind) {
-    case 'size':
-      return 'card.degraded.size' as const
-    case 'quality':
-      return 'card.degraded.quality' as const
-    case 'format':
-      return 'card.degraded.format' as const
-    case 'size_quality':
-      return 'card.degraded.size_quality' as const
-    case 'size_format':
-      return 'card.degraded.size_format' as const
-    case 'quality_format':
-      return 'card.degraded.quality_format' as const
-    case 'size_quality_format':
-      return 'card.degraded.size_quality_format' as const
-  }
-}
 
 /** task-pop-in 入场动画窗口；超过这个秒数后 mount 的 task 视作历史回放，不再播。 */
 const FRESH_POP_IN_WINDOW_MS = 600
@@ -69,6 +52,9 @@ export default function TaskCard({
   isSelected,
 }: Props) {
   const { t } = useTranslation(['task', 'common'])
+  const platformGenerations = useStore((s) => s.platformGenerations)
+  const canvasWork =
+    workSource(task, new Map(platformGenerations.map((row) => [row.id, row]))) === 'canvas'
   const preview = useImagePreview(task.outputImages?.[0])
   const thumbSrc = preview?.url ?? ''
   const motionFormat = task.params.output_format
@@ -389,7 +375,9 @@ export default function TaskCard({
               </>
             )}
             {task.status === 'done' && !thumbSrc && (
-              <Icon name="image" size="lg" className="text-muted-foreground" />
+              <div data-empty-output="" className="flex items-center justify-center">
+                <Icon name="image" size="lg" className="text-muted-foreground" />
+              </div>
             )}
             {/* 运行中显示耗时，完成后显示封面图比例与分辨率标签 */}
             <div className="absolute top-1.5 left-1.5 flex items-center gap-1">
@@ -421,7 +409,7 @@ export default function TaskCard({
               </p>
               {task.degradeNotice ? (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {t(degradedNotice(task.degradeNotice))}
+                  {t(image26DegradeNoticeKey(task.degradeNotice))}
                 </p>
               ) : null}
             </div>
@@ -435,6 +423,11 @@ export default function TaskCard({
                 onTouchEnd={(e) => e.stopPropagation()}
                 onTouchCancel={(e) => e.stopPropagation()}
               >
+                {canvasWork && (
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-xs min-w-0 max-w-full">
+                    <span className="min-w-0 truncate">{t('card.canvas')}</span>
+                  </span>
+                )}
                 {/* Model */}
                 {showModel && (
                   <span
@@ -544,20 +537,21 @@ export default function TaskCard({
                 className="flex w-full items-center justify-between flex-shrink-0 mt-0.5 max-sm:col-span-2 max-sm:m-0 max-sm:border-t max-sm:[&>button]:h-11 max-sm:[&>button]:flex-1 sm:w-auto sm:justify-end sm:gap-1"
                 onClick={(e) => e.stopPropagation()}
               >
-                {(task.status === 'error' || settings.alwaysShowRetryButton) && (
-                  <Hint tooltip={t('action.retryTask')}>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => retryTask(task)}
-                      className="text-muted-foreground"
-                      aria-label={t('action.retryTask')}
-                    >
-                      <Icon name="refresh" size="xs" />
-                    </Button>
-                  </Hint>
-                )}
+                {(task.status === 'error' || settings.alwaysShowRetryButton) &&
+                  !(task.status === 'done' && !task.outputImages?.length) && (
+                    <Hint tooltip={t('action.retryTask')}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => retryTask(task)}
+                        className="text-muted-foreground"
+                        aria-label={t('action.retryTask')}
+                      >
+                        <Icon name="refresh" size="xs" />
+                      </Button>
+                    </Hint>
+                  )}
                 <Hint tooltip={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}>
                   <Button
                     type="button"

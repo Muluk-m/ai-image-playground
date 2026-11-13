@@ -122,6 +122,9 @@ export function AuthGate() {
           const id = localRecoveryEnabled ? await recoverStorageUser() : null
           if (cancelled) return
           setClientStorageScope(id)
+          void import('../lib/promoteCanvasWork')
+            .then((mod) => mod.resumePendingCanvasPromotes())
+            .catch(() => undefined)
           signalBootStage('workspace')
           setPhase('ready')
           consumeLoginIntent()
@@ -153,6 +156,9 @@ export function AuthGate() {
         if (probeSession) clearOAuthSessionLanding()
         setSignedIn(Boolean(currentUser))
         setClientStorageScope(currentUser?.id ?? null)
+        void import('../lib/promoteCanvasWork')
+          .then((mod) => mod.resumePendingCanvasPromotes())
+          .catch(() => undefined)
         if (!currentUser) {
           if (refreshed === 'unauthorized') setSessionExpired(true)
           // 匿名可读：channel 清单只列出这个部署提供哪些模型，不含任何凭据。

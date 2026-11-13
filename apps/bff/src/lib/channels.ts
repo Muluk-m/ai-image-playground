@@ -51,7 +51,11 @@ import {
 import { findCatalogModel, publishModelCapabilities } from '@image-playground/shared/model-catalog'
 import { isObject } from './type-guards'
 import { capabilitiesForModel } from './upstream/adapters'
-import { gptDirectEnabledKeyCount, gptDirectSizeEnabled } from './upstream/gpt-direct-availability'
+import {
+  gptDirectEnabledKeyCount,
+  gptDirectSizeEnabled,
+  gptImage26DirectListed,
+} from './upstream/gpt-direct-availability'
 import { runtimeSecret, upstreamSecretRevision } from './upstream-secret-cache'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
@@ -745,7 +749,8 @@ function withGptImage26(channel: InternalChannel): InternalChannel {
     ...channel,
     models: channel.models.flatMap((model) => {
       if (!isGptImage26Model(model.id)) return [model]
-      return enabled ? [model] : []
+      if (!enabled) return []
+      return gptImage26DirectListed() ? [model] : [{ ...model, degraded: true }]
     }),
   }
 }

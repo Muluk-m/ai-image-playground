@@ -33,7 +33,7 @@ import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { useGptPremiumLocked } from '../../../lib/gptPremium'
-import { composerImageRate } from '../../../lib/imageCharge'
+import { composerImageRate, directAvailableForModel } from '../../../lib/imageCharge'
 import { getParamCapabilities } from '../../../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
@@ -137,13 +137,14 @@ function StoryboardEditor({
   const params = useStore((s) => s.params)
   const profile = getActiveApiProfile(settings)
   const view = clientProfileToApiProfile(profile)
-  const directAvailable = getParamCapabilities(profile, params?.output_format ?? 'png').size
-  const premium = useGptPremiumLocked(view.model, directAvailable)
   const model = view.model
+  const honorsSize = getParamCapabilities(profile, params?.output_format ?? 'png').size
+  const quoteDirect = directAvailableForModel(model)
+  const premium = useGptPremiumLocked(model, honorsSize)
   const guard = usePrivateSubmissionGuard({
     model,
     quantity: node.data.shots.length,
-    unitMultiplier: composerImageRate(model, params, premium.member, directAvailable),
+    unitMultiplier: composerImageRate(model, params, premium.member, quoteDirect),
   })
   const shots = node.data.shots
   const fingerprint = storyboardFingerprint(shots)

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { mediaObject } from '@image-playground/shared'
 import {
   and,
   eq,
@@ -206,9 +207,13 @@ async function reserveOwnedMedia(
   byteLimit: number,
   previewBudget: number,
   reviseReady?: (row: Media) => Promise<Media>,
+  created?: { inserted: boolean },
 ) {
   const attachment = input.purpose === 'conversation-attachment'
   if (input.bytes > byteLimit) throw new MediaError(413, 'media_too_large')
+  const note = (inserted: boolean) => {
+    if (created) created.inserted = inserted
+  }
   type Reserved = { ready: Media } | { result: ReturnType<typeof uploadResult> }
   const reserved = await db.transaction(async (tx): Promise<Reserved> => {
     await lockMediaOwner(tx, userId)
@@ -238,13 +243,20 @@ async function reserveOwnedMedia(
     // 还没到期的那条预留照旧原样交回；申报改过（类型纠正）的必须落到行上，否则签出的
     // PUT 地址与确认时的校验都还按旧类型走。
     const described = existing?.bytes === input.bytes && existing.content_type === input.contentType
+    // 画布入库不接管还在上传的附件预留。过期的普通预留可以接手，并记成这次新建以便失败时清掉。
+    if (existing?.attachment_managed && existing.status !== 'ready' && created) {
+      note(false)
+      throw new MediaError(409, 'media_pending')
+    }
     if (
       existing &&
       (existing.status === 'ready' || (described && existing.expires_at > now + 600_000))
-    )
+    ) {
+      note(false)
       return existing.status === 'ready' && reviseReady
         ? { ready: existing }
         : { result: uploadResult(existing) }
+    }
     const reserved = input.bytes + previewBudget
     const used = await mediaUsage(tx, userId, now)
     const previous =
@@ -277,6 +289,8 @@ async function reserveOwnedMedia(
           })
           .returning()
     // 签名在事务内：组装返回值失败时这次预留随事务回滚，不白占额度。
+    // 全新 INSERT，以及接手已经过期的普通预留，才算这次新建。还在有效期内的预留是画布在传，不能清。
+    note(!existing || existing.expires_at <= Date.now())
     return { result: uploadResult(row!) }
   })
   // 已发布的旧记录要核对朝向：存储读放在事务外，不占着这位用户的锁去等对象存储。
@@ -613,7 +627,7 @@ async function publishMedia(
       const [ready] = await tx
         .update(media)
         .set({
-          status: 'ready',
+          status: mediaObject.step('pending', 'publish'),
           object_key: objectKey,
           preview_key: previewKey,
           preview_bytes: preview.length,
@@ -661,6 +675,136 @@ export async function storeMedia(userId: string, bytes: Uint8Array, contentType:
   })
   if (reserved.status === 'ready') return reserved
   return confirmMedia(userId, reserved.id, bytes)
+}
+
+/**
+ * 画布提升专用。`createdIds` 只收下这次 INSERT 出来的行。
+ * 同哈希的 ready 直接复用。画布还在传的普通预留用手里的字节确认，但不记进清理名单。
+ * 附件预留仍拒绝，交给调用方重试。
+ */
+export async function storeGeneratedImage(
+  userId: string,
+  bytes: Uint8Array,
+  contentType: string,
+  createdIds: string[],
+) {
+  const created = { inserted: false }
+  const reserved = await reserveOwnedMedia(
+    userId,
+    {
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      bytes: bytes.length,
+      contentType,
+    },
+    config.operator.quotas['sync:asset-image-bytes'],
+    PREVIEW_BUDGET,
+    withOrientedSize,
+    created,
+  )
+  if (reserved.status === 'ready') return reserved
+  if (!created.inserted) return confirmMedia(userId, reserved.id, bytes)
+  createdIds.push(reserved.id)
+  return confirmMedia(userId, reserved.id, bytes)
+}
+
+/**
+ * 提升失败后标成 deleting、但字节没删掉的非附件媒体。附件清理由 purgeExpiredAttachmentMedia 负责。
+ * 每次最多四行、两路并发，并在持锁期间核对引用后再删字节，避免占住整段周期任务。
+ */
+export async function purgeDeletingUnreferencedMedia(signal?: AbortSignal): Promise<number> {
+  if (signal?.aborted) return 0
+  const rows = await db
+    .select({ id: media.id, userId: media.user_id })
+    .from(media)
+    .where(and(eq(media.status, 'deleting'), eq(media.attachment_managed, false)))
+    .limit(4)
+  let removed = 0
+  const queue = [...rows]
+  const workers = Array.from({ length: Math.min(2, queue.length) }, async () => {
+    while (queue.length > 0) {
+      if (signal?.aborted) return
+      const row = queue.shift()
+      if (!row) return
+      try {
+        if (await finishDeletingMedia(row.userId, row.id)) removed += 1
+      } catch (error) {
+        log.warn(
+          { event: 'media.deleting_cleanup_failed', mediaId: row.id, err: String(error) },
+          'deleting media kept for the next sweep',
+        )
+      }
+    }
+  })
+  await Promise.all(workers)
+  return removed
+}
+
+/** 持有这位用户的媒体锁：有引用就恢复 ready，没有才删字节并删行。 */
+export async function finishDeletingMedia(userId: string, id: string): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    await lockMediaOwner(tx, userId)
+    const [referenced] = await tx
+      .select({ id: schema.media_references.media_id })
+      .from(schema.media_references)
+      .where(eq(schema.media_references.media_id, id))
+      .limit(1)
+    if (referenced) {
+      await tx
+        .update(media)
+        .set({ status: 'ready', updated_at: Date.now() })
+        .where(and(eq(media.id, id), eq(media.user_id, userId), eq(media.status, 'deleting')))
+      return false
+    }
+    const [row] = await tx
+      .update(media)
+      .set({ status: 'deleting', updated_at: Date.now() })
+      .where(
+        and(
+          eq(media.id, id),
+          eq(media.user_id, userId),
+          notExists(
+            tx
+              .select({ id: schema.media_references.media_id })
+              .from(schema.media_references)
+              .where(eq(schema.media_references.media_id, media.id)),
+          ),
+        ),
+      )
+      .returning({
+        id: media.id,
+        stagingKey: media.staging_key,
+        objectKey: media.object_key,
+      })
+    if (!row) return false
+    const store = durableMediaStore()
+    try {
+      await store.deletePrefix(`objects/${userId}/${row.id}/`)
+      await store.deletePrefix(row.stagingKey)
+      if (row.objectKey) await store.deletePrefix(row.objectKey)
+    } catch (error) {
+      log.warn(
+        { event: 'media.deleting_bytes_failed', mediaId: row.id, err: String(error) },
+        'deleting media kept so a later sweep can remove its bytes',
+      )
+      return false
+    }
+    const deleted = await tx
+      .delete(media)
+      .where(
+        and(
+          eq(media.id, row.id),
+          eq(media.status, 'deleting'),
+          notExists(
+            tx
+              .select({ id: schema.media_references.media_id })
+              .from(schema.media_references)
+              .where(eq(schema.media_references.media_id, media.id)),
+          ),
+        ),
+      )
+      .returning({ id: media.id })
+    return deleted.length > 0
+  })
 }
 
 /** Only explicitly managed attachments are eligible; legacy media have incomplete references. */
@@ -736,7 +880,7 @@ export async function purgeExpiredAttachmentMedia(now = Date.now()): Promise<num
         if (protectedMedia.length) return null
         const [deleting] = await tx
           .update(media)
-          .set({ status: 'deleting', updated_at: now })
+          .set({ status: mediaObject.target('reclaim'), updated_at: now })
           .where(eq(media.id, row.id))
           .returning()
         return deleting ?? null

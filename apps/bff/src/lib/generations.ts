@@ -3,7 +3,7 @@ import {
   type GenerationPage,
   projectArtifactId,
 } from '@image-playground/shared'
-import { and, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, lt, or, type SQL, sql } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 
 const table = schema.generation_records
@@ -24,6 +24,34 @@ const columns = {
   actualParameters: table.actual_parameters,
 }
 export type GenerationCursor = { createdAt: number; id: string }
+
+/**
+ * 画布候选不进作品。任务还在时认 request 上的 output_retention；
+ * 队列过期把任务清掉之后，完成且没有任何产出的旧行同样不进列表。
+ */
+function listedGeneration(userId: string, ...extra: Array<SQL | undefined>) {
+  return and(
+    eq(table.user_id, userId),
+    isNull(table.deleted_at),
+    sql`NOT EXISTS (
+      SELECT 1 FROM ${schema.tasks} task
+      WHERE task.id = ${table.id}
+        AND task.request_payload ->> 'output_retention' = 'candidate'
+    )`,
+    sql`NOT (
+      ${table.status} = 'completed'
+      AND ${table.archive_status} = 'none'
+      AND NOT EXISTS (
+        SELECT 1 FROM ${schema.generation_images} output
+        WHERE output.generation_id = ${table.id}
+          AND output.role = 'output'
+          AND output.deleted_at IS NULL
+      )
+      AND NOT EXISTS (SELECT 1 FROM ${schema.tasks} task WHERE task.id = ${table.id})
+    )`,
+    ...extra,
+  )
+}
 
 /**
  * 实际尺寸以落库原件的真实像素为准。
@@ -55,9 +83,8 @@ export async function listGenerations(
     })
     .from(table)
     .where(
-      and(
-        eq(table.user_id, userId),
-        isNull(table.deleted_at),
+      listedGeneration(
+        userId,
         cursor
           ? or(
               lt(table.created_at, cursor.createdAt),
@@ -148,10 +175,16 @@ export async function countGenerations(userId: string) {
       all: sql<number>`count(*)::int`,
       studio: sql<number>`(count(*) filter (where ${table.source} ->> 'kind' = 'studio'))::int`,
       agent: sql<number>`(count(*) filter (where ${table.source} ->> 'kind' = 'agent'))::int`,
+      canvas: sql<number>`(count(*) filter (where ${table.source} ->> 'kind' = 'canvas'))::int`,
     })
     .from(table)
-    .where(and(eq(table.user_id, userId), isNull(table.deleted_at)))
-  return { all: row?.all ?? 0, studio: row?.studio ?? 0, agent: row?.agent ?? 0 }
+    .where(listedGeneration(userId))
+  return {
+    all: row?.all ?? 0,
+    studio: row?.studio ?? 0,
+    agent: row?.agent ?? 0,
+    canvas: row?.canvas ?? 0,
+  }
 }
 
 export async function readGeneration(
@@ -161,7 +194,7 @@ export async function readGeneration(
   const [record] = await db
     .select(columns)
     .from(table)
-    .where(and(eq(table.user_id, userId), eq(table.id, id), isNull(table.deleted_at)))
+    .where(listedGeneration(userId, eq(table.id, id)))
   if (!record) return undefined
   const images = await db
     .select({
