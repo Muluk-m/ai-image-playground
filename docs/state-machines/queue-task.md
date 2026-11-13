@@ -36,4 +36,4 @@ stateDiagram-v2
   persisting --> failed
 ```
 
-结算函数里的写入还没有改成 `step`，见 [INVENTORY](INVENTORY.md) 的提案。认领（`queued → in_progress`）在后续 PR 接到 worker。
+结算函数里的写入还没有改成 `step`，见 [INVENTORY](INVENTORY.md) 的提案。worker 认领（`queued → in_progress`）和 CLI 投影已经使用这张表。

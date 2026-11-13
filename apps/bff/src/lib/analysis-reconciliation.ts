@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { AgentTurnUsage } from '@image-playground/shared'
+import { queueTask } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { analysisComparison } from './analysis-comparison'
@@ -175,7 +176,7 @@ export async function reconcileAnalysisTask(taskId: string, command: Reconciliat
       await tx
         .update(schema.tasks)
         .set({
-          status: 'in_progress',
+          status: queueTask.step('reconciling', 'resume'),
           execution_token: token,
           lease_expires_at: Date.now() + ANALYSIS_LEASE_MS,
         })

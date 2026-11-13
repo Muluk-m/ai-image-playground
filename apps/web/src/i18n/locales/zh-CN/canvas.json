@@ -427,10 +427,8 @@
     "action": "编辑图片",
     "singleAction": "整图编辑",
     "title": "整图编辑",
-    "hint": "结果会替换原图。",
     "promptLabel": "描述编辑",
     "placeholder": "例如：把背景换成浅木色桌面，保持产品本身不变",
-    "submit": "开始编辑",
     "running": "编辑中…",
     "videoUnsupported": "视频不支持整图编辑"
   },

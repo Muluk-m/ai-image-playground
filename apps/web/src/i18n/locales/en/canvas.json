@@ -445,10 +445,8 @@
     "action": "Edit image",
     "singleAction": "Edit whole image",
     "title": "Edit whole image",
-    "hint": "The result replaces this image.",
     "promptLabel": "Describe the edit",
     "placeholder": "e.g. put it on a light wooden desk, keep the product itself unchanged",
-    "submit": "Edit",
     "running": "Editing…",
     "videoUnsupported": "Video cannot be edited this way"
   },

@@ -14,6 +14,7 @@ import {
 import { IMAGE_SIZE_PRESETS, imageSizeTier, imageTierMaxPixels, parseImageSize } from '../image'
 
 const FLARE = 'gpt-image-2.5-flare'
+const SUNBURST = 'gpt-image-2.5-sunburst'
 
 describe('gpt direct models', () => {
   it('covers flare and sunburst only', () => {
@@ -38,20 +39,34 @@ describe('gpt direct models', () => {
 })
 
 describe('gptImageRateMultiplier', () => {
-  it('prices by tier and quality, with 1K medium as one', () => {
-    expect(gptImageRateMultiplier(FLARE, { size: '1024x1024', quality: 'medium' })).toBe(1)
-    expect(gptImageRateMultiplier(FLARE, { size: '1024x1024', quality: 'low' })).toBe(1)
+  it('prices by tier only: 1K 1, 2K 1.2, 4K 1.5, whatever the quality', () => {
+    for (const quality of ['low', 'medium', 'high', 'auto', undefined] as const) {
+      expect(gptImageRateMultiplier(FLARE, { size: '1024x1024', quality })).toBe(1)
+      expect(gptImageRateMultiplier(FLARE, { size: '2048x2048', quality })).toBe(1.2)
+      expect(gptImageRateMultiplier(FLARE, { size: '3840x2160', quality })).toBe(1.5)
+      expect(gptImageRateMultiplier(SUNBURST, { size: '1024x1024', quality })).toBe(1)
+      expect(gptImageRateMultiplier(SUNBURST, { size: '2048x2048', quality })).toBe(1.2)
+      expect(gptImageRateMultiplier(SUNBURST, { size: '2160x3840', quality })).toBe(1.5)
+    }
     expect(gptImageRateMultiplier(FLARE, { size: undefined, quality: 'auto' })).toBe(1)
-    expect(gptImageRateMultiplier(FLARE, { size: '1024x1024', quality: 'high' })).toBe(4)
-    expect(gptImageRateMultiplier(FLARE, { size: '2048x2048', quality: 'medium' })).toBe(2)
-    expect(gptImageRateMultiplier(FLARE, { size: '3840x2160', quality: 'high' })).toBe(8)
   })
 
-  it('prices a masked edit by quality alone, since its size follows the source image', () => {
+  it('charges 100 / 120 / 150 credits at a 100-credit unit price, with high quality free', () => {
+    const credits = (size: string, quality: 'medium' | 'high', count = 1) =>
+      Math.ceil(100 * count * gptImageRateMultiplier(FLARE, { size, quality }))
+    expect(credits('1024x1024', 'high')).toBe(100)
+    expect(credits('2048x2048', 'high')).toBe(120)
+    expect(credits('3840x2160', 'high')).toBe(150)
+    expect(credits('2048x2048', 'medium', 4)).toBe(480)
+    expect(credits('3840x2160', 'high', 4)).toBe(600)
+  })
+
+  it('prices a masked edit as 1K at any quality, since its size follows the source image', () => {
     expect(gptImageRateMultiplier(FLARE, { size: '1920x1088', quality: 'medium', mask: 'm' })).toBe(
       1,
     )
-    expect(gptImageRateMultiplier(FLARE, { size: '1920x1088', quality: 'high', mask: 'm' })).toBe(4)
+    expect(gptImageRateMultiplier(FLARE, { size: '1920x1088', quality: 'high', mask: 'm' })).toBe(1)
+    expect(gptImageRateMultiplier(FLARE, { size: '3840x2160', quality: 'high', mask: 'm' })).toBe(1)
     expect(isGptSub2apiDeliverable({ size: '1920x1088', mask: 'm' })).toBe(true)
     expect(isGptNonMemberRequest({ size: '1920x1088', quality: 'high', mask: 'm' })).toBe(false)
     // 尺寸不动（要和遮罩对齐），只把高画质收回 medium。
@@ -65,8 +80,8 @@ describe('gptImageRateMultiplier', () => {
   })
 
   it('prices the ceiling the agent and stage paths actually run', () => {
-    expect(gptCeilingRateMultiplier(FLARE, { size: '2560x1440', quality: 'medium' })).toBe(2)
-    expect(gptCeilingRateMultiplier(FLARE, { size: '3840x2160', quality: 'high' })).toBe(2)
+    expect(gptCeilingRateMultiplier(FLARE, { size: '2560x1440', quality: 'medium' })).toBe(1.2)
+    expect(gptCeilingRateMultiplier(FLARE, { size: '3840x2160', quality: 'high' })).toBe(1.2)
     expect(gptCeilingRateMultiplier(FLARE, { size: '1024x1024', quality: 'low' })).toBe(1)
     expect(gptCeilingRateMultiplier('gemini-3-pro-image', { size: '3840x2160' })).toBe(1)
   })
@@ -89,19 +104,19 @@ describe('imageRateMultiplier', () => {
     expect(preparedImageRateMultiplier('gpt-image-2.5-flare', undefined)).toBe(1)
   })
 
-  it('keeps the GPT table, with auto and a missing size priced as 1K medium', () => {
+  it('keeps the GPT tier table, with auto and a missing size priced as 1K', () => {
     expect(imageRateMultiplier(FLARE, { size: '1024x1024', quality: 'low' })).toBe(1)
     expect(imageRateMultiplier(FLARE, { size: '1024x1024', quality: 'medium' })).toBe(1)
-    expect(imageRateMultiplier(FLARE, { size: '1024x1024', quality: 'high' })).toBe(4)
-    expect(imageRateMultiplier(FLARE, { size: '2048x2048', quality: 'low' })).toBe(1)
-    expect(imageRateMultiplier(FLARE, { size: '2048x2048', quality: 'medium' })).toBe(2)
-    expect(imageRateMultiplier(FLARE, { size: '2048x2048', quality: 'high' })).toBe(8)
-    expect(imageRateMultiplier(FLARE, { size: '3840x2160', quality: 'low' })).toBe(1)
-    expect(imageRateMultiplier(FLARE, { size: '3840x2160', quality: 'medium' })).toBe(2)
-    expect(imageRateMultiplier(FLARE, { size: '3840x2160', quality: 'high' })).toBe(8)
+    expect(imageRateMultiplier(FLARE, { size: '1024x1024', quality: 'high' })).toBe(1)
+    expect(imageRateMultiplier(FLARE, { size: '2048x2048', quality: 'low' })).toBe(1.2)
+    expect(imageRateMultiplier(FLARE, { size: '2048x2048', quality: 'medium' })).toBe(1.2)
+    expect(imageRateMultiplier(FLARE, { size: '2048x2048', quality: 'high' })).toBe(1.2)
+    expect(imageRateMultiplier(FLARE, { size: '3840x2160', quality: 'low' })).toBe(1.5)
+    expect(imageRateMultiplier(FLARE, { size: '3840x2160', quality: 'medium' })).toBe(1.5)
+    expect(imageRateMultiplier(FLARE, { size: '3840x2160', quality: 'high' })).toBe(1.5)
     expect(imageRateMultiplier(FLARE, { size: 'auto', quality: 'auto' })).toBe(1)
     expect(imageRateMultiplier(FLARE, {})).toBe(1)
-    expect(imageRateMultiplier('gpt-image-2.5-sunburst', { size: '2048x2048' })).toBe(2)
+    expect(imageRateMultiplier(SUNBURST, { size: '2048x2048' })).toBe(1.2)
   })
 
   it('prices Nano 2.1 and Pro by the requested tier token', () => {
@@ -146,10 +161,10 @@ describe('imageRateMultiplier', () => {
   })
 
   it('prices prepared requests at the effective GPT ceiling and Gemini membership tier', () => {
-    // 与 clampGptNonMemberRequest 同一收口：4K 高画质收到 2K medium（倍率 2），1K 高画质收到 1K medium。
-    expect(preparedImageRateMultiplier(FLARE, { size: '3840x2160', quality: 'high' })).toBe(2)
-    expect(preparedImageRateMultiplier(FLARE, { size: '2048x2048', quality: 'medium' })).toBe(2)
-    expect(gptCeilingRateMultiplier(FLARE, { size: '3840x2160', quality: 'high' })).toBe(2)
+    // 与 clampGptNonMemberRequest 同一收口：4K 高画质收到 2K medium（倍率 1.2），1K 高画质收到 1K medium。
+    expect(preparedImageRateMultiplier(FLARE, { size: '3840x2160', quality: 'high' })).toBe(1.2)
+    expect(preparedImageRateMultiplier(FLARE, { size: '2048x2048', quality: 'medium' })).toBe(1.2)
+    expect(gptCeilingRateMultiplier(FLARE, { size: '3840x2160', quality: 'high' })).toBe(1.2)
     expect(preparedImageRateMultiplier(FLARE, { size: '1024x1024', quality: 'high' })).toBe(1)
     expect(preparedImageRateMultiplier(NANO, { image_size: '2K' })).toBe(1.5)
     expect(preparedImageRateMultiplier(NANO, { image_size: '4K' })).toBe(1.5)

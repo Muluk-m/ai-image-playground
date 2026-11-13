@@ -27,8 +27,8 @@
 
 - 位置：`packages/shared/src/queue-protocol.ts`，`packages/db` 的 `tasks.status`，写入在 `apps/bff/src/db/task-transitions.ts`、`apps/bff/src/workers/task-execution.ts`、`apps/bff/src/db/maintenance.ts`、`apps/bff/src/lib/taskSubmission.ts`、`apps/bff/src/lib/task-reconciliation.ts`。
 - 状态：`queued`、`in_progress`、`reconciling`、`completed`、`failed`、`cancelled`。
-- 转移：见 [queue-task.md](queue-task.md)。提交插入 `queued`；worker `claim` 到 `in_progress`；可重试失败回 `queued`；上游结果不明进入 `reconciling` 且不结算；终态走 `finishTask`；取消只打在 `queued` 和 `in_progress` 上，已发出的先核查。
-- 现在能表示的非法组合：终态仍带执行令牌；`reconciling` 但 `reconciliation_required` 不为真（库检查会挡）；`queued` 上直接 `succeed`。分析任务可以 `queued → reconciling`，零派发时 `reconciling → cancelled`。客户端另有一套三态 `running | done | error`，两边不是同一个类型。
+- 转移：见 [queue-task.md](queue-task.md)。提交插入 `queued`；worker 和分析认领 `claim` 到 `in_progress`；可重试失败回 `queued`；已经派出的分析从 `queued` 或 `in_progress` 进入 `reconciling` 且不结算；零派发的分析核查写成 `cancelled`；人工确认先 `resume` 回 `in_progress` 再结算；生图终态走 `finishTask`。
+- 现在能表示的非法组合：终态仍带执行令牌；`reconciling` 但 `reconciliation_required` 不为真（库检查会挡）；`queued` 上直接 `succeed`。客户端另有一套三态 `running | done | error`，两边不是同一个类型。
 - 风险：恢复、取消、对账和结算各写各的。对话轮不能回队，回队会被 worker 当成生图重跑。
 - UX：进度卡、刷新后续跑、失败退款是否发生。DX：改一条边要搜完整仓字符串。AX：类型在 shared，转移不在一处，代理很容易只改一个写入点。
 - 计费：是。`reserveTask` / `finalizeTask` 挂在提交和终态上。本轮不改 `task-transitions.ts`。
@@ -74,7 +74,7 @@
 - 状态：三态乘两个布尔。视图见 [agent-turn-session.md](agent-turn-session.md)。
 - 非法组合：`idle` 且 `reconnecting`（旧的跟随者没清掉）；`running` 且没有 `activeTurn`；`failed` 且 `reconnecting`。
 - 风险：和队列阶段、登录门的 `reconnecting` 同名不同义。
-- UX：断流提示、停止。写入点太多，这次只加视图，面板表现不变。
+- UX：断流提示、停止。写入经 `applyTurnSessionEvent`，合法形状与视图一致。
 
 ### 7. stage-authorization（只盘点）
 
@@ -264,7 +264,7 @@
 2. **计费。** 不改预扣、结算、退款、阶段预算、GPT 直连密钥、对账确认。`task-transitions.ts` 的 `requeue` / `reconcile` / `finish` / `cancel` 应改成 `queueTask.step`，但与 `finalizeTask` 同函数，留给下一轮专门的结算 PR。
 3. **设备码兑换。** 更新加上 `status = approved`，更新不到行就不要发令牌。现在按 id 更新。
 4. **工作台与画布任务。** 客户端用一个可辨联合表达本地排队、服务端阶段和终态，替换 `status + queuePhase + cancelled + batchQueued`。要单开，并在测试环境走一遍出图。
-5. **对话轮 store。** 把 `turn` / `stopping` / `reconnecting` 的写入收成 `agentTurnSession` 的事件。视图已经定了合法形状。
+5. **对话轮 store。** 已把 `turn` / `stopping` / `reconnecting` 的写入收成 `applyTurnSessionEvent`。
 6. **智能体历史。** 视图已经定了合法形状（见 [agent-history.md](agent-history.md)）。把 store 写入收成事件仍是提案。
 7. **灵感。** 若运营确认不需要 published → draft 以外的跳转，再收紧表。那是接口变化，要单独说明。
 
