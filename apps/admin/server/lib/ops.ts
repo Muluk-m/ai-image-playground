@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises'
+import { sqlSumIntegerFromDigitText } from '@image-playground/db'
 import { OPS_THRESHOLDS, QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { sql } from 'drizzle-orm'
 import {
@@ -326,7 +327,7 @@ async function readApi(): Promise<OpsApi> {
       ORDER BY 1 ASC
     `),
     db.execute(sql`
-      SELECT route.key AS route, SUM(route.value::int) AS count
+      SELECT route.key AS route, ${sqlSumIntegerFromDigitText(sql`route.value`)} AS count
       FROM api_minutes, jsonb_each_text(server_error_routes) AS route
       WHERE minute >= NOW() - INTERVAL '1 hour' AND server_error_routes IS NOT NULL
       GROUP BY route.key
@@ -392,7 +393,7 @@ async function readReliability(): Promise<OpsReliability> {
         FROM agent_turns WHERE created_at >= NOW() - INTERVAL '7 days'
       `),
       db.execute(sql`
-        SELECT route.key AS key, SUM(route.value::int) AS count, MAX(minute) AS last_at
+        SELECT route.key AS key, ${sqlSumIntegerFromDigitText(sql`route.value`)} AS count, MAX(minute) AS last_at
         FROM api_minutes, jsonb_each_text(server_error_routes) AS route
         WHERE minute >= NOW() - INTERVAL '24 hours' AND server_error_routes IS NOT NULL
         GROUP BY route.key ORDER BY count DESC, route.key ASC LIMIT 10
