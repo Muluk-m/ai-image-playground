@@ -5,6 +5,7 @@ import { PROJECT_DOCUMENT_MAX_BYTES, PROJECT_ELEMENT_MAX_COUNT } from '@image-pl
 import { eq, sql } from 'drizzle-orm'
 
 process.env.PORT = '0'
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 process.env.DATABASE_URL = await resetTestDatabase('bff_cloud_projects')
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../projects-operator-config.json')
 

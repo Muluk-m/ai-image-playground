@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { databasePoolFromEnv } from '@image-playground/db'
 import { GPT_IMAGE_26_UPSTREAM_MODELS, QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { type LoginOriginPolicy, parseLoginMethodsByOrigin } from './lib/auth-origin-config'
+import { assertCredentialedCors } from './lib/cors-policy'
 import { normalizeKeyPrefix } from './lib/objectKeyPrefix'
 import {
   assertOperatorRuntimePrerequisites,
@@ -50,6 +51,7 @@ let baselineOperator = loadOperatorConfig(env('OPERATOR_CONFIG_FILE', '') || nul
 let effectiveOperator = baselineOperator
 export function setEffectiveOperatorConfig(value: typeof baselineOperator): void {
   const validated = validateOperatorConfigValues(value, value.capabilities, value.quotas, config)
+  assertCredentialedCors(config.corsOrigins, validated.capabilities)
   effectiveOperator = { ...value, capabilities: validated.capabilities, quotas: validated.quotas }
 }
 export function baselineOperatorConfig(): typeof baselineOperator {
@@ -164,6 +166,7 @@ export const config = {
     // 直连没打开时这些变量不会被用到，不能因此挡住启动（关着的直连静默退回 sub2api）。
     if (config.gptDirect.enabled) configuredDirectKeys()
     assertOperatorRuntimePrerequisites(config.operator.capabilities, config)
+    assertCredentialedCors(config.corsOrigins, config.operator.capabilities)
     if (config.worker.healthStaleAfterMs < config.worker.pollIntervalMs * 3) {
       throw new Error('WORKER_HEALTH_STALE_AFTER_MS must be at least three poll intervals')
     }

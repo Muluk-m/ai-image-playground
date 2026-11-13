@@ -9,6 +9,7 @@ import { fixturePng } from '../helpers/rasterFixture'
 
 process.env.DATABASE_URL = await resetTestDatabase('analysis_batch_stages')
 process.env.PORT = '0'
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture'
 process.env.AGENT_CHAT_MODEL = 'analysis-auth-model'

@@ -24,6 +24,7 @@ import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_agent_batch_plans')
 process.env.PORT = '0'
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'

@@ -83,6 +83,7 @@ _setPrivateBffOverlayForTesting({
   },
 })
 // Module loading must follow isolated DATABASE_URL and billing-boundary installation.
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 const { app } = await import('../../app')
 const { config } = await import('../../config')
 const { db, schema, close } = await import('../../db/client')

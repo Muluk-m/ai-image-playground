@@ -8,6 +8,7 @@ import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_task_reconciliation')
 process.env.PORT = '0'
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 process.env.DATABASE_POOL_MAX = '1'
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test'
