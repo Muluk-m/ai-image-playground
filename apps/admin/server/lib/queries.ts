@@ -29,11 +29,6 @@ export type { Range, SortKey } from '../../contracts'
 
 import { and, asc, eq, getViewSelectedFields, sql } from 'drizzle-orm'
 import { getDbHandle as getHandle } from './db'
-import {
-  redactTaskErrorMessage,
-  redactTaskRequestPayload,
-  redactUpstreamBody,
-} from './redact-task-detail'
 import { taskSourceSql } from './task-source'
 
 function rangeMs(range: Range): number {
@@ -346,10 +341,14 @@ export const USER_KPI_CACHE_MS = 30_000
 
 let userKpiCache: { at: number; value: UserKpis } | null = null
 let userKpiPending: Promise<UserKpis> | null = null
+let userKpiGeneration = 0
+let userKpiCacheGeneration = 0
 
 export function resetUserKpiCacheForTesting(): void {
   userKpiCache = null
   userKpiPending = null
+  userKpiGeneration = 0
+  userKpiCacheGeneration = 0
 }
 
 async function loadUserKpis(): Promise<UserKpis> {
@@ -391,16 +390,21 @@ async function loadUserKpis(): Promise<UserKpis> {
 export function getUserKpis(now = Date.now(), fresh = false): Promise<UserKpis> {
   if (!fresh && userKpiCache && now - userKpiCache.at < USER_KPI_CACHE_MS)
     return Promise.resolve(userKpiCache.value)
-  if (!userKpiPending) {
-    const at = now
-    userKpiPending = loadUserKpis()
+  if (fresh || !userKpiPending) {
+    // 手动刷新另起一次查询；代数让更早发起的查询晚到时不覆盖更新的缓存。
+    const generation = ++userKpiGeneration
+    const pending = loadUserKpis()
       .then((value) => {
-        userKpiCache = { at, value }
+        if (generation >= userKpiCacheGeneration) {
+          userKpiCache = { at: now, value }
+          userKpiCacheGeneration = generation
+        }
         return value
       })
       .finally(() => {
-        userKpiPending = null
+        if (userKpiPending === pending) userKpiPending = null
       })
+    userKpiPending = pending
   }
   return userKpiPending
 }
@@ -1160,12 +1164,12 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
       : {}),
     prompt: extractPrompt(request_payload),
     upstream_invocation_count: Number(task.upstream_invocation_count),
-    request_payload: redactTaskRequestPayload(request_payload),
+    request_payload,
     user_id: task.user_id,
     result_meta: { images },
-    error_message: redactTaskErrorMessage(task.error_message),
+    error_message: task.error_message,
     upstream_status: task.upstream_status,
-    upstream_body: redactUpstreamBody(task.upstream_body),
+    upstream_body: task.upstream_body,
     device_id,
     next_retry_at: task.next_retry_at,
   }

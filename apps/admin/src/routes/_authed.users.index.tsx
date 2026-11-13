@@ -63,10 +63,14 @@ function UsersPage() {
             onClick={() =>
               void Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['users'] }),
-                queryClient.fetchQuery({
-                  queryKey: ['user-kpis'],
-                  queryFn: () => apiClient.get<UserKpis>('/api/users/kpis?fresh=1'),
-                }),
+                // 全局默认 staleTime 是 Infinity，不写 0 会直接返回缓存、不发请求。
+                queryClient
+                  .fetchQuery({
+                    queryKey: ['user-kpis'],
+                    queryFn: () => apiClient.get<UserKpis>('/api/users/kpis?fresh=1'),
+                    staleTime: 0,
+                  })
+                  .catch(() => undefined),
                 queryClient.invalidateQueries({ queryKey: ['private-billing', 'user-summaries'] }),
               ])
             }
@@ -88,14 +92,26 @@ function UsersPage() {
       ) : query.isError ? (
         <ErrorState label="加载用户失败" error={query.error} />
       ) : (
-        <UsersContent data={query.data} kpis={kpisQuery.data} />
+        <UsersContent
+          data={query.data}
+          kpis={kpisQuery.data}
+          kpisError={kpisQuery.isError ? kpisQuery.error : undefined}
+        />
       )}
       <UserFormDialog mode="create" open={creating} onOpenChange={setCreating} />
     </Page>
   )
 }
 
-function UsersContent({ data, kpis }: { data: ListUsersResult; kpis: UserKpis | undefined }) {
+function UsersContent({
+  data,
+  kpis,
+  kpisError,
+}: {
+  data: ListUsersResult
+  kpis: UserKpis | undefined
+  kpisError: unknown
+}) {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
   const { users, total, page, pageSize } = data
@@ -125,6 +141,7 @@ function UsersContent({ data, kpis }: { data: ListUsersResult; kpis: UserKpis | 
   }
   return (
     <>
+      {kpisError ? <ErrorState label="加载用户指标失败" error={kpisError} /> : null}
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" aria-label="用户指标">
         <Kpi label="用户总数" value={metric(kpis?.total_users)} note="所有用户" />
         <Kpi label="7 日活跃" value={metric(kpis?.active_users_7d)} note="登录或提交过任务" />
