@@ -3,6 +3,7 @@ import { createDb } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 import {
+  redactTaskErrorMessage,
   redactTaskRequestPayload,
   redactUpstreamBody,
 } from '../../../../server/lib/redact-task-detail'
@@ -71,6 +72,41 @@ describe('redactTaskRequestPayload', () => {
     expect(redacted.nested.note).toContain('[REDACTED]@files.example')
     expect(redacted.nested.note).not.toContain('user:pass')
     expect(redacted.input_images).toEqual(['[BINARY REDACTED]'])
+  })
+
+  it('redacts binary fields regardless of type or length', () => {
+    const sha256 = 'a'.repeat(64)
+    const redacted = redactTaskRequestPayload({
+      parts: [{ inlineData: { mimeType: 'image/png', data: 'iVBORw0K' } }],
+      buffer: { type: 'Buffer', data: [137, 80, 78, 71, 13, 10, 26, 10] },
+      bytes_as_array: [137, 80, 78, 71, 13, 10, 26, 10, 0, 1],
+      b64_json: 'short',
+      image_data: [1, 2, 3],
+      mask: 'm',
+      loose: 'A'.repeat(200),
+      sha256,
+      n: 2,
+    }) as Record<string, unknown>
+    expect(redacted.parts).toEqual([{ inlineData: '[BINARY REDACTED]' }])
+    expect(redacted.buffer).toBe('[BINARY REDACTED]')
+    expect(redacted.bytes_as_array).toBe('[BINARY REDACTED]')
+    expect(redacted.b64_json).toBe('[BINARY REDACTED]')
+    expect(redacted.image_data).toBe('[BINARY REDACTED]')
+    expect(redacted.mask).toBe('[BINARY REDACTED]')
+    expect(redacted.loose).toBe('[BINARY REDACTED]')
+    expect(redacted.sha256).toBe(sha256)
+    expect(redacted.n).toBe(2)
+  })
+})
+
+describe('redactTaskErrorMessage', () => {
+  it('strips underscore-named tokens and caps the length', () => {
+    const message = redactTaskErrorMessage(
+      `upstream said {"access_token":"tok_1","refresh_token":"r_2"} ${'x'.repeat(3000)}`,
+    )!
+    expect(message).not.toContain('tok_1')
+    expect(message).not.toContain('r_2')
+    expect(message.length).toBeLessThanOrEqual(2001)
   })
 })
 
