@@ -42,8 +42,8 @@ overlay 反过来只允许通过上面三个接缝与以下**宿主面**引公�
 
 **overlay 版本由 `private.lock` 钉住**（一行 sha）。生产部署与 `with-overlay` 都按它取，不读活动
 指针。overlay CI 全绿把 `verified` 前移后，`.github/workflows/overlay-bump.yml`（每 10 分钟，
-也可手动跑）把 lock 抬到它：先把这对组合构建一遍，通过才提交，并显式触发一次生产部署——
-所以 overlay 合并**会**上线，不必等公开 main 另有提交。本地 `private/` 用
+也可手动跑）把 lock 抬到它：先把这对组合构建一遍，通过才提交，由下一个发布窗口上线（不再立即触发生产部署）——
+所以 overlay 合并**会**上线，不必等公开 main 另有提交；紧急时手动 `workflow_dispatch` 生产部署并填 `reason`。本地 `private/` 用
 `scripts/sync-private-overlay.sh` 对齐到 lock；两边错位时 typecheck / 全量测试会红（overlay 引了
 公开树没有的宿主面成员），那是版本没对上，不是代码坏了。测试环境也按 `private.lock` 取，前后端
 固定同一 overlay 提交。
