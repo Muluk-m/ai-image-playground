@@ -3,12 +3,17 @@
 # with its own API hostname and a host-scoped noindex.
 # Runbook, secrets and break-glass manual release: docs/deploy/image-release.md.
 name: Deploy production
+# 常规发布按窗口：北京时间 12:30、18:30、23:30（cron 为 UTC），只发当时 origin/main 的 tip，
+# 且该提交在 main 上的 `Web checks` 必须已成功。workflow_dispatch 是紧急通道：全量重发，须填 reason。
 on:
-  workflow_run:
-    workflows: [Web checks]
-    types: [completed]
-    branches: [main]
+  schedule:
+    - cron: '30 4,10,15 * * *'
   workflow_dispatch:
+    inputs:
+      reason:
+        description: 紧急发布原因（写入 job summary）
+        type: string
+        required: true
 permissions:
   contents: read
 # One deployment at a time. A queued run waits; a newer queued run replaces it.
@@ -28,12 +33,12 @@ jobs:
     name: Pick the commit
     if: >-
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_run' &&
-       github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_repository.full_name == github.repository)
+      github.event_name == 'schedule'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
       deploy_api: ${{ steps.decide.outputs.deploy_api }}
@@ -48,14 +53,59 @@ jobs:
           [ -n "$PAGES_ENV" ] || { echo "::error::Secret PAGES_ENV is empty or missing."; exit 1; }
       - id: sha
         env:
-          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          SHA: ${{ github.sha }}
         run: echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - name: Record the emergency reason
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          REASON: ${{ inputs.reason }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          {
+            echo "### 紧急发布（workflow_dispatch）"
+            echo "- 触发人：$ACTOR"
+            echo "- 原因：$REASON"
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           fetch-depth: 0
           persist-credentials: false
+      # 窗口只发 `Web checks` 已在 main 上成功的 tip；没跑完或失败就跳过本窗口（不报错）。
+      # overlay-bump 用 GITHUB_TOKEN 推的 lock 提交不会触发 `Web checks`（它已先自己构建验证），
+      # 这种仅改 private.lock 的提交看其父提交的结果。
+      - id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.sha.outputs.sha }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" != schedule ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          checks_state() {
+            gh api "repos/$REPO/actions/workflows/web.yml/runs?head_sha=$1&event=push&branch=main&per_page=1" \
+              --jq '.workflow_runs[0] | if . == null then "none" elif .status != "completed" then "running" else .conclusion end'
+          }
+          check_sha=$SHA
+          state=$(checks_state "$check_sha")
+          if [ "$state" = none ] &&
+            [ "$(git log -1 --format=%an "$SHA")" = github-actions[bot] ] &&
+            git log -1 --format=%s "$SHA" | grep -q '^chore(overlay): pin ' &&
+            [ "$(git diff --name-only "$SHA^" "$SHA")" = private.lock ]; then
+            check_sha=$(git rev-parse "$SHA^")
+            state=$(checks_state "$check_sha")
+          fi
+          if [ "$state" != success ]; then
+            echo "::notice::Web checks for $check_sha on main is '$state'; skipping this window."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "ok=true" >> "$GITHUB_OUTPUT"
       - id: decide
+        if: steps.gate.outputs.ok == 'true'
         env:
           PAGES_ENV: ${{ secrets.PAGES_ENV }}
           SHA: ${{ steps.sha.outputs.sha }}
