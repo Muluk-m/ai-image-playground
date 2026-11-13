@@ -313,6 +313,14 @@ vi.mock('../../lib/api-client', () => {
         nextCursor: null,
       }
     if (url.includes('/tasks')) return { tasks: [], nextCursor: null }
+    if (url.startsWith('/api/users/kpis')) {
+      return {
+        total_users: 1,
+        active_users_7d: 1,
+        submissions_24h: 0,
+        failure_rate_24h: 0,
+      }
+    }
     if (url.startsWith('/api/users/')) {
       return {
         user,
@@ -328,12 +336,9 @@ vi.mock('../../lib/api-client', () => {
       return {
         users: [user],
         truncated: false,
-        kpis: {
-          total_users: 1,
-          active_users_7d: 1,
-          submissions_24h: 0,
-          failure_rate_24h: 0,
-        },
+        total: 1,
+        page: 1,
+        pageSize: 50,
       }
     }
     if (url.startsWith('/api/devices')) return { devices: [], truncated: false }

@@ -20,6 +20,7 @@ import type {
   TaskVolumeBucket,
   TimeWindow,
   UserDetailResult,
+  UserKpis,
   UserTasksResult,
   VolumeBucketUnit,
 } from '../../contracts'
@@ -28,6 +29,11 @@ export type { Range, SortKey } from '../../contracts'
 
 import { and, asc, eq, getViewSelectedFields, sql } from 'drizzle-orm'
 import { getDbHandle as getHandle } from './db'
+import {
+  redactTaskErrorMessage,
+  redactTaskRequestPayload,
+  redactUpstreamBody,
+} from './redact-task-detail'
 import { taskSourceSql } from './task-source'
 
 function rangeMs(range: Range): number {
@@ -321,7 +327,40 @@ export async function listUsers(
     LEFT JOIN admin_user_notes n ON n.user_id = u.id
     WHERE ${where}
   `)
-  const kpiRowsPromise = db.execute(sql`
+
+  const [userRowsRaw, countRowsRaw] = await Promise.all([userRowsPromise, countPromise])
+  const userRows = userRowsRaw as unknown as Array<Record<string, unknown>>
+  const total = Number((countRowsRaw as unknown as Array<Record<string, unknown>>)[0]?.total ?? 0)
+  const users = userRows.map(mapAdminUser)
+  return {
+    users,
+    total,
+    page,
+    pageSize,
+    truncated: offset + users.length < total,
+  }
+}
+
+/** 全局 KPI 跟翻页无关。短缓存让连续翻页不再各扫一遍用户和 24 小时任务。 */
+export const USER_KPI_CACHE_MS = 30_000
+
+type DbHandle = ReturnType<typeof getHandle>
+// 缓存跟着数据库句柄走：同一进程换了 DATABASE_URL 时不拿别的库的数字。
+let userKpiCache: { at: number; value: UserKpis; db: DbHandle } | null = null
+let userKpiPending: { promise: Promise<UserKpis>; db: DbHandle; fresh: boolean } | null = null
+let userKpiGeneration = 0
+let userKpiCacheGeneration = 0
+
+export function resetUserKpiCacheForTesting(): void {
+  userKpiCache = null
+  userKpiPending = null
+  userKpiGeneration = 0
+  userKpiCacheGeneration = 0
+}
+
+async function loadUserKpis(handle: DbHandle): Promise<UserKpis> {
+  const { db } = handle
+  const rows = (await db.execute(sql`
     WITH user_activity AS (
       SELECT u.id, GREATEST(u.last_login_at, MAX(t.submitted_at)) AS last_activity_at
       FROM users u
@@ -345,30 +384,38 @@ export async function listUsers(
         ELSE recent_tasks.failures::double precision / recent_tasks.submissions::double precision
       END AS failure_rate_24h
     FROM recent_tasks
-  `)
-
-  const [userRowsRaw, countRowsRaw, kpiRowsRaw] = await Promise.all([
-    userRowsPromise,
-    countPromise,
-    kpiRowsPromise,
-  ])
-  const userRows = userRowsRaw as unknown as Array<Record<string, unknown>>
-  const total = Number((countRowsRaw as unknown as Array<Record<string, unknown>>)[0]?.total ?? 0)
-  const kpi = (kpiRowsRaw as unknown as Array<Record<string, unknown>>)[0] ?? {}
-  const users = userRows.map(mapAdminUser)
+  `)) as unknown as Array<Record<string, unknown>>
+  const kpi = rows[0] ?? {}
   return {
-    users,
-    total,
-    page,
-    pageSize,
-    truncated: offset + users.length < total,
-    kpis: {
-      total_users: Number(kpi.total_users ?? 0),
-      active_users_7d: Number(kpi.active_users_7d ?? 0),
-      submissions_24h: Number(kpi.submissions_24h ?? 0),
-      failure_rate_24h: Number(kpi.failure_rate_24h ?? 0),
-    },
+    total_users: Number(kpi.total_users ?? 0),
+    active_users_7d: Number(kpi.active_users_7d ?? 0),
+    submissions_24h: Number(kpi.submissions_24h ?? 0),
+    failure_rate_24h: Number(kpi.failure_rate_24h ?? 0),
   }
+}
+
+export function getUserKpis(now = Date.now(), fresh = false): Promise<UserKpis> {
+  const handle = getHandle()
+  if (!fresh && userKpiCache?.db === handle && now - userKpiCache.at < USER_KPI_CACHE_MS)
+    return Promise.resolve(userKpiCache.value)
+  // 强制刷新不搭普通查询的车（它可能早于刚才的写入），但多次强制刷新共用一次扫描。
+  if (userKpiPending?.db === handle && (!fresh || userKpiPending.fresh))
+    return userKpiPending.promise
+  // 手动刷新另起一次查询；代数让更早发起的查询晚到时不覆盖更新的缓存。
+  const generation = ++userKpiGeneration
+  const promise: Promise<UserKpis> = loadUserKpis(handle)
+    .then((value) => {
+      if (generation >= userKpiCacheGeneration) {
+        userKpiCache = { at: now, value, db: handle }
+        userKpiCacheGeneration = generation
+      }
+      return value
+    })
+    .finally(() => {
+      if (userKpiPending?.promise === promise) userKpiPending = null
+    })
+  userKpiPending = { promise, db: handle, fresh }
+  return promise
 }
 
 export function volumeBucketUnit(range: Range): VolumeBucketUnit {
@@ -1126,12 +1173,12 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
       : {}),
     prompt: extractPrompt(request_payload),
     upstream_invocation_count: Number(task.upstream_invocation_count),
-    request_payload,
+    request_payload: redactTaskRequestPayload(request_payload),
     user_id: task.user_id,
     result_meta: { images },
-    error_message: task.error_message,
+    error_message: redactTaskErrorMessage(task.error_message),
     upstream_status: task.upstream_status,
-    upstream_body: task.upstream_body,
+    upstream_body: redactUpstreamBody(task.upstream_body),
     device_id,
     next_retry_at: task.next_retry_at,
   }
