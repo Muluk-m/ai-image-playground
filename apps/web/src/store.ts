@@ -59,6 +59,15 @@ import {
   storeImage,
 } from './lib/db'
 import {
+  activityFromRecord,
+  applyGenerationActivity,
+  type GenerationEvent,
+  generationActivityMachine,
+  isGenerationOpen,
+  projectGenerationActivity,
+  reportEvent,
+} from './lib/generationActivity'
+import {
   type GenerationReport,
   type GenerationSink,
   resumeGeneration,
@@ -1080,10 +1089,10 @@ function genId(): string {
  * （带幂等键）。旧的自带密钥任务只有 clientRequestId / customTaskId，没有这两样。
  */
 function isResumablePlatformTask(task: TaskRecord): boolean {
-  if (task.status !== 'running') return false
+  const activity = activityFromRecord(task)
+  if (!isGenerationOpen(activity) || activity.phase === 'batch-queued') return false
   // 还在本机排队的那张从没发出去，刷新后无从续跑，按中断处理、留给重试。
-  if (task.batchQueued) return false
-  if (task.bffRequestId || task.queuePhase) return true
+  if (task.bffRequestId || task.queuePhase || activity.phase !== 'submitting') return true
   return task.platformTask === true && Boolean(task.clientRequestId) && !task.customTaskId
 }
 
@@ -1095,11 +1104,13 @@ function isRetiredByokTask(task: TaskRecord): boolean {
 export function markInterruptedOpenAIRunningTasks(tasks: TaskRecord[], now = Date.now()) {
   const interruptedTasks: TaskRecord[] = []
   const updatedTasks = tasks.map((task) => {
-    if (task.status !== 'running' || isResumablePlatformTask(task)) return task
-
+    const current = activityFromRecord(task)
+    if (!isGenerationOpen(current) || isResumablePlatformTask(task)) return task
+    const activity = applyGenerationActivity(current, 'interrupt')
     const updated: TaskRecord = {
       ...task,
-      status: 'error',
+      ...projectGenerationActivity(activity),
+      activity,
       error: isRetiredByokTask(task)
         ? i18next.t('task.byokUnrecoverable', { ns: 'store' })
         : createOpenAIInterruptedError(),
@@ -1845,7 +1856,7 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
     },
 
     progress(job, queuePhase) {
-      updateTaskInStore(job.taskId, { queuePhase })
+      transitionStoredTask(job.taskId, reportEvent(queuePhase))
     },
 
     async delivered(job, result) {
@@ -1873,7 +1884,7 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
 
         // 写图那段里用户可能已经把这条任务删了 / 中止了：再确认一次才写终局。
         const latest = useStore.getState().tasks.find((t) => t.id === job.taskId)
-        if (!latest || latest.status !== 'running') return
+        if (!latest || !generationActivityMachineAllows(latest, 'succeed')) return
         updateTaskInStore(job.taskId, {
           ...(result.degradeNotice ? { degradeNotice: result.degradeNotice } : {}),
           outputImages: outputIds,
@@ -1886,7 +1897,7 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
             revisedPromptByImage && Object.keys(revisedPromptByImage).length > 0
               ? revisedPromptByImage
               : undefined,
-          status: 'done',
+          ...generationPatch(latest, 'succeed'),
           finishedAt: Date.now(),
           elapsed: Date.now() - job.createdAt,
           customRecoverable: false,
@@ -1928,7 +1939,8 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
       try {
         for (const imgId of job.inputImageIds) imageCache.delete(imgId)
         const latestTask = useStore.getState().tasks.find((t) => t.id === job.taskId)
-        if (!latestTask || latestTask.status !== 'running') return
+        const event = failure.cancelled ? 'cancel' : 'fail'
+        if (!latestTask || !generationActivityMachineAllows(latestTask, event)) return
         // 自己挂的超时 abort 只有这里知道秒数；其余照 module 按错误码映射好的那句。
         let errorMessage = isOwnTimeoutAbortError(failure.error)
           ? createOpenAITimeoutError(job.timeoutSeconds)
@@ -1938,10 +1950,9 @@ function workbenchReport(): GenerationReport<WorkbenchJob> {
           errorMessage += `\n${networkErrorHint}`
         }
         updateTaskInStore(job.taskId, {
-          status: 'error',
+          ...generationPatch(latestTask, event),
           error: errorMessage,
           errorCode: failure.code,
-          cancelled: failure.cancelled,
           ...getRawErrorPayload(failure.error),
           customRecoverable: false,
           finishedAt: Date.now(),
@@ -2017,9 +2028,9 @@ function workbenchSink(
         transparentOutput: transparent?.transparentOutput,
         transparentPrompt: transparent?.effectivePrompt,
         origin,
-        ...(queued ? { batchQueued: true as const } : {}),
         outputImages: [],
-        status: 'running',
+        ...projectGenerationActivity(queued ? { phase: 'batch-queued' } : { phase: 'submitting' }),
+        activity: queued ? { phase: 'batch-queued' } : { phase: 'submitting' },
         error: null,
         createdAt: submission.createdAt,
         finishedAt: null,
@@ -2050,11 +2061,15 @@ function workbenchSink(
             void batchLimit.run(async () => {
               // 排队期间被删掉或中止的那张不再发。
               const latest = useStore.getState().tasks.find((t) => t.id === job.taskId)
-              if (!latest || latest.status !== 'running') {
+              if (!latest || !isGenerationOpen(activityFromRecord(latest))) {
                 releaseGenerationTask(job.taskId)
                 return
               }
-              updateTaskInStore(job.taskId, { batchQueued: undefined, batchStartedAt: Date.now() })
+              if (activityFromRecord(latest).phase === 'batch-queued') {
+                transitionStoredTask(job.taskId, 'release', { batchStartedAt: Date.now() })
+              } else if (!latest.batchStartedAt) {
+                updateTaskInStore(job.taskId, { batchStartedAt: Date.now() })
+              }
               await send()
             })
           },
@@ -2115,7 +2130,7 @@ async function resumeStoredTask(task: TaskRecord): Promise<void> {
     const taskProfile = getTaskApiProfile(settings, task)
     if (!taskProfile && task.apiProfileId) {
       updateTaskInStore(task.id, {
-        status: 'error',
+        ...generationPatch(task, 'fail'),
         error: i18next.t('task.profileMissing', { ns: 'store' }),
         customRecoverable: false,
         finishedAt: Date.now(),
@@ -2186,6 +2201,25 @@ export function updateTaskInStore(taskId: string, patch: Partial<TaskRecord>) {
   setTasks(updated)
   const task = updated.find((t) => t.id === taskId)
   if (task) putTask(task)
+}
+
+function generationPatch(task: TaskRecord, event: GenerationEvent): Partial<TaskRecord> {
+  const activity = applyGenerationActivity(activityFromRecord(task), event)
+  return { activity, ...projectGenerationActivity(activity) }
+}
+
+function generationActivityMachineAllows(task: TaskRecord, event: GenerationEvent): boolean {
+  return generationActivityMachine.allows(activityFromRecord(task).phase, event)
+}
+
+function transitionStoredTask(
+  taskId: string,
+  event: GenerationEvent,
+  patch: Partial<TaskRecord> = {},
+) {
+  const task = useStore.getState().tasks.find((item) => item.id === taskId)
+  if (!task) return
+  updateTaskInStore(taskId, { ...generationPatch(task, event), ...patch })
 }
 
 /** 只读过列表的平台记录只有封面一张；展开详情时才去补齐全部产出。补到的写回缓存，不写进本机任务。 */
@@ -2556,7 +2590,8 @@ export async function addCompletedCanvasTask(args: {
       maskTargetImageId: null,
       maskImageId: null,
       outputImages: outputIds,
-      status: 'done',
+      ...projectGenerationActivity({ phase: 'done' }),
+      activity: { phase: 'done' },
       error: null,
       createdAt: elapsed != null ? finishedAt - elapsed : finishedAt,
       finishedAt,

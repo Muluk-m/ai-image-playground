@@ -55,7 +55,8 @@
       "size_quality_format": "直连繁忙，已降级为 1K 普通画质静态图"
     },
     "inpaint": "局部重绘",
-    "transparentBackground": "透明背景"
+    "transparentBackground": "透明背景",
+    "canvas": "画布"
   },
   "detail": {
     "errorUnavailable": "未记录具体失败原因，请复制诊断信息以便排查。",

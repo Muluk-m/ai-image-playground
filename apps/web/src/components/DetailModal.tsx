@@ -13,10 +13,11 @@ import {
   copyTextToClipboard,
   getClipboardFailureMessage,
 } from '../lib/clipboard'
+import { activityFromRecord, showsGenerationTimer } from '../lib/generationActivity'
 import { loadImageOriginal } from '../lib/imageSource'
 import { ActualValueBadge, DetailParamValue, measuredSizeOf } from '../lib/paramDisplay'
 import { taskErrorText, taskRecordErrorText } from '../lib/taskError'
-import { workProjectId } from '../lib/works'
+import { workProjectId, workSource } from '../lib/works'
 import {
   editOutputImage,
   removeTask,
@@ -28,6 +29,7 @@ import {
   useStore,
 } from '../store'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
+import { GenerationTerminalFace, generationTerminalPhase } from './generationTerminal'
 import { ModelLogo } from './ModelIdentity'
 import Overlay from './patterns/Overlay'
 import { Button } from './ui/button'
@@ -84,12 +86,16 @@ export default function DetailModal() {
     [tasks, detailTaskId],
   )
 
-  // 对话里出的图能回到那个项目；快速生成的没有。
-  const projectId = useMemo(
-    () =>
-      task ? workProjectId(task, new Map(platformGenerations.map((row) => [row.id, row]))) : null,
-    [task, platformGenerations],
+  // 对话里出的图能回到那个项目；快速生成的没有。画布入选带来源标签。
+  const generationRows = useMemo(
+    () => new Map(platformGenerations.map((row) => [row.id, row])),
+    [platformGenerations],
   )
+  const projectId = useMemo(
+    () => (task ? workProjectId(task, generationRows) : null),
+    [task, generationRows],
+  )
+  const canvasWork = task ? workSource(task, generationRows) === 'canvas' : false
 
   // Reset index when task changes
   useEffect(() => {
@@ -304,18 +310,21 @@ export default function DetailModal() {
     void setTaskFavorite(task, !task.isFavorite)
   }
 
-  const errorText = task.cancelled
-    ? t('common:state.cancelled')
-    : (taskRecordErrorText(task) ?? t('detail.errorUnavailable'))
+  const activity = activityFromRecord(task)
+  const terminal = generationTerminalPhase(activity.phase)
+  const errorText =
+    activity.phase === 'cancelled'
+      ? t('common:state.cancelled')
+      : (taskRecordErrorText(task) ?? t('detail.errorUnavailable'))
 
   const handleCopyError = async () => {
     const diagnostics = JSON.stringify(
       {
         // 复制给运营排查：带存下的原文，界面上那句是按分类换过的。
-        message: (!task.cancelled && task.error?.trim()) || errorText,
+        message: (activity.phase !== 'cancelled' && task.error?.trim()) || errorText,
         taskId: task.id,
         requestId: task.bffRequestId,
-        status: task.cancelled ? 'cancelled' : task.status,
+        status: activity.phase === 'cancelled' ? 'cancelled' : task.status,
         errorType: task.errorCode ?? null,
         provider: task.apiProvider ?? task.cloudProvider,
         model: task.apiModel,
@@ -489,6 +498,14 @@ export default function DetailModal() {
                 )}
               </>
             )}
+            {task.status === 'done' && outputLen === 0 && (
+              <div
+                data-empty-output=""
+                className="flex items-center justify-center text-muted-foreground"
+              >
+                <Icon name="image" size="lg" />
+              </div>
+            )}
             {task.status === 'done' && outputLen > 0 && !outputDisplaySrc && (
               <div className="flex flex-col items-center gap-2 text-muted-foreground">
                 <Icon name="loading" size="lg" className="animate-spin text-primary" />
@@ -501,17 +518,17 @@ export default function DetailModal() {
                   <Icon name="clock" size="xs" />
                   {formatDuration()}
                 </div>
-                {task.status === 'running' && (
+                {showsGenerationTimer(activity) && (
                   <Icon name="loading" size="lg" className="animate-spin text-primary" />
                 )}
               </>
             )}
-            {task.status === 'error' && task.cancelled && (
-              <div className="w-full max-w-md px-4 text-center">
-                <Icon name="close" size="lg" className="mx-auto mb-2 text-muted-foreground" />
-                <p className="text-sm leading-6 text-muted-foreground">
-                  {t('common:state.cancelled')}
-                </p>
+            {terminal === 'cancelled' && (
+              <GenerationTerminalFace
+                layout="detail"
+                phase="cancelled"
+                label={t('common:state.cancelled')}
+              >
                 <Button
                   type="button"
                   variant="outline"
@@ -522,21 +539,31 @@ export default function DetailModal() {
                 >
                   <Icon name="copy" />
                 </Button>
-              </div>
+              </GenerationTerminalFace>
             )}
-            {task.status === 'error' && !task.cancelled && (
-              <div className="w-full max-w-md px-4 text-center">
-                <Icon name="error" size="lg" className="mx-auto mb-2 text-destructive" />
-                <p
-                  className="overflow-hidden whitespace-pre-line text-sm leading-6 text-destructive break-words"
-                  style={{
-                    display: '-webkit-box',
-                    WebkitBoxOrient: 'vertical',
-                    WebkitLineClamp: 4,
-                  }}
-                >
-                  {blockedByContentPolicy ? t('detail.contentPolicy') : errorText}
-                </p>
+            {terminal === 'stale' && (
+              <GenerationTerminalFace layout="detail" phase="stale" label={t('common:state.stale')}>
+                <div className="mt-3 flex items-center justify-center">
+                  <Hint tooltip={t('action.retryTask')}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon-sm"
+                      onClick={handleRetry}
+                      aria-label={t('action.retryTask')}
+                    >
+                      <Icon name="refresh" />
+                    </Button>
+                  </Hint>
+                </div>
+              </GenerationTerminalFace>
+            )}
+            {terminal === 'failed' && (
+              <GenerationTerminalFace
+                layout="detail"
+                phase="failed"
+                label={blockedByContentPolicy ? t('detail.contentPolicy') : errorText}
+              >
                 {blockedByContentPolicy && (
                   <Button
                     type="button"
@@ -615,7 +642,7 @@ export default function DetailModal() {
                     </Hint>
                   )}
                 </div>
-              </div>
+              </GenerationTerminalFace>
             )}
           </div>
 
@@ -658,6 +685,11 @@ export default function DetailModal() {
               >
                 {task.prompt || t('prompt.empty')}
               </p>
+              {canvasWork && (
+                <span className="mb-3 inline-flex rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                  {t('card.canvas')}
+                </span>
+              )}
               {(task.prompt?.length ?? 0) > 120 && (
                 <Button
                   type="button"

@@ -371,8 +371,81 @@ class InstallTests(unittest.TestCase):
         self.assertTrue(self.server.requests)
         self.assertTrue(all(path.startswith("/redirect/") for path, _ in self.server.requests))
 
+
+    def write_fake_cli(self, version):
+        if self.windows:
+            self.skipTest("fake CLI shim is a shell script")
+        self.binary.parent.mkdir(parents=True, exist_ok=True)
+        self.binary.write_text(
+            f"#!/bin/sh\necho 'muvloom {version} (linux/amd64)'\n",
+            encoding="utf-8",
+        )
+        self.binary.chmod(0o755)
+
+    def test_unix_profile_receives_install_dir_when_missing(self):
+        if self.windows:
+            self.skipTest("shell installer only")
+        self.env.pop("MUVLOOM_NO_MODIFY_PATH", None)
+        self.env["SHELL"] = "/bin/bash"
+        bashrc = self.home / ".bashrc"
+        bashrc.write_text("# existing rc\n", encoding="utf-8")
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        text = bashrc.read_text(encoding="utf-8")
+        self.assertIn(str(self.binary.parent), text)
+        self.assertIn("Added", result.stderr)
+        self.assertIn(str(bashrc), result.stderr)
+
+    def test_unix_profile_is_left_alone_when_dir_already_listed(self):
+        if self.windows:
+            self.skipTest("shell installer only")
+        self.env.pop("MUVLOOM_NO_MODIFY_PATH", None)
+        self.env["SHELL"] = "/bin/bash"
+        install_dir = str(self.binary.parent)
+        bashrc = self.home / ".bashrc"
+        original = f'export PATH="{install_dir}:$PATH"\n'
+        bashrc.write_text(original, encoding="utf-8")
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(bashrc.read_text(encoding="utf-8"), original)
+        self.assertIn("PATH already includes", result.stderr)
+        self.assertIn(str(bashrc), result.stderr)
+
+    def test_unix_profile_is_left_alone_when_no_modify_path(self):
+        if self.windows:
+            self.skipTest("shell installer only")
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertFalse((self.home / ".bashrc").exists())
+        self.assertFalse((self.home / ".profile").exists())
+        self.assertFalse((self.home / ".zprofile").exists())
+
+    def test_does_not_downgrade_a_newer_install(self):
+        self.write_fake_cli("9.9.9")
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("not downgrading", (result.stdout + result.stderr).lower())
+        self.assertIn("9.9.9", self.binary.read_text(encoding="utf-8"))
+
+    def test_min_version_skips_when_already_at_target(self):
+        first = self.install()
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        self.env["MUVLOOM_MIN_VERSION"] = VERSION
+        result = self.install(pin=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("already installed", (result.stdout + result.stderr).lower())
+        self.assertEqual(self.cli("version")["data"]["version"], VERSION)
+
+    def test_min_version_upgrades_an_older_install(self):
+        self.write_fake_cli("0.0.1")
+        self.env["MUVLOOM_MIN_VERSION"] = VERSION
+        result = self.install(pin=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.cli("version")["data"]["version"], VERSION)
+
     @unittest.skipIf(platform.system() == "Windows", "Windows supports only the separately tested x64 platform")
     def test_unsupported_shell_architecture_fails_before_download(self):
+
         tools = self.root / "tools"
         tools.mkdir()
         uname = tools / "uname"

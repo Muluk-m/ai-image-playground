@@ -55,7 +55,8 @@
       "size_quality_format": "Direct is busy. Delivered as a 1K still at standard quality"
     },
     "inpaint": "Inpaint",
-    "transparentBackground": "Transparent"
+    "transparentBackground": "Transparent",
+    "canvas": "Canvas"
   },
   "detail": {
     "errorUnavailable": "No specific failure reason was recorded. Copy the diagnostics to help investigate.",

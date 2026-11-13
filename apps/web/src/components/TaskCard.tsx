@@ -1,10 +1,11 @@
-import { formatImageRatio, type Image26DegradeKind } from '@image-playground/shared'
+import { formatImageRatio } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
 import { taskExportSources } from '../features/image-export/sources'
 import { openImageExport } from '../features/image-export/store'
 import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
 import { modelLabel } from '../lib/channels/publicChannels'
+import { activityFromRecord, showsGenerationTimer } from '../lib/generationActivity'
 import {
   awaitingQueuePhase,
   estimatedProgressPercent,
@@ -14,35 +15,19 @@ import {
   progressStartedAt,
   typicalDurationMs,
 } from '../lib/generationProgress'
+import { image26DegradeNoticeKey } from '../lib/gptQuote'
 import { loadImageOriginal } from '../lib/imageSource'
 import { ActualValueBadge, getParamDisplay, measuredSizeOf } from '../lib/paramDisplay'
+import { workSource } from '../lib/works'
 import { retryTask, setTaskFavorite, useStore } from '../store'
 import type { TaskRecord } from '../types'
 import { JobProgress } from './assistant-ui/elements/job-progress'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
+import { GenerationTerminalFace, generationTerminalPhase } from './generationTerminal'
 import { compactModelName, ModelLogo } from './ModelIdentity'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover'
-
-function degradedNotice(kind: Image26DegradeKind) {
-  switch (kind) {
-    case 'size':
-      return 'card.degraded.size' as const
-    case 'quality':
-      return 'card.degraded.quality' as const
-    case 'format':
-      return 'card.degraded.format' as const
-    case 'size_quality':
-      return 'card.degraded.size_quality' as const
-    case 'size_format':
-      return 'card.degraded.size_format' as const
-    case 'quality_format':
-      return 'card.degraded.quality_format' as const
-    case 'size_quality_format':
-      return 'card.degraded.size_quality_format' as const
-  }
-}
 
 /** task-pop-in 入场动画窗口；超过这个秒数后 mount 的 task 视作历史回放，不再播。 */
 const FRESH_POP_IN_WINDOW_MS = 600
@@ -67,6 +52,9 @@ export default function TaskCard({
   isSelected,
 }: Props) {
   const { t } = useTranslation(['task', 'common'])
+  const platformGenerations = useStore((s) => s.platformGenerations)
+  const canvasWork =
+    workSource(task, new Map(platformGenerations.map((row) => [row.id, row]))) === 'canvas'
   const preview = useImagePreview(task.outputImages?.[0])
   const thumbSrc = preview?.url ?? ''
   const motionFormat = task.params.output_format
@@ -95,8 +83,10 @@ export default function TaskCard({
   const [swipeActionActive, setSwipeActionActive] = useState(false)
   const toggleTaskSelection = useStore((s) => s.toggleTaskSelection)
   const settings = useStore((s) => s.settings)
+  const activity = activityFromRecord(task)
+  const terminal = generationTerminalPhase(activity.phase)
   const typicalMs = useStore((s) =>
-    task.status === 'running' ? typicalDurationMs(s.tasks, task.apiModel) : 0,
+    showsGenerationTimer(activity) ? typicalDurationMs(s.tasks, task.apiModel) : 0,
   )
   const exportLabel = t('download.export')
   const handleExport = (e: React.MouseEvent) => {
@@ -202,15 +192,15 @@ export default function TaskCard({
 
   // 定时更新运行中任务的计时
   useEffect(() => {
-    if (task.status !== 'running') return
+    if (!showsGenerationTimer(activity)) return
     const id = setInterval(() => setNow(Date.now()), 1000)
     setNow(Date.now())
     return () => clearInterval(id)
-  }, [task.status])
+  }, [activity.phase])
 
   const duration = (() => {
     let seconds: number
-    if (task.status === 'running') {
+    if (showsGenerationTimer(activity)) {
       seconds = Math.floor((now - (task.batchStartedAt ?? task.createdAt)) / 1000)
     } else if (task.elapsed != null) {
       seconds = Math.floor(task.elapsed / 1000)
@@ -224,7 +214,7 @@ export default function TaskCard({
   })()
   const isSwipeReady = Math.abs(swipeOffset) >= 40
   const showSwipeAction = isSwipeReady || swipeActionActive
-  const showRunningTimer = task.status === 'running' && !task.batchQueued
+  const showRunningTimer = showsGenerationTimer(activity)
   // 上游不回报真实进度：只在真正出图阶段按本机同模型的典型耗时估一个百分比，排队、重连、确认时不显示也不计时。
   const generatingPhase = inGeneratingPhase(task)
   const progressStart = generatingPhase ? progressStartedAt(task) : null
@@ -232,17 +222,22 @@ export default function TaskCard({
     progressStart != null ? estimatedProgressPercent(now - progressStart, typicalMs) : null
   useEffect(() => {
     if (generatingPhase) markGenerating(task, Date.now())
-    else if (task.status !== 'running') forgetGenerating(task.id)
+    else if (!showsGenerationTimer(activity)) forgetGenerating(task.id)
   }, [generatingPhase, task])
-  const runningLabel = task.batchQueued
-    ? t('card.batchQueued')
-    : progressPercent != null
-      ? t('card.progress', { percent: progressPercent })
-      : task.queuePhase
-        ? t(`card.phase.${task.queuePhase}`)
-        : awaitingQueuePhase(task)
-          ? t('card.phase.queued')
-          : t('card.generating')
+  const runningLabel =
+    activity.phase === 'batch-queued'
+      ? t('card.batchQueued')
+      : progressPercent != null
+        ? t('card.progress', { percent: progressPercent })
+        : activity.phase === 'queued' ||
+            activity.phase === 'reconnecting' ||
+            activity.phase === 'confirming' ||
+            activity.phase === 'reconciling' ||
+            activity.phase === 'generating'
+          ? t(`card.phase.${activity.phase}`)
+          : awaitingQueuePhase(task)
+            ? t('card.phase.queued')
+            : t('card.generating')
   const swipeBgClass = showSwipeAction
     ? swipeStartedSelected
       ? 'bg-muted'
@@ -288,7 +283,7 @@ export default function TaskCard({
             ? 'transition-[box-shadow,border-color,background-color,transform]'
             : 'transition-[box-shadow,border-color,background-color]'
         } ${isFreshRef.current ? 'animate-task-pop-in' : ''} ${
-          task.status === 'running'
+          showsGenerationTimer(activity)
             ? 'border-primary generating'
             : isSelected
               ? 'border-primary shadow-md ring-2 ring-ring/50'
@@ -320,7 +315,7 @@ export default function TaskCard({
         <div className="flex h-40 max-sm:grid max-sm:h-auto max-sm:grid-cols-[10rem_minmax(0,1fr)] max-sm:grid-rows-[minmax(0,1fr)_auto_auto]">
           {/* 左侧图片区域 */}
           <div className="w-40 min-w-[10rem] h-full max-sm:h-40 max-sm:row-span-2 bg-muted dark:bg-black/20 relative flex items-center justify-center overflow-hidden flex-shrink-0">
-            {task.status === 'running' &&
+            {showsGenerationTimer(activity) &&
               (progressPercent != null ? (
                 <JobProgress
                   label={runningLabel}
@@ -333,21 +328,18 @@ export default function TaskCard({
                   <span className="text-center text-xs text-muted-foreground">{runningLabel}</span>
                 </div>
               ))}
-            {task.status === 'error' && task.cancelled && (
-              <div className="flex flex-col items-center gap-1 px-2">
-                <Icon name="close" size="lg" className="text-muted-foreground" />
-                <span className="text-xs text-muted-foreground text-center leading-tight">
-                  {t('common:state.cancelled')}
-                </span>
-              </div>
-            )}
-            {task.status === 'error' && !task.cancelled && (
-              <div className="flex flex-col items-center gap-1 px-2">
-                <Icon name="error" size="lg" className="text-destructive" />
-                <span className="text-xs text-destructive text-center leading-tight">
-                  {t('common:state.failed')}
-                </span>
-              </div>
+            {terminal && (
+              <GenerationTerminalFace
+                layout="card"
+                phase={terminal}
+                label={
+                  {
+                    cancelled: t('common:state.cancelled'),
+                    failed: t('common:state.failed'),
+                    stale: t('common:state.stale'),
+                  }[terminal]
+                }
+              />
             )}
             {task.status === 'done' && thumbSrc && (
               <>
@@ -383,7 +375,9 @@ export default function TaskCard({
               </>
             )}
             {task.status === 'done' && !thumbSrc && (
-              <Icon name="image" size="lg" className="text-muted-foreground" />
+              <div data-empty-output="" className="flex items-center justify-center">
+                <Icon name="image" size="lg" className="text-muted-foreground" />
+              </div>
             )}
             {/* 运行中显示耗时，完成后显示封面图比例与分辨率标签 */}
             <div className="absolute top-1.5 left-1.5 flex items-center gap-1">
@@ -415,7 +409,7 @@ export default function TaskCard({
               </p>
               {task.degradeNotice ? (
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {t(degradedNotice(task.degradeNotice))}
+                  {t(image26DegradeNoticeKey(task.degradeNotice))}
                 </p>
               ) : null}
             </div>
@@ -429,6 +423,11 @@ export default function TaskCard({
                 onTouchEnd={(e) => e.stopPropagation()}
                 onTouchCancel={(e) => e.stopPropagation()}
               >
+                {canvasWork && (
+                  <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-xs min-w-0 max-w-full">
+                    <span className="min-w-0 truncate">{t('card.canvas')}</span>
+                  </span>
+                )}
                 {/* Model */}
                 {showModel && (
                   <span
@@ -538,20 +537,21 @@ export default function TaskCard({
                 className="flex w-full items-center justify-between flex-shrink-0 mt-0.5 max-sm:col-span-2 max-sm:m-0 max-sm:border-t max-sm:[&>button]:h-11 max-sm:[&>button]:flex-1 sm:w-auto sm:justify-end sm:gap-1"
                 onClick={(e) => e.stopPropagation()}
               >
-                {(task.status === 'error' || settings.alwaysShowRetryButton) && (
-                  <Hint tooltip={t('action.retryTask')}>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => retryTask(task)}
-                      className="text-muted-foreground"
-                      aria-label={t('action.retryTask')}
-                    >
-                      <Icon name="refresh" size="xs" />
-                    </Button>
-                  </Hint>
-                )}
+                {(task.status === 'error' || settings.alwaysShowRetryButton) &&
+                  !(task.status === 'done' && !task.outputImages?.length) && (
+                    <Hint tooltip={t('action.retryTask')}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={() => retryTask(task)}
+                        className="text-muted-foreground"
+                        aria-label={t('action.retryTask')}
+                      >
+                        <Icon name="refresh" size="xs" />
+                      </Button>
+                    </Hint>
+                  )}
                 <Hint tooltip={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}>
                   <Button
                     type="button"

@@ -19,15 +19,18 @@ The exit code is the same in both modes.
 
 | Command | What to read from it |
 | --- | --- |
-| `auth status` | `state`: ready / unauthenticated / outdated / unreachable / service_mismatch; `api_url` and `api_url_source`; `credential_store` and `credential_store_issue`; `leftover_temp_files`; account, credits, membership, installed Skill |
-| `auth login` | Opens the approval page itself and waits; prints the link only when no browser can be opened (`MUVLOOM_NO_BROWSER=1` never opens one). Run it again after a timeout: it resumes the same sign-in |
-| `capabilities` | Each model's `output_formats`, ratios, sizes, qualities, reference-image limit, base price, and its `gif` / `svg` limits; account `limits` |
-| `images validate` / `images create` | A quote, or the submitted `job` with its `job_id`, `idempotency_key`, `wait_timed_out` and `downloads` |
+| `auth status` | `state`: ready / unauthenticated / outdated / unreachable / service_mismatch; `api_url` and `api_url_source`; `credential_store` and `credential_store_issue`; `leftover_temp_files`; account, credits, membership, installed Skill. `unreachable` is transient: retry, do not start a new login. `credential_store: file` with `credential_store_issue: unavailable` means the keychain could not be used, so the login was stored in a file; this is not a setup failure |
+| `auth login` | Opens the approval page in the system default browser and waits; prints the link only when no browser can be opened (`MUVLOOM_NO_BROWSER=1` never opens one). For cloud/remote hosts with no browser control, prefer `--no-wait`, paste `verification_uri_complete` for the user, then wait with `--timeout`. Run it again after a timeout: it resumes the same sign-in |
+| `capabilities` | Each model's `output_formats`, ratios, sizes, qualities, reference-image limit, base price, and its `gif` / `svg` limits; account `limits`. Retry transient failures (exit 6) up to three times, waiting 5s then 15s |
+| `images validate` / `images create` | A quote, or the submitted `job` with its `job_id`, `idempotency_key`, `wait_timed_out` and `downloads`. `images validate` quotes without spending and is the zero-cost setup smoke |
 | `jobs get` / `wait` / `list` / `cancel` | Job `status`, `terminal`, `artifacts`, `actual_credits`; a list shows each job's artifact ids in its `artifacts` column, plus `next_cursor` |
 | `media …` / `artifacts …` | Uploaded references (`media_id`) and generated results (`artifact_id`); downloads report the saved `path` |
 | `update check`, `skill status`, `version` | Release check (`should_prompt`), installed Skills, CLI version. `auth status` also updates older, unedited Skill copies the CLI installed (next session) |
 
 IDs: `job_id` is a generation task, `artifact_id` a generated image, `media_id` an uploaded reference image. They are not interchangeable.
+Model `--model` accepts either the id or the label (for example `gpt-image-2.5-flare` or `GPT Image 2.5 Flare`).
+
+`auth logout` signs out, revokes the server connection when it can, and deletes stored credentials; it does not uninstall the CLI. The file credential store is `credentials.json` in `MUVLOOM_CONFIG_DIR` when set, otherwise in the user config directory (`~/Library/Application Support/muvloom` on macOS, `~/.config/muvloom` on Linux, `%APPDATA%\muvloom` on Windows). To uninstall, delete the `muvloom` binary from the install directory and remove any PATH line the installer added.
 
 Capability prices are live backend base-unit prices (multiplier 1), not a final
 quote for every resolution or quality. When the user asks what a specific request

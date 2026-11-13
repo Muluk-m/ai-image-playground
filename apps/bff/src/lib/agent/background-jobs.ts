@@ -6,6 +6,7 @@ import {
   type AgentMessageView,
   type AgentToolResultBlock,
   type AgentWakeSkipReason,
+  agentTool,
   taskFailureCode,
 } from '@image-playground/shared'
 import { and, eq, inArray, or, sql } from 'drizzle-orm'
@@ -55,11 +56,11 @@ export function settledJobBlock(
     const artifacts = queueArtifacts(job.taskId, job.media, outcome.result).map((artifact) =>
       job.video && artifact.media === 'video' ? { ...artifact, video: job.video } : artifact,
     )
-    return { ...block, status: 'succeeded', artifacts, job }
+    return { ...block, status: agentTool.step('submitted', 'succeed'), artifacts, job }
   }
   return {
     ...block,
-    status: 'failed',
+    status: agentTool.step('submitted', 'fail'),
     job,
     message: outcome.reason,
     errorCode: 'cancelled' in outcome ? 'cancelled' : taskFailureCode(outcome.errorType),

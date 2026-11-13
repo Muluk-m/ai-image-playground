@@ -1,7 +1,18 @@
 import { i18next } from '../../../i18n'
 import { getImageDimensions } from '../../../lib/canvasImage'
+import {
+  activityFromCanvas,
+  applyGenerationActivity,
+  canvasProjection,
+} from '../../../lib/generationActivity'
 import type { CallApiResult } from '../../../lib/imageApiShared'
-import type { CanvasEditor, CanvasTaskStatus, PlacedImage, PlaceholderView } from './editor'
+import type {
+  CanvasEditor,
+  CanvasTaskMeta,
+  CanvasTaskStatus,
+  PlacedImage,
+  PlaceholderView,
+} from './editor'
 import { Box } from './geometry'
 import { revealNodeCanvas } from './nodeCanvasFocus'
 import { fitToTarget, type PlacementTarget, spreadTargets } from './placement'
@@ -17,6 +28,28 @@ export function targetFromShape(view: PlaceholderView): PlacementTarget {
   return { x: view.x, y: view.y, w: view.w, h: view.h }
 }
 
+/**
+ * 失败、取消、过期都从当前阶段走一次转移，再把阶段写回占位框。
+ * 只改 status 会让下一次读取仍停在 submitting。
+ */
+export function settlePlaceholderActivity(
+  editor: CanvasEditor,
+  id: string,
+  event: 'fail' | 'cancel' | 'expire',
+  message: string,
+  meta?: Partial<CanvasTaskMeta>,
+): void {
+  const placeholder = editor.getPlaceholder(id)
+  if (!placeholder) return
+  const activity = applyGenerationActivity(activityFromCanvas(placeholder), event)
+  const projected = canvasProjection(activity)
+  editor.updatePlaceholder(id, {
+    status: projected.status,
+    message,
+    meta: { ...meta, activity, queuePhase: projected.queuePhase },
+  })
+}
+
 /** 占位框转为错误 / 失效态（不再无限 loading）。占位框已被删则安全 no-op。 */
 export function markPlaceholderStatus(
   editor: CanvasEditor,
@@ -25,7 +58,13 @@ export function markPlaceholderStatus(
   message: string,
   errorCode?: string,
 ): void {
-  editor.updatePlaceholder(id, { status, message, ...(errorCode ? { meta: { errorCode } } : {}) })
+  settlePlaceholderActivity(
+    editor,
+    id,
+    status === 'stale' ? 'expire' : 'fail',
+    message,
+    errorCode ? { errorCode } : undefined,
+  )
 }
 
 /**

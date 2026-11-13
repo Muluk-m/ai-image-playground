@@ -57,7 +57,8 @@ _setPrivateBffOverlayForTesting({
     async quoteTask({ model, quantity, unitMultiplier }) {
       if (!quoteAvailable) return null
       return {
-        estimatedCredits: creditsPerUnit * quantity * unitMultiplier,
+        // 与私有 overlay 一致：ceil(单价 × 张数 × 倍率)。
+        estimatedCredits: Math.ceil(creditsPerUnit * quantity * unitMultiplier),
         pricing: {
           model,
           quantity,
@@ -991,7 +992,7 @@ it('freezes the Gemini tier rate on the authorization and prices prepared GPT 2K
     quality: 'high',
   })
   expect(gpt.specs).toEqual([
-    { nodeId: 'a', model: 'gpt-image-2.5-flare', quantity: 1, unitMultiplier: 2 },
+    { nodeId: 'a', model: 'gpt-image-2.5-flare', quantity: 1, unitMultiplier: 1.2 },
   ])
 })
 

@@ -15,6 +15,7 @@ import type {
 import {
   AGENT_CONFIRMATION_PROMPT_MAX_CHARS,
   agentTitleLine,
+  agentTool,
   restoreQueuePrompt,
 } from '@image-playground/shared'
 import { and, eq, isNull, or, sql } from 'drizzle-orm'
@@ -466,7 +467,7 @@ export async function voidPendingToolGates(
         drafts.push({ turnId: row.turnId, toolCallId: block.toolCallId })
         return {
           ...block,
-          status: 'failed',
+          status: agentTool.step('awaiting_confirmation', 'void'),
           errorCode: 'cancelled',
           message: GATE_VOIDED_MESSAGE,
         }
@@ -661,7 +662,7 @@ async function writeSubmitted(
   }
   const block: AgentToolResultBlock = {
     ...card.block,
-    status: 'submitted',
+    status: agentTool.step('awaiting_confirmation', 'confirm'),
     title: retitle(card.block.title, draft.prompt, prompt),
     prompt,
     job,
