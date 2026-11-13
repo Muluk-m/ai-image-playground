@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { ApiError, apiClient } from '@/lib/api-client'
+import { refreshUserKpis } from '@/lib/queries'
 import type { AdminUserRow } from '@/lib/types'
 
 const USERNAME_PATTERN = '[A-Za-z0-9._\\-]+'
@@ -62,6 +63,7 @@ export function UserFormDialog({ mode, user, open, onOpenChange }: UserFormDialo
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['users'] })
+      if (!user) await refreshUserKpis(queryClient)
       if (user) await queryClient.invalidateQueries({ queryKey: ['user', user.id] })
       onOpenChange(false)
     },

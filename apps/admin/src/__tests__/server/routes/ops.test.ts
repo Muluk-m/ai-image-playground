@@ -241,7 +241,11 @@ await writer.db.insert(writer.schema.api_minutes).values([
     p50_ms: 30,
     p95_ms: 400,
     max_ms: 900,
-    server_error_routes: { 'POST /v1/queue/:provider/:model/submit': 2 },
+    server_error_routes: {
+      'POST /v1/queue/:provider/:model/submit': 2,
+      'GET /blank': '' as unknown as number,
+      'GET /not-integer': '1.5' as unknown as number,
+    },
   },
   {
     minute: minuteStart - 120 * minute,
@@ -446,6 +450,8 @@ describe('GET /api/ops', () => {
     expect(body.api.data.series.length).toBe(2)
     expect(body.api.data.error_routes).toEqual([
       { route: 'POST /v1/queue/:provider/:model/submit', count: 2 },
+      { route: 'GET /blank', count: 0 },
+      { route: 'GET /not-integer', count: 0 },
     ])
   })
 
