@@ -17,7 +17,10 @@ export function databaseRoleWriteReason(probe: DatabaseWriteProbe): string | nul
   if (probe.superuser) reasons.push('superuser, or can SET ROLE to one')
   if (probe.writeAllData) reasons.push('member of pg_write_all_data')
   if (probe.createSchema) reasons.push('owns a schema or has CREATE on one')
-  if (probe.writeTable) reasons.push('owns a table or can INSERT, UPDATE, DELETE, or TRUNCATE')
+  if (probe.writeTable)
+    reasons.push(
+      'owns a table or view, or can INSERT, UPDATE, DELETE, or TRUNCATE (incl. per column)',
+    )
   if (probe.writeSequence) reasons.push('owns a sequence or can UPDATE one')
   if (probe.securityDefiner) reasons.push('can EXECUTE a SECURITY DEFINER function')
   if (reasons.length === 0) return null
@@ -64,13 +67,16 @@ export async function assertAdminDatabaseIsReadOnly(databaseUrl: string): Promis
           FROM pg_class c
           JOIN user_schemas s ON s.oid = c.relnamespace
           CROSS JOIN reachable r
-          WHERE c.relkind IN ('r', 'p', 'f')
+          -- 简单视图可自动更新（如 queue_tasks）；列级 GRANT 不体现在表级权限里。
+          WHERE c.relkind IN ('r', 'p', 'f', 'v', 'm')
             AND (
               c.relowner = r.oid
               OR has_table_privilege(r.oid, c.oid, 'INSERT')
               OR has_table_privilege(r.oid, c.oid, 'UPDATE')
               OR has_table_privilege(r.oid, c.oid, 'DELETE')
               OR has_table_privilege(r.oid, c.oid, 'TRUNCATE')
+              OR has_any_column_privilege(r.oid, c.oid, 'INSERT')
+              OR has_any_column_privilege(r.oid, c.oid, 'UPDATE')
             )
         ) AS write_table,
         EXISTS (

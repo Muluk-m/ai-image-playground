@@ -100,6 +100,20 @@ describe('assertAdminDatabaseIsReadOnly', () => {
     await expect(assertAdminDatabaseIsReadOnly(urlFor(login))).rejects.toThrow(/INSERT/)
   })
 
+  it('refuses column-level writes and writes through an updatable view', async () => {
+    const columnWriter = roleName('aip_ro_column')
+    const viewWriter = roleName('aip_ro_view')
+    await createLogin(columnWriter)
+    await exec(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${columnWriter}`)
+    await exec(`GRANT UPDATE (status) ON TABLE tasks TO ${columnWriter}`)
+    await expect(assertAdminDatabaseIsReadOnly(urlFor(columnWriter))).rejects.toThrow(/INSERT/)
+
+    await createLogin(viewWriter)
+    await exec(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${viewWriter}`)
+    await exec(`GRANT UPDATE ON TABLE queue_tasks TO ${viewWriter}`)
+    await expect(assertAdminDatabaseIsReadOnly(urlFor(viewWriter))).rejects.toThrow(/INSERT/)
+  })
+
   it('refuses CREATE on any non-system schema', async () => {
     const login = roleName('aip_ro_schema')
     const schemaName = roleName('aip_extra')
