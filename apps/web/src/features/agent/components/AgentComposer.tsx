@@ -28,6 +28,7 @@ import {
 } from '../../../components/creation/CreationFrame'
 import { CreationReferencePreview } from '../../../components/creation/CreationReferencePreview'
 import { CreationReferenceStack } from '../../../components/creation/CreationReferenceStack'
+import { agentModeOf, creationModeOf } from '../../../components/creation/composerMode'
 import { useReferenceDisplay } from '../../../components/creation/referenceDisplay'
 import MediaImage from '../../../components/MediaImage'
 import PromptEditor, { usePromptEditor } from '../../../components/PromptEditor'
@@ -738,14 +739,13 @@ export default function AgentComposer({
   // 服务端在那种部署里本来就会把视频轮当图片轮装配，标识留着只会骗人。
   const videoAvailable = isVideoModeAvailable()
   const createTarget = useStore((state) => state.createTarget)
-  const creationMode =
-    createTarget === 'video' ? 'video' : createTarget === 'generate' ? 'image' : 'agent'
+  const creationMode = creationModeOf(createTarget)
   useEffect(() => {
     const store = useStore.getState()
     const saved = store.projectCreationTargets[session.key]
     store.setCreateTarget(saved === 'video' && !videoAvailable ? 'chat' : (saved ?? 'chat'))
   }, [session.key, videoAvailable])
-  const mode = productionMode || (videoAvailable && creationMode === 'video') ? 'video' : 'image'
+  const mode = agentModeOf(creationMode, { production: productionMode, videoAvailable })
   // 草稿负责持久化，store 负责让「代用户发一轮」的入口（澄清作答等）也拿得到同一个值。
   const setSessionMode = useAgentStore((state) => state.setMode)
   useEffect(() => {
