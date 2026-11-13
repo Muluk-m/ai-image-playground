@@ -188,7 +188,7 @@ push 到 `test` 分支由 [`.github/workflows/deploy-test.yml`](../../.github/wo
 
 镜像经私有 GHCR `ghcr.io/muluk-m/ai-image-playground`（owner 必须小写）传输，VPS 按 digest 拉取，只传变更层。发布目录只含 `images.tsv` 与 `SHA256SUMS`，体积很小，可经工作站中转。
 
-1. 构建机：GitHub Actions `ubuntu-latest`（`GITHUB_ACTIONS=true`）或 macmini2 手动兜底；其他 Linux 拒绝构建。独立检出已通过 PR/main CI 的公开提交与已验证的 `private/` Git 提交。生产使用 `paid`，隔离测试使用 `test`，两者均带 overlay。不得占用其他会话目录。
+1. 构建机：GitHub Actions `ubuntu-24.04`（workflow 写死这个标签；`GITHUB_ACTIONS=true`）或 macmini2 手动兜底；其他 Linux 拒绝构建。独立检出已通过 PR/main CI 的公开提交与已验证的 `private/` Git 提交。生产使用 `paid`，隔离测试使用 `test`，两者均带 overlay。不得占用其他会话目录。
 2. 构建到尚不存在的目录：
 
 ```sh

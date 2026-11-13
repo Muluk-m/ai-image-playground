@@ -1,4 +1,4 @@
-import type { TaskStatus } from '@image-playground/shared'
+import { type CliJobStatus, projectCliJobStatus, type TaskStatus } from '@image-playground/shared'
 import { and, desc, eq, inArray, isNull, lt, or, type SQL } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { cancelTasks } from '../../db/task-transitions'
@@ -28,7 +28,7 @@ const FAILURE_MESSAGES: Readonly<Record<string, string>> = {
 }
 export const JOB_LIST_MAX = 50
 
-export type CliJobStatus = 'queued' | 'running' | 'persisting' | 'succeeded' | 'failed' | 'canceled'
+export type { CliJobStatus }
 
 export interface CliArtifactRef {
   readonly artifact_id: string
@@ -96,12 +96,7 @@ export function parseArtifactId(value: string): { taskId: string; position: numb
  * 这段对外叫 persisting）；结果待核查（reconciling）仍算 running。
  */
 function statusOf(row: JobRow): CliJobStatus {
-  if (row.status === 'completed') return 'succeeded'
-  if (row.status === 'failed') return 'failed'
-  if (row.status === 'cancelled') return 'canceled'
-  const phase = taskProgressPhase(row)
-  if (phase === 'confirming') return 'persisting'
-  return phase === 'queued' ? 'queued' : 'running'
+  return projectCliJobStatus(row.status, taskProgressPhase(row))
 }
 
 /** 一批任务的对外形状：积分与产物各查一次，不按任务逐条查。 */

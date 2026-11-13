@@ -29,7 +29,9 @@ func cmdCapabilities(ctx context.Context, a *App, args []string) (any, error) {
 		return nil, err
 	}
 	var data json.RawMessage
-	if err := c.Do(ctx, http.MethodGet, "/v1/capabilities", nil, &data); err != nil {
+	if err := retryReadonly(ctx, func() error {
+		return c.Do(ctx, http.MethodGet, "/v1/capabilities", nil, &data)
+	}); err != nil {
 		return nil, err
 	}
 	return data, nil
@@ -128,7 +130,9 @@ func cmdImagesValidate(ctx context.Context, a *App, args []string) (any, error) 
 		return nil, err
 	}
 	var data json.RawMessage
-	if err := c.Do(ctx, http.MethodPost, "/v1/image-jobs/validate", body, &data); err != nil {
+	if err := retryReadonly(ctx, func() error {
+		return c.Do(ctx, http.MethodPost, "/v1/image-jobs/validate", body, &data)
+	}); err != nil {
 		return nil, err
 	}
 	return data, nil
