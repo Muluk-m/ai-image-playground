@@ -29,6 +29,11 @@ export type { Range, SortKey } from '../../contracts'
 
 import { and, asc, eq, getViewSelectedFields, sql } from 'drizzle-orm'
 import { getDbHandle as getHandle } from './db'
+import {
+  redactTaskErrorMessage,
+  redactTaskRequestPayload,
+  redactUpstreamBody,
+} from './redact-task-detail'
 import { taskSourceSql } from './task-source'
 
 function rangeMs(range: Range): number {
@@ -1168,12 +1173,12 @@ export async function getTask(taskId: string): Promise<TaskDetail | null> {
       : {}),
     prompt: extractPrompt(request_payload),
     upstream_invocation_count: Number(task.upstream_invocation_count),
-    request_payload,
+    request_payload: redactTaskRequestPayload(request_payload),
     user_id: task.user_id,
     result_meta: { images },
-    error_message: task.error_message,
+    error_message: redactTaskErrorMessage(task.error_message),
     upstream_status: task.upstream_status,
-    upstream_body: task.upstream_body,
+    upstream_body: redactUpstreamBody(task.upstream_body),
     device_id,
     next_retry_at: task.next_retry_at,
   }
