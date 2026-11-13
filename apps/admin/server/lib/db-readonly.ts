@@ -16,12 +16,12 @@ export function databaseRoleWriteReason(probe: DatabaseWriteProbe): string | nul
   const reasons: string[] = []
   if (probe.superuser) reasons.push('superuser, or can SET ROLE to one')
   if (probe.writeAllData) reasons.push('member of pg_write_all_data')
-  if (probe.createSchema) reasons.push('owns a schema or has CREATE on one')
+  if (probe.createSchema) reasons.push('owns a schema, or has CREATE on one or on the database')
   if (probe.writeTable)
     reasons.push(
       'owns a table or view, or can INSERT, UPDATE, DELETE, or TRUNCATE (incl. per column)',
     )
-  if (probe.writeSequence) reasons.push('owns a sequence or can UPDATE one')
+  if (probe.writeSequence) reasons.push('owns a sequence or can UPDATE or nextval one')
   if (probe.securityDefiner) reasons.push('can EXECUTE a SECURITY DEFINER function')
   if (reasons.length === 0) return null
   return `ADMIN_DATABASE_URL role "${probe.role}" is not read-only (${reasons.join('; ')}). Use the SELECT-only role from provision.`
@@ -61,6 +61,11 @@ export async function assertAdminDatabaseIsReadOnly(databaseUrl: string): Promis
           SELECT 1
           FROM user_schemas s, reachable r
           WHERE s.nspowner = r.oid OR has_schema_privilege(r.oid, s.oid, 'CREATE')
+        )
+        -- 数据库级 CREATE 能新建 schema，再在里面建表写入。
+        OR EXISTS (
+          SELECT 1 FROM reachable r
+          WHERE has_database_privilege(r.oid, current_database(), 'CREATE')
         ) AS create_schema,
         EXISTS (
           SELECT 1
@@ -85,7 +90,12 @@ export async function assertAdminDatabaseIsReadOnly(databaseUrl: string): Promis
           JOIN user_schemas s ON s.oid = c.relnamespace
           CROSS JOIN reachable r
           WHERE c.relkind = 'S'
-            AND (c.relowner = r.oid OR has_sequence_privilege(r.oid, c.oid, 'UPDATE'))
+            -- nextval 只要 USAGE，推进不随事务回滚。
+            AND (
+              c.relowner = r.oid
+              OR has_sequence_privilege(r.oid, c.oid, 'UPDATE')
+              OR has_sequence_privilege(r.oid, c.oid, 'USAGE')
+            )
         ) AS write_sequence,
         EXISTS (
           SELECT 1

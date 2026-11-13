@@ -127,6 +127,25 @@ describe('assertAdminDatabaseIsReadOnly', () => {
     }
   })
 
+  it('refuses database-level CREATE and sequence USAGE', async () => {
+    const creator = roleName('aip_ro_dbcreate')
+    const sequencer = roleName('aip_ro_sequsage')
+    const [{ name: database }] = await admin.client`SELECT current_database() AS name`
+    await createLogin(creator)
+    await exec(`GRANT CREATE ON DATABASE ${String(database)} TO ${creator}`)
+    await expect(assertAdminDatabaseIsReadOnly(urlFor(creator))).rejects.toThrow(/CREATE/)
+
+    const sequence = roleName('aip_probe_seq')
+    await exec(`CREATE SEQUENCE public.${sequence}`)
+    await createLogin(sequencer)
+    await exec(`GRANT USAGE ON SEQUENCE public.${sequence} TO ${sequencer}`)
+    try {
+      await expect(assertAdminDatabaseIsReadOnly(urlFor(sequencer))).rejects.toThrow(/nextval/)
+    } finally {
+      await exec(`DROP SEQUENCE public.${sequence}`)
+    }
+  })
+
   it('refuses an executable SECURITY DEFINER function', async () => {
     const login = roleName('aip_ro_secdef')
     const fn = roleName('aip_secdef_fn')
