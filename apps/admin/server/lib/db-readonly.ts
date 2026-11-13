@@ -5,19 +5,21 @@ export interface DatabaseWriteProbe {
   role: string
   superuser: boolean
   writeAllData: boolean
-  createPublic: boolean
+  createSchema: boolean
   writeTable: boolean
   writeSequence: boolean
+  securityDefiner: boolean
 }
 
 /** 为什么这个角色不能当 Admin 用。没有原因就是只读。 */
 export function databaseRoleWriteReason(probe: DatabaseWriteProbe): string | null {
   const reasons: string[] = []
-  if (probe.superuser) reasons.push('superuser')
+  if (probe.superuser) reasons.push('superuser, or can SET ROLE to one')
   if (probe.writeAllData) reasons.push('member of pg_write_all_data')
-  if (probe.createPublic) reasons.push('CREATE on schema public')
+  if (probe.createSchema) reasons.push('owns a schema or has CREATE on one')
   if (probe.writeTable) reasons.push('owns a table or can INSERT, UPDATE, DELETE, or TRUNCATE')
   if (probe.writeSequence) reasons.push('owns a sequence or can UPDATE one')
+  if (probe.securityDefiner) reasons.push('can EXECUTE a SECURITY DEFINER function')
   if (reasons.length === 0) return null
   return `ADMIN_DATABASE_URL role "${probe.role}" is not read-only (${reasons.join('; ')}). Use the SELECT-only role from provision.`
 }
@@ -35,49 +37,66 @@ export async function assertAdminDatabaseIsReadOnly(databaseUrl: string): Promis
   })
   try {
     const client = handle.client as BunSQL
+    // 「能写」按当前角色和它通过成员关系可达的所有角色算：NOINHERIT 的成员仍能 SET ROLE 过去写。
     const [row] = await client`
+      WITH reachable AS (
+        SELECT oid, rolname, rolsuper
+        FROM pg_roles
+        WHERE pg_has_role(current_user, oid, 'MEMBER')
+      ),
+      user_schemas AS (
+        SELECT oid, nspowner
+        FROM pg_namespace
+        WHERE nspname NOT IN ('pg_catalog', 'information_schema')
+          AND nspname NOT LIKE 'pg_%'
+      )
       SELECT
         current_user AS role,
-        r.rolsuper AS superuser,
+        EXISTS (SELECT 1 FROM reachable WHERE rolsuper) AS superuser,
         pg_has_role(current_user, 'pg_write_all_data', 'MEMBER') AS write_all_data,
-        has_schema_privilege(current_user, 'public', 'CREATE') AS create_public,
+        EXISTS (
+          SELECT 1
+          FROM user_schemas s, reachable r
+          WHERE s.nspowner = r.oid OR has_schema_privilege(r.oid, s.oid, 'CREATE')
+        ) AS create_schema,
         EXISTS (
           SELECT 1
           FROM pg_class c
-          JOIN pg_namespace n ON n.oid = c.relnamespace
-          WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
-            AND n.nspname NOT LIKE 'pg_%'
-            AND c.relkind IN ('r', 'p', 'f')
+          JOIN user_schemas s ON s.oid = c.relnamespace
+          CROSS JOIN reachable r
+          WHERE c.relkind IN ('r', 'p', 'f')
             AND (
-              pg_get_userbyid(c.relowner) = current_user
-              OR has_table_privilege(current_user, c.oid, 'INSERT')
-              OR has_table_privilege(current_user, c.oid, 'UPDATE')
-              OR has_table_privilege(current_user, c.oid, 'DELETE')
-              OR has_table_privilege(current_user, c.oid, 'TRUNCATE')
+              c.relowner = r.oid
+              OR has_table_privilege(r.oid, c.oid, 'INSERT')
+              OR has_table_privilege(r.oid, c.oid, 'UPDATE')
+              OR has_table_privilege(r.oid, c.oid, 'DELETE')
+              OR has_table_privilege(r.oid, c.oid, 'TRUNCATE')
             )
         ) AS write_table,
         EXISTS (
           SELECT 1
           FROM pg_class c
-          JOIN pg_namespace n ON n.oid = c.relnamespace
-          WHERE n.nspname NOT IN ('pg_catalog', 'information_schema')
-            AND n.nspname NOT LIKE 'pg_%'
-            AND c.relkind = 'S'
-            AND (
-              pg_get_userbyid(c.relowner) = current_user
-              OR has_sequence_privilege(current_user, c.oid, 'UPDATE')
-            )
-        ) AS write_sequence
-      FROM pg_roles r
-      WHERE r.rolname = current_user
+          JOIN user_schemas s ON s.oid = c.relnamespace
+          CROSS JOIN reachable r
+          WHERE c.relkind = 'S'
+            AND (c.relowner = r.oid OR has_sequence_privilege(r.oid, c.oid, 'UPDATE'))
+        ) AS write_sequence,
+        EXISTS (
+          SELECT 1
+          FROM pg_proc p
+          JOIN user_schemas s ON s.oid = p.pronamespace
+          CROSS JOIN reachable r
+          WHERE p.prosecdef AND has_function_privilege(r.oid, p.oid, 'EXECUTE')
+        ) AS security_definer
     `
     const reason = databaseRoleWriteReason({
       role: String(row?.role ?? ''),
       superuser: Boolean(row?.superuser),
       writeAllData: Boolean(row?.write_all_data),
-      createPublic: Boolean(row?.create_public),
+      createSchema: Boolean(row?.create_schema),
       writeTable: Boolean(row?.write_table),
       writeSequence: Boolean(row?.write_sequence),
+      securityDefiner: Boolean(row?.security_definer),
     })
     if (reason) throw new Error(reason)
   } finally {

@@ -47,9 +47,10 @@ describe('databaseRoleWriteReason', () => {
     role: 'aip_admin',
     superuser: false,
     writeAllData: false,
-    createPublic: false,
+    createSchema: false,
     writeTable: false,
     writeSequence: false,
+    securityDefiner: false,
   }
 
   it('accepts a role with no write path', () => {
@@ -59,6 +60,10 @@ describe('databaseRoleWriteReason', () => {
   it('names the write path it found', () => {
     expect(databaseRoleWriteReason({ ...clean, superuser: true })).toContain('superuser')
     expect(databaseRoleWriteReason({ ...clean, writeTable: true })).toContain('INSERT')
+    expect(databaseRoleWriteReason({ ...clean, createSchema: true })).toContain('CREATE')
+    expect(databaseRoleWriteReason({ ...clean, securityDefiner: true })).toContain(
+      'SECURITY DEFINER',
+    )
   })
 })
 
@@ -80,5 +85,45 @@ describe('assertAdminDatabaseIsReadOnly', () => {
     await expect(assertAdminDatabaseIsReadOnly(urlFor(writer))).rejects.toThrow(
       /INSERT|not read-only/,
     )
+  })
+
+  it('refuses a SELECT-only login that can SET ROLE to a writable role', async () => {
+    const login = roleName('aip_ro_member')
+    const writerRole = roleName('aip_w_group')
+    await createLogin(login)
+    await exec(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${login}`)
+    created.push(writerRole)
+    await exec(`CREATE ROLE ${writerRole} NOLOGIN`)
+    await exec(`GRANT INSERT ON TABLE users TO ${writerRole}`)
+    await exec(`ALTER ROLE ${login} NOINHERIT`)
+    await exec(`GRANT ${writerRole} TO ${login}`)
+    await expect(assertAdminDatabaseIsReadOnly(urlFor(login))).rejects.toThrow(/INSERT/)
+  })
+
+  it('refuses CREATE on any non-system schema', async () => {
+    const login = roleName('aip_ro_schema')
+    const schemaName = roleName('aip_extra')
+    await createLogin(login)
+    await exec(`CREATE SCHEMA ${schemaName}`)
+    await exec(`GRANT CREATE ON SCHEMA ${schemaName} TO ${login}`)
+    try {
+      await expect(assertAdminDatabaseIsReadOnly(urlFor(login))).rejects.toThrow(/CREATE/)
+    } finally {
+      await exec(`DROP SCHEMA ${schemaName} CASCADE`)
+    }
+  })
+
+  it('refuses an executable SECURITY DEFINER function', async () => {
+    const login = roleName('aip_ro_secdef')
+    const fn = roleName('aip_secdef_fn')
+    await createLogin(login)
+    await exec(
+      `CREATE FUNCTION public.${fn}() RETURNS void LANGUAGE sql SECURITY DEFINER AS 'SELECT 1'`,
+    )
+    try {
+      await expect(assertAdminDatabaseIsReadOnly(urlFor(login))).rejects.toThrow(/SECURITY DEFINER/)
+    } finally {
+      await exec(`DROP FUNCTION public.${fn}()`)
+    }
   })
 })
