@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本文件是代码 Agent 的工作约定。**严格遵守**，不要按通用 monorepo 直觉走。
+本文件是代码 Agent 的工作约定。本仓库有不少与通用 monorepo 习惯不同的做法，遇到分歧以本文件为准。
 
 ## 代码库归你
 
@@ -41,7 +41,7 @@ This codebase is yours: what it's for and how it's built are your call, and you'
 - **Tier 1：纯静态** — 仅 `apps/web/dist`。没有平台渠道，也不能自填密钥，生图不可用
 - **Tier 2：静态 + BFF** — Docker 镜像或裸跑 BFF + web/dist 同进程托管。生成只走运营配置的平台渠道
 
-各 app 的内部约定（服务商架构、内置 channel、BFF 定位、queue 协议等）放在 `apps/web/AGENTS.md` 与 `apps/bff/AGENTS.md`，改到对应目录时自动加载。
+各 app 的内部约定（服务商架构、内置 channel、BFF 定位、queue 协议、官网预渲染等）放在 `apps/web/AGENTS.md`、`apps/bff/AGENTS.md` 与 `apps/website/AGENTS.md`，改到对应目录时自动加载。
 
 ## 界面文案与层级规则
 
@@ -67,10 +67,10 @@ This codebase is yours: what it's for and how it's built are your call, and you'
 
 **资源受限机器的测试守卫**（[`scripts/test-guard.ts`](scripts/test-guard.ts)）：存在 `~/.config/test-guard/constrained`
 （尊重 `XDG_CONFIG_HOME`）且不在 CI 时，Vitest 配置与 Bun 隔离运行器拒绝未指定文件的全量运行，指定文件的运行强制单 worker、
-文件串行，并通过 `~/.cache/test-guard/run-owner` 保证整机同一时间只有一组测试（后来者排队）。全量测试用
-`rmake -c "pnpm test"` 或 CI；不要设置 `CI` 绕过守卫。
+文件串行，并通过 `~/.cache/test-guard/run-owner` 保证整机同一时间只有一组测试（后来者排队）。全量测试交远端：
+`python3 scripts/cloud-test.py submit`（CI）或 `rmake -c "pnpm test"`（macmini2）；不要设置 `CI` 绕过守卫。
 
-CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）把 `pnpm lint`、`pnpm typecheck`、`apps/web` 构建 + 浏览器冒烟拆成并行 job；
+CI（`.github/workflows/web.yml`，PR 以及 push 到 main 和 test 都跑）把 `pnpm lint`、`pnpm typecheck`、`apps/web` 构建 + 浏览器冒烟拆成并行 job；
 公开 workspace 的完整 `pnpm test` 也并行分片：web 的 vitest 分 3 片，bff 的 Bun 数据库测试按文件分 3 片（`--shard=i/n`），其余包一个 job，都带 PostgreSQL（Bun 数据库测试 4 路并发）；
 `with-overlay` / `with-overlay (typecheck)` / `with-overlay (build)` 再用 `private.lock` 钉住的 overlay 分别跑 lint + 私有包测试、typecheck + admin 构建、build + 冒烟。
 本地可选 `pnpm hooks:install` 启用 `.githooks/pre-push`：推送前只对改动文件跑 biome 和受影响包的 typecheck（`AIP_PRE_PUSH=lint` 只跑 lint，`skip` 跳过）。
@@ -79,7 +79,7 @@ CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）把 `pnpm lint`
 
 **交付不能停在本地。** 用户指定测试环境或明确暂不上生产时，完成改动后自动走测试环境发布：工作分支提交 → 远端检查 → 将最新 `main` 与工作分支合入 `test` → 跟进 Deploy test → 核对线上版本并实测变更。不再次询问是否部署，不把已提交、已推送或 workflow 已触发当作交付完成；失败继续处理，外部阻塞明确报告且待办保持阻塞状态。测试验收不代表获准上生产。
 
-**重任务在云端执行。** 非 Cursor 宿主把测试、typecheck、构建、全仓 lint / format 交给项目 Codex Cloud；Cursor 使用自身环境，已在 Cloud 内的任务直接执行，避免递归派发。本机只编辑与轻量调度，云端不可用不擅自回退本机。为远端检查允许先提交并推送工作分支；云端核对提交 SHA，格式化产生改动须取回后重新检查最终版本。发布 workflow 自带的 CI 门禁照常在 GitHub Actions 执行，不在本机重复运行。
+**重任务在远端执行。** 非 Cursor 宿主把测试、typecheck、构建、全仓 lint / format 交给远端（项目 Codex Cloud、`cloud-test.py submit` 派发的 CI，或 macmini2 的 `rmake`）；Cursor 使用自身环境，已在 Cloud 内的任务直接执行，避免递归派发。本机只编辑与轻量调度，云端不可用不擅自回退本机。为远端检查允许先提交并推送工作分支；云端核对提交 SHA，格式化产生改动须取回后重新检查最终版本。发布 workflow 自带的 CI 门禁照常在 GitHub Actions 执行，不在本机重复运行。
 
 公开树云端测试与依赖恢复使用仓库内 `python3 scripts/cloud-test.py`，本机用 `submit` 派发至 CI；命令、SHA 核对、缓存与数据库生命周期见[云端测试入口](docs/agents/cloud-tests.md)。不要依赖仅存在于某次会话的 `/workspace/cloud-prep/test.sh`。
 
@@ -95,7 +95,7 @@ CI（`.github/workflows/web.yml`，PR 与 push 到 main 都跑）把 `pnpm lint`
 
 **评审。** 怎么评、什么算严重、哪些文件可跳过、输出格式，见 [REVIEW.md](REVIEW.md)。作者 Agent 与 Codex 最多来回 3 轮：第 2 轮起只看新增改动、不重复已提过的问题；3 轮后仍有严重问题就停下，重新想方案或交给 Nain。规则细节见 REVIEW.md「评审轮次上限」。每轮怎么处理的写进 PR 的「评审处理记录」。
 
-**合并需 Nain 确认；上线后冒烟。** 合并 `main` 或私有 overlay 必须等 Nain 明确确认（2026-11-11 起与现行做法对齐；不再沿用 2026-11-08「合并不需要确认」）。Nain 确认并合并后，跟进部署 workflow，核对线上版本，再实测改到的功能：接口用只读请求，界面在浏览器里看，关键流程用测试账号；结果写进 PR 评论。冒烟不过就开修复或回滚 PR，回滚同样要 Nain 确认，并在汇报里说明。
+**合并需 Nain 确认；上线后冒烟。** 合并 `main` 或私有 overlay 必须等 Nain 明确确认。Nain 确认并合并后，跟进部署 workflow，核对线上版本，再实测改到的功能：接口用只读请求，界面在浏览器里看，关键流程用测试账号；结果写进 PR 评论。冒烟不过就开修复或回滚 PR，回滚同样要 Nain 确认，并在汇报里说明。
 
 **关键流程证据。** 改到注册/登录、支付/计费、生成（出图、出视频）流程的 PR，必须附测试账号在测试环境（https://test.muvloom.online）走通该流程的截图或录屏，写明账号类型、环境和提交。证据里不能出现密码、验证码、token 或真实用户数据。`scripts/agent-smoke.ts`（[智能体上线手册](docs/deploy/agent-rollout.md)第七节）、`scripts/pages-browser-smoke.sh`（[部署手册](docs/deploy/image-release.md)「前端启动验收」）和[云端测试](docs/agents/cloud-tests.md)只能作补充：它们不走真实登录、付款或生成，不能代替证据。
 
@@ -199,5 +199,3 @@ Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
 ### 仓库里有什么、没有什么
 
 编码约定就是根 `AGENTS.md`、各 app 的 `AGENTS.md`、`REVIEW.md`、`.githooks/` 和 `.github/workflows/ai-review.yml`（`/review`）以及 Codex 按 `REVIEW.md` 做的 `@codex review`。没有提交 `.cursor/`、`.claude/`、`.agents/` 或 MCP 配置。根目录和各 app 的 `CLAUDE.md` 只有 `@AGENTS.md`，避免两套约定分叉。
-
-DO NOT send optional commentary

@@ -12,7 +12,7 @@ import type {
   AnalysisIntent,
   ImagePresetRatio,
 } from '@image-playground/shared'
-import { preparedImageRateMultiplier, withAspectRatio } from '@image-playground/shared'
+import { agentBatch, preparedImageRateMultiplier, withAspectRatio } from '@image-playground/shared'
 import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/bun-sql'
 import { config } from '../../config'
@@ -341,7 +341,7 @@ async function supersedeEarlierTurnDrafts(
   if (!ids.length) return ids
   await tx
     .update(schema.agent_batches)
-    .set({ status: 'cancelled', updated_at: now })
+    .set({ status: agentBatch.target('cancel'), updated_at: now })
     .where(inArray(schema.agent_batches.id, ids))
   await tx
     .delete(schema.media_references)
@@ -431,7 +431,7 @@ async function supersedeTurnDrafts(
   if (!superseded.length) return
   await tx
     .update(schema.agent_batches)
-    .set({ status: 'cancelled', updated_at: now })
+    .set({ status: agentBatch.target('cancel'), updated_at: now })
     .where(inArray(schema.agent_batches.id, superseded))
   await tx
     .delete(schema.media_references)
@@ -1095,7 +1095,7 @@ export async function cancelAgentBatchPlan(
       throw new BatchPlanError('batch_version_conflict', 409)
     await tx
       .update(schema.agent_batches)
-      .set({ status: 'cancelled', updated_at: Date.now() })
+      .set({ status: agentBatch.target('cancel'), updated_at: Date.now() })
       .where(eq(schema.agent_batches.id, id))
     await tx
       .delete(schema.media_references)

@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes, randomInt, randomUUID } from 'node
 import {
   type AccountProfileView,
   deviceAuthorization,
+  deviceDecisionEvent,
   isSessionRefreshRequestKey,
 } from '@image-playground/shared'
 import { and, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm'
@@ -297,7 +298,7 @@ export async function decideDeviceAuthorization(
   const [changed] = await db
     .update(schema.device_authorizations)
     .set({
-      status: decision,
+      status: deviceAuthorization.step('pending', deviceDecisionEvent(decision)),
       user_id: userId,
       // 只有登记了回调地址的授权才发授权码；没登记的照旧等 CLI 轮询。
       ...(decision === 'approved' && loopback

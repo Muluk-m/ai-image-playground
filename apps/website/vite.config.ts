@@ -2,6 +2,7 @@ import { resolve } from 'node:path'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
+import { cliBuildDefines } from '../web/scripts/cli-build-defines.mjs'
 import { guideImageSizes } from './imageSizes'
 import { seoPlugin } from './seo'
 import { pageList } from './src/catalog'
@@ -23,6 +24,7 @@ export default defineConfig({
       guideImageSizes(resolve(import.meta.dirname, '../web/public')),
     ),
     __APP_VERSION__: JSON.stringify(process.env.APP_RELEASE || '0.4.0'),
+    ...cliBuildDefines(),
     'import.meta.env.VITE_PUBLIC_ORIGIN': JSON.stringify(origin),
     'import.meta.env.VITE_SEARCH_INDEXING': JSON.stringify(process.env.SEARCH_INDEXING !== 'false'),
   },
