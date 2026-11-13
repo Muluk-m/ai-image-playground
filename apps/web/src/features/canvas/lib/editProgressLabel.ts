@@ -1,4 +1,5 @@
 import { i18next } from '../../../i18n'
+import { activityFromCanvas } from '../../../lib/generationActivity'
 import type { PlaceholderView } from './editor'
 
 /**
@@ -43,10 +44,21 @@ function clock(ms: number): string {
  */
 export function editProgressText(placeholder: PlaceholderView, now: number): string {
   const action = i18next.t(actionKey(placeholder), { ns: 'canvas' })
-  const phase = placeholder.meta.queuePhase
+  const phase = activityFromCanvas(placeholder).phase
   const since = placeholder.meta.createdAt
   const elapsed = since ? clock(Math.max(0, now - since)) : ''
-  const detail = [phase ? i18next.t(`job.phase.${phase}`, { ns: 'agent' }) : '', elapsed]
+  const serverPhase =
+    phase === 'queued' ||
+    phase === 'generating' ||
+    phase === 'reconnecting' ||
+    phase === 'confirming' ||
+    phase === 'reconciling'
+      ? phase
+      : ''
+  const detail = [
+    serverPhase ? i18next.t(`job.phase.${serverPhase}`, { ns: 'agent' }) : '',
+    elapsed,
+  ]
     .filter(Boolean)
     .join(' ')
   return detail ? `${action} · ${detail}` : action

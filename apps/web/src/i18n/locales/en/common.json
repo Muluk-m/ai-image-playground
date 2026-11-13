@@ -30,7 +30,8 @@
   "state": {
     "generating": "Generating",
     "failed": "Failed",
-    "cancelled": "Canceled"
+    "cancelled": "Canceled",
+    "stale": "Expired"
   },
   "toast": {
     "copySucceeded": "Copied",

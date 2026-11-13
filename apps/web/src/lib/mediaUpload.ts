@@ -5,6 +5,7 @@ import { MediaRequestError } from './cloudMedia'
 import { imageMimeFromBytes } from './imageBytes'
 import { localAttachmentIdentity, readLocalAttachment } from './localAttachmentSources'
 import { transferMedia } from './mediaTransfer'
+import { type MediaUploadEvent, mediaUpload } from './mediaUploadMachine'
 import { bffBaseUrl } from './runtimeConfig'
 
 export type MediaUploadState = 'queued' | 'uploading' | 'verifying' | 'ready' | 'failed'
@@ -132,6 +133,11 @@ export async function uploadMediaSource(
     if (!sameAccount() || backend !== bffBaseUrl()) throw new Error('media_scope_changed')
   }
   options.onState?.('queued')
+  let phase: MediaUploadState = 'queued'
+  const enter = (event: MediaUploadEvent) => {
+    phase = mediaUpload.step(phase, event)
+    options.onState?.(phase)
+  }
   const timer = uploadTimer()
   let bytesSent: number | undefined
   let contentTypeSent: string | undefined
@@ -152,7 +158,7 @@ export async function uploadMediaSource(
         current()
         if (!options.purpose && options.known?.sha256 === sha256) {
           outcome = 'known'
-          options.onState?.('ready')
+          enter('reuse')
           return options.known
         }
         if (options.uploadMissing === false) {
@@ -182,7 +188,7 @@ export async function uploadMediaSource(
           contentType = 'image/png'
           current()
         }
-        options.onState?.('uploading')
+        enter('begin')
         bytesSent = body.byteLength
         contentTypeSent = contentType
         const upload = await transferMedia(
@@ -200,7 +206,7 @@ export async function uploadMediaSource(
             },
             onVerifying: () => {
               timer.mark('confirm_wait')
-              options.onState?.('verifying')
+              enter('verify')
             },
             confirm: (work) =>
               confirming(() => {
@@ -212,7 +218,7 @@ export async function uploadMediaSource(
         const leaseExpiresAt = upload.leaseExpiresAt
         mediaId = upload.id
         current()
-        options.onState?.('ready')
+        enter('finish')
         return { id: upload.id, sha256, ...(leaseExpiresAt ? { leaseExpiresAt } : {}) }
       },
       options.purpose === 'conversation-attachment'
@@ -234,7 +240,7 @@ export async function uploadMediaSource(
         contentType: contentTypeSent,
         error: uploadErrorCode(error),
       })
-    options.onState?.('failed')
+    enter('fail')
     throw error
   }
 }

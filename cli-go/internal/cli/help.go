@@ -92,7 +92,7 @@ var placeholders = map[string]string{
 	"image-size": "SIZE", "quality": "LEVEL", "ref": "FILE|MEDIA_ID", "max-credits": "N",
 	"output-format": "gif|svg", "frames": "N", "frame-duration-ms": "MS", "frame-size": "WxH",
 	"idempotency-key": "KEY", "wait": "SECONDS", "download": "DIR", "limit": "N", "cursor": "ID",
-	"timeout": "SECONDS", "output": "PATH", "host": "claude-code|codex", "scope": "user|project",
+	"timeout": "SECONDS", "output": "DIR", "host": "claude-code|codex|generic", "scope": "user|project",
 }
 
 // flagOrder puts the flags a command cannot do without first; the rest follow alphabetically.
@@ -114,7 +114,7 @@ var examples = map[string][]string{
 	"jobs wait":          {"muvloom jobs wait JOB_ID --timeout 300"},
 	"jobs list":          {"muvloom jobs list --idempotency-key KEY   # find a job whose submit response was lost"},
 	"artifacts download": {"muvloom artifacts download ARTIFACT_ID --output ./out/cat"},
-	"skill install":      {"muvloom skill install --host claude-code", "muvloom skill install --host codex --scope project"},
+	"skill install":      {"muvloom skill install --host claude-code", "muvloom skill install --host codex --scope project", "muvloom skill install --host generic --output ./skill-pack"},
 }
 
 // notes add what a command's flags alone do not say.
@@ -122,7 +122,9 @@ var notes = map[string]string{
 	"images create": "Models, sizes, output formats and their limits: muvloom capabilities.\n" +
 		"A GIF or SVG takes no --ref, --aspect-ratio, --image-size or --quality.",
 	"images validate": "Same flags as images create. Creates nothing and charges nothing.",
-	"auth login":      "Opens the approval page and waits. Run it again after a timeout: it resumes the same sign-in.",
+	"auth login": "Opens the approval page in the system default browser and waits. Run it again after a timeout: it resumes the same sign-in. In a remote or cloud host with no browser control, set MUVLOOM_NO_BROWSER=1 and use --no-wait, then give the user verification_uri_complete to open in their default browser.\n" +
+		"Do not launch a specific browser such as Chrome.",
+	"skill install": "claude-code and codex write to that host's skill directory. generic writes ./muvloom (or --output) for you to upload to any other host. There is no --host workbuddy or --host doubao.",
 }
 
 func commandHelp(cmd command, fs *flag.FlagSet) string {

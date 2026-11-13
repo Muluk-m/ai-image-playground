@@ -1,6 +1,10 @@
 import { SUPPORT_CONTACT, SUPPORT_MAILTO } from '@image-playground/shared/support-contact'
+import { CLI_MIN_VERSION, CLI_VERSION, installScriptCommands } from '../../../cli/connectAgents'
 import { faq, type GuidePage, list, note, p, prompt, steps, table, tip, warn } from '../../model'
 import { demo, still } from '../media'
+
+const unixInstall = installScriptCommands('unix', 'https://muvloom.online').join('\n')
+const windowsInstall = installScriptCommands('windows', 'https://muvloom.online').join('\n')
 
 const updated = '2026-11-10'
 
@@ -365,8 +369,9 @@ export const credits: GuidePage = {
       title: '怎么算',
       blocks: [
         p(
-          '图片模型清单里的基础价，测试环境里 Image 2.5、多数静态模型是每张 100 量级，Gemini 各档不同。这是单价。质量、分辨率和编辑会乘倍率。GPT Image 2.6 的倍率使得实际积分是下面这张表，Flare 与 Sunburst 相同。',
+          '图片模型清单里的基础价，测试环境里 Image 2.5、多数静态模型是每张 100 量级，Gemini 各档不同。这是单价。质量、分辨率和编辑会乘倍率。Image 2.5 只按分辨率加价，低、中、高画质同价，局部编辑按 1K 计，见第一张表。GPT Image 2.6 的实际积分是第二张表。两张表里 Flare 与 Sunburst 都相同。',
         ),
+        table(['2.5 静态图', '积分'], ['1K', '100'], ['2K', '120'], ['4K', '150']),
         table(
           ['2.6 静态图', '低', '中', '高'],
           ['1K', '190', '330', '400'],
@@ -487,13 +492,12 @@ export const plugins: GuidePage = {
   summary: '安装本机的 muvloom 命令，登录，再让 Claude Code 或 Codex 调用。没有 npm 包。',
   meta: {
     title: '插件集成：Claude Code 与 Codex - 幕芽 Muvloom 使用指南',
-    description:
-      '幕芽 CLI 0.2.4 的安装、设备码登录、生图命令、积分与退出码。正式分发是 Go 二进制 muvloom。',
+    description: `幕芽 CLI ${CLI_VERSION} 的安装、设备码登录、生图命令、积分与退出码。正式分发是 Go 二进制 muvloom。`,
   },
   updated,
   intro: [
     p(
-      '插件是你电脑上的一个命令 `muvloom`，加上装进 Claude Code 或 Codex 的技能说明。仓库里没有 `@muvloom/cli`，也不能 `npx` 安装。发布版本是 0.2.4。给人看的接入页是 `/connect`，设备码批准页是 `/device`。给智能体自动执行的原文是 `/cli/setup.md` 和 `/cli/workbuddy.md`，本页与那两份对照，并以 `cli-go/` 里的命令为准。',
+      `插件是你电脑上的一个命令 \`muvloom\`，加上装进 Claude Code 或 Codex 的技能说明。仓库里没有 \`@muvloom/cli\`，也不能 \`npx\` 安装。发布版本是 ${CLI_VERSION}。给人看的接入页是 \`/connect\`，设备码批准页是 \`/device\`。给智能体自动执行的原文是 \`/cli/setup.md\` 和 \`/cli/workbuddy.md\`，本页与那两份对照，并以 \`cli-go/\` 里的命令为准。`,
     ),
   ],
   sections: [
@@ -504,7 +508,7 @@ export const plugins: GuidePage = {
         list(
           '分发物是单个原生二进制：macOS arm64/x64、Linux x64/arm64、Windows x64。不需要 Node、npm 或 Python。',
           '`muvloom skill install --host` 只接受 `claude-code` 和 `codex`。写成 workbuddy 或 doubao 是 `USAGE`，退出码 2。`--scope` 只接受 `user` 和 `project`，写错是 `INVALID_REQUEST`，也是退出码 2。',
-          'WorkBuddy 走 `/cli/workbuddy.md`。压缩包地址是 `/cli/muvloom-workbuddy.zip`，由网页构建脚本生成，仓库检出里默认没有这个文件。豆包要在它自己的客户端里上传技能。两边都没有 `--host`。',
+          'WorkBuddy 走 `/cli/workbuddy.md`（压缩包 `/cli/muvloom-workbuddy.zip`）。豆包工作走 `/cli/doubao.md`（压缩包 `/cli/muvloom-doubao.zip`）。其他宿主可用 `/cli/muvloom-skill.zip`。压缩包由网页构建脚本生成，仓库检出里默认没有。不要传 `--host workbuddy` 或 `--host doubao`。',
           '没有 `--n` 张数参数，也没有视频子命令。一次 `images create` 出一张。多张要分多次，技能会自己拆。',
         ),
         warn(
@@ -514,22 +518,16 @@ export const plugins: GuidePage = {
     },
     {
       id: 'install',
-      title: '安装 0.2.4',
+      title: `安装 ${CLI_MIN_VERSION} 或更新`,
       blocks: [
         p(
-          '安装脚本钉在提交 `940f1faf1f4147d4b0add11efa5d3684aef0439c`，并校验 SHA-256。不要改去跟踪浮动的 main。装好后运行 `muvloom version`，需要 0.2.4 或更新。更低的版本就地替换，已有登录会留着。',
+          `从本站同域下载 \`install.sh\` 或 \`install.ps1\`（与 \`/connect\` 相同来源的 \`/cli/\`），先核对命令里公布的 SHA-256，再以 \`MUVLOOM_MIN_VERSION=${CLI_MIN_VERSION}\` 运行。不要把脚本直接管道进 \`sh\` 或 \`iex\`。不要用 \`MUVLOOM_VERSION\` 钉死精确版本：那样可能把已装的更新版本降级。装好后运行 \`muvloom version\`，需要 ${CLI_MIN_VERSION} 或更新。更低的版本就地替换，已有登录会留着。\`/connect\` 上是同一条经过校验的命令。`,
         ),
-        prompt(
-          'macOS / Linux',
-          'curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/940f1faf1f4147d4b0add11efa5d3684aef0439c/cli-go/install/install.sh | MUVLOOM_VERSION=0.2.4 sh',
-        ),
+        prompt('macOS / Linux', unixInstall),
         p(
           '安装目录：若已经有一份可写的 `muvloom`，就替换那一份；否则在 PATH 上且不用 sudo 就能写的 `/usr/local/bin`；再否则是 `~/.local/bin`。Windows 是已有的 `muvloom.exe` 所在目录，否则 `%LOCALAPPDATA%\\Programs\\muvloom`。可以用 `MUVLOOM_INSTALL_DIR` 指定。接入页附带的 `PATH` 导出把 `~/.local/bin` 加进当前会话；若二进制落在 `/usr/local/bin`，它本来就在 PATH 里。',
         ),
-        prompt(
-          'Windows PowerShell',
-          '$env:MUVLOOM_VERSION = "0.2.4"; irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/940f1faf1f4147d4b0add11efa5d3684aef0439c/cli-go/install/install.ps1 | iex',
-        ),
+        prompt('Windows PowerShell', windowsInstall),
         note(
           'Windows 安装器默认会改用户 PATH。设 `MUVLOOM_NO_MODIFY_PATH=1` 则不改。ARM Windows 不在支持范围。',
         ),
@@ -570,7 +568,7 @@ export const plugins: GuidePage = {
           '`muvloom capabilities` 成功之后才说可以生成。用返回的 label、default_model，以及 GIF 的 `max_frames_by_size`。菜单里没有 Image 2.6，是服务端没开 `GPT_IMAGE_26_ENABLED`。',
         ),
         p(
-          'Claude Code 里用 `/muvloom` 加上你的要求。Codex 用 `/` 或 `/skills` 选中 Muvloom，或 `$muvloom`。这是聊天里的叫法，终端里的命令永远是 `muvloom`。',
+          'Claude Code 里输入 `/muv`（注册的技能是 `/muvloom`，前缀能匹配）。Codex 用 `/` 或 `/skills` 选中 Muvloom，或 `$muvloom`。WorkBuddy 和豆包工作在新任务里输入 `/muv`。这是聊天里的叫法，终端里的命令永远是 `muvloom`。',
         ),
         p(
           '登录是设备码，有效期 20 分钟。命令行打开或打印 `/device`，你在已经登录的浏览器里点批准。`auth login --no-wait` 只打印完整链接。`--timeout` 最多 3600 秒；省略时会等到设备码过期后再多等 1 分钟，因为服务端过期后短时间内仍可能兑成令牌。超时后再跑同一条 `auth login` 会继续这一轮。用户拒绝是 `AUTH_DENIED`。只有 `AUTH_EXPIRED` 才重新开始。不要把密码、Cookie 或令牌交给智能体。',

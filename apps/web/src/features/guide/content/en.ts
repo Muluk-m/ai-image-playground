@@ -1,4 +1,5 @@
 import { SUPPORT_CONTACT, SUPPORT_MAILTO } from '@image-playground/shared/support-contact'
+import { CLI_MIN_VERSION, CLI_VERSION, installScriptCommands } from '../../cli/connectAgents'
 import {
   faq,
   type GuideContent,
@@ -14,6 +15,9 @@ import {
 } from '../model'
 import { GUIDE_PATHS } from '../paths'
 import { demo, promoFilm, still } from './media'
+
+const unixInstall = installScriptCommands('unix', 'https://muvloom.online').join('\n')
+const windowsInstall = installScriptCommands('windows', 'https://muvloom.online').join('\n')
 
 const updated = '2026-11-10'
 const ui = 'The recording shows the Chinese interface.'
@@ -1116,8 +1120,9 @@ const credits: GuidePage = {
       title: 'Prices',
       blocks: [
         p(
-          'Many still models show a base near 100 credits per image. That base is what Image 2.6 multipliers start from. The credits you pay for 2.6 are the table below. Flare and Sunburst match.',
+          'Many still models show a base near 100 credits per image. That base is what Image 2.5 and 2.6 multipliers start from. Image 2.5 adds only for resolution: Low, Medium and High cost the same, and a masked edit counts as 1K. That is the first table. The credits you pay for 2.6 are the second table. Flare and Sunburst match in both.',
         ),
+        table(['2.5 still', 'Credits'], ['1K', '100'], ['2K', '120'], ['4K', '150']),
         table(
           ['2.6 still', 'Low', 'Medium', 'High'],
           ['1K', '190', '330', '400'],
@@ -1227,12 +1232,12 @@ const plugins: GuidePage = {
     'Install the muvloom binary, sign in, then call it from Claude Code or Codex. There is no npm package.',
   meta: {
     title: 'CLI plugin - Muvloom guide',
-    description: 'Install Muvloom CLI 0.2.4, sign in with a device code, and read the exit codes.',
+    description: `Install Muvloom CLI ${CLI_VERSION}, sign in with a device code, and read the exit codes.`,
   },
   updated,
   intro: [
     p(
-      'The plugin is the `muvloom` command plus a skill installed into Claude Code or Codex. The repo has no `@muvloom/cli` package and no `npx` install. The published version is 0.2.4. People use `/connect`. Approval is `/device`. Agents still read `/cli/setup.md` and `/cli/workbuddy.md`. This page follows `cli-go/`.',
+      `The plugin is the \`muvloom\` command plus a skill installed into Claude Code or Codex. The repo has no \`@muvloom/cli\` package and no \`npx\` install. The published version is ${CLI_VERSION}. People use \`/connect\`. Approval is \`/device\`. Agents still read \`/cli/setup.md\` and \`/cli/workbuddy.md\`. This page follows \`cli-go/\`.`,
     ),
   ],
   sections: [
@@ -1243,7 +1248,7 @@ const plugins: GuidePage = {
         list(
           'One native binary: macOS arm64/x64, Linux x64/arm64, Windows x64. No Node, npm or Python.',
           '`skill install --host` accepts only `claude-code` and `codex`. Any other host is USAGE, exit 2. A bad `--scope` is INVALID_REQUEST, also exit 2. Scope is `user` or `project`.',
-          'WorkBuddy follows `/cli/workbuddy.md`. The zip URL is `/cli/muvloom-workbuddy.zip`, produced by the web build and absent from a bare checkout. Doubao is uploaded in that client. Neither has a `--host`.',
+          'WorkBuddy follows `/cli/workbuddy.md` (zip: `/cli/muvloom-workbuddy.zip`). Doubao Work follows `/cli/doubao.md` (zip: `/cli/muvloom-doubao.zip`). Other hosts can use `/cli/muvloom-skill.zip`. The zips are produced by the web build and absent from a bare checkout. Do not pass `--host workbuddy` or `--host doubao`.',
           'There is no `--n` count and no video subcommand. One `images create` makes one file.',
         ),
         warn('The HTTP paths the CLI calls are not a curl tutorial. Run `muvloom`.'),
@@ -1251,22 +1256,16 @@ const plugins: GuidePage = {
     },
     {
       id: 'install',
-      title: 'Install 0.2.4',
+      title: `Install ${CLI_MIN_VERSION} or newer`,
       blocks: [
         p(
-          'The installer is pinned to commit `940f1faf1f4147d4b0add11efa5d3684aef0439c` and checks SHA-256. Do not track floating main. After install, `muvloom version` must be 0.2.4 or newer. A lower binary is replaced in place and the saved sign-in is kept.',
+          `Download \`install.sh\` or \`install.ps1\` from this site (\`/cli/\` on the same origin as \`/connect\`), verify the SHA-256 published in the command, then run it with \`MUVLOOM_MIN_VERSION=${CLI_MIN_VERSION}\`. Do not pipe a script into \`sh\` or \`iex\`. Prefer the minimum version over pinning \`MUVLOOM_VERSION\` to an exact release: an exact pin can downgrade a newer CLI. After install, \`muvloom version\` must be ${CLI_MIN_VERSION} or newer. A lower binary is replaced in place and the saved sign-in is kept. The same verified command is on \`/connect\`.`,
         ),
-        prompt(
-          'macOS / Linux',
-          'curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/940f1faf1f4147d4b0add11efa5d3684aef0439c/cli-go/install/install.sh | MUVLOOM_VERSION=0.2.4 sh',
-        ),
+        prompt('macOS / Linux', unixInstall),
         p(
           'Install directory: the directory of a `muvloom` that is already on PATH and writable; otherwise `/usr/local/bin` when it is on PATH and writable without sudo; otherwise `~/.local/bin`. Windows uses the existing `muvloom.exe` directory, or `%LOCALAPPDATA%\\Programs\\muvloom`. Override with `MUVLOOM_INSTALL_DIR`. Windows can set `MUVLOOM_NO_MODIFY_PATH=1` to leave PATH alone. ARM Windows is not supported.',
         ),
-        prompt(
-          'Windows PowerShell',
-          '$env:MUVLOOM_VERSION = "0.2.4"; irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/940f1faf1f4147d4b0add11efa5d3684aef0439c/cli-go/install/install.ps1 | iex',
-        ),
+        prompt('Windows PowerShell', windowsInstall),
       ],
     },
     {
@@ -1304,7 +1303,7 @@ const plugins: GuidePage = {
           '`muvloom capabilities` must succeed before you generate. Use its label, default model, and `gif.max_frames_by_size`. Image 2.6 is missing when `GPT_IMAGE_26_ENABLED` is off.',
         ),
         p(
-          'In Claude Code the chat invocation is `/muvloom`. In Codex use `/`, `/skills`, or `$muvloom`. The terminal command is always `muvloom`. Sign-in is a device code that lasts 20 minutes. The CLI opens or prints `/device`. You approve in a browser that is already signed in. `--no-wait` only prints the link. `--timeout` is at most 3600 seconds. Omitting it waits until the code expires and then one more minute, because the server can still redeem it briefly after expiry. Running `auth login` again after a timeout resumes the same attempt. AUTH_DENIED stops. Only AUTH_EXPIRED starts over. Do not give the agent a password, cookie or token.',
+          'In Claude Code type `/muv` (the registered skill is `/muvloom`). In Codex use `/`, `/skills`, or `$muvloom`. In WorkBuddy or Doubao Work, type `/muv` in a new task. The terminal command is always `muvloom`. Sign-in is a device code that lasts 20 minutes. The CLI opens or prints `/device`. You approve in a browser that is already signed in. `--no-wait` only prints the link. `--timeout` is at most 3600 seconds. Omitting it waits until the code expires and then one more minute, because the server can still redeem it briefly after expiry. Running `auth login` again after a timeout resumes the same attempt. AUTH_DENIED stops. Only AUTH_EXPIRED starts over. Do not give the agent a password, cookie or token.',
         ),
       ],
     },

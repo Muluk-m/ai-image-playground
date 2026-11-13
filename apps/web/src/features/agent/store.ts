@@ -150,6 +150,7 @@ import { type AgentRetryRefusal, agentRetryRemaining, agentRetrySlotTasks } from
 import { describeSendFailure } from './lib/sendFailure'
 import { agentToolFailureText, promptAgentRecharge } from './lib/toolFailure'
 import { toAgentTurnParams } from './lib/turnParams'
+import { applyTurnSessionEvent, FAILED_TURN_FIELDS, IDLE_TURN_FIELDS } from './lib/turnSession'
 import {
   captureTurnSubmission,
   type TurnSubmissionReplay,
@@ -432,8 +433,7 @@ const failPatch = (
   message = TURN_FAILED(),
   diagnostic: Record<string, unknown> | null = null,
 ) => ({
-  turn: 'failed' as const,
-  stopping: false,
+  ...FAILED_TURN_FIELDS,
   activeTurn: null,
   error: message,
   errorDiagnostic: diagnostic,
@@ -531,9 +531,7 @@ const sessionReset = (conversationId: string | null): Partial<AgentState> => {
     jobProgress: {},
     toolStartedAt: {},
     retryRefusals: {},
-    turn: 'idle',
-    stopping: false,
-    reconnecting: false,
+    ...IDLE_TURN_FIELDS,
     activeTurn: null,
     error: null,
     errorDiagnostic: null,
@@ -783,7 +781,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             }),
             turns: panel.turns,
           }
-        return { ...panel, turn: 'idle' as const, stopping: false, activeTurn: null }
+        return { ...panel, ...applyTurnSessionEvent(state, 'finish'), activeTurn: null }
       })
     // 扣费在轮与工具各自收尾时发生，顶栏余额属于用户而不属于某个项目：切了项目之后
     // 迟到的结算也要刷新，所以放在 `isCurrent()` 之外。没有私有 overlay 时是空操作。
@@ -856,7 +854,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         const stream = followTurn(conversationId, nextSource, {
           shouldContinue: canContinue,
           onReconnectingChange: (reconnecting) => {
-            if (turnDelivery.isCurrent()) set({ reconnecting })
+            if (turnDelivery.isCurrent())
+              set(applyTurnSessionEvent(get(), reconnecting ? 'reportReconnect' : 'clearReconnect'))
           },
         })
         for await (const event of stream.events) {
@@ -906,7 +905,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           fail(undefined, stream.lastError)
           break
         }
-        set({ reconnecting: true })
+        set(applyTurnSessionEvent(get(), 'reportReconnect'))
         await recoveryDelay()
         if (!stillOurs()) break
         nextSource = { turnId, cursor: stream.cursor }
@@ -1014,9 +1013,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       queue: [...(taken.queue ?? [])],
       ...(options.join
         ? {
-            turn: 'running' as const,
-            stopping: false,
-            reconnecting: false,
+            ...applyTurnSessionEvent(get(), 'start'),
             error: null,
             errorDiagnostic: null,
             activeTurn: { turnId: options.join },
@@ -1066,7 +1063,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       return 'settled'
     }
     adoptSnapshot(conversationId, taken)
-    set({ turn: 'idle', stopping: false, reconnecting: false, activeTurn: null, error: null })
+    set({ ...applyTurnSessionEvent(get(), 'finish'), activeTurn: null, error: null })
     return 'settled'
   }
 
@@ -1111,9 +1108,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       ...(same ? { conversationId } : sessionReset(conversationId)),
       error: null,
       errorDiagnostic: null,
-      turn: 'idle',
-      stopping: false,
-      reconnecting: false,
+      ...applyTurnSessionEvent(get(), 'finish'),
       activeTurn: null,
       historyCached: same && get().historyCached,
       historyLoading: true,
@@ -1175,7 +1170,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (project?.conversationId === conversationId) void resumeOutgoing(project.id)
       return
     }
-    set({ turn: 'running', activeTurn: { turnId: active } })
+    set({ ...applyTurnSessionEvent(get(), 'ensureRunning'), activeTurn: { turnId: active } })
     await follow(conversationId, turnSource(state, active), null, delivery.beginTurn())
   }
 
@@ -1414,7 +1409,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     let remembered = false
     let stopped = false
     try {
-      if (current()) set({ stopping: true, error: null, errorDiagnostic: null })
+      if (current())
+        set({ ...applyTurnSessionEvent(get(), 'requestStop'), error: null, errorDiagnostic: null })
       // The server emits queue-withdrawn before returning the receipt. Persist its identity first.
       await receipts.remember(pointer)
       remembered = true
@@ -1431,7 +1427,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (!remembered) {
         // No stop request was sent: preserve the running turn and its normal stop action.
         set({
-          stopping: current() ? false : get().stopping,
+          ...(current() ? applyTurnSessionEvent(get(), 'clearStop') : {}),
           error: i18next.t('error.stopFailed', { ns: 'agent' }),
           errorDiagnostic: requestDiagnostic(error, conversationId),
         })
@@ -1448,9 +1444,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             if (!shown()) return
             resetDelivery()
             set({
-              turn: 'idle',
-              stopping: false,
-              reconnecting: false,
+              ...applyTurnSessionEvent(get(), 'finish'),
               activeTurn: null,
               error: null,
               errorDiagnostic: null,
@@ -1469,7 +1463,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       else if (stopped) code = 'fallback'
       if (shown())
         set({
-          stopping: current() ? false : get().stopping,
+          ...(current() ? applyTurnSessionEvent(get(), 'clearStop') : {}),
           returnedMessagesPending: true,
           returnedMessagesError: code,
           error: returnedMessagesErrorText(code),
@@ -1526,7 +1520,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     current: () => boolean,
     signal?: AbortSignal,
   ) => {
-    if (current()) set({ reconnecting: true })
+    if (current()) set(applyTurnSessionEvent(get(), 'reportReconnect'))
     let missing = 0
     try {
       while (current() && !signal?.aborted) {
@@ -1555,7 +1549,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       }
       return null
     } finally {
-      if (current()) set({ reconnecting: false })
+      if (current()) set(applyTurnSessionEvent(get(), 'clearReconnect'))
     }
   }
 
@@ -1804,9 +1798,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     messages: [],
     turns: {},
     queue: [],
-    turn: 'idle',
-    stopping: false,
-    reconnecting: false,
+    ...IDLE_TURN_FIELDS,
     activeTurn: null,
     error: null,
     errorDiagnostic: null,
@@ -2240,9 +2232,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       pendingSeq += 1
       // 旧跟随者被重置后发不出它收尾的「已接上」，这里不清，新轮一开场就挂着重连提示。
       set((state) => ({
-        turn: 'running',
-        stopping: false,
-        reconnecting: false,
+        ...applyTurnSessionEvent(state, 'start'),
         error: null,
         errorDiagnostic: null,
         activeTurn: null,
@@ -2288,9 +2278,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       const cancelUnsent = async () => {
         if (turnDelivery.isCurrent())
           set((state) => ({
-            turn: 'idle',
-            stopping: false,
-            reconnecting: false,
+            ...applyTurnSessionEvent(state, 'finish'),
             activeTurn: null,
             error: null,
             errorDiagnostic: null,
@@ -2391,9 +2379,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           cancellation.abort(new DOMException('Agent submission stopped', 'AbortError'))
           if (turnDelivery.isCurrent())
             set({
-              turn: 'idle',
-              stopping: false,
-              reconnecting: false,
+              ...applyTurnSessionEvent(get(), 'finish'),
               activeTurn: null,
               returnedMessagesPending: true,
               returnedMessagesError: 'fallback',
@@ -2446,9 +2432,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           notifyPrivateSubmissionSettled()
           if (turnDelivery.isCurrent()) {
             set((state) => ({
-              turn: 'idle',
-              stopping: false,
-              reconnecting: false,
+              ...applyTurnSessionEvent(state, 'finish'),
               activeTurn: null,
               error: null,
               errorDiagnostic: null,
@@ -2513,14 +2497,14 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           // 别的标签页或设备正占着这个会话：这句话排进了队，挂到在跑的那一轮上去。
           onAccepted?.()
           await turnDelivery.settled()
-          set({ stopping: false })
+          set(applyTurnSessionEvent(get(), 'clearStop'))
           await openConversation(target, outcome.body.turnId)
           return
         }
         if (outcome.kind === 'alreadyRunning') {
           // 别的标签页已经在这个会话里跑轮了。它那条用户消息只在服务端，先把历史读回来再续播。
           await turnDelivery.settled()
-          set({ stopping: false })
+          set(applyTurnSessionEvent(get(), 'clearStop'))
           await openConversation(target, outcome.turnId)
           if (get().conversationId === target)
             set({
@@ -2569,13 +2553,17 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         if (pendingStart?.delivery.isCurrent()) {
           if (pendingStart.stop) {
             const submission = pendingStart
-            set({ stopping: true, error: null, errorDiagnostic: null })
+            set({
+              ...applyTurnSessionEvent(get(), 'requestStop'),
+              error: null,
+              errorDiagnostic: null,
+            })
             try {
               await submission.stop?.()
             } catch (error) {
               if (submission.delivery.isCurrent())
                 set({
-                  stopping: false,
+                  ...applyTurnSessionEvent(get(), 'clearStop'),
                   error: i18next.t('error.stopFailed', { ns: 'agent' }),
                   errorDiagnostic: requestDiagnostic(error, conversationId),
                 })
@@ -2584,11 +2572,15 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           }
           pendingStart.cancelled = true
           abortInFlight = pendingStart.settled
-          set({ stopping: true, error: null, errorDiagnostic: null })
+          set({
+            ...applyTurnSessionEvent(get(), 'requestStop'),
+            error: null,
+            errorDiagnostic: null,
+          })
         }
         return
       }
-      set({ stopping: true, error: null, errorDiagnostic: null })
+      set({ ...applyTurnSessionEvent(get(), 'requestStop'), error: null, errorDiagnostic: null })
       const settling = requestAbort(conversationId, active.turnId)
       // 界面已经放行；下一句要等的是「请求回来 + 终帧落地」，`abort()` 自己只等请求。
       const settled = settling.then(() => turnSettledAfterAbort(conversationId))

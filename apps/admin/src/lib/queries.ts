@@ -8,7 +8,6 @@ import type {
   GenerationTaskFilters,
   GenerationTasksResult,
   TodayErrorsResult,
-  TodayOverviewResult,
 } from '../../contracts'
 
 import { apiClient } from './api-client'
@@ -27,7 +26,6 @@ import type {
   OperatorSettingsResult,
   OpsRange,
   OpsSnapshot,
-  OverviewResult,
   Range,
   SortKey,
   TaskDetail,
@@ -161,20 +159,6 @@ export function useUserTasks(userId: string, status: string) {
   })
 }
 
-export function useOverview(range: Range, window?: { from: number; to: number }) {
-  return useQuery({
-    queryKey: ['overview', { range, window }],
-    queryFn: () => {
-      const params = new URLSearchParams()
-      if (window) {
-        params.set('from', String(window.from))
-        params.set('to', String(window.to))
-      } else params.set('range', range)
-      return apiClient.get<OverviewResult>(`/api/overview?${params}`)
-    },
-  })
-}
-
 /** 看板默认 30 秒重拉；范围切换只改变宿主机趋势，其他实时块仍取同一份快照。 */
 export function useOps(range: OpsRange, refetchInterval = 30_000) {
   return useQuery({
@@ -237,13 +221,6 @@ export function useClientErrorEvents(fingerprint: string | undefined, range: Ran
   })
 }
 
-export function useTodayOverview() {
-  return useQuery({
-    queryKey: ['overview-today'],
-    queryFn: () => apiClient.get<TodayOverviewResult>('/api/overview/today'),
-    refetchInterval: 30_000,
-  })
-}
 export function useGenerationOverview(selection: GenerationSelection) {
   return useQuery({
     queryKey: ['overview-generation', selection],

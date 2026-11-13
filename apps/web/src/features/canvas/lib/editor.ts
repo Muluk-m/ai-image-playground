@@ -4,6 +4,7 @@ import type {
   VideoGenerationRecord,
 } from '@image-playground/shared'
 import Konva from 'konva'
+import type { GenerationActivity } from '../../../lib/generationActivity'
 import type { CanvasProfileSnapshot } from '../../../store'
 import type { TaskParams } from '../../../types'
 import {
@@ -65,6 +66,8 @@ export interface CanvasTaskMeta {
    * 它随 meta 持久化，刷新后续 poll 也能接着说。
    */
   queuePhase?: TaskProgressPhase
+  /** 占位框和任务行共用的生成阶段。缺席时由 status 和 queuePhase 折出来。 */
+  activity?: GenerationActivity
   /** 发起时的参数快照（已折叠 n=1），供重试 / 恢复 / 落历史保真复用。 */
   params?: TaskParams
   /** 发起时的 profile 身份快照，恢复完成落历史保真（缺失兜底当前 active profile）。 */
@@ -301,7 +304,11 @@ export class CanvasEditor {
       height: target.h,
       status: 'loading',
       message: '',
-      meta: { ...meta, createdAt: meta.createdAt ?? Date.now() },
+      meta: {
+        ...meta,
+        createdAt: meta.createdAt ?? Date.now(),
+        activity: meta.activity ?? { phase: 'submitting' },
+      },
     }
     this.doc.addElements([el], opts.history === false ? { history: false } : {})
     return el.id

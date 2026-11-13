@@ -21,6 +21,7 @@ import {
 } from '../types'
 import { getPublicChannels } from './channels/publicChannels'
 import { deleteCachedGeneration, getCachedGenerations, putCachedGeneration } from './db'
+import { activityFromServerStatus, projectGenerationActivity } from './generationActivity'
 import { mediaRef, readRemoteGeneration } from './remoteGenerations'
 import type { CloudReuseSource } from './reuseCloudGeneration'
 import { measuredSizeOf } from './size'
@@ -268,6 +269,8 @@ export function mergeHistory(
       status: settled.status,
       cancelled: settled.cancelled,
       queuePhase: settled.queuePhase,
+      batchQueued: settled.batchQueued,
+      activity: settled.activity,
       error: sameFailure || settled.error,
       errorCode: settled.status === 'error' ? (remote.record.errorType ?? undefined) : undefined,
       finishedAt: settled.finishedAt,
@@ -343,18 +346,20 @@ function statusPatch(
   item: GenerationSummary,
 ): Pick<
   TaskRecord,
-  'status' | 'cancelled' | 'error' | 'errorCode' | 'finishedAt' | 'elapsed' | 'queuePhase'
+  | 'status'
+  | 'cancelled'
+  | 'error'
+  | 'errorCode'
+  | 'finishedAt'
+  | 'elapsed'
+  | 'queuePhase'
+  | 'batchQueued'
+  | 'activity'
 > {
+  const activity = activityFromServerStatus(item.status)
   return {
-    status: statusFromGeneration(item.status),
-    cancelled: item.status === 'cancelled' ? true : undefined,
-    // 记录说已在执行就按生成中显示；否则另一台设备提交的任务在作品列表里会一直停在「排队中」。
-    queuePhase:
-      item.status === 'reconciling'
-        ? 'reconciling'
-        : item.status === 'in_progress'
-          ? 'generating'
-          : undefined,
+    activity,
+    ...projectGenerationActivity(activity),
     error: item.errorType ? taskErrorText(item.errorType) : null,
     errorCode: item.errorType ?? undefined,
     finishedAt: item.completedAt,

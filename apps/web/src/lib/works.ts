@@ -5,8 +5,8 @@ import type { TaskRecord } from '../types'
 import { parseRatio } from './size'
 
 /** 作品页签的来源筛选。历史上没记来源的平台记录只出现在「全部」里。 */
-export type WorksFilter = 'all' | 'studio' | 'agent'
-export type WorkSource = 'studio' | 'agent' | 'unknown'
+export type WorksFilter = 'all' | 'studio' | 'agent' | 'canvas'
+export type WorkSource = 'studio' | 'agent' | 'canvas' | 'unknown'
 
 export type WorksCounts = Record<WorksFilter, number>
 
@@ -17,7 +17,7 @@ interface SourceRecord {
 /** 平台记录的来源；本机跑的任务都是快速生成。 */
 export function sourceOfRecord(record: Pick<GenerationSummary, 'source'>): WorkSource {
   const kind = record.source?.kind
-  return kind === 'studio' || kind === 'agent' ? kind : 'unknown'
+  return kind === 'studio' || kind === 'agent' || kind === 'canvas' ? kind : 'unknown'
 }
 
 export function workSource(
@@ -79,7 +79,7 @@ export function worksCounts(
   rowsById: ReadonlyMap<string, SourceRecord>,
   snapshot: WorksSnapshot | null,
 ): WorksCounts {
-  const counts: WorksCounts = { all: 0, studio: 0, agent: 0 }
+  const counts: WorksCounts = { all: 0, studio: 0, agent: 0, canvas: 0 }
   const add = (source: WorkSource, delta: number) => {
     counts.all += delta
     if (source !== 'unknown') counts[source] += delta
@@ -91,6 +91,7 @@ export function worksCounts(
   add('unknown', snapshot.totals.all)
   counts.studio = snapshot.totals.studio
   counts.agent = snapshot.totals.agent
+  counts.canvas = snapshot.totals.canvas ?? 0
   const present = new Set<string>()
   for (const task of tasks) {
     present.add(task.id)
@@ -109,5 +110,6 @@ export function worksCounts(
     all: Math.max(0, counts.all),
     studio: Math.max(0, counts.studio),
     agent: Math.max(0, counts.agent),
+    canvas: Math.max(0, counts.canvas),
   }
 }
