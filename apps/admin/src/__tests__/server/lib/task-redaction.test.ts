@@ -87,7 +87,9 @@ describe('redactTaskRequestPayload', () => {
       sha256,
       n: 2,
     }) as Record<string, unknown>
-    expect(redacted.parts).toEqual([{ inlineData: '[BINARY REDACTED]' }])
+    expect(redacted.parts).toEqual([
+      { inlineData: { mimeType: 'image/png', data: '[BINARY REDACTED]' } },
+    ])
     expect(redacted.buffer).toBe('[BINARY REDACTED]')
     expect(redacted.bytes_as_array).toBe('[BINARY REDACTED]')
     expect(redacted.b64_json).toBe('[BINARY REDACTED]')

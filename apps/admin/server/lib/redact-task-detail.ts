@@ -2,7 +2,7 @@ import { redactCredentialFragments, redactLogText } from '@image-playground/shar
 
 const SECRET_FIELD =
   /(?:authorization|cookie|password|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|private[_-]?key|credential)/i
-/** 这些键的值只会是图片或字节，不论类型和长短一律替换。 */
+/** 这些键的值只会是图片或字节：标量和数组不论长短一律替换，对象往下看。 */
 const BINARY_FIELD = /^(?:data|bytes|b64(?:_json)?|base64|inline_?data|image_?data|mask)$/i
 const BASE64_RUN = /^[A-Za-z0-9+/_-]{128,}={0,2}$/
 const MAX_DEPTH = 12
@@ -41,7 +41,9 @@ export function redactTaskRequestPayload(value: unknown, depth = 0): unknown {
   return Object.fromEntries(
     Object.entries(value).map(([key, one]) => {
       if (SECRET_FIELD.test(key)) return [key, '[REDACTED]']
-      if (BINARY_FIELD.test(key) && one != null) return [key, BINARY]
+      // 包装对象（如 inlineData: { mimeType, data }）往下走，留下 mimeType，里面的 data 照样替换。
+      const wrapper = one !== null && typeof one === 'object' && !Array.isArray(one)
+      if (BINARY_FIELD.test(key) && one != null && !wrapper) return [key, BINARY]
       return [key, redactTaskRequestPayload(one, depth + 1)]
     }),
   )
