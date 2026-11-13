@@ -1,0 +1,86 @@
+# 浏览器场景套件（#1847）：本地栈（PostgreSQL + BFF + mock 上游 + 构建好的前端）里跑 Playwright。
+# 只告警、不挡任何东西（continue-on-error）；稳定后再决定是否进门禁。
+#
+# 两种触发：
+# - PR 改到套件自身或它的 workflow；
+# - 推送 test 分支：等同一提交的 Deploy test 成功之后再跑。单独成 workflow 而不是 deploy-test.yml 里的 job：
+#   后者整个 workflow 共用 test-deploy 并发组，套件会拖住下一次测试发布。不用 workflow_run：它在默认分支
+#   上下文里检出并运行 test 分支的代码，会被 CodeQL 判为缓存投毒（actions/cache-poisoning）。
+# 说明：docs/agents/browser-scenarios.md
+name: Browser scenarios
+on:
+  pull_request:
+    paths:
+      - scripts/e2e/**
+      - scripts/e2e-scenarios.sh
+      - scripts/pages-browser-smoke.sh
+      - .github/workflows/e2e-scenarios.yml
+      - .github/actions/e2e-scenarios/**
+  push:
+    branches: [test]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: e2e-scenarios-${{ github.head_ref || github.ref }}-${{ github.event_name == 'push' && github.sha || '' }}
+  cancel-in-progress: true
+jobs:
+  # 只在推送 test 时存在：等同一提交的 Deploy test 跑完，失败或被取消就不跑套件（没有可测的东西）。
+  deployed:
+    name: Wait for Deploy test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      ok: ${{ steps.wait.outputs.ok }}
+    steps:
+      - id: wait
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -u
+          echo "ok=false" >> "$GITHUB_OUTPUT"
+          for _ in $(seq 1 180); do
+            run=$(gh api "repos/$REPO/actions/workflows/deploy-test.yml/runs?head_sha=$SHA&per_page=5" \
+              --jq '[.workflow_runs[] | select(.event == "push")][0] // empty | "\(.status) \(.conclusion)"') || run=
+            case "$run" in
+              "completed success") echo "ok=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
+              "completed "*) echo "Deploy test ended as: $run"; exit 0 ;;
+            esac
+            sleep 20
+          done
+          echo "::warning::Deploy test did not finish within 60 minutes; skipping the scenarios."
+  scenarios:
+    name: Workbench scenarios (warn only)
+    needs: [deployed]
+    # PR 与手动触发时 deployed 被跳过；推送 test 时要部署成功。
+    if: always() && (needs.deployed.result == 'skipped' || needs.deployed.outputs.ok == 'true')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    continue-on-error: true
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: aip_test
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/e2e-scenarios

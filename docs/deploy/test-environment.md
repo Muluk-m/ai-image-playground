@@ -30,6 +30,8 @@
 
 GitHub 使用已有 VPS、Cloudflare 和 overlay secrets。CI 在读取 `PAGES_ENV` 后固定覆盖测试 API 为 `https://test-api.muvloom.online` 并清空 origin override，无需重写共享生产 secret 的 API 地址。共享 `PAGES_ENV` 与仓库外 `pages.env` 中的企业配置须使用 `ENTERPRISE_PUBLIC_ORIGIN` / `ENTERPRISE_BFF_BASE_URL`；旧键没有 fallback，更新前提见[部署手册](image-release.md#仓库外更新前提)。本机 `TEST_BFF_BASE_URL` 也必须使用测试 API 地址。测试使用单独 SSH key（secret `VPS_SSH_KEY_TEST`），在 VPS 绑定 `aip-ci-receive test`，只能发布 `test`；生产 key 绑定 `aip-ci-receive release`，只能发布 `paid`。安装的 receiver 与完整固定 runtime 必须配套更新，仓库代码更新不会替换 VPS 副本。
 
+发布成功后，独立的 `Browser scenarios` workflow（推送 `test` 时触发并等待发布成功）会在 runner 上用本地栈和 mock 上游跑一遍浏览器场景套件，只告警、不占用 `test-deploy` 并发组，见[浏览器场景套件](../agents/browser-scenarios.md)。
+
 ## 首次配置
 
 在已有 VPS 配置根创建 `apps/image-playground-test/`，放置独立 `app.env`、`migrate.env`、`operator-config.json` 和 `cloudflared/{config.yml,credentials.json}`。角色命名为 `aip_test_app` / `aip_test_admin` / `aip_test_migrator`，数据库固定 `aip_test`。用既有 `infra-compose.sh provision` 和独立 provision env 创建角色与空库，不重启共享 PostgreSQL。
