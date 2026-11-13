@@ -67,8 +67,8 @@ This codebase is yours: what it's for and how it's built are your call, and you'
 
 **资源受限机器的测试守卫**（[`scripts/test-guard.ts`](scripts/test-guard.ts)）：存在 `~/.config/test-guard/constrained`
 （尊重 `XDG_CONFIG_HOME`）且不在 CI 时，Vitest 配置与 Bun 隔离运行器拒绝未指定文件的全量运行，指定文件的运行强制单 worker、
-文件串行，并通过 `~/.cache/test-guard/run-owner` 保证整机同一时间只有一组测试（后来者排队）。全量测试用
-`rmake -c "pnpm test"` 或 CI；不要设置 `CI` 绕过守卫。
+文件串行，并通过 `~/.cache/test-guard/run-owner` 保证整机同一时间只有一组测试（后来者排队）。全量测试交远端：
+`python3 scripts/cloud-test.py submit`（CI）或 `rmake -c "pnpm test"`（macmini2）；不要设置 `CI` 绕过守卫。
 
 CI（`.github/workflows/web.yml`，PR 以及 push 到 main 和 test 都跑）把 `pnpm lint`、`pnpm typecheck`、`apps/web` 构建 + 浏览器冒烟拆成并行 job；
 公开 workspace 的完整 `pnpm test` 也并行分片：web 的 vitest 分 3 片，bff 的 Bun 数据库测试按文件分 3 片（`--shard=i/n`），其余包一个 job，都带 PostgreSQL（Bun 数据库测试 4 路并发）；
@@ -79,7 +79,7 @@ CI（`.github/workflows/web.yml`，PR 以及 push 到 main 和 test 都跑）把
 
 **交付不能停在本地。** 用户指定测试环境或明确暂不上生产时，完成改动后自动走测试环境发布：工作分支提交 → 远端检查 → 将最新 `main` 与工作分支合入 `test` → 跟进 Deploy test → 核对线上版本并实测变更。不再次询问是否部署，不把已提交、已推送或 workflow 已触发当作交付完成；失败继续处理，外部阻塞明确报告且待办保持阻塞状态。测试验收不代表获准上生产。
 
-**重任务在云端执行。** 非 Cursor 宿主把测试、typecheck、构建、全仓 lint / format 交给项目 Codex Cloud；Cursor 使用自身环境，已在 Cloud 内的任务直接执行，避免递归派发。本机只编辑与轻量调度，云端不可用不擅自回退本机。为远端检查允许先提交并推送工作分支；云端核对提交 SHA，格式化产生改动须取回后重新检查最终版本。发布 workflow 自带的 CI 门禁照常在 GitHub Actions 执行，不在本机重复运行。
+**重任务在远端执行。** 非 Cursor 宿主把测试、typecheck、构建、全仓 lint / format 交给远端（项目 Codex Cloud、`cloud-test.py submit` 派发的 CI，或 macmini2 的 `rmake`）；Cursor 使用自身环境，已在 Cloud 内的任务直接执行，避免递归派发。本机只编辑与轻量调度，云端不可用不擅自回退本机。为远端检查允许先提交并推送工作分支；云端核对提交 SHA，格式化产生改动须取回后重新检查最终版本。发布 workflow 自带的 CI 门禁照常在 GitHub Actions 执行，不在本机重复运行。
 
 公开树云端测试与依赖恢复使用仓库内 `python3 scripts/cloud-test.py`，本机用 `submit` 派发至 CI；命令、SHA 核对、缓存与数据库生命周期见[云端测试入口](docs/agents/cloud-tests.md)。不要依赖仅存在于某次会话的 `/workspace/cloud-prep/test.sh`。
 
