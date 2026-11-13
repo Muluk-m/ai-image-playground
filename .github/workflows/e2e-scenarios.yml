@@ -12,6 +12,8 @@ on:
   pull_request:
     paths:
       - scripts/e2e/**
+      - package.json
+      - pnpm-lock.yaml
       - scripts/e2e-scenarios.sh
       - scripts/pages-browser-smoke.sh
       - .github/workflows/e2e-scenarios.yml

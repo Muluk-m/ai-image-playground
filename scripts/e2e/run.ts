@@ -84,14 +84,17 @@ try {
     const started = Date.now()
     let failed = false
     try {
-      await scenario.run({
-        ...base,
-        newSession: async (label) => {
-          const session = await openSession(base, label)
-          sessions.push(session)
-          return session
-        },
-      })
+      await Promise.race([
+        running.infraFailure,
+        scenario.run({
+          ...base,
+          newSession: async (label) => {
+            const session = await openSession(base, label)
+            sessions.push(session)
+            return session
+          },
+        }),
+      ])
       console.log(`PASS ${scenario.name} (${((Date.now() - started) / 1000).toFixed(1)}s)`)
     } catch (error) {
       failed = true

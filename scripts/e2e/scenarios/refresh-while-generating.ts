@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import {
   eventually,
   generateButton,
-  pause,
   requestsFor,
   resultImages,
   type Scenario,
@@ -20,8 +19,11 @@ export const refreshWhileGenerating: Scenario = {
     // 上游慢一点，留出足够的时间在「生成中」刷新。
     mock.configure({ delayMs: 8_000 })
     const { page } = await newSession('refresh')
-
     const prompt = uniquePrompt('refresh')
+    // 所有页面断言都限定在带本次提示词的那张任务卡里。
+    const card = () => page.locator('div.relative.rounded-xl').filter({ hasText: prompt }).first()
+    const cardResult = () => card().locator('img[data-image-id]')
+
     await typePrompt(page, prompt)
     await generateButton(page).click()
 
@@ -31,19 +33,24 @@ export const refreshWhileGenerating: Scenario = {
       () => requestsFor(mock, prompt).length >= 1,
     )
     assert.equal(requestsFor(mock, prompt).length, 1)
-    assert.equal(await resultImages(page).count(), 0, 'no result before the upstream answers')
+    assert.equal(await cardResult().count(), 0, 'no result before the upstream answers')
 
     await page.reload()
 
-    // 刷新后任务卡片还在，并且还在进行中。
-    const inProgress = page.getByText(/生成中|排队中|恢复连接中|结果确认中/).first()
-    await inProgress.waitFor({ state: 'visible', timeout: 30_000 })
+    // 刷新后这张任务卡还在，并且还在进行中。
+    await card()
+      .getByText(/生成中|排队中|恢复连接中|结果确认中/)
+      .first()
+      .waitFor({ state: 'visible', timeout: 30_000 })
 
-    // 结果最终出现。
-    await resultImages(page).first().waitFor({ state: 'visible', timeout: 60_000 })
+    // 结果最终出现在这张卡里。
+    await cardResult().first().waitFor({ state: 'visible', timeout: 60_000 })
 
-    // 恢复不重复提交：等一小会儿，让任何多余的提交有机会发生。
-    await pause(3_000)
+    // 恢复不重复提交。不靠固定等待：上游回完（没有在途请求）之后再刷新一次，让恢复逻辑再走一遍，
+    // 结果仍只有一张、上游仍只被问过一次。
+    await mock.settle()
+    await page.reload()
+    await cardResult().first().waitFor({ state: 'visible', timeout: 30_000 })
     assert.equal(requestsFor(mock, prompt).length, 1, 'the upstream was asked exactly once')
     assert.equal(await resultImages(page).count(), 1, 'exactly one result on the page')
   },

@@ -144,31 +144,50 @@ async function describe(req: IncomingMessage, body: Buffer): Promise<RecordedReq
   }
 }
 
-function startImageUpstream(state: { behavior: UpstreamBehavior; log: RecordedRequest[] }): Server {
-  return createServer(async (req, res) => {
-    const body = await readBody(req)
-    const request = await describe(req, body)
-    state.log.push(request)
-    if (request.kind === 'other') {
-      res.writeHead(404, { 'content-type': 'application/json' }).end('{"error":"not_found"}')
-      return
-    }
-    const { delayMs } = state.behavior
-    if (delayMs > 0) await sleep(delayMs)
-    if (state.behavior.failNext > 0) {
-      state.behavior.failNext -= 1
-      res
-        .writeHead(state.behavior.failStatus, { 'content-type': 'application/json' })
-        .end(JSON.stringify({ error: { message: 'mock upstream failure' } }))
-      return
-    }
-    // 同一个提示词、同一个序号永远是同一张图；不同提示词颜色不同，场景里能分辨。
-    const data = Array.from({ length: request.n }, (_, index) => ({
-      b64_json: solidPng(`${request.prompt ?? ''}#${index}`).toString('base64'),
-    }))
+type ImageState = { behavior: UpstreamBehavior; log: RecordedRequest[]; inflight: number }
+
+async function answerImageRequest(
+  state: ImageState,
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
+  const body = await readBody(req)
+  const request = await describe(req, body)
+  state.log.push(request)
+  if (request.kind === 'other') {
+    res.writeHead(404, { 'content-type': 'application/json' }).end('{"error":"not_found"}')
+    return
+  }
+  const { delayMs } = state.behavior
+  if (delayMs > 0) await sleep(delayMs)
+  if (state.behavior.failNext > 0) {
+    state.behavior.failNext -= 1
     res
-      .writeHead(200, { 'content-type': 'application/json' })
-      .end(JSON.stringify({ created: Math.floor(Date.now() / 1000), data }))
+      .writeHead(state.behavior.failStatus, { 'content-type': 'application/json' })
+      .end(JSON.stringify({ error: { message: 'mock upstream failure' } }))
+    return
+  }
+  // 同一个提示词、同一个序号永远是同一张图；不同提示词颜色不同，场景里能分辨。
+  const data = Array.from({ length: request.n }, (_, index) => ({
+    b64_json: solidPng(`${request.prompt ?? ''}#${index}`).toString('base64'),
+  }))
+  res
+    .writeHead(200, { 'content-type': 'application/json' })
+    .end(JSON.stringify({ created: Math.floor(Date.now() / 1000), data }))
+}
+
+function startImageUpstream(state: ImageState): Server {
+  return createServer(async (req, res) => {
+    // 计数覆盖请求的整个生命周期：解析异常、失败响应、客户端中途断开都会走到 finally。
+    state.inflight += 1
+    try {
+      await answerImageRequest(state, req, res)
+    } catch (error) {
+      if (!res.headersSent) res.writeHead(500, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ error: { message: `mock upstream error: ${error}` } }))
+    } finally {
+      state.inflight -= 1
+    }
   })
 }
 

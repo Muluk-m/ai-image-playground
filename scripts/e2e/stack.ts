@@ -26,6 +26,8 @@ export interface Stack {
   /** 浏览器访问的 origin，也是前端的 BFF 地址（同源）。 */
   readonly origin: string
   readonly modelLabel: string
+  /** 运行期间任一子进程意外退出时 reject；场景要和它竞速，基础设施故障立即报出而不是等场景超时。 */
+  readonly infraFailure: Promise<never>
   stop(): Promise<void>
 }
 
@@ -86,26 +88,43 @@ function assertPortUnused(port: number): Promise<void> {
   })
 }
 
-async function waitForHealth(origin: string, children: ChildProcess[]) {
+async function isHealthy(url: string): Promise<boolean> {
+  try {
+    return (await fetch(url)).ok
+  } catch {
+    return false
+  }
+}
+
+/** 子进程已经退出（含被信号杀掉）。 */
+function exited(child: ChildProcess): boolean {
+  return child.exitCode !== null || child.signalCode !== null
+}
+
+function assertAlive(children: ChildProcess[]) {
+  for (const child of children) {
+    if (exited(child)) {
+      throw new Error(
+        `infrastructure failure: ${child.spawnargs.join(' ')} exited (code ${child.exitCode}, signal ${child.signalCode})`,
+      )
+    }
+  }
+}
+
+/** BFF 和 worker 的 /health 都要答 200；等待期间任一进程退出直接报错。 */
+async function waitForHealth(urls: string[], children: ChildProcess[]) {
   const deadline = Date.now() + 90_000
   while (Date.now() < deadline) {
-    for (const child of children) {
-      if (child.exitCode !== null) throw new Error('a stack process exited before becoming ready')
-    }
-    try {
-      const response = await fetch(`${origin}/health`)
-      if (response.ok) return
-    } catch {
-      // 还没监听，继续等。
-    }
+    assertAlive(children)
+    if ((await Promise.all(urls.map(isHealthy))).every(Boolean)) return
     await new Promise((resolve) => setTimeout(resolve, 500))
   }
-  throw new Error(`${origin}/health did not become ready within 90s`)
+  throw new Error(`${urls.join(' and ')} did not become healthy within 90s`)
 }
 
 function terminate(child: ChildProcess): Promise<void> {
   return new Promise((resolve) => {
-    if (child.exitCode !== null) return resolve()
+    if (exited(child)) return resolve()
     const timer = setTimeout(() => child.kill('SIGKILL'), 10_000)
     child.once('exit', () => {
       clearTimeout(timer)
@@ -193,6 +212,11 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   const children: ChildProcess[] = []
   let databaseCreated = false
   let stopped = false
+  let failInfra: (error: Error) => void = () => {}
+  const infraFailure = new Promise<never>((_, reject) => {
+    failInfra = reject
+  })
+  infraFailure.catch(() => {})
   const stop = async () => {
     if (stopped) return
     stopped = true
@@ -258,14 +282,21 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       child.stdout.pipe(log)
       child.stderr.pipe(log)
       children.push(child)
+      child.once('exit', (code, signal) => {
+        if (!stopped) {
+          failInfra(
+            new Error(`infrastructure failure: ${name} exited (code ${code}, signal ${signal})`),
+          )
+        }
+      })
     }
     launch('bff', 'src/index.ts')
     launch('worker', 'src/worker-index.ts', { APP_ROLE: 'worker' })
-    await waitForHealth(origin, children)
+    await waitForHealth([`${origin}/health`, `http://127.0.0.1:${workerPort}/health`], children)
   } catch (error) {
     await stop()
     throw error
   }
 
-  return { origin, modelLabel: E2E_MODEL_LABEL, stop }
+  return { origin, modelLabel: E2E_MODEL_LABEL, infraFailure, stop }
 }

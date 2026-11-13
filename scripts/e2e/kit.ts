@@ -68,10 +68,6 @@ export function requestsFor(mock: MockUpstream, prompt: string): readonly Record
   return mock.imageRequests().filter((request) => request.prompt === prompt)
 }
 
-export async function pause(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms))
-}
-
 /**
  * 新建浏览器上下文并用真实的注册接口开一个测试账号：请求在页面里发（浏览器自己收 Set-Cookie），
  * 之后整页重载进入工作台。鉴权逻辑没有被绕过。
