@@ -28,15 +28,3 @@ export function agentModeOf(
   if (options.videoAvailable === false) return 'image'
   return creationMode === 'video' ? 'video' : 'image'
 }
-
-/** 协议模式决定走视频计价还是图片计价；工作台出图另外走直连图路径。 */
-export type ComposerChargeKind = 'video' | 'direct-image' | 'agent-image'
-
-export function composerChargeKind(
-  agentMode: AgentMode,
-  createTarget: ComposerCreateTarget,
-): ComposerChargeKind {
-  if (agentMode === 'video') return 'video'
-  if (createTarget === 'generate') return 'direct-image'
-  return 'agent-image'
-}
