@@ -7,6 +7,7 @@ import {
   isGptImage26Model,
   isGptSub2apiDeliverable,
   QUEUE_TIMEOUTS,
+  queueTask,
   type TaskErrorType,
   taskFailureCode,
 } from '@image-playground/shared'
@@ -186,6 +187,15 @@ export async function reconcileTasks(
   return executor ? reconcile(executor) : db.transaction(reconcile)
 }
 
+function queueTerminalStatus(status: TerminalTaskUpdate['status']): TerminalTaskUpdate['status'] {
+  const event = status === 'completed' ? 'succeed' : status === 'failed' ? 'fail' : 'cancel'
+  const next = queueTask.target(event)
+  if (next !== 'completed' && next !== 'failed' && next !== 'cancelled') {
+    throw new Error(`queue-task: ${event} did not resolve to a terminal status`)
+  }
+  return next
+}
+
 export type TerminalTaskUpdate = {
   status: 'completed' | 'failed' | 'cancelled'
   completedAt: number
@@ -235,10 +245,11 @@ export async function finishTask(
 ): Promise<boolean> {
   const taskHooks = (await loadPrivateBffOverlay()).taskHooks
   const finish = async (tx: BffTransaction) => {
+    const status = queueTerminalStatus(update.status)
     const [finished] = await tx
       .update(schema.tasks)
       .set({
-        status: update.status,
+        status,
         ...(update.preserveArchive ? {} : { archive_payload: null }),
         attempt_count: update.attemptCount,
         upstream_invocation_count: update.upstreamInvocationCount,
@@ -278,7 +289,7 @@ export async function finishTask(
         finished.userId,
         id,
         update.media ?? [],
-        update.status === 'failed'
+        status === 'failed'
           ? taskFailureCode(update.errorType)
           : // 部分出图：没出的那几个预留位置留成失败占位，不悄悄收掉。
             partialFailureCode(update.resultPayload),
@@ -287,13 +298,13 @@ export async function finishTask(
       await taskHooks.finalizeTask({
         tx,
         taskId: finished.id,
-        outcome: update.status,
+        outcome: status,
         upstreamInvocationCount: finished.upstreamInvocationCount,
         errorType: update.errorType,
         upstreamStatus: update.upstreamStatus ?? null,
         actualUsage: gptSettledUsage(update, finished),
       })
-    if (update.status === 'failed' && update.errorType === 'model_unavailable') {
+    if (status === 'failed' && update.errorType === 'model_unavailable') {
       await pauseUnavailableModel(tx, finished.model, update.completedAt)
     }
     // 智能体的后台任务：同一个事务里判断要不要唤醒它，终态与唤醒要么一起落、要么都不落。
@@ -322,9 +333,10 @@ export async function cancelTasks(
       .where(and(access, inArray(schema.tasks.status, ['queued', 'in_progress'])))
       .for('update')
     await reconcileTasks(access, '已提交的请求仍待核查，预扣暂时保留', tx)
+    const status = queueTerminalStatus('cancelled')
     const rows = await tx
       .update(schema.tasks)
-      .set({ status: 'cancelled', completed_at: Date.now() })
+      .set({ status, completed_at: Date.now() })
       .where(and(access, inArray(schema.tasks.status, ['queued', 'in_progress'])))
       .returning({
         id: schema.tasks.id,
@@ -338,7 +350,7 @@ export async function cancelTasks(
         await taskHooks.finalizeTask({
           tx,
           taskId: row.id,
-          outcome: 'cancelled',
+          outcome: status,
           upstreamInvocationCount: row.upstreamInvocationCount,
         })
     }
