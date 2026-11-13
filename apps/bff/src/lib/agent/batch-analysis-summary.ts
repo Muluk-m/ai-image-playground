@@ -1,3 +1,4 @@
+import { sqlBatchAttemptTarget } from '@image-playground/db'
 import type { AgentBatchAnalysisSummary } from '@image-playground/shared'
 import { and, asc, eq, inArray, lte, sql } from 'drizzle-orm'
 import type { BunSQLDatabase } from 'drizzle-orm/bun-sql'
@@ -45,7 +46,9 @@ export async function readBatchAnalysisSummary(
         lte(schema.agent_batch_attempts.version, schema.agent_batch_items.version),
         eq(
           schema.agent_batch_attempts.attempt,
-          sql<number>`coalesce((${schema.agent_batch_plans.attempt_targets} ->> ${schema.agent_batch_items.key})::integer, 1)`,
+          sqlBatchAttemptTarget(
+            sql`${schema.agent_batch_plans.attempt_targets} ->> ${schema.agent_batch_items.key}`,
+          ),
         ),
       ),
     )
