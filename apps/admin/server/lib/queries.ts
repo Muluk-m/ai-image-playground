@@ -339,8 +339,10 @@ export async function listUsers(
 /** 全局 KPI 跟翻页无关。短缓存让连续翻页不再各扫一遍用户和 24 小时任务。 */
 export const USER_KPI_CACHE_MS = 30_000
 
-let userKpiCache: { at: number; value: UserKpis } | null = null
-let userKpiPending: Promise<UserKpis> | null = null
+type DbHandle = ReturnType<typeof getHandle>
+// 缓存跟着数据库句柄走：同一进程换了 DATABASE_URL 时不拿别的库的数字。
+let userKpiCache: { at: number; value: UserKpis; db: DbHandle } | null = null
+let userKpiPending: { promise: Promise<UserKpis>; db: DbHandle } | null = null
 let userKpiGeneration = 0
 let userKpiCacheGeneration = 0
 
@@ -351,8 +353,8 @@ export function resetUserKpiCacheForTesting(): void {
   userKpiCacheGeneration = 0
 }
 
-async function loadUserKpis(): Promise<UserKpis> {
-  const { db } = getHandle()
+async function loadUserKpis(handle: DbHandle): Promise<UserKpis> {
+  const { db } = handle
   const rows = (await db.execute(sql`
     WITH user_activity AS (
       SELECT u.id, GREATEST(u.last_login_at, MAX(t.submitted_at)) AS last_activity_at
@@ -388,25 +390,25 @@ async function loadUserKpis(): Promise<UserKpis> {
 }
 
 export function getUserKpis(now = Date.now(), fresh = false): Promise<UserKpis> {
-  if (!fresh && userKpiCache && now - userKpiCache.at < USER_KPI_CACHE_MS)
+  const handle = getHandle()
+  if (!fresh && userKpiCache?.db === handle && now - userKpiCache.at < USER_KPI_CACHE_MS)
     return Promise.resolve(userKpiCache.value)
-  if (fresh || !userKpiPending) {
-    // 手动刷新另起一次查询；代数让更早发起的查询晚到时不覆盖更新的缓存。
-    const generation = ++userKpiGeneration
-    const pending = loadUserKpis()
-      .then((value) => {
-        if (generation >= userKpiCacheGeneration) {
-          userKpiCache = { at: now, value }
-          userKpiCacheGeneration = generation
-        }
-        return value
-      })
-      .finally(() => {
-        if (userKpiPending === pending) userKpiPending = null
-      })
-    userKpiPending = pending
-  }
-  return userKpiPending
+  if (!fresh && userKpiPending?.db === handle) return userKpiPending.promise
+  // 手动刷新另起一次查询；代数让更早发起的查询晚到时不覆盖更新的缓存。
+  const generation = ++userKpiGeneration
+  const promise: Promise<UserKpis> = loadUserKpis(handle)
+    .then((value) => {
+      if (generation >= userKpiCacheGeneration) {
+        userKpiCache = { at: now, value, db: handle }
+        userKpiCacheGeneration = generation
+      }
+      return value
+    })
+    .finally(() => {
+      if (userKpiPending?.promise === promise) userKpiPending = null
+    })
+  userKpiPending = { promise, db: handle }
+  return promise
 }
 
 export function volumeBucketUnit(range: Range): VolumeBucketUnit {
