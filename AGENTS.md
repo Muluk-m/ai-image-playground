@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本文件是代码 Agent 的工作约定。**严格遵守**，不要按通用 monorepo 直觉走。
+本文件是代码 Agent 的工作约定。本仓库有不少与通用 monorepo 习惯不同的做法，遇到分歧以本文件为准。
 
 ## 代码库归你
 
@@ -41,7 +41,7 @@ This codebase is yours: what it's for and how it's built are your call, and you'
 - **Tier 1：纯静态** — 仅 `apps/web/dist`。没有平台渠道，也不能自填密钥，生图不可用
 - **Tier 2：静态 + BFF** — Docker 镜像或裸跑 BFF + web/dist 同进程托管。生成只走运营配置的平台渠道
 
-各 app 的内部约定（服务商架构、内置 channel、BFF 定位、queue 协议等）放在 `apps/web/AGENTS.md` 与 `apps/bff/AGENTS.md`，改到对应目录时自动加载。
+各 app 的内部约定（服务商架构、内置 channel、BFF 定位、queue 协议、官网预渲染等）放在 `apps/web/AGENTS.md`、`apps/bff/AGENTS.md` 与 `apps/website/AGENTS.md`，改到对应目录时自动加载。
 
 ## 界面文案与层级规则
 
@@ -95,7 +95,7 @@ CI（`.github/workflows/web.yml`，PR 以及 push 到 main 和 test 都跑）把
 
 **评审。** 怎么评、什么算严重、哪些文件可跳过、输出格式，见 [REVIEW.md](REVIEW.md)。作者 Agent 与 Codex 最多来回 3 轮：第 2 轮起只看新增改动、不重复已提过的问题；3 轮后仍有严重问题就停下，重新想方案或交给 Nain。规则细节见 REVIEW.md「评审轮次上限」。每轮怎么处理的写进 PR 的「评审处理记录」。
 
-**合并需 Nain 确认；上线后冒烟。** 合并 `main` 或私有 overlay 必须等 Nain 明确确认（2026-11-11 起与现行做法对齐；不再沿用 2026-11-08「合并不需要确认」）。Nain 确认并合并后，跟进部署 workflow，核对线上版本，再实测改到的功能：接口用只读请求，界面在浏览器里看，关键流程用测试账号；结果写进 PR 评论。冒烟不过就开修复或回滚 PR，回滚同样要 Nain 确认，并在汇报里说明。
+**合并需 Nain 确认；上线后冒烟。** 合并 `main` 或私有 overlay 必须等 Nain 明确确认。Nain 确认并合并后，跟进部署 workflow，核对线上版本，再实测改到的功能：接口用只读请求，界面在浏览器里看，关键流程用测试账号；结果写进 PR 评论。冒烟不过就开修复或回滚 PR，回滚同样要 Nain 确认，并在汇报里说明。
 
 **关键流程证据。** 改到注册/登录、支付/计费、生成（出图、出视频）流程的 PR，必须附测试账号在测试环境（https://test.muvloom.online）走通该流程的截图或录屏，写明账号类型、环境和提交。证据里不能出现密码、验证码、token 或真实用户数据。`scripts/agent-smoke.ts`（[智能体上线手册](docs/deploy/agent-rollout.md)第七节）、`scripts/pages-browser-smoke.sh`（[部署手册](docs/deploy/image-release.md)「前端启动验收」）和[云端测试](docs/agents/cloud-tests.md)只能作补充：它们不走真实登录、付款或生成，不能代替证据。
 
@@ -199,5 +199,3 @@ Single-context: root `CONTEXT.md` + `docs/adr/`. See `docs/agents/domain.md`.
 ### 仓库里有什么、没有什么
 
 编码约定就是根 `AGENTS.md`、各 app 的 `AGENTS.md`、`REVIEW.md`、`.githooks/` 和 `.github/workflows/ai-review.yml`（`/review`）以及 Codex 按 `REVIEW.md` 做的 `@codex review`。没有提交 `.cursor/`、`.claude/`、`.agents/` 或 MCP 配置。根目录和各 app 的 `CLAUDE.md` 只有 `@AGENTS.md`，避免两套约定分叉。
-
-DO NOT send optional commentary
