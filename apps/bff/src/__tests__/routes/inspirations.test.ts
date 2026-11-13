@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 
 process.env.PORT = '0'
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 process.env.DATABASE_URL = await resetTestDatabase('bff_inspiration_publications')
 process.env.INTERNAL_API_TOKEN = 'inspiration-test-service-token'
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../../../operator-config.example.json')

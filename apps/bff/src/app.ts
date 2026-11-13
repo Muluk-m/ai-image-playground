@@ -7,6 +7,7 @@ import { StageAuthorizationError } from './lib/agent/stage-authorizations'
 import { apiErrorHandler, isApiPath } from './lib/api-errors'
 import { appRelease, appVersion } from './lib/app-version'
 import { isCapabilityEnabled } from './lib/capabilities'
+import { assertCredentialedCors } from './lib/cors-policy'
 import { log } from './lib/logger'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { REQUEST_ID_HEADER } from './lib/request-context'
@@ -49,6 +50,7 @@ import { submitRoutes } from './routes/submit'
 import { syncRoutes } from './routes/sync'
 import { textGenerationRoutes } from './routes/textGeneration'
 
+assertCredentialedCors(config.corsOrigins, config.operator.capabilities)
 const corsOrigin = config.corsOrigins === '*' ? true : config.corsOriginList
 
 const privateBffOverlay = await loadPrivateBffOverlay()

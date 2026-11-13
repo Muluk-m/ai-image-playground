@@ -6,6 +6,7 @@ import sharp from 'sharp'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 process.env.PORT = '0'
+process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 process.env.DATABASE_URL = await resetTestDatabase('bff_project_media')
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../project-media-operator-config.json')
 const { app } = await import('../../app')
