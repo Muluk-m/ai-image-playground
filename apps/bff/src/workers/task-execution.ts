@@ -1,5 +1,9 @@
 import { hostname } from 'node:os'
-import type { PersistedSubmitRequest, QueueProvider } from '@image-playground/shared'
+import {
+  type PersistedSubmitRequest,
+  type QueueProvider,
+  queueTask,
+} from '@image-playground/shared'
 import { and, eq, isNull, lte, or, type SQL, type SQLWrapper, sql } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
@@ -627,7 +631,7 @@ export async function claimTaskExecution(
     const [row] = await tx
       .update(schema.tasks)
       .set({
-        status: 'in_progress',
+        status: queueTask.step('queued', 'claim'),
         started_at: claimedAt,
         execution_token: token,
         lease_expires_at: claimedAt + TASK_LEASE_MS,
