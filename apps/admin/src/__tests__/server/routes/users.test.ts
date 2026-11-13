@@ -425,6 +425,19 @@ describe('admin user routes', () => {
     })
   })
 
+  it('shares an in-flight KPI read but starts a new one for a forced refresh', async () => {
+    const { getUserKpis, resetUserKpiCacheForTesting } = await import(
+      '../../../../server/lib/queries'
+    )
+    resetUserKpiCacheForTesting()
+    const first = getUserKpis(1_000)
+    const shared = getUserKpis(1_000)
+    const forced = getUserKpis(1_000, true)
+    expect(shared).toBe(first)
+    expect(forced).not.toBe(first)
+    expect((await forced).total_users).toBe((await first).total_users)
+  })
+
   it('keeps global KPIs cached across page reads and refreshes after the short ttl', async () => {
     const { USER_KPI_CACHE_MS, getUserKpis, resetUserKpiCacheForTesting } = await import(
       '../../../../server/lib/queries'
