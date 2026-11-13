@@ -154,6 +154,13 @@ describe('ci-deploy-target.sh', () => {
     expect(decide(commits[2], 'workflow_dispatch').decision).toBe(everything)
   })
 
+  it('ships every side when only the pinned overlay lock changed', () => {
+    const previous = commits[2]
+    const tip = commitOnTip('private.lock', `${'a'.repeat(40)}\n`)
+    serveSides({ api: previous, web: previous, admin: previous })
+    expect(decide(tip).decision).toBe(everything)
+  })
+
   it('ships only the user-facing sites when only the web bundle changed', () => {
     const previous = commits[2]
     const tip = commitOnTip('apps/web/src/main.tsx', 'export {}\n')
