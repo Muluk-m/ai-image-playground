@@ -1,6 +1,6 @@
 # 在 Claude Code 与 Codex 中使用幕芽（Skill + CLI）
 
-这篇是给人读的集成文档，依据仓库 `cli-go/`（Go 二进制 `muvloom`，模块名 `github.com/Muluk-m/ai-image-playground/cli-go`）、随二进制打包的 Skill（`cli-go/internal/skill/assets/`）、网站接入页（`apps/web/src/features/cli/`）以及 BFF 路由（`apps/bff/src/routes/cli.ts`）写成。当前网站接入页写明的发布版本是 **CLI 0.2.4**，安装脚本钉在提交 `940f1faf1f4147d4b0add11efa5d3684aef0439c`。
+这篇是给人读的集成文档，依据仓库 `cli-go/`（Go 二进制 `muvloom`，模块名 `github.com/Muluk-m/ai-image-playground/cli-go`）、随二进制打包的 Skill（`cli-go/internal/skill/assets/`）、网站接入页（`apps/web/src/features/cli/`）以及 BFF 路由（`apps/bff/src/routes/cli.ts`）写成。当前网站接入页写明的发布版本是 **CLI 0.2.5**。官方安装是同域的 `install.sh` / `install.ps1`（先校验 SHA-256，再用 `MUVLOOM_MIN_VERSION=0.2.5` 安装最新满足最低版本的发布），不要管道进 `sh` 或 `iex`，也不要用会降级的 `MUVLOOM_VERSION` 精确钉死。
 
 结论先说：这不是 npm 包。仓库里没有 `@muvloom/cli`，`npm` 上也没有以此为名的官方包。正式分发是单文件原生二进制 `muvloom`（macOS arm64/x64、Linux x64/arm64、Windows x64），不需要 Node.js、npm 或 Python。Skill 通过 `muvloom skill install --host claude-code|codex` 安装；Claude Code 里用 `/muvloom …` 调用，Codex 里用 `/` 选中 Skill 或 `$muvloom …`。
 
@@ -33,27 +33,34 @@
 
 ---
 
-## 2. 安装 CLI 0.2.4
+## 2. 安装 CLI 0.2.5 或更新
 
-接入页给出的命令（`connectAgents.ts`）会校验下载文件的 SHA-256，并把脚本钉在已发布提交上，而不是可移动的 `main`。
+接入页给出的命令（`connectAgents.ts`）从本站同域下载 `install.sh` / `install.ps1`，先校验页面公布的 SHA-256，再用 `MUVLOOM_MIN_VERSION` 安装最新满足最低版本的发布。不要把脚本管道进 `sh` 或 `iex`，也不要用 `MUVLOOM_VERSION` 钉死精确版本（可能把已装的更新版本降级）。接入页的复制命令还带内容哈希 `?v=`，避免缓存到旧脚本。
 
-macOS / Linux：
+macOS / Linux（SHA-256 of `install.sh`：`a4497cb8ac2fc14cb5bcfc6a96ea6f696f182f66d956ebf2714802ac78a00b27`）：
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/Muluk-m/ai-image-playground/940f1faf1f4147d4b0add11efa5d3684aef0439c/cli-go/install/install.sh | MUVLOOM_VERSION=0.2.4 sh
+tmp="$(mktemp)"
+curl -fsSL "https://muvloom.online/cli/install.sh" -o "$tmp"
+actual="$(command -v sha256sum >/dev/null && sha256sum "$tmp" | awk '{print $1}' || shasum -a 256 "$tmp" | awk '{print $1}')"
+[ "$actual" = "a4497cb8ac2fc14cb5bcfc6a96ea6f696f182f66d956ebf2714802ac78a00b27" ] || { echo "checksum mismatch"; exit 1; }
+MUVLOOM_MIN_VERSION=0.2.5 sh "$tmp"
 export PATH="${MUVLOOM_INSTALL_DIR:-$HOME/.local/bin}:$PATH"
 ```
 
-Windows（PowerShell）：
+Windows（PowerShell；SHA-256 of `install.ps1`：`453cfa45ba6d41a59fcb9cd6b778db3a0882c06ca75fea753674553576b535fe`）：
 
 ```powershell
-$env:MUVLOOM_VERSION = "0.2.4"; irm https://raw.githubusercontent.com/Muluk-m/ai-image-playground/940f1faf1f4147d4b0add11efa5d3684aef0439c/cli-go/install/install.ps1 | iex
+$script = Join-Path $env:TEMP "muvloom-install.ps1"
+Invoke-WebRequest "https://muvloom.online/cli/install.ps1" -OutFile $script
+if ((Get-FileHash $script -Algorithm SHA256).Hash.ToLower() -ne "453cfa45ba6d41a59fcb9cd6b778db3a0882c06ca75fea753674553576b535fe") { throw "checksum mismatch" }
+$env:MUVLOOM_MIN_VERSION = "0.2.5"; powershell -NoProfile -ExecutionPolicy Bypass -File $script; if ($LASTEXITCODE -ne 0) { throw "muvloom installer failed with exit code $LASTEXITCODE" }
 $env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")
 ```
 
-装好后先跑 `muvloom version`。版本低于 0.2.4 应重装：安装器就地替换二进制并保留已有登录。默认安装位置（可用 `MUVLOOM_INSTALL_DIR` 覆盖）：已安装副本所在目录，否则在 PATH 上可写的 `/usr/local/bin`，否则 `~/.local/bin`（Unix）或 `%LOCALAPPDATA%\Programs\muvloom`（Windows）。
+装好后先跑 `muvloom version`。版本低于 0.2.5 应重装：安装器就地替换二进制并保留已有登录。默认安装位置（可用 `MUVLOOM_INSTALL_DIR` 覆盖）：已安装副本所在目录，否则在 PATH 上可写的 `/usr/local/bin`，否则 `~/.local/bin`（Unix）或 `%LOCALAPPDATA%\Programs\muvloom`（Windows）。
 
-Skill 自带的 `install.md` 还提供不钉版本、跟踪 `main` 的短命令。**给用户复制时以接入页钉死的 0.2.4 为准**，避免脚本与二进制版本漂移。
+**给用户复制时以接入页（`/connect`）或 `/cli/setup.md` 的校验命令为准**，最低版本为 `MUVLOOM_MIN_VERSION=0.2.5`。
 
 查找已安装副本（agent 环境经常没有 PATH）：`~/.local/bin/muvloom`、`/usr/local/bin/muvloom`、`/opt/homebrew/bin/muvloom`；Windows 为 `%LOCALAPPDATA%\Programs\muvloom\muvloom.exe`。
 
@@ -159,7 +166,7 @@ muvloom auth logout          # 吊销并忘记本机连接
 
 完整顺序（与 `setup.md` 一致）：
 
-1. `muvloom version`（需要 ≥ 0.2.4）。
+1. `muvloom version`（需要 ≥ 0.2.5）。
 2. 如需非默认服务，设置 `MUVLOOM_API_URL`。
 3. 按宿主安装 Skill（Claude Code / Codex）。
 4. `muvloom auth status`；不是 `ready` 就 `muvloom auth login`。

@@ -5,6 +5,7 @@ import type {
   AgentInboxUserMessagePayload,
 } from '@image-playground/db'
 import {
+  AGENT_INBOX_CREATED,
   AGENT_QUEUE_MAX_PENDING,
   type AgentCanvasSnapshot,
   type AgentMode,
@@ -16,6 +17,7 @@ import {
   type AgentReturnedQueuedMessage,
   type AgentTurnParams,
   type AgentTurnReference,
+  agentInbox,
 } from '@image-playground/shared'
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, ne, not, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
@@ -209,7 +211,7 @@ export async function enqueueAgentUserMessage(
         id: crypto.randomUUID(),
         seq: sql`(SELECT COALESCE(MAX(${inbox.seq}), 0) + 1 FROM ${inbox} WHERE ${inbox.conversation_id} = ${conversationId})`,
         kind,
-        status: 'pending',
+        status: AGENT_INBOX_CREATED.queued,
         client_message_id: message.clientMessageId,
         payload,
         attachments: message.references.length ? [...message.references] : null,
@@ -297,7 +299,7 @@ export async function reserveAgentSubmissionCancellation(
         id: crypto.randomUUID(),
         seq: sql`(SELECT COALESCE(MAX(${inbox.seq}), 0) + 1 FROM ${inbox} WHERE ${inbox.conversation_id} = ${conversationId})`,
         kind: 'user_message',
-        status: 'cancelled',
+        status: AGENT_INBOX_CREATED.preempted,
         client_message_id: clientMessageId,
         payload: { text: '', deviceId, referenceCount: 0 },
         created_at: Date.now(),
@@ -318,7 +320,7 @@ export async function failAgentMessage(
 ): Promise<boolean> {
   const rows = await db
     .update(inbox)
-    .set({ status: 'failed', failure, attachments: null })
+    .set({ status: agentInbox.step('pending', 'fail'), failure, attachments: null })
     .where(
       and(eq(inbox.conversation_id, conversationId), eq(inbox.id, id), eq(inbox.status, 'pending')),
     )
@@ -510,7 +512,7 @@ export async function skipAgentWake(
 ): Promise<boolean> {
   const rows = await tx
     .update(inbox)
-    .set({ status: 'cancelled' })
+    .set({ status: agentInbox.step('pending', 'skip') })
     .where(
       and(
         eq(inbox.conversation_id, conversationId),
@@ -534,7 +536,7 @@ export async function skipAgentGateResume(
 ): Promise<boolean> {
   const rows = await tx
     .update(inbox)
-    .set({ status: 'cancelled' })
+    .set({ status: agentInbox.step('pending', 'skip') })
     .where(
       and(
         eq(inbox.conversation_id, conversationId),
@@ -623,7 +625,7 @@ export async function enqueueAgentWake(
     id,
     seq: sql`(SELECT COALESCE(MAX(${inbox.seq}), 0) + 1 FROM ${inbox} WHERE ${inbox.conversation_id} = ${conversationId})`,
     kind: 'task_result',
-    status: 'pending',
+    status: AGENT_INBOX_CREATED.queued,
     payload,
     created_at: now,
   })
@@ -661,7 +663,7 @@ export async function enqueueAgentResume(
         id: crypto.randomUUID(),
         seq: sql`(SELECT COALESCE(MAX(${inbox.seq}), 0) + 1 FROM ${inbox} WHERE ${inbox.conversation_id} = ${conversationId})`,
         kind: 'system_event',
-        status: 'pending',
+        status: AGENT_INBOX_CREATED.queued,
         client_message_id: payload.gate
           ? agentGateResumeKey(payload.interruptedTurnId)
           : agentResumeKey(payload.interruptedTurnId),
@@ -764,7 +766,11 @@ export async function consumeAgentMessage(
 ): Promise<boolean> {
   const rows = await tx
     .update(inbox)
-    .set({ status: 'consumed', consumed_turn_id: turnId, attachments: null })
+    .set({
+      status: agentInbox.step('pending', 'consume'),
+      consumed_turn_id: turnId,
+      attachments: null,
+    })
     .where(
       and(eq(inbox.conversation_id, conversationId), eq(inbox.id, id), eq(inbox.status, 'pending')),
     )
@@ -795,7 +801,7 @@ export async function withdrawAgentMessage(
 ): Promise<{ readonly result: AgentQueueWithdrawResult; readonly fresh: boolean }> {
   const withdrawn = await db
     .update(inbox)
-    .set({ status: 'cancelled', attachments: null })
+    .set({ status: agentInbox.target('withdraw'), attachments: null })
     .where(
       and(
         eq(inbox.conversation_id, conversationId),
@@ -849,7 +855,7 @@ export async function claimAgentMessageForInterjection(
 ): Promise<boolean> {
   const rows = await db
     .update(inbox)
-    .set({ status: 'consumed', consumed_turn_id: turnId })
+    .set({ status: agentInbox.step('pending', 'consume'), consumed_turn_id: turnId })
     .where(
       and(eq(inbox.conversation_id, conversationId), eq(inbox.id, id), eq(inbox.status, 'pending')),
     )
@@ -873,7 +879,7 @@ export async function requeueAgentMessage(
 ): Promise<void> {
   await db
     .update(inbox)
-    .set({ status: 'pending', consumed_turn_id: null })
+    .set({ status: agentInbox.step('consumed', 'requeue'), consumed_turn_id: null })
     .where(
       and(
         eq(inbox.conversation_id, conversationId),
@@ -932,7 +938,7 @@ export async function returnAgentMessages(
     if (fresh.length)
       await tx
         .update(inbox)
-        .set({ status: 'cancelled', consumed_turn_id: turnId })
+        .set({ status: agentInbox.target('return'), consumed_turn_id: turnId })
         .where(and(eq(inbox.conversation_id, conversationId), inArray(inbox.id, fresh)))
     const returned = await tx
       .select()

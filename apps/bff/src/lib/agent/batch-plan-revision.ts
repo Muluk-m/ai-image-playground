@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { AgentBatchConfirmation, AgentBatchItem } from '@image-playground/shared'
+import { agentBatch } from '@image-playground/shared'
 import { and, eq, inArray, or } from 'drizzle-orm'
 import { schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
@@ -122,7 +123,7 @@ export async function saveBatchRevision(
   await tx
     .update(schema.agent_batches)
     .set({
-      status: 'paused',
+      status: agentBatch.target('pause'),
       current_version: version,
       confirmed_version: null,
       dispatch_generation: batch.dispatch_generation + 1,

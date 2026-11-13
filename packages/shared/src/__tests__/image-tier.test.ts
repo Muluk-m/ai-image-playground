@@ -81,11 +81,11 @@ describe('resolveImageTier · Gemini 4K', () => {
 
 describe('resolveImageTier · rate multiplier', () => {
   it('prices the effective request, not the requested one', () => {
-    // GPT 2.5 表：4K high = 8；收到 2K medium 后 = 2。
-    expect(gpt('web-direct', true).rateMultiplier).toBe(8)
-    expect(gpt('web-direct', false).rateMultiplier).toBe(2)
-    expect(gpt('agent', true).rateMultiplier).toBe(2)
-    expect(gpt('cli-strict', false).rateMultiplier).toBe(8)
+    // GPT 2.5 只按档位：4K = 1.5；收到 2K medium 后 = 1.2。
+    expect(gpt('web-direct', true).rateMultiplier).toBe(1.5)
+    expect(gpt('web-direct', false).rateMultiplier).toBe(1.2)
+    expect(gpt('agent', true).rateMultiplier).toBe(1.2)
+    expect(gpt('cli-strict', false).rateMultiplier).toBe(1.5)
   })
 
   it('prices Gemini by the tier it will actually run', () => {

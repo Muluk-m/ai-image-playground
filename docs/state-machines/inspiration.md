@@ -15,4 +15,4 @@ stateDiagram-v2
   archived --> published
 ```
 
-删除不是状态转移。`remove` 只允许 draft 和 archived。published 必须先归档，错误码仍是 `published_item_must_be_archived`。
+删除不是状态转移。`remove` 只允许 draft 和 archived。published 必须先归档，错误码仍是 `published_item_must_be_archived`。状态写入用 `step`，下一状态与请求的状态相同。
