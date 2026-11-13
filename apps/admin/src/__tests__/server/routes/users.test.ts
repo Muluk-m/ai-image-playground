@@ -425,7 +425,7 @@ describe('admin user routes', () => {
     })
   })
 
-  it('shares an in-flight KPI read but starts a new one for a forced refresh', async () => {
+  it('shares in-flight KPI reads and coalesces forced refreshes separately', async () => {
     const { getUserKpis, resetUserKpiCacheForTesting } = await import(
       '../../../../server/lib/queries'
     )
@@ -433,8 +433,10 @@ describe('admin user routes', () => {
     const first = getUserKpis(1_000)
     const shared = getUserKpis(1_000)
     const forced = getUserKpis(1_000, true)
+    const forcedAgain = getUserKpis(1_000, true)
     expect(shared).toBe(first)
     expect(forced).not.toBe(first)
+    expect(forcedAgain).toBe(forced)
     expect((await forced).total_users).toBe((await first).total_users)
   })
 
