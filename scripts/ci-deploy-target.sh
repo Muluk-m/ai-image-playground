@@ -3,7 +3,7 @@ set -eu
 # Decides whether the deploy workflow ships <sha>. Run inside a checkout with origin/main fetched
 # and enough history to compare commits.
 #   WEB_ORIGINS="<muvloom site origin> ..." ADMIN_ORIGIN=<admin origin> \
-#     scripts/ci-deploy-target.sh <sha> <workflow_run|workflow_dispatch> <muvloom-api-base-url>
+#     scripts/ci-deploy-target.sh <sha> <schedule|workflow_dispatch> <muvloom-api-base-url>
 #
 # Writes deploy_api, deploy_pages (either Pages side), deploy_web (the one muvloom Pages project
 # behind every product domain),
@@ -15,8 +15,8 @@ set -eu
 #   /version.json. A side skipped by an earlier run keeps its older commit, so a later run still sees
 #   the changes it never shipped, and a side that already shipped them is not shipped again;
 # - a side ships when its own paths changed since that commit, and nothing ships when every side
-#   already serves <sha>. A manual run redeploys everything, which is how a private overlay change
-#   goes out.
+#   already serves <sha>. A scheduled window is incremental; a manual run (the emergency lane)
+#   redeploys everything, which is how an urgent private overlay change goes out.
 # A side whose version cannot be read, or whose copies disagree, ships.
 
 target=${1:?target commit required}

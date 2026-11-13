@@ -1,9 +1,10 @@
-# overlay 的 `verified` 指针前移后，把 `private.lock` 抬到它，并触发一次生产部署。
+# overlay 的 `verified` 指针前移后，把 `private.lock` 抬到它；生产部署由下一个发布窗口带上。
 #
 # 为什么是公开仓来拉而不是 overlay 仓来推：推需要一枚能写公开仓的 PAT 存在私有仓里；拉只用
 # 现有的只读 deploy key。GITHUB_TOKEN 推的提交不会触发 `Web checks`（GitHub 规则），所以这里
-# 先自己把「候选公开树 + 新 overlay」lint / typecheck / build 一遍，通过才提交；然后显式
-# `workflow_dispatch` 生产部署——这是 GITHUB_TOKEN 能触发的两种事件之一。
+# 先自己把「候选公开树 + 新 overlay」lint / typecheck / build 一遍，通过才提交。不再立即触发
+# 生产部署：lock 进 main 后由下一个窗口（deploy.yml 的 schedule）发布；紧急时手动
+# `workflow_dispatch` deploy.yml 并填 reason。
 #
 # 只认 `verified`：那个指针只在 overlay CI 全绿后才前移（见 overlay 仓 `check.yml`），
 # 所以 lock 永远指向一份能和公开 main 一起构建的 overlay。
@@ -14,7 +15,6 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
-  actions: write
 concurrency:
   group: overlay-bump
   cancel-in-progress: false
@@ -68,9 +68,8 @@ jobs:
           pnpm typecheck
           pnpm --dir apps/web build
       - if: steps.diff.outputs.changed == 'true'
-        name: Commit the new lock and deploy
+        name: Commit the new lock
         env:
-          GH_TOKEN: ${{ github.token }}
           LATEST: ${{ steps.overlay.outputs.commit }}
           SUBJECT: ${{ steps.diff.outputs.subject }}
         run: |
@@ -81,4 +80,3 @@ jobs:
           git commit -m "chore(overlay): pin $(printf %.12s "$LATEST")" -m "$SUBJECT"
           git push origin HEAD:main
           echo "overlay lock → $LATEST ($SUBJECT)" >> "$GITHUB_STEP_SUMMARY"
-          gh workflow run deploy.yml --ref main

@@ -71,7 +71,7 @@ const result = (api: boolean, web: boolean, admin: boolean) =>
 const nothing = result(false, false, false)
 const everything = result(true, true, true)
 
-function decide(target: string, event = 'workflow_run', webOrigins = `${paidSite}/`) {
+function decide(target: string, event = 'schedule', webOrigins = `${paidSite}/`) {
   const output = join(root, 'output')
   writeFileSync(output, '')
   const run = spawnSync('sh', [script, target, event, `${paidApi}/`], {
@@ -243,7 +243,7 @@ describe('ci-deploy-target.sh', () => {
       [`${paidSite}/version.json`]: manifest(commits[1], true),
       [`${adminSite}/version.json`]: JSON.stringify({ notify: false }),
     })
-    const { decision, log } = decide(tip, 'workflow_run', `${enterpriseSite} ${paidSite}/`)
+    const { decision, log } = decide(tip, 'schedule', `${enterpriseSite} ${paidSite}/`)
     expect(decision).toBe(everything)
     expect(log).toContain(
       `::warning::${paidSite} runs ${commits[1]} while another copy runs ${previous}`,
@@ -268,7 +268,7 @@ describe('ci-deploy-target.sh', () => {
       [`${paidSite}/version.json`]: manifest(tip, true),
       [`${adminSite}/version.json`]: manifest(tip, true),
     })
-    expect(decide(tip, 'workflow_run', `${enterpriseSite} ${paidSite}/`).decision).toBe(
+    expect(decide(tip, 'schedule', `${enterpriseSite} ${paidSite}/`).decision).toBe(
       result(false, true, false),
     )
   })
