@@ -18,7 +18,6 @@ export const staleTabRelease: Scenario = {
       { label: 'explore', entry: '探索' },
       { label: 'library', entry: '资产' },
       { label: 'tools', entry: '工具箱' },
-      { label: 'pricing', path: '/pricing' },
       { label: 'changelog', path: '/changelog' },
       { label: 'connect', path: '/connect' },
     ]
