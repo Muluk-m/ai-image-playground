@@ -88,7 +88,8 @@ function jpegEndsCleanly(bytes: Uint8Array): boolean {
         if (bytes[pos] === 0xff) {
           const next = bytes[pos + 1]
           if (next === undefined) return false
-          if (next === 0xff) pos += 1 // 填充字节：只前进一个，留最后一个 FF 给 marker 解析
+          // 填充字节：只前进一个，留最后一个 FF 给 marker 解析。
+          if (next === 0xff) pos += 1
           else if (next === 0x00 || (next >= 0xd0 && next <= 0xd7)) pos += 2
           else break
         } else pos += 1
