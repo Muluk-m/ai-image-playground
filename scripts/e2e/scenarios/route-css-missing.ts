@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { eventually, type Page, type Scenario } from '../kit.ts'
+import { eventually, type Scenario } from '../kit.ts'
 
 /**
  * 路由分片本身下载成功，但它的样式表 404（发版删了旧 CSS、边缘缓存缺文件）：Vite 报
@@ -28,14 +28,16 @@ export const routeCssMissing: Scenario = {
       return route.fulfill({ status: 404, body: 'not found' })
     })
 
-    await entry(page, '探索').waitFor({ state: 'visible', timeout: 30_000 })
+    // 画布路由的分片（CanvasMode）自带样式表：点「新建画布」才会去取它。
+    const create = page.getByRole('button', { name: '新建画布', exact: true }).first()
+    await create.waitFor({ state: 'visible', timeout: 30_000 })
     blocking = true
-    await entry(page, '探索').click()
+    await create.click()
     await eventually(
-      'the explore page to open after its stylesheet failed once',
+      'the canvas route to open after its stylesheet failed once',
       async () =>
         navigations === 1 &&
-        (await entry(page, '探索').getAttribute('aria-pressed')) === 'true' &&
+        blockedCss > 0 &&
         (await page.getByText('页面暂时无法打开').count()) === 0 &&
         (await page.locator('#boot[data-state="error"]').count()) === 0,
       { timeoutMs: 30_000 },
@@ -48,11 +50,12 @@ export const routeCssMissing: Scenario = {
         `${error}; ${navigations} navigation(s), ${blockedCss} stylesheet(s) blocked, page text: ${text.replace(/\s+/g, ' ').slice(0, 300)}`,
       )
     })
+    // 恢复后画布真的打开了（不是回到空白或失败卡片）。
+    await page
+      .locator('.react-flow')
+      .first()
+      .waitFor({ state: 'attached', timeout: 20_000 })
     assert.ok(blockedCss > 0, 'the route stylesheet request was actually intercepted')
     assert.equal(navigations, 1, 'exactly one reload')
   },
-}
-
-function entry(page: Page, name: string) {
-  return page.getByRole('button', { name, exact: true }).first()
 }
