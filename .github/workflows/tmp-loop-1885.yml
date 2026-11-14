@@ -1,0 +1,68 @@
+name: tmp loop 1885
+on:
+  push:
+    branches: ['tmp/loop-1885-**']
+permissions:
+  contents: read
+jobs:
+  loop:
+    name: loop ${{ matrix.n }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        n: [1, 2, 3, 4, 5, 6, 7, 8]
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: aip_test
+        ports:
+          - 127.0.0.1:5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      - run: pnpm --dir apps/web build:static-host
+        shell: bash
+        env:
+          BFF_ENABLED: 'true'
+          BFF_BASE_URL: http://127.0.0.1:37377
+      - uses: ./.github/actions/pages-browser
+        with:
+          smoke: 'false'
+      - name: Loop shard 2/3
+        shell: bash
+        run: |
+          fails=0
+          for i in $(seq 1 6); do
+            export E2E_OUT_DIR="$RUNNER_TEMP/loop/iter-$i"
+            mkdir -p "$E2E_OUT_DIR"
+            if pnpm e2e:scenarios --shard 2/3 > "$RUNNER_TEMP/iter-$i.log" 2>&1; then
+              echo "ITER $i PASS"
+            else
+              fails=$((fails+1)); echo "ITER $i FAIL"; grep -E "^FAIL|failure\(s\)" "$RUNNER_TEMP/iter-$i.log" | cut -c1-700
+            fi
+            cp "$RUNNER_TEMP/iter-$i.log" "$E2E_OUT_DIR/run.log"
+          done
+          echo "SUMMARY failures=$fails rounds=6"
+          echo "### loop ${{ matrix.n }}: $fails / 6 failed" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: loop-${{ matrix.n }}
+          path: ${{ runner.temp }}/loop
+          if-no-files-found: ignore
+          retention-days: 3
