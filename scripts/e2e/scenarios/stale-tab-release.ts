@@ -12,11 +12,19 @@ import { eventually, type Page, publishNewRelease, type Scenario } from '../kit.
 export const staleTabRelease: Scenario = {
   name: 'stale-tab-release',
   async run({ stack, newSession }) {
-    const tabs = [
-      { label: 'explore', entry: '探索', page: (await newSession('stale-explore')).page },
-      { label: 'library', entry: '资产', page: (await newSession('stale-library')).page },
-      { label: 'tools', entry: '工具箱', page: (await newSession('stale-tools')).page },
+    // 注册接口有频率限制：同一个账号开多个标签页。
+    const session = await newSession('stale')
+    const entries = [
+      { label: 'explore', entry: '探索' },
+      { label: 'library', entry: '资产' },
+      { label: 'tools', entry: '工具箱' },
     ]
+    const tabs = []
+    for (const [index, item] of entries.entries()) {
+      const page = index === 0 ? session.page : await session.context.newPage()
+      if (index > 0) await page.goto(`${stack.origin}/image`)
+      tabs.push({ ...item, page })
+    }
     const navigations = new Map<string, number>()
     for (const { label, entry, page } of tabs) {
       await entryButton(page, entry).waitFor({ state: 'visible', timeout: 30_000 })
