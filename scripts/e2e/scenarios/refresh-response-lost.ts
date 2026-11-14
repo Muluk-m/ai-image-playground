@@ -28,16 +28,19 @@ export const refreshResponseLost: Scenario = {
     let lost = 0
     await context.route('**/api/auth/refresh', async (route: any) => {
       if (!lose) return route.continue()
-      // 请求照常到服务端并提交轮换，响应在回到浏览器之前被丢弃。
-      await route.fetch()
+      // 请求照常到服务端并提交轮换，响应在回到浏览器之前被丢弃。用 Node 自己的 fetch 发：
+      // route.fetch 与浏览器共用 cookie 存储，会把 Set-Cookie 悄悄存进去，就不算丢了。
+      const request = route.request()
+      const headers = await request.allHeaders()
+      delete headers.host
+      delete headers['content-length']
+      await fetch(request.url(), { method: 'POST', headers })
       await route.abort('failed')
       lost += 1
     })
 
     // 访问凭据过期（refresh 还在）。页面还开着，下一次需要账号的请求会触发静默续期。
     await dropCookie(context, SESSION_COOKIE)
-    // route.fetch 与浏览器共用 cookie 存储，Set-Cookie 可能被它悄悄存下；丢响应后按这份快照还原。
-    const before = await context.cookies()
     const prompt = uniquePrompt('lost')
     await typePrompt(page, prompt)
     await generateButton(page).click()
@@ -46,9 +49,6 @@ export const refreshResponseLost: Scenario = {
 
     // 超过服务端宽限再回来。
     await new Promise((resolve) => setTimeout(resolve, GRACE_MS + 2_000))
-    // 失败处理里的重试此时都已结束；route.fetch 可能存下了 Set-Cookie，按快照还原再恢复网络。
-    await context.clearCookies()
-    await context.addCookies(before)
     lose = false
     await page.reload()
 
