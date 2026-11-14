@@ -18,12 +18,17 @@ on:
       - scripts/pages-browser-smoke.sh
       - .github/workflows/e2e-scenarios.yml
       - .github/actions/e2e-scenarios/**
-      # 套件覆盖的状态与时序类代码：前端 store、画布、智能体、同步、鉴权、启动与分片恢复；BFF 的鉴权与同步路由。
+      # 套件覆盖的状态与时序类代码：前端 store、画布、智能体、同步、生成提交与作品缓存、参考图校验、鉴权、启动与分片恢复；BFF 的鉴权与同步路由。
       - apps/web/src/store.ts
       - apps/web/src/features/canvas/lib/**
       - apps/web/src/features/canvas/*Store.ts
       - apps/web/src/features/agent/**
       - apps/web/src/lib/sync/**
+      - apps/web/src/lib/generationJob.ts
+      - apps/web/src/lib/platformGenerations.ts
+      - apps/web/src/lib/unusableReferences.ts
+      - apps/web/src/hooks/useCloudGenerations.ts
+      - apps/web/src/components/InputBar.tsx
       - apps/web/src/lib/authClient.ts
       - apps/web/src/lib/authScope.ts
       - apps/web/src/lib/sessionRefreshJournal.ts
