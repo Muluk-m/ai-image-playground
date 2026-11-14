@@ -1,45 +1,63 @@
 import assert from 'node:assert/strict'
-import { eventually, publishNewRelease, type Scenario } from '../kit.ts'
+import { eventually, type Page, publishNewRelease, type Scenario } from '../kit.ts'
 
 /**
  * 发版后旧标签页：页面已打开，之后的发布删掉了它还没加载的分片。点进另一个页面时应该自动刷新一次，
  * 最终看到目标页面，而不是停在「页面暂时无法打开」，也不能循环刷新。
  * 对应 #1847 首批场景 6、#1846（逃逸台账第 8 项）。
+ *
+ * 两个标签页各点一个入口：探索页只有 JS 分片；画布页的分片还带自己的 CSS，
+ * 缺失时 Vite 先报 `Unable to preload CSS`，走的是另一条恢复路径。
  */
 export const staleTabRelease: Scenario = {
   name: 'stale-tab-release',
   async run({ stack, newSession }) {
-    const { page } = await newSession('stale')
-    const explore = page.getByRole('button', { name: '探索', exact: true })
-    await explore.first().waitFor({ state: 'visible', timeout: 30_000 })
+    const tabs = [
+      { label: 'explore', entry: '探索', page: (await newSession('stale-explore')).page },
+      { label: 'canvas', entry: '画布', page: (await newSession('stale-canvas')).page },
+    ]
+    const navigations = new Map<string, number>()
+    for (const { label, entry, page } of tabs) {
+      await entryButton(page, entry).waitFor({ state: 'visible', timeout: 30_000 })
+      // 只数主文档的导航：自动刷新每发生一次就多一次。
+      navigations.set(label, 0)
+      page.on('request', (request: any) => {
+        if (request.isNavigationRequest() && request.frame() === page.mainFrame()) {
+          navigations.set(label, (navigations.get(label) ?? 0) + 1)
+        }
+      })
+    }
 
     const renamed = publishNewRelease(stack.webRoot)
     assert.ok(renamed.length > 10, 'the release swapped the hashed assets')
 
-    // 只数主文档的导航：自动刷新每发生一次就多一次。
-    let navigations = 0
-    page.on('request', (request: any) => {
-      if (request.isNavigationRequest() && request.frame() === page.mainFrame()) navigations += 1
-    })
-
-    // 探索页的分片在这个旧标签页里还没加载过，它的地址已经 404。
-    await explore.first().click()
-
-    // 最终看到探索页，没有停在加载失败的卡片上。
-    await eventually(
-      'the explore page to open',
-      async () => {
-        const failure = await page.getByText('页面暂时无法打开').count()
-        const heading = await page.getByRole('heading', { name: '探索', exact: true }).count()
-        return failure === 0 && heading > 0
-      },
-      { timeoutMs: 45_000 },
-    )
-    assert.equal(navigations, 1, 'the stale tab reloaded exactly once')
+    // 目标页的分片在旧标签页里还没加载过，它们的地址已经 404。
+    for (const { label, entry, page } of tabs) {
+      await entryButton(page, entry).click()
+      // 最终停在目标页，而不是加载失败的卡片。
+      await eventually(
+        `the ${label} page to open`,
+        async () => {
+          const failed =
+            (await page.getByText('页面暂时无法打开').count()) +
+            (await page.getByText('无法打开工作台').count())
+          const pressed = await entryButton(page, entry).getAttribute('aria-pressed')
+          return failed === 0 && pressed === 'true' && (navigations.get(label) ?? 0) >= 1
+        },
+        { timeoutMs: 30_000 },
+      )
+      assert.equal(navigations.get(label), 1, `the ${label} tab reloaded exactly once`)
+    }
 
     // 稳定后不会继续刷新。
     await new Promise((resolve) => setTimeout(resolve, 4_000))
-    assert.equal(navigations, 1, 'no further reloads')
-    assert.equal(new URL(page.url()).searchParams.has('__aip_reload'), false)
+    for (const { label, page } of tabs) {
+      assert.equal(navigations.get(label), 1, `the ${label} tab did not reload again`)
+      assert.equal(new URL(page.url()).searchParams.has('__aip_reload'), false)
+    }
   },
+}
+
+function entryButton(page: Page, name: string) {
+  return page.getByRole('button', { name, exact: true }).first()
 }
