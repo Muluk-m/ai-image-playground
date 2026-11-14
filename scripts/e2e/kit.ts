@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { createRequire } from 'node:module'
 import { readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { extname, join } from 'node:path'
 import type { MockUpstream, RecordedRequest } from './mock-upstream.ts'
 import type { Stack } from './stack.ts'
@@ -136,7 +136,10 @@ export function publishNewRelease(webRoot: string): string[] {
   }
   const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const pattern = new RegExp(
-    `(?<![\\w.-])(${[...renamed.keys()].sort((a, b) => b.length - a.length).map(escape).join('|')})(?![\\w-])`,
+    `(?<![\\w.-])(${[...renamed.keys()]
+      .sort((a, b) => b.length - a.length)
+      .map(escape)
+      .join('|')})(?![\\w-])`,
     'g',
   )
   const rewrite = (file: string) => {
@@ -151,7 +154,10 @@ export function publishNewRelease(webRoot: string): string[] {
     // 页面内的构建标识（启动守卫按它计「每个构建自动刷新一次」的额度）随内容变，和真实发版一致。
     const html = readFileSync(file, 'utf8')
     const identity = createHash('sha256').update(html).digest('hex')
-    writeFileSync(file, html.replace(/(<meta name="aip-html-build" content=")[^"]*/, `$1${identity}`))
+    writeFileSync(
+      file,
+      html.replace(/(<meta name="aip-html-build" content=")[^"]*/, `$1${identity}`),
+    )
   }
   for (const name of renamed.keys()) rewrite(join(assetsDir, name))
   for (const [from, to] of renamed) renameSync(join(assetsDir, from), join(assetsDir, to))

@@ -37,7 +37,10 @@ export const chunkFailureTwice: Scenario = {
           (await page.locator('#boot[data-state="error"]').count()) === 0,
         { timeoutMs: 30_000 },
       ).catch(async (error) => {
-        const text = await page.locator('body').innerText().catch(() => '')
+        const text = await page
+          .locator('body')
+          .innerText()
+          .catch(() => '')
         throw new Error(
           `${error}; ${navigations} navigation(s), page text: ${text.replace(/\s+/g, ' ').slice(0, 300)}`,
         )

@@ -47,21 +47,28 @@ export const staleTabRelease: Scenario = {
       if (entry) await entryButton(page, entry).click()
       else await openPath(page, path)
       // 最终停在目标页，而不是加载失败的卡片。
-      await opened(page, label, () => navigations.get(label) ?? 0, () =>
-      eventually(
-        `the ${label} page to open`,
-        async () => {
-          const failed =
-            (await page.getByText('页面暂时无法打开').count()) +
-            (await page.getByText('无法打开工作台').count())
-          const bootError = await page.locator('#boot[data-state="error"]').count()
-          const arrived = entry
-            ? (await entryButton(page, entry).getAttribute('aria-pressed')) === 'true'
-            : true
-          return failed === 0 && bootError === 0 && arrived && (navigations.get(label) ?? 0) >= 1
-        },
-        { timeoutMs: 30_000 },
-      ))
+      await opened(
+        page,
+        label,
+        () => navigations.get(label) ?? 0,
+        () =>
+          eventually(
+            `the ${label} page to open`,
+            async () => {
+              const failed =
+                (await page.getByText('页面暂时无法打开').count()) +
+                (await page.getByText('无法打开工作台').count())
+              const bootError = await page.locator('#boot[data-state="error"]').count()
+              const arrived = entry
+                ? (await entryButton(page, entry).getAttribute('aria-pressed')) === 'true'
+                : true
+              return (
+                failed === 0 && bootError === 0 && arrived && (navigations.get(label) ?? 0) >= 1
+              )
+            },
+            { timeoutMs: 30_000 },
+          ),
+      )
       assert.equal(navigations.get(label), 1, `the ${label} tab reloaded exactly once`)
     }
 
