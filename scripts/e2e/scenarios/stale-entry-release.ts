@@ -2,15 +2,16 @@ import assert from 'node:assert/strict'
 import { eventually, type Page, publishNewRelease, type Scenario } from '../kit.ts'
 
 /**
- * 先加载旧构建的 HTML，再发版：旧入口（index）已经跑起来，工作台本体（AuthGate 里懒加载的 App 分片及其样式表）
+ * 先加载旧构建的 HTML，再发版：旧入口（index）已经跑起来，工作台本体（AuthGate 里懒加载的 App 分片）
  * 在入口之后才请求，此时已被新版本换掉而 404。对应 #1813（发版后旧标签缺分片）。
  *
- * 两个场景都在「页面第一次请求 App 分片」的瞬间发版：先发版、再让这些请求答 404，不靠计时。
+ * 两个场景都在「页面第一次请求 App 分片」的瞬间发版：先发版、再让该 JS 请求答 404（只拦 JS：CSS 缺失由 route-css-missing 覆盖），不靠计时。
  * - `stale-entry-release`：自动刷新额度没用过，应刷新一次拿到新 HTML 并进入工作台；
  * - `stale-entry-budget-spent`：这个构建的额度已用掉（边缘缓存让刷新又拿到旧 HTML 的情形），不能再刷新，
  *   也不能让整棵树卸成白屏：工作台外要留一张「页面暂时无法打开」卡片，不循环刷新。
  */
-const APP_CHUNK = /\/assets\/App-[^/]+\.(?:js|css)(?:\?|$)/
+/** 只拦 JS：CSS 缺失已有 route-css-missing 覆盖，这里要确定走的是 AuthGate 懒加载 App 模块失败这条路径。 */
+const APP_CHUNK = /\/assets\/App-[^/]+\.js(?:\?|$)/
 const BUILD_META = /<meta name="aip-html-build" content="([^"]*)"/
 /** apps/web/src/boot/constants.ts 的 PRELOAD_RELOAD_STORAGE_KEY。 */
 const RELOAD_BUDGET_KEY = 'aip.preload-reload-at'
