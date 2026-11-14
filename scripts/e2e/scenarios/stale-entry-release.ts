@@ -1,6 +1,4 @@
 import assert from 'node:assert/strict'
-import { readdirSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { eventually, type Page, publishNewRelease, type Scenario } from '../kit.ts'
 
 /**
@@ -74,21 +72,6 @@ async function openStalePage(
   spentBuild?: string,
 ) {
   const page: Page = await context.newPage()
-  // 发版只该让 App 的 JS 分片缺失（本场景要走的是 AuthGate 懒加载 App 模块失败这条路径）。
-  // Vite 预加载 App 时 JS 与它的 CSS 同时发出：CSS 请求若落在发版之后会一并 404，启动守卫就会按「入口样式缺失」
-  // 走 20 秒资源恢复、亮出启动失败面板，而不是预期的卡片（#1883，约 15% 概率）。
-  // 所以发版前先把所有样式表快照下来，发版后仍按原文件名答出，让时序不再影响结果。
-  const assetsDir = join(stack.webRoot, 'assets')
-  const styles = new Map<string, Buffer>(
-    readdirSync(assetsDir)
-      .filter((name) => name.endsWith('.css'))
-      .map((name) => [name, readFileSync(join(assetsDir, name))] as const),
-  )
-  await page.route(/\/assets\/[^/]+\.css(?:\?|$)/, (route: any) => {
-    const name = /\/assets\/([^/?]+\.css)/.exec(route.request().url())?.[1] ?? ''
-    const body = published ? styles.get(name) : undefined
-    return body ? route.fulfill({ status: 200, contentType: 'text/css', body }) : route.fallback()
-  })
   let navigations = 0
   let intercepted = 0
   let published = false
@@ -134,8 +117,15 @@ async function openStalePage(
         .locator('body')
         .innerText()
         .catch(() => '')
+      const dom = await page
+        .evaluate(() => {
+          const boot = document.getElementById('boot')
+          const root = document.getElementById('root')
+          return `boot=${boot?.dataset.state ?? 'gone'} rootChildren=${root?.childElementCount ?? -1}`
+        })
+        .catch(() => '')
       throw new Error(
-        `${error}; ${navigations} reload(s), ${intercepted} App chunk request(s), page text: ${text.replace(/\s+/g, ' ').slice(0, 300)}`,
+        `${error}; ${navigations} reload(s), ${intercepted} App chunk request(s), page text: ${text.replace(/\s+/g, ' ').slice(0, 300)}; ${dom}`,
       )
     },
   }
