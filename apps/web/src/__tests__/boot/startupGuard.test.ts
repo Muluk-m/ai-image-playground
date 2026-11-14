@@ -16,6 +16,7 @@ import {
 import {
   BOOT_FADE_MS,
   BOOT_REPORT_PATH,
+  HEALTHY_RESET_MS,
   SPROUT_HOLD_MS,
   STARTUP_GUARD_SCRIPT,
   startupGuardPlugin,
@@ -204,6 +205,33 @@ it('leaves post-boot preload failures for the route boundary', () => {
   expect(event.defaultPrevented).toBe(false)
   expect(replace).not.toHaveBeenCalled()
   expect(errorPanelVisible()).toBe(false)
+})
+
+it('hands the reload budget back once a rendered document has stayed healthy, so a later transient failure recovers', () => {
+  sessionStorage.setItem(PRELOAD_RELOAD_STORAGE_KEY, `${Date.now()}|`)
+  installGuard()
+  ready()
+  vi.advanceTimersByTime(HEALTHY_RESET_MS - 1)
+  expect(sessionStorage.getItem(PRELOAD_RELOAD_STORAGE_KEY)).not.toBeNull()
+  vi.advanceTimersByTime(1)
+  expect(sessionStorage.getItem(PRELOAD_RELOAD_STORAGE_KEY)).toBeNull()
+
+  preloadError()
+  expect(replace).toHaveBeenCalledTimes(1)
+  expect(errorPanelVisible()).toBe(false)
+})
+
+it('keeps the budget spent when the document fails again before it has been healthy for a while', () => {
+  sessionStorage.setItem(PRELOAD_RELOAD_STORAGE_KEY, `${Date.now()}|`)
+  installGuard()
+  ready()
+  vi.advanceTimersByTime(HEALTHY_RESET_MS - 1000)
+  expect(preloadError().defaultPrevented).toBe(false)
+  expect(replace).not.toHaveBeenCalled()
+  expect(errorPanelVisible()).toBe(true)
+  // The failure panel is the failure UI now: staying open does not hand the budget back.
+  vi.advanceTimersByTime(HEALTHY_RESET_MS)
+  expect(sessionStorage.getItem(PRELOAD_RELOAD_STORAGE_KEY)).not.toBeNull()
 })
 
 it('reloads once more when a later release deletes a chunk this long-lived tab still references', () => {

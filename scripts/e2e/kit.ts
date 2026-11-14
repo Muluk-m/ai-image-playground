@@ -1,6 +1,7 @@
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
+import { readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
-import { join } from 'node:path'
+import { extname, join } from 'node:path'
 import type { MockUpstream, RecordedRequest } from './mock-upstream.ts'
 import type { Stack } from './stack.ts'
 
@@ -118,4 +119,47 @@ export function generateButton(page: Page) {
 /** 一条任务出图后卡片里的结果图。 */
 export function resultImages(page: Page) {
   return page.locator('img[data-image-id]')
+}
+
+/**
+ * 模拟一次发版：旧哈希的 js/css 不再保留，页面与脚本改指向新文件名（内容不变，名字加后缀）。
+ * 已打开的旧标签页里还引用着旧文件名，尚未加载的分片会 404；新打开的页面一切正常。
+ * 返回被换掉的文件名（assets 下的基名）。
+ */
+export function publishNewRelease(webRoot: string): string[] {
+  const assetsDir = join(webRoot, 'assets')
+  const renamed = new Map<string, string>()
+  for (const name of readdirSync(assetsDir)) {
+    const ext = extname(name)
+    if (ext !== '.js' && ext !== '.css') continue
+    renamed.set(name, `${name.slice(0, -ext.length)}r${ext}`)
+  }
+  const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const pattern = new RegExp(
+    `(?<![\\w.-])(${[...renamed.keys()]
+      .sort((a, b) => b.length - a.length)
+      .map(escape)
+      .join('|')})(?![\\w-])`,
+    'g',
+  )
+  const rewrite = (file: string) => {
+    const text = readFileSync(file, 'utf8')
+    const next = text.replace(pattern, (name) => renamed.get(name) ?? name)
+    if (next !== text) writeFileSync(file, next)
+  }
+  for (const name of readdirSync(webRoot)) {
+    if (!name.endsWith('.html')) continue
+    const file = join(webRoot, name)
+    rewrite(file)
+    // 页面内的构建标识（启动守卫按它计「每个构建自动刷新一次」的额度）随内容变，和真实发版一致。
+    const html = readFileSync(file, 'utf8')
+    const identity = createHash('sha256').update(html).digest('hex')
+    writeFileSync(
+      file,
+      html.replace(/(<meta name="aip-html-build" content=")[^"]*/, `$1${identity}`),
+    )
+  }
+  for (const name of renamed.keys()) rewrite(join(assetsDir, name))
+  for (const [from, to] of renamed) renameSync(join(assetsDir, from), join(assetsDir, to))
+  return [...renamed.keys()]
 }
