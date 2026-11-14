@@ -17,6 +17,10 @@ export const cookieBlockedSession: Scenario = {
   name: 'cookie-blocked-session',
   async run({ mock, newSession }) {
     const { context, page } = await newSession('blocked')
+    // 工作台启动完成后才会记住登录用户；没等它就刷新，记不住也是白搭。
+    await page
+      .getByRole('textbox', { name: '描述你的创意' })
+      .waitFor({ state: 'visible', timeout: 30_000 })
     await context.addInitScript(() => {
       const blocked = () => {
         throw new DOMException('cookie access is blocked', 'SecurityError')

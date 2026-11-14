@@ -204,6 +204,8 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       capabilities: {
         'accounts:login': true,
         'accounts:self-register': true,
+        // 云端作品记录（/api/generations）：删除、跨设备恢复都靠它。
+        'accounts:sync': true,
         'accounts:email-verification': false,
         'billing:credits': false,
         'generation:byok': false,

@@ -78,11 +78,13 @@ export async function openSession(ctx: Omit<ScenarioContext, 'newSession'>, labe
   const context = await ctx.browser.newContext({
     locale: 'zh-CN',
     viewport: { width: 1280, height: 900 },
-    // 栈按 X-Forwarded-For 区分来源：每个会话一个，注册限流不会累计到整套场景上。
-    extraHTTPHeaders: {
-      'x-forwarded-for': `10.${randomInt(256)}.${randomInt(256)}.${randomInt(1, 255)}`,
-    },
   })
+  // 栈按 X-Forwarded-For 区分来源：每个会话一个，注册限流不会累计到整套场景上。
+  // 只加在发往栈自己的 API 请求上，不动第三方请求（字体 CDN 会因这个头被 CORS 拦掉）。
+  const sourceAddress = `10.${randomInt(256)}.${randomInt(256)}.${randomInt(1, 255)}`
+  await context.route(`${ctx.stack.origin}/api/**`, (route: any) =>
+    route.continue({ headers: { ...route.request().headers(), 'x-forwarded-for': sourceAddress } }),
+  )
   await context.tracing.start({ screenshots: true, snapshots: true })
   const page = await context.newPage()
   // 每次运行随机生成，不在仓库里放任何口令字面量。
