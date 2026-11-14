@@ -30,6 +30,8 @@ export interface Stack {
   readonly webRoot: string
   /** 运行期间任一子进程意外退出时 reject；场景要和它竞速，基础设施故障立即报出而不是等场景超时。 */
   readonly infraFailure: Promise<never>
+  /** 此刻任一子进程已退出就抛错；最后一个场景结束后调用，捕获场景之外才发生的崩溃。 */
+  assertAlive(): void
   stop(): Promise<void>
 }
 
@@ -92,7 +94,8 @@ function assertPortUnused(port: number): Promise<void> {
 
 async function isHealthy(url: string): Promise<boolean> {
   try {
-    return (await fetch(url)).ok
+    // 超时：端口上有进程但不答话时别卡住整个等待循环。
+    return (await fetch(url, { signal: AbortSignal.timeout(3_000) })).ok
   } catch {
     return false
   }
@@ -154,7 +157,10 @@ export async function startStack(options: StackOptions): Promise<Stack> {
 
   const port = await freePort()
   const workerPort = await freePort()
+  if (workerPort === port) throw new Error(`BFF and worker were given the same port ${port}`)
+  // 两个端口都要查：health 探测打到别人的进程上，会让套件误以为自己的栈起来了。
   await assertPortUnused(port)
+  await assertPortUnused(workerPort)
   const origin = `http://127.0.0.1:${port}`
 
   // 前端要同源访问 BFF：改的是 dist 的副本，不动构建产物本身。
@@ -198,6 +204,8 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       capabilities: {
         'accounts:login': true,
         'accounts:self-register': true,
+        // 云端作品记录（/api/generations）：删除、跨设备恢复都靠它。
+        'accounts:sync': true,
         'accounts:email-verification': false,
         'billing:credits': false,
         'generation:byok': false,
@@ -249,8 +257,6 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       PORT: String(port),
       STATIC_DIR: staticDir,
       OPERATOR_CONFIG_FILE: operatorFile,
-      // 每个浏览器会话带自己的 x-forwarded-for（见 kit.ts openSession），注册限流按会话分桶，场景数量不受每小时 5 次的限制。
-      CLIENT_IP_SOURCE: 'x-forwarded-for',
       UPSTREAM_BASE_URL: mock.url,
       UPSTREAM_API_KEY: 'e2e-upstream-key',
       E2E_UPSTREAM_KEY: 'e2e-upstream-key',
@@ -259,6 +265,8 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       S3_ACCESS_KEY_ID: 'e2e',
       S3_SECRET_ACCESS_KEY: 'e2e-secret',
       INTERNAL_API_TOKEN: randomBytes(16).toString('hex'),
+      // 每个测试会话用自己的 X-Forwarded-For，注册限流（每来源每小时 5 次）才不会卡住多场景。
+      CLIENT_IP_SOURCE: 'x-forwarded-for',
       CORS_ALLOWED_ORIGINS: origin,
       AUTH_FRONTEND_ORIGIN: origin,
       WORKER_HEALTH_PORT: String(workerPort),
@@ -302,5 +310,12 @@ export async function startStack(options: StackOptions): Promise<Stack> {
     throw error
   }
 
-  return { origin, modelLabel: E2E_MODEL_LABEL, webRoot: staticDir, infraFailure, stop }
+  return {
+    origin,
+    modelLabel: E2E_MODEL_LABEL,
+    webRoot: staticDir,
+    infraFailure,
+    assertAlive: () => assertAlive(children),
+    stop,
+  }
 }
