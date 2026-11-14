@@ -95,6 +95,8 @@ async function openStalePage(
     )
   }
   await page.route(APP_CHUNK, (route: any) => {
+    // 自动刷新之后加载的是新版本的分片，正常放行。
+    if (navigations > 0) return route.continue()
     intercepted += 1
     if (!published) {
       published = true
