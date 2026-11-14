@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import ProjectNavigation from '../../../components/ProjectNavigation'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
@@ -6,6 +6,7 @@ import { useHeldLoading } from '../../../hooks/useHeldLoading'
 import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
 import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
+import { lazyWithReload } from '../../../lib/chunkLoad'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
 import { confirmImageBatch } from '../../../lib/confirmImageBatch'
@@ -62,7 +63,7 @@ import StylePanel from './StylePanel'
 import TimelineEditorHost from './TimelineEditor'
 
 // React Flow 只在开着节点画布时下载。
-const NodeCanvas = lazy(() => import('./NodeCanvas'))
+const NodeCanvas = lazyWithReload(() => import('./NodeCanvas'))
 
 /**
  * 创作模式：自建无限画布（Konva 渲染，MIT，无任何 license 依赖）。
