@@ -37,25 +37,63 @@ describe('createDb pool', () => {
     expect(client.options.maxLifetime).toBe(600_000)
   })
 
-  it('queues a burst beyond max under its application name, then closes idle connections', async () => {
-    const { client } = handle({ max: 3, idleTimeout: 1, applicationName: 'aip-pool-test' })
-    const burst = await Promise.all(
+  /** Connections the pool opened under an application name, and how many of them wait on a lock. */
+  function observe(applicationName: string) {
+    const observer = new SQL(databaseUrl, { max: 1 })
+    closeCallbacks.push(() => observer.close())
+    const count = async (extra = '') => {
+      const [row] = await observer.unsafe(
+        `SELECT count(*)::int AS n FROM pg_stat_activity
+         WHERE application_name = '${applicationName}' ${extra}`,
+      )
+      return (row as { n: number }).n
+    }
+    return {
+      observer,
+      open: () => count(),
+      blocked: () => count("AND wait_event_type = 'Lock'"),
+    }
+  }
+
+  it('queues a burst beyond max under its application name', async () => {
+    // No idleTimeout here: Bun also cuts a running statement that stays silent that long, and this
+    // test holds its queries still for as long as the runner needs to open the last connection.
+    const { client } = handle({ max: 3, applicationName: 'aip-pool-test' })
+    const { observer, open, blocked } = observe('aip-pool-test')
+
+    // Hold every query of the burst at the database until the pool has opened all it may. A timed
+    // query (pg_sleep) cannot prove that: on a slow runner the first connections finish the whole
+    // burst before the pool's last one is established.
+    const gate = 7_700_117
+    await observer`SELECT pg_advisory_lock(${gate}::bigint)`
+    const burst = Promise.all(
       Array.from(
         { length: 7 },
         () =>
-          client`SELECT pg_backend_pid() AS pid, pg_sleep(0.1)` as Promise<Array<{ pid: number }>>,
+          client`SELECT pg_backend_pid() AS pid
+            FROM (SELECT pg_advisory_xact_lock_shared(${gate}::bigint)) AS held` as Promise<
+            Array<{ pid: number }>
+          >,
       ),
     )
-    expect(new Set(burst.map(([row]) => row!.pid)).size).toBe(3)
-
-    const observer = new SQL(databaseUrl, { max: 1 })
-    closeCallbacks.push(() => observer.close())
-    const open = async () => {
-      const [row] = await observer`
-        SELECT count(*)::int AS n FROM pg_stat_activity WHERE application_name = 'aip-pool-test'`
-      return (row as { n: number }).n
-    }
+    const deadline = Date.now() + 10_000
+    while ((await blocked()) < 3 && Date.now() < deadline) await Bun.sleep(20)
+    expect(await blocked()).toBe(3)
+    // The other four queries wait in the pool's queue instead of opening a fourth connection.
+    await Bun.sleep(200)
     expect(await open()).toBe(3)
+    await observer`SELECT pg_advisory_unlock(${gate}::bigint)`
+
+    const rows = await burst
+    expect(rows).toHaveLength(7)
+    expect(new Set(rows.map(([row]) => row!.pid)).size).toBe(3)
+  })
+
+  it('closes idle connections and reconnects on the next query', async () => {
+    const { client } = handle({ max: 3, idleTimeout: 1, applicationName: 'aip-pool-idle-test' })
+    const { open } = observe('aip-pool-idle-test')
+    await client`SELECT 1 AS one`
+    expect(await open()).toBeGreaterThan(0)
     const deadline = Date.now() + 5_000
     while ((await open()) > 0 && Date.now() < deadline) await Bun.sleep(100)
     expect(await open()).toBe(0)
