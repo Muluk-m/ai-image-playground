@@ -48,8 +48,9 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 let host: HTMLDivElement
 let root: Root
-/** 文件头是 PNG、解得出。 */
-const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB'
+/** 文件头是 PNG、结构完整（1x1，带 IEND）、解得出。 */
+const PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
 /** 文件头认不出、浏览器解得出（GIF 之类，发送前会转码）。 */
 const GIF = 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACw='
 /** QA 的 corrupt-random.jpg：一堆随机字节，扩展名是 jpg。 */
@@ -130,7 +131,7 @@ describe('快速生成的坏参考图（BUG-59）', () => {
   it('还没解完时先拦着，解完才放行', async () => {
     const submitTask = vi.spyOn(storeModule, 'submitTask').mockResolvedValue(undefined)
     let finish: () => void = () => {}
-    const SLOW = 'data:image/webp;base64,UklGRiQAAABXRUJQVlA4IBgAAAAw'
+    const SLOW = 'data:image/webp;base64,UklGRhAAAABXRUJQVlA4IAQAAAAAAAAA'
     vi.mocked(loadImage).mockImplementationOnce(async (source) => {
       if (source === SLOW) await new Promise<void>((resolve) => (finish = resolve))
       return {} as HTMLImageElement

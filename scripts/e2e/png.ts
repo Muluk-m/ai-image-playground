@@ -28,3 +28,26 @@ export function solidPng(seed: string, width = 256, height = 256): Buffer {
     chunk('IEND', Buffer.alloc(0)),
   ])
 }
+
+/** 带噪声的 PNG（压缩后体积随尺寸增长），同一个 seed 逐字节相同；用来做「从中间截断」的样本。 */
+export function noisePng(seed: string, width = 256, height = 256): Buffer {
+  const header = Buffer.alloc(13)
+  header.writeUInt32BE(width, 0)
+  header.writeUInt32BE(height, 4)
+  header[8] = 8
+  header[9] = 2
+  const stride = 1 + width * 3
+  const raw = Buffer.alloc(stride * height)
+  let block = createHash('sha256').update(seed).digest()
+  for (let offset = 0; offset < raw.length; offset += 32) {
+    block = createHash('sha256').update(block).digest()
+    block.copy(raw, offset, 0, Math.min(32, raw.length - offset))
+  }
+  for (let y = 0; y < height; y += 1) raw[y * stride] = 0 // 每行滤波类型 None
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', header),
+    chunk('IDAT', deflateSync(raw)),
+    chunk('IEND', Buffer.alloc(0)),
+  ])
+}

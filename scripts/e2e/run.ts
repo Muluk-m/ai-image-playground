@@ -10,7 +10,12 @@ import {
 } from './kit.ts'
 import { type MockUpstream, startMockUpstream } from './mock-upstream.ts'
 import { accountIsolation } from './scenarios/account-isolation.ts'
-import { brokenReference } from './scenarios/broken-reference.ts'
+import {
+  brokenReference,
+  truncatedJpegReference,
+  truncatedReference,
+  truncatedWebpReference,
+} from './scenarios/broken-reference.ts'
 import { chunkFailureTwice } from './scenarios/chunk-failure-twice.ts'
 import { concurrentTabRefresh } from './scenarios/concurrent-tab-refresh.ts'
 import { cookieBlockedSession } from './scenarios/cookie-blocked-session.ts'
@@ -34,6 +39,9 @@ const SCENARIOS: readonly Scenario[] = [
   refreshWhileGenerating,
   referenceEdit,
   brokenReference,
+  truncatedReference,
+  truncatedJpegReference,
+  truncatedWebpReference,
   staleTabRelease,
   chunkFailureTwice,
   deleteThenRefresh,
