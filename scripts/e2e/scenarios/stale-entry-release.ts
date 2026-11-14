@@ -5,7 +5,7 @@ import { eventually, type Page, publishNewRelease, type Scenario } from '../kit.
  * 先加载旧构建的 HTML，再发版：旧入口（index）已经跑起来，工作台本体（AuthGate 里懒加载的 App 分片及其样式表）
  * 在入口之后才请求，此时已被新版本换掉而 404。对应 #1813（发版后旧标签缺分片）。
  *
- * 两个场景都在「页面第一次请求 App 分片」的瞬间发版：请求被扣住，发版后再放行，所以只会 404、不靠计时。
+ * 两个场景都在「页面第一次请求 App 分片」的瞬间发版：先发版、再让这些请求答 404，不靠计时。
  * - `stale-entry-release`：自动刷新额度没用过，应刷新一次拿到新 HTML 并进入工作台；
  * - `stale-entry-budget-spent`：这个构建的额度已用掉（边缘缓存让刷新又拿到旧 HTML 的情形），不能再刷新，
  *   也不能让整棵树卸成白屏：工作台外要留一张「页面暂时无法打开」卡片，不循环刷新。
@@ -62,7 +62,7 @@ async function currentBuild(origin: string, context: any): Promise<string> {
 }
 
 /**
- * 新开一个标签页加载旧 HTML；它第一次请求 App 分片时扣住请求、发版、再放行（于是 404）。
+ * 新开一个标签页加载旧 HTML；它第一次请求 App 分片时先发版、再答 404。
  * 传入 spentBuild 时先把该构建的自动刷新额度标为已用。
  */
 async function openStalePage(
@@ -100,7 +100,9 @@ async function openStalePage(
       published = true
       publishNewRelease(stack.webRoot)
     }
-    return route.continue()
+    // 发版后这些文件在服务器上已不存在。直接答 404，不走浏览器 HTTP 缓存里可能还留着的旧文件
+    // （同一个上下文的其他页面加载过同名分片，immutable 缓存会让请求照样成功）。
+    return route.fulfill({ status: 404, contentType: 'text/plain', body: 'not found' })
   })
   await page.goto(`${stack.origin}/image`)
   return {
