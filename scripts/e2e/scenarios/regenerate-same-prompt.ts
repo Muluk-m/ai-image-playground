@@ -24,21 +24,17 @@ export const regenerateSamePrompt: Scenario = {
     for (const round of [1, 2]) {
       await typePrompt(page, prompt)
       await generateButton(page).click()
-      await eventually(
-        `result ${round}`,
-        async () => (await results().count()) >= round,
-        { timeoutMs: 60_000 },
-      )
+      await eventually(`result ${round}`, async () => (await results().count()) >= round, {
+        timeoutMs: 60_000,
+      })
     }
     assert.equal(requestsFor(mock, prompt).length, 2, 'each click reached the upstream')
     assert.equal(await results().count(), 2, 'two results on the page')
 
     await page.reload()
-    await eventually(
-      'both results after a reload',
-      async () => (await results().count()) >= 2,
-      { timeoutMs: 30_000 },
-    )
+    await eventually('both results after a reload', async () => (await results().count()) >= 2, {
+      timeoutMs: 30_000,
+    })
     assert.equal(await results().count(), 2, 'still two results after a reload')
     assert.equal(requestsFor(mock, prompt).length, 2, 'a reload does not resubmit')
   },

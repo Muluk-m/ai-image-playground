@@ -5,9 +5,9 @@ import {
   fetchStatus,
   generateButton,
   requestsFor,
-  SESSION_COOKIE,
-  type Scenario,
   resultImages,
+  type Scenario,
+  SESSION_COOKIE,
   typePrompt,
   uniquePrompt,
 } from '../kit.ts'

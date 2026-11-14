@@ -4,8 +4,8 @@ import {
   eventually,
   fetchStatus,
   type Page,
-  SESSION_COOKIE,
   type Scenario,
+  SESSION_COOKIE,
 } from '../kit.ts'
 
 /**
