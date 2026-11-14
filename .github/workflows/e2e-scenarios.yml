@@ -21,6 +21,7 @@ on:
       # 套件覆盖的状态与时序类代码：前端 store、画布、智能体、同步、鉴权、启动与分片恢复；BFF 的鉴权与同步路由。
       - apps/web/src/store.ts
       - apps/web/src/features/canvas/lib/**
+      - apps/web/src/features/canvas/*Store.ts
       - apps/web/src/features/agent/**
       - apps/web/src/lib/sync/**
       - apps/web/src/lib/authClient.ts
