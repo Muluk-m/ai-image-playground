@@ -53,3 +53,5 @@ gh run view <run-id> --log-failed
 GitHub CLI 的身份必须对目标仓库有 Actions 写权限；仓库可读不代表能够派发工作流。
 若返回 401/403，报告 dispatch 阶段和当前账号，由平台修正 CLI 绑定；不要新增 token
 或把连接器的凭据复制到 shell。连接器与 CLI 可能绑定不同账号，需分别验证。
+
+浏览器场景（Playwright + 本地栈 + mock 上游）见[浏览器场景套件](browser-scenarios.md)，它在 CI 的 `Browser scenarios` workflow 里跑，不属于本入口。
