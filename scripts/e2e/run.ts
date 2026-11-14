@@ -126,6 +126,13 @@ try {
     // 失败的场景可能还有上游请求在途：等它们结束再进下一个，别让它们撞进别的场景的记录里。
     await upstream.settle().catch((error: unknown) => console.error(`  ${error}`))
   }
+  // 最后一个场景之后才崩的 BFF / worker：场景竞速已经结束，这里补查一次并计入退出码。
+  try {
+    running.assertAlive()
+  } catch (error) {
+    console.error(`${error instanceof Error ? error.message : error}`)
+    failures.push('infrastructure')
+  }
 } catch (error) {
   console.error(`suite setup failed: ${error instanceof Error ? error.stack : error}`)
   failures.push('setup')

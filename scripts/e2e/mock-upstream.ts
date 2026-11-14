@@ -265,9 +265,22 @@ function startObjectStore(objects: Map<string, StoredObject>): Server {
         return
       }
       const prefix = url.searchParams.get('prefix') ?? ''
-      const contents = [...objects.entries()]
+      const matching = [...objects.entries()]
         .filter(([name]) => name.startsWith(prefix))
         .sort(([a], [b]) => a.localeCompare(b))
+      // 不实现分页：真要翻页就显式报错，别悄悄少返回。
+      const maxKeys = Number(url.searchParams.get('max-keys') ?? 1000)
+      if (url.searchParams.has('continuation-token') || matching.length > maxKeys) {
+        res
+          .writeHead(501, { 'content-type': 'application/xml' })
+          .end(
+            xml(
+              '<Error><Code>NotImplemented</Code><Message>mock S3 does not paginate ListObjectsV2</Message></Error>',
+            ),
+          )
+        return
+      }
+      const contents = matching
         .map(
           ([name, object]) =>
             `<Contents><Key>${escapeXml(name)}</Key><LastModified>${object.modified.toISOString()}</LastModified><Size>${object.bytes.length}</Size></Contents>`,
@@ -277,7 +290,7 @@ function startObjectStore(objects: Map<string, StoredObject>): Server {
         .writeHead(200, { 'content-type': 'application/xml' })
         .end(
           xml(
-            `<ListBucketResult><Name>${MOCK_BUCKET}</Name><Prefix>${escapeXml(prefix)}</Prefix><KeyCount>${objects.size}</KeyCount><IsTruncated>false</IsTruncated>${contents}</ListBucketResult>`,
+            `<ListBucketResult><Name>${MOCK_BUCKET}</Name><Prefix>${escapeXml(prefix)}</Prefix><KeyCount>${matching.length}</KeyCount><IsTruncated>false</IsTruncated>${contents}</ListBucketResult>`,
           ),
         )
       return
