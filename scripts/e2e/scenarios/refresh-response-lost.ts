@@ -43,11 +43,12 @@ export const refreshResponseLost: Scenario = {
     await generateButton(page).click()
     await eventually('a refresh whose response was lost', () => lost >= 1)
     assert.equal(requestsFor(mock, prompt).length, 0, 'nothing reached the upstream')
-    await context.clearCookies()
-    await context.addCookies(before)
 
     // 超过服务端宽限再回来。
     await new Promise((resolve) => setTimeout(resolve, GRACE_MS + 2_000))
+    // 失败处理里的重试此时都已结束；route.fetch 可能存下了 Set-Cookie，按快照还原再恢复网络。
+    await context.clearCookies()
+    await context.addCookies(before)
     lose = false
     await page.reload()
 

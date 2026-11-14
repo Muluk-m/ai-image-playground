@@ -26,12 +26,20 @@ export const accountIsolation: Scenario = {
       await post(page, '/api/auth/register', { username: usernameB, password: passwordB }),
       201,
     )
+    const listed = page.waitForResponse(
+      (response: any) =>
+        response.request().method() === 'GET' &&
+        /\/api\/generations(\?|$)/.test(response.url()) &&
+        response.ok(),
+      { timeout: 30_000 },
+    )
     await page.reload()
     await page
       .getByRole('textbox', { name: '描述你的创意' })
       .waitFor({ state: 'visible', timeout: 30_000 })
-    // 给本地与云端历史留足时间出现；A 的作品都不该在。
-    await new Promise((resolve) => setTimeout(resolve, 3_000))
+    // 云端列表拉回来、渲染稳定之后，A 的作品都不该在。
+    await listed
+    await new Promise((resolve) => setTimeout(resolve, 1_500))
     assert.equal(await card(promptA).count(), 0, "B does not see A's work")
 
     await generate(page, promptB)

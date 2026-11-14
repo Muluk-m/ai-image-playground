@@ -41,10 +41,12 @@ export const concurrentTabRefresh: Scenario = {
     await dropCookie(context, SESSION_COOKIE)
     await Promise.all(pages.map((page) => page.reload()))
     await Promise.all(pages.map(ready))
-    await eventually(
-      'both tabs to be signed in',
-      async () => (await fetchStatus(first, '/api/auth/me')) === 200,
-    )
+    for (const [index, page] of pages.entries()) {
+      await eventually(
+        `tab ${index + 1} to be signed in`,
+        async () => (await fetchStatus(page, '/api/auth/me')) === 200,
+      )
+    }
     for (const page of pages) {
       assert.equal(await page.getByText('登录状态已失效').count(), 0, 'no session-expired card')
     }
