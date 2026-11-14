@@ -51,10 +51,7 @@ export const routeCssMissing: Scenario = {
       )
     })
     // 恢复后画布真的打开了（不是回到空白或失败卡片）。
-    await page
-      .locator('.react-flow')
-      .first()
-      .waitFor({ state: 'attached', timeout: 20_000 })
+    await page.locator('.react-flow').first().waitFor({ state: 'attached', timeout: 20_000 })
     assert.ok(blockedCss > 0, 'the route stylesheet request was actually intercepted')
     assert.equal(navigations, 1, 'exactly one reload')
   },
