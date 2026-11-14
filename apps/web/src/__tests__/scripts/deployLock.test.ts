@@ -160,6 +160,35 @@ describe('acquire_deploy_lock', () => {
   })
 })
 
+describe('mkdir 不排他的平台', () => {
+  // uutils coreutils 的 mkdir 在目录已存在时也返回成功（2026-11-13 CI 上双赢的根因）。
+  // 用一个「目录已存在也成功」的 mkdir 垫片复现，锁必须靠 claim 文件仍只放进一个持有者。
+  function nonExclusiveMkdirPath(): string {
+    const shim = join(root, 'shim')
+    mkdirSync(shim)
+    writeFileSync(join(shim, 'mkdir'), '#!/bin/sh\nexec /bin/mkdir -p "$@"\n', { mode: 0o755 })
+    return `${shim}:${process.env.PATH}`
+  }
+
+  it('mkdir 对已存在的目录也返回成功时，第二个仍然抢不到', () => {
+    const result = sh(
+      'acquire_deploy_lock "$1" first; acquire_deploy_lock "$1" second >/dev/null 2>&1; echo $?',
+      [lockDir],
+      { PATH: nonExclusiveMkdirPath() },
+    )
+    expect(result.stdout.trim()).toBe('75')
+    expect(readFileSync(ownerFile, 'utf8')).toContain('what=first')
+  })
+
+  it('旧版脚本持有的锁（没有 claim 文件）不被补写接管', () => {
+    writeOwner({ pid: String(livePid()) })
+    const before = readFileSync(ownerFile, 'utf8')
+    const result = sh('acquire_deploy_lock "$1" mine', [lockDir], { PATH: nonExclusiveMkdirPath() })
+    expect(result.status).toBe(75)
+    expect(readFileSync(ownerFile, 'utf8')).toBe(before)
+  })
+})
+
 describe('release_deploy_lock', () => {
   it('释放自己持有的锁', () => {
     const result = sh('acquire_deploy_lock "$1" hold; release_deploy_lock "$1"; [ -d "$1" ]', [
