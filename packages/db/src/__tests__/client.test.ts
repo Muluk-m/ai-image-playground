@@ -37,21 +37,29 @@ describe('createDb pool', () => {
     expect(client.options.maxLifetime).toBe(600_000)
   })
 
-  it('queues a burst beyond max under its application name, then closes idle connections', async () => {
-    const { client } = handle({ max: 3, idleTimeout: 1, applicationName: 'aip-pool-test' })
+  /** Connections the pool opened under an application name, and how many of them wait on a lock. */
+  function observe(applicationName: string) {
     const observer = new SQL(databaseUrl, { max: 1 })
     closeCallbacks.push(() => observer.close())
-    const open = async () => {
-      const [row] = await observer`
-        SELECT count(*)::int AS n FROM pg_stat_activity WHERE application_name = 'aip-pool-test'`
+    const count = async (extra = '') => {
+      const [row] = await observer.unsafe(
+        `SELECT count(*)::int AS n FROM pg_stat_activity
+         WHERE application_name = '${applicationName}' ${extra}`,
+      )
       return (row as { n: number }).n
     }
-    const blocked = async () => {
-      const [row] = await observer`
-        SELECT count(*)::int AS n FROM pg_stat_activity
-        WHERE application_name = 'aip-pool-test' AND wait_event_type = 'Lock'`
-      return (row as { n: number }).n
+    return {
+      observer,
+      open: () => count(),
+      blocked: () => count("AND wait_event_type = 'Lock'"),
     }
+  }
+
+  it('queues a burst beyond max under its application name', async () => {
+    // No idleTimeout here: Bun also cuts a running statement that stays silent that long, and this
+    // test holds its queries still for as long as the runner needs to open the last connection.
+    const { client } = handle({ max: 3, applicationName: 'aip-pool-test' })
+    const { observer, open, blocked } = observe('aip-pool-test')
 
     // Hold every query of the burst at the database until the pool has opened all it may. A timed
     // query (pg_sleep) cannot prove that: on a slow runner the first connections finish the whole
@@ -79,8 +87,15 @@ describe('createDb pool', () => {
     const rows = await burst
     expect(rows).toHaveLength(7)
     expect(new Set(rows.map(([row]) => row!.pid)).size).toBe(3)
-    const idleDeadline = Date.now() + 5_000
-    while ((await open()) > 0 && Date.now() < idleDeadline) await Bun.sleep(100)
+  })
+
+  it('closes idle connections and reconnects on the next query', async () => {
+    const { client } = handle({ max: 3, idleTimeout: 1, applicationName: 'aip-pool-idle-test' })
+    const { open } = observe('aip-pool-idle-test')
+    await client`SELECT 1 AS one`
+    expect(await open()).toBeGreaterThan(0)
+    const deadline = Date.now() + 5_000
+    while ((await open()) > 0 && Date.now() < deadline) await Bun.sleep(100)
     expect(await open()).toBe(0)
 
     // A pool that dropped its idle connections reconnects on the next query.
