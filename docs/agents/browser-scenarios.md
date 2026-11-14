@@ -26,6 +26,7 @@
 | 坏参考图 | `scripts/e2e/scenarios/broken-reference.ts` | 截断的 PNG 在前端被标红、生成禁用、上游零请求；移除后换好图重试成功 |
 | 发版后旧标签页 | `scripts/e2e/scenarios/stale-tab-release.ts` | 页面打开后「发版」（`publishNewRelease` 换掉哈希文件名），点进未加载过的页面：只自动刷新一次，最终看到目标页，不停在加载失败卡片 |
 | 分片两次偶发失败 | `scripts/e2e/scenarios/chunk-failure-twice.ts` | 同一构建里间隔稳定运行后，两次打断懒加载分片（与发版无关）：每次都只自动刷新一次并恢复，不停在失败画面 |
+| 路由样式表缺失 | `scripts/e2e/scenarios/route-css-missing.ts` | 路由分片下载成功但它的 CSS 404（`Unable to preload CSS`）：只自动刷新一次并打开目标页，不停在失败卡片 |
 
 坏参考图的拦截发生在前端（`apps/web/src/lib/unusableReferences.ts`），不是 BFF；场景因此只断言「上游没有收到请求」，
 不检查扣费（本栈没开积分）。

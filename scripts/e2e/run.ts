@@ -11,6 +11,7 @@ import {
 import { type MockUpstream, startMockUpstream } from './mock-upstream.ts'
 import { brokenReference } from './scenarios/broken-reference.ts'
 import { chunkFailureTwice } from './scenarios/chunk-failure-twice.ts'
+import { routeCssMissing } from './scenarios/route-css-missing.ts'
 import { referenceEdit } from './scenarios/reference-edit.ts'
 import { refreshWhileGenerating } from './scenarios/refresh-while-generating.ts'
 import { staleTabRelease } from './scenarios/stale-tab-release.ts'
@@ -30,6 +31,7 @@ const SCENARIOS: readonly Scenario[] = [
   brokenReference,
   staleTabRelease,
   chunkFailureTwice,
+  routeCssMissing,
 ]
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
