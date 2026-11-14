@@ -38,3 +38,62 @@ export function imageMimeFromBytes(bytes: ArrayBuffer): string | undefined {
     return 'image/webp'
   return undefined
 }
+
+const PNG_IEND_WINDOW = 1024
+const JPEG_EOI_WINDOW = 64 * 1024
+
+/** base64 末尾 `bytes` 字节（对齐到 4 字符分组）、以及总字节数；只解码尾部，不碰整串。 */
+function base64Tail(base64: string, bytes: number): { tail: Uint8Array; total: number } | null {
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0
+  if (base64.length % 4 !== 0) return null
+  const total = (base64.length / 4) * 3 - padding
+  const start = Math.max(0, Math.floor((base64.length - Math.ceil(bytes / 3) * 4) / 4) * 4)
+  const raw = atob(base64.slice(start))
+  const tail = Uint8Array.from(raw, (c) => c.charCodeAt(0))
+  return { tail, total }
+}
+
+/**
+ * 文件头完整但正文被截断吗？浏览器对截断的 PNG / JPEG 会部分解码并照常触发 onload，
+ * 光靠「能解码」放不住。这里只看容器结构是否收尾，不解像素：
+ * - PNG：结尾附近要有 IEND 块；
+ * - JPEG：结尾附近要有 EOI（FFD9），窗口放宽到 64 KiB 以容纳 MPF 等尾随数据；
+ * - WebP：RIFF 声明的长度不能超过实际字节数。
+ * 认不出格式、不是 base64 data URL 或解析异常时一律当作完整，不误拦。
+ */
+export function isImageTruncated(dataUrl: string): boolean {
+  try {
+    const comma = dataUrl.indexOf(',')
+    if (comma < 0 || !dataUrl.slice(0, comma).endsWith(';base64')) return false
+    const base64 = dataUrl.slice(comma + 1)
+    const head = Uint8Array.from(atob(base64.slice(0, 24)), (c) => c.charCodeAt(0))
+    const mime = imageMimeFromBytes(head.buffer)
+    if (mime === 'image/webp') {
+      const declared = new DataView(head.buffer).getUint32(4, true) + 8
+      const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0
+      return (base64.length / 4) * 3 - padding < declared
+    }
+    if (mime === 'image/png') {
+      const found = base64Tail(base64, PNG_IEND_WINDOW)
+      if (!found) return false
+      const { tail } = found
+      for (let i = tail.length - 8; i >= 0; i -= 1) {
+        if (tail[i] === 0x49 && tail[i + 1] === 0x45 && tail[i + 2] === 0x4e && tail[i + 3] === 0x44)
+          return false
+      }
+      return true
+    }
+    if (mime === 'image/jpeg') {
+      const found = base64Tail(base64, JPEG_EOI_WINDOW)
+      if (!found) return false
+      const { tail } = found
+      for (let i = tail.length - 2; i >= 0; i -= 1) {
+        if (tail[i] === 0xff && tail[i + 1] === 0xd9) return false
+      }
+      return true
+    }
+  } catch {
+    return false
+  }
+  return false
+}

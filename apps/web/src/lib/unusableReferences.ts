@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { loadImage } from './canvasImage'
-import { imageMimeFromBytes } from './imageBytes'
+import { imageMimeFromBytes, isImageTruncated } from './imageBytes'
 
 /**
  * 快速生成的参考图不在选图时上传，也就没有上传那一步的坏图判定（BUG-59）。这里在本机判：
- * 每张本地图都让浏览器解一次，解得出就能用（GIF、AVIF 之类发送前会转码）；解不出的，
+ * 每张本地图都让浏览器解一次，解得出就能用（GIF、AVIF 之类发送前会转码）；解不出或结构不完整的，
  * 文件头认不出报 `media_unsupported_image`，文件头是 PNG / JPEG / WebP 却解不出（截断、
  * 损坏）报 `media_invalid_image`，与智能创作上传时同一套错误码。
  */
@@ -43,7 +43,8 @@ function knownHeader(dataUrl: string): boolean {
 /** 浏览器解一次的结论；解不出时按文件头分两种原因。 */
 const decode = (image: ReferenceImage): Promise<UnusableReferenceCode | null> =>
   loadImage(image.dataUrl).then(
-    () => null,
+    // 截断的 PNG / JPEG 浏览器照样部分解码并触发 onload（#1870），再按文件结构补判一次。
+    () => (isImageTruncated(image.dataUrl) ? 'media_invalid_image' : null),
     () => (knownHeader(image.dataUrl) ? 'media_invalid_image' : 'media_unsupported_image'),
   )
 
