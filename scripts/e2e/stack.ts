@@ -26,6 +26,8 @@ export interface Stack {
   /** 浏览器访问的 origin，也是前端的 BFF 地址（同源）。 */
   readonly origin: string
   readonly modelLabel: string
+  /** BFF 托管的前端目录（dist 的副本）。场景可以改它来模拟发版，见 kit.ts 的 publishNewRelease。 */
+  readonly webRoot: string
   /** 运行期间任一子进程意外退出时 reject；场景要和它竞速，基础设施故障立即报出而不是等场景超时。 */
   readonly infraFailure: Promise<never>
   stop(): Promise<void>
@@ -298,5 +300,5 @@ export async function startStack(options: StackOptions): Promise<Stack> {
     throw error
   }
 
-  return { origin, modelLabel: E2E_MODEL_LABEL, infraFailure, stop }
+  return { origin, modelLabel: E2E_MODEL_LABEL, webRoot: staticDir, infraFailure, stop }
 }
