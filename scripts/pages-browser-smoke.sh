@@ -28,5 +28,10 @@ case "${1:-}" in
     ;;
 esac
 export NODE_PATH="$runtime_dir/node_modules${NODE_PATH:+:$NODE_PATH}"
+# 其它浏览器套件（scripts/e2e-scenarios.sh）复用同一份固定版本的运行时：这里只负责准备环境后执行命令。
+if [ "${1:-}" = --run ]; then
+  shift
+  exec "$@"
+fi
 export PAGES_SMOKE_OUTPUT_DIR="${PAGES_SMOKE_OUTPUT_DIR:-$runtime_dir/results}"
 exec node "$repo_root/scripts/pages-browser-smoke.cjs" "$@"
