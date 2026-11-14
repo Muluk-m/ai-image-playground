@@ -18,6 +18,9 @@ export const staleTabRelease: Scenario = {
       { label: 'explore', entry: '探索' },
       { label: 'library', entry: '资产' },
       { label: 'tools', entry: '工具箱' },
+      { label: 'pricing', path: '/pricing' },
+      { label: 'changelog', path: '/changelog' },
+      { label: 'connect', path: '/connect' },
     ]
     const tabs = []
     for (const [index, item] of entries.entries()) {
@@ -27,7 +30,7 @@ export const staleTabRelease: Scenario = {
     }
     const navigations = new Map<string, number>()
     for (const { label, entry, page } of tabs) {
-      await entryButton(page, entry).waitFor({ state: 'visible', timeout: 30_000 })
+      await ready(page, entry).waitFor({ state: 'visible', timeout: 30_000 })
       // 只数主文档的导航：自动刷新每发生一次就多一次。
       navigations.set(label, 0)
       page.on('request', (request: any) => {
@@ -41,8 +44,9 @@ export const staleTabRelease: Scenario = {
     assert.ok(renamed.length > 10, 'the release swapped the hashed assets')
 
     // 目标页的分片在旧标签页里还没加载过，它们的地址已经 404。
-    for (const { label, entry, page } of tabs) {
-      await entryButton(page, entry).click()
+    for (const { label, entry, path, page } of tabs) {
+      if (entry) await entryButton(page, entry).click()
+      else await openPath(page, path)
       // 最终停在目标页，而不是加载失败的卡片。
       await eventually(
         `the ${label} page to open`,
@@ -50,8 +54,11 @@ export const staleTabRelease: Scenario = {
           const failed =
             (await page.getByText('页面暂时无法打开').count()) +
             (await page.getByText('无法打开工作台').count())
-          const pressed = await entryButton(page, entry).getAttribute('aria-pressed')
-          return failed === 0 && pressed === 'true' && (navigations.get(label) ?? 0) >= 1
+          const bootError = await page.locator('#boot[data-state="error"]').count()
+          const arrived = entry
+            ? (await entryButton(page, entry).getAttribute('aria-pressed')) === 'true'
+            : new URL(page.url()).pathname.replace(/\/$/, '') === path
+          return failed === 0 && bootError === 0 && arrived && (navigations.get(label) ?? 0) >= 1
         },
         { timeoutMs: 30_000 },
       )
@@ -69,4 +76,17 @@ export const staleTabRelease: Scenario = {
 
 function entryButton(page: Page, name: string) {
   return page.getByRole('button', { name, exact: true }).first()
+}
+
+/** 旧标签页里的工作台已经起来了：侧栏入口可见。 */
+function ready(page: Page, entry?: string) {
+  return entryButton(page, entry ?? '探索')
+}
+
+/** 站内换页：和应用自己的 navigate 一样，改地址后通知 popstate 监听者。 */
+async function openPath(page: Page, path: string | undefined) {
+  await page.evaluate((target: string) => {
+    window.history.pushState(null, '', target)
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  }, path)
 }
