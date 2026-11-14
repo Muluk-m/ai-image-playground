@@ -35,6 +35,7 @@
 | cookie 被拦截 | `scripts/e2e/scenarios/cookie-blocked-session.ts` | `document.cookie` 读写都抛错时刷新，工作台仍是登录态、能出图（#1414） |
 | 同一提示词再次生成 | `scripts/e2e/scenarios/regenerate-same-prompt.ts` | 同一提示词连点两次：上游收到 2 次、两张结果，刷新后仍是两张且不重复提交 |
 | 切换账号 | `scripts/e2e/scenarios/account-isolation.ts` | 同一浏览器退出 A 登录 B：B 看不到 A 的作品；切回 A 作品在、B 的不在 |
+| 路由样式表缺失 | `scripts/e2e/scenarios/route-css-missing.ts` | 路由分片下载成功但它的 CSS 404（`Unable to preload CSS`）：只自动刷新一次并打开目标页，不停在失败卡片 |
 
 坏参考图的拦截发生在前端（`apps/web/src/lib/unusableReferences.ts`），不是 BFF；场景因此只断言「上游没有收到请求」，
 不检查扣费（本栈没开积分）。

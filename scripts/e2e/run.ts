@@ -24,6 +24,7 @@ import { referenceEdit } from './scenarios/reference-edit.ts'
 import { refreshResponseLost } from './scenarios/refresh-response-lost.ts'
 import { refreshWhileGenerating } from './scenarios/refresh-while-generating.ts'
 import { regenerateSamePrompt } from './scenarios/regenerate-same-prompt.ts'
+import { routeCssMissing } from './scenarios/route-css-missing.ts'
 import { staleTabRelease } from './scenarios/stale-tab-release.ts'
 import { startStack, stopAllStacks } from './stack.ts'
 
@@ -50,6 +51,7 @@ const SCENARIOS: readonly Scenario[] = [
   cookieBlockedSession,
   regenerateSamePrompt,
   accountIsolation,
+  routeCssMissing,
 ]
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')

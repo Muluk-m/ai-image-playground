@@ -1,4 +1,4 @@
-import { lazy, type ReactNode, Suspense, useEffect, useLayoutEffect, useRef } from 'react'
+import { type ReactNode, Suspense, useEffect, useLayoutEffect, useRef } from 'react'
 import { useAuth } from './auth/AuthContext'
 import { resumePendingSubmission } from './auth/resumePendingSubmission'
 import { signalBootReady } from './boot/ready'
@@ -36,6 +36,7 @@ import {
   isPrivacyPath,
   isTermsPath,
 } from './lib/appPaths'
+import { lazyWithReload } from './lib/chunkLoad'
 import { dragTargetIsImage } from './lib/dragTarget'
 import { installWorkbenchNavigation } from './lib/navigation/workbenchNavigation'
 import { usePathname } from './lib/pathname'
@@ -43,14 +44,14 @@ import { startSyncEngine } from './lib/sync/engine'
 import { clearUrlSettingParams, hasUrlSettingParams } from './lib/urlSettings'
 import { initStore, useStore } from './store'
 
-const ChangelogPage = lazy(() => import('./features/announcements/ChangelogPage'))
-const CanvasMode = lazy(() => import('./features/canvas/components/CanvasMode'))
-const CliConnectPage = lazy(() => import('./features/cli/CliConnectPage'))
-const CliDevicePage = lazy(() => import('./features/cli/CliDevicePage'))
-const ExplorePage = lazy(() => import('./features/inspiration/components/ExplorePage'))
-const LibraryPage = lazy(() => import('./features/library/components/LibraryPage'))
-const PricingPage = lazy(() => import('./features/pricing/PricingPage'))
-const ToolboxPage = lazy(() => import('./features/toolbox/components/ToolboxPage'))
+const ChangelogPage = lazyWithReload(() => import('./features/announcements/ChangelogPage'))
+const CanvasMode = lazyWithReload(() => import('./features/canvas/components/CanvasMode'))
+const CliConnectPage = lazyWithReload(() => import('./features/cli/CliConnectPage'))
+const CliDevicePage = lazyWithReload(() => import('./features/cli/CliDevicePage'))
+const ExplorePage = lazyWithReload(() => import('./features/inspiration/components/ExplorePage'))
+const LibraryPage = lazyWithReload(() => import('./features/library/components/LibraryPage'))
+const PricingPage = lazyWithReload(() => import('./features/pricing/PricingPage'))
+const ToolboxPage = lazyWithReload(() => import('./features/toolbox/components/ToolboxPage'))
 
 export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: number }) {
   const setSettings = useStore((s) => s.setSettings)
