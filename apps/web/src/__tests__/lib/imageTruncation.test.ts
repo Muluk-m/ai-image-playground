@@ -29,9 +29,16 @@ function png(): Buffer {
 }
 
 function jpeg(trailing = 0): Buffer {
+  const entropy = Buffer.alloc(5000, 0x11)
+  // 熵编码段里的 FF00（填充）与 RST0 不是 marker，也不能被当成 EOI。
+  entropy.set([0xff, 0x00, 0xff, 0xd0, 0xff, 0x00], 100)
   return Buffer.concat([
-    Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
-    Buffer.alloc(5000, 0x11),
+    Buffer.from([0xff, 0xd8]),
+    Buffer.from([0xff, 0xe0, 0x00, 0x10]),
+    Buffer.alloc(14, 0x4a),
+    Buffer.from([0xff, 0xda, 0x00, 0x08]),
+    Buffer.alloc(6, 0x01),
+    entropy,
     Buffer.from([0xff, 0xd9]),
     Buffer.alloc(trailing, 0x22),
   ])
@@ -61,12 +68,28 @@ describe('isImageTruncated', () => {
     expect(isImageTruncated(url(p.subarray(0, Math.floor(p.length * 0.6))))).toBe(true)
     expect(isImageTruncated(url(p.subarray(0, p.length - 12)))).toBe(true)
     expect(isImageTruncated(url(jpeg().subarray(0, 3000), 'image/jpeg'))).toBe(true)
+    expect(isImageTruncated(url(jpeg().subarray(0, 105), 'image/jpeg'))).toBe(true)
     expect(isImageTruncated(url(webp().subarray(0, 1000), 'image/webp'))).toBe(true)
   })
 
   it('does not flag trailing data after the end marker', () => {
     expect(isImageTruncated(url(jpeg(30_000), 'image/jpeg'))).toBe(false)
     expect(isImageTruncated(url(Buffer.concat([png(), Buffer.alloc(100)])))).toBe(false)
+  })
+
+  it('is not fooled by an IEND-looking byte run inside the data', () => {
+    // IDAT 里偶然出现 IEND：截断后仍应判为截断。
+    const p = png()
+    const cut = Buffer.from(p.subarray(0, 200))
+    cut.write('IEND', 100, 'latin1')
+    expect(isImageTruncated(url(cut))).toBe(true)
+  })
+
+  it('tolerates whitespace in base64 and nonstandard JPEG layouts', () => {
+    const wrapped = url(png()).replace(/(.{76})/g, '$1\n')
+    expect(isImageTruncated(wrapped)).toBe(false)
+    const odd = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(500, 0x11)])
+    expect(isImageTruncated(url(odd, 'image/jpeg'))).toBe(false)
   })
 
   it('ignores what it cannot judge', () => {

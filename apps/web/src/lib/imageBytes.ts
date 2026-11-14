@@ -39,25 +39,67 @@ export function imageMimeFromBytes(bytes: ArrayBuffer): string | undefined {
   return undefined
 }
 
-const PNG_IEND_WINDOW = 1024
-const JPEG_EOI_WINDOW = 64 * 1024
+function decodeBase64(base64: string): Uint8Array {
+  const raw = atob(base64)
+  const bytes = new Uint8Array(raw.length)
+  for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i)
+  return bytes
+}
 
-/** base64 末尾 `bytes` 字节（对齐到 4 字符分组）、以及总字节数；只解码尾部，不碰整串。 */
-function base64Tail(base64: string, bytes: number): { tail: Uint8Array; total: number } | null {
-  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0
-  if (base64.length % 4 !== 0) return null
-  const total = (base64.length / 4) * 3 - padding
-  const start = Math.max(0, Math.floor((base64.length - Math.ceil(bytes / 3) * 4) / 4) * 4)
-  const raw = atob(base64.slice(start))
-  const tail = Uint8Array.from(raw, (c) => c.charCodeAt(0))
-  return { tail, total }
+/** 沿 chunk 的长度字段跳到 IEND（不解像素、不校验 CRC）；走到数据尽头还没遇到 IEND 就是截断。 */
+function pngEndsCleanly(bytes: Uint8Array): boolean {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  let pos = 8
+  while (pos + 12 <= bytes.length) {
+    const length = view.getUint32(pos)
+    const isEnd =
+      bytes[pos + 4] === 0x49 &&
+      bytes[pos + 5] === 0x45 &&
+      bytes[pos + 6] === 0x4e &&
+      bytes[pos + 7] === 0x44
+    if (isEnd) return true
+    pos += 12 + length
+  }
+  return false
+}
+
+/**
+ * 沿 JPEG marker 走到 EOI（FFD9），熵编码段内扫描到下一个真正的 marker（跳过 FF00 与 RSTn）。
+ * 只有「一路合法地走到数据尽头仍没见到 EOI」才算截断；结构本身对不上（非标准写法）时当作无法判断、放行。
+ */
+function jpegEndsCleanly(bytes: Uint8Array): boolean {
+  const n = bytes.length
+  let pos = 2
+  while (pos < n) {
+    if (bytes[pos] !== 0xff) return true
+    while (pos < n && bytes[pos] === 0xff) pos += 1
+    if (pos >= n) return false
+    const marker = bytes[pos] as number
+    pos += 1
+    if (marker === 0xd9) return true
+    if (marker === 0x00 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) continue
+    if (pos + 2 > n) return false
+    pos += ((bytes[pos] as number) << 8) | (bytes[pos + 1] as number)
+    if (marker === 0xda) {
+      // 熵编码数据：直到下一个不是 FF00 / RSTn 的 marker。
+      while (pos < n) {
+        if (bytes[pos] === 0xff) {
+          const next = bytes[pos + 1]
+          if (next === undefined) return false
+          if (next !== 0x00 && !(next >= 0xd0 && next <= 0xd7) && next !== 0xff) break
+          pos += 2
+        } else pos += 1
+      }
+    }
+  }
+  return false
 }
 
 /**
  * 文件头完整但正文被截断吗？浏览器对截断的 PNG / JPEG 会部分解码并照常触发 onload，
- * 光靠「能解码」放不住。这里只看容器结构是否收尾，不解像素：
- * - PNG：结尾附近要有 IEND 块；
- * - JPEG：结尾附近要有 EOI（FFD9），窗口放宽到 64 KiB 以容纳 MPF 等尾随数据；
+ * 光靠「能解码」放不住。这里按容器结构判断是否收尾，不解像素：
+ * - PNG：沿 chunk 长度走到 IEND；
+ * - JPEG：沿 marker 走到 EOI，EOI 之后的尾随数据不影响；
  * - WebP：RIFF 声明的长度不能超过实际字节数。
  * 认不出格式、不是 base64 data URL 或解析异常时一律当作完整，不误拦。
  */
@@ -65,37 +107,12 @@ export function isImageTruncated(dataUrl: string): boolean {
   try {
     const comma = dataUrl.indexOf(',')
     if (comma < 0 || !dataUrl.slice(0, comma).endsWith(';base64')) return false
-    const base64 = dataUrl.slice(comma + 1)
-    const head = Uint8Array.from(atob(base64.slice(0, 24)), (c) => c.charCodeAt(0))
-    const mime = imageMimeFromBytes(head.buffer)
+    const bytes = decodeBase64(dataUrl.slice(comma + 1))
+    const mime = imageMimeFromBytes(bytes.buffer as ArrayBuffer)
+    if (mime === 'image/png') return !pngEndsCleanly(bytes)
+    if (mime === 'image/jpeg') return !jpegEndsCleanly(bytes)
     if (mime === 'image/webp') {
-      const declared = new DataView(head.buffer).getUint32(4, true) + 8
-      const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0
-      return (base64.length / 4) * 3 - padding < declared
-    }
-    if (mime === 'image/png') {
-      const found = base64Tail(base64, PNG_IEND_WINDOW)
-      if (!found) return false
-      const { tail } = found
-      for (let i = tail.length - 8; i >= 0; i -= 1) {
-        if (
-          tail[i] === 0x49 &&
-          tail[i + 1] === 0x45 &&
-          tail[i + 2] === 0x4e &&
-          tail[i + 3] === 0x44
-        )
-          return false
-      }
-      return true
-    }
-    if (mime === 'image/jpeg') {
-      const found = base64Tail(base64, JPEG_EOI_WINDOW)
-      if (!found) return false
-      const { tail } = found
-      for (let i = tail.length - 2; i >= 0; i -= 1) {
-        if (tail[i] === 0xff && tail[i + 1] === 0xd9) return false
-      }
-      return true
+      return new DataView(bytes.buffer).getUint32(4, true) + 8 > bytes.length
     }
   } catch {
     return false
