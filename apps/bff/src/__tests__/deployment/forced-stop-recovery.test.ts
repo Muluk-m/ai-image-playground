@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { afterAll, afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { DEVICE_ID_HEADER } from '@image-playground/shared'
@@ -22,6 +22,12 @@ import { waitFor } from '../helpers/upstreamStubs'
 
 // Crash recovery can poll a persisted upstream ID without another submission or settlement.
 // This does not authorize stopping live executors whose upstream outcome is still unknown.
+
+// 用例体内 waitFor 的上限加起来约 30 秒（3+3+3+5+5+5+5）；bun 默认的 5 秒总预算比它们都短，
+// 在并发跑多个测试进程的 CI 机器上，两轮对话加恢复本来就要两秒多，慢一倍就在 5 秒被掐断。
+// 超时只是掐断等待，用例体仍会继续跑，下个用例的 beforeEach 清库后它才报「没有任务」，
+// 那条断言是超时的余波，不是恢复逻辑出错。总预算与各步上限对齐，卡死仍由各步 waitFor 在上限内报出。
+setDefaultTimeout(30_000)
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_forced_stop_recovery')
 process.env.PORT = '0'
