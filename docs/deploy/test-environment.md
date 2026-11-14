@@ -22,9 +22,9 @@
 
 ## 发布链路
 
-1. 检出触发提交，确认不落后 main，执行公开 lint / typecheck / 完整测试与构建。
-2. 读取该提交的 `private.lock`，检查带 overlay 的 lint / typecheck；公开版与 muvloom 生产构建都需通过 Chromium 首页/项目深链接启动检查，再由 Actions 构建 `test` 镜像并推 GHCR。
-3. SSH receiver 接受 `deploy <release-id> test <run-id>`，digest 校验后只向 `image-playground-test` 发布。复用迁移、依赖检查、不可变运行时和排空协议；VPS 不构建。
+1. 后端镜像构建（含 `scripts/ci-check-test-branch.sh`：落后 main 即失败）与门禁并行启动，镜像只是私有 GHCR 里的数据，门禁没过不会发布。
+2. 门禁先看同一提交的 `Web checks`：推 `test` 也会触发 web.yml，`verify` job（`scripts/ci-reuse-web-checks.sh`）等该 run 结束，只有 event 为 push、分支 `test`、`head_sha` 就是本次提交，且 `lint`、`typecheck`、`build`、`bff` 四片、`web-test` 三片、`with-overlay`（lint 与私有测试）、`with-overlay (build)`、`with-overlay (typecheck)` 全部 success，才复用，不再重跑。`with-overlay*` 用的是该提交 `private.lock` 钉住的 overlay，与镜像用的同一个提交，发布前还会核对。没有 run、有 job 失败或缺失（含 web.yml 改名）、等超时（25 分钟）都不复用，回落到本 workflow 自带的 `Checks` / `Tests` / `Web tests` / `Muvloom build checks` / `Muvloom overlay tests`，与复用前完全一致（公开 lint / typecheck / 完整测试与构建、带 overlay 的检查与 Chromium 首页/项目深链接启动检查）。`web.yml` 改 job 名要同步改脚本里的 `REQUIRED`，否则只会回落、不会放行。
+3. 门禁通过后（复用或回落全绿）才进入 `rollout`：SSH receiver 接受 `deploy <release-id> test <run-id>`，digest 校验后只向 `image-playground-test` 发布。复用迁移、依赖检查、不可变运行时和排空协议；VPS 不构建。
 4. API `/health` 返回公开 SHA + overlay SHA 后，才构建同一对提交的测试前端；最终 `dist` 通过浏览器启动检查后才上传，上传后再验证测试域名的首页与项目深链接。
 5. 核验线上 `version.json`、TLS、CORS、登录、授权媒体与一次真实生成。
 

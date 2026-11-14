@@ -19,6 +19,8 @@ permissions:
 concurrency:
   group: web-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+# 注意：deploy-test.yml 的 verify（scripts/ci-reuse-web-checks.sh）按下面这些 job 名复用 test 推送的结果，
+# 改名、删除或加 `if` 跳过 lint / typecheck / build / bff / web-test / with-overlay* 前，同步改那个脚本的 REQUIRED。
 jobs:
   # 合并到 main 的提交若与它的 PR 最后一次通过的 Web checks 是同一棵树，下面四个 job 已经在
   # 那次跑过，main 上不再重跑，直接交给部署。PR 落后于 main（合并后树不同）、来自 fork、或找不到
@@ -108,7 +110,7 @@ jobs:
           if-no-files-found: error
       - run: python3 scripts/test-cloud-test.py
       - run: node --test scripts/__tests__/ci-cli-required.test.mjs
-      - run: node --test scripts/__tests__/lock-closure-changed.test.mjs scripts/__tests__/test-guard.test.mjs scripts/__tests__/cost-impact.test.mjs scripts/__tests__/review-stats.test.mjs scripts/__tests__/test-shard.test.mjs
+      - run: node --test scripts/__tests__/lock-closure-changed.test.mjs scripts/__tests__/test-guard.test.mjs scripts/__tests__/cost-impact.test.mjs scripts/__tests__/review-stats.test.mjs scripts/__tests__/test-shard.test.mjs scripts/__tests__/ci-reuse-web-checks.test.mjs
       - run: pnpm lint
       # Deploy and backup scripts; shellcheck ships on the hosted runner.
       - run: pnpm lint:sh
