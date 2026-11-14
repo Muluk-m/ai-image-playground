@@ -46,7 +46,7 @@ export const chunkFailureTwice: Scenario = {
 
     await open('探索', /ExplorePage-/, 1)
     // 页面稳定运行一阵之后，再来一次偶发失败。
-    await new Promise((resolve) => setTimeout(resolve, 25_000))
+    await new Promise((resolve) => setTimeout(resolve, 35_000))
     await open('资产', /LibraryPage-/, 2)
     assert.equal(navigations, 2, 'exactly one reload per failure')
   },
