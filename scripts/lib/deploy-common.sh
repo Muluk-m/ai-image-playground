@@ -283,17 +283,29 @@ acquire_deploy_lock() {
     lock_attempt=$((lock_attempt + 1))
     # mkdir 不一定排他：uutils coreutils（新版 Ubuntu 默认）的 mkdir 在目录已被并发创建时也返回成功，
     # 两个部署会同时「抢到」。所以再用 noclobber（O_EXCL）独占创建 claim 文件，只有一个能成功。
-    if mkdir "$lock_dir" 2>/dev/null && (set -C && : >"$lock_dir/claim") 2>/dev/null; then
-      # 先写临时文件再改名：别的部署只会看到「还没有 owner」或完整的 owner，
-      # 读不到写了一半、pid 被截断的 owner，也就不会把活着的锁当成无主锁抢走。
-      printf 'pid=%s\ntoken=%s\nsince=%s\nby=%s@%s\nwhat=%s\n' \
-        "$$" "$(deploy_process_token "$$")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-        "$(whoami)" "$(hostname)" "$lock_what" >"$lock_dir/owner.tmp" &&
-        mv -f "$lock_dir/owner.tmp" "$lock_dir/owner" && return 0
-      # 写 owner 失败（磁盘满、IO 错误等）时不能当成已持有：放掉锁目录并报失败。
-      echo "Refusing to start: could not record the owner of $lock_dir." >&2
-      rm -rf "$lock_dir"
-      return 1
+    if mkdir "$lock_dir" 2>/dev/null; then
+      if (set -C && : >"$lock_dir/claim") 2>/dev/null; then
+        # 旧版脚本持有的锁没有 claim 文件：目录里已有活着的 owner 就不能补写接管。
+        if [ -e "$lock_dir/owner" ] && deploy_lock_holder_alive "$lock_dir"; then
+          rm -f "$lock_dir/claim"
+        else
+          # 先写临时文件再改名：别的部署只会看到「还没有 owner」或完整的 owner，
+          # 读不到写了一半、pid 被截断的 owner，也就不会把活着的锁当成无主锁抢走。
+          printf 'pid=%s\ntoken=%s\nsince=%s\nby=%s@%s\nwhat=%s\n' \
+            "$$" "$(deploy_process_token "$$")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            "$(whoami)" "$(hostname)" "$lock_what" >"$lock_dir/owner.tmp" &&
+            mv -f "$lock_dir/owner.tmp" "$lock_dir/owner" && return 0
+          # 写 owner 失败（磁盘满、IO 错误等）时不能当成已持有：放掉锁目录并报失败。
+          echo "Refusing to start: could not record the owner of $lock_dir." >&2
+          rm -rf "$lock_dir"
+          return 1
+        fi
+      elif [ ! -e "$lock_dir/claim" ]; then
+        # claim 不是因为被别人占了而失败（磁盘满、IO 错误）：rmdir 只收走本次新建的空目录，不动别人的锁。
+        echo "Refusing to start: could not claim $lock_dir." >&2
+        rmdir "$lock_dir" 2>/dev/null
+        return 1
+      fi
     fi
     if deploy_lock_holder_alive "$lock_dir"; then
       echo "Refusing to start: another rollout holds $lock_dir. This is lock contention, not a fault in this release." >&2
