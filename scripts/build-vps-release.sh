@@ -104,7 +104,11 @@ mkdir -p "$output"
 version=$public_sha+$private_sha
 image=ai-image-playground:$target-$(printf %.12s "$public_sha")-$(printf %.12s "$private_sha")
 registry_tag=$target-$(printf %.12s "$public_sha")-$(printf %.12s "$private_sha")
+# Only production exports the shared application build cache. A test release is built before its
+# gates finish (deploy-test.yml), so an unchecked commit must not write the cache production reads;
+# it still reads it.
 export_build_cache=1
+[ "$target" != test ] || export_build_cache=0
 build_image "$image" "$registry_tag" "$snapshot/public" \
   --build-context "private-overlay=$snapshot/private" --build-arg PRIVATE_OVERLAY_PRESENT=true \
   --build-arg "APP_VERSION=$version" --build-arg "APP_RELEASE=${APP_RELEASE:-}"
