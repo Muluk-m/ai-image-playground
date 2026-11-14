@@ -72,10 +72,7 @@ async function blockedThenRetried(
     timeout: 15_000,
   })
   // 好图的解码检查完成：生成可用，且没有错误提示。
-  await eventually(
-    'generate to be enabled',
-    async () => !(await generateButton(page).isDisabled()),
-  )
+  await eventually('generate to be enabled', async () => !(await generateButton(page).isDisabled()))
   assert.equal(await alert.count(), 0, 'the good image raises no error')
   await generateButton(page).click()
 

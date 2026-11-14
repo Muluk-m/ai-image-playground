@@ -78,7 +78,12 @@ export function isImageTruncated(dataUrl: string): boolean {
       if (!found) return false
       const { tail } = found
       for (let i = tail.length - 8; i >= 0; i -= 1) {
-        if (tail[i] === 0x49 && tail[i + 1] === 0x45 && tail[i + 2] === 0x4e && tail[i + 3] === 0x44)
+        if (
+          tail[i] === 0x49 &&
+          tail[i + 1] === 0x45 &&
+          tail[i + 2] === 0x4e &&
+          tail[i + 3] === 0x44
+        )
           return false
       }
       return true
