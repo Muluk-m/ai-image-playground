@@ -6,15 +6,16 @@ import { eventually, type Page, publishNewRelease, type Scenario } from '../kit.
  * 最终看到目标页面，而不是停在「页面暂时无法打开」，也不能循环刷新。
  * 对应 #1847 首批场景 6、#1846（逃逸台账第 8 项）。
  *
- * 两个标签页各点一个入口：探索页只有 JS 分片；画布页的分片还带自己的 CSS，
- * 缺失时 Vite 先报 `Unable to preload CSS`，走的是另一条恢复路径。
+ * 每个标签页点一个入口，覆盖各个懒加载页面：分片带自己的 CSS 时，缺失会先以
+ * `Unable to preload CSS` 报错，恢复走的是另一条路径。
  */
 export const staleTabRelease: Scenario = {
   name: 'stale-tab-release',
   async run({ stack, newSession }) {
     const tabs = [
       { label: 'explore', entry: '探索', page: (await newSession('stale-explore')).page },
-      { label: 'canvas', entry: '画布', page: (await newSession('stale-canvas')).page },
+      { label: 'library', entry: '资产', page: (await newSession('stale-library')).page },
+      { label: 'tools', entry: '工具箱', page: (await newSession('stale-tools')).page },
     ]
     const navigations = new Map<string, number>()
     for (const { label, entry, page } of tabs) {
