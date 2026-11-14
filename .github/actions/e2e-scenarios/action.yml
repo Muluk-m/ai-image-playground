@@ -4,6 +4,9 @@ inputs:
   label:
     description: Artifact name for logs, screenshots and traces
     default: browser-scenarios
+  shard:
+    description: 'Shard of the scenarios to run, "i/n" (empty runs all)'
+    default: ''
 runs:
   using: composite
   steps:
@@ -22,7 +25,8 @@ runs:
       shell: bash
       env:
         E2E_OUT_DIR: ${{ runner.temp }}/${{ inputs.label }}
-      run: pnpm e2e:scenarios
+        E2E_SHARD: ${{ inputs.shard }}
+      run: pnpm e2e:scenarios ${E2E_SHARD:+--shard "$E2E_SHARD"}
     - name: Save logs, screenshots and traces
       if: always()
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

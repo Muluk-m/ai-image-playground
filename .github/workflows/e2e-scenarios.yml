@@ -58,13 +58,17 @@ jobs:
           done
           echo "::warning::Deploy test did not finish within 60 minutes; skipping the scenarios."
   scenarios:
-    name: Workbench scenarios (warn only)
+    name: Workbench scenarios ${{ matrix.shard }} (warn only)
     needs: [deployed]
     # PR 与手动触发时 deployed 被跳过；推送 test 时要部署成功。
     if: always() && (needs.deployed.result == 'skipped' || needs.deployed.outputs.ok == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ['1/3', '2/3', '3/3']
     services:
       postgres:
         image: postgres:17-alpine
@@ -86,3 +90,6 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/e2e-scenarios
+        with:
+          shard: ${{ matrix.shard }}
+          label: browser-scenarios-${{ strategy.job-index }}
