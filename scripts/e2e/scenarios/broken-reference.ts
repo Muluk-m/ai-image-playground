@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   eventually,
   generateButton,
@@ -42,10 +45,36 @@ export const truncatedReference: Scenario = {
   },
 }
 
+// 仓库里现成的真实 JPEG / WebP，截到 60%：文件头完整、正文缺失（同样会被浏览器部分解码）。
+const publicDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../apps/web/public')
+const truncatedFile = (relative: string) => {
+  const whole = readFileSync(join(publicDir, relative))
+  return whole.subarray(0, Math.floor(whole.length * 0.6))
+}
+
+export const truncatedJpegReference: Scenario = {
+  name: 'truncated-reference-jpeg',
+  run: (ctx) =>
+    blockedThenRetried(ctx, 'truncjpg', truncatedFile('og/muvloom-og.jpg'), {
+      name: 'broken.jpg',
+      mimeType: 'image/jpeg',
+    }),
+}
+
+export const truncatedWebpReference: Scenario = {
+  name: 'truncated-reference-webp',
+  run: (ctx) =>
+    blockedThenRetried(ctx, 'truncwebp', truncatedFile('hero/hero-7.webp'), {
+      name: 'broken.webp',
+      mimeType: 'image/webp',
+    }),
+}
+
 async function blockedThenRetried(
   { mock, newSession }: ScenarioContext,
   label: string,
   broken: Buffer,
+  file = { name: 'broken.png', mimeType: 'image/png' },
 ) {
   const { page } = await newSession(label)
   const input = page.locator('input[type="file"][aria-label="添加图片"]')
@@ -53,7 +82,7 @@ async function blockedThenRetried(
   const good = solidPng('good-reference', 320, 240)
 
   await typePrompt(page, prompt)
-  await input.setInputFiles({ name: 'broken.png', mimeType: 'image/png', buffer: broken })
+  await input.setInputFiles({ ...file, buffer: broken })
 
   // 可见的错误（屏幕阅读器播报的 alert，说明第几张、什么原因），并且生成被禁用。
   const alert = page.getByRole('alert').filter({ hasText: /第 1 张图片：/ })

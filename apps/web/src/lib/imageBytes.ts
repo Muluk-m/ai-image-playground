@@ -39,6 +39,8 @@ export function imageMimeFromBytes(bytes: ArrayBuffer): string | undefined {
   return undefined
 }
 
+const MAX_STRUCTURE_CHECK_CHARS = 32_000_000
+
 function decodeBase64(base64: string): Uint8Array {
   const raw = atob(base64)
   const bytes = new Uint8Array(raw.length)
@@ -57,7 +59,7 @@ function pngEndsCleanly(bytes: Uint8Array): boolean {
       bytes[pos + 5] === 0x45 &&
       bytes[pos + 6] === 0x4e &&
       bytes[pos + 7] === 0x44
-    if (isEnd) return true
+    if (isEnd) return length === 0
     pos += 12 + length
   }
   return false
@@ -86,13 +88,28 @@ function jpegEndsCleanly(bytes: Uint8Array): boolean {
         if (bytes[pos] === 0xff) {
           const next = bytes[pos + 1]
           if (next === undefined) return false
-          if (next !== 0x00 && !(next >= 0xd0 && next <= 0xd7) && next !== 0xff) break
-          pos += 2
+          if (next === 0xff) pos += 1 // 填充字节：只前进一个，留最后一个 FF 给 marker 解析
+          else if (next === 0x00 || (next >= 0xd0 && next <= 0xd7)) pos += 2
+          else break
         } else pos += 1
       }
     }
   }
   return false
+}
+
+/** RIFF 声明的总长度和每个内部 chunk 声明的长度都不能超出实际字节数。 */
+function webpEndsCleanly(bytes: Uint8Array): boolean {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const riffEnd = view.getUint32(4, true) + 8
+  if (riffEnd > bytes.length) return false
+  let pos = 12
+  while (pos + 8 <= riffEnd) {
+    const size = view.getUint32(pos + 4, true)
+    if (pos + 8 + size > bytes.length) return false
+    pos += 8 + size + (size & 1)
+  }
+  return true
 }
 
 /**
@@ -107,13 +124,13 @@ export function isImageTruncated(dataUrl: string): boolean {
   try {
     const comma = dataUrl.indexOf(',')
     if (comma < 0 || !dataUrl.slice(0, comma).endsWith(';base64')) return false
+    // 提交前的 data URL 本就有大小上限（IMAGE_DATA_URL_MAX_CHARS）；远超它的不在这里整段解码。
+    if (dataUrl.length - comma > MAX_STRUCTURE_CHECK_CHARS) return false
     const bytes = decodeBase64(dataUrl.slice(comma + 1))
     const mime = imageMimeFromBytes(bytes.buffer as ArrayBuffer)
     if (mime === 'image/png') return !pngEndsCleanly(bytes)
     if (mime === 'image/jpeg') return !jpegEndsCleanly(bytes)
-    if (mime === 'image/webp') {
-      return new DataView(bytes.buffer).getUint32(4, true) + 8 > bytes.length
-    }
+    if (mime === 'image/webp') return !webpEndsCleanly(bytes)
   } catch {
     return false
   }

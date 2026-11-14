@@ -9,7 +9,12 @@ import {
   type ScenarioContext,
 } from './kit.ts'
 import { type MockUpstream, startMockUpstream } from './mock-upstream.ts'
-import { brokenReference, truncatedReference } from './scenarios/broken-reference.ts'
+import {
+  brokenReference,
+  truncatedJpegReference,
+  truncatedReference,
+  truncatedWebpReference,
+} from './scenarios/broken-reference.ts'
 import { chunkFailureTwice } from './scenarios/chunk-failure-twice.ts'
 import { referenceEdit } from './scenarios/reference-edit.ts'
 import { refreshWhileGenerating } from './scenarios/refresh-while-generating.ts'
@@ -29,6 +34,8 @@ const SCENARIOS: readonly Scenario[] = [
   referenceEdit,
   brokenReference,
   truncatedReference,
+  truncatedJpegReference,
+  truncatedWebpReference,
   staleTabRelease,
   chunkFailureTwice,
 ]

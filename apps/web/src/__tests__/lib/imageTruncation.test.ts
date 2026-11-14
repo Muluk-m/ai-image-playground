@@ -48,7 +48,7 @@ function webp(): Buffer {
   const body = Buffer.concat([
     Buffer.from('WEBP'),
     Buffer.from('VP8 '),
-    Buffer.alloc(4),
+    Buffer.from([0xd0, 0x07, 0x00, 0x00]), // chunk 长度 2000
     Buffer.alloc(2000, 7),
   ])
   const size = Buffer.alloc(4)
@@ -70,11 +70,26 @@ describe('isImageTruncated', () => {
     expect(isImageTruncated(url(jpeg().subarray(0, 3000), 'image/jpeg'))).toBe(true)
     expect(isImageTruncated(url(jpeg().subarray(0, 105), 'image/jpeg'))).toBe(true)
     expect(isImageTruncated(url(webp().subarray(0, 1000), 'image/webp'))).toBe(true)
+    // RIFF 总长被改成当前长度，但内部 chunk 声明的长度超出：仍是截断。
+    const w = Buffer.from(webp().subarray(0, 1000))
+    w.writeUInt32LE(w.length - 8, 4)
+    expect(isImageTruncated(url(w, 'image/webp'))).toBe(true)
   })
 
   it('does not flag trailing data after the end marker', () => {
     expect(isImageTruncated(url(jpeg(30_000), 'image/jpeg'))).toBe(false)
     expect(isImageTruncated(url(Buffer.concat([png(), Buffer.alloc(100)])))).toBe(false)
+  })
+
+  it('handles JPEG fill bytes and malformed IEND', () => {
+    const j = jpeg()
+    const padded = Buffer.concat([j.subarray(0, j.length - 2), Buffer.from([0xff, 0xff, 0xd9])])
+    expect(isImageTruncated(url(padded, 'image/jpeg'))).toBe(false)
+    // IEND 头部在、长度却不为 0：不算收尾。
+    const p = png()
+    const bad = Buffer.from(p)
+    bad.writeUInt32BE(1, p.length - 12)
+    expect(isImageTruncated(url(bad))).toBe(true)
   })
 
   it('is not fooled by an IEND-looking byte run inside the data', () => {
