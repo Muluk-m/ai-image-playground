@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomInt } from 'node:crypto'
 import { readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { extname, join } from 'node:path'
@@ -33,6 +33,7 @@ export interface Session {
   readonly context: BrowserContext
   readonly page: Page
   readonly username: string
+  readonly password: string
 }
 
 export interface Scenario {
@@ -77,6 +78,10 @@ export async function openSession(ctx: Omit<ScenarioContext, 'newSession'>, labe
   const context = await ctx.browser.newContext({
     locale: 'zh-CN',
     viewport: { width: 1280, height: 900 },
+    // 栈按 X-Forwarded-For 区分来源：每个会话一个，注册限流不会累计到整套场景上。
+    extraHTTPHeaders: {
+      'x-forwarded-for': `10.${randomInt(256)}.${randomInt(256)}.${randomInt(1, 255)}`,
+    },
   })
   await context.tracing.start({ screenshots: true, snapshots: true })
   const page = await context.newPage()
@@ -102,13 +107,15 @@ export async function openSession(ctx: Omit<ScenarioContext, 'newSession'>, labe
   await page.goto(`${ctx.stack.origin}/image`)
   const me = await page.evaluate(async () => (await fetch('/api/auth/me')).status)
   if (me !== 200) throw new Error(`session cookie was not kept (/api/auth/me answered ${me})`)
-  return { context, page, username } satisfies Session
+  return { context, page, username, password } satisfies Session
 }
 
 export async function typePrompt(page: Page, text: string): Promise<void> {
   const box = page.getByRole('textbox', { name: '描述你的创意' })
   await box.waitFor({ state: 'visible', timeout: 30_000 })
   await box.click()
+  // 上一次的提示词可能还留在输入框里：先全选，输入即替换。
+  await page.keyboard.press('ControlOrMeta+a')
   await page.keyboard.type(text)
 }
 
@@ -163,3 +170,25 @@ export function publishNewRelease(webRoot: string): string[] {
   for (const [from, to] of renamed) renameSync(join(assetsDir, from), join(assetsDir, to))
   return [...renamed.keys()]
 }
+
+/** 在页面里按同源发请求（带 cookie），返回状态码。 */
+export function fetchStatus(page: Page, path: string, init?: object): Promise<number> {
+  return page.evaluate(
+    async ({ path, init }: { path: string; init?: object }) =>
+      (await fetch(path, { credentials: 'include', ...init })).status,
+    { path, init },
+  )
+}
+
+/** 删掉上下文里指定名字的 cookie，其余原样保留（模拟某个凭据过期）。 */
+export async function dropCookie(context: BrowserContext, name: string): Promise<void> {
+  const all = await context.cookies()
+  if (!all.some((cookie: { name: string }) => cookie.name === name)) {
+    throw new Error(`cookie ${name} is not set`)
+  }
+  await context.clearCookies()
+  await context.addCookies(all.filter((cookie: { name: string }) => cookie.name !== name))
+}
+
+export const SESSION_COOKIE = 'image_playground_session'
+export const REFRESH_COOKIE = 'image_playground_refresh'
