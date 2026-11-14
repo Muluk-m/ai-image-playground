@@ -25,6 +25,12 @@ const RESOURCE_PROBE_INTERVAL_MS = 2_000
 const UNRENDERED_TIMEOUT_MS = 30_000
 /** Progress alone cannot hold the splash forever. */
 const UNRENDERED_HARD_TIMEOUT_MS = 120_000
+/**
+ * A document that rendered and then stayed up this long hands its automatic-reload budget back, so a
+ * later transient chunk failure (flaky network, unrelated to any release) still recovers. A page that
+ * fails again sooner stays spent, which bounds reload loops to one per window.
+ */
+export const HEALTHY_RESET_MS = 30_000
 /** Last petal ends around 950ms. A fast shell waits out the unfurl instead of fading mid-bloom. */
 export const SPROUT_HOLD_MS = 1_000
 /** Matches `#boot[data-state="done"]`'s fade, plus a little slack when animationend does not fire. */
@@ -263,9 +269,11 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
     clearTimeout(timer);
     if(fatal&&cause?.reason!=='timeout'){show();return}
     // First paint may only be an auth check. The shell signals when it can actually be seen.
-    // Keep spent navigation budgets across documents until an explicit user retry.
+    // Spent navigation budgets survive across documents until an explicit user retry or until a
+    // rendered document has stayed up for HEALTHY_RESET_MS (below).
     if(recovery||reloading)return;
     fatal=false;
+    setTimeout(()=>{if(!fatal&&!reloading&&!recovery)resetBudget()},${HEALTHY_RESET_MS});
     const element=boot();
     if(!element)return;
     // A timeout panel is already the failure UI. A late render withdraws it at once.
