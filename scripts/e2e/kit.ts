@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomInt } from 'node:crypto'
-import { readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { extname, join } from 'node:path'
 import type { MockUpstream, RecordedRequest } from './mock-upstream.ts'
@@ -141,6 +141,10 @@ export function resultImages(page: Page) {
  * 模拟一次发版：旧哈希的 js/css 不再保留，页面与脚本改指向新文件名（内容不变，名字加后缀）。
  * 已打开的旧标签页里还引用着旧文件名，尚未加载的分片会 404；新打开的页面一切正常。
  * 返回被换掉的文件名（assets 下的基名）。
+ *
+ * 旧文件名下的内容在被删除前始终是旧版本原样：新文件先全部写好，再换 HTML，最后才删旧文件。
+ * 真实发版里旧 URL 要么还是旧内容、要么已不存在，不会有「旧文件名返回改写过的新内容」的中间态；
+ * 原地改写再改名会让正在加载的旧页面拿到指向新文件名的旧文件，混载出两份模块图和两个 React（#1885）。
  */
 export function publishNewRelease(webRoot: string): string[] {
   const assetsDir = join(webRoot, 'assets')
@@ -158,25 +162,28 @@ export function publishNewRelease(webRoot: string): string[] {
       .join('|')})(?![\\w-])`,
     'g',
   )
-  const rewrite = (file: string) => {
-    const text = readFileSync(file, 'utf8')
-    const next = text.replace(pattern, (name) => renamed.get(name) ?? name)
-    if (next !== text) writeFileSync(file, next)
+  const rewritten = (file: string) =>
+    readFileSync(file, 'utf8').replace(pattern, (name) => renamed.get(name) ?? name)
+  const replaceFile = (file: string, content: string) => {
+    const temp = `${file}.publishing`
+    writeFileSync(temp, content)
+    renameSync(temp, file)
+  }
+  for (const [from, to] of renamed) {
+    writeFileSync(join(assetsDir, to), rewritten(join(assetsDir, from)))
   }
   for (const name of readdirSync(webRoot)) {
     if (!name.endsWith('.html')) continue
     const file = join(webRoot, name)
-    rewrite(file)
+    const html = rewritten(file)
     // 页面内的构建标识（启动守卫按它计「每个构建自动刷新一次」的额度）随内容变，和真实发版一致。
-    const html = readFileSync(file, 'utf8')
     const identity = createHash('sha256').update(html).digest('hex')
-    writeFileSync(
+    replaceFile(
       file,
       html.replace(/(<meta name="aip-html-build" content=")[^"]*/, `$1${identity}`),
     )
   }
-  for (const name of renamed.keys()) rewrite(join(assetsDir, name))
-  for (const [from, to] of renamed) renameSync(join(assetsDir, from), join(assetsDir, to))
+  for (const from of renamed.keys()) rmSync(join(assetsDir, from))
   return [...renamed.keys()]
 }
 
