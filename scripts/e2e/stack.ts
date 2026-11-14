@@ -249,6 +249,8 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       PORT: String(port),
       STATIC_DIR: staticDir,
       OPERATOR_CONFIG_FILE: operatorFile,
+      // 每个浏览器会话带自己的 x-forwarded-for（见 kit.ts openSession），注册限流按会话分桶，场景数量不受每小时 5 次的限制。
+      CLIENT_IP_SOURCE: 'x-forwarded-for',
       UPSTREAM_BASE_URL: mock.url,
       UPSTREAM_API_KEY: 'e2e-upstream-key',
       E2E_UPSTREAM_KEY: 'e2e-upstream-key',
