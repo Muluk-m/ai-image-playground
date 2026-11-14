@@ -16,6 +16,7 @@ import {
   truncatedReference,
   truncatedWebpReference,
 } from './scenarios/broken-reference.ts'
+import { canvasNestedChunk } from './scenarios/canvas-nested-chunk.ts'
 import { chunkFailureTwice } from './scenarios/chunk-failure-twice.ts'
 import { concurrentTabRefresh } from './scenarios/concurrent-tab-refresh.ts'
 import { cookieBlockedSession } from './scenarios/cookie-blocked-session.ts'
@@ -55,6 +56,7 @@ const SCENARIOS: readonly Scenario[] = [
   routeCssMissing,
   staleEntryRelease,
   staleEntryBudgetSpent,
+  canvasNestedChunk,
 ]
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
