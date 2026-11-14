@@ -25,6 +25,7 @@ import { refreshResponseLost } from './scenarios/refresh-response-lost.ts'
 import { refreshWhileGenerating } from './scenarios/refresh-while-generating.ts'
 import { regenerateSamePrompt } from './scenarios/regenerate-same-prompt.ts'
 import { routeCssMissing } from './scenarios/route-css-missing.ts'
+import { staleEntryBudgetSpent, staleEntryRelease } from './scenarios/stale-entry-release.ts'
 import { staleTabRelease } from './scenarios/stale-tab-release.ts'
 import { startStack, stopAllStacks } from './stack.ts'
 
@@ -52,6 +53,8 @@ const SCENARIOS: readonly Scenario[] = [
   regenerateSamePrompt,
   accountIsolation,
   routeCssMissing,
+  staleEntryRelease,
+  staleEntryBudgetSpent,
 ]
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
