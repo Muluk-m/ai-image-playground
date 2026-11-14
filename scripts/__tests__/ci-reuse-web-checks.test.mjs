@@ -8,21 +8,12 @@ import { test } from 'node:test'
 const script = new URL('../ci-reuse-web-checks.sh', import.meta.url).pathname
 const sha = 'c'.repeat(40)
 
-const required = [
-  'lint',
-  'typecheck',
-  'build',
-  'bff (bff 1/3)',
-  'bff (bff 2/3)',
-  'bff (bff 3/3)',
-  'bff (packages)',
-  'web-test (1/3)',
-  'web-test (2/3)',
-  'web-test (3/3)',
-  'with-overlay',
-  'with-overlay (build)',
-  'with-overlay (typecheck)',
-]
+// The names the script requires, read from the script itself so there is one list.
+const required = (() => {
+  const text = readFileSync(script, 'utf8')
+  const body = /^REQUIRED=\(\n([\s\S]*?)^\)$/m.exec(text)?.[1] ?? ''
+  return [...body.matchAll(/'([^']+)'/g)].map((m) => m[1])
+})()
 const jobs = (overrides = {}, drop = []) =>
   required
     .filter((name) => !drop.includes(name))
@@ -109,4 +100,40 @@ test('picks the newest run of the commit', () => {
   const older = run({ id: 1, created_at: '2026-11-14T00:00:00Z' })
   const newer = run({ id: 2, created_at: '2026-11-14T01:00:00Z' })
   assert.equal(reuse({ runs: [older, newer], jobList: jobs() }), 'reused=true')
+})
+
+// Job names web.yml produces, matrix expanded, without a YAML dependency: the file's job blocks
+// are two-space-indented ids under `jobs:`, with `name:` and an optional matrix beneath.
+function webJobNames() {
+  const lines = readFileSync(new URL('../../.github/workflows/web.yml', import.meta.url), 'utf8').split('\n')
+  const start = lines.findIndex((l) => l === 'jobs:')
+  const blocks = []
+  for (const line of lines.slice(start + 1)) {
+    if (/^ {2}[a-z][\w-]*:\s*$/.test(line)) blocks.push({ id: line.trim().slice(0, -1), lines: [] })
+    else blocks.at(-1)?.lines.push(line)
+  }
+  return blocks.flatMap(({ id, lines: body }) => {
+    const nameLine = body.find((l) => /^ {4}name: /.test(l))
+    const template = nameLine ? nameLine.replace(/^ {4}name: /, '').replace(/^["']|["']$/g, '') : id
+    const axes = {}
+    const parts = []
+    for (const l of body) {
+      const list = /^ {8}(\w+): \[(.*)\]\s*$/.exec(l)
+      if (list) axes[list[1]] = list[2].split(',').map((x) => x.trim())
+      const part = /^ {10}- name: (.+)$/.exec(l)
+      if (part) parts.push(part[1].trim())
+    }
+    if (parts.length) axes['part.name'] = parts
+    const keys = Object.keys(axes)
+    if (!keys.length) return [template]
+    // Only one axis per job in web.yml; a second would need a cross product here.
+    assert.equal(keys.length, 1, `${id}: more than one matrix axis; extend this helper`)
+    return axes[keys[0]].map((v) => template.replace(/\$\{\{\s*matrix\.[\w.]+\s*\}\}/g, v))
+  })
+}
+
+test('every job name the script requires is one web.yml really produces', () => {
+  assert.equal(required.length, 13)
+  const names = webJobNames()
+  for (const name of required) assert.ok(names.includes(name), `web.yml has no job named "${name}"; update REQUIRED in scripts/ci-reuse-web-checks.sh`)
 })
