@@ -69,6 +69,11 @@ export function requestsFor(mock: MockUpstream, prompt: string): readonly Record
   return mock.imageRequests().filter((request) => request.prompt === prompt)
 }
 
+function fakeClientAddress(): string {
+  const [a = 0, b = 0, c = 0] = randomBytes(3)
+  return `10.${a}.${b}.${c || 1}`
+}
+
 /**
  * 新建浏览器上下文并用真实的注册接口开一个测试账号：请求在页面里发（浏览器自己收 Set-Cookie），
  * 之后整页重载进入工作台。鉴权逻辑没有被绕过。
@@ -77,6 +82,7 @@ export async function openSession(ctx: Omit<ScenarioContext, 'newSession'>, labe
   const context = await ctx.browser.newContext({
     locale: 'zh-CN',
     viewport: { width: 1280, height: 900 },
+    extraHTTPHeaders: { 'x-forwarded-for': fakeClientAddress() },
   })
   await context.tracing.start({ screenshots: true, snapshots: true })
   const page = await context.newPage()
