@@ -121,7 +121,11 @@ async function openStalePage(
         .evaluate(() => {
           const boot = document.getElementById('boot')
           const root = document.getElementById('root')
-          return `boot=${boot?.dataset.state ?? 'gone'} rootChildren=${root?.childElementCount ?? -1}`
+          const mixed = performance
+            .getEntriesByType('resource')
+            .map((entry) => entry.name.split('/').pop() ?? '')
+            .filter((name) => /r\.(js|css)$/.test(name))
+          return `boot=${boot?.dataset.state ?? 'gone'} rootChildren=${root?.childElementCount ?? -1} rNamed=${mixed.length} [${mixed.slice(0, 4).join(',')}]`
         })
         .catch(() => '')
       throw new Error(
