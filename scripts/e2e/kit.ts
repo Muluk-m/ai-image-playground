@@ -109,6 +109,10 @@ export async function openSession(ctx: Omit<ScenarioContext, 'newSession'>, labe
   await page.goto(`${ctx.stack.origin}/image`)
   const me = await page.evaluate(async () => (await fetch('/api/auth/me')).status)
   if (me !== 200) throw new Error(`session cookie was not kept (/api/auth/me answered ${me})`)
+  // 启动（含它顺手做的 refresh 轮换、记住登录用户）跑完再交给场景：场景里改 cookie、刷新才不会和启动抢。
+  await page
+    .getByRole('textbox', { name: '描述你的创意' })
+    .waitFor({ state: 'visible', timeout: 30_000 })
   return { context, page, username, password } satisfies Session
 }
 
