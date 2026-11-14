@@ -2,7 +2,7 @@
 # 只告警、不挡任何东西（continue-on-error）；稳定后再决定是否进门禁。
 #
 # 两种触发：
-# - PR 改到套件自身或它的 workflow；
+# - PR 改到套件自身、它的 workflow，或套件覆盖的状态与时序类代码（见 paths）：不是每个 PR 都跑；
 # - 推送 test 分支：等同一提交的 Deploy test 成功之后再跑。单独成 workflow 而不是 deploy-test.yml 里的 job：
 #   后者整个 workflow 共用 test-deploy 并发组，套件会拖住下一次测试发布。不用 workflow_run：它在默认分支
 #   上下文里检出并运行 test 分支的代码，会被 CodeQL 判为缓存投毒（actions/cache-poisoning）。
@@ -18,6 +18,36 @@ on:
       - scripts/pages-browser-smoke.sh
       - .github/workflows/e2e-scenarios.yml
       - .github/actions/e2e-scenarios/**
+      # 套件覆盖的状态与时序类代码：前端 store、画布、智能体、同步、生成提交与作品缓存、参考图校验、鉴权、启动与分片恢复；BFF 的鉴权与同步路由。
+      - apps/web/src/store.ts
+      - apps/web/src/features/canvas/lib/**
+      - apps/web/src/features/canvas/*Store.ts
+      - apps/web/src/features/agent/**
+      - apps/web/src/lib/sync/**
+      - apps/web/src/lib/generationJob.ts
+      - apps/web/src/lib/platformGenerations.ts
+      - apps/web/src/lib/unusableReferences.ts
+      - apps/web/src/hooks/useCloudGenerations.ts
+      - apps/web/src/components/InputBar.tsx
+      - apps/web/src/lib/authClient.ts
+      - apps/web/src/lib/authScope.ts
+      - apps/web/src/lib/sessionRefreshJournal.ts
+      - apps/web/src/lib/storageAdoption.ts
+      - apps/web/src/lib/chunkLoad.ts
+      - apps/web/src/auth/**
+      - apps/web/src/boot/**
+      - apps/web/src/App.tsx
+      - apps/bff/src/routes/auth.ts
+      - apps/bff/src/routes/oauth.ts
+      - apps/bff/src/routes/sync.ts
+      - apps/bff/src/routes/canvasSync.ts
+      - apps/bff/src/routes/generations.ts
+      - apps/bff/src/lib/user-auth.ts
+      - apps/bff/src/lib/user-session.ts
+      - apps/bff/src/lib/oauth/**
+      - apps/bff/src/lib/sync.ts
+      - apps/bff/src/lib/sync-assets.ts
+      - apps/bff/src/lib/canvasSync*.ts
   push:
     branches: [test]
   workflow_dispatch:

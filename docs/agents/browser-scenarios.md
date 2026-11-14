@@ -67,7 +67,11 @@ Playwright 版本与 Chromium 由 [`scripts/pages-browser-smoke.sh`](../../scrip
 一个 workflow：[`.github/workflows/e2e-scenarios.yml`](../../.github/workflows/e2e-scenarios.yml)，共用的步骤在
 [`.github/actions/e2e-scenarios`](../../.github/actions/e2e-scenarios/action.yml)。
 
-- PR 改到 `scripts/e2e/**`、入口脚本、`pages-browser-smoke.sh` 或这个 workflow/action 时触发。
+- PR 改到 `scripts/e2e/**`、入口脚本、`pages-browser-smoke.sh`、`package.json`、`pnpm-lock.yaml`、这个 workflow/action，
+  或套件覆盖的状态与时序类代码时触发，跑全套 3 片；不是每个 PR 都跑。覆盖的路径以 workflow 的 `paths` 为准：
+  前端 `store.ts`、`features/canvas/lib`、`features/canvas/*Store.ts`、`features/agent`、`lib/sync`、生成与作品缓存（`lib/generationJob.ts`、`lib/platformGenerations.ts`、`hooks/useCloudGenerations.ts`）、参考图（`lib/unusableReferences.ts`、`components/InputBar.tsx`）、鉴权（`lib/authClient.ts`、`lib/authScope.ts`、
+  `lib/sessionRefreshJournal.ts`、`auth/`）、启动与分片恢复（`boot/`、`lib/chunkLoad.ts`、`App.tsx`），
+  以及 BFF 的鉴权、OAuth、同步与作品记录路由和对应 `lib`。新增这类模块时同步补进 `paths`。
 - 推送 `test` 分支时触发，先等同一提交的 `Deploy test` 成功（失败或取消就不跑），再在 runner 上跑，不打真实测试环境。
   它不放在 `deploy-test.yml` 里：那个 workflow 整体共用 `test-deploy` 并发组，套件会拖住下一次测试发布；
   也不用 `workflow_run`：它在默认分支上下文里检出 test 分支的代码，CodeQL 判为缓存投毒。
