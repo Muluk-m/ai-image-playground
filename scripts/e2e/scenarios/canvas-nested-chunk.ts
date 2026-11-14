@@ -6,7 +6,7 @@ import { eventually, type Scenario } from '../kit.ts'
  * 不停在失败卡片。对应 #1846 / #1872 的一致性修复：画布内三个嵌套 lazy 也走 lazyWithReload。
  *
  * 如实说明：这条场景在修复前也通过（启动守卫对 `Failed to fetch dynamically imported module` 本身会先刷新一次），
- * 它是回归保护，不能证明修复前有可见故障。NodeTextEditor / NodeImageEditor 要在画布里有文本 / 图片节点并进入
+ * 它只是这条路径的冒烟，区分不了 lazyWithReload 与守卫兜底，不能证明修复前有可见故障。NodeTextEditor / NodeImageEditor 要在画布里有文本 / 图片节点并进入
  * 编辑后才会加载，本栈没有对应夹具，由 chunkLoad 的单元测试覆盖 lazyWithReload 本身。
  */
 const NODE_CANVAS_CHUNK = /\/assets\/NodeCanvas-[^/]+\.js(?:\?|$)/
