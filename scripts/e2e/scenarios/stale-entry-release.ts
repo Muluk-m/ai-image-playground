@@ -117,8 +117,15 @@ async function openStalePage(
         .locator('body')
         .innerText()
         .catch(() => '')
+      const dom = await page
+        .evaluate(() => {
+          const boot = document.getElementById('boot')
+          const root = document.getElementById('root')
+          return `boot=${boot?.dataset.state ?? 'gone'} rootChildren=${root?.childElementCount ?? -1}`
+        })
+        .catch(() => '')
       throw new Error(
-        `${error}; ${navigations} reload(s), ${intercepted} App chunk request(s), page text: ${text.replace(/\s+/g, ' ').slice(0, 300)}`,
+        `${error}; ${navigations} reload(s), ${intercepted} App chunk request(s), page text: ${text.replace(/\s+/g, ' ').slice(0, 300)}; ${dom}`,
       )
     },
   }

@@ -107,12 +107,15 @@ export async function openSession(ctx: Omit<ScenarioContext, 'newSession'>, labe
     throw new Error(`register failed (${registered.status}): ${registered.body}`)
   }
   await page.goto(`${ctx.stack.origin}/image`)
-  const me = await page.evaluate(async () => (await fetch('/api/auth/me')).status)
-  if (me !== 200) throw new Error(`session cookie was not kept (/api/auth/me answered ${me})`)
-  // 启动（含它顺手做的 refresh 轮换、记住登录用户）跑完再交给场景：场景里改 cookie、刷新才不会和启动抢。
+  // 先等启动跑完（含它顺手做的 refresh 轮换、记住登录用户）再交给场景：场景里改 cookie、刷新才不会和启动抢。
+  // 工作台要等轮换完成才渲染（AuthGate 里 await refreshWebSession），所以输入框出现就说明轮换已落定。
   await page
     .getByRole('textbox', { name: '描述你的创意' })
     .waitFor({ state: 'visible', timeout: 30_000 })
+  // 登录态断言必须在启动之后：轮换会作废旧 access，裸 fetch 与启动并发时带着旧 cookie 会得到 401（#1883）；
+  // 应用自己的请求有 401 -> 静默刷新 -> 重试，这里的裸 fetch 没有。
+  const me = await page.evaluate(async () => (await fetch('/api/auth/me')).status)
+  if (me !== 200) throw new Error(`session cookie was not kept (/api/auth/me answered ${me})`)
   return { context, page, username, password } satisfies Session
 }
 
