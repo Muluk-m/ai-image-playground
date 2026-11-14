@@ -1,0 +1,24 @@
+name: tmp-lock-repeat
+on:
+  push:
+    branches: [fix/deploy-lock-test-flaky-1850]
+jobs:
+  repeat:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: ./.github/actions/setup
+      - run: pnpm install --frozen-lockfile
+      - run: mkdir --version | head -1
+      - name: repeat deployLock test x30 under load
+        run: |
+          for i in 1 2 3 4; do (while :; do :; done) & done
+          fail=0
+          cd apps/web
+          for n in $(seq 1 30); do
+            pnpm exec vitest run src/__tests__/scripts/deployLock.test.ts >/tmp/run.log 2>&1 || { fail=$((fail+1)); echo "run $n FAILED"; grep -E "AssertionError|FAIL|×" /tmp/run.log | head -5; }
+          done
+          echo "failed runs: $fail / 30"
+          kill $(jobs -p) 2>/dev/null || true
+          [ "$fail" = 0 ]
