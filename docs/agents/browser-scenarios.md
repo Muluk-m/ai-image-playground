@@ -24,7 +24,7 @@
 | 生成中刷新 | `scripts/e2e/scenarios/refresh-while-generating.ts` | 上游慢回时刷新；任务仍在进行，结果最终出现；上游只收到 1 次请求 |
 | 参考图改图 | `scripts/e2e/scenarios/reference-edit.ts` | 上游收到的是改图请求，带参考图文件 |
 | 坏参考图 | `scripts/e2e/scenarios/broken-reference.ts` | 截断的 PNG 在前端被标红、生成禁用、上游零请求；移除后换好图重试成功 |
-| 截断参考图 | `scripts/e2e/scenarios/broken-reference.ts`（`truncated-reference`） | 文件头完整、正文被截断的 PNG（浏览器能部分解码）同样被标红、生成禁用、上游零请求；换好图后重试成功 |
+| 截断参考图 | `scripts/e2e/scenarios/broken-reference.ts`（`truncated-reference`、`-jpeg`、`-webp`） | 文件头完整、正文被截断的 PNG / JPEG / WebP（浏览器能部分解码）同样被标红、生成禁用、上游零请求；换好图后重试成功 |
 | 发版后旧标签页 | `scripts/e2e/scenarios/stale-tab-release.ts` | 页面打开后「发版」（`publishNewRelease` 换掉哈希文件名），点进未加载过的页面：只自动刷新一次，最终看到目标页，不停在加载失败卡片 |
 | 分片两次偶发失败 | `scripts/e2e/scenarios/chunk-failure-twice.ts` | 同一构建里间隔稳定运行后，两次打断懒加载分片（与发版无关）：每次都只自动刷新一次并恢复，不停在失败画面 |
 
