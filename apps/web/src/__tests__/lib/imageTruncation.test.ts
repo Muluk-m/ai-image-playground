@@ -88,7 +88,11 @@ describe('isImageTruncated', () => {
   it('tolerates whitespace in base64 and nonstandard JPEG layouts', () => {
     const wrapped = url(png()).replace(/(.{76})/g, '$1\n')
     expect(isImageTruncated(wrapped)).toBe(false)
-    const odd = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(500, 0x11)])
+    const odd = Buffer.concat([
+      Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]),
+      Buffer.alloc(14, 0x4a),
+      Buffer.alloc(500, 0x11), // 段后不是 marker：结构对不上，放行
+    ])
     expect(isImageTruncated(url(odd, 'image/jpeg'))).toBe(false)
   })
 
