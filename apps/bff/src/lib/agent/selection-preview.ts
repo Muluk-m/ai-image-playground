@@ -109,18 +109,28 @@ async function prepareSelection(
     let bottom = -1
     const overlay = Buffer.alloc(render ? info.width * info.height * 4 : 0)
     const selectionAlpha = Buffer.alloc(info.width * info.height)
-    for (let pixel = 0; pixel < selectionAlpha.length; pixel++) {
-      const alpha = 255 - data[pixel * info.channels + info.channels - 1]!
-      selectionAlpha[pixel] = alpha
-      if (alpha > 0) {
-        const x = pixel % info.width
-        const y = Math.floor(pixel / info.width)
-        left = Math.min(left, x)
-        top = Math.min(top, y)
-        right = Math.max(right, x)
-        bottom = Math.max(bottom, y)
+    // 逐像素热循环（4K 图约 800 万次，同步占着事件循环）：按行列自增、查表，不做除余和逐像素的数组分配。
+    const overlayAlpha = new Uint8Array(256)
+    for (let alpha = 0; alpha < 256; alpha++) overlayAlpha[alpha] = Math.round(alpha * 0.58)
+    const alphaOffset = info.channels - 1
+    for (let y = 0, pixel = 0; y < info.height; y++) {
+      for (let x = 0; x < info.width; x++, pixel++) {
+        const alpha = 255 - data[pixel * info.channels + alphaOffset]!
+        selectionAlpha[pixel] = alpha
+        if (alpha > 0) {
+          if (x < left) left = x
+          if (x > right) right = x
+          if (y < top) top = y
+          bottom = y
+        }
+        if (render) {
+          const at = pixel * 4
+          overlay[at] = 59
+          overlay[at + 1] = 130
+          overlay[at + 2] = 246
+          overlay[at + 3] = overlayAlpha[alpha]!
+        }
       }
-      if (render) overlay.set([59, 130, 246, Math.round(alpha * 0.58)], pixel * 4)
     }
     if (right < 0) throw new Error('没有选中任何区域，请重新圈选')
     const bounds = { left, top, width: right - left + 1, height: bottom - top + 1 }
@@ -159,9 +169,9 @@ async function prepareSelection(
     // 参考裁片只携带原色选区；不把定位用的蓝色或总包围框内的未选对象送入生图参考。
     const selectedPixels = await sharp(raw).ensureAlpha().raw().toBuffer()
     for (let pixel = 0; pixel < selectionAlpha.length; pixel++) {
-      selectedPixels[pixel * 4 + 3] = Math.round(
-        (selectedPixels[pixel * 4 + 3]! * selectionAlpha[pixel]!) / 255,
-      )
+      const alpha = selectionAlpha[pixel]!
+      if (alpha === 255) continue
+      selectedPixels[pixel * 4 + 3] = Math.round((selectedPixels[pixel * 4 + 3]! * alpha) / 255)
     }
     const crop = await sharp(selectedPixels, {
       raw: { width: info.width, height: info.height, channels: 4 },
