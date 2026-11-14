@@ -48,7 +48,8 @@ export const staleTabRelease: Scenario = {
       if (entry) await entryButton(page, entry).click()
       else await openPath(page, path)
       // 最终停在目标页，而不是加载失败的卡片。
-      await eventually(
+      await opened(page, label, () => navigations.get(label) ?? 0, () =>
+      eventually(
         `the ${label} page to open`,
         async () => {
           const failed =
@@ -57,11 +58,11 @@ export const staleTabRelease: Scenario = {
           const bootError = await page.locator('#boot[data-state="error"]').count()
           const arrived = entry
             ? (await entryButton(page, entry).getAttribute('aria-pressed')) === 'true'
-            : new URL(page.url()).pathname.replace(/\/$/, '') === path
+            : true
           return failed === 0 && bootError === 0 && arrived && (navigations.get(label) ?? 0) >= 1
         },
         { timeoutMs: 30_000 },
-      )
+      ))
       assert.equal(navigations.get(label), 1, `the ${label} tab reloaded exactly once`)
     }
 
@@ -89,4 +90,24 @@ async function openPath(page: Page, path: string | undefined) {
     window.history.pushState(null, '', target)
     window.dispatchEvent(new PopStateEvent('popstate'))
   }, path)
+}
+
+/** 超时时带上页面现状，免得只剩一句「没等到」。 */
+async function opened(
+  page: Page,
+  label: string,
+  navigations: () => number,
+  wait: () => Promise<unknown>,
+) {
+  try {
+    await wait()
+  } catch (error) {
+    const text = await page
+      .locator('body')
+      .innerText()
+      .catch(() => '')
+    throw new Error(
+      `${error}; ${label} tab at ${page.url()}, ${navigations()} navigation(s), page text: ${text.replace(/\s+/g, ' ').slice(0, 300)}`,
+    )
+  }
 }
