@@ -201,6 +201,11 @@ describe('forced stop after the drain deadline', () => {
     ['the worker scan runs before the BFF pickup', true],
     ['the BFF pickup runs before the worker scan', false],
   ] as const
+  // 用例体内 waitFor 的上限加起来约 30 秒（3+3+3+5+5+5+5）；bun 默认的 5 秒总预算比它们都短，
+  // 在并发跑多个测试进程的 CI 机器上，两轮对话加恢复本来就要两秒多，慢一倍就在 5 秒被掐断。
+  // 超时只是掐断等待，用例体仍会继续跑，下个用例的 beforeEach 清库后它才报「没有任务」，
+  // 那条断言是超时的余波，不是恢复逻辑出错。总预算与各步上限对齐，卡死仍由各步 waitFor 在上限内报出。
+  const RECOVERY_TEST_TIMEOUT_MS = 30_000
   it.each(
     recoveryOrders,
   )('recovers a billed turn stopped while a confirmed job was at the upstream without resubmitting or settling twice when %s', async (_order, workerFirst) => {
@@ -286,5 +291,5 @@ describe('forced stop after the drain deadline', () => {
     expect(settlementsOf(jobId!)).toEqual([expect.objectContaining({ outcome: 'completed' })])
     expect(settlementsOf(interruptedChat!.id)).toHaveLength(1)
     expect(settlementsOf(resumedChat!.id)).toHaveLength(1)
-  })
+  }, RECOVERY_TEST_TIMEOUT_MS)
 })
