@@ -116,12 +116,16 @@ function submitBody(overrides: Record<string, unknown> = {}) {
 const ACCEPTED_PHRASE = 'fixture-phrase-alpha'
 const REJECTED_PHRASE = 'fixture-phrase-beta'
 
+// 登录每次校验都要付一次 argon2id 的内存硬哈希（生产参数约 m=64MiB），限流用例要连失败 10 次；
+// 夹具用最小参数，登录与限流的代码路径不变，慢机器上也不会吃满 bun 默认的 5 秒用例预算。
+const FIXTURE_HASH_OPTIONS = { algorithm: 'argon2id', memoryCost: 1024, timeCost: 1 } as const
+
 async function createTestUser(username: string, password: string) {
   const now = Date.now()
   const user = {
     id: `user-${username}`,
     username,
-    password_hash: await Bun.password.hash(password),
+    password_hash: await Bun.password.hash(password, FIXTURE_HASH_OPTIONS),
     status: 'active' as const,
     created_at: now,
     updated_at: now,
