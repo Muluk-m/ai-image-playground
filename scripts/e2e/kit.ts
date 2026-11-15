@@ -178,10 +178,7 @@ export function publishNewRelease(webRoot: string): string[] {
     const html = rewritten(file)
     // 页面内的构建标识（启动守卫按它计「每个构建自动刷新一次」的额度）随内容变，和真实发版一致。
     const identity = createHash('sha256').update(html).digest('hex')
-    replaceFile(
-      file,
-      html.replace(/(<meta name="aip-html-build" content=")[^"]*/, `$1${identity}`),
-    )
+    replaceFile(file, html.replace(/(<meta name="aip-html-build" content=")[^"]*/, `$1${identity}`))
   }
   for (const from of renamed.keys()) rmSync(join(assetsDir, from))
   return [...renamed.keys()]
