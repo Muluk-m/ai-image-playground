@@ -78,8 +78,11 @@ it('returns cached media without an unhandled rejection when the recency write a
       throw new Error('storage_transaction_aborted')
     })
     await expect(getCachedMedia(media.id)).resolves.toMatchObject({ id: media.id })
+    // 访问时间写入是 fire-and-forget，先等它真的发出（含 openDB 异步），再让已拒绝的 Promise
+    // 走完 unhandledRejection 检查所在的宏任务，最后才断言没有未处理的拒绝。
+    await vi.waitFor(() => expect(put).toHaveBeenCalled())
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(put).toHaveBeenCalled()
+    await new Promise((resolve) => setTimeout(resolve, 0))
     expect(unhandled).toEqual([])
   } finally {
     process.off('unhandledRejection', onUnhandled)
