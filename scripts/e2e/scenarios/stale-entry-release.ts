@@ -95,10 +95,16 @@ async function openStalePage(
       { key: RELOAD_BUDGET_KEY, build: spentBuild },
     )
   }
-  await page.route(APP_CHUNK, (route: any) => {
+  // HTML 里给 App 分片挂了 modulepreload，它和入口的静态依赖几乎同时发出。发版必须等旧入口已经
+  // 跑起来（React 画出第一帧）：否则入口自己的脚本和样式也一并 404，那是入口加载失败（启动失败面板），
+  // 不是本场景要测的「入口正常、只缺 App 分片」，且会失败得时有时无（#1885）。
+  const rootHasContent = () => (document.getElementById('root')?.childElementCount ?? 0) > 0
+  const entryMounted = () => page.waitForFunction(rootHasContent, null, { timeout: 20_000 })
+  await page.route(APP_CHUNK, async (route: any) => {
     // 自动刷新之后加载的是新版本的分片，正常放行。
     if (navigations > 0) return route.continue()
     intercepted += 1
+    await entryMounted()
     if (!published) {
       published = true
       publishNewRelease(stack.webRoot)
