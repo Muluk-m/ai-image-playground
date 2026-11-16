@@ -60,6 +60,9 @@ try {
   await snap('final')
   writeFileSync(out + 'detail.marks.json', JSON.stringify(marks))
   console.log('url', page.url())
-  await stop()
-  await browser.close()
+  try {
+    await stop()
+  } finally {
+    await browser.close()
+  }
 }

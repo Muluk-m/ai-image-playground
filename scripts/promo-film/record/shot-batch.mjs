@@ -65,6 +65,9 @@ try {
   await page.screenshot({ path: `${dbg}final.png` })
   writeFileSync(`${out}batch.marks.json`, JSON.stringify(marks))
   console.log('url', page.url())
-  await stop()
-  await browser.close()
+  try {
+    await stop()
+  } finally {
+    await browser.close()
+  }
 }
