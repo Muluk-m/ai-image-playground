@@ -2,7 +2,7 @@
  * 把 scripts/docs-videos/raw 里的录像压成指南成片：
  * H.264 MP4、VP9 WebM、WebP 封面。不读凭据。
  * 视频写到 scripts/docs-videos/out/（gitignore）。封面仍写到 public。
- * 这是旧的低码率路径，不要再用它盖掉 finish.py 的成片。
+ * 这是旧的低码率路径，不要再用它盖掉 finish.py 的成片。宣传片见 scripts/promo-film/。
  *
  *   node scripts/docs-videos/encode.mjs
  */
@@ -17,7 +17,6 @@ const out = resolve(root, 'scripts/docs-videos/out')
 const posters = resolve(root, 'apps/web/public/guide-assets/zh/clips')
 mkdirSync(out, { recursive: true })
 mkdirSync(posters, { recursive: true })
-const font = '/usr/share/fonts/truetype/wqy/wqy-microhei.ttc'
 
 function run(args) {
   const result = spawnSync('ffmpeg', ['-y', ...args], { stdio: 'inherit' })
@@ -80,39 +79,3 @@ for (const [name, src] of Object.entries(straight)) {
   }
   encodePair(name, src)
 }
-
-const promoSrc = [
-  { file: resolve(raw, '01.webm'), start: 6, dur: 8, text: '说出画面，幕芽成片' },
-  { file: resolve(raw, '01.webm'), start: 36, dur: 12, text: '一句话，出一张能用的图' },
-  { file: resolve(raw, '02.webm'), start: 38, dur: 12, text: '加上参考图，商品还是你的' },
-  { file: resolve(raw, '07-agent-chat.cut.webm'), start: 40, dur: 12, text: '需求还含糊时，交给智能体' },
-  { file: resolve(raw, '03.webm'), start: 48, dur: 10, text: '同一设置，可以出两张' },
-  { file: resolve(raw, '06-batch-each.cut.webm'), start: 40, dur: 10, text: '逐张换背景，商品还在' },
-]
-
-const listPath = resolve(raw, 'promo-concat.txt')
-const segments = []
-promoSrc.forEach((item, index) => {
-  const seg = resolve(raw, `promo-seg-${index}.mp4`)
-  const draw = `scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,drawtext=fontfile=${font}:text='${item.text}':fontsize=48:fontcolor=white:box=1:boxcolor=black@0.55:boxborderw=18:x=(w-text_w)/2:y=h-120`
-  run([
-    '-ss', String(item.start), '-t', String(item.dur), '-i', item.file,
-    '-vf', draw, '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '28', seg,
-  ])
-  segments.push(seg)
-})
-const card = resolve(raw, 'promo-end.mp4')
-run([
-  '-f', 'lavfi', '-i', 'color=c=0x111311:s=1920x1080:d=6',
-  '-vf',
-  `drawtext=fontfile=${font}:text='幕芽':fontsize=84:fontcolor=white:x=(w-text_w)/2:y=(h/2)-70,drawtext=fontfile=${font}:text='muvloom.online':fontsize=42:fontcolor=white:x=(w-text_w)/2:y=(h/2)+30`,
-  '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', card,
-])
-segments.push(card)
-const { writeFileSync } = await import('node:fs')
-writeFileSync(listPath, segments.map((file) => `file '${file}'`).join('\n'))
-const promo = resolve(out, 'promo-site-zh.mp4')
-run(['-f', 'concat', '-safe', '0', '-i', listPath, '-c', 'copy', promo])
-run(['-i', promo, '-an', '-c:v', 'libvpx-vp9', '-crf', '40', '-b:v', '0', '-cpu-used', '4', resolve(out, 'promo-site-zh.webm')])
-run(['-ss', '8', '-i', promo, '-frames:v', '1', '-c:v', 'libwebp', '-quality', '72', resolve(posters, 'promo-site-zh-poster.webp')])
-console.log('promo bytes', statSync(promo).size)

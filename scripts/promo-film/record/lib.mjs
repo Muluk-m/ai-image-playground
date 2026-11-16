@@ -86,23 +86,29 @@ export async function capture(page, dest) {
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '14', '-preset', 'veryfast', '-movflags', '+faststart', dest], { stdio: ['pipe', 'ignore', 'inherit'] })
   ff.stdin.on('error', () => {})
   const step = 1000 / 30
-  let due = 0, last = null, closed = false
+  let due = 0, last = null, closed = false, dropped = 0
   const done = new Promise((r) => ff.on('close', r))
+  // 编码跟不上时丢帧，不让缓冲无限增长；丢过帧的母带时间点和 marks 对不上，要重录
+  const put = (frame) => {
+    if (ff.stdin.writableLength > 64 * 1024 * 1024) dropped++
+    else ff.stdin.write(frame)
+  }
   client.on('Page.screencastFrame', (evt) => {
     if (closed) return
     client.send('Page.screencastFrameAck', { sessionId: evt.sessionId }).catch(() => {})
     const f = Buffer.from(evt.data, 'base64'), now = Date.now()
     if (!due) due = now
-    while (last && due <= now - step) { ff.stdin.write(last); due += step }
+    while (last && due <= now - step) { put(last); due += step }
     last = f
-    if (due <= now + 1) { ff.stdin.write(f); due += step }
+    if (due <= now + 1) { put(f); due += step }
   })
   await client.send('Page.startScreencast', { format: 'jpeg', quality: 95, maxWidth: W * DPR, maxHeight: H * DPR, everyNthFrame: 1 })
   // 静止画面 Chrome 不发帧，定时补
-  const pump = setInterval(() => { if (!closed && last) { const now = Date.now(); while (due <= now) { ff.stdin.write(last); due += step } } }, 100)
+  const pump = setInterval(() => { if (!closed && last) { const now = Date.now(); while (due <= now) { put(last); due += step } } }, 100)
   return async () => {
     closed = true; clearInterval(pump)
     await client.send('Page.stopScreencast').catch(() => {})
     ff.stdin.end(); await done
+    if (dropped) console.warn(`capture: dropped ${dropped} frames, timings are off, re-record`)
   }
 }

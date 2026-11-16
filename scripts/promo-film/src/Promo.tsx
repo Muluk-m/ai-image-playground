@@ -151,7 +151,7 @@ function Wipe() {
     <>
       <Square src="img/edit-before.png" />
       <div style={{ position: 'absolute', left: (W - H) / 2, top: 0, width: H * p, height: H, overflow: 'hidden' }}>
-        <Img src={staticFile('img/edit-after.png')} style={{ position: 'absolute', left: 0, top: 0, width: H, height: H }} />
+        <Img src={staticFile('img/edit-after.png')} style={{ position: 'absolute', left: 0, top: 0, width: H, height: H, objectFit: 'cover' }} />
       </div>
       {p > 0 && p < 1 && <div style={{ position: 'absolute', left: x - 1, top: 0, width: 2, height: H, background: FG }} />}
       <Label delay={b(3.5)}>只改了框选的部分</Label>
