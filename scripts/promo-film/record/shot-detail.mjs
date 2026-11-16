@@ -1,5 +1,5 @@
 // 图片生成：青釉杯参考图 → 杯口特写
-import { BASE, capture, click, debugDir, login, moveTo, open, sleep, type } from './lib.mjs'
+import { BASE, capture, click, debugDir, finish, login, moveTo, open, sleep, type } from './lib.mjs'
 import { writeFileSync } from 'node:fs'
 const out = new URL('../raw/', import.meta.url).pathname
 const dbg = debugDir('detail')
@@ -36,19 +36,33 @@ try {
   mark('typed')
   await sleep(700)
   await snap('typed')
+  const cardIds = () => page.evaluate(() => [...document.querySelectorAll('[data-task-id]')].map((card) => card.getAttribute('data-task-id')))
+  const before = new Set(await cardIds())
   await click(page, page.getByRole('button', { name: /^(生成|开始创作)/ }).last())
   mark('sent')
-  await sleep(4000)
+  // 完成 = 出现一张新作品卡片，图片已解码，卡片上没有任何进行中的阶段文案
+  let done = false
   for (let i = 0; i < 240; i++) {
     if (i % 10 === 0) await snap(`wait${i}`)
-    const body = (await page.locator('body').innerText()).replace(/\s+/g, ' ')
-    if (/生成失败|积分不足|未能完成|生成服务异常/.test(body)) {
+    const fresh = await page.evaluate(
+      (known) =>
+        [...document.querySelectorAll('[data-task-id]')]
+          .filter((card) => !known.includes(card.getAttribute('data-task-id')))
+          .map((card) => ({
+            text: card.textContent.replace(/\s+/g, ' '),
+            decoded: [...card.querySelectorAll('img')].some((img) => img.complete && img.naturalWidth > 0),
+          })),
+      [...before],
+    )
+    const failed = fresh.find((card) => /生成失败|积分不足|未能完成|生成服务异常/.test(card.text))
+    if (failed) {
       mark('fail')
-      console.log(body.slice(0, 500))
-      break
+      throw new Error(`特写生成失败：${failed.text.slice(0, 300)}`)
     }
-    if (!/生成中|排队/.test(body) && i > 2) {
+    const busy = /生成中|排队|已提交|保存结果中|载入结果|重新连接中|上传中/
+    if (fresh.some((card) => card.decoded && !busy.test(card.text))) {
       mark('done')
+      done = true
       await sleep(2500)
       await moveTo(page, 1200, 600)
       await sleep(3000)
@@ -56,13 +70,11 @@ try {
     }
     await sleep(1000)
   }
+  if (!done) throw new Error('特写 4 分钟内没有出结果')
 } finally {
-  await snap('final')
-  writeFileSync(out + 'detail.marks.json', JSON.stringify(marks))
-  console.log('url', page.url())
-  try {
-    await stop()
-  } finally {
-    await browser.close()
-  }
+  await finish(browser, stop, async () => {
+    writeFileSync(`${out}detail.marks.json`, JSON.stringify(marks))
+    console.log('url', page.url())
+    await snap('final')
+  })
 }
