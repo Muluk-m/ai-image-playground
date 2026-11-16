@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""从 1080p 母带剪指南成片和宣传片。
+"""从 1080p 母带剪指南成片。
 
-指南片：等待段 8–16 倍快进，只留约两秒，CRF 18，无营销字幕。
-宣传片：片头片尾、圆角字幕、推近，45–60 秒，CRF 18。
+等待段 8–16 倍快进，只留约两秒，CRF 18，无营销字幕。宣传片不在这里剪，见同目录 README.md。
 母带在 scripts/docs-videos/raw/hd/。不要用已经压过的成片当输入。
 
 mp4 / webm 写到 scripts/docs-videos/out/（gitignore）。封面 webp 仍写到
@@ -11,39 +10,16 @@ apps/web/public/guide-assets/zh/clips/。上线方式见同目录 README.md。
 
 from __future__ import annotations
 
-import json
 import subprocess
 import sys
 from pathlib import Path
-
-from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[2]
 HD = ROOT / "scripts/docs-videos/raw/hd"
 # 成片不进仓库。封面仍给页面做 poster，路径保持 /guide-assets/zh/clips/。
 OUT = ROOT / "scripts/docs-videos/out"
 POSTERS = ROOT / "apps/web/public/guide-assets/zh/clips"
-FONT = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
-FONT_INDEX = 2  # Noto Sans CJK SC Bold。0 是日文，2 才是简体。
-W, H = 1920, 1080
 FPS = 30
-
-# 宣传片字幕。逐字核对过，「糊」不是「树」。
-SUBS = {
-    "open": "说出画面，幕芽成片",
-    "one": "一句话，出一张能用的图",
-    "ref": "加上参考图，商品还是你的",
-    "agent": "需求还含糊时，交给智能体",
-    "two": "同一设置，可以出两张",
-    "batch": "逐张换背景，商品还在",
-}
-assert SUBS["agent"] == "需求还含糊时，交给智能体"
-assert "糊" in SUBS["agent"] and "树" not in SUBS["agent"]
-assert SUBS["open"] == "说出画面，幕芽成片"
-assert SUBS["one"] == "一句话，出一张能用的图"
-assert SUBS["ref"] == "加上参考图，商品还是你的"
-assert SUBS["two"] == "同一设置，可以出两张"
-assert SUBS["batch"] == "逐张换背景，商品还在"
 
 GUIDE = {
     "01": "01-first-image",
@@ -81,25 +57,6 @@ MANUAL = {
 
 # (shot, start, source_dur, speed, cx, cy, zoom, subtitle key or None)
 # 播放时长 = source_dur / speed。zoom 为 0 表示不推近。
-PROMO_SCENES: list[tuple] = [
-    ("01", 13.0, 4.4, 1, 960, 410, 0.50, "one"),
-    ("01", 26.2, 14.4, 8, 0, 0, 0, None),
-    ("01", 40.6, 2.2, 1, 760, 640, 1.05, "one"),
-    ("02", 12.0, 3.2, 1, 960, 400, 0.52, "ref"),
-    ("02", 36.5, 24.0, 16, 0, 0, 0, None),
-    ("02", 60.6, 2.2, 1, 760, 640, 1.05, "ref"),
-    ("07", 24.0, 3.4, 1, 1080, 280, 0.36, "agent"),
-    ("07", 40.0, 25.0, 16, 0, 0, 0, None),
-    ("07", 65.2, 4.4, 1, 1000, 430, 0.50, "agent"),
-    ("03", 16.0, 3.0, 1, 960, 400, 0.46, "two"),
-    ("03", 27.2, 24.0, 16, 0, 0, 0, None),
-    ("03", 51.3, 2.4, 1, 820, 560, 0.42, "two"),
-    ("06", 11.5, 3.6, 1, 960, 390, 0.46, "batch"),
-    ("06", 49.6, 28.8, 16, 0, 0, 0, None),
-    ("06", 78.5, 2.4, 1, 680, 760, 0.72, "batch"),
-]
-
-
 def run(args: list[str]) -> None:
     proc = subprocess.run(args)
     if proc.returncode != 0:
@@ -355,120 +312,6 @@ def encode_guide(src: Path, pieces: list[tuple[float, float, float]], name: str)
     return mp4
 
 
-def font(size: int) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(FONT, size, index=FONT_INDEX)
-
-
-def rounded(draw: ImageDraw.ImageDraw, box: tuple[int, int, int, int], radius: int, fill: tuple[int, int, int, int]) -> None:
-    draw.rounded_rectangle(box, radius=radius, fill=fill)
-
-
-def pill(text: str, size: int = 52) -> Image.Image:
-    face = font(size)
-    dummy = ImageDraw.Draw(Image.new("RGBA", (8, 8)))
-    left, top, right, bottom = dummy.textbbox((0, 0), text, font=face)
-    tw, th = right - left, bottom - top
-    pad_x, pad_y = 36, 18
-    image = Image.new("RGBA", (tw + pad_x * 2, th + pad_y * 2), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
-    rounded(draw, (0, 0, image.width - 1, image.height - 1), 22, (12, 16, 14, 176))
-    draw.text((pad_x - left, pad_y - top), text, font=face, fill=(255, 255, 255, 255))
-    return image
-
-
-def card(lines: list[tuple[str, int]], cta: str | None = None) -> Image.Image:
-    image = Image.new("RGBA", (W, H), (17, 19, 17, 255))
-    draw = ImageDraw.Draw(image)
-    y = 390 if cta else 430
-    for text, size in lines:
-        face = font(size)
-        dummy = ImageDraw.Draw(Image.new("RGBA", (8, 8)))
-        left, top, right, bottom = dummy.textbbox((0, 0), text, font=face)
-        tw, th = right - left, bottom - top
-        x = (W - tw) // 2
-        draw.text((x - left + 2, y - top + 3), text, font=face, fill=(0, 0, 0, 90))
-        draw.text((x - left, y - top), text, font=face, fill=(244, 245, 242, 255))
-        y += th + 28
-    if cta:
-        face = font(36)
-        dummy = ImageDraw.Draw(Image.new("RGBA", (8, 8)))
-        left, top, right, bottom = dummy.textbbox((0, 0), cta, font=face)
-        tw, th = right - left, bottom - top
-        bw, bh = tw + 72, th + 28
-        x = (W - bw) // 2
-        rounded(draw, (x, y, x + bw, y + bh), 18, (61, 107, 80, 255))
-        draw.text((x + 36 - left, y + 14 - top), cta, font=face, fill=(255, 255, 255, 255))
-    return image
-
-
-def write_png(image: Image.Image, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    image.save(path)
-
-
-def zoom_filter(cx: int, cy: int, amount: float, dur: float) -> str:
-    # 滤镜图里逗号要转义，否则 clip() 会被拆成多个滤镜。
-    z = f"(1+{amount:.4f}*min(t/{max(dur, 0.1):.3f}\\,1))"
-    return (
-        f"crop=w='iw/{z}':h='ih/{z}':"
-        f"x='clip({cx}-iw/{z}/2\\,0\\,iw-iw/{z})':"
-        f"y='clip({cy}-ih/{z}/2\\,0\\,ih-ih/{z})',"
-        f"scale={W}:{H}:flags=lanczos,setsar=1,format=yuv420p"
-    )
-
-
-def cut_scene(
-    src: Path,
-    start: float,
-    dur: float,
-    speed: float,
-    cx: int,
-    cy: int,
-    zoom: float,
-    dest: Path,
-    sub: Path | None,
-) -> None:
-    if zoom > 0 and speed == 1:
-        video = f"setpts=PTS-STARTPTS,fps={FPS},{zoom_filter(cx, cy, zoom, dur)}"
-    else:
-        video = f"setpts=(PTS-STARTPTS)/{speed:.4f},fps={FPS},setsar=1,format=yuv420p"
-    cmd = ["ffmpeg", "-y", "-ss", f"{start:.3f}", "-t", f"{dur:.3f}", "-i", str(src)]
-    if sub is None:
-        cmd += ["-vf", video, *x264(), str(dest)]
-    else:
-        play = dur / speed
-        cmd += ["-loop", "1", "-framerate", str(FPS), "-t", f"{play:.3f}", "-i", str(sub)]
-        fade_out = max(0.3, play - 0.32)
-        filt = (
-            f"[0:v]{video}[base];"
-            f"[1:v]format=rgba,fade=t=in:st=0:d=0.22:alpha=1,"
-            f"fade=t=out:st={fade_out:.2f}:d=0.24:alpha=1[sub];"
-            "[base][sub]overlay=x=(main_w-overlay_w)/2:"
-            "y='main_h-overlay_h-78-16*(1-min(t/0.28\\,1))':format=yuv420[v]"
-        )
-        cmd += ["-filter_complex", filt, "-map", "[v]", *x264(), str(dest)]
-    run(cmd)
-
-
-def still_video(image: Path, dur: float, dest: Path) -> None:
-    run(
-        [
-            "ffmpeg",
-            "-y",
-            "-loop",
-            "1",
-            "-framerate",
-            str(FPS),
-            "-i",
-            str(image),
-            "-t",
-            f"{dur:.2f}",
-            *x264(),
-            str(dest),
-        ]
-    )
-
-
 def build_guides(selected: dict[str, str] | None = None) -> None:
     for shot, name in (selected or GUIDE).items():
         src = HD / f"{shot}.mp4"
@@ -487,72 +330,8 @@ def build_guides(selected: dict[str, str] | None = None) -> None:
         print(" ", name, "out", round(probe(out), 1), "MB", round(out.stat().st_size / 1048576, 2))
 
 
-def build_promo() -> None:
-    work = HD / "promo-build"
-    work.mkdir(parents=True, exist_ok=True)
-    write_png(card([("幕芽", 92), (SUBS["open"], 42)]), work / "title.png")
-    write_png(card([("幕芽", 88), ("muvloom.online", 42)], cta="开始创作"), work / "end.png")
-    agent = pill(SUBS["agent"])
-    write_png(agent, work / "sub-agent.png")
-
-    segments: list[Path] = []
-    title_mp4 = work / "00-title.mp4"
-    still_video(work / "title.png", 3.2, title_mp4)
-    segments.append(title_mp4)
-
-    for index, (shot, start, dur, speed, cx, cy, zoom, key) in enumerate(PROMO_SCENES, start=1):
-        sub = None
-        if key is not None:
-            sub = work / f"sub-{index}.png"
-            write_png(pill(SUBS[key]), sub)
-        dest = work / f"{index:02d}.mp4"
-        cut_scene(HD / f"{shot}.mp4", start, dur, speed, cx, cy, zoom, dest, sub)
-        segments.append(dest)
-        print("scene", index, shot, "at", start, "play", round(dur / speed, 2), "zoom", zoom)
-
-    end_mp4 = work / "99-end.mp4"
-    still_video(work / "end.png", 4.2, end_mp4)
-    segments.append(end_mp4)
-
-    promo = OUT / "promo-site-zh.mp4"
-    concat(segments, promo)
-    duration = probe(promo)
-    size = promo.stat().st_size
-    bitrate = size * 8 / duration / 1_000_000
-    print(f"promo {duration:.2f}s {size / 1048576:.2f}MB {bitrate:.2f}Mbps")
-    if not 45 <= duration <= 60:
-        print("warning: duration outside 45–60")
-    if size > 25 * 1048576:
-        print("warning: larger than 25MB")
-    poster(promo, POSTERS / "promo-site-zh-poster.webp", 8.0)
-    (HD / "promo-report.json").write_text(
-        json.dumps(
-            {
-                "seconds": round(duration, 2),
-                "bytes": size,
-                "mbps": round(bitrate, 2),
-                "subtitles": [
-                    "幕芽",
-                    SUBS["open"],
-                    SUBS["one"],
-                    SUBS["ref"],
-                    SUBS["agent"],
-                    SUBS["two"],
-                    SUBS["batch"],
-                    "幕芽",
-                    "muvloom.online",
-                    "开始创作",
-                ],
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
-
-
 def build_webm(names: list[str] | None = None) -> None:
-    names = names if names is not None else [GUIDE[shot] for shot in GUIDE] + ["promo-site-zh"]
+    names = names if names is not None else [GUIDE[shot] for shot in GUIDE]
     for name in names:
         mp4 = OUT / f"{name}.mp4"
         webm = OUT / f"{name}.webm"
@@ -624,7 +403,6 @@ def main() -> None:
         build_webm([GUIDE[shot] for shot in only])
         return
     build_guides()
-    build_promo()
     build_webm()
 
 
