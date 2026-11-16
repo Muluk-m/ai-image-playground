@@ -84,10 +84,15 @@ export async function capture(page, dest) {
   const ff = spawn('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'image2pipe', '-framerate', '30', '-vcodec', 'mjpeg', '-i', 'pipe:0', '-an',
     '-vf', `scale=${W * DPR}:${H * DPR}:force_original_aspect_ratio=decrease,pad=${W * DPR}:${H * DPR}:(ow-iw)/2:(oh-ih)/2,setsar=1`,
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '14', '-preset', 'veryfast', '-movflags', '+faststart', dest], { stdio: ['pipe', 'ignore', 'inherit'] })
+  // stdin 出错时 ffmpeg 已经退出，失败原因由下面的退出码报告
   ff.stdin.on('error', () => {})
   const step = 1000 / 30
   let due = 0, last = null, closed = false, dropped = 0
-  const done = new Promise((r) => ff.on('close', r))
+  const done = new Promise((resolve, reject) => {
+    ff.on('error', reject)
+    ff.on('close', (code, signal) => (code === 0 ? resolve() : reject(new Error(`ffmpeg 录制失败：code=${code} signal=${signal} ${dest}`))))
+  })
+  done.catch(() => {})
   // 编码跟不上时丢帧，不让缓冲无限增长；丢过帧的母带时间点和 marks 对不上，要重录
   const put = (frame) => {
     if (ff.stdin.writableLength > 64 * 1024 * 1024) dropped++
