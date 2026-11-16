@@ -32,7 +32,8 @@ cp ../../docs/plans/docs-site-rewrite/mug-1.png public/img/original.png
 
 ## 2. 对时间点
 
-母带写到 `raw/`，每段旁边有 `*.marks.json`（上传、输入、发送等时刻）。四张图各自出现的时刻：
+母带写到 `raw/`，每段旁边有 `*.marks.json`（上传、输入、发送等时刻）。`tools/` 的脚本要 numpy
+（`python3 -m pip install numpy`）。四张图各自出现的时刻：
 
 ```sh
 python3 tools/color-steps.py raw/batch.mp4
@@ -50,12 +51,15 @@ logo 从 `apps/web/public/brand/muvloom-mark.svg` 复制到 `public/brand/`，�
 渲染和 webm 编码是分钟级任务，放 macmini2。`public/` 被忽略，rmake 不一定同步，直接 rsync 整个目录：
 
 ```sh
-rsync -a --exclude node_modules --exclude raw ./ macmini2:promo-film/
+rsync -a --exclude node_modules --exclude /raw/ ./ macmini2:promo-film/
 ssh macmini2 'cd promo-film && npm install && npx tsc --noEmit -p . && npm run render'
 scp macmini2:promo-film/out/promo.mp4 out/
 ffmpeg -i out/promo.mp4 -c:v copy -af loudnorm=I=-14:TP=-1.5:LRA=11 -c:a aac -b:a 192k -movflags +faststart out/promo-site-zh.mp4
 # webm：macmini2 没装 ffmpeg，用 Remotion 自带的 `npx remotion ffmpeg`，VP9 两遍 CRF 34 + Opus 128k
 ```
+
+首页和指南首页进入视口才加载整片。交付体积：mp4 不超过 15 MB、webm 不超过 8 MB。画面多是静止成图，
+CRF 16 母带直接封装就够小（2026-11 这版 58.2 秒：mp4 8.6 MB、webm 4.4 MB）；超了就把 mp4 重编到 CRF 20–23，不要直接封装。
 
 ## 4. 上线
 
