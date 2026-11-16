@@ -101,7 +101,7 @@ CI（`.github/workflows/web.yml`，PR 以及 push 到 main 和 test 都跑）把
 
 **成本与影响说明。** 改到模型调用、模型/供应商切换、定价、额度、计费，或任何会改变推理成本的改动（更贵的默认模型、更多调用次数、更长上下文、更大输出、放宽限额），必须在 PR 描述的「成本与影响」和给 Nain 的汇报里写清楚改了什么、对成本的影响；涉及结算或扣费的还要在标题或正文标明「涉及结算，需 Nain 亲自审」。`.github/workflows/cost-impact.yml` 按 `scripts/cost-impact.mjs` 的路径清单检查，命中时打 `cost-impact` 标签提醒，只提示、不代替人工说明；清单外的成本改动同样要写、同样要标出来。未写清成本影响、未标出结算改动的，不要请 Nain 合并。
 
-**安全扫描（已定，2026-10-27）。** CodeQL（`.github/workflows/codeql.yml`）只报告、不拦合并；落在本 PR 改动上的高危告警按 REVIEW.md 当严重问题处理。Dependabot 只开 `.github/dependabot.yml` 里的版本更新，不开 Dependabot security updates（自动开安全修复 PR）。这是决定，不是待办。
+**安全扫描（已定，2026-10-27）。** CodeQL（`.github/workflows/codeql.yml`）只报告、不拦合并；落在本 PR 改动上的高危告警按 REVIEW.md 当严重问题处理。不用 Dependabot（2026-11-16 起连版本更新也停用，不开 security updates）；第三方 action 仍按 commit SHA 固定，需要升级时手动开 PR。这是决定，不是待办。
 
 ## Review guidelines
 
