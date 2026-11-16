@@ -1,5 +1,5 @@
 // 图片生成：青釉杯参考图 → 杯口特写
-import { BASE, capture, click, debugDir, login, moveTo, open, sleep, type } from './lib.mjs'
+import { BASE, capture, click, debugDir, finish, login, moveTo, open, sleep, type } from './lib.mjs'
 import { writeFileSync } from 'node:fs'
 const out = new URL('../raw/', import.meta.url).pathname
 const dbg = debugDir('detail')
@@ -36,19 +36,39 @@ try {
   mark('typed')
   await sleep(700)
   await snap('typed')
+  const cardIds = () => page.evaluate(() => [...document.querySelectorAll('[data-task-id]')].map((card) => card.getAttribute('data-task-id')))
+  const before = new Set(await cardIds())
   await click(page, page.getByRole('button', { name: /^(生成|开始创作)/ }).last())
   mark('sent')
-  await sleep(4000)
+  // 完成 = 出现一张新作品卡片，结果图已解码，卡片上没有任何进行中的阶段文案
+  let done = false
   for (let i = 0; i < 240; i++) {
     if (i % 10 === 0) await snap(`wait${i}`)
-    const body = (await page.locator('body').innerText()).replace(/\s+/g, ' ')
-    if (/生成失败|积分不足|未能完成|生成服务异常/.test(body)) {
+    const fresh = await page.evaluate(
+      (known) =>
+        // 列表按时间倒序、虚拟滚动：只看排第一且提交前不存在的卡片，避免后挂载的旧卡片被当成新任务
+        [document.querySelector('[data-task-id]')]
+          .filter((card) => card && !known.includes(card.getAttribute('data-task-id')))
+          .map((card) => ({
+            text: card.textContent.replace(/\s+/g, ' '),
+            // 卡片里还有模型图标；结果图带 data-image-id，只在任务有输出时渲染
+            decoded: [...card.querySelectorAll('img[data-image-id]')].some((img) => img.complete && img.naturalWidth > 0),
+          })),
+      [...before],
+    )
+    // 失败的卡片只显示「失败」，具体原因在失败后弹出的详情里，所以连同整页文案一起报
+    const failed = fresh.find((card) => /失败|积分不足|未能完成/.test(card.text))
+    if (failed) {
       mark('fail')
-      console.log(body.slice(0, 500))
-      break
+      await sleep(1500)
+      const pageText = (await page.locator('body').innerText()).replace(/\s+/g, ' ')
+      const reason = pageText.match(/[^。]*(生成服务异常|未能完成|积分不足|失败)[^。]*。?/)?.[0] ?? ''
+      throw new Error(`特写生成失败：${reason || failed.text.slice(0, 200)}`)
     }
-    if (!/生成中|排队/.test(body) && i > 2) {
+    const busy = /生成中|排队|已提交|保存结果中|载入结果|重新连接中|恢复连接中|结果确认中|上传中/
+    if (fresh.some((card) => card.decoded && !busy.test(card.text))) {
       mark('done')
+      done = true
       await sleep(2500)
       await moveTo(page, 1200, 600)
       await sleep(3000)
@@ -56,13 +76,11 @@ try {
     }
     await sleep(1000)
   }
+  if (!done) throw new Error('特写 4 分钟内没有出结果')
 } finally {
-  await snap('final')
-  writeFileSync(out + 'detail.marks.json', JSON.stringify(marks))
-  console.log('url', page.url())
-  try {
-    await stop()
-  } finally {
-    await browser.close()
-  }
+  await finish(browser, stop, async () => {
+    writeFileSync(`${out}detail.marks.json`, JSON.stringify(marks))
+    console.log('url', page.url())
+    await snap('final')
+  })
 }

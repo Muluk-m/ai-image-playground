@@ -25,6 +25,8 @@ cp public/img/glaze-2.png public/img/edit-before.png
 cp ../../docs/plans/docs-site-rewrite/mug-1.png public/img/original.png
 ```
 
+三个录制脚本在生成失败、超时、ffmpeg 出错或丢帧时都会非零退出，这时母带不能用，看 `raw/debug/<镜头>/` 的截图再重录。
+
 原图从页面拿：画布用 `dl-canvas.mjs <画布URL> <文件>`，对话和作品列表用 `sniff.mjs <URL> <目录>` 拦截原图响应。
 
 屏幕采集按真实窗口的绘制表面出帧，所以 `lib.mjs` 不模拟视口：窗口高度加 87px 顶栏，

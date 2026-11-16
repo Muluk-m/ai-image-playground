@@ -1,6 +1,6 @@
 // 画布局部重绘：新建画布，上传批量结果里的赤陶杯，框选多肉换成干花。
 // 上传的这张同时是成片擦除对比的改前图，录完复制成 public/img/edit-before.png。
-import { BASE, capture, click, debugDir, login, moveTo, open, sleep, type } from './lib.mjs'
+import { BASE, capture, click, debugDir, finish, login, moveTo, open, sleep, type } from './lib.mjs'
 import { writeFileSync } from 'node:fs'
 const out = new URL('../raw/', import.meta.url).pathname
 const dbg = debugDir('edit')
@@ -120,12 +120,9 @@ try {
   await snap('result')
   await sleep(4000)
 } finally {
-  await snap('final')
-  writeFileSync(out + 'edit.marks.json', JSON.stringify(marks))
-  console.log('url', page.url())
-  try {
-    await stop()
-  } finally {
-    await browser.close()
-  }
+  await finish(browser, stop, async () => {
+    writeFileSync(`${out}edit.marks.json`, JSON.stringify(marks))
+    console.log('url', page.url())
+    await snap('final')
+  })
 }
