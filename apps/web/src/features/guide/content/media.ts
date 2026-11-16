@@ -30,8 +30,8 @@ export const GUIDE_CLIP_URLS = {
   '10-explore-remix.webm': 'https://cms-r2.deepclick.com/10-explore-remix-5f7deb96fe29.webm',
   '11-toolbox-crop.mp4': 'https://cms-r2.deepclick.com/11-toolbox-crop-895667ce5f13.mp4',
   '11-toolbox-crop.webm': 'https://cms-r2.deepclick.com/11-toolbox-crop-a8e1e45db698.webm',
-  'promo-site-zh.mp4': 'https://cms-r2.deepclick.com/promo-site-zh-1162a0afec22.mp4',
-  'promo-site-zh.webm': 'https://cms-r2.deepclick.com/promo-site-zh-a2a4494df505.webm',
+  'promo-site-zh.mp4': 'https://cms-r2.deepclick.com/promo-site-zh-ccb0040581bf.mp4',
+  'promo-site-zh.webm': 'https://cms-r2.deepclick.com/promo-site-zh-cda70635b35c.webm',
   'remix.mp4': 'https://cms-r2.deepclick.com/remix-f90dbcd5047f.mp4',
   'remix.webm': 'https://cms-r2.deepclick.com/remix-c04b9ed281f0.webm',
   'settings.mp4': 'https://cms-r2.deepclick.com/settings-24575f51d470.mp4',
@@ -79,6 +79,7 @@ export function promoFilm(alt: string, caption?: string): VideoBlock & { type: '
     caption,
     width: 960,
     height: 540,
+    film: true,
   }) as VideoBlock & { type: 'video' }
 }
 

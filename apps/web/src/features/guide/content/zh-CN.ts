@@ -74,8 +74,8 @@ export const guideZhCN: GuideContent = {
     movedBody: '正在前往新页面：',
   },
   home: [
-    promoFilm('幕芽站点宣传片：从一句话到出图、动图和画布改图', '说出画面，幕芽成片'),
-    p(`宣传片用测试环境的真实操作剪成，字幕在画面上。下面按功能分篇，更新于 ${updated}。`),
+    promoFilm('幕芽站点宣传片：一次换四种釉色、画布局部重绘和杯口特写', '说出画面，幕芽成片'),
+    p(`宣传片用测试环境的真实操作和出图剪成。下面按功能分篇，更新于 ${updated}。`),
   ],
   groups: [
     { id: 'start', title: '快速开始', pages: [overview, firstImage] },

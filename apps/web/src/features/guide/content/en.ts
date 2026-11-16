@@ -1533,7 +1533,12 @@ export const guideEn: GuideContent = {
     movedTitle: 'This page has moved',
     movedBody: 'Opening the new page:',
   },
-  home: [promoFilm('Muvloom film', 'Chinese subtitles. From a sentence to a finished picture.')],
+  home: [
+    promoFilm(
+      'Muvloom film',
+      'Chinese labels. Four glazes from one request, a local edit and a close-up.',
+    ),
+  ],
   groups: [
     { id: 'start', title: 'Start', pages: [overview, firstImage] },
     {
