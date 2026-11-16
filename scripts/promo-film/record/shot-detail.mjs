@@ -46,8 +46,9 @@ try {
     if (i % 10 === 0) await snap(`wait${i}`)
     const fresh = await page.evaluate(
       (known) =>
-        [...document.querySelectorAll('[data-task-id]')]
-          .filter((card) => !known.includes(card.getAttribute('data-task-id')))
+        // 列表按时间倒序、虚拟滚动：只看排第一且提交前不存在的卡片，避免后挂载的旧卡片被当成新任务
+        [document.querySelector('[data-task-id]')]
+          .filter((card) => card && !known.includes(card.getAttribute('data-task-id')))
           .map((card) => ({
             text: card.textContent.replace(/\s+/g, ' '),
             // 卡片里还有模型图标；结果图带 data-image-id，只在任务有输出时渲染
