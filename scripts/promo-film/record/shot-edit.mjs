@@ -97,29 +97,28 @@ try {
   const send = page.getByRole('button', { name: '生成新候选' })
   await click(page, send)
   mark('sent')
+  // 画布进度会显示「智能改图中… · 排队中」「保存结果中」等，不能只看「生成中」。
+  // 新版本落到节点上时，结果翻页器变成 2 / 2。
+  const busy = /生成中|智能改图中|排队中|保存结果中|上传中/
   let done = false
-  await sleep(3000)
   for (let i = 0; i < 240; i++) {
     if (i % 10 === 0) await snap(`wait${i}`)
     const body = (await page.locator('body').innerText()).replace(/\s+/g, ' ')
     if (/生成失败|积分不足|未能完成|生成服务异常|不支持遮罩/.test(body)) {
       mark('fail')
-      console.log(body.slice(0, 500))
-      break
+      throw new Error(`局部重绘失败：${body.slice(0, 300)}`)
     }
-    if (!/生成中/.test(body) && i > 2) {
+    if (/\b2\s*\/\s*2\b/.test(body) && !busy.test(body)) {
       mark('done')
       done = true
       break
     }
     await sleep(1000)
   }
+  if (!done) throw new Error('局部重绘 4 分钟内没有出结果')
   await sleep(3000)
   await snap('result')
-  if (done) {
-    // 选中新图停留
-    await sleep(4000)
-  }
+  await sleep(4000)
 } finally {
   await snap('final')
   writeFileSync(out + 'edit.marks.json', JSON.stringify(marks))
