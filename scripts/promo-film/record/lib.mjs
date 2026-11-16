@@ -78,6 +78,24 @@ export async function type(page, loc, text, delay = 70) {
   }
 }
 
+/**
+ * 录制收尾：先尽量保存诊断（截图、marks），失败只警告；无论如何都停止采集、关闭浏览器，
+ * 采集失败（ffmpeg 出错或丢帧）在关闭浏览器后照样抛出。
+ */
+export async function finish(browser, stop, saveDiagnostics) {
+  try {
+    await saveDiagnostics()
+  } catch (error) {
+    console.warn('诊断保存失败', error)
+  } finally {
+    try {
+      await stop()
+    } finally {
+      await browser.close()
+    }
+  }
+}
+
 /** CDP 逐帧采集，按墙钟补帧到 30fps，CRF 14 母带 */
 export async function capture(page, dest) {
   const client = await page.context().newCDPSession(page)
@@ -93,9 +111,10 @@ export async function capture(page, dest) {
     ff.on('close', (code, signal) => (code === 0 ? resolve() : reject(new Error(`ffmpeg 录制失败：code=${code} signal=${signal} ${dest}`))))
   })
   done.catch(() => {})
-  // 编码跟不上时丢帧，不让缓冲无限增长；丢过帧的母带时间点和 marks 对不上，要重录
+  // 编码跟不上时丢帧，不让缓冲无限增长；丢过帧的母带时间点和 marks 对不上，要重录。
+  // 静止补帧写的是同一个 Buffer，writableLength 按次累加、远大于实际内存；1 GiB 约等于编码落后 30 秒以上。
   const put = (frame) => {
-    if (ff.stdin.writableLength > 64 * 1024 * 1024) dropped++
+    if (ff.stdin.writableLength > 1024 * 1024 * 1024) dropped++
     else ff.stdin.write(frame)
   }
   client.on('Page.screencastFrame', (evt) => {
@@ -114,6 +133,6 @@ export async function capture(page, dest) {
     closed = true; clearInterval(pump)
     await client.send('Page.stopScreencast').catch(() => {})
     ff.stdin.end(); await done
-    if (dropped) console.warn(`capture: dropped ${dropped} frames, timings are off, re-record`)
+    if (dropped) throw new Error(`录制丢了 ${dropped} 帧，母带时间轴和 marks 对不上，要重录：${dest}`)
   }
 }
