@@ -15,7 +15,12 @@ WINDOW = 2048
 if len(sys.argv) not in (2, 4):
     sys.exit(__doc__)
 path = sys.argv[1]
-low, high = (float(sys.argv[2]), float(sys.argv[3])) if len(sys.argv) == 4 else (60.0, 140.0)
+try:
+    low, high = (float(sys.argv[2]), float(sys.argv[3])) if len(sys.argv) == 4 else (60.0, 140.0)
+except ValueError:
+    sys.exit(__doc__)
+if not (np.isfinite(low) and np.isfinite(high) and 0 < low < high):
+    sys.exit(f"BPM 范围要是正数且最低小于最高，收到 {low} {high}")
 
 proc = subprocess.run(
     ["ffmpeg", "-v", "error", "-i", path, "-ac", "1", "-ar", str(SR), "-f", "f32le", "-"],
