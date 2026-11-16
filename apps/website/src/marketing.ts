@@ -182,7 +182,7 @@ const en: MarketingCopy = {
     guide: 'Guide',
     shotAlt: 'The Muvloom chat page',
   },
-  film: { label: 'Muvloom film', caption: 'Subtitles are in Chinese.' },
+  film: { label: 'Muvloom film', caption: 'Labels are in Chinese.' },
   cases: {
     title: 'Examples',
     input: 'Prompt',

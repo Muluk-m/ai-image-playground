@@ -57,6 +57,8 @@ export interface VideoBlock {
   caption?: Inline
   width: number
   height: number
+  /** 带配乐的长片：保留播放控件、不循环，进入视口仍静音自动播放。 */
+  film?: boolean
 }
 
 export interface GuideSubsection {
