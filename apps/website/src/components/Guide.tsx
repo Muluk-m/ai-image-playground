@@ -77,6 +77,7 @@ function Shot({ block }: { block: ShotBlock }) {
 /**
  * 录屏：静态 HTML 里带播放控件与封面（没有脚本也能手动播放）；脚本接管后去掉控件，
  * 进入视口才加载并静音循环播放，离开即暂停。系统要求减少动态效果时保持手动播放。
+ * 宣传片（film）有配乐：保留控件让人能开声音和拖动，也不循环。
  */
 function Video({ block }: { block: VideoBlock }) {
   const ref = useRef<HTMLVideoElement>(null)
@@ -84,7 +85,7 @@ function Video({ block }: { block: VideoBlock }) {
     const video = ref.current
     if (!video || matchMedia('(prefers-reduced-motion: reduce)').matches) return
     video.muted = true
-    video.controls = false
+    if (!block.film) video.controls = false
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry?.isIntersecting) {
@@ -98,7 +99,7 @@ function Video({ block }: { block: VideoBlock }) {
     )
     observer.observe(video)
     return () => observer.disconnect()
-  }, [])
+  }, [block.film])
   return (
     <figure className="guide-figure" style={{ width: block.width, maxWidth: '100%' }}>
       <div className="guide-shot">
@@ -110,7 +111,7 @@ function Video({ block }: { block: VideoBlock }) {
           aria-label={block.alt}
           controls
           muted
-          loop
+          loop={!block.film}
           playsInline
           preload="none"
         >

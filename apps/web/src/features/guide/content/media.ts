@@ -79,6 +79,7 @@ export function promoFilm(alt: string, caption?: string): VideoBlock & { type: '
     caption,
     width: 960,
     height: 540,
+    film: true,
   }) as VideoBlock & { type: 'video' }
 }
 

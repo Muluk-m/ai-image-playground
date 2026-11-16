@@ -118,3 +118,25 @@ it('keeps every guide clip on the CDN map and nowhere else', () => {
     expect(url).not.toContain('/guide-assets/')
   }
 })
+
+it('keeps controls and drops loop only for the promo film', () => {
+  const html = (path: string) => {
+    const page = pageList.find((item) => item.path === path)
+    if (!page) throw new Error(`missing ${path}`)
+    return renderToStaticMarkup(createElement(Guide, { page }))
+  }
+  const videoTags = (markup: string) =>
+    [...markup.matchAll(/<video[^>]*>[\s\S]*?<\/video>/g)].map((match) => match[0])
+  for (const path of ['/guide/', '/guide/en/']) {
+    const film = videoTags(html(path)).find((tag) => tag.includes('promo-site-zh'))
+    expect(film, path).toBeDefined()
+    expect(film).toContain('controls')
+    expect(film).not.toMatch(/\sloop(=|\s|>)/)
+  }
+  const demos = pageList
+    .filter((page) => page.kind === 'guide')
+    .flatMap((page) => videoTags(renderToStaticMarkup(createElement(Guide, { page }))))
+    .filter((tag) => !tag.includes('promo-site-zh'))
+  expect(demos.length).toBeGreaterThan(0)
+  for (const tag of demos) expect(tag).toMatch(/\sloop(=|\s|>)/)
+})
