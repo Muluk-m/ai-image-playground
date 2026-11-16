@@ -55,10 +55,14 @@ try {
           })),
       [...before],
     )
-    const failed = fresh.find((card) => /生成失败|积分不足|未能完成|生成服务异常/.test(card.text))
+    // 失败的卡片只显示「失败」，具体原因在失败后弹出的详情里，所以连同整页文案一起报
+    const failed = fresh.find((card) => /失败|积分不足|未能完成/.test(card.text))
     if (failed) {
       mark('fail')
-      throw new Error(`特写生成失败：${failed.text.slice(0, 300)}`)
+      await sleep(1500)
+      const pageText = (await page.locator('body').innerText()).replace(/\s+/g, ' ')
+      const reason = pageText.match(/[^。]*(生成服务异常|未能完成|积分不足|失败)[^。]*。?/)?.[0] ?? ''
+      throw new Error(`特写生成失败：${reason || failed.text.slice(0, 200)}`)
     }
     const busy = /生成中|排队|已提交|保存结果中|载入结果|重新连接中|恢复连接中|结果确认中|上传中/
     if (fresh.some((card) => card.decoded && !busy.test(card.text))) {
