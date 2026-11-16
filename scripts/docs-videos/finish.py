@@ -55,8 +55,6 @@ MANUAL = {
     ],
 }
 
-# (shot, start, source_dur, speed, cx, cy, zoom, subtitle key or None)
-# 播放时长 = source_dur / speed。zoom 为 0 表示不推近。
 def run(args: list[str]) -> None:
     proc = subprocess.run(args)
     if proc.returncode != 0:

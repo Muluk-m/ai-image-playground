@@ -17,7 +17,7 @@ page.on('response', async (r) => {
     seen.add(h)
     const f = `${dir}/${h}.${ct.split('/')[1].split(';')[0]}`
     writeFileSync(f, b)
-    console.log(f, b.length, r.url().slice(0, 100))
+    console.log(f, b.length, new URL(r.url()).pathname) // 媒体是预签名地址，不打印查询串
   } catch {}
 })
 await page.goto(url, { waitUntil: 'domcontentloaded' })
