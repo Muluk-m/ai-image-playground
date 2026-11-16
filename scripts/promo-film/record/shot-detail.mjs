@@ -40,7 +40,7 @@ try {
   const before = new Set(await cardIds())
   await click(page, page.getByRole('button', { name: /^(生成|开始创作)/ }).last())
   mark('sent')
-  // 完成 = 出现一张新作品卡片，图片已解码，卡片上没有任何进行中的阶段文案
+  // 完成 = 出现一张新作品卡片，结果图已解码，卡片上没有任何进行中的阶段文案
   let done = false
   for (let i = 0; i < 240; i++) {
     if (i % 10 === 0) await snap(`wait${i}`)
@@ -50,7 +50,8 @@ try {
           .filter((card) => !known.includes(card.getAttribute('data-task-id')))
           .map((card) => ({
             text: card.textContent.replace(/\s+/g, ' '),
-            decoded: [...card.querySelectorAll('img')].some((img) => img.complete && img.naturalWidth > 0),
+            // 卡片里还有模型图标；结果图带 data-image-id，只在任务有输出时渲染
+            decoded: [...card.querySelectorAll('img[data-image-id]')].some((img) => img.complete && img.naturalWidth > 0),
           })),
       [...before],
     )
@@ -59,7 +60,7 @@ try {
       mark('fail')
       throw new Error(`特写生成失败：${failed.text.slice(0, 300)}`)
     }
-    const busy = /生成中|排队|已提交|保存结果中|载入结果|重新连接中|上传中/
+    const busy = /生成中|排队|已提交|保存结果中|载入结果|重新连接中|恢复连接中|结果确认中|上传中/
     if (fresh.some((card) => card.decoded && !busy.test(card.text))) {
       mark('done')
       done = true
