@@ -80,22 +80,6 @@ async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
   const recoverable = and(
     scope,
     inArray(schema.tasks.kind, ['queue', 'chat']),
-    config.execution.legacyOrigin
-      ? or(
-          eq(schema.tasks.kind, 'queue'),
-          notExists(
-            db
-              .select({ id: schema.agent_conversations.id })
-              .from(schema.agent_conversations)
-              .where(
-                and(
-                  eq(schema.agent_conversations.id, schema.tasks.agent_conversation_id),
-                  eq(schema.agent_conversations.runtime_generation, 0),
-                ),
-              ),
-          ),
-        )
-      : undefined,
     or(
       eq(schema.tasks.kind, 'queue'),
       notExists(
