@@ -34,7 +34,7 @@ it('回收站展示到期日并从实际恢复入口恢复项目身份', async (
     calls.push(`${init?.method ?? 'GET'} ${url}`)
     if (url.endsWith('/capabilities')) return Response.json({ 'accounts:sync': true })
     if (url.endsWith('/restore')) return Response.json({ ok: true })
-    if (url.endsWith(`/projects/${project.id}`))
+    if (new URL(url).pathname.endsWith(`/projects/${project.id}`))
       return Response.json({ ...project, revision: 3, document: { version: 1, elements: [] } })
     if (url.endsWith('/trash')) return Response.json({ projects: [project], nextCursor: null })
     return Response.json({
@@ -65,6 +65,7 @@ it('回收站展示到期日并从实际恢复入口恢复项目身份', async (
     })
     await vi.waitFor(() => expect(host.textContent).toContain('回收站为空'))
     expect(calls).toContain(`POST http://bff.test/api/projects/${project.id}/restore`)
+    expect(calls).toContain(`GET http://bff.test/api/projects/${project.id}?identity=1`)
     expect(useCanvasProjectStore.getState().projects).toMatchObject([{ id: project.id }])
   } finally {
     await act(async () => root.unmount())

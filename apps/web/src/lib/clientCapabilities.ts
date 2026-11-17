@@ -31,8 +31,6 @@ function parseManifest(input: unknown): ClientCapabilityManifest | null {
 }
 
 let currentManifest = disabledManifest()
-let projectDocumentIdentity = false
-let canvasPendingMedia = false
 let attachmentLimits: AttachmentLimits | undefined
 let mediaLimits: MediaLimits | undefined
 const CAPABILITY_RETRY_DELAYS_MS = [5000, 10_000]
@@ -44,8 +42,6 @@ export async function bootstrapClientCapabilities(
   required = false,
 ): Promise<ClientCapabilityManifest> {
   currentManifest = disabledManifest()
-  projectDocumentIdentity = false
-  canvasPendingMedia = false
   attachmentLimits = undefined
   mediaLimits = undefined
   if (!bffEnabled) return currentManifest
@@ -94,18 +90,6 @@ export async function bootstrapClientCapabilities(
       )
         mediaLimits = { imageBytes: limits.imageBytes, imagePixels: limits.imagePixels }
     }
-    projectDocumentIdentity =
-      result?.parsed !== null &&
-      typeof body === 'object' &&
-      body !== null &&
-      'projectDocumentIdentity' in body &&
-      body.projectDocumentIdentity === true
-    canvasPendingMedia =
-      result?.parsed !== null &&
-      typeof body === 'object' &&
-      body !== null &&
-      'canvasPendingMedia' in body &&
-      body.canvasPendingMedia === true
   } catch (error) {
     // A missing capability response must never enable a feature.
     if (required) throw error
@@ -183,17 +167,12 @@ async function requestManifest(
   }
 }
 
-/** Older APIs reject the new document fields; send them only after the server advertises support. */
-export function supportsProjectDocumentIdentity(): boolean {
-  return projectDocumentIdentity
-}
-
 /**
- * 旧 API 拒收带本机 fileId 的画布节点；服务端声明支持后才在图片上传完之前同步文档。
+ * 是否在图片上传完之前就同步画布文档。服务端自 #1496（10-25）起都接受带本机 fileId 的节点，不再看握手。
  * 先发文档要靠并发覆盖后的补写（依赖 Yjs 内部结构）；装上的 yjs 自检不通过时照旧等图片上云再同步。
  */
 export function supportsCanvasPendingMedia(): boolean {
-  return canvasPendingMedia && canvasUploadConflictsSupported()
+  return canvasUploadConflictsSupported()
 }
 
 export function getClientCapabilityManifest(): Readonly<ClientCapabilityManifest> {
