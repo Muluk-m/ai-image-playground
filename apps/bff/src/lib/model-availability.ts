@@ -2,13 +2,12 @@ import type { DiscoveredChannel } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { log } from './logger'
-import { type BffTransaction, loadPrivateBffOverlay } from './private-overlay'
+import type { BffTransaction } from './private-overlay'
 
 /**
  * 运营停用的模型，权威在公开库的 `model_availability`（没有行即上架）。页面的 `/api/channels`、智能体能用的
  * 视频模型、画布阶段报价都按这一份算：页面上没有的模型，服务端也不能让智能体建节点、报价，否则提案通过、
- * 原标签页却拦在「模型不可用」上。旧版收费模块把停用记在自己的单价表里，钉住的 overlay 还回答
- * `inactiveModels` 时一并算进来。
+ * 原标签页却拦在「模型不可用」上。
  *
  * 同步调用方读最近一次查到的那份（{@link knownInactiveModels}）；每一轮开始与 `/api/channels` 会先
  * {@link refreshInactiveModels}。同一时刻的刷新共用一次查询；表只有几十行、按主键存，不另设缓存，
@@ -19,15 +18,15 @@ import { type BffTransaction, loadPrivateBffOverlay } from './private-overlay'
 let known: ReadonlySet<string> = new Set()
 let inflight: Promise<ReadonlySet<string>> | undefined
 
+let lookupForTesting: (() => Promise<ReadonlySet<string>>) | undefined
+
 async function queryInactiveModels(): Promise<ReadonlySet<string>> {
-  const [rows, legacy] = await Promise.all([
-    db
-      .select({ model: schema.model_availability.model })
-      .from(schema.model_availability)
-      .where(eq(schema.model_availability.active, false)),
-    loadPrivateBffOverlay().then(({ taskHooks }) => taskHooks.inactiveModels?.()),
-  ])
-  return new Set([...rows.map((row) => row.model), ...(legacy ?? [])])
+  if (lookupForTesting) return lookupForTesting()
+  const rows = await db
+    .select({ model: schema.model_availability.model })
+    .from(schema.model_availability)
+    .where(eq(schema.model_availability.active, false))
+  return new Set(rows.map((row) => row.model))
 }
 
 export function refreshInactiveModels(): Promise<ReadonlySet<string>> {
@@ -174,4 +173,12 @@ export async function setModelActive(input: {
 export function _resetInactiveModelsForTesting(): void {
   known = new Set()
   inflight = undefined
+  lookupForTesting = undefined
+}
+
+/** 让测试替换停用清单的查询，模拟库里停用了哪些模型或查询失败。 */
+export function _setInactiveModelsLookupForTesting(
+  lookup?: () => Promise<ReadonlySet<string>>,
+): void {
+  lookupForTesting = lookup
 }

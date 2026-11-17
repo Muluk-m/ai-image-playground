@@ -398,25 +398,14 @@ export function mediaLimits(config: ResolvedOperatorConfig): MediaLimits | undef
   }
 }
 
-const LEGACY_CANVAS_CAPABILITIES = {
-  'canvas:nodes': true,
-  'canvas:blank-generate': true,
-  'canvas:node-run': true,
-  'canvas:script': true,
-} as const
-
-export function clientCapabilityManifest(
-  config: ResolvedOperatorConfig,
-): ClientCapabilityManifest & typeof LEGACY_CANVAS_CAPABILITIES {
+export function clientCapabilityManifest(config: ResolvedOperatorConfig): ClientCapabilityManifest {
   const manifest = {} as Record<ClientCapabilityKey, boolean>
   for (const key of clientCapabilityKeys) manifest[key] = config.capabilities[key]
   const limits = attachmentLimits(config)
   const media = mediaLimits(config)
-  // 旧前端仍用这四个字段决定画布和子功能是否出现。新前端不再读取，响应里固定为开。
   return {
     ...manifest,
     ...(limits ? { attachmentLimits: limits } : {}),
     ...(media ? { mediaLimits: media } : {}),
-    ...LEGACY_CANVAS_CAPABILITIES,
   }
 }
