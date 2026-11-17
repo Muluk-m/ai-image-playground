@@ -83,7 +83,9 @@ const { app } = await import('../../app')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { log } = await import('../../lib/logger')
-const { _resetInactiveModelsForTesting } = await import('../../lib/model-availability')
+const { _resetInactiveModelsForTesting, _setInactiveModelsLookupForTesting } = await import(
+  '../../lib/model-availability'
+)
 type InternalChannel = import('../../lib/channels').InternalChannel
 
 /** 只支持文生与首帧的视频模型：参考生、首尾帧都不行。 */
@@ -478,18 +480,11 @@ it('reruns a video batch as is when only the page model list was stale', async (
 
 it('leaves stopped models out of the models the wake lists', async () => {
   const run = await proposal(['a'])
-  const overlay = await (await import('../../lib/private-overlay')).loadPrivateBffOverlay()
-  _setPrivateBffOverlayForTesting({
-    ...overlay,
-    taskHooks: {
-      ...overlay.taskHooks,
-      inactiveModels: async () => new Set(['gpt-image-2.5-flare']),
-    },
-  })
+  _setInactiveModelsLookupForTesting(async () => new Set(['gpt-image-2.5-flare']))
   try {
     expect(await blockedWake(run, 'a')).toContain('当前部署实际可用的出图模型：无')
   } finally {
-    _setPrivateBffOverlayForTesting(overlay)
+    _resetInactiveModelsForTesting()
   }
 })
 
