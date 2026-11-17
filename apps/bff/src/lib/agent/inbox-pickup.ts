@@ -54,8 +54,6 @@ export async function strandedInboxConversations(limit = PICKUP_BATCH): Promise<
         not(heldByToolGate),
         isNull(conversations.deleted_at),
         not(exists(leased)),
-        // 还归旧二进制管的会话由它自己收尾；新版本不去抢（见 `forwardActiveTurn`）。
-        config.execution.legacyOrigin ? ne(conversations.runtime_generation, 0) : undefined,
       ),
     )
     .limit(limit)
@@ -76,7 +74,6 @@ export async function abandonedExecutions(
         eq(executions.state, 'running'),
         lte(executions.heartbeat_at, now - AGENT_EXECUTION_LEASE_MS),
         isNull(conversations.deleted_at),
-        config.execution.legacyOrigin ? ne(conversations.runtime_generation, 0) : undefined,
       ),
     )
     .limit(limit)
