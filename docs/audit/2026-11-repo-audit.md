@@ -175,6 +175,7 @@
 - 为什么没直接修：可能还有人手动用它预览，删除前需要确认没有外部项目指向它。
 - 建议做法：确认没有 Vercel 项目后删除，或在文件头注明已停用。
 - 风险等级：低
+- 处理结果（2026-11-17）：已连同 `netlify.toml` 一起删除。仓库没有接 Vercel / Netlify 的 GitHub App 或部署状态，README 的一键部署按钮在 #766 就已删掉。
 
 ### 一次性脚本没有引用
 
@@ -183,6 +184,7 @@
 - 为什么没直接修：运维脚本可能只在手工割接时用，删了就没有入口。
 - 建议做法：确认割接已结束后再删，或在 `docs/deploy/` 写明仍要保留。
 - 风险等级：低
+- 处理结果（2026-11-17）：`prepare-postgres-cutover.ts` 与 `packages/db/src/sqlite-cutover.ts` 已删除，PostgreSQL 割接在 2026-08-09 完成。`generate-canvas-upload-legacy-fixtures.py` 仍保留。
 
 ### 旧调研和现行产品叙述不一致
 
