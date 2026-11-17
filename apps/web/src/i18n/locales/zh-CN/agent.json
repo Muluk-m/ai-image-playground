@@ -332,9 +332,12 @@
     "stopping": "正在中止"
   },
   "clarification": {
+    "prompt": "需要你选一下",
     "selected": "已选",
-    "chosen": "已选：{{answer}}",
     "answered": "已回答",
+    "submitted": "已提交",
+    "expand": "展开其余 {{count}} 项",
+    "collapse": "收起",
     "other": "其他…",
     "otherAria": "其他回答",
     "otherPlaceholder": "说说你想要的"

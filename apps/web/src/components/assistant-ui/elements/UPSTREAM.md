@@ -6,7 +6,7 @@ Source files: `option-list.tsx`, `approval-card.tsx`, `tool-call.tsx`, `tool-err
 
 Local adaptations:
 - Existing shadcn Button and Muvloom theme tokens; Tailwind 3 classes and existing reduced-motion shimmer.
-- OptionList supports our single-answer contract only. Persisted conversation history controls its receipt, so refused/unauthenticated sends never become falsely confirmed.
+- OptionList supports our single-answer contract only. Persisted conversation history controls its receipt, so refused/unauthenticated sends never become falsely confirmed. `bare` drops the paper chrome so a parent card can paint the rows; optional `marker` text is display-only and is not part of the confirmed id.
 - ApprovalCard has an editable content slot and disabled confirmation; caller owns translations and submission state.
 - ToolCall is a plain borderless row (spark + label) aligned with the thinking indicator; details sit under a thin left rule and stay mounted while collapsed. A spinning/breathing spark marks running, a faded one done; the chevron only appears on hover, focus or when open.
 - ThinkingIndicator uses the same spark as ToolCall instead of the pulsing dot.

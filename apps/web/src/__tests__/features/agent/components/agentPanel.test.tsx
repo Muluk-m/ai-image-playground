@@ -1058,9 +1058,14 @@ describe('AgentPanel', () => {
     render()
 
     expect(host.textContent).toContain('要哪种风格？')
+    expect(host.textContent).toContain('需要你选一下')
+    expect(host.querySelector('.studio-clarification-status')).toBeNull()
+    expect(host.textContent).not.toContain('已提交')
     const option = [
       ...host.querySelectorAll<HTMLButtonElement>('[data-slot="option-list"] > button'),
     ].find((button) => button.textContent === '扁平插画')!
+    expect(option.getAttribute('data-marker')).toBe('B')
+    expect(option.disabled).toBe(false)
     act(() => option.click())
 
     expect(send).toHaveBeenCalledWith('扁平插画')
@@ -1105,6 +1110,60 @@ describe('AgentPanel', () => {
     expect(send).toHaveBeenCalledWith('水墨国风')
   })
 
+  it('这一轮还在跑时澄清选项和「其他」都不可点', () => {
+    useAgentStore.setState({
+      turn: 'running',
+      messages: [
+        {
+          kind: 'clarification',
+          id: 'clarify-1',
+          turnId: 'turn-1',
+          question: '要哪种风格？',
+          options: ['写实照片', '扁平插画'],
+        },
+      ],
+    })
+    render()
+
+    const option = [
+      ...host.querySelectorAll<HTMLButtonElement>('[data-slot="option-list"] > button'),
+    ].find((button) => button.textContent === '写实照片')!
+    const other = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === '其他…',
+    )!
+    expect(option.disabled).toBe(true)
+    expect(other.disabled).toBe(true)
+    expect(host.querySelector('[data-slot="option-list"]')?.getAttribute('data-state')).toBe(
+      'pending',
+    )
+  })
+
+  it('还没回答时选项再多也全部展开', () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          kind: 'clarification',
+          id: 'clarify-1',
+          turnId: 'turn-1',
+          question: '要哪种风格？',
+          options: ['写实照片', '扁平插画', '水墨', '像素', '油画'],
+        },
+      ],
+    })
+    render()
+
+    const options = host.querySelector('[data-slot="option-list"]')!
+    expect([...options.children].map((option) => option.textContent)).toEqual([
+      '写实照片',
+      '扁平插画',
+      '水墨',
+      '像素',
+      '油画',
+    ])
+    expect(options.querySelectorAll('button')).toHaveLength(5)
+    expect(host.textContent).not.toContain('展开其余')
+  })
+
   function answeredClarification(answer: string) {
     useAgentStore.setState({
       messages: [
@@ -1127,71 +1186,96 @@ describe('AgentPanel', () => {
     })
   }
 
-  it('作过答的澄清折叠成「已选」，原问题与选项收起来', () => {
+  it('作过答的澄清保留整张卡片，选中项高亮且其余不可点', () => {
     answeredClarification('写实照片')
     render()
 
-    expect(host.textContent).toContain('已选：写实照片')
-    expect(host.textContent).not.toContain('要哪种风格？')
-    expect(texts('button')).not.toContain('扁平插画')
-    expect(texts('button')).not.toContain('其他…')
-  })
-
-  it('自己写的回答也折叠成「已选」', () => {
-    answeredClarification('水墨国风')
-    render()
-
-    expect(host.textContent).toContain('已选：水墨国风')
-  })
-
-  it('展开作过答的澄清能看回原问题与选项，但选项不再可点', () => {
-    answeredClarification('写实照片')
-    render()
-
-    const toggle = [...host.querySelectorAll('button')].find((button) =>
-      button.textContent?.includes('已选：写实照片'),
-    ) as HTMLButtonElement
-    expect(toggle.getAttribute('aria-expanded')).toBe('false')
-    act(() => toggle.click())
-
-    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(host.textContent).toContain('需要你选一下')
     expect(host.textContent).toContain('要哪种风格？')
+    expect(host.querySelector('.studio-clarification-status')?.textContent).toBe('已回答')
+    expect(host.textContent).toContain('已提交')
+    expect(texts('button')).not.toContain('其他…')
     const options = host.querySelector('[data-slot="option-list"][data-state="receipt"]')!
     expect([...options.children].map((option) => option.textContent)).toEqual([
-      '写实照片已选',
+      '写实照片',
       '扁平插画',
     ])
+    const selected = options.querySelector('[data-selected]')
+    expect(selected?.textContent).toBe('写实照片')
+    expect(selected?.getAttribute('data-marker')).toBe('A')
+    expect(selected?.querySelector('svg')).not.toBeNull()
     expect(options.querySelectorAll('[data-selected]')).toHaveLength(1)
-    expect(options.querySelector('[data-selected]')?.textContent).toBe('写实照片已选')
-    expect(host.querySelector('.studio-clarification-answered-detail button')).toBeNull()
-    expect(texts('button')).not.toContain('其他…')
+    expect(options.querySelector('button')).toBeNull()
   })
 
-  it('展开自写回答保留全部原选项，并单独标明最终回答', () => {
+  it('自己写的回答显示成卡片里的一行选中项', () => {
     const send = vi.fn(async () => {})
     useAgentStore.setState({ send })
     answeredClarification('水墨国风')
     render()
 
-    const toggle = [...host.querySelectorAll('button')].find((button) =>
-      button.textContent?.includes('已选：水墨国风'),
-    ) as HTMLButtonElement
-    act(() => toggle.click())
-
     const options = host.querySelector('[data-slot="option-list"][data-state="receipt"]')!
     expect([...options.children].map((option) => option.textContent)).toEqual([
       '写实照片',
       '扁平插画',
-      '水墨国风其他回答 · 已选',
+      '水墨国风',
     ])
-    expect(options.querySelectorAll('[data-selected]')).toHaveLength(1)
-    expect(options.querySelector('[data-selected]')?.textContent).toBe('水墨国风其他回答 · 已选')
+    const selected = options.querySelector('[data-selected]')
+    expect(selected?.textContent).toBe('水墨国风')
+    expect(selected?.getAttribute('data-marker')).toBe('C')
     expect(options.querySelector('button')).toBeNull()
-    act(() => (options.firstElementChild as HTMLElement).click())
+    expect(texts('button')).not.toContain('其他…')
+    expect(host.textContent).toContain('已回答')
+    expect(host.textContent).toContain('已提交')
+    act(() => (selected as HTMLElement).click())
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('超过四个选项时已回答卡片默认收起未选项，展开后仍不可点', () => {
+    const send = vi.fn(async () => {})
+    useAgentStore.setState({
+      send,
+      messages: [
+        {
+          kind: 'clarification',
+          id: 'clarify-1',
+          turnId: 'turn-1',
+          question: '要哪种风格？',
+          options: ['写实照片', '扁平插画', '水墨', '像素', '油画'],
+        },
+        {
+          kind: 'text',
+          id: 'user-2',
+          turnId: 'turn-2',
+          role: 'user',
+          text: '油画',
+          streaming: false,
+        },
+      ],
+    })
+    render()
+
+    const options = host.querySelector('[data-slot="option-list"]')!
+    expect([...options.children].map((option) => option.textContent)).toEqual(['油画'])
+    expect(options.querySelector('[data-selected]')?.getAttribute('data-marker')).toBe('E')
+    const toggle = [...host.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('展开其余'),
+    ) as HTMLButtonElement
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    act(() => toggle.click())
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect([...options.children].map((option) => option.textContent)).toEqual([
+      '写实照片',
+      '扁平插画',
+      '水墨',
+      '像素',
+      '油画',
+    ])
+    expect(options.querySelector('button')).toBeNull()
+    act(() => (options.querySelector('[data-selected]') as HTMLElement).click())
     expect(send).not.toHaveBeenCalled()
     act(() => toggle.click())
-    expect(toggle.getAttribute('aria-expanded')).toBe('false')
-    expect(host.querySelector('.studio-clarification-answered-detail')).toBeNull()
+    expect([...options.children].map((option) => option.textContent)).toEqual(['油画'])
   })
 
   it('被后一张澄清顶掉、却没有回答可折叠的澄清，仍标「已回答」并锁住选项', () => {
@@ -1217,6 +1301,7 @@ describe('AgentPanel', () => {
 
     expect(host.textContent).toContain('要哪种风格？')
     expect(host.textContent).toContain('已回答')
+    expect(host.textContent).not.toContain('已提交')
     expect(host.querySelector('.studio-clarification-answered--unknown button')).toBeNull()
     const next = [
       ...host.querySelectorAll<HTMLButtonElement>('[data-slot="option-list"] > button'),
