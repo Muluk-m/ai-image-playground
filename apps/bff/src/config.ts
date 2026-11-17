@@ -84,7 +84,6 @@ const bareOrigin = (key: string, value: string): string => {
 
 const executionOrigin = (key: string): string => bareOrigin(key, env(key, ''))
 const executorOrigin = executionOrigin('EXECUTOR_ORIGIN')
-const legacyExecutorOrigin = executionOrigin('LEGACY_EXECUTOR_ORIGIN')
 const workerStartsPaused = booleanEnv('WORKER_START_PAUSED', false)
 let loginMethodsSource: string | undefined
 let loginMethodsPolicies: readonly LoginOriginPolicy[] = []
@@ -373,7 +372,6 @@ export const config = {
     },
   },
   execution: {
-    legacyOrigin: legacyExecutorOrigin,
     origin: executorOrigin,
   },
   worker: {

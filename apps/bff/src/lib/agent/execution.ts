@@ -152,15 +152,8 @@ export async function forwardActiveTurn(
 ): Promise<Response | undefined> {
   const owner = await conversationExecution(conversationId)
   if (owner?.instance === agentInstance) return
-  let origin = owner?.origin
-  if (!owner && config.execution.legacyOrigin) {
-    const [conversation] = await db
-      .select({ generation: schema.agent_conversations.runtime_generation })
-      .from(schema.agent_conversations)
-      .where(eq(schema.agent_conversations.id, conversationId))
-    if (conversation?.generation === 0) origin = config.execution.legacyOrigin
-  }
-  if (!owner && !origin) return
+  if (!owner) return
+  const origin = owner.origin
   if (!origin || request.headers.has('x-agent-forwarded'))
     return Response.json({ error: 'turn_owner_unavailable' }, { status: 503 })
   const url = new URL(request.url)
