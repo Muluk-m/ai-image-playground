@@ -16,17 +16,13 @@ const { _setChannelsForTesting, parseChannelsConfig } = await import('../../lib/
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )
-const { _resetInactiveModelsForTesting } = await import('../../lib/model-availability')
+const { _resetInactiveModelsForTesting, _setInactiveModelsLookupForTesting } = await import(
+  '../../lib/model-availability'
+)
 
-/** 装一个只回答「哪些模型停用了」的 overlay；其余钩子沿用空实现。 */
+/** 让停用清单的查询回答「哪些模型停用了」。 */
 function stopModels(answer: () => Promise<ReadonlySet<string>>): void {
-  _setPrivateBffOverlayForTesting(
-    Object.freeze({
-      ...EMPTY_PRIVATE_BFF_OVERLAY,
-      present: true,
-      taskHooks: { ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks, inactiveModels: answer },
-    }),
-  )
+  _setInactiveModelsLookupForTesting(answer)
 }
 
 const ENV_WITH_SECRETS = (k: string): string | undefined =>
@@ -87,6 +83,7 @@ describe('GET /api/channels', () => {
   afterEach(() => {
     _setChannelsForTesting([])
     _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
+    _resetInactiveModelsForTesting()
   })
 
   it('returns empty channels array when none loaded', async () => {

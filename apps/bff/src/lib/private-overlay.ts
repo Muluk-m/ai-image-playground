@@ -232,11 +232,6 @@ export interface PrivateTaskHooks {
   runMaintenance(now: number): Promise<void>
   /** Worker-only integrations; absent in older overlays. */
   runWorkerMaintenance?(now: number): Promise<void>
-  /**
-   * 旧版收费模块记在自己单价表里的停用模型。上下架已归公开库的 `model_availability`，这一项只在迁移完成前
-   * 补进同一份清单；可选成员，缺席即没有遗留停用。
-   */
-  inactiveModels?(): Promise<ReadonlySet<string>>
 }
 
 type PrivateBffModule = {

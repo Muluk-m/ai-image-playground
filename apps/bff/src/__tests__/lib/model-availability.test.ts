@@ -8,12 +8,11 @@ process.env.DATABASE_URL = await resetTestDatabase('bff_model_availability')
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-video-operator-config.json')
 
 const { _setChannelsForTesting } = await import('../../lib/channels')
-const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
-  '../../lib/private-overlay'
-)
-const { _resetInactiveModelsForTesting, refreshInactiveModels } = await import(
-  '../../lib/model-availability'
-)
+const {
+  _resetInactiveModelsForTesting,
+  _setInactiveModelsLookupForTesting,
+  refreshInactiveModels,
+} = await import('../../lib/model-availability')
 const { agentVideoAvailable, agentVideoModels, videoNodeModeRejection } = await import(
   '../../lib/agent/video-models'
 )
@@ -31,17 +30,10 @@ const videoChannel = (id: string, capabilities: string[] = ['generate']): Intern
 })
 
 function stopModels(answer: () => Promise<ReadonlySet<string>>): void {
-  _setPrivateBffOverlayForTesting(
-    Object.freeze({
-      ...EMPTY_PRIVATE_BFF_OVERLAY,
-      present: true,
-      taskHooks: { ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks, inactiveModels: answer },
-    }),
-  )
+  _setInactiveModelsLookupForTesting(answer)
 }
 
 afterEach(() => {
-  _setPrivateBffOverlayForTesting()
   _setChannelsForTesting([])
   _resetInactiveModelsForTesting()
 })

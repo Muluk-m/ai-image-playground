@@ -1,6 +1,6 @@
 // 画布局部重绘：新建画布，上传批量结果里的赤陶杯，框选多肉换成干花。
 // 上传的这张同时是成片擦除对比的改前图，录完复制成 public/img/edit-before.png。
-import { BASE, capture, click, debugDir, login, moveTo, open, sleep, type } from './lib.mjs'
+import { BASE, capture, click, debugDir, finish, login, moveTo, open, sleep, type } from './lib.mjs'
 import { writeFileSync } from 'node:fs'
 const out = new URL('../raw/', import.meta.url).pathname
 const dbg = debugDir('edit')
@@ -97,33 +97,32 @@ try {
   const send = page.getByRole('button', { name: '生成新候选' })
   await click(page, send)
   mark('sent')
+  // 画布进度会显示「智能改图中… · 排队中」「保存结果中」等，不能只看「生成中」。
+  // 新版本落到节点上时，结果翻页器变成 2 / 2。
+  const busy = /生成中|智能改图中|排队中|保存结果中|上传中/
   let done = false
-  await sleep(3000)
   for (let i = 0; i < 240; i++) {
     if (i % 10 === 0) await snap(`wait${i}`)
     const body = (await page.locator('body').innerText()).replace(/\s+/g, ' ')
     if (/生成失败|积分不足|未能完成|生成服务异常|不支持遮罩/.test(body)) {
       mark('fail')
-      console.log(body.slice(0, 500))
-      break
+      throw new Error(`局部重绘失败：${body.slice(0, 300)}`)
     }
-    if (!/生成中/.test(body) && i > 2) {
+    if (/\b2\s*\/\s*2\b/.test(body) && !busy.test(body)) {
       mark('done')
       done = true
       break
     }
     await sleep(1000)
   }
+  if (!done) throw new Error('局部重绘 4 分钟内没有出结果')
   await sleep(3000)
   await snap('result')
-  if (done) {
-    // 选中新图停留
-    await sleep(4000)
-  }
+  await sleep(4000)
 } finally {
-  await snap('final')
-  writeFileSync(out + 'edit.marks.json', JSON.stringify(marks))
-  console.log('url', page.url())
-  await stop()
-  await browser.close()
+  await finish(browser, stop, async () => {
+    writeFileSync(`${out}edit.marks.json`, JSON.stringify(marks))
+    console.log('url', page.url())
+    await snap('final')
+  })
 }

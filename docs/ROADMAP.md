@@ -39,7 +39,7 @@
 | #440 / #879 / #380 | 明确暂缓，移出 ready 队列 | 项目/legacy GC、等待第二 provider 的 OAuth 迁移、PDF/文档附件 |
 | #391 / #394 / #634 / #682 / #734 / #1051 | 范围迁移后按被替代/不再计划关闭 | 不是宣称原规格全部实现；接收票和证据见各票关闭说明 |
 
-开放依赖升级 PR #1173 保留。最近的 web/bff/web-test 通过，overlay/review 因 Dependabot 上下文缺凭据失败；先建立安全的受信验证路径并核对大版本兼容，不向未审查机器人 PR 暴露秘密或绕过门禁。
+Dependabot 已停用（2026-11-16）：机器人 PR 读不到仓库 secrets，overlay/review 检查必然失败；依赖与 action 升级改为按需手动开 PR。
 
 ## Lane A：收口
 
