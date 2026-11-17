@@ -5,7 +5,6 @@ import {
   getClientCapabilityManifest,
   isClientCapabilityEnabled,
   supportsCanvasPendingMedia,
-  supportsProjectDocumentIdentity,
 } from '../../lib/clientCapabilities'
 import { allCapabilitiesOff } from '../fixtures/capabilities'
 
@@ -41,27 +40,20 @@ describe('client capability bootstrap', () => {
     expect(isClientCapabilityEnabled('accounts:self-register')).toBe(true)
     expect(getClientCapabilityManifest()).not.toHaveProperty('generation:byok')
     expect(getClientCapabilityManifest()).not.toHaveProperty('operator:console')
-    expect(supportsProjectDocumentIdentity()).toBe(true)
     expect(supportsCanvasPendingMedia()).toBe(true)
   })
 
-  it('keeps pending canvas media off while the server advertises it as false', async () => {
-    // 分阶段上线的第一阶段：服务端带着这个键但值为 false，客户端照旧等图片上云再同步。
+  it('sends pending canvas media without waiting for the server handshake', async () => {
+    // 服务端自 #1496 起都接受上传中的图片节点；能力清单不带这个键、甚至取不到，都照常先发文档。
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
-        Response.json({
-          ...allCapabilitiesOff(),
-          projectDocumentIdentity: true,
-          canvasPendingMedia: false,
-        }),
-      ),
+      vi.fn(async () => Response.json(allCapabilitiesOff())),
     )
-
     await bootstrapClientCapabilities(true, 'https://bff.example.com')
+    expect(supportsCanvasPendingMedia()).toBe(true)
 
-    expect(supportsProjectDocumentIdentity()).toBe(true)
-    expect(supportsCanvasPendingMedia()).toBe(false)
+    await bootstrapClientCapabilities(false, '')
+    expect(supportsCanvasPendingMedia()).toBe(true)
   })
 
   it('keeps pending canvas media off when the installed yjs fails the conflict self-check', async () => {
@@ -80,7 +72,6 @@ describe('client capability bootstrap', () => {
 
     await bootstrapClientCapabilities(true, 'https://bff.example.com')
 
-    expect(supportsProjectDocumentIdentity()).toBe(true)
     expect(supportsCanvasPendingMedia()).toBe(false)
   })
 
@@ -101,8 +92,6 @@ describe('client capability bootstrap', () => {
     expect(isClientCapabilityEnabled('accounts:login')).toBe(true)
     expect(isClientCapabilityEnabled('billing:credits')).toBe(true)
     expect(isClientCapabilityEnabled('agent:chat')).toBe(false)
-    expect(supportsProjectDocumentIdentity()).toBe(false)
-    expect(supportsCanvasPendingMedia()).toBe(false)
   })
 
   it('fails closed for a disabled backend or a malformed capability value', async () => {

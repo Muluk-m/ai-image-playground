@@ -8,10 +8,7 @@ import type {
 } from '@image-playground/shared'
 import { authenticatedBffFetch } from '../../../lib/authClient'
 import { isUserStorageScope } from '../../../lib/authScope'
-import {
-  isClientCapabilityEnabled,
-  supportsProjectDocumentIdentity,
-} from '../../../lib/clientCapabilities'
+import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { bffBaseUrl, getRuntimeConfig } from '../../../lib/runtimeConfig'
 
 export function cloudProjectsEnabled(): boolean {
@@ -78,10 +75,7 @@ export function listCloudProjects(
   return json(`?${query}`)
 }
 export function getCloudProject(id: string, signal: AbortSignal): Promise<CloudProject> {
-  return json(
-    `/${encodeURIComponent(id)}${supportsProjectDocumentIdentity() ? '?identity=1' : ''}`,
-    { signal },
-  )
+  return json(`/${encodeURIComponent(id)}?identity=1`, { signal })
 }
 export function putCloudProject(
   id: string,

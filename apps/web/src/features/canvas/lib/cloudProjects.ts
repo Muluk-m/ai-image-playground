@@ -5,7 +5,6 @@ import {
   projectKind,
 } from '@image-playground/shared'
 import { accountScope } from '../../../lib/authScope'
-import { supportsProjectDocumentIdentity } from '../../../lib/clientCapabilities'
 import { MediaRequestError, mediaIdentity } from '../../../lib/cloudMedia'
 import type { CanvasEditor } from './editor'
 import type { CloudSceneCheckpoint } from './persistence'
@@ -259,12 +258,7 @@ export class CloudProjectSession implements CloudSceneStrategy {
     }
   }
   private document(): ProjectDocument | null {
-    return projectDocument(
-      this.editor.doc,
-      this.mediaBindings,
-      this.legacyKind,
-      supportsProjectDocumentIdentity() ? this.project : undefined,
-    )
+    return projectDocument(this.editor.doc, this.mediaBindings, this.legacyKind, this.project)
   }
   /** 旧 kind 仅透传归档；云同步不再认领或改变项目的创作类型。 */
   private async adoptIdentity(document: ProjectDocument) {
