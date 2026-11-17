@@ -354,9 +354,12 @@
     "stopping": "Stopping"
   },
   "clarification": {
+    "prompt": "Pick one",
     "selected": "Selected",
-    "chosen": "Chose: {{answer}}",
     "answered": "Answered",
+    "submitted": "Submitted",
+    "expand": "Show {{count}} more",
+    "collapse": "Show less",
     "other": "Other…",
     "otherAria": "Other answer",
     "otherPlaceholder": "Tell it what you want"
