@@ -24,20 +24,16 @@ describe('GET /api/capabilities', () => {
 
     expect(response.status).toBe(200)
     expect(Object.keys(body).sort()).toEqual(
-      [
-        ...exposedKeys,
-        'canvas:nodes',
-        'canvas:blank-generate',
-        'canvas:node-run',
-        'canvas:script',
-        'projectDocumentIdentity',
-        'canvasPendingMedia',
-      ].sort(),
+      [...exposedKeys, 'projectDocumentIdentity', 'canvasPendingMedia'].sort(),
     )
-    expect(body['canvas:nodes']).toBe(true)
-    expect(body['canvas:blank-generate']).toBe(true)
-    expect(body['canvas:node-run']).toBe(true)
-    expect(body['canvas:script']).toBe(true)
+    // 节点画布常开后（752adb55c）退役的四个旧字段不再下发。
+    for (const retired of [
+      'canvas:nodes',
+      'canvas:blank-generate',
+      'canvas:node-run',
+      'canvas:script',
+    ])
+      expect(body).not.toHaveProperty(retired)
     expect(body.projectDocumentIdentity).toBe(true)
     // 读取端（#1452）上线满一天后打开：客户端可写上传中节点，不再等图片上云才同步。
     expect(body.canvasPendingMedia).toBe(true)
