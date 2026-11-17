@@ -1206,14 +1206,84 @@ body:has(.studio-artifact-pane) .studio-global-account { z-index: 1010; }
 .studio-clarification-other-form { display: flex; align-items: center; gap: 7px; min-width: 0; }
 :where(.studio-clarification-other-form) input { flex: 1; min-width: 0; }
 .studio-clarification-answered { width: min(720px, 100%); }
-.studio-clarification-answered--unknown { display: flex; align-items: center; gap: 8px; padding: 7px 0; color: hsl(var(--muted-foreground)); font-size: theme('fontSize.xs'); }
-.studio-clarification-answered--unknown svg { flex: 0 0 auto; color: hsl(var(--primary)); }
-.studio-clarification-answered > button { display: flex; align-items: center; gap: 8px; max-width: 100%; padding: 7px 11px; border: 1px solid hsl(var(--foreground) / .08); border-radius: 10px; color: hsl(var(--muted-foreground)); font-size: theme('fontSize.xs'); text-align: left; }
-.studio-clarification-answered > button:hover { color: hsl(var(--foreground)); background: hsl(var(--foreground) / .035); }
-.studio-clarification-answered > button > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.studio-clarification-answered > button > svg:first-child { flex: 0 0 auto; color: hsl(var(--primary)); }
-.studio-clarification-answered > button > svg:last-child { flex: 0 0 auto; transition: transform .15s ease; }
-.studio-clarification-answered-detail { display: flex; flex-direction: column; gap: 10px; padding: 12px 4px; font-size: theme('fontSize.xs'); }
+/* 蒙版提案仍用这一行「已回答」。提问卡自己带 .studio-clarification，不要套这套单行布局。 */
+.studio-clarification-answered--unknown:not(.studio-clarification) { display: flex; align-items: center; gap: 8px; padding: 7px 0; color: hsl(var(--muted-foreground)); font-size: theme('fontSize.xs'); }
+.studio-clarification-answered--unknown:not(.studio-clarification) svg { flex: 0 0 auto; color: hsl(var(--primary)); }
+
+/* 澄清提问卡。结构对齐参考图，颜色和圆角只用主题 token。 */
+.studio-clarification {
+  display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 28rem; min-width: 0;
+  padding: 16px; border: 1px solid hsl(var(--border)); border-radius: 16px;
+  background: hsl(var(--card)); color: hsl(var(--foreground));
+}
+.studio-clarification-intro { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.studio-clarification-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.studio-clarification-kicker {
+  display: inline-flex; align-items: center; gap: 6px; min-width: 0;
+  color: hsl(var(--muted-foreground)); font-size: theme('fontSize.xs'); font-weight: 500; line-height: 1.4;
+}
+.studio-clarification-kicker svg { flex: 0 0 auto; }
+.studio-clarification-status {
+  flex: 0 0 auto; padding: 2px 8px; border: 1px solid hsl(var(--border)); border-radius: 9999px;
+  background: hsl(var(--muted)); color: hsl(var(--muted-foreground));
+  font-size: theme('fontSize.xs'); font-weight: 500; line-height: 1.4; white-space: nowrap;
+}
+.studio-clarification-question {
+  margin: 0; overflow-wrap: anywhere; color: hsl(var(--foreground));
+  font-size: theme('fontSize.base'); font-weight: 600; line-height: 1.4;
+}
+.studio-clarification-options {
+  display: flex; flex-direction: column; gap: 4px; width: 100%; margin: 0; padding: 0;
+  background: transparent; border: 0; box-shadow: none;
+}
+.studio-clarification .studio-clarification-option {
+  display: flex; align-items: center; justify-content: flex-start; gap: 12px; width: 100%;
+  height: auto; min-height: 44px; margin: 0; padding: 8px 12px; border: 0; border-radius: var(--radius);
+  background: transparent; box-shadow: none; color: hsl(var(--foreground));
+  font-size: theme('fontSize.sm'); font-weight: 400; line-height: 1.45; text-align: left;
+  white-space: normal; overflow-wrap: anywhere;
+}
+.studio-clarification .studio-clarification-option[data-marker]::before { content: attr(data-marker); }
+.studio-clarification .studio-clarification-option[data-marker]::before,
+.studio-clarification-mark {
+  display: inline-flex; flex: 0 0 28px; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border: 1px solid hsl(var(--border)); border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--muted)); color: hsl(var(--muted-foreground));
+  font-size: theme('fontSize.xs'); font-weight: 600; line-height: 1;
+}
+.studio-clarification[data-answered='false'] .studio-clarification-option:hover:not(:disabled) {
+  background: hsl(var(--muted));
+}
+.studio-clarification .studio-clarification-option[data-selected] {
+  background: hsl(var(--primary) / .14); color: hsl(var(--foreground));
+}
+.studio-clarification .studio-clarification-option[data-selected]::before {
+  border-color: transparent; background: hsl(var(--primary)); color: hsl(var(--primary-foreground));
+}
+.studio-clarification .studio-clarification-option[data-selected] > svg {
+  flex: 0 0 auto; margin-left: auto; color: hsl(var(--foreground));
+}
+.studio-clarification[data-answered='true'] .studio-clarification-option { cursor: default; }
+.studio-clarification[data-answered='true'] .studio-clarification-option:not([data-selected]) {
+  color: hsl(var(--muted-foreground));
+}
+.studio-clarification[data-answered='true'] .studio-clarification-option:not([data-selected])::before {
+  background: hsl(var(--background)); color: hsl(var(--muted-foreground));
+}
+.studio-clarification .studio-clarification-expand {
+  align-self: flex-start; height: auto; min-height: 0; padding: 0; background: transparent;
+  color: hsl(var(--muted-foreground)); font-size: theme('fontSize.xs'); font-weight: 500;
+}
+.studio-clarification .studio-clarification-expand:hover {
+  background: transparent; color: hsl(var(--foreground));
+}
+.studio-clarification-submitted {
+  margin: 0; color: hsl(var(--muted-foreground)); font-size: theme('fontSize.xs'); font-weight: 400; line-height: 1.4;
+}
+@media (max-width: 480px) {
+  .studio-clarification { padding: 12px; }
+  .studio-clarification .studio-clarification-option { padding: 8px; }
+}
 @media (prefers-reduced-motion: reduce) {
   .studio-agent-history-pulse i { animation: none; }
 }
