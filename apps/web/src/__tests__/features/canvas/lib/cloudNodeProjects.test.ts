@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import 'fake-indexeddb/auto'
 import {
+  CANVAS_SYNC_FORMAT_ERROR_CODE,
   canvasOrigin,
   canvasResults,
   canvasSyncAck,
@@ -49,6 +50,7 @@ import { setClientStorageScope } from '../../../../lib/authScope'
 import { MediaRequestError } from '../../../../lib/cloudMedia'
 import { getDeviceId } from '../../../../lib/deviceId'
 import { uploadMediaSource } from '../../../../lib/mediaUpload'
+import { captureClientErrors } from '../../../helpers/clientErrors'
 import { openSceneRecord } from '../../../helpers/sceneRecord'
 
 const origin = canvasOrigin('user', 'fixture')
@@ -129,9 +131,11 @@ class Socket {
   send(data: Uint8Array) {
     this.sent.push(data)
   }
-  close() {
+  closeCode?: number
+  close(code = 1000) {
+    this.closeCode = code
     this.readyState = 3
-    this.onclose?.({ code: 1000 })
+    this.onclose?.({ code })
   }
   receive(data: Uint8Array) {
     this.onmessage?.({ data: new Uint8Array(data).buffer })
@@ -223,6 +227,48 @@ it('dispose stops the upload conflict watcher on the canvas doc', async () => {
   const before = uploadConflictWatch.stopped
   session.dispose()
   expect(uploadConflictWatch.stopped).toBe(before + 1)
+  record.dispose()
+})
+
+it('closes an unreadable sync message with a client-safe code, rejects waits, and does not retry', async () => {
+  const reported = captureClientErrors()
+  const { session, socket, record } = await fixture()
+  const pending = session.sync()
+  await Promise.resolve()
+  socket.receive(new Uint8Array([255, 255, 255, 255]))
+  await expect(pending).rejects.toThrow()
+  expect(session.getSnapshot().status).toBe('format-error')
+  expect(socket.closeCode).toBe(CANVAS_SYNC_FORMAT_ERROR_CODE)
+  expect(socket.closeCode).toBeGreaterThanOrEqual(3000)
+  expect(socket.closeCode).toBeLessThanOrEqual(4999)
+  expect(socket.closeCode).not.toBe(1008)
+  const sockets = Socket.instances.length
+  vi.useFakeTimers()
+  vi.advanceTimersByTime(60_000)
+  expect(Socket.instances.length).toBe(sockets)
+  vi.useRealTimers()
+  const [batch] = await reported()
+  expect(batch?.errors[0]).toMatchObject({
+    context: expect.objectContaining({
+      operation: 'canvas.syncMessage',
+      messageLength: 4,
+    }),
+  })
+  expect(batch?.errors[0]?.name).toEqual(expect.any(String))
+  record.dispose()
+})
+it('still treats a server 1008 close as a permission error and does not retry', async () => {
+  const { session, socket, record } = await fixture()
+  const pending = session.sync()
+  await Promise.resolve()
+  socket.onclose?.({ code: 1008 })
+  await expect(pending).rejects.toThrow()
+  expect(session.getSnapshot().status).toBe('permission-error')
+  const sockets = Socket.instances.length
+  vi.useFakeTimers()
+  vi.advanceTimersByTime(60_000)
+  expect(Socket.instances.length).toBe(sockets)
+  vi.useRealTimers()
   record.dispose()
 })
 it('registers the upload conflict watcher before the initial server state and knows earlier client ids', async () => {

@@ -1,4 +1,5 @@
 import {
+  CANVAS_SYNC_FORMAT_ERROR_CODE,
   CANVAS_SYNC_SESSION_EXPIRED_CODE,
   CANVAS_UPLOAD_CLOCK_SKEW_MS,
   CANVAS_UPLOAD_DEVICE_META,
@@ -40,6 +41,7 @@ import { authenticatedBffFetch, refreshWebSession } from '../../../lib/authClien
 import { accountScope, scopedStorageName } from '../../../lib/authScope'
 import { supportsCanvasPendingMedia } from '../../../lib/clientCapabilities'
 import { MediaRequestError, mediaIdentity, mediaJson } from '../../../lib/cloudMedia'
+import { reportClientError } from '../../../lib/errorReporting'
 import { uploadMediaSource } from '../../../lib/mediaUpload'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
 import { useStore } from '../../../store'
@@ -520,9 +522,14 @@ export class CloudNodeProjectSession {
     }
     socket.onmessage = (event) => {
       if (this.socket !== socket || !this.canvas) return
+      let messageKind: 'vector' | 'update' | 'ack' | undefined
+      let messageLength: number | undefined
       try {
         this.current()
-        const message = readCanvasSyncMessage(new Uint8Array(event.data))
+        const bytes = new Uint8Array(event.data)
+        messageLength = bytes.byteLength
+        const message = readCanvasSyncMessage(bytes)
+        messageKind = message.kind
         if (message.kind === 'update') {
           Y.applyUpdate(this.canvas.doc, message.value, remoteOrigin)
           this.noteReceived(message.value)
@@ -542,9 +549,17 @@ export class CloudNodeProjectSession {
             this.saved()
           } else this.requestSync()
         }
-      } catch {
+      } catch (error) {
+        reportClientError('error', error, {
+          operation: 'canvas.syncMessage',
+          messageKind,
+          messageLength,
+        })
         this.status('format-error')
-        socket.close(1008)
+        this.rejectWaits(error instanceof Error ? error : new Error('invalid_canvas_message'))
+        if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+          socket.close(CANVAS_SYNC_FORMAT_ERROR_CODE)
+        }
       }
     }
     socket.onclose = (event) => {
@@ -570,6 +585,11 @@ export class CloudNodeProjectSession {
           this.status('permission-error')
           this.rejectWaits(new Error(event.reason || 'session_expired'))
         })
+        return
+      }
+      if (event.code === CANVAS_SYNC_FORMAT_ERROR_CODE) {
+        this.status('format-error')
+        this.rejectWaits(new Error(event.reason || 'invalid_canvas_message'))
         return
       }
       if (event.code === 1008 || event.code === 4004) {
