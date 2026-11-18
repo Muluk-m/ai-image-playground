@@ -9,6 +9,11 @@ export const CANVAS_STATE_MAX_BYTES = 4 * 1024 * 1024
  * 策略拒绝仍用 1008，避免把格式错误或越权也当成可刷新的过期。
  */
 export const CANVAS_SYNC_SESSION_EXPIRED_CODE = 4401
+/**
+ * 客户端读不了同步消息时用这个码关掉连接。浏览器的 close() 只允许 1000 或 3000–4999，
+ * 不能发 1008；1008 仍留给服务端的策略拒绝，4004 仍表示项目已删除。
+ */
+export const CANVAS_SYNC_FORMAT_ERROR_CODE = 4408
 /** Outer frame 0 is the standard y-websocket/y-protocols sync envelope. */
 export function canvasSyncStep1(doc: Y.Doc): Uint8Array {
   const encoder = encoding.createEncoder()

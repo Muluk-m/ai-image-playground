@@ -6,7 +6,7 @@ import { ShortId } from '@/components/ShortId'
 import { StatusBadge } from '@/components/StatusBadge'
 import { TaskReconciliation } from '@/components/TaskReconciliation'
 import { Button } from '@/components/ui/button'
-import { duration, isoTime, shortId } from '@/lib/format'
+import { adminTime, duration, shortId } from '@/lib/format'
 import { useTask } from '@/lib/queries'
 import { countInputImages, extractPrompt } from '@/lib/request-helpers'
 import { adminApiUrl } from '@/lib/runtime-config'
@@ -144,13 +144,13 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
             ) : null}
             <KV label="upstream_calls" value={String(task.upstream_invocation_count)} mono />
             {task.status === 'queued' && task.next_retry_at ? (
-              <KV label="next_retry_at" value={isoTime(task.next_retry_at)} mono />
+              <KV label="next_retry_at" value={adminTime(task.next_retry_at)} mono />
             ) : null}
             {task.started_at ? (
-              <KV label="started_at" value={isoTime(task.started_at)} mono />
+              <KV label="started_at" value={adminTime(task.started_at)} mono />
             ) : null}
             {task.completed_at ? (
-              <KV label="completed_at" value={isoTime(task.completed_at)} mono />
+              <KV label="completed_at" value={adminTime(task.completed_at)} mono />
             ) : null}
           </dl>
 

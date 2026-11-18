@@ -4,6 +4,7 @@ import { expect, it, vi } from 'vitest'
 import type { TaskDetail } from '../../../contracts'
 import { TaskDetailView } from '../../components/TaskDetailView'
 import { TooltipProvider } from '../../components/ui/tooltip'
+import { adminTime } from '../../lib/format'
 
 const { taskQuery } = vi.hoisted(() => ({ taskQuery: vi.fn() }))
 vi.mock('../../lib/queries', () => ({ useTask: taskQuery }))
@@ -185,4 +186,42 @@ it.each([
   expect(
     Number(url.searchParams.get('to')) - Number(url.searchParams.get('from')),
   ).toBeLessThanOrEqual(31 * 86400_000)
+})
+
+it('shows started and completed times in Beijing time with a zone label', () => {
+  const startedAt = Date.UTC(2026, 10, 17, 10, 8, 7)
+  const task: TaskDetail = {
+    id: 'timed-result',
+    source: 'chat',
+    kind: 'queue',
+    provider: 'openai-compat',
+    model: 'image',
+    status: 'completed',
+    submitted_at: startedAt,
+    started_at: startedAt,
+    completed_at: startedAt + 1000,
+    error_type: null,
+    upstream_status: null,
+    gpt_route: null,
+    gpt_key_fingerprint: null,
+    prompt: '杯子',
+    upstream_invocation_count: 1,
+    attempt_count: 1,
+    request_payload: { prompt: '杯子' },
+    result_meta: { images: [] },
+    error_message: null,
+    upstream_body: null,
+    device_id: null,
+    user_id: null,
+    next_retry_at: null,
+  }
+  taskQuery.mockReturnValue({ isPending: false, isError: false, data: task })
+  render(
+    <TooltipProvider>
+      <TaskDetailView taskId={task.id} />
+    </TooltipProvider>,
+  )
+  expect(screen.getByText(adminTime(startedAt))).toBeInTheDocument()
+  expect(screen.getByText(adminTime(startedAt + 1000))).toBeInTheDocument()
+  expect(screen.getAllByText(/北京时间/)).not.toHaveLength(0)
 })

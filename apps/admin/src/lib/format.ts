@@ -25,6 +25,23 @@ export function isoTime(ts: number): string {
   return new Date(ts).toISOString().replace('T', ' ').slice(0, 19)
 }
 
+const ADMIN_DISPLAY_TIME_ZONE = 'Asia/Shanghai'
+
+/** 与任务列表同一时区的绝对时间，带区名，避免被当成 UTC。 */
+export function adminTime(ts: number): string {
+  const text = new Date(ts).toLocaleString('zh-CN', {
+    timeZone: ADMIN_DISPLAY_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  })
+  return `${text} 北京时间`
+}
+
 /** 持续时间 "12s" / "1m 24s" / "—" */
 export function duration(startedAt: number | null, completedAt: number | null): string {
   if (!startedAt || !completedAt) return '—'
