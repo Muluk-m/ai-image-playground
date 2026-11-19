@@ -139,3 +139,26 @@ export async function runInLinkedSpan<T>(
     }
   })
 }
+
+export type TaskOutcome =
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'retry_scheduled'
+  | 'reconciling'
+  | 'archive_requeued'
+
+/**
+ * 在当前执行 span 上记下这次执行的结果。worker 把上游失败接住后自己写终态或安排重试、正常返回，
+ * 外层看不到异常，只能在写终态的地方标：失败、重试、待核查、归档回队都算这次执行出错。
+ */
+export function recordTaskOutcome(outcome: TaskOutcome, detail?: string): void {
+  const span = trace.getActiveSpan()
+  if (!span) return
+  span.setAttribute('task.outcome', outcome)
+  if (outcome === 'completed' || outcome === 'cancelled') return
+  span.setStatus({
+    code: SpanStatusCode.ERROR,
+    ...(detail ? { message: redactLogText(detail).slice(0, 500) } : {}),
+  })
+}

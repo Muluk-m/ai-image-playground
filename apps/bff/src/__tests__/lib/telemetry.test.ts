@@ -5,6 +5,7 @@ import { withRequestContext } from '../../lib/request-context'
 import {
   currentTraceparent,
   initTelemetry,
+  recordTaskOutcome,
   runInLinkedSpan,
   shutdownTelemetry,
   traceLogFields,
@@ -165,5 +166,23 @@ describe('任务跨进程链路', () => {
     expect(String(span?.events[0]?.attributes?.['exception.message'])).not.toContain(
       'sk-live-abcdefghijklmnop1234',
     )
+  })
+})
+
+describe('执行结果', () => {
+  it('失败类结果标错误，完成与取消不标；不在 span 里时什么也不做', async () => {
+    for (const outcome of ['completed', 'cancelled', 'retry_scheduled', 'reconciling'] as const)
+      await runInLinkedSpan('task.execute', null, {}, async () => recordTaskOutcome(outcome))
+    expect(
+      exporter
+        .getFinishedSpans()
+        .map((span) => [span.attributes['task.outcome'], span.status.code]),
+    ).toEqual([
+      ['completed', SpanStatusCode.UNSET],
+      ['cancelled', SpanStatusCode.UNSET],
+      ['retry_scheduled', SpanStatusCode.ERROR],
+      ['reconciling', SpanStatusCode.ERROR],
+    ])
+    expect(() => recordTaskOutcome('failed', 'x')).not.toThrow()
   })
 })
