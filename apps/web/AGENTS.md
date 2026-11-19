@@ -78,7 +78,11 @@ overlay 的受理 / 出错 / 结算通知，以及失败按错误码映射成人
 ## 登录与匿名访客
 
 **开着 `accounts:login` 的部署照常挂载工作台**：`/api/auth/me` 答 401 时 `AuthGate`
-保持匿名 scope，只有需要账号的动作才弹 [`LoginDialog`](./src/auth/LoginDialog.tsx)。
+保持匿名 scope，工作台仍可浏览。会话判定为未登录后，在 `/image`、`/explore`、`/assets`、
+`/tools`、`/` 和 `/p/<项目>` 等创作页自动打开已有的 [`LoginDialog`](./src/auth/LoginDialog.tsx)
+（登录方式仍由后端下发）；关掉后用 sessionStorage 记住，同一次浏览器会话不再自动弹出。
+定价、条款、隐私、CLI、更新页不自动弹。顶栏登录和需要账号的动作仍可打开。已登录用户
+和会话刷新过程中不会闪一下登录框。
 成功登录仍 reload 当前地址：重启时先 `adoptAnonymousStorage()`，再挂工作台与恢复待发请求。
 退出登录也保留当前路径、查询串与 hash，带一次性的 `login=1` 重启；会话解析完成后
 匿名用户打开登录框，已登录用户只消费参数不弹框。这样重建模块级账号 store 时不会短暂展示旧账号数据。

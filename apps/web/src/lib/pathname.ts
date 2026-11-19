@@ -49,10 +49,13 @@ export function usePathname(): string {
         return current === next ? current : next
       })
     pathnameListeners.add(sync)
+    // 模块被测试重置后，History 包装可能还指向旧的监听表；popstate 作为兜底。
+    window.addEventListener('popstate', sync)
     // 渲染到订阅之间的地址变化。
     sync()
     return () => {
       pathnameListeners.delete(sync)
+      window.removeEventListener('popstate', sync)
     }
   }, [])
   return pathname

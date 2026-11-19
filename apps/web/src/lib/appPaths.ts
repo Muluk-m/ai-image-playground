@@ -95,3 +95,28 @@ export function pathAppMode(pathname: string): RoutedAppMode | null {
     if (path === modePath) return mode as RoutedAppMode
   return null
 }
+
+/** 画布项目地址 `/p/<项目>`。不校验项目 id 是否合法，只认这一层路径。 */
+export function isProjectPath(pathname: string): boolean {
+  return /^\/p\/[^/]+$/.test(normalizePath(pathname))
+}
+
+/**
+ * 未登录访客进入这些工作台地址时，自动打开已有的登录框。
+ * 定价、条款、隐私、CLI 与更新页除外；官网、指南与 SEO 页不走 AuthGate。
+ */
+export function isGuestLoginPromptPath(pathname: string): boolean {
+  const path = normalizePath(pathname)
+  if (
+    path === PRICING_PATH ||
+    path === TERMS_PATH ||
+    path === PRIVACY_PATH ||
+    path === CLI_DEVICE_PATH ||
+    path === CLI_CONNECT_PATH ||
+    path === CHANGELOG_PATH
+  )
+    return false
+  if (path === '/') return true
+  if (pathAppMode(path) !== null) return true
+  return isProjectPath(path)
+}
