@@ -997,6 +997,34 @@ async function callUpstreamVia(
    * 轮询次数与计费无关，混进去会让 upstream_invocation_count 失去意义。
    */
   const dispatchIdentities = new WeakMap<UpstreamResponse, string>()
+  /** 计数请求的发出时刻与首字节耗时；响应读完时写 `upstream.request_finished`。 */
+  const dispatchTimings = new WeakMap<
+    UpstreamResponse,
+    { sentAt: number; headersMs: number; model: string }
+  >()
+  const logRequestFinished = (fields: {
+    outcome: 'ok' | 'http_error' | 'read_error' | 'transport_error'
+    status: number | null
+    headersMs: number | null
+    sentAt: number
+    /** 实际请求的模型：Vertex 限流回落时与任务模型不同。 */
+    model: string
+  }) => {
+    log.info(
+      {
+        event: 'upstream.request_finished',
+        ...(params.taskId ? { taskId: params.taskId } : {}),
+        provider,
+        model: fields.model,
+        style,
+        outcome: fields.outcome,
+        status: fields.status,
+        headersMs: fields.headersMs,
+        totalMs: Math.round(performance.now() - fields.sentAt),
+      },
+      'upstream request finished',
+    )
+  }
   // 排队时到硬超时：这一条请求确定没发出。同一次调用里别的请求（fan-out 的其它张）即使已发、
   // 结果未知，也由 fanOutRequests 按「有结果未知就整组待核查」汇总，这一条不必跟着改口径。
   const queueTimeoutError = () => new UpstreamQueueTimeoutError()
@@ -1014,6 +1042,8 @@ async function callUpstreamVia(
     url: string,
     init: UpstreamFetchInit,
     counted = true,
+    /** 只用于耗时日志；不传就是任务模型。 */
+    requestModel = model,
   ): Promise<UpstreamResponse> => {
     let lease: SchedulerLease | undefined
     if (counted && schedulerBuckets.length > 0) {
@@ -1032,6 +1062,8 @@ async function callUpstreamVia(
       if (lease) outstandingLeases.add(lease)
     }
     let sent = false
+    let sentAt: number | undefined
+    let headersAt: number | undefined
     // 记账回调开始前都确定没发出；回调里失败时不知道它是否已提交，按原样当「结果未知」。
     let committing = false
     try {
@@ -1045,10 +1077,19 @@ async function callUpstreamVia(
       // create a charged task without a corresponding upstream invocation.
       const requestAbort = new AbortController()
       const relayAbort = () => requestAbort.abort()
+      if (counted) sentAt = performance.now()
       const responsePromise = upstreamTransport.current(url, {
         ...fetchInit(init),
         signal: requestAbort.signal,
       })
+      // 首字节时刻挂在上游响应本身上，不被下面并行的记账写库拖长。
+      if (sentAt !== undefined)
+        void responsePromise.then(
+          () => {
+            headersAt = performance.now()
+          },
+          () => {},
+        )
       deadline.signal.addEventListener('abort', relayAbort, { once: true })
       if (deadline.signal.aborted) relayAbort()
       let keyRecorded: Promise<void> | undefined
@@ -1065,6 +1106,12 @@ async function callUpstreamVia(
           throw error
         }
         if (dispatchId) dispatchIdentities.set(response, dispatchId)
+        if (sentAt !== undefined)
+          dispatchTimings.set(response, {
+            sentAt,
+            headersMs: Math.round((headersAt ?? performance.now()) - sentAt),
+            model: requestModel,
+          })
         if (lease) {
           schedulerLeases.set(response, lease)
           if (response.status === 429 && !route.skipSharedRateLimitCooldown)
@@ -1078,6 +1125,14 @@ async function callUpstreamVia(
         deadline.signal.removeEventListener('abort', relayAbort)
       }
     } catch (err) {
+      if (sentAt !== undefined)
+        logRequestFinished({
+          outcome: 'transport_error',
+          status: null,
+          headersMs: null,
+          sentAt,
+          model: requestModel,
+        })
       // 记账回调之前就失败：这次没发出去，张数退回。
       if (lease) await releaseLease(lease, !sent)
       // 拿到名额时恰好到硬截止：还没进记账，同样是确定未执行。
@@ -1094,14 +1149,18 @@ async function callUpstreamVia(
     res: UpstreamResponse,
     imageResponses = false,
   ): Promise<UpstreamCallResult> => {
+    let read = false
     try {
       const result =
         imageResponses && res.ok
           ? { payload: await readImageResponses(res.body, deadline.signal) }
           : await parseUpstreamResponse(res)
+      read = true
       attempt.onResponse?.()
       return result
     } catch (err) {
+      // 上游回了错误状态码，body 也读完了：算 http_error，不是读取中断。
+      if (typeof (err as { upstreamStatus?: unknown })?.upstreamStatus === 'number') read = true
       if (deadline.timedOut) throw new UpstreamTimeoutError()
       if (externalSignal?.aborted) throw err
       if (err instanceof ImageResponsesError) throw err
@@ -1111,6 +1170,13 @@ async function callUpstreamVia(
         cause: err,
       })
     } finally {
+      const timing = dispatchTimings.get(res)
+      if (timing)
+        logRequestFinished({
+          outcome: !read ? 'read_error' : res.ok ? 'ok' : 'http_error',
+          status: res.status,
+          ...timing,
+        })
       const lease = schedulerLeases.get(res)
       if (lease) await releaseLease(lease)
     }
@@ -1392,6 +1458,7 @@ async function callUpstreamVia(
       // （Vertex 按模型各配 2）时，每条请求先排「渠道/模型」或渠道级的队再发。
       const sendVia = async (
         target: {
+          model: string
           url: string
           body: string
           concurrency: UpstreamRoute['concurrency']
@@ -1421,18 +1488,32 @@ async function callUpstreamVia(
           : undefined
         const send = async () =>
           await parseResponse(
-            await performFetch(target.url, { method: 'POST', headers, body: target.body }),
+            await performFetch(
+              target.url,
+              { method: 'POST', headers, body: target.body },
+              true,
+              target.model,
+            ),
           )
         try {
           // Vertex 的 429 是按模型的到达速率限流：先在这条请求里退避重发，一单多张里已出的图不必重来。
           return vertex
-            ? await withVertexRateLimitRetry(send, deadline.signal, () => deadline.timedOut, capAt)
+            ? await withVertexRateLimitRetry(
+                send,
+                deadline.signal,
+                () => deadline.timedOut,
+                capAt,
+                {
+                  ...(params.taskId ? { taskId: params.taskId } : {}),
+                  model: target.model,
+                },
+              )
             : await send()
         } finally {
           release?.()
         }
       }
-      const primary = { url, body, concurrency }
+      const primary = { model, url, body, concurrency }
       const fallback = vertex
         ? resolveVertexFallback(model, params.rateLimitFallbackModel, request, base, key)
         : undefined

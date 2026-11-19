@@ -90,6 +90,50 @@ afterAll(async () => {
 })
 
 describe('runMigrations', () => {
+  it('drops the pre-#580 task claim guard and restores it closed on rollback', async () => {
+    await withEmptyDatabase('legacy_claim_guard_drop', async (url) => {
+      await migrateUntil(url, '0097_task_gpt_route_attribution')
+      const sql = new SQL(url, { max: 1 })
+      try {
+        const guardObjects = async () => ({
+          trigger: (await sql`SELECT 1 FROM pg_trigger WHERE tgname = 'guard_legacy_task_claim'`)
+            .length,
+          fn: (await sql`SELECT 1 FROM pg_proc WHERE proname = 'guard_legacy_task_claim'`).length,
+          table: (await sql`SELECT to_regclass('public.deployment_controls') AS t`)[0].t,
+        })
+        expect(await guardObjects()).toEqual({ trigger: 1, fn: 1, table: 'deployment_controls' })
+        await runMigrations(url)
+        expect(await guardObjects()).toEqual({ trigger: 0, fn: 0, table: null })
+        const unfencedClaim = async (id: string) => {
+          await sql`INSERT INTO tasks (id, provider, model, status, request_payload, submitted_at)
+            VALUES (${id}, 'openai-compat', 'test', 'queued', '{}', now())`
+          return (await sql`UPDATE tasks SET status = 'in_progress' WHERE id = ${id} RETURNING id`)
+            .length
+        }
+        // 闸门还在时，开关打开会挡住不带 execution_token 的认领；删掉之后再挡不住。
+        expect(await unfencedClaim('after-drop')).toBe(1)
+        await sql.unsafe(
+          await Bun.file(
+            join(migrationsDirectory, 'rollback/0098_drop_legacy_task_claim_guard.down.sql'),
+          ).text(),
+        )
+        expect(await guardObjects()).toEqual({ trigger: 1, fn: 1, table: 'deployment_controls' })
+        expect(await sql`SELECT key, enabled FROM deployment_controls`).toEqual([
+          { key: 'legacy_claims_disabled', enabled: false },
+        ])
+        expect(await unfencedClaim('rolled-back-open')).toBe(1)
+        await sql`UPDATE deployment_controls SET enabled = true WHERE key = 'legacy_claims_disabled'`
+        expect(await unfencedClaim('rolled-back-closed')).toBe(0)
+        expect(
+          await sql`UPDATE tasks SET status = 'in_progress', execution_token = 'fenced'
+            WHERE id = 'rolled-back-closed' RETURNING id`,
+        ).toEqual([{ id: 'rolled-back-closed' }])
+      } finally {
+        await sql.close()
+      }
+    })
+  }, 30_000)
+
   it('preserves queue view readers and grants through GPT attribution upgrade and rollback', async () => {
     await withEmptyDatabase('gpt_attribution_upgrade', async (url) => {
       await migrateUntil(url, '0096_cli_loopback_authorization')
