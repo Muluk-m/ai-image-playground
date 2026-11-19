@@ -206,7 +206,8 @@ export async function submitWithLook(look: LookItem, body: string): Promise<bool
     operation.endPrepare()
     await acknowledged
     noteUserSubmittedTasks(ids)
-    if (!operation.isEdited()) {
+    // 等待受理期间用户可能已离开当前页/创作目标；任务继续跑，但不能再改新上下文里的输入。
+    if (operation.isCurrent() && !operation.isEdited()) {
       if (store.settings.clearInputAfterSubmit) {
         store.setPrompt('')
         store.clearInputImages()
