@@ -301,17 +301,16 @@
   "params": {
     "model": "模型",
     "modelAuto": "智能",
-    "modelAutoOption": "智能（自动选模型）",
     "ratio": "画幅",
     "outputCount": "张数",
-    "countUnit": "张",
     "thinkingFast": "快速",
-    "thinkingMedium": "中等",
+    "thinkingMedium": "均衡",
     "thinkingDeep": "深度",
-    "thinkingLegend": "思考深度",
-    "thinkingSummary": "思考：{{label}}",
-    "autoSubmitLabel": "直接出图",
-    "autoSubmitHint": "拟好提示词后直接生成；关闭则先确认再出图。"
+    "thinkingLegend": "速度",
+    "thinkingSummary": "速度：{{label}}",
+    "confirmBeforeGenerate": "出图前确认",
+    "confirmShort": "先确认",
+    "modelAutoToggle": "自动选模型"
   },
   "mentions": {
     "headingResults": "会话图片",

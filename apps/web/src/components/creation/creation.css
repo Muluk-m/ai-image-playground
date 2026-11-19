@@ -121,15 +121,18 @@
 .creation-composer .creation-toolbar button { min-height: 0; min-width: 0; }
 .creation-toolbar-action { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
 .creation-params-capsule { max-width: 100%; }
-.creation-params-segments { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
+.creation-params-segments { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; overflow: hidden; }
 .creation-params-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.creation-params-mark { font-variant-numeric: tabular-nums; }
+/* 空间不够时只截模型名，至少留几个字认得出。 */
+.creation-params-model { min-width: 3em; }
+.creation-params-dot { display: none; }
 @container creation-composer (max-width: 400px) {
  .creation-params-capsule { flex: 0 0 auto; overflow: visible; }
  .creation-params-capsule .creation-params-text { display: none; }
  .creation-params-segments { gap: 8px; overflow: visible; }
  .creation-params-segments > span { flex: 0 0 auto; }
  .creation-params-segments svg { width: 16px; height: 16px; }
+ .creation-params-dot { display: block; position: absolute; top: 6px; right: 6px; width: 6px; height: 6px; border-radius: 9999px; background: hsl(var(--primary)); }
 }
 
 .creation-toolbar-status { grid-column: 1 / -1; overflow-wrap: anywhere; @apply text-label-sm; }
