@@ -120,6 +120,21 @@ async function takeOver(id: string): Promise<void> {
 }
 
 describe('认领', () => {
+  it('认领时读出提交请求的 traceparent，worker 据此接回提交链路', async () => {
+    const traceparent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'
+    await insertQueuedTask('with-traceparent', { traceparent })
+    await insertQueuedTask('without-traceparent')
+    const traced = await claimTaskExecution('with-traceparent')
+    const untraced = await claimTaskExecution('without-traceparent')
+    try {
+      expect(traced?.task.traceparent).toBe(traceparent)
+      expect(untraced?.task.traceparent).toBeNull()
+    } finally {
+      traced?.release()
+      untraced?.release()
+    }
+  })
+
   it('clears the direct key on fallback and fences attribution from a former owner', async () => {
     await insertQueuedTask('gpt-attribution')
     const execution = await claimTaskExecution('gpt-attribution')
