@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { accountQueuePositions } from '../../lib/account-concurrency'
+import { accountQueuePositions, resolveEffectiveConcurrency } from '../../lib/account-concurrency'
 
 describe('accountQueuePositions（BUG-17）', () => {
   test('套餐只能同时出 1 张：在生成的那张和更早提交的都算在前面', () => {
@@ -66,5 +66,19 @@ describe('accountQueuePositions（BUG-17）', () => {
     )
     expect(positions.has('retry')).toBe(false)
     expect(positions.get('b')).toEqual({ ahead: 0, limit: 1 })
+  })
+})
+
+describe('resolveEffectiveConcurrency', () => {
+  test('开启弹性并发且有更高空闲名额时返回空闲并发，供 CLI capabilities 放行并行提交', () => {
+    expect(resolveEffectiveConcurrency(1, 2, true)).toBe(2)
+    expect(resolveEffectiveConcurrency(2, 3, true)).toBe(3)
+  })
+
+  test('未开启弹性并发或空闲名额不高于保证并发时保持保证并发', () => {
+    expect(resolveEffectiveConcurrency(1, 2, false)).toBe(1)
+    expect(resolveEffectiveConcurrency(2, 2, true)).toBe(2)
+    expect(resolveEffectiveConcurrency(3, 1, true)).toBe(3)
+    expect(resolveEffectiveConcurrency(undefined, undefined, true)).toBe(1)
   })
 })

@@ -612,7 +612,205 @@ func TestAConfigDirectoryNeverTouchesTheKeychain(t *testing.T) {
 		t.Fatalf("keychain changed: %v", keychain.entries)
 	}
 	t.Setenv("MUVLOOM_CONFIG_DIR", "")
+	t.Setenv("SANDBOX_CENTER_IPC_ADDRESS", "")
+	t.Setenv("CODEBUDDY_SANDBOX_CENTER_START_MODE", "")
+	t.Setenv("WORKBUDDY_SANDBOX", "")
 	if def := Default(); !def.UseKeyring || !def.ClearKeyring {
 		t.Fatalf("the default directory lost the keychain: %+v", def)
+	}
+	// Non-sandboxed MUVLOOM_CREDENTIALS_STORE=file must still clear stale keychain entries.
+	t.Setenv("MUVLOOM_CREDENTIALS_STORE", "file")
+	if filePref := Default(); filePref.UseKeyring || !filePref.ClearKeyring {
+		t.Fatalf("file store preference dropped ClearKeyring: %+v", filePref)
+	}
+	t.Setenv("MUVLOOM_CREDENTIALS_STORE", "")
+	t.Setenv("WORKBUDDY_SANDBOX", "0")
+	if notSandboxed := Default(); !notSandboxed.UseKeyring || !notSandboxed.ClearKeyring {
+		t.Fatalf("WORKBUDDY_SANDBOX=0 misdetected as sandbox: %+v", notSandboxed)
+	}
+	t.Setenv("WORKBUDDY_SANDBOX", "")
+	t.Setenv("SANDBOX_CENTER_IPC_ADDRESS", "/tmp/workbuddy-sandbox-center.sock")
+	if sandboxed := Default(); sandboxed.UseKeyring || sandboxed.ClearKeyring {
+		t.Fatalf("sandboxed desktop host touched the keychain: %+v", sandboxed)
+	}
+	// Even with MUVLOOM_CONFIG_DIR in a sandbox, DefaultLoginElsewhere must not probe keychain.
+	t.Setenv("MUVLOOM_CONFIG_DIR", t.TempDir())
+	sandboxStore := Default()
+	sandboxStore.Keychain = &userKeychain{entries: map[string]string{keyringUser: `{"refresh_token":"prod"}`}}
+	if sandboxStore.DefaultLoginElsewhere() {
+		t.Fatal("sandboxed host probed system keychain via DefaultLoginElsewhere")
+	}
+	t.Setenv("MUVLOOM_CONFIG_DIR", "")
+	t.Setenv("MUVLOOM_CREDENTIALS_STORE", "keychain")
+	if forced := Default(); !forced.UseKeyring {
+		t.Fatalf("explicit keychain override did not apply: %+v", forced)
+	}
+}
+
+func TestSandboxedFileLoginAndLogoutStayConsistentWithTerminalKeychain(t *testing.T) {
+	dir := t.TempDir()
+	keychain := &userKeychain{entries: map[string]string{}}
+	terminal := Store{Dir: dir, UseKeyring: true, ClearKeyring: true, Keychain: keychain}
+	sandbox := Store{Dir: dir, UseKeyring: false, ClearKeyring: false, Keychain: keychain}
+
+	// 1. User logs into Account A in normal terminal (stored in keychain).
+	if err := terminal.Save(Credentials{AccessToken: "a-tok", RefreshToken: "a-ref", BaseURL: "https://api.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if info := terminal.Describe(); info.Backend != "keychain" {
+		t.Fatalf("terminal Describe = %+v, want keychain", info)
+	}
+
+	// 2. User switches to Account B inside sandboxed host (writes file, never touches keychain).
+	if err := sandbox.Save(Credentials{AccessToken: "b-tok", RefreshToken: "b-ref", BaseURL: "https://api.example"}); err != nil {
+		t.Fatal(err)
+	}
+	// Keychain still holds Account A (sandbox did not touch it), yet terminal MUST load Account B!
+	if got, err := terminal.Load(); err != nil || got.RefreshToken != "b-ref" {
+		t.Fatalf("terminal reverted to stale keychain account: %+v, %v", got, err)
+	}
+	if info := terminal.Describe(); info.Backend != "file" {
+		t.Fatalf("terminal Describe after sandbox login = %+v, want file", info)
+	}
+
+	// 3. Terminal auto-refreshes tokens: must stay in file mode so sandbox keeps seeing the
+	// refreshed login instead of becoming unauthenticated!
+	if err := terminal.Save(Credentials{AccessToken: "b-tok-2", RefreshToken: "b-ref-2", BaseURL: "https://api.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := sandbox.Load(); err != nil || got.RefreshToken != "b-ref-2" {
+		t.Fatalf("sandbox lost login after terminal refresh: %+v, %v", got, err)
+	}
+	if got, err := terminal.Load(); err != nil || got.RefreshToken != "b-ref-2" {
+		t.Fatalf("terminal Load after refresh = %+v, %v", got, err)
+	}
+
+	// 4. User signs out inside sandboxed host -> terminal must see signed out, not Account A.
+	keychain.entries[keyringUser] = `{"access_token":"a-tok","refresh_token":"a-ref","base_url":"https://api.example"}`
+	if err := sandbox.Clear(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := terminal.Load(); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("terminal resurrected signed-out keychain account: %v", err)
+	}
+	if info := terminal.Describe(); info.Backend != "none" {
+		t.Fatalf("terminal Describe after sandbox clear = %+v, want none", info)
+	}
+
+	// 5. Confirmed keychain-clearing sign-out from normal terminal restores keychain authority.
+	if err := terminal.Clear(); err != nil {
+		t.Fatal(err)
+	}
+	if err := terminal.Save(Credentials{AccessToken: "c-tok", RefreshToken: "c-ref", BaseURL: "https://api.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := terminal.Load(); err != nil || got.RefreshToken != "c-ref" {
+		t.Fatalf("terminal Load after re-login = %+v, %v", got, err)
+	}
+	if info := terminal.Describe(); info.Backend != "keychain" {
+		t.Fatalf("terminal Describe after re-login = %+v, want keychain", info)
+	}
+}
+
+func TestClearWithTemporarilyUnavailableKeychainDoesNotResurrectStaleAccount(t *testing.T) {
+	dir := t.TempDir()
+	keychain := &userKeychain{entries: map[string]string{}}
+	terminal := Store{Dir: dir, UseKeyring: true, ClearKeyring: true, Keychain: keychain}
+	sandbox := Store{Dir: dir, UseKeyring: false, ClearKeyring: false, Keychain: keychain}
+
+	// Terminal saves Account A to keychain, then sandbox switches to Account B.
+	if err := terminal.Save(Credentials{AccessToken: "a-tok", RefreshToken: "a-ref", BaseURL: "https://api.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sandbox.Save(Credentials{AccessToken: "b-tok", RefreshToken: "b-ref", BaseURL: "https://api.example"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Keychain becomes temporarily unavailable when terminal signs out.
+	keychain.err = errors.New("keychain locked")
+	if err := terminal.Clear(); err != nil {
+		t.Fatalf("Clear with temporarily unavailable keychain returned unexpected error: %v", err)
+	}
+
+	// Keychain unlocks later (still holding Account A): Load must NOT resurrect Account A.
+	keychain.err = nil
+	if _, err := terminal.Load(); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("resurrected Account A after keychain recovered: %v", err)
+	}
+}
+
+func TestForceKeyringLockedClearReturnsErrorAndNeverResurrectsAccount(t *testing.T) {
+	dir := t.TempDir()
+	keychain := &userKeychain{entries: map[string]string{}}
+	forced := Store{Dir: dir, UseKeyring: true, ClearKeyring: true, ForceKeyring: true, Keychain: keychain}
+
+	// 1. Save Account A to keychain under MUVLOOM_CREDENTIALS_STORE=keychain.
+	if err := forced.Save(Credentials{AccessToken: "a-tok", RefreshToken: "a-ref", BaseURL: "https://api.example"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Keychain locks temporarily while saving Account B -> falls back to file with marker.
+	keychain.err = errors.New("keychain locked")
+	if err := forced.Save(Credentials{AccessToken: "b-tok", RefreshToken: "b-ref", BaseURL: "https://api.example"}); err != nil {
+		t.Fatalf("fallback Save failed: %v", err)
+	}
+	// Keychain unlocks later (still holding A): Load must still return B, not stale A.
+	keychain.err = nil
+	if got, err := forced.Load(); err != nil || got.RefreshToken != "b-ref" {
+		t.Fatalf("ForceKeyring bypassed keychain_fallback on Load: %+v, %v", got, err)
+	}
+	if info := forced.Describe(); info.Backend != "file" {
+		t.Fatalf("ForceKeyring Describe under keychain_fallback = %+v, want file", info)
+	}
+
+	// 3. Keychain locks again during Clear -> ForceKeyring Clear MUST report an error AND keep
+	// the safety marker so unlocking later still never resurrects Account A.
+	keychain.err = errors.New("keychain locked")
+	if err := forced.Clear(); err == nil {
+		t.Fatal("expected ForceKeyring Clear to fail when keychain removal cannot be confirmed")
+	}
+	keychain.err = nil
+	if _, err := forced.Load(); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("ForceKeyring resurrected Account A after locked Clear: %v", err)
+	}
+	if info := forced.Describe(); info.Backend != "none" {
+		t.Fatalf("ForceKeyring Describe after locked Clear = %+v, want none", info)
+	}
+
+	// 4. Subsequent Save while keychain is unlocked migrates cleanly back to keychain.
+	if err := forced.Save(Credentials{AccessToken: "c-tok", RefreshToken: "c-ref", BaseURL: "https://api.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := forced.Load(); err != nil || got.RefreshToken != "c-ref" {
+		t.Fatalf("ForceKeyring Load after recovery Save = %+v, %v", got, err)
+	}
+	if info := forced.Describe(); info.Backend != "keychain" {
+		t.Fatalf("ForceKeyring Describe after recovery Save = %+v, want keychain", info)
+	}
+}
+
+func TestSwitchingBackToKeychainAbortsWhenModeMarkerCannotBeCleared(t *testing.T) {
+	dir := t.TempDir()
+	keychain := &userKeychain{entries: map[string]string{}}
+	sandbox := Store{Dir: dir, UseKeyring: false, ClearKeyring: false, Keychain: keychain}
+	forced := Store{Dir: dir, UseKeyring: true, ClearKeyring: true, ForceKeyring: true, Keychain: keychain}
+
+	if err := sandbox.Save(Credentials{AccessToken: "b-tok", RefreshToken: "b-ref", BaseURL: "https://api.example"}); err != nil {
+		t.Fatal(err)
+	}
+	// Replace store-mode.json with a directory so os.Truncate fails reliably across OSes (including root/Windows).
+	if err := os.Remove(sandbox.storeModeFile()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(sandbox.storeModeFile(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := forced.Save(Credentials{AccessToken: "c-tok", RefreshToken: "c-ref", BaseURL: "https://api.example"}); err == nil {
+		t.Fatal("expected Save to fail when store-mode.json cannot be cleared")
+	}
+	// Existing credentials.json must still be intact and readable (not wiped to ErrNotFound).
+	if got, err := sandbox.Load(); err != nil || got.RefreshToken != "b-ref" {
+		t.Fatalf("credentials.json was wiped despite failed mode switch: %+v, %v", got, err)
 	}
 }

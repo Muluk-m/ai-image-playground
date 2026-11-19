@@ -10,7 +10,7 @@
 
 还未安装时，由 WorkBuddy 在对话中下载幕芽接入指南同源的 `muvloom-workbuddy.zip`，检查技能内容和包内路径后，将 `muvloom/` 安装到当前用户的 `~/.workbuddy/skills/muvloom/`（Windows 使用用户主目录）。读回 `SKILL.md` 和引用文件，重新加载技能后验证已发现并启用。若新任务输入 `/muv` 仍无候选，保留安装文件，请用户完整退出并重新打开客户端，再输入 `/muv` 并选择 `muvloom`；本机 WorkBuddy 5.9.3 已实测恢复，其他版本仍以实际结果为准。不要重复安装或预先宣称成功。不要把手动上传交给用户作为默认安装步骤，不要假装该包已在技能市场上架。必要权限和安全确认使用宿主正常提示，不修改全局保护。
 
-用户要求连接账号时，按当前接入指南页面的域名，为本次会话选择该页面对应的 API；这一步也适用于已经安装 CLI 的情况。CLI 安装和服务地址选择按接入页面的安装指南执行。CLI 0.2.5 的 `skill install --host` 只支持 Claude Code 和 Codex；WorkBuddy 通过对话安装本地技能，不发明 CLI host 参数。
+用户要求连接账号时，按当前接入指南页面的域名，为本次会话选择该页面对应的 API；这一步也适用于已经安装 CLI 的情况。CLI 安装和服务地址选择按接入页面的安装指南执行。CLI 0.2.5 的 `skill install --host` 仅支持 Claude Code 和 Codex，WorkBuddy 通过下载 `muvloom-workbuddy.zip` 安装到本地技能目录；升级到支持 `workbuddy` 的新版本 CLI 后，可使用 `muvloom skill install --host workbuddy --scope user` 安装，后续 `muvloom auth status` 会自动同步更新未修改的官方技能。
 
 ## 连接账号
 
@@ -21,7 +21,7 @@
 授权必须使用系统默认浏览器。用户可能已经在默认浏览器里登录了幕芽。不要指定 Chrome 或任何其他浏览器，不要用 `Start-Process` 打开浏览器，不要用桌面控制寻找浏览器，不要为打开网址申请提高权限。
 
 1. 先运行 `muvloom auth status`。确认 `api_url` 对应本次接入的服务，`state: ready` 时直接验证 `muvloom capabilities`，保留已有连接。`state: unreachable` 是短暂故障：等待 5 秒再试，然后 15 秒，最多三次；不要发起新的登录。仍失败就告诉用户稍后重试，并保留已有连接。
-2. 未登录且能在用户本机打开浏览器时，先在这一条回复里告诉用户：授权页马上在系统默认浏览器里打开，请登录并点「授权」；你会在这里等，点完会自动继续，不需要回复我。**不要结束本回合。** 若当前环境控制不了用户的浏览器，改用 `MUVLOOM_NO_BROWSER=1 muvloom auth login --no-wait`，把 `verification_uri_complete` 和 `user_code` 贴进对话，请用户在默认浏览器打开，再用 `muvloom auth login --timeout N` 等待。
+2. 未登录且能在用户本机打开浏览器时，先在这一条回复里告诉用户：授权页马上在系统默认浏览器里打开，请登录并点「允许」；你会在这里等，点完会自动继续，不需要回复我。**不要结束本回合。** 若当前环境控制不了用户的浏览器，改用 `MUVLOOM_NO_BROWSER=1 muvloom auth login --no-wait`，把 `verification_uri_complete` 和 `user_code` 贴进对话，请用户在默认浏览器打开，再用 `muvloom auth login --timeout N` 等待。
 3. 本机可打开浏览器时，紧接着前台运行 `muvloom --json auth login --timeout 15`，宿主的命令超时设为至少 30 秒。CLI 会尝试打开系统默认浏览器，点完授权即返回 `state: ready`。第一次返回 `AUTH_PENDING`（退出码 3）时，把同一次授权的 `verification_uri_complete` 和 `user_code` 发给用户，供没有看到弹窗时手动打开。若宿主截断命令，先用 `muvloom --json auth status` 取回待授权的链接与授权码。然后用 `muvloom auth login --timeout 15` 继续等待同一次授权，不会再打开新页面。等待期间不要反复提示用户：
    - `state: ready`：授权完成，继续第 4 步。
    - `AUTH_DENIED`：用户拒绝了，停止并说明。

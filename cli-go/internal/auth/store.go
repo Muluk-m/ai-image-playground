@@ -97,6 +97,9 @@ type Store struct {
 	// a file, so switching MUVLOOM_CREDENTIALS_STORE cannot leave a login behind. Tests that
 	// build a Store directly leave it off and never touch the real keychain.
 	ClearKeyring bool
+	// ForceKeyring is set when the caller explicitly requested MUVLOOM_CREDENTIALS_STORE=keychain,
+	// overriding an existing file-mode marker left by a sandboxed host.
+	ForceKeyring bool
 	// Keychain replaces the system credential store; nil means the system's.
 	Keychain Keychain
 }
@@ -122,26 +125,50 @@ func ConfigDir() string {
 	return ".muvloom"
 }
 
-// Default uses the keyring unless MUVLOOM_CREDENTIALS_STORE=file. A directory chosen with
-// MUVLOOM_CONFIG_DIR keeps its credentials in files only and never writes or deletes the
-// keychain (auth status only reads it, see DefaultLoginElsewhere): the keychain has one entry, which belongs to the default directory, so a login
-// or sign-out in another directory (a test service, a container) must not replace or remove it.
+// Default uses the keyring unless MUVLOOM_CREDENTIALS_STORE=file or the process runs inside
+// a sandboxed desktop host (e.g. WorkBuddy) where touching macOS Keychain triggers permission
+// prompts. A directory chosen with MUVLOOM_CONFIG_DIR keeps its credentials in files only and
+// never writes or deletes the keychain (auth status only reads it, see DefaultLoginElsewhere):
+// the keychain has one entry, which belongs to the default directory, so a login or sign-out
+// in another directory (a test service, a container) must not replace or remove it.
 func Default() Store {
 	if os.Getenv("MUVLOOM_CONFIG_DIR") != "" {
 		return Store{Dir: ConfigDir()}
 	}
+	storePref := strings.ToLower(strings.TrimSpace(os.Getenv("MUVLOOM_CREDENTIALS_STORE")))
+	sandboxed := inKeychainSandboxedHost()
 	return Store{
 		Dir:          ConfigDir(),
-		UseKeyring:   os.Getenv("MUVLOOM_CREDENTIALS_STORE") != "file",
-		ClearKeyring: true,
+		UseKeyring:   storePref != "file" && !sandboxed,
+		ClearKeyring: !sandboxed,
+		ForceKeyring: storePref == "keychain",
 	}
+}
+
+// inKeychainSandboxedHost detects desktop agent sandboxes (such as WorkBuddy on macOS) whose
+// file guards intercept writes to ~/Library/Keychains/. In those hosts the CLI prefers the 0600
+// credentials.json file unless the user explicitly requested MUVLOOM_CREDENTIALS_STORE=keychain.
+func inKeychainSandboxedHost() bool {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("MUVLOOM_CREDENTIALS_STORE")), "keychain") {
+		return false
+	}
+	for _, key := range []string{
+		"SANDBOX_CENTER_IPC_ADDRESS",
+		"CODEBUDDY_SANDBOX_CENTER_START_MODE",
+	} {
+		if strings.TrimSpace(os.Getenv(key)) != "" {
+			return true
+		}
+	}
+	wb := strings.ToLower(strings.TrimSpace(os.Getenv("WORKBUDDY_SANDBOX")))
+	return wb != "" && wb != "0" && wb != "false" && wb != "no" && wb != "off"
 }
 
 // DefaultLoginElsewhere reports that this store is a MUVLOOM_CONFIG_DIR directory without a
 // login while the keychain holds the default directory's: before 0.2.1 such a directory
 // shared that entry, so its user must sign in here again.
 func (s Store) DefaultLoginElsewhere() bool {
-	if s.UseKeyring || s.ClearKeyring || os.Getenv("MUVLOOM_CONFIG_DIR") == "" {
+	if s.UseKeyring || s.ClearKeyring || os.Getenv("MUVLOOM_CONFIG_DIR") == "" || inKeychainSandboxedHost() {
 		return false
 	}
 	if _, err := s.Load(); err == nil {
@@ -154,7 +181,51 @@ func (s Store) DefaultLoginElsewhere() bool {
 func (s Store) credentialsFile() string { return filepath.Join(s.Dir, "credentials.json") }
 func (s Store) pendingFile() string     { return filepath.Join(s.Dir, "pending-login.json") }
 func (s Store) serviceFile() string     { return filepath.Join(s.Dir, "connection.json") }
+func (s Store) storeModeFile() string   { return filepath.Join(s.Dir, "store-mode.json") }
 func (s Store) lockFile() string        { return filepath.Join(s.Dir, "credentials.lock") }
+
+type storeMode struct {
+	Source string `json:"source"`
+	Reason string `json:"reason,omitempty"` // "sandbox" or "keychain_fallback"
+}
+
+func (s Store) readStoreMode() (storeMode, bool) {
+	var mode storeMode
+	err := readRecord(s.storeModeFile(), &mode)
+	if errors.Is(err, ErrNotFound) {
+		return storeMode{}, false
+	}
+	if err != nil {
+		// A corrupted mode marker must not silently resurrect a stale keychain entry.
+		return storeMode{Source: "file"}, true
+	}
+	return mode, mode.Source == "file"
+}
+
+// preferFileOverKeychain reports whether a sandboxed/file-only process last wrote or cleared
+// credentials in this directory without clearing the system keychain. When true, even a
+// non-sandboxed process must read credentials.json instead of falling back to a stale
+// keychain entry from an earlier session.
+func (s Store) preferFileOverKeychain() bool {
+	_, preferFile := s.readStoreMode()
+	return preferFile
+}
+
+// shouldUseKeychainForRead reports whether Load/Describe may trust the system keychain.
+// Even when ForceKeyring is set (MUVLOOM_CREDENTIALS_STORE=keychain), an active file-mode
+// marker (sandbox or keychain_fallback) stays authoritative for reads until a write or
+// confirmed keychain-clearing sign-out actually clears it, so a locked keychain recovering
+// later can never resurrect a stale or signed-out account.
+func (s Store) shouldUseKeychainForRead() bool {
+	return s.UseKeyring && !s.preferFileOverKeychain()
+}
+
+// shouldUseKeychainForWrite reports whether Save/Preflight should target the system keychain.
+// Normal non-sandboxed refreshes stay in file mode while a sandboxed host owns the login;
+// ForceKeyring (MUVLOOM_CREDENTIALS_STORE=keychain) explicitly migrates back on write.
+func (s Store) shouldUseKeychainForWrite() bool {
+	return s.UseKeyring && (s.ForceKeyring || !s.preferFileOverKeychain())
+}
 
 // Info says where credentials live and, when the keychain is wanted but unusable, why. The
 // reason is a stable word: the keychain's own error text can carry local details.
@@ -167,17 +238,23 @@ type Info struct {
 func (s Store) Describe() Info {
 	var info Info
 	if s.UseKeyring {
-		_, err := s.keychain().Get(keyringService, keyringUser)
-		switch {
-		case err == nil:
-			info.Backend = "keychain"
-			return info
-		case errors.Is(err, keyring.ErrNotFound):
-			// The keychain works; it just holds nothing yet.
-		case errors.Is(err, keyring.ErrUnsupportedPlatform):
-			info.KeychainIssue = "unsupported_platform"
-		default:
-			info.KeychainIssue = "unavailable"
+		mode, preferFile := s.readStoreMode()
+		useKeychain := !preferFile
+		if useKeychain || mode.Reason == "keychain_fallback" {
+			_, err := s.keychain().Get(keyringService, keyringUser)
+			switch {
+			case err == nil:
+				if useKeychain {
+					info.Backend = "keychain"
+					return info
+				}
+			case errors.Is(err, keyring.ErrNotFound):
+				// The keychain works; it just holds nothing yet.
+			case errors.Is(err, keyring.ErrUnsupportedPlatform):
+				info.KeychainIssue = "unsupported_platform"
+			default:
+				info.KeychainIssue = "unavailable"
+			}
 		}
 	}
 	if fileHasContent(s.credentialsFile()) {
@@ -189,7 +266,7 @@ func (s Store) Describe() Info {
 }
 
 func (s Store) Load() (Credentials, error) {
-	if s.UseKeyring {
+	if s.shouldUseKeychainForRead() {
 		if secret, err := s.keychain().Get(keyringService, keyringUser); err == nil {
 			var creds Credentials
 			if err := json.Unmarshal([]byte(secret), &creds); err != nil {
@@ -221,8 +298,15 @@ func (s Store) saveSecret(creds Credentials) error {
 	if err != nil {
 		return err
 	}
-	if s.UseKeyring {
+	stayFileMode := !s.ForceKeyring && s.preferFileOverKeychain()
+	if s.UseKeyring && !stayFileMode {
 		if err := s.keychain().Set(keyringService, keyringUser, string(data)); err == nil {
+			// Clear any file-mode marker BEFORE emptying credentials.json: if the marker
+			// cannot be cleared, Load() would keep reading the file instead of the keychain,
+			// so aborting here preserves readable credentials instead of leaving ErrNotFound.
+			if err := truncateIfExists(s.storeModeFile()); err != nil {
+				return fmt.Errorf("could not switch credential store back to keychain: %w", err)
+			}
 			// The keychain now holds the login. Emptying the old file copy is housekeeping: its
 			// failure must not turn a stored login into a reported failure.
 			_ = truncateIfExists(s.credentialsFile())
@@ -234,14 +318,36 @@ func (s Store) saveSecret(creds Credentials) error {
 	if err := writeRecord(s.credentialsFile(), creds); err != nil {
 		return err
 	}
+	if stayFileMode {
+		// Keep file mode authoritative so sandboxed hosts (e.g. WorkBuddy) continue reading
+		// refreshed credentials after a normal terminal refreshes the token.
+		if s.ClearKeyring {
+			_ = s.keychain().Delete(keyringService, keyringUser)
+		}
+		return nil
+	}
 	// Load prefers the keychain, so an older entry there would shadow the file and replay
 	// a retired refresh token. This also covers MUVLOOM_CREDENTIALS_STORE=file.
 	if s.UseKeyring || s.ClearKeyring {
-		if err := s.keychain().Delete(keyringService, keyringUser); err != nil && !errors.Is(err, keyring.ErrNotFound) {
+		keychainCleared := false
+		if err := s.keychain().Delete(keyringService, keyringUser); err == nil || errors.Is(err, keyring.ErrNotFound) {
+			keychainCleared = true
+		} else {
 			if _, getErr := s.keychain().Get(keyringService, keyringUser); getErr == nil {
 				return fmt.Errorf("the system keychain still holds older credentials: %w", err)
+			} else if errors.Is(getErr, keyring.ErrNotFound) {
+				keychainCleared = true
 			}
 		}
+		if keychainCleared {
+			if err := truncateIfExists(s.storeModeFile()); err != nil {
+				return err
+			}
+		} else if err := writeRecord(s.storeModeFile(), storeMode{Source: "file", Reason: "keychain_fallback"}); err != nil {
+			return err
+		}
+	} else if err := writeRecord(s.storeModeFile(), storeMode{Source: "file", Reason: "sandbox"}); err != nil {
+		return err
 	}
 	return nil
 }
@@ -362,16 +468,36 @@ func (s Store) LoadService() (string, error) {
 func (s Store) Clear() error {
 	return s.locked(func() error {
 		var keyringErr error
+		var modeErr error
+		keychainCleared := false
 		if s.UseKeyring || s.ClearKeyring {
 			_ = s.keychain().Delete(keyringService, keyringProbeUser)
-			if err := s.keychain().Delete(keyringService, keyringUser); err != nil && !errors.Is(err, keyring.ErrNotFound) {
-				// An unavailable keychain is only a problem if it still holds our entry.
+			if err := s.keychain().Delete(keyringService, keyringUser); err == nil || errors.Is(err, keyring.ErrNotFound) {
+				keychainCleared = true
+			} else {
+				// An unavailable keychain is only a problem if it still holds our entry,
+				// but we cannot clear the file-mode marker unless we confirmed the keychain
+				// entry is actually gone (otherwise a locked keychain could resurrect an
+				// earlier account once it unlocks).
 				if _, getErr := s.keychain().Get(keyringService, keyringUser); getErr == nil {
 					keyringErr = fmt.Errorf("could not remove credentials from the system keychain: %w", err)
+				} else if errors.Is(getErr, keyring.ErrNotFound) {
+					keychainCleared = true
+				} else if s.ForceKeyring {
+					keyringErr = fmt.Errorf("could not confirm removal of credentials from the system keychain: %w", err)
 				}
 			}
 		}
-		return errors.Join(keyringErr, truncateIfExists(s.credentialsFile()), truncateIfExists(s.pendingFile()), truncateIfExists(s.serviceFile()))
+		if keychainCleared {
+			modeErr = truncateIfExists(s.storeModeFile())
+		} else {
+			reason := "sandbox"
+			if s.UseKeyring || s.ClearKeyring {
+				reason = "keychain_fallback"
+			}
+			modeErr = writeRecord(s.storeModeFile(), storeMode{Source: "file", Reason: reason})
+		}
+		return errors.Join(keyringErr, modeErr, truncateIfExists(s.credentialsFile()), truncateIfExists(s.pendingFile()), truncateIfExists(s.serviceFile()))
 	})
 }
 
@@ -380,7 +506,7 @@ func (s Store) Clear() error {
 // updated and emptied in place. It writes no secret and leaves stored credentials as they were.
 func (s Store) Preflight() error {
 	return s.locked(func() error {
-		if s.UseKeyring {
+		if s.shouldUseKeychainForWrite() {
 			kc := s.keychain()
 			if err := kc.Set(keyringService, keyringProbeUser, "ok"); err == nil {
 				_ = kc.Delete(keyringService, keyringProbeUser)
