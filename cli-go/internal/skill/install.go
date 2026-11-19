@@ -62,7 +62,11 @@ type metadata struct {
 }
 
 // hosts lists each supported agent host, in display order, with the directory holding its skills.
-var hosts = []struct{ name, dir string }{{"claude-code", ".claude"}, {"codex", ".agents"}}
+var hosts = []struct{ name, dir string }{
+	{"claude-code", ".claude"},
+	{"codex", ".agents"},
+	{"workbuddy", ".workbuddy"},
+}
 
 func hostDir(name string) (string, bool) {
 	for _, host := range hosts {
@@ -315,6 +319,11 @@ func checkReplaceableSkillDir(destination string) error {
 	}
 	data, err := os.ReadFile(filepath.Join(destination, ".muvloom-skill.json"))
 	if err != nil {
+		// WorkBuddy copies unpacked from the official ZIP before CLI native install had no
+		// .muvloom-skill.json yet; allow replacing them when SKILL.md proves ownership.
+		if isOfficialZipSkillDir(destination) {
+			return nil
+		}
 		return fmt.Errorf("%s already exists and is not a Muvloom Skill install; refusing to replace it", destination)
 	}
 	var meta metadata
@@ -322,6 +331,26 @@ func checkReplaceableSkillDir(destination string) error {
 		return fmt.Errorf("%s already exists and is not a Muvloom Skill install; refusing to replace it", destination)
 	}
 	return nil
+}
+
+// isOfficialZipSkillDir recognizes a Muvloom Skill directory unpacked from an official ZIP
+// (which carries SKILL.md with `name: muvloom` and `author: Muvloom` in frontmatter, before
+// `.muvloom-skill.json` metadata existed).
+func isOfficialZipSkillDir(destination string) bool {
+	raw, err := os.ReadFile(filepath.Join(destination, "SKILL.md"))
+	if err != nil {
+		return false
+	}
+	text := string(raw)
+	if !strings.HasPrefix(text, "---\n") {
+		return false
+	}
+	end := strings.Index(text[4:], "\n---\n")
+	if end < 0 {
+		return false
+	}
+	fm := text[4 : 4+end]
+	return strings.Contains(fm, "name: muvloom") && strings.Contains(fm, "author: Muvloom")
 }
 
 func installTree(destination string, files []bundleFile, meta metadata) error {

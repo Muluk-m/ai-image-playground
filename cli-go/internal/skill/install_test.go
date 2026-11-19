@@ -10,15 +10,18 @@ import (
 )
 
 func TestInstallUserHostsAndMetadata(t *testing.T) {
-	for _, host := range []string{"claude-code", "codex"} {
+	for _, host := range []string{"claude-code", "codex", "workbuddy"} {
 		home := t.TempDir()
 		result, err := Install(InstallOptions{Host: host, Scope: "user", Home: home})
 		if err != nil {
 			t.Fatalf("%s: %v", host, err)
 		}
 		dirName := ".claude"
-		if host == "codex" {
+		switch host {
+		case "codex":
 			dirName = ".agents"
+		case "workbuddy":
+			dirName = ".workbuddy"
 		}
 		root := filepath.Join(home, dirName, "skills", "muvloom")
 		if result.Path != root || result.Version != BundleVersion || result.FileHash == "" {
@@ -222,11 +225,28 @@ func TestInstallRefusesToReplaceANonSkillHostDestination(t *testing.T) {
 	}
 }
 
-func TestInstallStillRejectsWorkbuddyAndDoubaoHosts(t *testing.T) {
-	for _, host := range []string{"workbuddy", "doubao"} {
-		if _, err := Install(InstallOptions{Host: host, Scope: "user"}); err == nil {
-			t.Fatalf("expected error for host %s", host)
-		}
+func TestInstallStillRejectsDoubaoHost(t *testing.T) {
+	if _, err := Install(InstallOptions{Host: "doubao", Scope: "user"}); err == nil {
+		t.Fatal("expected error for host doubao")
+	}
+}
+
+func TestRefreshOutdatedUpgradesLegacyWorkbuddyZipInstall(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	dest := filepath.Join(home, ".workbuddy", "skills", "muvloom")
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := "---\nname: muvloom\ndescription: Old\nauthor: Muvloom\nversion: 1.0.0\n---\n\n# Old\n"
+	if err := os.WriteFile(filepath.Join(dest, "SKILL.md"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	installed, failed, err := RefreshOutdated(home, cwd)
+	if err != nil || len(failed) != 0 {
+		t.Fatalf("refresh legacy workbuddy: %v %v", failed, err)
+	}
+	if len(installed) != 1 || installed[0].Host != "workbuddy" || !installed[0].Current || installed[0].Version != BundleVersion {
+		t.Fatalf("legacy workbuddy was not upgraded: %+v", installed)
 	}
 }
 

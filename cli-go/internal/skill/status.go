@@ -76,6 +76,21 @@ func Installed(home, cwd string) ([]Installation, error) {
 			path := filepath.Join(location.root, host.dir, "skills", "muvloom")
 			data, readErr := os.ReadFile(filepath.Join(path, ".muvloom-skill.json"))
 			if errors.Is(readErr, os.ErrNotExist) {
+				// Official ZIP installs in WorkBuddy had no .muvloom-skill.json; detect them so
+				// RefreshOutdated can seamlessly upgrade them to the current CLI-bundled Skill.
+				if host.name == "workbuddy" && isOfficialZipSkillDir(path) {
+					result = append(result, Installation{
+						Skill:      "muvloom",
+						Host:       host.name,
+						Scope:      location.scope,
+						Path:       path,
+						Version:    "0.0.0",
+						Intact:     true,
+						Current:    false,
+						foundHost:  host.name,
+						foundScope: location.scope,
+					})
+				}
 				continue
 			}
 			if readErr != nil {

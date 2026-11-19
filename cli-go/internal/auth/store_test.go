@@ -612,7 +612,18 @@ func TestAConfigDirectoryNeverTouchesTheKeychain(t *testing.T) {
 		t.Fatalf("keychain changed: %v", keychain.entries)
 	}
 	t.Setenv("MUVLOOM_CONFIG_DIR", "")
+	t.Setenv("SANDBOX_CENTER_IPC_ADDRESS", "")
+	t.Setenv("CODEBUDDY_SANDBOX_CENTER_START_MODE", "")
+	t.Setenv("WORKBUDDY_SANDBOX", "")
 	if def := Default(); !def.UseKeyring || !def.ClearKeyring {
 		t.Fatalf("the default directory lost the keychain: %+v", def)
+	}
+	t.Setenv("SANDBOX_CENTER_IPC_ADDRESS", "/tmp/workbuddy-sandbox-center.sock")
+	if sandboxed := Default(); sandboxed.UseKeyring || sandboxed.ClearKeyring {
+		t.Fatalf("sandboxed desktop host touched the keychain: %+v", sandboxed)
+	}
+	t.Setenv("MUVLOOM_CREDENTIALS_STORE", "keychain")
+	if forced := Default(); !forced.UseKeyring {
+		t.Fatalf("explicit keychain override did not apply: %+v", forced)
 	}
 }

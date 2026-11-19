@@ -122,19 +122,42 @@ func ConfigDir() string {
 	return ".muvloom"
 }
 
-// Default uses the keyring unless MUVLOOM_CREDENTIALS_STORE=file. A directory chosen with
-// MUVLOOM_CONFIG_DIR keeps its credentials in files only and never writes or deletes the
-// keychain (auth status only reads it, see DefaultLoginElsewhere): the keychain has one entry, which belongs to the default directory, so a login
-// or sign-out in another directory (a test service, a container) must not replace or remove it.
+// Default uses the keyring unless MUVLOOM_CREDENTIALS_STORE=file or the process runs inside
+// a sandboxed desktop host (e.g. WorkBuddy) where touching macOS Keychain triggers permission
+// prompts. A directory chosen with MUVLOOM_CONFIG_DIR keeps its credentials in files only and
+// never writes or deletes the keychain (auth status only reads it, see DefaultLoginElsewhere):
+// the keychain has one entry, which belongs to the default directory, so a login or sign-out
+// in another directory (a test service, a container) must not replace or remove it.
 func Default() Store {
 	if os.Getenv("MUVLOOM_CONFIG_DIR") != "" {
 		return Store{Dir: ConfigDir()}
 	}
+	storePref := strings.ToLower(strings.TrimSpace(os.Getenv("MUVLOOM_CREDENTIALS_STORE")))
+	useKeyring := storePref != "file" && !inKeychainSandboxedHost()
 	return Store{
 		Dir:          ConfigDir(),
-		UseKeyring:   os.Getenv("MUVLOOM_CREDENTIALS_STORE") != "file",
-		ClearKeyring: true,
+		UseKeyring:   useKeyring,
+		ClearKeyring: useKeyring,
 	}
+}
+
+// inKeychainSandboxedHost detects desktop agent sandboxes (such as WorkBuddy) whose file
+// guards intercept writes to ~/Library/Keychains/. In those hosts the CLI prefers the 0600
+// credentials.json file unless the user explicitly requested MUVLOOM_CREDENTIALS_STORE=keychain.
+func inKeychainSandboxedHost() bool {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("MUVLOOM_CREDENTIALS_STORE")), "keychain") {
+		return false
+	}
+	for _, key := range []string{
+		"SANDBOX_CENTER_IPC_ADDRESS",
+		"CODEBUDDY_SANDBOX_CENTER_START_MODE",
+		"WORKBUDDY_SANDBOX",
+	} {
+		if os.Getenv(key) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // DefaultLoginElsewhere reports that this store is a MUVLOOM_CONFIG_DIR directory without a

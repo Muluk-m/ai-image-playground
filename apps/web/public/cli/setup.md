@@ -1,16 +1,30 @@
 # Muvloom agent setup
 
-Install Muvloom CLI, connect the user's account, install the official skill when
-the host can use one, and report when it is ready. Detect the operating system
-and use the agent host named in the user's request. Keep the conversation in the
-user's language. Do not generate images during setup, and do not spend credits
-unless the user asks.
+Install Muvloom CLI, install the official skill for this host, connect the user's
+account, and report when ready. Detect the operating system and the current agent
+host automatically (WorkBuddy, 豆包工作, Claude Code, Codex, Cursor, or another
+host) — do not ask the user which host or OS they are using, and keep the number
+of shell tool calls minimal by combining setup steps where possible. Keep the
+conversation in the user's language. Do not generate images during setup, and do
+not spend credits unless the user asks.
 
 When this guide points to another file in the same folder (for example
 `workbuddy.md`, `doubao.md`, `install.sh`, `install.ps1`, or a skill zip), fetch
 it from the same address as this page with its file name replaced, keeping this
 page's `?v=` query. That value changes whenever the guides or installers change,
 so a cached older copy is never used.
+
+## Fast path: install CLI + Skill in one shell call
+
+Combine checking/installing the CLI and installing the host skill into a single
+shell command whenever this host can run shell commands, so setup finishes in
+two steps (1. install CLI + skill, 2. authorize account):
+
+- **WorkBuddy** (`~/.workbuddy/skills/muvloom/`): download `<this-guide-origin>/cli/muvloom-workbuddy.zip?v=<this-page-v>`, verify entries stay under `muvloom/` with no `..` or symlinks, and extract into `~/.workbuddy/skills/` (or `%USERPROFILE%\.workbuddy\skills\` on Windows). No need to fetch `workbuddy.md` separately unless troubleshooting.
+- **Claude Code**: run `muvloom skill install --host claude-code` right after installing/finding the CLI.
+- **Codex**: run `muvloom skill install --host codex` right after installing/finding the CLI.
+- **豆包工作**: follow [the Doubao Work guide](doubao.md) (keeping `?v=`) to import `muvloom-doubao.zip`.
+- **Other hosts**: download `muvloom-skill.zip?v=<this-page-v>` and extract `muvloom/` into the host's skill directory or upload it via the host UI.
 
 ## 1. Install CLI 0.2.5 or newer
 
@@ -185,12 +199,15 @@ the host kills the command on timeout, so do not rely on that here.
 1. In one reply, tell the user an approval page is opening in their **system
    default browser** and that they only need to sign in and approve: you will
    continue on your own, so they do not need to reply. Do not end your turn.
-2. Run `muvloom auth login` in the foreground and let the CLI open the default
-   browser itself. It returns `state: ready` as soon as the user approves.
+2. Run `muvloom --json auth login --timeout 15` (or `muvloom auth login`) in the
+   foreground and let the CLI open the default browser itself. It returns
+   `state: ready` as soon as the user approves.
 3. `AUTH_PENDING`, or a command the host cut off, means the user has not
-   approved yet: run `muvloom auth login` again. It resumes the same login and
-   does not open another page. Stop on `AUTH_DENIED`; start over only on
-   `AUTH_EXPIRED`.
+   approved yet: on the first `AUTH_PENDING`, immediately share
+   `verification_uri_complete` in chat in case the browser did not pop to front,
+   then run `muvloom auth login --timeout 15` (or `muvloom auth login`) again.
+   It resumes the same login and does not open another page. Stop on
+   `AUTH_DENIED`; start over only on `AUTH_EXPIRED`.
 4. If the CLI cannot open a browser, print `verification_uri_complete` (and
    `user_code`) clearly and ask the user to open that link in their default
    browser, then continue waiting as in path A. Do not switch browsers.
