@@ -12,7 +12,6 @@ import type {
   GenerationOverviewResult,
   GenerationTaskFilters,
   GenerationTasksResult,
-  TodayErrorsResult,
 } from '../../contracts'
 
 import { apiClient } from './api-client'
@@ -259,13 +258,6 @@ export function useGenerationOverview(selection: GenerationSelection) {
     refetchInterval: generationRefreshInterval(selection),
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
-  })
-}
-export function useTodayErrors() {
-  return useQuery({
-    queryKey: ['overview-errors'],
-    queryFn: () => apiClient.get<TodayErrorsResult>('/api/overview/errors'),
-    refetchInterval: 30_000,
   })
 }
 
