@@ -243,6 +243,29 @@ async function submit(
   return await postSubmit(base, provider, model, body)
 }
 
+/** 提交请求遇到断网时自动重试的次数（不含第一次）。重试沿用同一个请求体，也就沿用同一个幂等键。 */
+const SUBMIT_NETWORK_RETRIES = 2
+const SUBMIT_RETRY_DELAYS_MS = [0, 200] as const
+
+function isRetryableSubmitNetworkError(error: unknown): boolean {
+  return (
+    error instanceof TypeError &&
+    /failed to fetch|networkerror|load failed|network request failed/i.test(error.message)
+  )
+}
+
+async function postSubmitFetch(url: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await authenticatedBffFetch(url, init)
+    } catch (error) {
+      if (!isRetryableSubmitNetworkError(error) || attempt >= SUBMIT_NETWORK_RETRIES) throw error
+      const delay = SUBMIT_RETRY_DELAYS_MS[Math.min(attempt, SUBMIT_RETRY_DELAYS_MS.length - 1)]!
+      await new Promise((resolve) => setTimeout(resolve, delay))
+    }
+  }
+}
+
 /** submit 的 POST 与错误归一化。视频提交与图片提交共用，402 / 429 语义必须一致。 */
 async function postSubmit(
   base: string,
@@ -251,7 +274,7 @@ async function postSubmit(
   body: Record<string, unknown>,
 ): Promise<string> {
   const url = `${base}/v1/queue/${provider}/${encodeURIComponent(model)}/submit`
-  const res = await authenticatedBffFetch(url, {
+  const res = await postSubmitFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),

@@ -173,6 +173,7 @@ export async function submitWithLook(look: LookItem, body: string): Promise<bool
       if (selected) for (const view of asset.views) equivalentImageIds[view.imageId] = selected
     }
     const typed = remapImageMentionsForOrder(prompt, inputImages, images, equivalentImageIds)
+    let acknowledged = Promise.resolve()
     const ids = await operation.wait(
       submitPrepared(
         {
@@ -194,12 +195,19 @@ export async function submitWithLook(look: LookItem, body: string): Promise<bool
           onLoginQueued: operation.markPending,
           onConfirmationPending: operation.setConfirmationPending,
           template: true,
+          onAcknowledged: (ack) => {
+            acknowledged = ack
+          },
         },
       ),
     )
     if (!ids.length) return false
+    // 准备阶段结束：30 秒超时和取消不再作用于已发出的任务；锁住直到服务端受理。
+    operation.endPrepare()
+    await acknowledged
     noteUserSubmittedTasks(ids)
-    if (!operation.isEdited()) {
+    // 等待受理期间用户可能已离开当前页/创作目标；任务继续跑，但不能再改新上下文里的输入。
+    if (operation.isCurrent() && !operation.isEdited()) {
       if (store.settings.clearInputAfterSubmit) {
         store.setPrompt('')
         store.clearInputImages()

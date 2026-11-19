@@ -48,6 +48,7 @@
     "maskEdit": "遮罩编辑",
     "maskEditShortcut": "遮罩编辑 (Ctrl+Enter)",
     "generateShortcut": "生成 (Ctrl+Enter)",
+    "submitting": "提交中",
     "noModel": "暂无可用模型，请稍后再试",
     "startCanvas": "开始创作",
     "skillNeedsCanvas": "技能只能在项目中使用，切到「智能创作」或「画布创作」再发送",
@@ -223,5 +224,11 @@
     "oversized": "第 {{index}} 张超过 {{mb}} MB，请移除或换一张更小的图。",
     "sendLabel": "逐张生成 {{count}} 张",
     "sendLabelCredits": "逐张生成 {{count}} 张，共 {{credits}} 积分"
+  },
+  "multiScene": {
+    "hint": "当前会出 1 张图：一条提示词只生成一个场景。想要 {{count}} 个不同场景，请分别写 {{count}} 条提示词，或{{agent}}。",
+    "handToAgent": "交给智能体",
+    "dismiss": "关闭",
+    "hintNoAgent": "当前会出 1 张图：一条提示词只生成一个场景。想要 {{count}} 个不同场景，请分别写 {{count}} 条提示词。"
   }
 }

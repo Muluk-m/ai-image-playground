@@ -78,6 +78,11 @@ export interface GenerationSpec<C> {
   variants: GenerationVariant<C>[]
   /** 幂等键；只在这次恰好开一条任务时复用，多条各自新铸（共用会被 BFF 去重折叠成一次生成）。 */
   clientRequestId?: string
+  /**
+   * 每条任务被服务端受理（建成队列任务）或提交失败时决议，不等出图结束。
+   * 提交按钮要锁到这一刻，而不是只锁一个短定时器。
+   */
+  onAcknowledged?: (ack: Promise<void>) => void
 }
 
 /** 扇出之后的一条任务：这一条发什么、带什么幂等键，`params.n` 已经折好。 */
@@ -150,8 +155,11 @@ export interface GenerationReport<H> extends GenerationOutcomeReport<H, CallApiR
 /** 起一批生成时还要能开记录：`open` 同步返回句柄（画布要求占位框在第一个 await 之前出现）。 */
 export interface GenerationSink<H, C> extends GenerationReport<H> {
   open(unit: GenerationUnit<C>): H
-  /** 有就由它决定什么时候真正发出（排队限并发）；没有就立刻发。 */
-  schedule?(handle: H, send: () => Promise<void>): void
+  /**
+   * 有就由它决定什么时候真正发出（排队限并发）；没有就立刻发。
+   * 决定不发时必须调用 `acknowledge`，否则整批的受理等待不会结束，提交按钮会一直锁着。
+   */
+  schedule?(handle: H, send: () => Promise<void>, acknowledge: () => void): void
 }
 
 /**
@@ -219,7 +227,10 @@ function fanOutOf(profile: ClientProfile, params: TaskParams): number {
  * **同步**开出来再逐条异步跑，所以调用方 `void` 一下即返回，占位框 / 任务行立刻出现。
  */
 export function startGeneration<H, C>(spec: GenerationSpec<C>, sink: GenerationSink<H, C>): H[] {
-  if (spec.variants.length === 0) return []
+  if (spec.variants.length === 0) {
+    spec.onAcknowledged?.(Promise.resolve())
+    return []
+  }
   const quantity = Math.max(1, spec.params.n)
   const model = clientProfileToApiProfile(spec.profile).model
   // 门禁按整批的量判，否则积分不够时会先发一半再报错。倍率与提交时的 imageRateMultiplier 一致。
@@ -232,14 +243,18 @@ export function startGeneration<H, C>(spec: GenerationSpec<C>, sink: GenerationS
         ? preparedComposerImageRate(model, spec.params, spec.member)
         : composerImageRate(model, spec.params),
     })
-  )
+  ) {
+    spec.onAcknowledged?.(Promise.resolve())
     return []
+  }
 
   const fanOut = fanOutOf(spec.profile, spec.params)
   const params = fanOut === 1 ? spec.params : { ...spec.params, n: 1 }
   // 幂等键逐任务唯一：多条任务共用一个键会被 BFF 去重折叠成一次生成。
+  // 同一次提交的自动重试必须沿用这个键；只有用户再点一次才新铸。
   const reusable = spec.variants.length * fanOut === 1 ? spec.clientRequestId : undefined
   const handles: H[] = []
+  const acknowledgements: Promise<void>[] = []
   for (const variant of spec.variants) {
     for (let index = 0; index < fanOut; index++) {
       const unit: GenerationUnit<C> = {
@@ -255,11 +270,13 @@ export function startGeneration<H, C>(spec: GenerationSpec<C>, sink: GenerationS
       }
       const handle = sink.open(unit)
       handles.push(handle)
-      const send = () => runUnit(spec.settings, unit, handle, sink)
-      if (sink.schedule) sink.schedule(handle, send)
+      const { send, acknowledged, acknowledge } = runUnit(spec.settings, unit, handle, sink)
+      acknowledgements.push(acknowledged)
+      if (sink.schedule) sink.schedule(handle, send, acknowledge)
       else void send()
     }
   }
+  spec.onAcknowledged?.(Promise.all(acknowledgements).then(() => undefined))
   return handles
 }
 
@@ -275,7 +292,7 @@ export function resumeGeneration<H>(
   if (!input.requestId) {
     const clientRequestId = input.clientRequestId ?? crypto.randomUUID()
     const resend = input.resend
-    return runUnit(
+    const { send } = runUnit(
       input.settings,
       async () => {
         const sent = await resend?.()
@@ -293,6 +310,7 @@ export function resumeGeneration<H>(
       handle,
       report,
     )
+    return send()
   }
   const requestId = input.requestId
   return superviseGeneration(handle, report, () =>
@@ -310,42 +328,61 @@ export function resumeGeneration<H>(
   )
 }
 
-async function runUnit<H>(
+function runUnit<H>(
   settings: AppSettings,
   source: GenerationUnit<unknown> | (() => Promise<GenerationUnit<unknown>>),
   handle: H,
   report: GenerationReport<H>,
-): Promise<void> {
-  await superviseGeneration(handle, report, async () => {
-    // 要发的东西可能得现取（续跑时输入图只存了 id，位图在 IndexedDB 里）：取不到也是
-    // 本次提交失败，与请求失败同一条标错和结算通知路径。
-    const unit = typeof source === 'function' ? await source() : source
-    // 落盘失败也是本次提交失败：必须走同一条标错和结算通知路径，不能留一条永久 running 的任务。
-    await report.persisted?.(handle)
-    return callImageApi({
-      settings,
-      outputRetention: unit.outputRetention,
-      stageAuthorization: unit.stageAuthorization,
-      prompt: unit.prompt,
-      params: unit.params,
-      // 云媒体里的图按身份交给 BFF，由服务端读字节、按同一口径压缩；带遮罩时要像素对齐，
-      // 软遮罩降级也得在本机画标注图，所以仍取原图。
-      inputImageDataUrls: await Promise.all(
-        unit.inputImageDataUrls.map((source) =>
-          !unit.maskDataUrl && mediaIdentity(source)
-            ? source
-            : resolveMediaSource(source, 'original', true),
-        ),
-      ),
-      ...(unit.maskDataUrl ? { maskDataUrl: unit.maskDataUrl } : {}),
-      clientRequestId: unit.clientRequestId,
-      onQueueSubmitted: (requestId) => {
-        report.accepted(handle, { kind: 'queue', requestId })
-        notifyPrivateSubmissionAccepted()
-      },
-      onQueueStatus: (phase) => report.progress(handle, phase),
-    })
+): { send: () => Promise<void>; acknowledged: Promise<void>; acknowledge: () => void } {
+  let settled = false
+  let settle: () => void = () => {}
+  const acknowledged = new Promise<void>((resolve) => {
+    settle = resolve
   })
+  const acknowledge = () => {
+    if (settled) return
+    settled = true
+    settle()
+  }
+  const send = () =>
+    superviseGeneration(handle, report, async () => {
+      try {
+        // 要发的东西可能得现取（续跑时输入图只存了 id，位图在 IndexedDB 里）：取不到也是
+        // 本次提交失败，与请求失败同一条标错和结算通知路径。
+        const unit = typeof source === 'function' ? await source() : source
+        // 落盘失败也是本次提交失败：必须走同一条标错和结算通知路径，不能留一条永久 running 的任务。
+        await report.persisted?.(handle)
+        return await callImageApi({
+          settings,
+          outputRetention: unit.outputRetention,
+          stageAuthorization: unit.stageAuthorization,
+          prompt: unit.prompt,
+          params: unit.params,
+          // 云媒体里的图按身份交给 BFF，由服务端读字节、按同一口径压缩；带遮罩时要像素对齐，
+          // 软遮罩降级也得在本机画标注图，所以仍取原图。
+          inputImageDataUrls: await Promise.all(
+            unit.inputImageDataUrls.map((source) =>
+              !unit.maskDataUrl && mediaIdentity(source)
+                ? source
+                : resolveMediaSource(source, 'original', true),
+            ),
+          ),
+          ...(unit.maskDataUrl ? { maskDataUrl: unit.maskDataUrl } : {}),
+          clientRequestId: unit.clientRequestId,
+          onQueueSubmitted: (requestId) => {
+            report.accepted(handle, { kind: 'queue', requestId })
+            notifyPrivateSubmissionAccepted()
+            acknowledge()
+          },
+          onQueueStatus: (phase) => report.progress(handle, phase),
+        })
+      } finally {
+        // 受理回调里已经决议过则这是空操作。提交失败、测试替身或不叫 onQueueSubmitted 的
+        // 路径也要在这里解锁，不能让按钮一直转圈。
+        acknowledge()
+      }
+    })
+  return { send, acknowledged, acknowledge }
 }
 
 /**

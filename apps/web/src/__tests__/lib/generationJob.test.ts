@@ -271,6 +271,86 @@ describe('受理与结算通知', () => {
     expect(overlay.errored).toHaveBeenCalledTimes(1)
     expect(overlay.settled).toHaveBeenCalledTimes(1)
   })
+
+  it('服务端受理后就决议 onAcknowledged，不等出图结束', async () => {
+    const settings = builtinSettings(channelWith(['generate']))
+    let ack: Promise<void> | undefined
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.endsWith('/submit'))
+        return Response.json({ request_id: 'rid-1', status: 'queued', submitted_at: 0 })
+      return new Promise<Response>(() => {})
+    })
+
+    startGeneration(
+      {
+        settings,
+        profile: getActiveApiProfile(settings),
+        params: { ...DEFAULT_PARAMS, n: 1 },
+        variants: [{ prompt: '一只猫', inputImageDataUrls: [], context: 'a' }],
+        onAcknowledged: (promise) => {
+          ack = promise
+        },
+      },
+      recordingSink().sink,
+    )
+
+    await vi.waitFor(() => expect(ack).toBeDefined())
+    await ack
+  })
+
+  it('提交失败时也会决议 onAcknowledged', async () => {
+    const settings = builtinSettings(channelWith(['generate']))
+    let ack: Promise<void> | undefined
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.endsWith('/submit')) return new Response('submit failed', { status: 500 })
+      throw new Error(`unexpected fetch in test: ${url}`)
+    })
+
+    startGeneration(
+      {
+        settings,
+        profile: getActiveApiProfile(settings),
+        params: { ...DEFAULT_PARAMS, n: 1 },
+        variants: [{ prompt: '一只猫', inputImageDataUrls: [], context: 'a' }],
+        onAcknowledged: (promise) => {
+          ack = promise
+        },
+      },
+      recordingSink().sink,
+    )
+
+    await vi.waitFor(() => expect(ack).toBeDefined())
+    await ack
+  })
+
+  it('调度器决定不发时也会决议 onAcknowledged，提交按钮不会一直锁着', async () => {
+    const settings = builtinSettings(channelWith(['generate']))
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    let ack: Promise<void> | undefined
+    const { sink } = recordingSink()
+    sink.schedule = (_handle, _send, acknowledge) => {
+      acknowledge()
+    }
+
+    startGeneration(
+      {
+        settings,
+        profile: getActiveApiProfile(settings),
+        params: { ...DEFAULT_PARAMS, n: 1 },
+        variants: [{ prompt: '一只猫', inputImageDataUrls: [], context: 'a' }],
+        onAcknowledged: (promise) => {
+          ack = promise
+        },
+      },
+      sink,
+    )
+
+    await vi.waitFor(() => expect(ack).toBeDefined())
+    await ack
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
 })
 
 describe('刷新后续跑与首次提交同一套收尾', () => {
@@ -370,6 +450,34 @@ describe('刷新后续跑与首次提交同一套收尾', () => {
     expect(fetchMock).not.toHaveBeenCalled()
     expect(overlay.errored).toHaveBeenCalledTimes(1)
     expect(overlay.settled).toHaveBeenCalledTimes(1)
+  })
+
+  it('续跑没有队列号时沿用原来的幂等键重提交', async () => {
+    const settings = builtinSettings(channelWith(['generate']))
+    const bodies: unknown[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : (input as Request).url
+      if (url.endsWith('/submit')) {
+        bodies.push(JSON.parse(String(init?.body)))
+        return Response.json({ request_id: 'rid-1', status: 'queued', submitted_at: 0 })
+      }
+      return new Promise<Response>(() => {})
+    })
+    const { sink } = recordingSink()
+
+    void resumeGeneration(
+      {
+        settings,
+        prompt: '一只猫',
+        params: { ...DEFAULT_PARAMS, n: 1 },
+        clientRequestId: 'same-key',
+      },
+      0,
+      sink,
+    )
+
+    await vi.waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toMatchObject({ client_request_id: 'same-key' })
   })
 })
 

@@ -190,6 +190,55 @@ it('freezes the submission and preserves a newer draft while preventing duplicat
   expect(useActiveLook.getState().look?.name).toBe('Next template')
 })
 
+it('keeps the look submission lock until the server acknowledges and ignores cancel after send starts', async () => {
+  const imageId = seedImage()
+  useStore.setState({
+    inputImages: [{ id: imageId, dataUrl: storage.images.get(imageId)!.dataUrl }],
+  })
+  let release!: (error: Error) => void
+  vi.spyOn(globalThis, 'fetch').mockImplementation(
+    () =>
+      new Promise((_, reject) => {
+        release = reject
+      }),
+  )
+  const sending = submitWithLook(look(), 'template')
+  await vi.waitFor(() => expect(useStore.getState().tasks).toHaveLength(1))
+  expect(useLookSubmission.getState()).toMatchObject({ submitting: true, cancellable: false })
+  cancelLookSubmission()
+  expect(useLookSubmission.getState().submitting).toBe(true)
+  expect(await submitWithLook(look(), 'duplicate')).toBe(false)
+  release(new Error('offline after task creation'))
+  expect(await sending).toBe(true)
+  expect(useLookSubmission.getState().submitting).toBe(false)
+})
+
+it('does not clear a later composer context after leaving during acknowledgement', async () => {
+  const imageId = seedImage()
+  useStore.setState({
+    inputImages: [{ id: imageId, dataUrl: storage.images.get(imageId)!.dataUrl }],
+    settings: { ...useStore.getState().settings, clearInputAfterSubmit: true },
+  })
+  const template = look()
+  useActiveLook.getState().set(template)
+  let release!: (error: Error) => void
+  vi.spyOn(globalThis, 'fetch').mockImplementation(
+    () =>
+      new Promise((_, reject) => {
+        release = reject
+      }),
+  )
+  const sending = submitWithLook(template, 'template')
+  await vi.waitFor(() => expect(useStore.getState().tasks).toHaveLength(1))
+  useStore.getState().setCreateTarget('chat')
+  release(new Error('offline after task creation'))
+  expect(await sending).toBe(true)
+  expect(useStore.getState().prompt).toBe('my words')
+  expect(useStore.getState().inputImages).toHaveLength(1)
+  expect(useActiveLook.getState().look?.skillName).toBe(template.skillName)
+  expect(useLookSubmission.getState().submitting).toBe(false)
+})
+
 it('leaving generation while images load cancels before any task is created', async () => {
   const imageId = crypto.randomUUID()
   const dataUrl =

@@ -225,3 +225,42 @@ it('shows started and completed times in Beijing time with a zone label', () => 
   expect(screen.getByText(adminTime(startedAt + 1000))).toBeInTheDocument()
   expect(screen.getAllByText(/北京时间/)).not.toHaveLength(0)
 })
+
+it.each([
+  { n: undefined, shown: '1' },
+  { n: 6, shown: '6' },
+])('always shows image count $shown when request_payload.n is $n', ({ n, shown }) => {
+  const task: TaskDetail = {
+    id: 'count-result',
+    source: 'chat',
+    kind: 'queue',
+    provider: 'openai-compat',
+    model: 'image',
+    status: 'completed',
+    submitted_at: 1000,
+    started_at: 1000,
+    completed_at: 2000,
+    error_type: null,
+    upstream_status: null,
+    gpt_route: null,
+    gpt_key_fingerprint: null,
+    prompt: '杯子',
+    upstream_invocation_count: 1,
+    attempt_count: 1,
+    request_payload: n === undefined ? { prompt: '杯子' } : { prompt: '杯子', n },
+    result_meta: { images: [] },
+    error_message: null,
+    upstream_body: null,
+    device_id: null,
+    user_id: null,
+    next_retry_at: null,
+  }
+  taskQuery.mockReturnValue({ isPending: false, isError: false, data: task })
+  render(
+    <TooltipProvider>
+      <TaskDetailView taskId={task.id} />
+    </TooltipProvider>,
+  )
+  const label = screen.getByText('n')
+  expect(label.nextElementSibling).toHaveTextContent(shown)
+})
