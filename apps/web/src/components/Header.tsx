@@ -130,7 +130,7 @@ export default function Header() {
               type="button"
               size="icon-sm"
               variant="ghost"
-              className="rounded-full"
+              className="rounded-full [&_svg]:size-5"
               aria-label={feedbackLabel}
               aria-haspopup="dialog"
               onClick={() => {
@@ -138,7 +138,7 @@ export default function Header() {
                 setContactIntent('feedback')
               }}
             >
-              <Icon name="chat" />
+              <Icon name="feedback" />
             </Button>
           </Hint>
           {auth.user ? <PrivateWebHeaderCreditAction /> : null}

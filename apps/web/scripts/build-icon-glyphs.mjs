@@ -18,6 +18,7 @@ const GLYPHS = {
   toolbox: ['solar', 'toolbox'],
   guide: ['solar', 'book'],
   chat: ['solar', 'chat-round'],
+  feedback: ['solar', 'chat-square-line'],
   canvas: ['solar', 'frame'],
   settings: ['solar', 'settings'],
   user: ['solar', 'user-circle'],
