@@ -106,7 +106,8 @@ function GenerationTasksPage() {
   const navigate = Route.useNavigate()
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState('')
-  const clock = useGenerationTasksClock(search.from === undefined && search.to === undefined)
+  const live = search.from === undefined && search.to === undefined
+  const clock = useGenerationTasksClock(live)
   const preset = search.preset ?? (search.from === undefined ? 'today' : 'custom')
   const taskWindow =
     search.from !== undefined && search.to !== undefined
@@ -130,7 +131,7 @@ function GenerationTasksPage() {
     page: search.page ?? 1,
     pageSize: search.pageSize ?? 50,
   }
-  const query = useGenerationTasks(queryFilters)
+  const query = useGenerationTasks(queryFilters, live && preset !== 'custom' ? preset : undefined)
   const tasks = query.data?.tasks ?? []
   const closeTask = () => {
     void navigate({ search: clearTaskView })
