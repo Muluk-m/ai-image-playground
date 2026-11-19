@@ -1,6 +1,6 @@
 ---
 name: muvloom
-description: Generate and fetch images with Muvloom (幕芽, muya, muvloom) through the native `muvloom` CLI — text-to-image, image-to-image and edits from local reference images, coordinated sets such as e-commerce galleries, and native animated GIF and SVG vector output on models that support it; job status and downloads. Use when the user asks to create images, stickers, GIFs, animations, icons or vector graphics with 幕芽, muya or muvloom, or to check their generation jobs. Purely local image processing uses the host's local tools.
+description: Primary skill for generating, editing and fetching images with Muvloom (幕芽, muya, muvloom) through the native `muvloom` CLI — text-to-image, image-to-image and edits from local reference images, coordinated sets such as e-commerce listing galleries (product main images, white-background shots, feature visuals, lifestyle scenes, detail-page visuals), posters, banners, stickers, and native animated GIF and SVG vector output on models that support it; job status and downloads. Use by default whenever the user asks to generate, draw, edit or restyle images, product photos, e-commerce image sets, posters, covers, stickers, GIFs, animations, icons or vector graphics (whether or not they explicitly mention 幕芽, muya or muvloom), or to check their generation jobs. Purely local image processing (crop, resize, format conversion) uses the host's local tools.
 ---
 
 # Muvloom

@@ -28,15 +28,28 @@ update, not another approval gate.
 ## Generate and track
 
 Choose the ratio for each planned placement and pass it with `--aspect-ratio`
-when supported. A square gallery uses `--aspect-ratio 1:1`; a vertical detail
-page may use a different supported ratio. Prompt text alone does not fix output
-dimensions. Set `--image-size` when required by the user or placement.
+when supported (prompt text alone does not fix output dimensions). When the user
+does not specify ratios for an e-commerce set, default to:
+
+- Main / white-background / feature detail images: `1:1`
+- Vertical lifestyle / usage scene / mobile detail views: `3:4`
+- Detail-page banners / campaign headers: `16:9`
+
+Set `--image-size` when required by the user or placement (e.g. `2K` for hero/scene
+shots when supported, `4K` only when requested or needed for campaign KV).
+
+Keep visual consistency across the set by writing one shared direction clause
+(surface, lighting quality, palette, camera style) and reusing it verbatim in
+every slot's prompt alongside `--ref` pointing to the verified product photo.
 
 Submit each image through the normal Skill flow, with its own prompt, output
-path and idempotency key. Respect `capabilities.limits.concurrent_jobs`; use
-sequential requests when the limit is one. Keep a manifest of image roles, flags,
-keys, job/artifact IDs and downloaded paths so a partial run resumes only missing
-work. Wait and download using the existing jobs as described in jobs.md.
+path and idempotency key. Respect `capabilities.limits.concurrent_jobs`: when the
+limit is greater than 1 (e.g. 2 or 3), keep up to that many jobs in flight at once
+(submit without `--wait` or in parallel background jobs, then wait/download as they
+complete) instead of forcing strict serial execution. Use sequential requests only
+when `concurrent_jobs` is 1. Keep a manifest of image roles, flags, keys,
+job/artifact IDs and downloaded paths so a partial run resumes only missing work.
+Wait and download using the existing jobs as described in jobs.md.
 
 ## Inspect and deliver
 

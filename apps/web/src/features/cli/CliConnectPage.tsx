@@ -1,17 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { promptLogin } from '../../auth/loginPrompt'
-import Badge from '../../components/patterns/Badge'
 import PageHeader from '../../components/patterns/PageHeader'
 import SegmentedTabs from '../../components/patterns/SegmentedTabs'
 import { Button } from '../../components/ui/button'
 import { Icon } from '../../components/ui/icon'
 import { currentLocale, i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
+import { AuthRequestError, fetchCliConnections } from '../../lib/authClient'
 import { copyTextToClipboard } from '../../lib/clipboardText'
 import { GUIDE_PATHS } from '../guide/paths'
 import CliConnectionsSection from './CliConnectionsSection'
 import {
-  agentSetupPath,
+  AGENT_SETUP_PATH,
   CONNECT_AGENTS,
   type ConnectAgentId,
   type ConnectPlatform,
@@ -23,7 +23,6 @@ import {
 } from './connectAgents'
 
 type CopyState = 'idle' | 'done' | 'failed'
-type Mode = 'prompt' | 'manual'
 
 const AGENT_LABEL = {
   workbuddy: 'cliConnect.agent.workbuddy',
@@ -51,13 +50,13 @@ const SKILL_COPY = {
   },
 } as const
 
-/** 品牌标记来自 lobe-icons（MIT），见 public/connect-agents/NOTICE.txt。其他没有品牌标记。 */
-const AGENT_ICON: Partial<Record<ConnectAgentId, string>> = {
-  workbuddy: '/connect-agents/workbuddy.svg',
-  doubao: '/connect-agents/doubao.svg',
-  'claude-code': '/connect-agents/claude-code.svg',
-  codex: '/connect-agents/codex.svg',
-}
+/** 品牌标记来自 lobe-icons（MIT），见 public/connect-agents/NOTICE.txt。 */
+const FEATURED_AGENTS = [
+  { id: 'workbuddy', icon: '/connect-agents/workbuddy.svg' },
+  { id: 'doubao', icon: '/connect-agents/doubao.svg' },
+  { id: 'codex', icon: '/connect-agents/codex.svg' },
+  { id: 'claude-code', icon: '/connect-agents/claude-code.svg' },
+] as const
 
 /** 复制按钮：点一次出一次反馈，1.6 秒后复位。 */
 function useCopy() {
@@ -78,7 +77,19 @@ function useCopy() {
   return { state, copy }
 }
 
-function CopyButton({ text, label }: { text: string; label: string }) {
+function CopyButton({
+  text,
+  label,
+  variant = 'outline',
+  size = 'sm',
+  className,
+}: {
+  text: string
+  label: string
+  variant?: 'default' | 'outline'
+  size?: 'default' | 'sm'
+  className?: string
+}) {
   const { t } = useTranslation('auth')
   const { state, copy } = useCopy()
   const text_ =
@@ -90,8 +101,9 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   return (
     <Button
       type="button"
-      size="sm"
-      variant={state === 'done' ? 'secondary' : 'outline'}
+      size={size}
+      variant={state === 'done' && variant === 'outline' ? 'secondary' : variant}
+      className={className}
       onClick={() => void copy(text)}
       aria-live="polite"
     >
@@ -101,26 +113,9 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   )
 }
 
-function StepHeading({ index, title, hint }: { index: number; title: string; hint?: string }) {
-  return (
-    <div className="flex items-start gap-3">
-      <span
-        aria-hidden="true"
-        className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-primary/15 text-label-md text-primary"
-      >
-        {index}
-      </span>
-      <div className="min-w-0">
-        <h2 className="text-title-sm text-foreground">{title}</h2>
-        {hint ? <p className="mt-1 text-body-sm text-muted-foreground">{hint}</p> : null}
-      </div>
-    </div>
-  )
-}
-
 function CommandBlock({ lines }: { lines: string[] }) {
   return (
-    <pre className="whitespace-pre-wrap break-all rounded-xl border border-border bg-background px-4 py-3 font-mono text-label-md leading-relaxed text-foreground">
+    <pre className="whitespace-pre-wrap break-all rounded-xl border border-border bg-background px-4 py-3 font-mono text-xs leading-relaxed text-foreground">
       {lines.map((line) => (
         <div key={line} className="[&:not(:first-child)]:mt-2">
           {line}
@@ -131,33 +126,105 @@ function CommandBlock({ lines }: { lines: string[] }) {
 }
 
 /**
- * 插件接入页：选一个宿主，复制一段话发给它，或自己执行安装与授权；回到这里看已连接设备。
- * 全程不替用户操作终端，也不读取任何凭据——授权仍走 `/device` 设备码页。
+ * 智能体接入页：全宿主共用一条极简消息，由智能体自动识别宿主与系统；
+ * 实时轮询新连接并在连上后自动提示；手动命令与技能包下载收进底部折叠区。
  */
 export default function CliConnectPage() {
   const { t } = useTranslation('auth')
   const user = useAuth().user
+  const [manualOpen, setManualOpen] = useState(false)
   const [agent, setAgent] = useState<ConnectAgentId>('workbuddy')
-  const [mode, setMode] = useState<Mode>('prompt')
   const [platform, setPlatform] = useState<ConnectPlatform>(() =>
     detectPlatform(typeof navigator === 'undefined' ? '' : navigator.userAgent),
   )
+  const [connectedDetected, setConnectedDetected] = useState(false)
+  const [cliAvailable, setCliAvailable] = useState(true)
+  const [pollStopped, setPollStopped] = useState(false)
+  const [connectionsRefreshKey, setConnectionsRefreshKey] = useState(0)
+  const baselineIdsRef = useRef<Set<string> | null>(null)
 
   useEffect(() => {
     setDocumentTitleOverride(() => i18next.t('cliConnect.documentTitle', { ns: 'auth' }))
     return () => setDocumentTitleOverride(null)
   }, [])
 
-  const promptKey =
-    agent === 'workbuddy'
-      ? 'cliConnect.workbuddyPrompt'
-      : agent === 'doubao'
-        ? 'cliConnect.doubaoPrompt'
-        : 'cliConnect.prompt'
-  const prompt = t(promptKey, {
-    agent: agent === 'other' ? t('cliConnect.currentAgent') : t(AGENT_LABEL[agent]),
-    setupUrl: guideUrl(agentSetupPath(agent), window.location.origin),
-  })
+  // 已登录时静默轮询连接列表，检测到新授权的智能体后自动更新等待提示并刷新列表。
+  // 后台标签页暂停轮询；CLI 能力未启用或鉴权失效时停止轮询并隐藏等待条，避免界面一直停在“页面会自动更新”。
+  useEffect(() => {
+    baselineIdsRef.current = null
+    setConnectedDetected(false)
+    setCliAvailable(true)
+    setPollStopped(false)
+    if (!user?.id) return
+    let cancelled = false
+    let stopped = false
+    let timer: number | undefined
+    let activeController: AbortController | null = null
+
+    const schedule = () => {
+      if (cancelled || stopped) return
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      timer = window.setTimeout(() => void poll(), 4000)
+    }
+
+    const poll = async () => {
+      if (cancelled || stopped) return
+      activeController?.abort()
+      const controller = new AbortController()
+      activeController = controller
+      try {
+        const list = await fetchCliConnections(controller.signal)
+        if (cancelled || controller.signal.aborted) return
+        if (baselineIdsRef.current === null) {
+          baselineIdsRef.current = new Set(list.map((item) => item.id))
+        } else if (list.some((item) => !baselineIdsRef.current!.has(item.id))) {
+          baselineIdsRef.current = new Set(list.map((item) => item.id))
+          setConnectedDetected(true)
+          setConnectionsRefreshKey((k) => k + 1)
+          stopped = true
+          return
+        }
+      } catch (error) {
+        if (cancelled || controller.signal.aborted) return
+        if (error instanceof AuthRequestError && error.code === 'capability_unavailable') {
+          setCliAvailable(false)
+          setPollStopped(true)
+          stopped = true
+          return
+        }
+        if (error instanceof AuthRequestError && (error.status === 401 || error.status === 403)) {
+          setPollStopped(true)
+          stopped = true
+          return
+        }
+      }
+      schedule()
+    }
+
+    const onVisibility = () => {
+      if (cancelled || stopped) return
+      if (document.visibilityState === 'visible') {
+        window.clearTimeout(timer)
+        void poll()
+      } else {
+        window.clearTimeout(timer)
+      }
+    }
+
+    document.addEventListener('visibilitychange', onVisibility)
+    void poll()
+    return () => {
+      cancelled = true
+      stopped = true
+      window.clearTimeout(timer)
+      activeController?.abort()
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [user?.id])
+
+  const setupUrl = useMemo(() => guideUrl(AGENT_SETUP_PATH, window.location.origin), [])
+  const universalPrompt = t('cliConnect.universalPrompt', { setupUrl })
+  const trySayPrompt = t('cliConnect.trySayPrompt')
   const manual = useMemo(
     () => manualCommands(agent, platform, window.location.origin),
     [agent, platform],
@@ -169,160 +236,209 @@ export default function CliConnectPage() {
       <PageHeader title={t('cliConnect.title')} />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-5xl space-y-8 px-4 py-8 md:px-6">
-          <section className="space-y-2">
-            <h2 className="text-headline font-semibold">{t('cliConnect.hero')}</h2>
-            <p className="text-body-md text-muted-foreground">{t('cliConnect.subtitle')}</p>
-            <a
-              href={`${GUIDE_PATHS[currentLocale()]}plugins/cli/`}
-              className="inline-block text-body-sm text-primary underline-offset-4 hover:underline focus-visible:underline"
-            >
-              {t('cliConnect.tutorial')}
-            </a>
+          <section className="mx-auto flex max-w-2xl flex-col items-center space-y-3 text-center">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/15 px-3 py-1 text-xs font-medium text-primary">
+              <img src="/brand/muvloom-mark.svg" alt="" width={14} height={14} />
+              {t('cliConnect.eyebrow')}
+            </span>
+            <h2 className="text-headline font-semibold tracking-tight">{t('cliConnect.hero')}</h2>
+            <p className="text-sm text-muted-foreground">{t('cliConnect.subtitle')}</p>
           </section>
 
           <section
             aria-label={t('cliConnect.setupAria')}
-            className="space-y-6 rounded-3xl border border-border bg-card p-4 md:p-6"
+            className="grid gap-6 lg:grid-cols-5 lg:items-start"
           >
-            <div className="overflow-x-auto pb-1">
-              <SegmentedTabs
-                label={t('cliConnect.agentAria')}
-                value={agent}
-                onChange={setAgent}
-                tabs={CONNECT_AGENTS.map((id) => ({
-                  value: id,
-                  label: (
-                    <span className="inline-flex items-center gap-2">
-                      {AGENT_ICON[id] ? (
-                        <img
-                          src={AGENT_ICON[id]}
-                          alt=""
-                          width={20}
-                          height={20}
-                          className="size-5 shrink-0 object-contain"
-                        />
-                      ) : (
-                        <Icon name="grid" className="size-5" />
-                      )}
-                      {t(AGENT_LABEL[id])}
-                    </span>
-                  ),
-                }))}
-              />
-            </div>
-
-            <div className="grid gap-8 md:grid-cols-2 md:gap-0 md:divide-x md:divide-border">
-              <div className="space-y-4 md:pr-6">
-                <StepHeading
-                  index={1}
-                  title={t(
-                    mode === 'prompt'
-                      ? 'cliConnect.step1.promptTitle'
-                      : 'cliConnect.step1.manualTitle',
-                  )}
-                  hint={mode === 'manual' ? t('cliConnect.step1.manualHint') : undefined}
-                />
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <SegmentedTabs
-                      label={t('cliConnect.modeAria')}
-                      value={mode}
-                      onChange={setMode}
-                      tabs={[
-                        { value: 'prompt', label: t('cliConnect.mode.prompt') },
-                        { value: 'manual', label: t('cliConnect.mode.manual') },
-                      ]}
-                    />
-                    {mode === 'manual' ? (
-                      <SegmentedTabs
-                        label={t('cliConnect.platformAria')}
-                        value={platform}
-                        onChange={setPlatform}
-                        tabs={[
-                          { value: 'unix', label: t('cliConnect.platform.unix') },
-                          { value: 'windows', label: t('cliConnect.platform.windows') },
-                        ]}
-                      />
-                    ) : null}
-                  </div>
-                  <CopyButton
-                    text={mode === 'prompt' ? prompt : manual.join('\n')}
-                    label={t(
-                      mode === 'prompt' ? 'cliConnect.copyPrompt' : 'cliConnect.copyCommands',
-                    )}
-                  />
-                </div>
-                {mode === 'prompt' ? (
-                  <p
-                    data-slot="connect-prompt"
-                    className="whitespace-pre-wrap break-words rounded-xl border border-border bg-background px-4 py-3 text-body-sm leading-relaxed text-foreground"
-                  >
-                    {prompt}
-                  </p>
-                ) : (
-                  <CommandBlock lines={manual} />
-                )}
+            <div className="space-y-4 rounded-2xl border border-border bg-card p-6 lg:col-span-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-body-sm font-semibold text-primary">
+                  {t('cliConnect.promptLabel')}
+                </span>
+                <span className="text-xs text-muted-foreground">{t('cliConnect.promptNote')}</span>
               </div>
 
-              <div className="space-y-4 md:pl-6">
-                <StepHeading
-                  index={2}
-                  title={t(
-                    pack && mode === 'manual' ? SKILL_COPY[pack].title : 'cliConnect.step2.title',
-                  )}
-                  hint={t(
-                    pack && mode === 'manual' ? SKILL_COPY[pack].hint : 'cliConnect.step2.hint',
-                  )}
+              <div className="flex flex-col gap-3 rounded-xl border border-border bg-background p-4 sm:flex-row sm:items-center sm:justify-between">
+                <p
+                  data-slot="connect-prompt"
+                  className="min-w-0 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground"
+                >
+                  {universalPrompt}
+                </p>
+                <CopyButton
+                  text={universalPrompt}
+                  label={t('cliConnect.copyMessage')}
+                  variant="default"
+                  size="default"
+                  className="shrink-0"
                 />
-                {pack && mode === 'manual' ? (
-                  <Button asChild variant="outline" size="sm">
-                    <a href={SKILL_PACKAGE_PATH[pack]} download>
-                      {t(SKILL_COPY[pack].download)}
-                    </a>
-                  </Button>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border pt-4">
+                {FEATURED_AGENTS.map((item) => (
+                  <span
+                    key={item.id}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground"
+                  >
+                    <img
+                      src={item.icon}
+                      alt=""
+                      width={16}
+                      height={16}
+                      className="size-4 shrink-0 object-contain"
+                    />
+                    {t(AGENT_LABEL[item.id])}
+                  </span>
+                ))}
+                <a
+                  href={`${GUIDE_PATHS[currentLocale()]}plugins/cli/`}
+                  className="ml-auto inline-flex items-center gap-1 rounded-xs text-xs font-medium text-muted-foreground underline-offset-4 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {t('cliConnect.tutorial')}
+                  <Icon name="arrowRight" size="xs" />
+                </a>
+              </div>
+
+              {user && cliAvailable && (connectedDetected || !pollStopped) ? (
+                <div
+                  role="status"
+                  className={`flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-body-sm ${
+                    connectedDetected
+                      ? 'bg-primary/15 font-medium text-primary'
+                      : 'bg-secondary text-muted-foreground'
+                  }`}
+                >
+                  <Icon
+                    name={connectedDetected ? 'success' : 'loading'}
+                    size="sm"
+                    className={connectedDetected ? 'text-success' : 'animate-spin text-primary'}
+                  />
+                  <span>
+                    {t(
+                      connectedDetected ? 'cliConnect.connectedStatus' : 'cliConnect.waitingStatus',
+                    )}
+                  </span>
+                </div>
+              ) : null}
+
+              <div className="pt-1">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  aria-expanded={manualOpen}
+                  className="px-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                  onClick={() => setManualOpen((open) => !open)}
+                >
+                  <Icon name={manualOpen ? 'chevronDown' : 'chevronRight'} size="xs" />
+                  {t('cliConnect.manualToggle')}
+                </Button>
+
+                {manualOpen ? (
+                  <div className="mt-3 space-y-4 rounded-xl border border-border bg-background p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <SegmentedTabs
+                          label={t('cliConnect.agentAria')}
+                          value={agent}
+                          onChange={setAgent}
+                          tabs={CONNECT_AGENTS.map((id) => ({
+                            value: id,
+                            label: t(AGENT_LABEL[id]),
+                          }))}
+                        />
+                        <SegmentedTabs
+                          label={t('cliConnect.platformAria')}
+                          value={platform}
+                          onChange={setPlatform}
+                          tabs={[
+                            { value: 'unix', label: t('cliConnect.platform.unix') },
+                            { value: 'windows', label: t('cliConnect.platform.windows') },
+                          ]}
+                        />
+                      </div>
+                      <CopyButton text={manual.join('\n')} label={t('cliConnect.copyCommands')} />
+                    </div>
+                    <CommandBlock lines={manual} />
+                    {pack ? (
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+                        <p className="text-xs text-muted-foreground">{t(SKILL_COPY[pack].hint)}</p>
+                        <Button asChild variant="outline" size="sm">
+                          <a href={SKILL_PACKAGE_PATH[pack]} download>
+                            <Icon name="download" size="xs" />
+                            {t(SKILL_COPY[pack].download)}
+                          </a>
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             </div>
-          </section>
 
-          <section className="space-y-4">
-            <div className="flex items-center gap-2">
-              <h2 className="text-title-sm">{t('cliConnect.capabilities.title')}</h2>
-              <Badge>{t('cliConnect.capabilities.badge')}</Badge>
+            <div className="space-y-4 lg:col-span-2">
+              <div className="space-y-4 rounded-2xl border border-border bg-card p-6">
+                <h3 className="text-xs font-semibold text-muted-foreground">
+                  {t('cliConnect.nextStepsTitle')}
+                </h3>
+                <ol className="space-y-4">
+                  {[
+                    [
+                      '01',
+                      t('cliConnect.nextSteps.step1Title'),
+                      t('cliConnect.nextSteps.step1Body'),
+                    ],
+                    [
+                      '02',
+                      t('cliConnect.nextSteps.step2Title'),
+                      t('cliConnect.nextSteps.step2Body'),
+                    ],
+                    [
+                      '03',
+                      t('cliConnect.nextSteps.step3Title'),
+                      t('cliConnect.nextSteps.step3Body'),
+                    ],
+                  ].map(([index, title, body]) => (
+                    <li key={index} className="grid grid-cols-[24px_minmax(0,1fr)] gap-3">
+                      <span className="font-mono text-xs font-semibold text-primary">{index}</span>
+                      <div className="space-y-0.5">
+                        <p className="text-sm font-semibold text-foreground">{title}</p>
+                        <p className="text-body-sm text-muted-foreground">{body}</p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+
+              <div className="space-y-3 rounded-2xl border border-border bg-card p-6">
+                <h3 className="text-xs font-semibold text-muted-foreground">
+                  {t('cliConnect.trySayTitle')}
+                </h3>
+                <p className="text-sm font-medium leading-relaxed text-foreground">
+                  “{trySayPrompt}”
+                </p>
+                <CopyButton text={trySayPrompt} label={t('cliConnect.copyTrySay')} />
+              </div>
             </div>
-            <ul className="grid gap-3 sm:grid-cols-3">
-              {[
-                [
-                  t('cliConnect.capabilities.generate.title'),
-                  t('cliConnect.capabilities.generate.body'),
-                ],
-                [
-                  t('cliConnect.capabilities.reference.title'),
-                  t('cliConnect.capabilities.reference.body'),
-                ],
-                [t('cliConnect.capabilities.jobs.title'), t('cliConnect.capabilities.jobs.body')],
-              ].map(([title, body]) => (
-                <li key={title} className="space-y-1 rounded-2xl border border-border bg-card p-4">
-                  <p className="text-title-sm">{title}</p>
-                  <p className="text-body-sm text-muted-foreground">{body}</p>
-                </li>
-              ))}
-            </ul>
           </section>
 
-          <section className="space-y-4">
-            <h2 className="text-title-sm">{t('cliConnections.title')}</h2>
-            {user ? (
-              <CliConnectionsSection standalone />
-            ) : (
-              <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border px-6 py-10 text-center">
+          {user ? (
+            cliAvailable ? (
+              <section className="space-y-4">
+                <div className="rounded-2xl border border-border bg-card p-6">
+                  <CliConnectionsSection key={connectionsRefreshKey} standalone />
+                </div>
+              </section>
+            ) : null
+          ) : (
+            <section className="space-y-4">
+              <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border px-6 py-8 text-center">
                 <p className="text-body-sm text-muted-foreground">{t('cliConnect.signInHint')}</p>
-                <Button type="button" onClick={() => promptLogin('gated-action')}>
+                <Button type="button" variant="outline" onClick={() => promptLogin('gated-action')}>
                   {t('cliDevice.signIn')}
                 </Button>
               </div>
-            )}
-          </section>
+            </section>
+          )}
         </div>
       </div>
     </main>

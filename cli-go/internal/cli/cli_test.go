@@ -604,11 +604,14 @@ func TestSkillInstallGenericAndRejectedHosts(t *testing.T) {
 	dir := t.TempDir()
 	app := newApp(t, newFakeServer(t), dir)
 	app.CWD = dir
-	if r := execute(t, app, "skill", "install", "--host", "workbuddy"); r.code != ExitInvalid {
-		t.Fatalf("workbuddy host = %d %s", r.code, r.stdout)
-	}
 	if r := execute(t, app, "skill", "install", "--host", "doubao"); r.code != ExitInvalid {
 		t.Fatalf("doubao host = %d %s", r.code, r.stdout)
+	}
+	if r := execute(t, app, "skill", "install", "--host", "workbuddy"); r.code != ExitOK {
+		t.Fatalf("workbuddy host = %d %s", r.code, r.stdout)
+	}
+	if _, err := os.Stat(filepath.Join(app.Home, ".workbuddy", "skills", "muvloom", "SKILL.md")); err != nil {
+		t.Fatalf("workbuddy SKILL.md not installed: %v", err)
 	}
 	if r := execute(t, app, "skill", "install", "--host", "claude-code", "--output", dir); r.code != ExitInvalid {
 		t.Fatalf("output on claude-code = %d %s", r.code, r.stdout)

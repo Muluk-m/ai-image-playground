@@ -71,8 +71,8 @@ afterEach(() => {
 
 describe('CliDevicePage', () => {
   it.each([
-    ['授权', 'approve', '已授权。'],
-    ['拒绝', 'deny', '已拒绝这次连接。'],
+    ['允许', 'approve', '已授权。'],
+    ['这不是我发起的 —— 拒绝', 'deny', '已拒绝这次连接。'],
   ])('sends the explicit %s decision with the displayed code', async (label, decision, outcome) => {
     const fetcher = vi.fn(async (_input: string, init?: RequestInit) =>
       Response.json(init?.method === 'POST' ? { ok: true } : AUTHORIZATION),
@@ -80,7 +80,17 @@ describe('CliDevicePage', () => {
     vi.stubGlobal('fetch', fetcher)
     await render()
     expect(host.textContent).toContain('Muvloom CLI')
-    expect(host.textContent).toContain('提交与取消生成任务（会消耗积分）')
+    // 已登录用户直接进入授权确认，步骤条跳过「登录」。
+    expect(host.querySelector('[aria-label="授权步骤"]')?.textContent).not.toContain('登录')
+    // 按 scopes 动态展示能力胶囊（本用例不含 media:write，不展示「参考图编辑」），并默认显示消耗积分提示。
+    expect(host.textContent).toContain('生成图像')
+    expect(host.textContent).toContain('查询与下载')
+    expect(host.textContent).not.toContain('参考图编辑')
+    expect(host.textContent).toContain('生成图片会消耗当前账户积分。')
+    // 详细权限默认折叠，点击「查看所有权限」后展开。
+    expect(host.textContent).not.toContain('提交与取消生成任务（消耗账户积分）')
+    await act(async () => button('查看所有权限').click())
+    expect(host.textContent).toContain('提交与取消生成任务（消耗账户积分）')
     await act(async () => button(label).click())
     expect(fetcher).toHaveBeenLastCalledWith(
       'https://api.example.com/api/cli/device',
@@ -91,6 +101,9 @@ describe('CliDevicePage', () => {
       }),
     )
     expect(host.querySelector('[role="status"]')?.textContent).toBe(outcome)
+    if (decision === 'deny') {
+      expect(host.querySelector('[aria-label="授权步骤"]')).toBeNull()
+    }
   })
 
   it('sends the browser back to the CLI that opened it, with its state', async () => {
@@ -107,7 +120,7 @@ describe('CliDevicePage', () => {
       ),
     )
     await render()
-    await act(async () => button('授权').click())
+    await act(async () => button('允许').click())
     expect(vi.mocked(fetch)).toHaveBeenLastCalledWith(
       'https://api.example.com/api/cli/device',
       expect.objectContaining({
@@ -142,7 +155,7 @@ describe('CliDevicePage', () => {
       ),
     )
     await render()
-    await act(async () => button('授权').click())
+    await act(async () => button('允许').click())
     expect(leaveTo).not.toHaveBeenCalled()
     expect(host.querySelector('[role="status"]')?.textContent).toBe('已授权。')
   })
@@ -178,10 +191,10 @@ describe('CliDevicePage', () => {
         ),
       )
       await render()
-      await act(async () => button('授权').click())
+      await act(async () => button('允许').click())
       expect(host.querySelector('[role="status"]')?.textContent).toBe('已授权。')
       expect(close).not.toHaveBeenCalled()
-      await act(async () => button('返回').click())
+      await act(async () => button('关闭并返回').click())
       expect(close).toHaveBeenCalledTimes(1)
       expect(host.textContent).toContain('请关闭此页面，回到发起授权的应用继续。')
       expect(host.textContent).not.toContain('终端')
@@ -197,8 +210,8 @@ describe('CliDevicePage', () => {
     )
     vi.stubGlobal('fetch', fetcher)
     await render()
-    const approve = button('授权')
-    const deny = button('拒绝')
+    const approve = button('允许')
+    const deny = button('这不是我发起的 —— 拒绝')
     await act(async () => {
       approve.click()
       approve.click()
@@ -224,7 +237,7 @@ describe('CliDevicePage', () => {
       input.dispatchEvent(new Event('input', { bubbles: true }))
     })
     await act(async () => button('继续').click())
-    await act(async () => button('登录后继续').click())
+    // 输入授权码后未登录，自动触发登录弹框（也可手动点「登录后继续」再次打开）。
     expect(promptLogin).toHaveBeenCalledWith('gated-action')
     expect(fetcher).not.toHaveBeenCalled()
     for (const provider of ['feishu', 'google', 'enterprise-sso']) {
@@ -255,10 +268,10 @@ describe('CliDevicePage', () => {
       ),
     )
     await render()
-    if (stage === 'decision') await act(async () => button('授权').click())
+    if (stage === 'decision') await act(async () => button('允许').click())
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('已过期')
     expect(
-      Array.from(host.querySelectorAll('button')).some((item) => item.textContent === '授权'),
+      Array.from(host.querySelectorAll('button')).some((item) => item.textContent === '允许'),
     ).toBe(false)
   })
 
@@ -278,11 +291,11 @@ describe('CliDevicePage', () => {
       }),
     )
     await render()
-    if (stage === 'decision') await act(async () => button('授权').click())
+    if (stage === 'decision') await act(async () => button('允许').click())
     expect(host.querySelector('[role="alert"]')?.textContent).toContain('暂时无法完成')
     await act(async () => button('重试').click())
     expect(host.textContent).toContain('Muvloom CLI')
-    await act(async () => button('拒绝').click())
+    await act(async () => button('这不是我发起的 —— 拒绝').click())
     expect(host.textContent).toContain('已拒绝这次连接。')
   })
 
@@ -301,7 +314,7 @@ describe('CliDevicePage', () => {
       }),
     )
     await render()
-    if (stage === 'decision') await act(async () => button('授权').click())
+    if (stage === 'decision') await act(async () => button('允许').click())
     await act(async () => {
       window.history.pushState(null, '', '/device?user_code=NEWC-ODE2')
       window.dispatchEvent(new PopStateEvent('popstate'))
@@ -312,7 +325,7 @@ describe('CliDevicePage', () => {
     )
     expect(host.textContent).toContain('New CLI')
     expect(host.textContent).not.toContain('已授权。')
-    expect(button('授权')).toBeDefined()
+    expect(button('允许')).toBeDefined()
   })
 
   it('clears pending permissions on logout and ignores the old account decision', async () => {
@@ -324,10 +337,27 @@ describe('CliDevicePage', () => {
       ),
     )
     await render()
-    await act(async () => button('授权').click())
+    await act(async () => button('允许').click())
     await render(null)
     await act(async () => old.resolve(Response.json({ ok: true })))
     expect(host.textContent).not.toContain('已授权。')
     expect(button('登录后继续')).toBeDefined()
+  })
+
+  it('auto-opens login prompt when arriving signed out with user_code and surfaces unknown scopes directly', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          client_name: 'Muvloom CLI',
+          scopes: ['images:read', 'billing:admin'],
+        }),
+      ),
+    )
+    await render(null)
+    expect(promptLogin).toHaveBeenCalledWith('gated-action')
+    await render(USER)
+    expect(host.textContent).toContain('billing:admin')
+    expect(host.textContent).not.toContain('生成图片会消耗当前账户积分。')
   })
 })

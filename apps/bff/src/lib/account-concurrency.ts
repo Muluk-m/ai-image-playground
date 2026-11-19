@@ -15,6 +15,43 @@ export async function accountConcurrencyLimit(
   return Number.isInteger(entitled) && entitled > 0 ? entitled : 1
 }
 
+/**
+ * 解析保证并发与弹性并发的组合，得出客户端可并行提交的上限。
+ * 未开启弹性并发或未给出弹性名额时退回保证并发。
+ */
+export function resolveEffectiveConcurrency(
+  guaranteed: number | undefined,
+  idle: number | undefined,
+  idleEnabled: boolean,
+): number {
+  const base = Number.isInteger(guaranteed) && (guaranteed ?? 0) > 0 ? guaranteed! : 1
+  if (!idleEnabled || !Number.isInteger(idle) || (idle ?? 0) <= base) return base
+  return idle!
+}
+
+/**
+ * 账号在开启弹性空闲并发时的最大可并行数（CLI capabilities 告知客户端可并行提交的上限）。
+ * 未开启弹性并发或私有层未提供弹性名额时，退回保证并发 `accountConcurrencyLimit`。
+ */
+export async function accountEffectiveConcurrencyLimit(
+  tx: BffTransaction,
+  userId: string,
+  now: number,
+  idleConcurrencyEnabled: boolean,
+): Promise<number> {
+  const overlay = await loadPrivateBffOverlay()
+  const hooks = overlay.taskHooks
+  if (!idleConcurrencyEnabled || !hooks.accountConcurrencyEntitlement) {
+    return accountConcurrencyLimit(tx, userId, now)
+  }
+  const entitlement = await hooks.accountConcurrencyEntitlement({ tx, userId, now })
+  return resolveEffectiveConcurrency(
+    entitlement.guaranteed,
+    entitlement.idle,
+    idleConcurrencyEnabled,
+  )
+}
+
 /** 本账号还没出完的一条生成任务：在生成的，或还在排队的。 */
 export interface AccountQueueTask {
   readonly id: string

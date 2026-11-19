@@ -5,26 +5,36 @@ import (
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/auth"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestInstallUserHostsAndMetadata(t *testing.T) {
-	for _, host := range []string{"claude-code", "codex"} {
+	for _, host := range []string{"claude-code", "codex", "workbuddy"} {
 		home := t.TempDir()
 		result, err := Install(InstallOptions{Host: host, Scope: "user", Home: home})
 		if err != nil {
 			t.Fatalf("%s: %v", host, err)
 		}
 		dirName := ".claude"
-		if host == "codex" {
+		switch host {
+		case "codex":
 			dirName = ".agents"
+		case "workbuddy":
+			dirName = ".workbuddy"
 		}
 		root := filepath.Join(home, dirName, "skills", "muvloom")
 		if result.Path != root || result.Version != BundleVersion || result.FileHash == "" {
 			t.Fatalf("unexpected result: %+v", result)
 		}
-		for _, name := range []string{"SKILL.md", "agents/openai.yaml", "references/cli.md", "references/install.md", "references/jobs.md", "references/errors.md", "references/getting-started.md", "references/image-sets.md", "references/animation.md", ".muvloom-skill.json"} {
+		wantFiles := []string{"SKILL.md", "references/cli.md", "references/install.md", "references/jobs.md", "references/errors.md", "references/getting-started.md", "references/image-sets.md", "references/animation.md", ".muvloom-skill.json"}
+		if host == "workbuddy" {
+			wantFiles = append(wantFiles, "references/workbuddy.md")
+		} else {
+			wantFiles = append(wantFiles, "agents/openai.yaml")
+		}
+		for _, name := range wantFiles {
 			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(name))); err != nil {
 				t.Fatalf("%s missing %s: %v", host, name, err)
 			}
@@ -222,12 +232,162 @@ func TestInstallRefusesToReplaceANonSkillHostDestination(t *testing.T) {
 	}
 }
 
-func TestInstallStillRejectsWorkbuddyAndDoubaoHosts(t *testing.T) {
-	for _, host := range []string{"workbuddy", "doubao"} {
-		if _, err := Install(InstallOptions{Host: host, Scope: "user"}); err == nil {
-			t.Fatalf("expected error for host %s", host)
+func TestInstallStillRejectsDoubaoHost(t *testing.T) {
+	if _, err := Install(InstallOptions{Host: "doubao", Scope: "user"}); err == nil {
+		t.Fatal("expected error for host doubao")
+	}
+}
+
+func TestRefreshOutdatedUpgradesWorkbuddyInstallWithMetadata(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	res, err := Install(InstallOptions{Host: "workbuddy", Scope: "user", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeRelease(t, res.Path, "0.2.0", "workbuddy", "user")
+	installed, failed, err := RefreshOutdated(home, cwd)
+	if err != nil || len(failed) != 0 {
+		t.Fatalf("refresh workbuddy: %v %v", failed, err)
+	}
+	if len(installed) != 1 || installed[0].Host != "workbuddy" || !installed[0].Current || installed[0].Version != BundleVersion {
+		t.Fatalf("workbuddy was not upgraded: %+v", installed)
+	}
+	// WorkBuddy-specific instructions, metadata, and reference must survive the upgrade.
+	if _, err := os.Stat(filepath.Join(res.Path, "references", "workbuddy.md")); err != nil {
+		t.Fatalf("workbuddy.md missing after refresh: %v", err)
+	}
+	skillBytes, _ := os.ReadFile(filepath.Join(res.Path, "SKILL.md"))
+	if !strings.Contains(string(skillBytes), "## WorkBuddy") || !strings.Contains(string(skillBytes), "display_name: 幕芽 Muvloom") {
+		t.Fatalf("WorkBuddy section or metadata missing after refresh")
+	}
+}
+
+func TestLegacyWorkbuddyZipIsNotSilentlyOverwrittenButCanBeExplicitlyUpgraded(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	dest := filepath.Join(home, ".workbuddy", "skills", "muvloom")
+	if err := os.MkdirAll(filepath.Join(dest, "references"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := "---\r\nname: muvloom\r\ndescription: Old custom edit\r\nauthor: Muvloom\r\nversion: 1.0.0\r\n---\r\n\r\n# My Custom Notes\r\n"
+	if err := os.WriteFile(filepath.Join(dest, "SKILL.md"), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dest, "references", "my-notes.md"), []byte("keep me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// RefreshOutdated must NOT silently overwrite an unhashed legacy directory.
+	installed, failed, err := RefreshOutdated(home, cwd)
+	if err != nil || len(failed) != 0 {
+		t.Fatalf("refresh legacy workbuddy: %v %v", failed, err)
+	}
+	if len(installed) != 1 || installed[0].Host != "workbuddy" || installed[0].Intact || installed[0].Current {
+		t.Fatalf("expected unverified legacy workbuddy to report Intact=false: %+v", installed)
+	}
+	if data, _ := os.ReadFile(filepath.Join(dest, "SKILL.md")); string(data) != legacy {
+		t.Fatal("RefreshOutdated silently overwrote unhashed legacy SKILL.md")
+	}
+	if data, _ := os.ReadFile(filepath.Join(dest, "references", "my-notes.md")); string(data) != "keep me" {
+		t.Fatal("RefreshOutdated deleted user markdown file in legacy dir")
+	}
+	// Explicit install upgrades the legacy WorkBuddy directory and writes .muvloom-skill.json.
+	if _, err := Install(InstallOptions{Host: "workbuddy", Scope: "user", Home: home}); err != nil {
+		t.Fatalf("explicit workbuddy install failed: %v", err)
+	}
+	after, err := Installed(home, cwd)
+	if err != nil || len(after) != 1 || !after[0].Intact || !after[0].Current || after[0].Version != BundleVersion {
+		t.Fatalf("after explicit install = %+v, %v", after, err)
+	}
+}
+
+func TestClaudeAndCodexFrontmatterSatisfiesAgentSkillsSpec(t *testing.T) {
+	for _, host := range []string{"claude-code", "codex"} {
+		files, _, err := bundleFilesForHost(host)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range files {
+			if f.path != "SKILL.md" {
+				continue
+			}
+			text := string(f.data)
+			end := strings.Index(text[4:], "\n---\n")
+			if end < 0 {
+				t.Fatalf("%s SKILL.md missing frontmatter", host)
+			}
+			fm := text[4 : 4+end]
+			for _, forbidden := range []string{"display_name:", "display_name_en:", "description_zh:", "description_en:", "version:", "author:"} {
+				if strings.Contains(fm, forbidden) {
+					t.Fatalf("%s SKILL.md contains non-spec frontmatter key %s", host, forbidden)
+				}
+			}
 		}
 	}
+}
+
+func TestRefreshOutdatedSkipsCustomizedOrProjectOrSymlinkLegacyWorkbuddy(t *testing.T) {
+	t.Run("custom file in user workbuddy dir", func(t *testing.T) {
+		home, cwd := t.TempDir(), t.TempDir()
+		dest := filepath.Join(home, ".workbuddy", "skills", "muvloom")
+		if err := os.MkdirAll(dest, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		legacy := "---\nname: muvloom\nauthor: Muvloom\n---\n# Custom\n"
+		if err := os.WriteFile(filepath.Join(dest, "SKILL.md"), []byte(legacy), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dest, "my-notes.txt"), []byte("keep"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		installed, failed, err := RefreshOutdated(home, cwd)
+		if err != nil || len(failed) != 0 || len(installed) != 0 {
+			t.Fatalf("customized legacy dir should be untouched: %+v %v %v", installed, failed, err)
+		}
+		if data, _ := os.ReadFile(filepath.Join(dest, "my-notes.txt")); string(data) != "keep" {
+			t.Fatal("user file was lost")
+		}
+	})
+
+	t.Run("project scope workbuddy dir is never auto-overwritten", func(t *testing.T) {
+		home := t.TempDir()
+		project := filepath.Join(home, "repo")
+		dest := filepath.Join(project, ".workbuddy", "skills", "muvloom")
+		if err := os.MkdirAll(dest, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(project, "go.mod"), []byte("module example\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		legacy := "---\nname: muvloom\nauthor: Muvloom\n---\n# Project copy\n"
+		if err := os.WriteFile(filepath.Join(dest, "SKILL.md"), []byte(legacy), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		installed, failed, err := RefreshOutdated(home, project)
+		if err != nil || len(failed) != 0 || len(installed) != 0 {
+			t.Fatalf("project legacy dir should not be detected: %+v %v %v", installed, failed, err)
+		}
+		if data, _ := os.ReadFile(filepath.Join(dest, "SKILL.md")); string(data) != legacy {
+			t.Fatal("project SKILL.md was modified")
+		}
+	})
+
+	t.Run("symlink SKILL.md is rejected", func(t *testing.T) {
+		home, cwd := t.TempDir(), t.TempDir()
+		outside := filepath.Join(t.TempDir(), "SKILL.md")
+		if err := os.WriteFile(outside, []byte("---\nname: muvloom\nauthor: Muvloom\n---\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		dest := filepath.Join(home, ".workbuddy", "skills", "muvloom")
+		if err := os.MkdirAll(dest, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(dest, "SKILL.md")); err != nil {
+			t.Skipf("symlinks unavailable: %v", err)
+		}
+		installed, failed, err := RefreshOutdated(home, cwd)
+		if err != nil || len(failed) != 0 || len(installed) != 0 {
+			t.Fatalf("symlink SKILL.md should be rejected: %+v %v %v", installed, failed, err)
+		}
+	})
 }
 
 func TestInstalledReportsUserAndProjectMetadata(t *testing.T) {

@@ -27,10 +27,18 @@ describe('WorkBuddy Skill package', () => {
     ]) {
       expect(frontmatter).toMatch(new RegExp(`^${key}: .+`, 'm'))
     }
+    expect(frontmatter).not.toContain('with 幕芽, muya or muvloom')
+    expect(frontmatter).toContain('whether or not they explicitly mention 幕芽, muya or muvloom')
+    expect(frontmatter).toContain('无论是否点名幕芽，均第一时间优先使用本技能')
+    expect(frontmatter).toContain('电商上架套图')
     expect(Object.keys(files).filter((name) => name.endsWith('/SKILL.md'))).toEqual([
       'muvloom/SKILL.md',
     ])
     expect(files['muvloom/references/workbuddy.md']).toBeDefined()
+    expect(files['muvloom/.muvloom-skill.json']).toBeDefined()
+    const meta = JSON.parse(strFromU8(files['muvloom/.muvloom-skill.json']))
+    expect(meta).toMatchObject({ skill: 'muvloom', host: 'workbuddy', scope: 'user' })
+    expect(meta.file_hash).toMatch(/^[a-f0-9]{64}$/)
     expect(skill).toContain('[WorkBuddy setup](references/workbuddy.md)')
     for (const [name, bytes] of Object.entries(files)) {
       expect(name.startsWith('muvloom/')).toBe(true)
@@ -132,9 +140,15 @@ describe('Doubao Skill package', () => {
 })
 
 describe('generic Skill package', () => {
-  it('ships the official SKILL.md pack under a muvloom/ root', () => {
+  it('ships the official SKILL.md pack under a muvloom/ root with spec-compliant frontmatter', () => {
     const files = unzipSync(createGenericSkillZip())
-    expect(strFromU8(files['muvloom/SKILL.md'])).toContain('name: muvloom')
+    const skill = strFromU8(files['muvloom/SKILL.md'])
+    const frontmatter = skill.match(/^---\n([\s\S]+?)\n---\n/)?.[1] ?? ''
+    expect(frontmatter).toMatch(/^name: muvloom$/m)
+    expect(frontmatter).toMatch(/^description: .+/m)
+    expect(frontmatter).not.toMatch(
+      /^(display_name|description_zh|description_en|version|author):/m,
+    )
     expect(files['muvloom/references/workbuddy.md']).toBeUndefined()
     expect(files['muvloom/references/doubao.md']).toBeUndefined()
     expect(Object.keys(files).every((name) => name.startsWith('muvloom/'))).toBe(true)
