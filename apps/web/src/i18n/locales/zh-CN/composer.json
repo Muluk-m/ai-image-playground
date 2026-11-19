@@ -144,7 +144,7 @@
     "title": "生成设置",
     "close": "关闭生成设置",
     "reset": "恢复默认",
-    "done": "完成",
+    "back": "返回{{title}}",
     "auto": "智能",
     "autoOption": "自动",
     "custom": "自定义",

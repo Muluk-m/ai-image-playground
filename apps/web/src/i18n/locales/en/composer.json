@@ -149,7 +149,7 @@
     "title": "Generation settings",
     "close": "Close generation settings",
     "reset": "Reset",
-    "done": "Done",
+    "back": "Back to {{title}}",
     "auto": "Auto",
     "autoOption": "Auto",
     "custom": "Custom",

@@ -55,7 +55,6 @@ import {
   type ComposerControlSize,
   DraftInput,
   RatioGrid,
-  RatioShape,
   SettingsPopover,
   SettingsSection,
   SettingsSegmented,
@@ -294,20 +293,26 @@ export function ImageSettings({
     : selection.kind === 'custom'
       ? [capabilities.size ? params.size.replace('x', '×') : sizeRatioLabel(params.size)] // design-allow glyph-icon: 乘号
       : [ratioLabel, selection.kind === 'preset' && capabilities.size ? selection.tier : undefined]
-  const summary = [
-    ...(image26 && params.output_format === 'gif'
+  const formatSummary =
+    image26 && params.output_format === 'gif'
       ? [
           t('settings.gif'),
           params.frame_count ? t('settings.frames', { count: params.frame_count }) : '',
         ]
       : image26 && params.output_format === 'svg'
         ? [t('settings.svg')]
-        : sizeSummary),
+        : null
+  const countSummary =
     countVisible && params.output_format !== 'gif' && params.output_format !== 'svg'
       ? t('settings.count', { count: fixedCount ?? params.n })
-      : '',
-  ]
-    .filter(Boolean)
+      : ''
+  const summaryParts = [...(formatSummary ?? sizeSummary), countSummary]
+  const summary = summaryParts.filter(Boolean).join(' · ')
+  // 胶囊上只写改过的：智能比例（摘要第一段）不占字，完整摘要留给读屏与悬停。
+  const ratioOmitted =
+    !formatSummary && ratio === 'auto' && (isGemini || selection.kind !== 'custom')
+  const visibleSummary = summaryParts
+    .filter((part, index) => part && !(ratioOmitted && index === 0))
     .join(' · ')
   // 摘要里看不到、又偏离了默认值的参数。
   const dirty =
@@ -320,7 +325,7 @@ export function ImageSettings({
         (noRewriteVisible && params.no_rewrite !== DEFAULT_PARAMS.no_rewrite))) ||
     (tuning && !agentManaged && Boolean(params.gemini_thinking_level))
 
-  const reset = () => {
+  const resetPatch = () => {
     const patch: Partial<TaskParams> = isGemini
       ? {
           gemini_aspect_ratio: undefined,
@@ -338,6 +343,14 @@ export function ImageSettings({
         no_rewrite: DEFAULT_PARAMS.no_rewrite,
       })
     }
+    return patch
+  }
+  const changed =
+    customOpen ||
+    Boolean(extra?.dirty) ||
+    Object.entries(resetPatch()).some(([key, value]) => params[key as keyof TaskParams] !== value)
+  const reset = () => {
+    const patch = resetPatch()
     setCustomOpen(false)
     setClamped(false)
     stillImage.current = null
@@ -691,17 +704,12 @@ export function ImageSettings({
     <SettingsPopover
       title={t('settings.title')}
       summary={summary}
+      summaryContent={visibleSummary}
       detail={extra?.detail}
-      icon={
-        <RatioShape
-          ratio={selection.kind === 'custom' ? selection.ratio : ratio}
-          className="h-3.5 w-3.5"
-        />
-      }
       badge={extra?.badge}
       dirty={dirty}
       size={size}
-      onReset={reset}
+      onReset={changed ? reset : undefined}
     >
       {renderSections}
     </SettingsPopover>
