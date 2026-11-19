@@ -998,19 +998,24 @@ async function callUpstreamVia(
    */
   const dispatchIdentities = new WeakMap<UpstreamResponse, string>()
   /** 计数请求的发出时刻与首字节耗时；响应读完时写 `upstream.request_finished`。 */
-  const dispatchTimings = new WeakMap<UpstreamResponse, { sentAt: number; headersMs: number }>()
+  const dispatchTimings = new WeakMap<
+    UpstreamResponse,
+    { sentAt: number; headersMs: number; model: string }
+  >()
   const logRequestFinished = (fields: {
     outcome: 'ok' | 'http_error' | 'read_error' | 'transport_error'
     status: number | null
     headersMs: number | null
     sentAt: number
+    /** 实际请求的模型：Vertex 限流回落时与任务模型不同。 */
+    model: string
   }) => {
     log.info(
       {
         event: 'upstream.request_finished',
         ...(params.taskId ? { taskId: params.taskId } : {}),
         provider,
-        model,
+        model: fields.model,
         style,
         outcome: fields.outcome,
         status: fields.status,
@@ -1037,6 +1042,8 @@ async function callUpstreamVia(
     url: string,
     init: UpstreamFetchInit,
     counted = true,
+    /** 只用于耗时日志；不传就是任务模型。 */
+    requestModel = model,
   ): Promise<UpstreamResponse> => {
     let lease: SchedulerLease | undefined
     if (counted && schedulerBuckets.length > 0) {
@@ -1056,6 +1063,7 @@ async function callUpstreamVia(
     }
     let sent = false
     let sentAt: number | undefined
+    let headersAt: number | undefined
     // 记账回调开始前都确定没发出；回调里失败时不知道它是否已提交，按原样当「结果未知」。
     let committing = false
     try {
@@ -1074,6 +1082,14 @@ async function callUpstreamVia(
         ...fetchInit(init),
         signal: requestAbort.signal,
       })
+      // 首字节时刻挂在上游响应本身上，不被下面并行的记账写库拖长。
+      if (sentAt !== undefined)
+        void responsePromise.then(
+          () => {
+            headersAt = performance.now()
+          },
+          () => {},
+        )
       deadline.signal.addEventListener('abort', relayAbort, { once: true })
       if (deadline.signal.aborted) relayAbort()
       let keyRecorded: Promise<void> | undefined
@@ -1093,7 +1109,8 @@ async function callUpstreamVia(
         if (sentAt !== undefined)
           dispatchTimings.set(response, {
             sentAt,
-            headersMs: Math.round(performance.now() - sentAt),
+            headersMs: Math.round((headersAt ?? performance.now()) - sentAt),
+            model: requestModel,
           })
         if (lease) {
           schedulerLeases.set(response, lease)
@@ -1109,7 +1126,13 @@ async function callUpstreamVia(
       }
     } catch (err) {
       if (sentAt !== undefined)
-        logRequestFinished({ outcome: 'transport_error', status: null, headersMs: null, sentAt })
+        logRequestFinished({
+          outcome: 'transport_error',
+          status: null,
+          headersMs: null,
+          sentAt,
+          model: requestModel,
+        })
       // 记账回调之前就失败：这次没发出去，张数退回。
       if (lease) await releaseLease(lease, !sent)
       // 拿到名额时恰好到硬截止：还没进记账，同样是确定未执行。
@@ -1465,7 +1488,12 @@ async function callUpstreamVia(
           : undefined
         const send = async () =>
           await parseResponse(
-            await performFetch(target.url, { method: 'POST', headers, body: target.body }),
+            await performFetch(
+              target.url,
+              { method: 'POST', headers, body: target.body },
+              true,
+              target.model,
+            ),
           )
         try {
           // Vertex 的 429 是按模型的到达速率限流：先在这条请求里退避重发，一单多张里已出的图不必重来。

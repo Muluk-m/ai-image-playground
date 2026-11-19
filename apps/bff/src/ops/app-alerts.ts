@@ -328,31 +328,41 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
   }
 }
 
-/** 近 1 小时出过慢任务的模型。用执行耗时（开始到完成），排队等待另有 queue 规则。 */
+/**
+ * 近 1 小时出过慢任务的模型。耗时从 worker 认领算到任务完成（含渠道排队、Vertex 限流退避与归档），
+ * 不含提交后的排队等待（另有 queue 规则）。还在跑且已超过慢线的任务也算慢：模型彻底卡住时
+ * 近 1 小时没有成功任务，只看成功任务会误报恢复。
+ */
 async function readSlowGenerations(): Promise<NonNullable<AlertObservation['slowGenerations']>> {
   const windowSeconds = OPS_THRESHOLDS.SLOW_GENERATION_WINDOW_MS / 1000
   const slowSeconds = OPS_THRESHOLDS.SLOW_GENERATION_MS / 1000
+  // 提交时间只用来走 idx_tasks_status_submitted：任务从提交到结束远短于 1 天。
   const rows = (await db.execute(sql`
     SELECT model,
       COUNT(*) FILTER (
-        WHERE completed_at - started_at > make_interval(secs => ${slowSeconds})
+        WHERE COALESCE(completed_at, NOW()) - started_at > make_interval(secs => ${slowSeconds})
       ) AS slow,
-      COUNT(*) AS completed,
-      MAX(EXTRACT(EPOCH FROM completed_at - started_at)) * 1000 AS max_ms
+      COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+      COUNT(*) FILTER (WHERE status = 'in_progress') AS running,
+      MAX(EXTRACT(EPOCH FROM COALESCE(completed_at, NOW()) - started_at)) * 1000 AS max_ms
     FROM tasks
-    WHERE kind = 'queue' AND status = 'completed' AND started_at IS NOT NULL
-      AND completed_at >= NOW() - make_interval(secs => ${windowSeconds})
-      AND submitted_at >= NOW() - INTERVAL '7 days'
+    WHERE kind = 'queue' AND started_at IS NOT NULL
+      AND submitted_at >= NOW() - INTERVAL '1 day'
+      AND (
+        (status = 'completed' AND completed_at >= NOW() - make_interval(secs => ${windowSeconds}))
+        OR status = 'in_progress'
+      )
     GROUP BY model
     HAVING COUNT(*) FILTER (
-      WHERE completed_at - started_at > make_interval(secs => ${slowSeconds})
+      WHERE COALESCE(completed_at, NOW()) - started_at > make_interval(secs => ${slowSeconds})
     ) > 0
   `)) as unknown as Array<Record<string, unknown>>
   return rows.map((row) => ({
     model: String(row.model ?? 'unknown'),
     slow: Number(row.slow ?? 0),
     completed: Number(row.completed ?? 0),
-    maxMs: Number(row.max_ms ?? 0),
+    running: Number(row.running ?? 0),
+    maxMs: Math.round(Number(row.max_ms ?? 0)),
   }))
 }
 

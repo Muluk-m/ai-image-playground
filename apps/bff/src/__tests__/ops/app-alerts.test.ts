@@ -2,7 +2,7 @@ import { afterAll, describe, expect, it, spyOn } from 'bun:test'
 import { createDb } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import type { AlertMessage } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { OpsStorageError } from '../../lib/ops-storage-error'
 
 const databaseUrl = await resetTestDatabase('bff_app_alerts')
@@ -199,29 +199,47 @@ describe('observeApp', () => {
     expect((await observeApp({ now })).failures?.generation_successes).toEqual({})
   })
 
-  it('counts slow completed tasks per model within the last hour', async () => {
-    const done = (id: string, startedAgo: number, tookMs: number, status = 'completed') => ({
+  it('counts slow completed and still-running tasks per model within the last hour', async () => {
+    const task = (
+      id: string,
+      startedAgo: number,
+      tookMs: number | null,
+      status: 'completed' | 'failed' | 'in_progress' = 'completed',
+    ) => ({
       id,
       provider: 'gemini' as const,
       model: 'slow-alert-model',
-      status: status as 'completed' | 'failed',
+      status,
       request_payload: { prompt: 'x', device_id: 'd' },
       submitted_at: now - startedAgo,
       started_at: now - startedAgo,
-      completed_at: now - startedAgo + tookMs,
+      completed_at: tookMs === null ? null : now - startedAgo + tookMs,
     })
-    await writer.db.insert(writer.schema.tasks).values([
-      done('slow-a', 30 * minute, 5 * minute),
-      done('slow-b', 20 * minute, 3 * minute),
-      done('fast-c', 10 * minute, 30_000),
-      // 窗口外的慢任务、失败的慢任务都不算。
-      done('slow-old', 3 * hour, 5 * minute),
-      done('slow-failed', 10 * minute, 5 * minute, 'failed'),
-    ])
-    const slow = (await observeApp({ now })).slowGenerations?.find(
-      (one) => one.model === 'slow-alert-model',
-    )
-    expect(slow).toEqual({ model: 'slow-alert-model', slow: 2, completed: 3, maxMs: 5 * minute })
+    const rows = [
+      task('slow-a', 30 * minute, 5 * minute),
+      task('slow-b', 20 * minute, 3 * minute),
+      task('fast-c', 10 * minute, 30_000),
+      task('stuck-d', 4 * minute, null, 'in_progress'),
+      task('running-e', 30_000, null, 'in_progress'),
+      // 窗口外的慢任务、失败的慢任务都不算；失败的放在 15 分钟失败窗口外，不影响其他用例。
+      task('slow-old', 3 * hour, 5 * minute),
+      task('slow-failed', 40 * minute, 5 * minute, 'failed'),
+    ]
+    await writer.db.insert(writer.schema.tasks).values(rows)
+    try {
+      const slow = (await observeApp({ now })).slowGenerations?.find(
+        (one) => one.model === 'slow-alert-model',
+      )
+      expect(slow).toMatchObject({ model: 'slow-alert-model', slow: 3, completed: 3, running: 2 })
+      expect(slow?.maxMs).toBe(5 * minute)
+    } finally {
+      await writer.db.delete(writer.schema.tasks).where(
+        inArray(
+          writer.schema.tasks.id,
+          rows.map((row) => row.id),
+        ),
+      )
+    }
   })
 
   it('reads the newest server_logs row, or null while the table is empty', async () => {

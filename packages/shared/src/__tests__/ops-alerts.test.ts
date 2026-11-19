@@ -106,9 +106,9 @@ describe('服务端日志静默', () => {
 })
 
 describe('模型出图变慢', () => {
-  const slow = (count: number) => ({
+  const slow = (count: number, completed = 20, running = 0) => ({
     slowGenerations: [
-      { model: 'gemini-nano-banana-2.1', slow: count, completed: 20, maxMs: 313_000 },
+      { model: 'gemini-nano-banana-2.1', slow: count, completed, running, maxMs: 313_000 },
     ],
   })
 
@@ -117,9 +117,24 @@ describe('模型出图变慢', () => {
     expect(run([[T0, slow(3)]])).toEqual([['firing:generation-latency']])
   })
 
-  it('告警写明模型、慢任务数与最长耗时', () => {
-    const { messages } = evaluateAlerts(slow(3), {}, T0)
-    expect(messages[0]?.text).toContain('gemini-nano-banana-2.1：3/20 个慢任务，最长 313 秒')
+  it('流量大时 3 个长尾占比不到 5% 不报', () => {
+    expect(run([[T0, slow(3, 100)]])).toEqual([[]])
+  })
+
+  it('告警写明模型、慢任务数、仍在执行的数量与最长耗时', () => {
+    const { messages } = evaluateAlerts(slow(3, 18, 2), {}, T0)
+    expect(messages[0]?.text).toContain(
+      'gemini-nano-banana-2.1：3/20 个慢任务（含 2 个仍在执行），最长 313 秒',
+    )
+  })
+
+  it('模型卡住、一小时内没有成功任务时，仍在执行的慢任务让告警继续', () => {
+    expect(
+      run([
+        [T0, slow(3)],
+        [T0 + minute, slow(3, 0, 3)],
+      ]),
+    ).toEqual([['firing:generation-latency'], []])
   })
 
   it('慢任务滑出窗口后发已恢复，读数缺失不算恢复', () => {
