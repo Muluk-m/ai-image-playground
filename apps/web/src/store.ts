@@ -1655,12 +1655,16 @@ export async function submitPrepared(
   if (!current()) return []
   // 一组参考图对应一条变体：合并参考是整条一组，逐张生成是每张图自成一组。
   const referenceGroups = eachImage ? input.inputImages.map((img) => [img]) : [input.inputImages]
+  let acknowledged = Promise.resolve()
   const jobs = startGeneration<WorkbenchJob, WorkbenchVariant>(
     {
       settings: requestSettings,
       profile,
       params: taskParams,
       ...(input.clientRequestId ? { clientRequestId: input.clientRequestId } : {}),
+      onAcknowledged: (ack) => {
+        acknowledged = ack
+      },
       variants: referenceGroups.flatMap((group, groupIndex) => {
         const inputImageDataUrls = group.map((img) => img.dataUrl)
         return prompts.map((taskPrompt, promptIndex) => {
@@ -1709,6 +1713,7 @@ export async function submitPrepared(
     }),
   )
 
+  if (jobs.length > 0) await acknowledged
   return jobs.map((job) => job.taskId)
 }
 
@@ -2404,6 +2409,11 @@ async function retryLocalTask(task: TaskRecord) {
       settings: requestSettings,
       profile: activeProfile,
       params: taskParams,
+      // 还没拿到服务端回执的那次（多半是提交时断网）沿用原幂等键，避免再建成一单。
+      // 已经受理但出图失败的重试是用户再来一次，必须新铸键。
+      ...(!task.bffRequestId && task.clientRequestId
+        ? { clientRequestId: task.clientRequestId }
+        : {}),
       variants: [
         {
           prompt: replaceImageMentionsForApi(

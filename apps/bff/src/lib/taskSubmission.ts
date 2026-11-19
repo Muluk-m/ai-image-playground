@@ -323,12 +323,12 @@ function dedupesRecentSubmission(input: CreateQueueTaskInput): input is CreateQu
   )
 }
 
-async function findRecentDuplicate(tx: BffTransaction, userId: string, hash: string) {
-  // 两条并发的连点在这把锁上排队：后到的那条一定看得到先到那条已提交的回执。
-  await tx.execute(
-    sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify(['generation-recent', userId, hash])}, 0))`,
-  )
-  const [recent] = await tx
+async function lookupRecentDuplicate(
+  database: Pick<typeof db, 'select'>,
+  userId: string,
+  hash: string,
+) {
+  const [recent] = await database
     .select({ taskId: schema.generation_commands.task_id })
     .from(schema.generation_commands)
     .innerJoin(schema.tasks, eq(schema.tasks.id, schema.generation_commands.task_id))
@@ -342,6 +342,14 @@ async function findRecentDuplicate(tx: BffTransaction, userId: string, hash: str
     )
     .limit(1)
   return recent
+}
+
+async function findRecentDuplicate(tx: BffTransaction, userId: string, hash: string) {
+  // 两条并发的连点在这把锁上排队：后到的那条一定看得到先到那条已提交的回执。
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtextextended(${JSON.stringify(['generation-recent', userId, hash])}, 0))`,
+  )
+  return lookupRecentDuplicate(tx, userId, hash)
 }
 
 async function replayCommand(
@@ -935,6 +943,12 @@ async function submitQueueTask(
       const legacy = await adoptLegacyCommand(input.userId, commandId, hash, legacyHashes)
       if (legacy) return legacy
     }
+  }
+  // 内容指纹按归档前的请求算。先查近期重复，命中就不必再把参考图写进对象存储。
+  // 并发连点仍靠事务里带锁的那次检查兜住；这里只挡「上一单已经落库」的再提交。
+  if (!prepared && dedupesRecentSubmission(input)) {
+    const duplicate = await lookupRecentDuplicate(input.tx ?? db, input.userId, hash)
+    if (duplicate) return { kind: 'duplicate_submission' as const, taskId: duplicate.taskId }
   }
   const preparation = prepared
     ? { kind: 'prepared' as const, prepared }

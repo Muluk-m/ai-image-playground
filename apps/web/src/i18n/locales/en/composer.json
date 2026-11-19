@@ -53,6 +53,7 @@
     "maskEdit": "Edit mask",
     "maskEditShortcut": "Edit mask (Ctrl+Enter)",
     "generateShortcut": "Generate (Ctrl+Enter)",
+    "submitting": "Submitting",
     "noModel": "No model is available right now. Try again later",
     "startCanvas": "Start creating",
     "skillNeedsCanvas": "Skills run in projects. Switch to Smart creation or Canvas to send",
