@@ -79,13 +79,13 @@ export interface AlertObservation {
 
 export interface SlowGenerationModel {
   model: string
-  /** 窗口内执行超过 SLOW_GENERATION_MS 的成功任务，加上已跑超过这条线、还没结束的任务。 */
+  /** 窗口内从提交到完成超过 SLOW_GENERATION_MS 的成功任务，加上已超过这条线、还没结束的任务。 */
   slow: number
   /** 窗口内成功任务数。 */
   completed: number
-  /** 当前还在执行的任务数。 */
-  running: number
-  /** 窗口内最长一次执行耗时（还在跑的按已跑时长）。 */
+  /** 当前还没结束的任务数（排队、执行、归档重试、待核查）。 */
+  unfinished: number
+  /** 窗口内最长耗时（没结束的按已过去的时长）。 */
   maxMs: number
 }
 
@@ -299,16 +299,16 @@ function readings(
     const slow = observation.slowGenerations.filter(
       (one) =>
         one.slow >= OPS_THRESHOLDS.SLOW_GENERATION_COUNT &&
-        one.slow / Math.max(1, one.completed + one.running) >=
+        one.slow / Math.max(1, one.completed + one.unfinished) >=
           OPS_THRESHOLDS.SLOW_GENERATION_MIN_RATIO,
     )
     out['generation-latency'] = {
       breached: slow.length > 0,
       sustainMs: 0,
-      firingText: `近 ${span(OPS_THRESHOLDS.SLOW_GENERATION_WINDOW_MS)}有模型出图耗时明显变长（单个任务从开始执行到完成超过 ${span(OPS_THRESHOLDS.SLOW_GENERATION_MS)}算慢，告警线 ${OPS_THRESHOLDS.SLOW_GENERATION_COUNT} 个）：\n${slow
+      firingText: `近 ${span(OPS_THRESHOLDS.SLOW_GENERATION_WINDOW_MS)}有模型出图耗时明显变长（单个任务从提交到完成超过 ${span(OPS_THRESHOLDS.SLOW_GENERATION_MS)}算慢，告警线 ${OPS_THRESHOLDS.SLOW_GENERATION_COUNT} 个）：\n${slow
         .map(
           (one) =>
-            `· ${one.model}：${one.slow}/${one.completed + one.running} 个慢任务（含 ${one.running} 个仍在执行），最长 ${Math.round(one.maxMs / 1000)} 秒`,
+            `· ${one.model}：${one.slow}/${one.completed + one.unfinished} 个慢任务（含 ${one.unfinished} 个尚未完成），最长 ${Math.round(one.maxMs / 1000)} 秒`,
         )
         .join('\n')}`,
       resolvedText: '已恢复：各模型出图耗时回到告警线内',

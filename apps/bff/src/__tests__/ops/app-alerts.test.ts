@@ -199,28 +199,34 @@ describe('observeApp', () => {
     expect((await observeApp({ now })).failures?.generation_successes).toEqual({})
   })
 
-  it('counts slow completed and still-running tasks per model within the last hour', async () => {
+  it('counts slow tasks from submission, including unfinished ones and archive retries', async () => {
     const task = (
       id: string,
-      startedAgo: number,
+      submittedAgo: number,
       tookMs: number | null,
-      status: 'completed' | 'failed' | 'in_progress' = 'completed',
+      status: 'completed' | 'failed' | 'in_progress' | 'queued' = 'completed',
+      startedAgo = submittedAgo,
     ) => ({
       id,
       provider: 'gemini' as const,
       model: 'slow-alert-model',
       status,
       request_payload: { prompt: 'x', device_id: 'd' },
-      submitted_at: now - startedAgo,
+      submitted_at: now - submittedAgo,
       started_at: now - startedAgo,
-      completed_at: tookMs === null ? null : now - startedAgo + tookMs,
+      completed_at: tookMs === null ? null : now - submittedAgo + tookMs,
     })
     const rows = [
       task('slow-a', 30 * minute, 5 * minute),
-      task('slow-b', 20 * minute, 3 * minute),
+      // 归档重试后最后一次认领只用了几秒：started_at 被覆盖，仍要按提交时间算慢。
+      task('slow-archive-retry', 20 * minute, 3 * minute, 'completed', 17 * minute + 10_000),
       task('fast-c', 10 * minute, 30_000),
       task('stuck-d', 4 * minute, null, 'in_progress'),
-      task('running-e', 30_000, null, 'in_progress'),
+      // 归档失败回队等重试的任务。
+      task('archive-requeued-e', 6 * minute, null, 'queued', 5 * minute),
+      task('fresh-f', 30_000, null, 'in_progress'),
+      // 从没被认领的积压归 queue 规则，不算进来。
+      { ...task('backlog-g', 20 * minute, null, 'queued'), started_at: null },
       // 窗口外的慢任务、失败的慢任务都不算；失败的放在 15 分钟失败窗口外，不影响其他用例。
       task('slow-old', 3 * hour, 5 * minute),
       task('slow-failed', 40 * minute, 5 * minute, 'failed'),
@@ -230,8 +236,15 @@ describe('observeApp', () => {
       const slow = (await observeApp({ now })).slowGenerations?.find(
         (one) => one.model === 'slow-alert-model',
       )
-      expect(slow).toMatchObject({ model: 'slow-alert-model', slow: 3, completed: 3, running: 2 })
-      expect(slow?.maxMs).toBe(5 * minute)
+      expect(slow).toMatchObject({
+        model: 'slow-alert-model',
+        slow: 4,
+        completed: 3,
+        unfinished: 3,
+      })
+      // 没结束的按数据库 NOW() 算，比测试里的 now 晚一点点。
+      expect(slow?.maxMs).toBeGreaterThanOrEqual(6 * minute)
+      expect(slow?.maxMs).toBeLessThan(7 * minute)
     } finally {
       await writer.db.delete(writer.schema.tasks).where(
         inArray(

@@ -329,39 +329,40 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
 }
 
 /**
- * 近 1 小时出过慢任务的模型。耗时从 worker 认领算到任务完成（含渠道排队、Vertex 限流退避与归档），
- * 不含提交后的排队等待（另有 queue 规则）。还在跑且已超过慢线的任务也算慢：模型彻底卡住时
- * 近 1 小时没有成功任务，只看成功任务会误报恢复。
+ * 近 1 小时出过慢任务的模型，耗时按用户感受算：从提交到完成，含排队、渠道排队、Vertex 限流退避
+ * 与归档重试。不用 started_at：每次认领都会覆盖它，归档失败回队重试后只剩最后一次的耗时。
+ * 还没结束、已经超过慢线的任务也算慢：模型卡住或归档反复失败时近 1 小时没有成功任务，
+ * 只看成功任务会误报恢复。从没被认领的纯积压留给 queue 规则，不重复报。
  */
 async function readSlowGenerations(): Promise<NonNullable<AlertObservation['slowGenerations']>> {
   const windowSeconds = OPS_THRESHOLDS.SLOW_GENERATION_WINDOW_MS / 1000
   const slowSeconds = OPS_THRESHOLDS.SLOW_GENERATION_MS / 1000
-  // 提交时间只用来走 idx_tasks_status_submitted：任务从提交到结束远短于 1 天。
+  // 提交时间下限只用来走 idx_tasks_status_submitted：任务从提交到结束远短于 1 天。
   const rows = (await db.execute(sql`
     SELECT model,
       COUNT(*) FILTER (
-        WHERE COALESCE(completed_at, NOW()) - started_at > make_interval(secs => ${slowSeconds})
+        WHERE COALESCE(completed_at, NOW()) - submitted_at > make_interval(secs => ${slowSeconds})
       ) AS slow,
       COUNT(*) FILTER (WHERE status = 'completed') AS completed,
-      COUNT(*) FILTER (WHERE status = 'in_progress') AS running,
-      MAX(EXTRACT(EPOCH FROM COALESCE(completed_at, NOW()) - started_at)) * 1000 AS max_ms
+      COUNT(*) FILTER (WHERE status <> 'completed') AS unfinished,
+      MAX(EXTRACT(EPOCH FROM COALESCE(completed_at, NOW()) - submitted_at)) * 1000 AS max_ms
     FROM tasks
     WHERE kind = 'queue' AND started_at IS NOT NULL
       AND submitted_at >= NOW() - INTERVAL '1 day'
       AND (
         (status = 'completed' AND completed_at >= NOW() - make_interval(secs => ${windowSeconds}))
-        OR status = 'in_progress'
+        OR status IN ('queued', 'in_progress', 'reconciling')
       )
     GROUP BY model
     HAVING COUNT(*) FILTER (
-      WHERE COALESCE(completed_at, NOW()) - started_at > make_interval(secs => ${slowSeconds})
+      WHERE COALESCE(completed_at, NOW()) - submitted_at > make_interval(secs => ${slowSeconds})
     ) > 0
   `)) as unknown as Array<Record<string, unknown>>
   return rows.map((row) => ({
     model: String(row.model ?? 'unknown'),
     slow: Number(row.slow ?? 0),
     completed: Number(row.completed ?? 0),
-    running: Number(row.running ?? 0),
+    unfinished: Number(row.unfinished ?? 0),
     maxMs: Math.round(Number(row.max_ms ?? 0)),
   }))
 }
