@@ -69,6 +69,38 @@ describe('HTTP 服务端 span', () => {
     expect(statuses).toEqual([SpanStatusCode.ERROR, SpanStatusCode.ERROR])
   })
 
+  it('健康检查、内部接口与静态资源不建 span，但 request id 照常返回', async () => {
+    const handle = withRequestContext(async () => new Response('ok'))
+    const responses = await Promise.all(
+      ['/health', '/internal/logs/ingest', '/assets/app.js'].map((path) =>
+        handle(new Request(`http://localhost${path}`)),
+      ),
+    )
+    expect(exporter.getFinishedSpans()).toEqual([])
+    expect(responses.every((response) => response.headers.get('x-request-id'))).toBe(true)
+  })
+
+  it('调用方 traceparent 标了不采样也照样记录，调用方关不掉我们的链路', async () => {
+    await withRequestContext(async () => new Response('ok'))(
+      new Request('http://localhost/api/a', {
+        headers: { traceparent: `00-${PARENT_TRACE}-${PARENT_SPAN}-00` },
+      }),
+    )
+    const [span] = exporter.getFinishedSpans()
+    expect(span?.spanContext().traceId).toBe(PARENT_TRACE)
+  })
+
+  it('异常写进 span 前脱敏，不带堆栈', async () => {
+    const failing = withRequestContext(async () => {
+      throw new Error('upstream failed: Authorization: Bearer sk-live-abcdefghijklmnop1234')
+    })
+    await expect(failing(new Request('http://localhost/api/z'))).rejects.toThrow()
+    const [event] = exporter.getFinishedSpans()[0]?.events ?? []
+    const message = String(event?.attributes?.['exception.message'])
+    expect(message).not.toContain('sk-live-abcdefghijklmnop1234')
+    expect(event?.attributes?.['exception.stacktrace']).toBeUndefined()
+  })
+
   it('不在任何 span 里时不写 trace 字段', () => {
     expect(traceLogFields()).toEqual({})
   })

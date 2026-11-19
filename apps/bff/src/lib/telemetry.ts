@@ -4,7 +4,13 @@ import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-ho
 import { W3CTraceContextPropagator } from '@opentelemetry/core'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto'
 import { resourceFromAttributes } from '@opentelemetry/resources'
-import { BatchSpanProcessor, type SpanProcessor, TracerProvider } from '@opentelemetry/sdk-trace'
+import {
+  BatchSpanProcessor,
+  ParentBasedSampler,
+  type SpanProcessor,
+  TraceIdRatioBasedSampler,
+  TracerProvider,
+} from '@opentelemetry/sdk-trace'
 import { appVersion } from './app-version'
 
 /**
@@ -26,7 +32,15 @@ export function initTelemetry(
 ): void {
   if (provider) return
   const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT?.trim().replace(/\/+$/, '')
+  // 只有本进程里的父 span 决定子 span 是否采样；外部传来的 traceparent 只用来接链路，
+  // 它的 sampled 位不算数，调用方关不掉我们的记录。sdk-trace 3.x 不再读 OTEL_TRACES_SAMPLER。
+  const ratio = traceSampleRatio()
   provider = new TracerProvider({
+    sampler: new ParentBasedSampler({
+      root: new TraceIdRatioBasedSampler(ratio),
+      remoteParentSampled: new TraceIdRatioBasedSampler(ratio),
+      remoteParentNotSampled: new TraceIdRatioBasedSampler(ratio),
+    }),
     resource: resourceFromAttributes({
       'service.name': service,
       'service.version': appVersion(),
@@ -53,11 +67,22 @@ export function initTelemetry(
   trace.setGlobalTracerProvider(provider)
 }
 
-/** 关停时把还没导出的 span 发完；导出端不可达也只等到 SDK 自己的超时。 */
+/** `OTEL_TRACES_SAMPLE_RATIO`（0–1，默认 1）：流量涨上来后按比例降量，不用改代码。 */
+function traceSampleRatio(): number {
+  const raw = process.env.OTEL_TRACES_SAMPLE_RATIO?.trim()
+  if (!raw) return 1
+  const ratio = Number(raw)
+  if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1)
+    throw new Error('OTEL_TRACES_SAMPLE_RATIO must be a number between 0 and 1')
+  return ratio
+}
+
+/** 关停时把还没导出的 span 发完，最多等 5 秒：Collector 挂了也不能吃掉容器的停机宽限。 */
 export async function shutdownTelemetry(): Promise<void> {
   const current = provider
   provider = undefined
-  await current?.shutdown().catch(() => {})
+  if (!current) return
+  await Promise.race([current.shutdown().catch(() => {}), Bun.sleep(5_000)])
 }
 
 /** logger 的 mixin 调它：当前 span 里打的日志带上 trace_id / span_id。 */

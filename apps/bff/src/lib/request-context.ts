@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { redactLogText } from '@image-playground/shared'
 import {
   context as otelContext,
   propagation,
@@ -32,7 +33,14 @@ export function withRequestContext<T extends Response | undefined>(
   return (request) => {
     const incoming = request.headers.get(REQUEST_ID_HEADER)
     const requestId = incoming && ACCEPTED_ID.test(incoming) ? incoming : crypto.randomUUID()
-    // 调用方带了 W3C traceparent 就接着它的链路。span 只量到响应头返回，流式响应体不计入。
+    const pathname = new URL(request.url).pathname
+    // 健康检查、内部接口（采集容器每 2 秒一次）和静态资源不建 span，口径与访问日志一致。
+    if (!isTracedPath(pathname))
+      return context.run({ requestId }, async () =>
+        withRequestIdHeader(await handle(request), requestId),
+      )
+    // 调用方带了 W3C traceparent 就接着它的链路（是否采样由我们的采样器决定，见 telemetry）。
+    // span 只量到响应头返回，流式响应体不计入。
     const parent = propagation.extract(ROOT_CONTEXT, request.headers, headerGetter)
     const span = tracer.startSpan(
       `HTTP ${request.method}`,
@@ -40,7 +48,7 @@ export function withRequestContext<T extends Response | undefined>(
         kind: SpanKind.SERVER,
         attributes: {
           'http.request.method': request.method,
-          'url.path': new URL(request.url).pathname,
+          'url.path': pathname,
           'request.id': requestId,
         },
       },
@@ -52,34 +60,49 @@ export function withRequestContext<T extends Response | undefined>(
         try {
           response = await handle(request)
         } catch (error) {
-          span.recordException(error instanceof Error ? error : String(error))
+          // 异常原文可能带 URL 密钥或 Bearer：导出前按服务端日志的规则脱敏，不带堆栈。
+          span.recordException({
+            name: error instanceof Error ? error.name : 'Error',
+            message: redactLogText(error instanceof Error ? error.message : String(error)),
+          })
           span.setStatus({ code: SpanStatusCode.ERROR })
           span.end()
           throw error
         }
         // A successful WebSocket upgrade returns no HTTP response.
-        if (!response) {
-          span.end()
-          return response
+        if (response) {
+          span.setAttribute('http.response.status_code', response.status)
+          if (response.status >= 500) span.setStatus({ code: SpanStatusCode.ERROR })
         }
-        span.setAttribute('http.response.status_code', response.status)
-        if (response.status >= 500) span.setStatus({ code: SpanStatusCode.ERROR })
         span.end()
-        try {
-          response.headers.set(REQUEST_ID_HEADER, requestId)
-          return response
-        } catch {
-          // 不可变的响应头（例如直接透传的 fetch 响应）：复制一份再加。
-          const headers = new Headers(response.headers)
-          headers.set(REQUEST_ID_HEADER, requestId)
-          return new Response(response.body, {
-            status: response.status,
-            statusText: response.statusText,
-            headers,
-          })
-        }
+        return withRequestIdHeader(response, requestId)
       }),
     )
+  }
+}
+
+/** 建 span 的路径：业务 API。健康检查、`/internal/*` 与静态资源不建。 */
+function isTracedPath(pathname: string): boolean {
+  return pathname.startsWith('/api/') || pathname.startsWith('/v1/')
+}
+
+function withRequestIdHeader<T extends Response | undefined>(
+  response: T,
+  requestId: string,
+): T | Response {
+  if (!response) return response
+  try {
+    response.headers.set(REQUEST_ID_HEADER, requestId)
+    return response
+  } catch {
+    // 不可变的响应头（例如直接透传的 fetch 响应）：复制一份再加。
+    const headers = new Headers(response.headers)
+    headers.set(REQUEST_ID_HEADER, requestId)
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    })
   }
 }
 

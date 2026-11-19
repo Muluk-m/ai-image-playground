@@ -288,9 +288,9 @@ const upstreamSecretTimer = setInterval(() => {
 let shuttingDown = false
 
 async function finalize(exitCode = 0): Promise<never> {
-  await shutdownTelemetry()
   await stopServerLogs()
   await closeDb()
+  await shutdownTelemetry()
   // pino async transport：log.flush() 同步刷盘，防 process.exit 吞最后几行。
   log.flush()
   process.exit(exitCode)

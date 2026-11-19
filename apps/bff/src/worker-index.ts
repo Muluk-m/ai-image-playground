@@ -205,9 +205,9 @@ log.info(
 let shuttingDown = false
 
 async function finalize(exitCode = 0): Promise<never> {
-  await shutdownTelemetry()
   await stopServerLogs()
   await closeDb()
+  await shutdownTelemetry()
   log.flush()
   process.exit(exitCode)
 }
