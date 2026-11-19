@@ -4,11 +4,18 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 import { GUIDE_CLIP_URLS } from '../../../web/src/features/guide/content/media'
+import { SITE_ASSET_BASE, SITE_ASSETS } from '../../../web/src/features/guide/content/siteAssets'
 import { guideEntries, pageBlocks } from '../../../web/src/features/guide/model'
 import { editions, pageList } from '../catalog'
 import { Guide } from '../components/Guide'
 
-const publicFile = (src: string) => resolve(import.meta.dirname, '../../../web/public', `.${src}`)
+const publicFile = (src: string) => {
+  const path = Object.entries(SITE_ASSETS).find(
+    ([, key]) => `${SITE_ASSET_BASE}${key}` === src,
+  )?.[0]
+  if (!path) throw new Error(`Unregistered site image: ${src}`)
+  return resolve(import.meta.dirname, '../../../web/public', `.${path}`)
+}
 const clipUrls = new Set<string>(Object.values(GUIDE_CLIP_URLS))
 
 const CLIP_FILES = [
@@ -40,6 +47,8 @@ const CLIP_FILES = [
   'remix.webm',
   'settings.mp4',
   'settings.webm',
+  'workbuddy-tutorial.mp4',
+  'workbuddy-tutorial.webm',
 ] as const
 
 it('keeps guide content consistent: unique anchors, valid related links, numbered shots', () => {
@@ -59,9 +68,9 @@ it('keeps guide content consistent: unique anchors, valid related links, numbere
       for (const block of pageBlocks(page)) {
         if (block.type !== 'video') continue
         expect(clipUrls.has(block.src), block.src).toBe(true)
-        expect(block.src.startsWith('https://cms-r2.deepclick.com/'), block.src).toBe(true)
+        expect(block.src.startsWith(`${SITE_ASSET_BASE}clips/`), block.src).toBe(true)
         expect(block.webm && clipUrls.has(block.webm), block.webm).toBe(true)
-        expect(block.poster.startsWith('/guide-assets/'), block.poster).toBe(true)
+        expect(block.poster.startsWith(`${SITE_ASSET_BASE}guide-assets/`), block.poster).toBe(true)
         expect(existsSync(publicFile(block.poster)), block.poster).toBe(true)
       }
     }
@@ -69,7 +78,7 @@ it('keeps guide content consistent: unique anchors, valid related links, numbere
       if (block.type !== 'video') continue
       expect(clipUrls.has(block.src), block.src).toBe(true)
       expect(block.webm && clipUrls.has(block.webm), block.webm).toBe(true)
-      expect(block.poster.startsWith('/guide-assets/'), block.poster).toBe(true)
+      expect(block.poster.startsWith(`${SITE_ASSET_BASE}guide-assets/`), block.poster).toBe(true)
       expect(existsSync(publicFile(block.poster)), block.poster).toBe(true)
     }
   }
@@ -113,13 +122,13 @@ it('renders every guide link and anchor, including redirects for old chapter URL
 it('keeps every guide clip on the CDN map and nowhere else', () => {
   expect(Object.keys(GUIDE_CLIP_URLS).sort()).toEqual([...CLIP_FILES].sort())
   for (const [file, url] of Object.entries(GUIDE_CLIP_URLS)) {
-    expect(url.startsWith('https://cms-r2.deepclick.com/'), file).toBe(true)
+    expect(url.startsWith(`${SITE_ASSET_BASE}clips/`), file).toBe(true)
     expect(url.endsWith(file.slice(file.lastIndexOf('.'))), file).toBe(true)
     expect(url).not.toContain('/guide-assets/')
   }
 })
 
-it('keeps controls and drops loop only for the promo film', () => {
+it('keeps full tutorial and promo films controllable without looping', () => {
   const html = (path: string) => {
     const page = pageList.find((item) => item.path === path)
     if (!page) throw new Error(`missing ${path}`)
@@ -127,8 +136,9 @@ it('keeps controls and drops loop only for the promo film', () => {
   }
   const videoTags = (markup: string) =>
     [...markup.matchAll(/<video[^>]*>[\s\S]*?<\/video>/g)].map((match) => match[0])
-  for (const path of ['/guide/', '/guide/en/']) {
-    const film = videoTags(html(path)).find((tag) => tag.includes('promo-site-zh'))
+  for (const path of ['/guide/', '/guide/en/', '/guide/plugins/cli/', '/guide/en/plugins/cli/']) {
+    const stem = path.includes('/plugins/') ? 'workbuddy-tutorial' : 'promo-site-zh'
+    const film = videoTags(html(path)).find((tag) => tag.includes(stem))
     expect(film, path).toBeDefined()
     expect(film).toContain('controls')
     expect(film).not.toMatch(/\sloop(=|\s|>)/)
@@ -136,7 +146,7 @@ it('keeps controls and drops loop only for the promo film', () => {
   const demos = pageList
     .filter((page) => page.kind === 'guide')
     .flatMap((page) => videoTags(renderToStaticMarkup(createElement(Guide, { page }))))
-    .filter((tag) => !tag.includes('promo-site-zh'))
+    .filter((tag) => !tag.includes('promo-site-zh') && !tag.includes('workbuddy-tutorial'))
   expect(demos.length).toBeGreaterThan(0)
   for (const tag of demos) expect(tag).toMatch(/\sloop(=|\s|>)/)
 })

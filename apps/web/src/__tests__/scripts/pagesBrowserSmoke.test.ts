@@ -10,9 +10,13 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 
 const root = resolve(__dirname, '../../../../..')
 const require = createRequire(join(root, 'package.json'))
-const { serveDist, checkWorkspace, checkMarketing, isGuideClipRequest } = require(
-  join(root, 'scripts/pages-browser-smoke.cjs'),
-)
+const {
+  serveDist,
+  checkWorkspace,
+  checkMarketing,
+  isGuideClipRequest,
+  isSiteImageRequest,
+} = require(join(root, 'scripts/pages-browser-smoke.cjs'))
 let dist: string
 let server: { origin: string; close: () => Promise<void> }
 const html =
@@ -80,30 +84,61 @@ it('stops the release before Wrangler when the final build fails browser startup
   expect(await readFile(calls, 'utf8')).toBe('--filter @image-playground/web build:static-host\n')
 })
 
-it('treats only cms-r2 video files as guide clip requests', () => {
+it('treats only ai-images tutorial videos as guide clip requests', () => {
   const request = (method: string, url: string) => ({
     method: () => method,
     url: () => url,
   })
   expect(
     isGuideClipRequest(
-      request('GET', 'https://cms-r2.deepclick.com/02-reference-image-a5ecdea930d2.webm'),
+      request(
+        'GET',
+        'https://store.kaleidonova.com/muvloom/site/clips/02-reference-image-a5ecdea930d2.webm',
+      ),
     ),
   ).toBe(true)
   expect(
     isGuideClipRequest(
-      request('GET', 'https://cms-r2.deepclick.com/promo-site-zh-1162a0afec22.mp4'),
+      request(
+        'GET',
+        'https://store.kaleidonova.com/muvloom/site/clips/promo-site-zh-1162a0afec22.mp4',
+      ),
     ),
   ).toBe(true)
-  expect(isGuideClipRequest(request('GET', 'https://cms-r2.deepclick.com/clip.mov'))).toBe(true)
-  expect(isGuideClipRequest(request('POST', 'https://cms-r2.deepclick.com/clip.mp4'))).toBe(false)
-  expect(isGuideClipRequest(request('GET', 'https://cms-r2.deepclick.com/app.js'))).toBe(false)
-  expect(isGuideClipRequest(request('GET', 'https://cms-r2.deepclick.com/photo.jpg'))).toBe(false)
-  expect(isGuideClipRequest(request('GET', 'http://cms-r2.deepclick.com/clip.webm'))).toBe(false)
+  expect(
+    isGuideClipRequest(request('GET', 'https://store.kaleidonova.com/muvloom/site/clips/clip.mov')),
+  ).toBe(true)
+  expect(
+    isGuideClipRequest(
+      request('POST', 'https://store.kaleidonova.com/muvloom/site/clips/clip.mp4'),
+    ),
+  ).toBe(false)
+  expect(
+    isGuideClipRequest(request('GET', 'https://store.kaleidonova.com/muvloom/site/clips/app.js')),
+  ).toBe(false)
+  expect(
+    isGuideClipRequest(
+      request('GET', 'https://store.kaleidonova.com/muvloom/site/clips/photo.jpg'),
+    ),
+  ).toBe(false)
+  expect(isGuideClipRequest(request('GET', 'http://store.kaleidonova.com/clip.webm'))).toBe(false)
   expect(isGuideClipRequest(request('GET', 'https://cdn.example/clip.webm'))).toBe(false)
-  expect(isGuideClipRequest(request('GET', 'https://cms-r2.deepclick.com.evil/clip.webm'))).toBe(
+  expect(isGuideClipRequest(request('GET', 'https://store.kaleidonova.com.evil/clip.webm'))).toBe(
     false,
   )
+})
+
+it('replays only registered public site images, never user assets', () => {
+  const assets = require(join(root, 'apps/web/src/features/guide/content/site-assets.json'))
+  const key = Object.values(assets)[0]
+  const request = (method: string, url: string) => ({ method: () => method, url: () => url })
+  const base = 'https://store.kaleidonova.com/muvloom/site/'
+  expect(isSiteImageRequest(request('GET', `${base}${key}`))).toBe(true)
+  expect(isSiteImageRequest(request('POST', `${base}${key}`))).toBe(false)
+  expect(isSiteImageRequest(request('GET', `${base}unknown.webp`))).toBe(false)
+  expect(
+    isSiteImageRequest(request('GET', 'https://store.kaleidonova.com/uploads/user.webp')),
+  ).toBe(false)
 })
 
 // The dedicated browser CI step provisions Chromium; the ordinary Vitest job remains lightweight.
@@ -231,7 +266,7 @@ describe.skipIf(!process.env.PAGES_SMOKE_RUNTIME_DIR)('Chromium startup regressi
   it('stubs a guide clip on the workbench and still rejects media from another host', async () => {
     await writeFile(
       join(dist, 'workbench.html'),
-      `<video src="https://cms-r2.deepclick.com/02-reference-image-a5ecdea930d2.webm"></video>${html}`,
+      `<video src="https://store.kaleidonova.com/muvloom/site/clips/02-reference-image-a5ecdea930d2.webm"></video>${html}`,
     )
     await check()
     await writeFile(
@@ -246,7 +281,7 @@ describe.skipIf(!process.env.PAGES_SMOKE_RUNTIME_DIR)('Chromium startup regressi
     const page = async (lang: string, body: string, title = 'fixture') =>
       `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><title>${title}</title></head><body>${body}</body></html>`
     const clip =
-      '<video preload="auto" src="https://cms-r2.deepclick.com/02-reference-image-a5ecdea930d2.webm"></video>'
+      '<video preload="auto" src="https://store.kaleidonova.com/muvloom/site/clips/02-reference-image-a5ecdea930d2.webm"></video>'
     await mkdir(join(dist, 'guide/create/composer'), { recursive: true })
     await mkdir(join(dist, 'guide/en/create/composer'), { recursive: true })
     await mkdir(join(dist, 'guide/create/settings'), { recursive: true })

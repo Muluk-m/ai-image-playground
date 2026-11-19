@@ -1,7 +1,7 @@
 import { SUPPORT_CONTACT, SUPPORT_MAILTO } from '@image-playground/shared/support-contact'
 import { installScriptCommands } from '../../../cli/connectAgents'
 import { faq, type GuidePage, list, note, p, prompt, steps, table, tip, warn } from '../../model'
-import { demo, still } from '../media'
+import { demo, still, workbuddyFilm } from '../media'
 
 const unixInstall = installScriptCommands('unix', 'https://muvloom.online').join('\n')
 const windowsInstall = installScriptCommands('windows', 'https://muvloom.online').join('\n')
@@ -496,6 +496,12 @@ export const plugins: GuidePage = {
       '让 WorkBuddy 安装幕芽技能，在浏览器里授权，再到对话和幕芽作品库查看同一张咖啡海报。',
   },
   updated: '2026-11-19',
+  intro: [
+    workbuddyFilm(
+      'WorkBuddy 幕芽插件完整使用教程',
+      '安装、浏览器授权、生成，再到 WorkBuddy 和幕芽作品库查看同一张图。',
+    ),
+  ],
   sections: [
     {
       id: 'install',

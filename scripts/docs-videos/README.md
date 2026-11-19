@@ -24,12 +24,31 @@ python3 scripts/docs-videos/finish.py
 
 等待段按 8–16 倍快进，只留约两秒。成片是 CRF 18 的 H.264，另有 VP9 WebM 和 WebP 封面，不加营销字幕。`encode.mjs` 是旧的低码率路径，不要再用它盖掉这批成片。
 
-视频写到 `scripts/docs-videos/out/`（已 gitignore，不要提交 mp4 / webm / mov）。封面 `*-poster.webp` 仍写到 `apps/web/public/guide-assets/zh/clips/`，页面继续用这个本地路径。宣传片 `promo-site-zh` 由 `scripts/promo-film/` 单独制作。中英文指南共用这些文件，英文章节会注明界面是中文。
+视频写到 `scripts/docs-videos/out/`（已 gitignore，不要提交 mp4 / webm / mov）。封面 `*-poster.webp` 的源文件放在 `apps/web/public/guide-assets/zh/clips/`。宣传片 `promo-site-zh` 由 `scripts/promo-film/` 单独制作；`workbuddy-tutorial` 是含安装、浏览器授权、生图和两端查看的完整教程。中英文指南共用成片，英文页注明界面是中文。完整成片使用 `film: true`，有播放控件、不循环。
 
-上线不把视频放进仓库。用 cms CLI 把 `out/` 里的成片上传到 `cms-r2.deepclick.com`：
+## 官网与教程资源
+
+官网和教程的图片、封面、品牌图及视频统一使用 Cloudflare 账号 `4afe694ac3841dc3e433b6369c754346` 的 `ai-images` 桶，公开域名 `https://store.kaleidonova.com`，对象前缀 `muvloom/site/`。不再经过 CMS。用户作品的现有对象和配置不变。
+
+图片源文件保留在 `apps/web/public/{brand,guide-assets,og,website-assets}/`，`site-assets.json` 登记带内容哈希的对象路径；页面通过 `siteAssetUrl()` 引用。视频 URL 集中在 `content/media.ts` 的 `GUIDE_CLIP_URLS`。不要手写页面资源 URL。`legacy-clips.json` 只用于从旧公开地址复制历史成片，不被页面引用。
+
+更新图片后刷新清单：
 
 ```sh
-~/.claude/skills/cms/scripts/cms.sh media upload scripts/docs-videos/out/<文件名>
+python3 scripts/docs-videos/publish-site-media.py --refresh-images
 ```
 
-记下返回的完整 URL（带内容哈希，不能按统一前缀拼接），更新 `apps/web/src/features/guide/content/media.ts` 的 `GUIDE_CLIP_URLS`。指南页和营销首页都只从这张表取 `<video>` / `<source>` 地址。`apps/web/public/guide-assets` 和 `apps/website/public` 里禁止再出现 mp4 / webm / mov，`pnpm lint` 里的 `scripts/check-guide-videos.ts` 会拦住。
+用已有的私密环境文件提供 `S3_ENDPOINT`、`S3_BUCKET`、`S3_ACCESS_KEY_ID`、`S3_SECRET_ACCESS_KEY`；不要提交该文件。脚本要求 AWS CLI 支持 `put-object --if-none-match`，不会覆盖现有对象或枚举用户作品：
+
+```sh
+# 先核对清单与已审核的 WorkBuddy 成片，不联网、不上传
+python3 scripts/docs-videos/publish-site-media.py
+# 上传并逐个下载公开 URL，核对完整 SHA-256 和文件大小
+python3 scripts/docs-videos/publish-site-media.py --upload --env-file /path/to/private/app.env
+# 可重复验收，不需要密钥
+python3 scripts/docs-videos/publish-site-media.py --verify-only
+```
+
+`--video-dir` 可指定最终成片所在目录。原始录屏不得上传。报告写到该目录的 `site-media-verification.json`；只有 `complete: true` 且所有对象验收成功后，才发布页面引用。网络、权限或公开域名绑定失败时脚本停止，报告保留未完成状态。旧资源留存，回滚页面时仍可使用。
+
+发布前远端运行 lint、typecheck、website/web 相关测试和构建，部署测试站并检查视频播放、授权片段、图片加载及移动端布局。浏览器离线冒烟从仓库原图回放 CDN 图片，不能代替上述真实公开 URL 验收。`pnpm lint` 继续禁止把视频提交到 public。

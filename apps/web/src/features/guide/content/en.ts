@@ -14,7 +14,7 @@ import {
   warn,
 } from '../model'
 import { GUIDE_PATHS } from '../paths'
-import { demo, promoFilm, still } from './media'
+import { demo, promoFilm, still, workbuddyFilm } from './media'
 
 const unixInstall = installScriptCommands('unix', 'https://muvloom.online').join('\n')
 const windowsInstall = installScriptCommands('windows', 'https://muvloom.online').join('\n')
@@ -1236,6 +1236,12 @@ const plugins: GuidePage = {
       'Install the Muvloom skill, authorize WorkBuddy in your browser, and find the same coffee poster in your chat and your Muvloom library.',
   },
   updated: '2026-11-19',
+  intro: [
+    workbuddyFilm(
+      'Complete WorkBuddy and Muvloom tutorial',
+      'Install, authorize in your browser, generate, and view the same image in both apps. Recorded in Chinese.',
+    ),
+  ],
   sections: [
     {
       id: 'install',
