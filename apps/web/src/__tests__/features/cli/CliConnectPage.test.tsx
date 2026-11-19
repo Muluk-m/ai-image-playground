@@ -106,69 +106,45 @@ afterEach(() => {
 })
 
 describe('CliConnectPage', () => {
-  it('默认展示 WorkBuddy，插件顺序是 WorkBuddy、豆包、Claude Code、Codex、其他', async () => {
+  it('默认展示全宿主通用的一条消息，不包含 curl 或多宿主切换负担', async () => {
     await render()
-    const labels = Array.from(
-      host.querySelector('[aria-label="选择插件"]')?.querySelectorAll('button') ?? [],
-      (button) => button.textContent,
-    )
-    expect(labels).toEqual(['WorkBuddy', '豆包工作', 'Claude Code', 'Codex', '其他'])
+    expect(CONNECT_AGENTS).toEqual(['workbuddy', 'doubao', 'claude-code', 'codex', 'other'])
+    expect(promptText()).toContain(new URL(AGENT_SETUP_PATH, window.location.origin).href)
+    expect(promptText()).not.toContain('curl')
+    expect(promptText().split('\n')).toHaveLength(2)
+    expect(host.querySelector('[aria-label="选择系统"]')).toBeNull()
+    expect(host.querySelector(`a[href="${WORKBUDDY_SKILL_PATH}"]`)).toBeNull()
     expect(
-      Array.from(host.querySelectorAll('[aria-label="选择插件"] img'), (img) =>
-        img.getAttribute('src'),
+      Array.from(host.querySelectorAll('img'), (img) => img.getAttribute('src')).filter((src) =>
+        src?.startsWith('/connect-agents/'),
       ),
     ).toEqual([
       '/connect-agents/workbuddy.svg',
       '/connect-agents/doubao.svg',
-      '/connect-agents/claude-code.svg',
       '/connect-agents/codex.svg',
+      '/connect-agents/claude-code.svg',
     ])
-    expect(CONNECT_AGENTS).toEqual(['workbuddy', 'doubao', 'claude-code', 'codex', 'other'])
-    expect(host.querySelector('[aria-pressed="true"]')?.textContent).toBe('WorkBuddy')
-    expect(promptText()).toContain('WorkBuddy')
-    expect(promptText()).toContain(new URL(WORKBUDDY_SETUP_PATH, window.location.origin).href)
-    expect(promptText()).not.toContain('curl')
-    expect(host.querySelector('[aria-label="选择系统"]')).toBeNull()
   })
 
-  it('WorkBuddy 和豆包对话安装使用专用指南，技能下载只出现在手动方式', async () => {
+  it('手动安装折叠区提供各宿主命令与技能包下载', async () => {
     await render()
     expect(host.querySelector(`a[href="${WORKBUDDY_SKILL_PATH}"]`)).toBeNull()
-    expect(promptText()).toContain(new URL(WORKBUDDY_SETUP_PATH, window.location.origin).href)
-    expect(promptText()).toContain('在对话中下载安装技能')
-    await click('我自己来')
+    await click('手动安装或下载技能包')
     expect(host.querySelector(`a[href="${WORKBUDDY_SKILL_PATH}"][download]`)).not.toBeNull()
-    await click('让 Agent 安装')
-    expect(host.querySelector(`a[href="${WORKBUDDY_SKILL_PATH}"]`)).toBeNull()
     await click('豆包工作')
-    expect(promptText()).toContain(new URL(DOUBAO_SETUP_PATH, window.location.origin).href)
-    expect(promptText()).toContain('/muv')
-    expect(host.querySelector(`a[href="${DOUBAO_SKILL_PATH}"]`)).toBeNull()
-    await click('我自己来')
     expect(host.querySelector(`a[href="${DOUBAO_SKILL_PATH}"][download]`)).not.toBeNull()
     expect(host.textContent).toContain('插件·技能·伙伴')
     await click('其他')
     expect(host.querySelector(`a[href="${GENERIC_SKILL_PATH}"][download]`)).not.toBeNull()
-    await click('让 Agent 安装')
-    expect(host.querySelector(`a[href="${GENERIC_SKILL_PATH}"]`)).toBeNull()
     await click('Codex')
     expect(host.querySelector(`a[href="${WORKBUDDY_SKILL_PATH}"]`)).toBeNull()
     expect(host.querySelector(`a[href="${DOUBAO_SKILL_PATH}"]`)).toBeNull()
-    expect(promptText()).toContain(new URL(AGENT_SETUP_PATH, window.location.origin).href)
   })
 
-  // WorkBuddy 的抓取工具会缓存网页：换了指南内容而网址不变，用户拿到的还是旧的固定版本命令。
+  // 抓取工具会缓存网页：换了指南内容而网址不变，用户拿到的还是旧的固定版本命令。
   it('提示词里的指南网址带着指南内容的哈希，内容一变网址就变', async () => {
     const rev = guideRevision()
     await render()
-    expect(promptText()).toContain(
-      `${new URL(WORKBUDDY_SETUP_PATH, window.location.origin).href}?v=${rev}`,
-    )
-    await click('豆包工作')
-    expect(promptText()).toContain(
-      `${new URL(DOUBAO_SETUP_PATH, window.location.origin).href}?v=${rev}`,
-    )
-    await click('Codex')
     expect(promptText()).toContain(
       `${new URL(AGENT_SETUP_PATH, window.location.origin).href}?v=${rev}`,
     )
@@ -221,26 +197,16 @@ describe('CliConnectPage', () => {
     }
   })
 
-  it('各插件都只复制简短的接入请求和指南地址，隐藏安装细节', async () => {
+  it('复制的就是屏幕上这段简短消息', async () => {
     await render()
-    for (const label of ['WorkBuddy', '豆包工作', 'Claude Code', 'Codex', '其他']) {
-      await click(label)
-      expect(promptText()).toContain(label === '其他' ? '当前 Agent' : label)
-      expect(promptText().split('\n')).toHaveLength(2)
-      expect(promptText()).not.toMatch(/curl|PowerShell|PATH|muvloom auth|--host/)
-    }
-  })
-
-  it('复制的就是屏幕上这段简短提示词', async () => {
-    await render()
-    await click('复制提示词')
+    await click('复制消息')
     expect(copyText).toHaveBeenCalledExactlyOnceWith(promptText())
     expect(button('已复制')).toBeTruthy()
   })
 
-  it('只有手动安装需要选择系统，Windows 命令可见并可复制', async () => {
+  it('只有展开手动安装才选择系统，Windows 命令可见并可复制', async () => {
     await render()
-    await click('我自己来')
+    await click('手动安装或下载技能包')
     await click('Windows')
     const shown = host.querySelector('pre')?.textContent ?? ''
     expect(shown).toContain('Invoke-WebRequest')
@@ -251,15 +217,15 @@ describe('CliConnectPage', () => {
     expect(copyText).toHaveBeenCalledExactlyOnceWith(
       manualCommands('workbuddy', 'windows', window.location.origin).join('\n'),
     )
-    await click('让 Agent 安装')
+    await click('手动安装或下载技能包')
     expect(host.querySelector('[aria-label="选择系统"]')).toBeNull()
     expect(promptText()).not.toContain('PowerShell')
   })
 
   it('手动方式列出逐行命令，复制的是命令而不是提示词', async () => {
     await render()
+    await click('手动安装或下载技能包')
     await click('Claude Code')
-    await click('我自己来')
     const shown = Array.from(host.querySelectorAll('pre > div'), (line) => line.textContent)
     expect(shown).toEqual([
       ...installScriptCommands('unix', window.location.origin),
