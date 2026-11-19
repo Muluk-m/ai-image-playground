@@ -1242,7 +1242,7 @@ const plugins: GuidePage = {
   updated: '2026-11-19',
   intro: [
     p(
-      `The Muvloom plugin pairs the native \`muvloom\` CLI (current release ${CLI_VERSION}) with official skills for **WorkBuddy**, **Doubao Work**, **Claude Code**, **Codex** and other agent clients on [Plugin integration](/connect). Generate images with natural language or \`/muv\` in your agent, or run \`muvloom\` directly in a terminal—every result syncs to [Assets](/assets) on your Muvloom account.`,
+      `The Muvloom plugin pairs the native \`muvloom\` CLI (current release ${CLI_VERSION}) with official skills for **WorkBuddy**, **Doubao Work**, **Claude Code**, **Codex** and other agent clients on [Plugin integrations](/connect). Generate images with natural language or \`/muv\` in your agent, or run \`muvloom\` directly in a terminal—every result syncs to [Assets](/assets) on your Muvloom account.`,
     ),
     workbuddyFilm(
       'Complete WorkBuddy and Muvloom tutorial',
@@ -1255,7 +1255,7 @@ const plugins: GuidePage = {
       title: 'Supported clients and setup methods',
       blocks: [
         p(
-          'Open [Plugin integration](/connect) and pick your client at the top. Every client offers two setup modes: [[Let the Agent install]] gives you a short prompt to paste into the agent so it installs and connects automatically; [[I’ll do it myself]] shows the terminal commands and skill package for manual setup.',
+          'Open [Plugin integrations](/connect) and pick your client at the top. Every client offers two setup modes: [[Let the Agent install]] gives you a short prompt to paste into the agent so it installs and connects automatically; [[I’ll do it myself]] shows the terminal commands and skill package for manual setup.',
         ),
         table(
           ['Client', 'Let the Agent install', 'Manual skill setup', 'How to invoke in chat'],
@@ -1303,7 +1303,7 @@ const plugins: GuidePage = {
           'If this is your first connection, follow the video above and these four steps to go from setup to a finished poster. Authorization and viewing your works in [Assets](/assets) work the same way across Doubao Work, Claude Code and Codex.',
         ),
         steps(
-          '**Send the installation prompt**: Open [Plugin integration](/connect), select [[WorkBuddy]], and click [[Copy prompt]] under [[Let the Agent install]]. Start a new task in WorkBuddy, paste the full prompt and send it. WorkBuddy installs the skill and starts connecting your account.',
+          '**Send the installation prompt**: Open [Plugin integrations](/connect), select [[WorkBuddy]], and click [[Copy prompt]] under [[Let the Agent install]]. Start a new task in WorkBuddy, paste the full prompt and send it. WorkBuddy installs the skill and starts connecting your account.',
           '**Authorize in your browser**: WorkBuddy opens the approval page (`/device`) in your system default browser; if it does not open automatically, click the authorization link in the chat. Sign in to the Muvloom account where you want to keep your images, review the permissions and click [[Authorize]], then return to WorkBuddy.',
           '**Generate the coffee poster**: Start a new WorkBuddy task, type `/muv`, select `muvloom` from the skill menu, and send the prompt below.',
           '**Open the same image in both places**: Open the finished poster directly in the WorkBuddy reply, then open [Assets](/assets) on Muvloom with the same account and find it under [[Works]].',
@@ -1322,7 +1322,7 @@ const plugins: GuidePage = {
       title: `Install the CLI manually (${CLI_MIN_VERSION} or newer)`,
       blocks: [
         p(
-          `To install the CLI yourself in a terminal, switch to [[I'll do it myself]] on [Plugin integration](/connect) or run the command for your operating system below. \`muvloom\` is a single native binary for macOS (arm64/x64), Linux (x64/arm64) and Windows (x64). It requires no Node, npm or Python, and there is no \`@muvloom/cli\` npm package.`,
+          `To install the CLI yourself in a terminal, switch to [[I'll do it myself]] on [Plugin integrations](/connect) or run the command for your operating system below. \`muvloom\` is a single native binary for macOS (arm64/x64), Linux (x64/arm64) and Windows (x64). It requires no Node, npm or Python, and there is no \`@muvloom/cli\` npm package.`,
         ),
         p(
           `The command downloads \`install.sh\` or \`install.ps1\` from the current site, verifies the published SHA-256 checksum, and runs it with \`MUVLOOM_MIN_VERSION=${CLI_MIN_VERSION}\`. Never pipe an installer into \`sh\` or \`iex\`, and do not pin an older \`MUVLOOM_VERSION\`. Upgrading in place keeps your existing sign-in.`,
@@ -1341,7 +1341,7 @@ const plugins: GuidePage = {
       title: 'Service URLs and remote headless sign-in',
       blocks: [
         p(
-          'Prompts copied from [Plugin integration](/connect) already carry the current site origin so the agent connects to the matching service automatically. You only need `MUVLOOM_API_URL` when signing in manually from a terminal or switching between production, enterprise and test deployments on the same machine.',
+          'Prompts copied from [Plugin integrations](/connect) already carry the current site origin so the agent connects to the matching service automatically. You only need `MUVLOOM_API_URL` when signing in manually from a terminal or switching between production, enterprise and test deployments on the same machine.',
         ),
         table(
           ['Site you opened', 'Matching MUVLOOM_API_URL'],
@@ -1423,7 +1423,7 @@ const plugins: GuidePage = {
       title: 'Job lifecycle, wait timeouts and syncing across apps',
       blocks: [
         p(
-          'Jobs move through `queued` → `running` → `persisting` → `succeeded` (or `failed` / `canceled`). Finished images are downloaded locally by the agent or CLI and simultaneously appear in [Assets](/assets) under [[Works]] on the website. You can review active devices or click [[Revoke connection]] at the bottom of [Plugin integration](/connect).',
+          'Jobs move through `queued` → `running` → `persisting` → `succeeded` (or `failed` / `canceled`). Finished images are downloaded locally by the agent or CLI and simultaneously appear in [Assets](/assets) under [[Works]] on the website. You can review active devices or click [[Revoke connection]] at the bottom of [Plugin integrations](/connect).',
         ),
         list(
           '**A wait timeout is not a failure**: `muvloom jobs wait` defaults to 300 seconds. When the deadline is reached first, `wait_timed_out` is `true` and the exit code stays `0` while the job continues on the server. Run `muvloom jobs wait <job-id>` on the same ID—**do not run `images create` again**, or you will start and pay for a second job.',
@@ -1537,7 +1537,7 @@ const plugins: GuidePage = {
           },
           {
             q: 'How do I revoke a device connection or uninstall the CLI?',
-            a: 'Run muvloom auth logout in your terminal, or open Plugin integration on the website and click Revoke connection under Connected plugins. To uninstall completely, sign out, delete the muvloom binary from the install directory, remove the PATH line added to your shell profile, and optionally remove the config directory.',
+            a: 'Run muvloom auth logout in your terminal, or open Plugin integrations on the website and click Revoke connection under Connected plugins. To uninstall completely, sign out, delete the muvloom binary from the install directory, remove the PATH line added to your shell profile, and optionally remove the config directory.',
           },
         ),
         p(
