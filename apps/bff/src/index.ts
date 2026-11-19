@@ -78,7 +78,7 @@ log.info(
   { event: 'channels.loaded', count: channelsResult.channels.length },
   channelsResult.channels.length > 0
     ? `loaded ${channelsResult.channels.length} channel(s)`
-    : 'no channels loaded (BYOK-only deployment)',
+    : 'no channels loaded; generation is unavailable',
 )
 
 // 技能目录读一次就缓存。放在启动而不是第一轮：镜像漏打 `apps/bff/skills` 时，

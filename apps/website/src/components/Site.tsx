@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { Button } from '../../../web/src/components/ui/button'
 import { Icon } from '../../../web/src/components/ui/icon'
+import { siteAssetUrl } from '../../../web/src/features/guide/content/siteAssets'
 import { alternatePage, copy, editions, guidePath, type Locale, type SitePage } from '../catalog'
 import { structuredData } from '../guideData'
 import { rememberSiteLocale } from '../localeSelection'
@@ -9,12 +10,12 @@ import { Guide, GuideMovedPage } from './Guide'
 import { MarketingHome } from './MarketingHome'
 
 const Auth = lazy(() => import('./SiteAuth'))
-const hero = '/website-assets/creator-hero.webp'
-const board = '/website-assets/creator-storyboard.webp'
+const hero = siteAssetUrl('/website-assets/creator-hero.webp')
+const board = siteAssetUrl('/website-assets/creator-storyboard.webp')
 export function Brand({ locale }: { locale: Locale }) {
   return (
     <span className="site-brand">
-      <img src="/brand/muvloom-mark.svg" width={28} height={28} alt="" />
+      <img src={siteAssetUrl('/brand/muvloom-mark.svg')} width={28} height={28} alt="" />
       {copy[locale].brand}
     </span>
   )

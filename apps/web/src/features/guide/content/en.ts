@@ -1,5 +1,5 @@
 import { SUPPORT_CONTACT, SUPPORT_MAILTO } from '@image-playground/shared/support-contact'
-import { CLI_MIN_VERSION, CLI_VERSION, installScriptCommands } from '../../cli/connectAgents'
+import { installScriptCommands } from '../../cli/connectAgents'
 import {
   faq,
   type GuideContent,
@@ -14,7 +14,7 @@ import {
   warn,
 } from '../model'
 import { GUIDE_PATHS } from '../paths'
-import { demo, promoFilm, still } from './media'
+import { demo, promoFilm, still, workbuddyFilm } from './media'
 
 const unixInstall = installScriptCommands('unix', 'https://muvloom.online').join('\n')
 const windowsInstall = installScriptCommands('windows', 'https://muvloom.online').join('\n')
@@ -87,7 +87,7 @@ const overview: GuidePage = {
       title: 'Account and the plugin',
       blocks: [
         p(
-          'The credit button opens the account. Sign-in is email or Google, unless that origin only enables another provider. The Plugin item leads to the CLI. The binary is `muvloom`. There is no npm package `@muvloom/cli`. Steps are on the plugin page. Agents still read `/cli/setup.md`.',
+          'The credit button opens the account. Sign-in is email or Google, unless that origin only enables another provider. Open [the WorkBuddy tutorial](/guide/en/plugins/cli/) to connect your account and generate your first image.',
         ),
       ],
     },
@@ -1227,205 +1227,104 @@ const membership: GuidePage = {
 
 const plugins: GuidePage = {
   id: 'cli',
-  title: 'Claude Code and Codex',
+  title: 'Generate your first image in WorkBuddy',
   summary:
-    'Install the muvloom binary, sign in, then call it from Claude Code or Codex. There is no npm package.',
+    'Install the Muvloom skill, authorize WorkBuddy in your browser, and find the same coffee poster in your chat and your Muvloom library.',
   meta: {
-    title: 'CLI plugin - Muvloom guide',
-    description: `Install Muvloom CLI ${CLI_VERSION}, sign in with a device code, and read the exit codes.`,
+    title: 'Generate your first image in WorkBuddy | Muvloom Guide',
+    description:
+      'Install the Muvloom skill, authorize WorkBuddy in your browser, and find the same coffee poster in your chat and your Muvloom library.',
   },
-  updated,
+  updated: '2026-11-19',
   intro: [
-    p(
-      `The plugin is the \`muvloom\` command plus a skill installed into Claude Code or Codex. The repo has no \`@muvloom/cli\` package and no \`npx\` install. The published version is ${CLI_VERSION}. People use \`/connect\`. Approval is \`/device\`. Agents still read \`/cli/setup.md\` and \`/cli/workbuddy.md\`. This page follows \`cli-go/\`.`,
+    workbuddyFilm(
+      'Complete WorkBuddy and Muvloom tutorial',
+      'Install, authorize in your browser, generate, and view the same image in both apps. Recorded in Chinese.',
     ),
   ],
   sections: [
     {
-      id: 'not-npm',
-      title: 'Not an npm package',
-      blocks: [
-        list(
-          'One native binary: macOS arm64/x64, Linux x64/arm64, Windows x64. No Node, npm or Python.',
-          '`skill install --host` accepts only `claude-code` and `codex`. Any other host is USAGE, exit 2. A bad `--scope` is INVALID_REQUEST, also exit 2. Scope is `user` or `project`.',
-          'WorkBuddy follows `/cli/workbuddy.md` (zip: `/cli/muvloom-workbuddy.zip`). Doubao Work follows `/cli/doubao.md` (zip: `/cli/muvloom-doubao.zip`). Other hosts can use `/cli/muvloom-skill.zip`. The zips are produced by the web build and absent from a bare checkout. Do not pass `--host workbuddy` or `--host doubao`.',
-          'There is no `--n` count and no video subcommand. One `images create` makes one file.',
-        ),
-        warn('The HTTP paths the CLI calls are not a curl tutorial. Run `muvloom`.'),
-      ],
-    },
-    {
       id: 'install',
-      title: `Install ${CLI_MIN_VERSION} or newer`,
+      title: 'Send the installation prompt to WorkBuddy',
       blocks: [
-        p(
-          `Download \`install.sh\` or \`install.ps1\` from this site (\`/cli/\` on the same origin as \`/connect\`), verify the SHA-256 published in the command, then run it with \`MUVLOOM_MIN_VERSION=${CLI_MIN_VERSION}\`. Do not pipe a script into \`sh\` or \`iex\`. Prefer the minimum version over pinning \`MUVLOOM_VERSION\` to an exact release: an exact pin can downgrade a newer CLI. After install, \`muvloom version\` must be ${CLI_MIN_VERSION} or newer. A lower binary is replaced in place and the saved sign-in is kept. The same verified command is on \`/connect\`.`,
-        ),
-        prompt('macOS / Linux', unixInstall),
-        p(
-          'Install directory: the directory of a `muvloom` that is already on PATH and writable; otherwise `/usr/local/bin` when it is on PATH and writable without sudo; otherwise `~/.local/bin`. Windows uses the existing `muvloom.exe` directory, or `%LOCALAPPDATA%\\Programs\\muvloom`. Override with `MUVLOOM_INSTALL_DIR`. Windows can set `MUVLOOM_NO_MODIFY_PATH=1` to leave PATH alone. ARM Windows is not supported.',
-        ),
-        prompt('Windows PowerShell', windowsInstall),
-      ],
-    },
-    {
-      id: 'service',
-      title: 'Pick the service',
-      blocks: [
-        p(
-          'The default API is `https://api.muvloom.online`. Set `MUVLOOM_API_URL` for the first sign-in. The connection remembers it.',
-        ),
-        table(
-          ['Site you opened', 'MUVLOOM_API_URL'],
-          ['https://muvloom.online', 'https://api.muvloom.online'],
-          ['https://image.nainma.online', 'https://api.muvloom.online'],
-          ['https://image-playground.qiliangjia.one', 'https://image-api.qiliangjia.one'],
-          ['https://test.muvloom.online', 'https://test-api.muvloom.online'],
-        ),
-        p(
-          'If the variable disagrees with the saved connection, status is `service_mismatch` and the code is SERVICE_MISMATCH, exit 4. Clear the variable, or run `muvloom auth login --switch-service` when you really mean to change service.',
-        ),
-        list(
-          '`MUVLOOM_NO_BROWSER=1` prints the link instead of opening a browser.',
-          '`MUVLOOM_CONFIG_DIR` is its own login directory and does not touch the keychain.',
-          '`MUVLOOM_CREDENTIALS_STORE=file` keeps credentials in that directory.',
+        steps(
+          'Open [Plugin integration](/connect) and select [[WorkBuddy]].',
+          'Under [[Let the Agent install]], select [[Copy prompt]].',
+          'Start a new task in WorkBuddy, paste the full prompt and send it. WorkBuddy installs the skill and starts connecting your account.',
         ),
       ],
     },
     {
       id: 'skill-login',
-      title: 'Install the skill and sign in',
+      title: 'Authorize the connection in your browser',
       blocks: [
         steps(
-          '`muvloom skill install --host claude-code` installs to `~/.claude/skills/muvloom`. `--host codex` installs to `~/.agents/skills/muvloom`. `--scope project` is this directory only. The default is user.',
-          '`muvloom skill status`.',
-          '`muvloom auth status`. States are ready, unauthenticated, outdated, unreachable, and service_mismatch. Since 0.2.2, status replaces an unmodified older skill with the copy bundled in the binary.',
-          '`muvloom capabilities` must succeed before you generate. Use its label, default model, and `gif.max_frames_by_size`. Image 2.6 is missing when `GPT_IMAGE_26_ENABLED` is off.',
-        ),
-        p(
-          'In Claude Code type `/muv` (the registered skill is `/muvloom`). In Codex use `/`, `/skills`, or `$muvloom`. In WorkBuddy or Doubao Work, type `/muv` in a new task. The terminal command is always `muvloom`. Sign-in is a device code that lasts 20 minutes. The CLI opens or prints `/device`. You approve in a browser that is already signed in. `--no-wait` only prints the link. `--timeout` is at most 3600 seconds. Omitting it waits until the code expires and then one more minute, because the server can still redeem it briefly after expiry. Running `auth login` again after a timeout resumes the same attempt. AUTH_DENIED stops. Only AUTH_EXPIRED starts over. Do not give the agent a password, cookie or token.',
+          'Open the authorization page from WorkBuddy. If your browser stays closed, open the link in the chat.',
+          'Sign in to the Muvloom account where you want to keep your images. Review the permissions and click [[Authorize]].',
+          'When the browser confirms the connection, return to WorkBuddy and wait for it to confirm the skill is ready. Future sessions reuse this connection.',
         ),
       ],
     },
     {
       id: 'commands',
-      title: 'Commands',
+      title: 'Generate the coffee poster',
       blocks: [
-        table(
-          ['Command', 'Does'],
-          ['auth login [--no-wait] [--timeout SECONDS] [--switch-service]', 'Device-code sign-in'],
-          ['auth status / auth logout', 'Show the connection, or revoke this machine'],
-          ['capabilities', 'Models, sizes, GIF/SVG limits and base prices'],
-          ['images validate --prompt TEXT', 'Quote only. Creates nothing'],
-          ['images create --prompt TEXT', 'Image, GIF or SVG'],
-          ['jobs list|get|wait|cancel', 'Jobs. A wait timeout is not a failure'],
-          ['artifacts get|download', 'Read or save a result'],
-          ['media upload|list|get|download', 'Reference files'],
-          ['skill install|status', 'Install or show the skill'],
-          ['update check / version', 'Look for a release, or print the version'],
-        ),
         p(
-          'Create and validate share `--prompt`, `--prompt-file`, `--model`, `--aspect-ratio`, `--image-size`, `--quality`, repeatable `--ref`, `--max-credits`, `--output-format gif|svg`, `--frames`, `--frame-duration-ms` and `--frame-size`. Only create adds `--idempotency-key` (8–64 of letters, digits, `_` `.` `:` `-`), `--wait` (max 3600, 0 returns after submit) and `--download DIR`. GIF and SVG must not use `--ref`, `--aspect-ratio`, `--image-size` or `--quality`. Frame counts are integers 2–16, but 768 with 16 frames is rejected; read `gif.max_frames_by_size` from capabilities. `--image-size` is `1K`, `2K`, or `4K`, not a pixel string. `jobs wait` defaults to `--timeout 300`. `jobs list --limit` defaults to 20 and stops at 50. `media list` stops at 100. The CLI only checks that a reference is png, jpg, jpeg, or webp. A file over 50 MB is `REQUEST_TOO_LARGE`, exit 4, from the server. Any command accepts `--json`. `update check` reports a newer release and does not download it.',
+          'Start a new WorkBuddy task, type `/muv`, select `muvloom` from the skill menu, then send this prompt.',
         ),
         prompt(
-          'Still',
-          'muvloom images create --prompt "a cat sticker, white background" --wait 300 --download ./out',
+          'Coffee poster',
+          'Create one vertical coffee poster at 1K. Put an orange-red moka pot and a glass of iced latte against a cream background, with afternoon sunlight coming in from the side. Leave out all text and show me the finished image here.',
         ),
-        prompt(
-          'GIF',
-          'muvloom images create --model gpt-image-2.6-flare --output-format gif --frames 8 --prompt "a cat waving, looping" --wait 300 --download ./out',
-        ),
+        note('Generation uses credits from the connected Muvloom account.'),
       ],
     },
     {
       id: 'jobs',
-      title: 'Wait, resume, cancel',
+      title: 'Open the same image in both places',
       blocks: [
-        p(
-          'States run queued, running, persisting, then succeeded, failed or canceled. When `jobs wait` hits its deadline, `wait_timed_out` is true and the exit code stays 0. Wait on the same job id. Repeating create with the same idempotency key returns that job and does not charge again. A lost response is found with `jobs list --idempotency-key KEY`.',
-        ),
-        p(
-          'Cancel only when the person asks. Queued and running jobs stop and refund. Persisting returns JOB_NOT_CANCELLABLE. FILE_EXISTS means pick another download path. Do not delete the user’s file.',
+        steps(
+          'In your WorkBuddy task, open the poster in the reply.',
+          'In Muvloom, open [Assets](/assets) with the account you authorized. Find the same poster under [[Works]] and open it.',
         ),
       ],
     },
     {
-      id: 'exit-codes',
-      title: 'Exit codes',
+      id: 'service',
+      title: 'Connect another agent',
       blocks: [
-        table(
-          ['Code', 'Meaning'],
-          ['0', 'Success, including a wait that timed out while the job continues'],
-          ['1', 'Unexpected'],
-          ['2', 'Bad command or request, including USAGE'],
-          ['3', 'Signed out, or sign-in pending, denied or expired'],
-          ['4', 'Rejected, or the job failed or was canceled'],
-          ['5', 'Not enough credits, over max-credits, or the daily quota is spent'],
-          ['6', 'Temporary. Retry the same idempotency key'],
-          ['7', 'CLI too old'],
-        ),
-        table(
-          ['Error', 'Do'],
-          ['AUTH_REQUIRED / UNAUTHENTICATED', 'Check auth status, then sign in'],
-          ['SERVICE_MISMATCH', 'Exit 4. Clear the variable or pass --switch-service'],
-          ['AUTH_EXPIRED', 'Start sign-in over'],
-          ['AUTH_PENDING', 'Run auth login again. It resumes'],
-          ['AUTH_DENIED', 'Stop'],
-          [
-            'CREDENTIAL_STORE_UNWRITABLE',
-            'Exit 4. Make the directory writable or set MUVLOOM_CONFIG_DIR',
-          ],
-          ['PLAN_REQUIRED', 'Exit 4. Both --image-size 4K and --quality high need a membership'],
-          ['INSUFFICIENT_CREDITS / QUOTA_EXCEEDED / MAX_CREDITS_EXCEEDED', 'Exit 5. Do not retry'],
-          ['IDEMPOTENCY_CONFLICT', 'Use a new key'],
-          ['JOB_NOT_CANCELLABLE', 'It is already saving'],
-          ['FILE_EXISTS', 'Choose another path'],
-          [
-            'RATE_LIMITED / NETWORK_ERROR / TEMPORARILY_UNAVAILABLE / INTERNAL_ERROR',
-            'Exit 6. Retry later, same operation',
-          ],
-          ['CAPABILITY_UNAVAILABLE', 'The CLI needs both cli:api and accounts:sync'],
-          [
-            'UNSUPPORTED_VERSION',
-            'Exit 7. The client is too old or the schema does not match. The server minimum constant is 0.1.0. auth status can also say outdated locally. UPGRADE_REQUIRED is mapped by the CLI only; the server error list does not emit it',
-          ],
-          [
-            'FORBIDDEN / CONFLICT / MEDIA_NOT_READY / REQUEST_TOO_LARGE',
-            'Exit 4. Do not retry the same oversized file',
-          ],
-          ['USAGE', 'Read that command’s --help'],
+        p(
+          'Open [Plugin integration](/connect), choose Doubao Work, Claude Code, Codex or another client, and send that client its own installation prompt.',
         ),
       ],
     },
     {
       id: 'plugin-faq',
-      title: 'Questions',
+      title: 'Can’t find the skill?',
       blocks: [
-        faq(
-          {
-            q: 'Can I install with npm?',
-            a: 'No. There is no official @muvloom/cli package. Use the installer above.',
-          },
-          {
-            q: 'Should the agent see the verification code?',
-            a: 'No. The CLI opens the approval page. You approve it. Do not send a password, code, cookie or token.',
-          },
-          {
-            q: 'There is no browser on this SSH session.',
-            a: 'Set MUVLOOM_NO_BROWSER=1 and use auth login --no-wait. Open the printed link on your own computer.',
-          },
-          {
-            q: 'jobs wait timed out. Is the image gone?',
-            a: 'No. Wait again on the same job id. Do not create a new job.',
-          },
-          {
-            q: 'The skill is not in the menu.',
-            a: 'Reload the host session. Do not invent another slash name. Do not pass --host workbuddy or doubao.',
-          },
-        ),
         p(
-          `Implementation is under cli-go/internal/cli. The site copy is apps/web/public/cli. The server route is apps/bff/src/routes/cli.ts. ${SUPPORT_CONTACT.email} only needs the version and the error code.`,
+          'Open a new task and type `/muv`. If the menu still has no `muvloom` entry, restart WorkBuddy and try in a new task.',
         ),
+      ],
+    },
+    {
+      id: 'exit-codes',
+      title: 'Can’t find the image on the website?',
+      blocks: [
+        p(
+          'Check that the task has finished in WorkBuddy. Verify the account on the website, then refresh the Works tab in Assets. If the task is queued, ask WorkBuddy to check its progress.',
+        ),
+      ],
+    },
+    {
+      id: 'not-npm',
+      title: 'Install the CLI manually',
+      blocks: [
+        p(
+          'To install the CLI yourself, use the command for your operating system. If you use another Muvloom site, choose the manual option on that site’s [Plugin integration](/connect) page for its commands.',
+        ),
+        prompt('macOS / Linux', unixInstall),
+        prompt('Windows PowerShell', windowsInstall),
       ],
     },
   ],

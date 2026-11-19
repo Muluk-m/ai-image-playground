@@ -1,19 +1,20 @@
 import { SUPPORT_CONTACT } from '@image-playground/shared/support-contact'
+import { siteAssetUrl } from '../../web/src/features/guide/content/siteAssets'
 import type { Locale } from './catalog'
 
-export const MARK = '/brand/muvloom-mark.svg'
+export const MARK = siteAssetUrl('/brand/muvloom-mark.svg')
 
 const V41 = '/website-assets/v41'
 const HOME = '/website-assets/home'
 
 /** 首页图片：对话截图和两张杯子原图取自 v41，四张釉色是截图里的原图裁切，两张结果是测试站真实生成。 */
 export const HOME_IMAGES = {
-  hero: `${HOME}/hero-chat.webp`,
-  glaze: [1, 2, 3, 4].map((index) => `${HOME}/glaze-${index}.webp`),
-  editBefore: `${V41}/wall/mug-7.webp`,
-  editAfter: `${HOME}/edit-after.webp`,
-  detailRef: `${V41}/wall/mug-1.webp`,
-  detailOut: `${HOME}/detail-out.webp`,
+  hero: siteAssetUrl(`${HOME}/hero-chat.webp`),
+  glaze: [1, 2, 3, 4].map((index) => siteAssetUrl(`${HOME}/glaze-${index}.webp`)),
+  editBefore: siteAssetUrl(`${V41}/wall/mug-7.webp`),
+  editAfter: siteAssetUrl(`${HOME}/edit-after.webp`),
+  detailRef: siteAssetUrl(`${V41}/wall/mug-1.webp`),
+  detailOut: siteAssetUrl(`${HOME}/detail-out.webp`),
 } as const
 
 export interface Figure {

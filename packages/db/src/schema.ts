@@ -1290,11 +1290,6 @@ export const agent_turn_events = pgTable(
   ],
 )
 
-export const deployment_controls = pgTable('deployment_controls', {
-  key: text('key').primaryKey(),
-  enabled: boolean('enabled').notNull().default(false),
-})
-
 export const agent_executions = pgTable(
   'agent_executions',
   {

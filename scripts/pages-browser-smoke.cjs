@@ -10,8 +10,21 @@ const MIME = {
 }
 const PROJECT_ID = '00000000-0000-4000-8000-000000000001'
 const PATHS = ['/image', `/p/${PROJECT_ID}`]
-// 指南和营销页的演示成片在这个桶上，文件名带内容哈希。冒烟不连外网，只放行成片并回空响应。
-const GUIDE_CLIP_ORIGIN = 'https://cms-r2.deepclick.com'
+// 冒烟不连外网：仅登记的站点图片读仓库原图，视频回空响应；上线验收另查 R2。
+const SITE_MEDIA_BASE = 'https://store.kaleidonova.com/muvloom/site/'
+const siteAssets = require('../apps/web/src/features/guide/content/site-assets.json')
+const siteImageSources = new Map(Object.entries(siteAssets).map(([source, key]) => [SITE_MEDIA_BASE + key, source]))
+
+function isSiteImageRequest(request) {
+  return request.method() === 'GET' && siteImageSources.has(request.url())
+}
+
+async function fulfillSiteImage(route) {
+  const source = siteImageSources.get(route.request().url())
+  if (!source) throw new Error('Unregistered site image')
+  const path = resolve(__dirname, '../apps/web/public', `.${source}`)
+  return route.fulfill({ status: 200, contentType: MIME[extname(path)], body: await readFile(path) })
+}
 
 function isGuideClipRequest(request) {
   if (request.method() !== 'GET') return false
@@ -21,7 +34,7 @@ function isGuideClipRequest(request) {
   } catch {
     return false
   }
-  return url.origin === GUIDE_CLIP_ORIGIN && /\.(?:mp4|webm|mov)$/i.test(url.pathname)
+  return url.href.startsWith(`${SITE_MEDIA_BASE}clips/`) && /\.(?:mp4|webm|mov)$/i.test(url.pathname)
 }
 
 function fulfillGuideClip(route) {
@@ -227,6 +240,7 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
             headers: { 'access-control-allow-origin': origin, 'access-control-allow-credentials': 'true' },
             contentType: 'application/json', body: JSON.stringify(fixtures[url.pathname]) })
         }
+        if (isSiteImageRequest(request)) return fulfillSiteImage(route)
         if (isGuideClipRequest(request)) return fulfillGuideClip(route)
         if (url.origin !== origin || url.pathname.startsWith('/api/')) {
           fail(`Unexpected startup network request: ${request.method()} ${url.origin}${url.pathname}`)
@@ -641,7 +655,8 @@ async function checkMarketing(browser, origin, { local = false, accountsLogin = 
     }
     if (!accountsLogin && request.isNavigationRequest() && url.pathname === '/image') return route.fulfill({contentType:'text/html',body:'<!doctype html><html><body>Workbench destination</body></html>'})
     if (request.method() === 'GET' && Object.hasOwn(fixtures,url.pathname)) return route.fulfill({contentType:'application/json',body:JSON.stringify(fixtures[url.pathname])})
-    // 营销首页、/en/ 和两条指南页共用这条路由，成片进入视口后会请求 cms-r2。
+    // 营销首页和指南共用登记的 R2 素材，离线检查回放本地图片。
+    if (isSiteImageRequest(request)) return fulfillSiteImage(route)
     if (isGuideClipRequest(request)) return fulfillGuideClip(route)
     if (url.origin !== origin || url.pathname.startsWith('/api/')) throw new Error(`Unexpected marketing request: ${request.method()} ${url.href}`)
     return route.continue()
@@ -720,5 +735,5 @@ async function main() {
   }
 }
 
-module.exports = { serveDist, checkWorkspace, checkMarketing, isGuideClipRequest, measureRotationLayout, expectLoginEntryMatchesPolicy }
+module.exports = { serveDist, checkWorkspace, checkMarketing, isGuideClipRequest, isSiteImageRequest, measureRotationLayout, expectLoginEntryMatchesPolicy }
 if (require.main === module) main().catch((error) => { console.error(error); process.exitCode = 1 })

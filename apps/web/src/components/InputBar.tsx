@@ -133,6 +133,7 @@ import {
 import { CreationReferenceStack } from './creation/CreationReferenceStack'
 import { agentModeOf, creationModeOf } from './creation/composerMode'
 import HomeTargetPicker from './creation/HomeTargetPicker'
+import { MultiSceneHint } from './creation/MultiSceneHint'
 import { useReferenceDisplay } from './creation/referenceDisplay'
 import { LookCapsule } from './LookChips'
 import ParamControls from './ParamControls'
@@ -154,7 +155,7 @@ function useIsMobile() {
   return isMobile
 }
 
-/** 快速生成点发送后按钮转圈并锁住的最短时长，之后才清空输入框、才能再发。 */
+/** 发送被受理后，再留这一小段转圈再清空输入框，避免成功得太快时输入被立刻抹掉。按钮锁不靠它。 */
 const BATCH_SEND_FEEDBACK_MS = 500
 
 /** `inline`：首屏那一版——不吸底，跟着 hero 排在流里，卡面换成带发光描边的大卡。 */
@@ -227,7 +228,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   // 附件按钮弹的「图片 / 文件夹」二选一，与画布工具条那颗回形针同一套菜单。
   const [attachMenu, setAttachMenu] = useState<{ x: number; y: number } | null>(null)
   const [batchSending, setBatchSending] = useState(false)
-  // 回车和按钮共用这把锁：转圈那 0.5 秒里再按回车不能把同一批再发一遍。
+  // 回车和按钮共用这把锁：点下去一直锁到服务端受理或失败，上传参考图期间不能再发一条。
   const batchSendingRef = useRef(false)
   const [imageDragIndex, setImageDragIndex] = useState<number | null>(null)
   const [imageDragOverIndex, setImageDragOverIndex] = useState<number | null>(null)
@@ -434,6 +435,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       : null
   // 生成模式挂着模板胶囊时：素材条数要与素材位对上。画布档不管它（那是智能体的事）。
   const lookSubmitting = useLookSubmission((s) => s.submitting)
+  const lookCancellable = useLookSubmission((s) => s.cancellable)
   const libraryAssets = useLibraryStore((s) => s.assets)
   const lookCheck = useMemo(
     () => (activeLook ? checkLookSubmission(activeLook, inputImages, libraryAssets) : null),
@@ -522,40 +524,44 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       })()
     } else if (activeLook) void submitWithLook(activeLook, lookBody)
     else {
-      // 点下去这一刻就锁住按钮：按钮先转一下再清空输入框，让这次点击有回应；
-      // 转圈期间的第二下点击或回车不再发出第二条任务（双击会建两条任务、扣两次费）。
+      // 点下去这一刻就锁住按钮，直到服务端受理或提交失败；失败才解锁，好让用户再试。
+      // 第二下点击或回车在锁住期间不再发出第二条任务（双击会建两条任务、扣两次费）。
       batchSendingRef.current = true
       setBatchSending(true)
       const hold = new Promise((resolve) => setTimeout(resolve, BATCH_SEND_FEEDBACK_MS))
-      void submitTask({ holdClear: hold })
-        .then(() => hold)
-        .finally(() => {
-          batchSendingRef.current = false
-          setBatchSending(false)
-        })
+      void submitTask({ holdClear: hold }).finally(() => {
+        batchSendingRef.current = false
+        setBatchSending(false)
+      })
     }
   }
   const onSubmitClick = () => {
-    if (lookSubmitting) cancelLookSubmission()
+    if (lookSubmitting && lookCancellable) cancelLookSubmission()
+    else if (lookSubmitting) return
     else if (apiReady) submit()
     else setShowSettings(true)
   }
   const submitDisabled =
-    image26Unavailable || (!lookSubmitting && apiReady && (!submitReady || batchSending))
-  const submitLabel = lookSubmitting
-    ? t('common:action.cancel')
-    : toCanvas
-      ? t('submit.startCanvas')
-      : maskDraft
-        ? t('submit.maskEdit')
-        : batchActive
-          ? batchTotalCredits === undefined
-            ? t('batch.sendLabel', { count: batchImageCount })
-            : t('batch.sendLabelCredits', {
-                count: batchImageCount,
-                credits: batchTotalCredits.toLocaleString(),
-              })
-          : generateLabel
+    image26Unavailable ||
+    (lookSubmitting && !lookCancellable) ||
+    (!lookSubmitting && apiReady && (!submitReady || batchSending))
+  const submitLabel =
+    lookSubmitting && lookCancellable
+      ? t('common:action.cancel')
+      : lookSubmitting || batchSending
+        ? t('submit.submitting')
+        : toCanvas
+          ? t('submit.startCanvas')
+          : maskDraft
+            ? t('submit.maskEdit')
+            : batchActive
+              ? batchTotalCredits === undefined
+                ? t('batch.sendLabel', { count: batchImageCount })
+                : t('batch.sendLabelCredits', {
+                    count: batchImageCount,
+                    credits: batchTotalCredits.toLocaleString(),
+                  })
+              : generateLabel
   const submitTitle =
     submissionGuard.disabledReason ??
     (toCanvas
@@ -1755,6 +1761,11 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               )}
             </div>
           </CreationBody>
+          <MultiSceneHint
+            prompt={prompt}
+            imageCount={batchActive ? batchImageCount : submitImageCount}
+            creationMode={creationMode}
+          />
           <CreationToolbar
             mode={inline ? <HomeTargetPicker /> : undefined}
             status={

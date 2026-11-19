@@ -93,7 +93,7 @@ function TaskDetailContent({ task }: { task: TaskDetail }) {
           <dl className="space-y-2 text-xs">
             <KV label="provider" value={task.provider} mono />
             <KV label="model" value={task.model} mono />
-            {typeof req.n === 'number' ? <KV label="n" value={String(req.n)} mono /> : null}
+            <KV label="n" value={String(typeof req.n === 'number' ? req.n : 1)} mono />
             {typeof req.size === 'string' ? <KV label="size" value={req.size} mono /> : null}
             {typeof req.quality === 'string' ? (
               <KV label="quality" value={req.quality} mono />

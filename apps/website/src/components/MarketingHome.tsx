@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../../web/src/components/ui/button'
 import { Icon } from '../../../web/src/components/ui/icon'
 import { guideClipUrl } from '../../../web/src/features/guide/content/media'
+import { siteAssetUrl } from '../../../web/src/features/guide/content/siteAssets'
 import { initTheme, setThemeChoice } from '../../../web/src/theme'
 import { editions, type Locale } from '../catalog'
 import { rememberSiteLocale } from '../localeSelection'
@@ -60,7 +61,7 @@ function Film({ label, caption }: { label: string; caption: string }) {
           muted
           playsInline
           preload="none"
-          poster="/guide-assets/zh/clips/promo-site-zh-poster.webp"
+          poster={siteAssetUrl('/guide-assets/zh/clips/promo-site-zh-poster.webp')}
           width={1280}
           height={720}
           aria-label={label}

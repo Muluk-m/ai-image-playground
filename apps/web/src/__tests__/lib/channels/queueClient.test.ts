@@ -293,6 +293,37 @@ describe('callQueueChannelApi submit body', () => {
     expect(String(fetchSpy.mock.calls[1]![0])).toContain('rid-first')
   })
 
+  it('提交遇到断网时自动重试，并沿用同一个幂等键', async () => {
+    const call = await loadCallQueueChannelApi()
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    fetchSpy.mockImplementationOnce(async () => {
+      throw new TypeError('Failed to fetch')
+    })
+    fetchSpy.mockImplementationOnce(
+      async () =>
+        new Response(JSON.stringify({ request_id: 'rid-1', status: 'queued' }), { status: 200 }),
+    )
+    fetchSpy.mockImplementationOnce(
+      async () =>
+        new Response(
+          JSON.stringify({
+            request_id: 'rid-1',
+            status: 'failed',
+            submitted_at: Date.now(),
+            error: { message: 'test-stop', type: 'unknown' },
+          }),
+          { status: 200 },
+        ),
+    )
+
+    await expect(call(mockOpts(), mockProfile(), mockChannel())).rejects.toThrow('test-stop')
+
+    const first = JSON.parse(String((fetchSpy.mock.calls[0]![1] as RequestInit).body))
+    const second = JSON.parse(String((fetchSpy.mock.calls[1]![1] as RequestInit).body))
+    expect(first.client_request_id).toBe('req-aaaa-bbbb-cccc')
+    expect(second.client_request_id).toBe(first.client_request_id)
+  })
+
   it('reports the durable queue phase while polling', async () => {
     const call = await loadCallQueueChannelApi()
     mockFetchJson(
