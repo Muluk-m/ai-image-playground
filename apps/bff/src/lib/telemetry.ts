@@ -1,5 +1,15 @@
 import { hostname } from 'node:os'
-import { context, isSpanContextValid, propagation, trace } from '@opentelemetry/api'
+import { redactLogText } from '@image-playground/shared'
+import {
+  type Attributes,
+  context,
+  isSpanContextValid,
+  type Link,
+  propagation,
+  ROOT_CONTEXT,
+  SpanStatusCode,
+  trace,
+} from '@opentelemetry/api'
 import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks'
 import { W3CTraceContextPropagator } from '@opentelemetry/core'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto'
@@ -90,4 +100,65 @@ export function traceLogFields(): { trace_id?: string; span_id?: string } {
   const spanContext = trace.getActiveSpan()?.spanContext()
   if (!spanContext || !isSpanContextValid(spanContext)) return {}
   return { trace_id: spanContext.traceId, span_id: spanContext.spanId }
+}
+
+/** 当前链路的 W3C traceparent，写进任务行；不在 span 里（或没初始化 SDK）时为 null。 */
+export function currentTraceparent(): string | null {
+  const carrier: { traceparent?: string } = {}
+  propagation.inject(context.active(), carrier)
+  return carrier.traceparent ?? null
+}
+
+/**
+ * 在一个新的根 span 里跑一段后台工作（例如 worker 执行任务），用 link 指回提交时的链路：
+ * 排队、重试、换 worker 都各算一次执行，不和提交请求挤在一条 trace 里（OTel 消息语义约定）。
+ */
+export async function runInLinkedSpan<T>(
+  name: string,
+  traceparent: string | null | undefined,
+  attributes: Attributes,
+  work: () => Promise<T>,
+): Promise<T> {
+  const links: Link[] = []
+  if (traceparent) {
+    const linked = trace.getSpanContext(propagation.extract(ROOT_CONTEXT, { traceparent }))
+    if (linked && isSpanContextValid(linked)) links.push({ context: linked })
+  }
+  return tracer.startActiveSpan(name, { root: true, links, attributes }, async (span) => {
+    try {
+      return await work()
+    } catch (error) {
+      span.recordException({
+        name: error instanceof Error ? error.name : 'Error',
+        message: redactLogText(error instanceof Error ? error.message : String(error)),
+      })
+      span.setStatus({ code: SpanStatusCode.ERROR })
+      throw error
+    } finally {
+      span.end()
+    }
+  })
+}
+
+export type TaskOutcome =
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'retry_scheduled'
+  | 'reconciling'
+  | 'archive_requeued'
+
+/**
+ * 在当前执行 span 上记下这次执行的结果。worker 把上游失败接住后自己写终态或安排重试、正常返回，
+ * 外层看不到异常，只能在写终态的地方标：失败、重试、待核查、归档回队都算这次执行出错。
+ */
+export function recordTaskOutcome(outcome: TaskOutcome, detail?: string): void {
+  const span = trace.getActiveSpan()
+  if (!span) return
+  span.setAttribute('task.outcome', outcome)
+  if (outcome === 'completed' || outcome === 'cancelled') return
+  span.setStatus({
+    code: SpanStatusCode.ERROR,
+    ...(detail ? { message: redactLogText(detail).slice(0, 500) } : {}),
+  })
 }

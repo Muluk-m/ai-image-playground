@@ -2,7 +2,14 @@ import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { SpanKind, SpanStatusCode } from '@opentelemetry/api'
 import { InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace'
 import { withRequestContext } from '../../lib/request-context'
-import { initTelemetry, shutdownTelemetry, traceLogFields } from '../../lib/telemetry'
+import {
+  currentTraceparent,
+  initTelemetry,
+  recordTaskOutcome,
+  runInLinkedSpan,
+  shutdownTelemetry,
+  traceLogFields,
+} from '../../lib/telemetry'
 
 const exporter = new InMemorySpanExporter()
 initTelemetry('bff', [new SimpleSpanProcessor({ exporter })])
@@ -103,5 +110,79 @@ describe('HTTP 服务端 span', () => {
 
   it('不在任何 span 里时不写 trace 字段', () => {
     expect(traceLogFields()).toEqual({})
+  })
+})
+
+describe('任务跨进程链路', () => {
+  it('提交请求里取到的 traceparent 属于这次请求的链路；不在 span 里时为 null', async () => {
+    let seen: string | null = null
+    await withRequestContext(async () => {
+      seen = currentTraceparent()
+      return new Response('ok')
+    })(
+      new Request('http://localhost/api/tasks', {
+        method: 'POST',
+        headers: { traceparent: `00-${PARENT_TRACE}-${PARENT_SPAN}-01` },
+      }),
+    )
+    expect(seen).toStartWith(`00-${PARENT_TRACE}-`)
+    expect(currentTraceparent()).toBeNull()
+  })
+
+  it('worker 执行开新 trace，用 link 指回提交链路，里面的日志带新 trace_id', async () => {
+    let fields: { trace_id?: string } = {}
+    await runInLinkedSpan(
+      'task.execute',
+      `00-${PARENT_TRACE}-${PARENT_SPAN}-01`,
+      { 'task.id': 't1' },
+      async () => {
+        await Bun.sleep(1)
+        fields = traceLogFields()
+      },
+    )
+    const [span] = exporter.getFinishedSpans()
+    expect(span?.name).toBe('task.execute')
+    expect(span?.spanContext().traceId).not.toBe(PARENT_TRACE)
+    expect(span?.parentSpanContext).toBeUndefined()
+    expect(span?.links.map((link) => link.context.traceId)).toEqual([PARENT_TRACE])
+    expect(span?.attributes['task.id']).toBe('t1')
+    expect(fields.trace_id).toBe(span?.spanContext().traceId)
+  })
+
+  it('旧任务没有 traceparent、或值不合法时照样执行，只是没有 link', async () => {
+    await runInLinkedSpan('task.execute', null, {}, async () => {})
+    await runInLinkedSpan('task.execute', 'garbage', {}, async () => {})
+    expect(exporter.getFinishedSpans().map((span) => span.links.length)).toEqual([0, 0])
+  })
+
+  it('执行抛错时 span 标错误、信息脱敏，错误照原样往外抛', async () => {
+    await expect(
+      runInLinkedSpan('task.execute', null, {}, async () => {
+        throw new Error('key=sk-live-abcdefghijklmnop1234 rejected')
+      }),
+    ).rejects.toThrow('rejected')
+    const [span] = exporter.getFinishedSpans()
+    expect(span?.status.code).toBe(SpanStatusCode.ERROR)
+    expect(String(span?.events[0]?.attributes?.['exception.message'])).not.toContain(
+      'sk-live-abcdefghijklmnop1234',
+    )
+  })
+})
+
+describe('执行结果', () => {
+  it('失败类结果标错误，完成与取消不标；不在 span 里时什么也不做', async () => {
+    for (const outcome of ['completed', 'cancelled', 'retry_scheduled', 'reconciling'] as const)
+      await runInLinkedSpan('task.execute', null, {}, async () => recordTaskOutcome(outcome))
+    expect(
+      exporter
+        .getFinishedSpans()
+        .map((span) => [span.attributes['task.outcome'], span.status.code]),
+    ).toEqual([
+      ['completed', SpanStatusCode.UNSET],
+      ['cancelled', SpanStatusCode.UNSET],
+      ['retry_scheduled', SpanStatusCode.ERROR],
+      ['reconciling', SpanStatusCode.ERROR],
+    ])
+    expect(() => recordTaskOutcome('failed', 'x')).not.toThrow()
   })
 })

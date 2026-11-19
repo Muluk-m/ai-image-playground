@@ -297,6 +297,7 @@ export const EXPECTED_COLUMNS = [
   'tasks.reconcile_started_at',
   'tasks.gpt_route',
   'tasks.gpt_key_fingerprint',
+  'tasks.traceparent',
   'gpt_direct_usage.key_fingerprint',
   'gpt_direct_admin_keys.fingerprint',
   'tasks.reconcile_alerted_at',

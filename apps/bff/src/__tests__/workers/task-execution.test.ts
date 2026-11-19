@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { eq, sql } from 'drizzle-orm'
 import type { InternalChannel } from '../../lib/channels'
+import type { TaskExecution } from '../../workers/task-execution'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
 import { forbidGlobalFetch, waitFor } from '../helpers/upstreamStubs'
@@ -24,6 +25,10 @@ const {
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
 const { _setChannelsForTesting } = await import('../../lib/channels')
+const { initTelemetry, runInLinkedSpan } = await import('../../lib/telemetry')
+const { InMemorySpanExporter, SimpleSpanProcessor } = await import('@opentelemetry/sdk-trace')
+const spans = new InMemorySpanExporter()
+initTelemetry('worker', [new SimpleSpanProcessor({ exporter: spans })])
 // 同轮并发上限按渠道声明的模型并发判定：Vertex 的模型有上限，OpenAI 兼容图片渠道没有。
 _setChannelsForTesting([
   {
@@ -120,6 +125,63 @@ async function takeOver(id: string): Promise<void> {
 }
 
 describe('认领', () => {
+  it('执行里接住的失败与重试也把执行 span 标成错误，成功的不标', async () => {
+    spans.reset()
+    for (const id of ['outcome-failed', 'outcome-retry', 'outcome-done']) await insertQueuedTask(id)
+    const run = async (id: string, settle: (execution: TaskExecution) => Promise<boolean>) => {
+      const execution = await claimTaskExecution(id)
+      try {
+        await runInLinkedSpan('task.execute', null, { 'task.id': id }, async () => {
+          expect(await settle(execution!)).toBe(true)
+        })
+      } finally {
+        execution?.release()
+      }
+    }
+    await run('outcome-failed', (execution) =>
+      execution.finish({
+        status: 'failed',
+        errorType: 'upstream_error',
+        errorMessage: 'Bearer sk-live-abcdefghijklmnop1234 rejected',
+        completedAt: Date.now(),
+      }),
+    )
+    await run('outcome-retry', (execution) => execution.requeue(1, Date.now() + 60_000))
+    await run('outcome-done', (execution) =>
+      execution.finish({ status: 'completed', completedAt: Date.now() }),
+    )
+    const byTask = Object.fromEntries(
+      spans.getFinishedSpans().map((span) => [
+        span.attributes['task.id'],
+        {
+          outcome: span.attributes['task.outcome'],
+          code: span.status.code,
+          message: span.status.message,
+        },
+      ]),
+    )
+    expect(byTask['outcome-failed']).toMatchObject({ outcome: 'failed', code: 2 })
+    expect(byTask['outcome-failed']?.message).toStartWith('upstream_error: ')
+    expect(byTask['outcome-failed']?.message).not.toContain('sk-live-abcdefghijklmnop1234')
+    expect(byTask['outcome-retry']).toMatchObject({ outcome: 'retry_scheduled', code: 2 })
+    expect(byTask['outcome-done']).toMatchObject({ outcome: 'completed', code: 0 })
+  })
+
+  it('认领时读出提交请求的 traceparent，worker 据此接回提交链路', async () => {
+    const traceparent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'
+    await insertQueuedTask('with-traceparent', { traceparent })
+    await insertQueuedTask('without-traceparent')
+    const traced = await claimTaskExecution('with-traceparent')
+    const untraced = await claimTaskExecution('without-traceparent')
+    try {
+      expect(traced?.task.traceparent).toBe(traceparent)
+      expect(untraced?.task.traceparent).toBeNull()
+    } finally {
+      traced?.release()
+      untraced?.release()
+    }
+  })
+
   it('clears the direct key on fallback and fences attribution from a former owner', async () => {
     await insertQueuedTask('gpt-attribution')
     const execution = await claimTaskExecution('gpt-attribution')
