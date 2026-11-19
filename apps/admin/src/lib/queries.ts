@@ -1,5 +1,6 @@
 import type { GptDirectAdminView } from '@image-playground/shared'
 import {
+  hashKey,
   type QueryClient,
   replaceEqualDeep,
   useInfiniteQuery,
@@ -20,6 +21,7 @@ import {
   generationRefreshInterval,
   generationWindow,
 } from './generation-overview'
+import type { DatePreset } from './search-params'
 import type {
   ClientErrorEventsResult,
   ClientErrorsResult,
@@ -295,9 +297,15 @@ export function useGenerationTasksClock(live: boolean) {
   }, [live, activatedAt])
   return clock.live === live ? clock.now : activatedAt.now
 }
-export function useGenerationTasks(filters: GenerationTaskFilters) {
+export function useGenerationTasks(
+  filters: GenerationTaskFilters,
+  rollingPreset?: Exclude<DatePreset, 'custom'>,
+) {
+  const { from, to, ...selection } = filters
+  // Today's results belong to one calendar day even while the end of its window rolls forward.
+  const selectionKey = hashKey([selection, rollingPreset, rollingPreset === 'today' ? from : null])
   return useQuery({
-    queryKey: ['generation-tasks', filters],
+    queryKey: ['generation-tasks', selectionKey, from, to] as const,
     queryFn: () => {
       const params = new URLSearchParams()
       for (const [key, value] of Object.entries(filters)) {
@@ -306,6 +314,8 @@ export function useGenerationTasks(filters: GenerationTaskFilters) {
       }
       return apiClient.get<GenerationTasksResult>(`/api/tasks?${params}`)
     },
+    placeholderData: (previous, previousQuery) =>
+      rollingPreset && previousQuery?.queryKey[1] === selectionKey ? previous : undefined,
     staleTime: 0,
     refetchInterval: false,
     refetchOnWindowFocus: false,
