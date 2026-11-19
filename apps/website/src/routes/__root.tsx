@@ -5,6 +5,7 @@ import {
   Scripts,
   useRouterState,
 } from '@tanstack/react-router'
+import { siteAssetUrl } from '../../../web/src/features/guide/content/siteAssets'
 import { THEME_BOOT_SCRIPT } from '../../../web/src/theme/bootScript'
 import { copy, findPage, localeFromPath } from '../catalog'
 import { ROOT_LOCALE_SELECTION_SCRIPT } from '../localeSelection'
@@ -19,7 +20,7 @@ export const Route = createRootRoute({
     ],
     links: [
       { rel: 'stylesheet', href: cssUrl },
-      { rel: 'icon', href: '/brand/muvloom-icon.svg' },
+      { rel: 'icon', href: siteAssetUrl('/brand/muvloom-icon.svg') },
     ],
     scripts: [
       { children: THEME_BOOT_SCRIPT },

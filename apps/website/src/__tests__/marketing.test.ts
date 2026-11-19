@@ -1,9 +1,15 @@
-import { existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { guideClipUrl } from '../../../web/src/features/guide/content/media'
+import {
+  SITE_ASSET_BASE,
+  SITE_ASSETS,
+  siteAssetUrl,
+} from '../../../web/src/features/guide/content/siteAssets'
 import { ContactPanel } from '../components/ContactModal'
 import { MarketingHome } from '../components/MarketingHome'
 import { CONTACT_EMAIL, caseRows, HOME_IMAGES, marketingCopy } from '../marketing'
@@ -42,20 +48,29 @@ describe('marketing home', () => {
     const html = render('zh-CN')
     expect(html).toContain(`src="${guideClipUrl('promo-site-zh.webm')}"`)
     expect(html).toContain(`src="${guideClipUrl('promo-site-zh.mp4')}"`)
-    expect(html).toContain('poster="/guide-assets/zh/clips/promo-site-zh-poster.webp"')
+    expect(html).toContain(
+      `poster="${siteAssetUrl('/guide-assets/zh/clips/promo-site-zh-poster.webp')}"`,
+    )
     expect(html).toContain('preload="none"')
     expect(html).not.toContain('/guide-assets/zh/clips/promo-site-zh.mp4')
     expect(html).not.toContain('/guide-assets/zh/clips/promo-site-zh.webm')
   })
 
-  it('uses only bundled images', () => {
+  it('serves registered images with hashes matching their checked-in source', () => {
     const images = [
       HOME_IMAGES.hero,
       ...(['zh-CN', 'en'] as const).flatMap((locale) =>
         caseRows(locale).flatMap((row) => row.figures.map((figure) => figure.src)),
       ),
     ]
-    for (const src of images) expect(existsSync(resolve(PUBLIC, `.${src}`))).toBe(true)
+    const urls = new Set(Object.values(SITE_ASSETS).map((key) => `${SITE_ASSET_BASE}${key}`))
+    for (const src of images) expect(urls.has(src), src).toBe(true)
+    for (const [source, key] of Object.entries(SITE_ASSETS)) {
+      const hash = createHash('sha256')
+        .update(readFileSync(resolve(PUBLIC, `.${source}`)))
+        .digest('hex')
+      expect(key, source).toContain(`-${hash.slice(0, 12)}.`)
+    }
     for (const row of caseRows('en'))
       for (const figure of row.figures) {
         expect(figure.caption).not.toBe('')

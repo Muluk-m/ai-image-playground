@@ -1,7 +1,7 @@
 import { SUPPORT_CONTACT, SUPPORT_MAILTO } from '@image-playground/shared/support-contact'
-import { CLI_MIN_VERSION, CLI_VERSION, installScriptCommands } from '../../../cli/connectAgents'
+import { installScriptCommands } from '../../../cli/connectAgents'
 import { faq, type GuidePage, list, note, p, prompt, steps, table, tip, warn } from '../../model'
-import { demo, still } from '../media'
+import { demo, still, workbuddyFilm } from '../media'
 
 const unixInstall = installScriptCommands('unix', 'https://muvloom.online').join('\n')
 const windowsInstall = installScriptCommands('windows', 'https://muvloom.online').join('\n')
@@ -488,221 +488,101 @@ export const membership: GuidePage = {
 
 export const plugins: GuidePage = {
   id: 'cli',
-  title: '在 Claude Code 与 Codex 中使用',
-  summary: '安装本机的 muvloom 命令，登录，再让 Claude Code 或 Codex 调用。没有 npm 包。',
+  title: '在 WorkBuddy 里生成第一张图',
+  summary: '让 WorkBuddy 安装幕芽技能，在浏览器里授权，再到对话和幕芽作品库查看同一张咖啡海报。',
   meta: {
-    title: '插件集成：Claude Code 与 Codex - 幕芽 Muvloom 使用指南',
-    description: `幕芽 CLI ${CLI_VERSION} 的安装、设备码登录、生图命令、积分与退出码。正式分发是 Go 二进制 muvloom。`,
+    title: '在 WorkBuddy 里生成第一张图 - 幕芽 Muvloom 使用指南',
+    description:
+      '让 WorkBuddy 安装幕芽技能，在浏览器里授权，再到对话和幕芽作品库查看同一张咖啡海报。',
   },
-  updated,
+  updated: '2026-11-19',
   intro: [
-    p(
-      `插件是你电脑上的一个命令 \`muvloom\`，加上装进 Claude Code 或 Codex 的技能说明。仓库里没有 \`@muvloom/cli\`，也不能 \`npx\` 安装。发布版本是 ${CLI_VERSION}。给人看的接入页是 \`/connect\`，设备码批准页是 \`/device\`。给智能体自动执行的原文是 \`/cli/setup.md\` 和 \`/cli/workbuddy.md\`，本页与那两份对照，并以 \`cli-go/\` 里的命令为准。`,
+    workbuddyFilm(
+      'WorkBuddy 幕芽插件完整使用教程',
+      '安装、浏览器授权、生成，再到 WorkBuddy 和幕芽作品库查看同一张图。',
     ),
   ],
   sections: [
     {
-      id: 'not-npm',
-      title: '没有 npm 包',
-      blocks: [
-        list(
-          '分发物是单个原生二进制：macOS arm64/x64、Linux x64/arm64、Windows x64。不需要 Node、npm 或 Python。',
-          '`muvloom skill install --host` 只接受 `claude-code` 和 `codex`。写成 workbuddy 或 doubao 是 `USAGE`，退出码 2。`--scope` 只接受 `user` 和 `project`，写错是 `INVALID_REQUEST`，也是退出码 2。',
-          'WorkBuddy 走 `/cli/workbuddy.md`（压缩包 `/cli/muvloom-workbuddy.zip`）。豆包工作走 `/cli/doubao.md`（压缩包 `/cli/muvloom-doubao.zip`）。其他宿主可用 `/cli/muvloom-skill.zip`。压缩包由网页构建脚本生成，仓库检出里默认没有。不要传 `--host workbuddy` 或 `--host doubao`。',
-          '没有 `--n` 张数参数，也没有视频子命令。一次 `images create` 出一张。多张要分多次，技能会自己拆。',
-        ),
-        warn(
-          '不要把下面的接口路径当成 curl 教程去手写请求。那是命令行自己调用的。用户只跑 `muvloom`。',
-        ),
-      ],
-    },
-    {
       id: 'install',
-      title: `安装 ${CLI_MIN_VERSION} 或更新`,
+      title: '把安装提示词发给 WorkBuddy',
       blocks: [
-        p(
-          `从本站同域下载 \`install.sh\` 或 \`install.ps1\`（与 \`/connect\` 相同来源的 \`/cli/\`），先核对命令里公布的 SHA-256，再以 \`MUVLOOM_MIN_VERSION=${CLI_MIN_VERSION}\` 运行。不要把脚本直接管道进 \`sh\` 或 \`iex\`。不要用 \`MUVLOOM_VERSION\` 钉死精确版本：那样可能把已装的更新版本降级。装好后运行 \`muvloom version\`，需要 ${CLI_MIN_VERSION} 或更新。更低的版本就地替换，已有登录会留着。\`/connect\` 上是同一条经过校验的命令。`,
-        ),
-        prompt('macOS / Linux', unixInstall),
-        p(
-          '安装目录：若已经有一份可写的 `muvloom`，就替换那一份；否则在 PATH 上且不用 sudo 就能写的 `/usr/local/bin`；再否则是 `~/.local/bin`。Windows 是已有的 `muvloom.exe` 所在目录，否则 `%LOCALAPPDATA%\\Programs\\muvloom`。可以用 `MUVLOOM_INSTALL_DIR` 指定。接入页附带的 `PATH` 导出把 `~/.local/bin` 加进当前会话；若二进制落在 `/usr/local/bin`，它本来就在 PATH 里。',
-        ),
-        prompt('Windows PowerShell', windowsInstall),
-        note(
-          'Windows 安装器默认会改用户 PATH。设 `MUVLOOM_NO_MODIFY_PATH=1` 则不改。ARM Windows 不在支持范围。',
-        ),
-      ],
-    },
-    {
-      id: 'service',
-      title: '选对服务器',
-      blocks: [
-        p(
-          '默认 API 是 `https://api.muvloom.online`。第一次登录用 `MUVLOOM_API_URL` 选择，成功后连接会记住，以后不必再设。',
-        ),
-        table(
-          ['你打开的网页', 'MUVLOOM_API_URL'],
-          ['https://muvloom.online', 'https://api.muvloom.online'],
-          ['https://image.nainma.online', 'https://api.muvloom.online'],
-          ['https://image-playground.qiliangjia.one', 'https://image-api.qiliangjia.one'],
-          ['https://test.muvloom.online', 'https://test-api.muvloom.online'],
-        ),
-        p(
-          '环境变量和已经保存的连接不一致时，状态是 `service_mismatch`，错误码 `SERVICE_MISMATCH`，退出码 4。清掉变量沿用现有登录，或在你确实要换服务时运行 `muvloom auth login --switch-service`。不要为了这个再开一轮新登录。',
-        ),
-        list(
-          '`MUVLOOM_NO_BROWSER=1` 只打印链接，不打开浏览器。SSH 和容器里用这个。',
-          '`MUVLOOM_CONFIG_DIR` 指定配置目录。设了它就只用这个目录里的文件，不碰钥匙串。',
-          '`MUVLOOM_CREDENTIALS_STORE=file` 把凭据放在配置目录，而不是系统钥匙串。',
+        steps(
+          '打开幕芽的[插件集成](/connect)，选 [[WorkBuddy]]。',
+          '在 [[让 Agent 安装]] 下点击 [[复制提示词]]。',
+          '在 WorkBuddy 新建任务，粘贴并发送整段提示词。等它装好幕芽技能并发起账号连接。',
         ),
       ],
     },
     {
       id: 'skill-login',
-      title: '安装技能并登录',
+      title: '在浏览器里确认授权',
       blocks: [
         steps(
-          '`muvloom skill install --host claude-code` 装到 `~/.claude/skills/muvloom`，`--host codex` 装到 `~/.agents/skills/muvloom`。`--scope project` 只装在当前目录，默认 `user`。',
-          '`muvloom skill status` 看装在哪、是不是这一版。',
-          '`muvloom auth status`。状态是 ready、unauthenticated、outdated、unreachable 或 service_mismatch。不是 ready 就按状态处理，不要一律再登录。从 0.2.2 起，status 会把没改过的旧技能正文换成当前二进制里的那一份。',
-          '`muvloom capabilities` 成功之后才说可以生成。用返回的 label、default_model，以及 GIF 的 `max_frames_by_size`。菜单里没有 Image 2.6，是服务端没开 `GPT_IMAGE_26_ENABLED`。',
-        ),
-        p(
-          'Claude Code 里输入 `/muv`（注册的技能是 `/muvloom`，前缀能匹配）。Codex 用 `/` 或 `/skills` 选中 Muvloom，或 `$muvloom`。WorkBuddy 和豆包工作在新任务里输入 `/muv`。这是聊天里的叫法，终端里的命令永远是 `muvloom`。',
-        ),
-        p(
-          '登录是设备码，有效期 20 分钟。命令行打开或打印 `/device`，你在已经登录的浏览器里点批准。`auth login --no-wait` 只打印完整链接。`--timeout` 最多 3600 秒；省略时会等到设备码过期后再多等 1 分钟，因为服务端过期后短时间内仍可能兑成令牌。超时后再跑同一条 `auth login` 会继续这一轮。用户拒绝是 `AUTH_DENIED`。只有 `AUTH_EXPIRED` 才重新开始。不要把密码、Cookie 或令牌交给智能体。',
+          '打开 WorkBuddy 发起的授权页面。如果浏览器没有自动打开，点击对话里的授权链接。',
+          '登录你要用来保存作品的幕芽账号。核对页面上列出的权限，点击 [[授权]]。',
+          '看到连接成功的提示后，回到 WorkBuddy，等它确认幕芽已就绪。下次使用会沿用这次连接。',
         ),
       ],
     },
     {
       id: 'commands',
-      title: '命令',
+      title: '用一句话生成咖啡海报',
       blocks: [
-        table(
-          ['命令', '作用'],
-          ['auth login [--no-wait] [--timeout SECONDS] [--switch-service]', '设备码登录'],
-          ['auth status / auth logout', '查看连接和积分；吊销本机这条连接'],
-          ['capabilities', '当前账号能用的模型、尺寸、GIF/SVG 限制和基础单价'],
-          ['images validate --prompt TEXT', '校验并报价，不创建、不扣费'],
-          ['images create --prompt TEXT', '生成图、GIF 或 SVG'],
-          ['jobs list|get|wait|cancel', '任务。wait 超时不算失败'],
-          ['artifacts get|download', '查看或保存结果'],
-          ['media upload|list|get|download', '参考图'],
-          ['skill install|status', '安装或查看技能'],
-          ['update check / version', '检查更新；打印版本'],
-        ),
-        p(
-          '`images create` 和 `validate` 共用 `--prompt`、`--prompt-file`、`--model`、`--aspect-ratio`、`--image-size`、`--quality`、可重复的 `--ref`、`--max-credits`、`--output-format gif|svg`、`--frames`、`--frame-duration-ms`、`--frame-size`。只有 create 还有 `--idempotency-key`（8 到 64 位，字符为字母、数字、`_` `.` `:` `-`）、`--wait`（最多 3600，0 表示提交完就返回）、`--download DIR`。',
-        ),
-        p(
-          'GIF 或 SVG 不要带 `--ref`、`--aspect-ratio`、`--image-size`、`--quality`。帧数接口是 2 到 16，但 768 配 16 帧会被拼图上限拒绝，以 capabilities 里的 `gif.max_frames_by_size` 为准。`--image-size` 只写 `1K`、`2K`、`4K`，不要写像素串。`jobs wait` 不写 `--timeout` 时默认 300 秒。`jobs list --limit` 默认 20、最大 50；`media list` 最大 100。参考图本地只查扩展名 png、jpg、jpeg、webp，超过 50MB 由服务端回 `REQUEST_TOO_LARGE`，退出码 4。任意命令可加 `--json`。省略幂等键时，命令行会自己生成一个。`update check` 只报告有没有新版本，不会自己下载，升级仍走上面的安装脚本。',
-        ),
+        p('在 WorkBuddy 新建任务，输入 `/muv`，从技能菜单选中 `muvloom`，再发送下面这段话。'),
         prompt(
-          '静态图',
-          'muvloom images create --prompt "a cat sticker, white background" --wait 300 --download ./out',
+          '咖啡海报',
+          '生成一张竖版咖啡海报。奶油白的背景上放一把橘红色摩卡壶，旁边是一杯冰拿铁，午后阳光从侧面照进来。画面不要文字。只做一张，1K，生成后直接展示。',
         ),
-        prompt(
-          'GIF',
-          'muvloom images create --model gpt-image-2.6-flare --output-format gif --frames 8 --prompt "a cat waving, looping" --wait 300 --download ./out',
-        ),
-        prompt('只看 4K 报价', 'muvloom images validate --prompt "a poster" --image-size 4K'),
+        note('生图会消耗当前幕芽账号的积分。'),
       ],
     },
     {
       id: 'jobs',
-      title: '等待、恢复、取消',
+      title: '在两边打开同一张图',
       blocks: [
-        p(
-          '状态从 queued 到 running，再到 persisting，然后 succeeded，或者 failed、canceled。`jobs wait` 到时间还没结束时，结果里 `wait_timed_out` 为 true，退出码仍是 0，任务还在跑。继续对同一个 job id 等待，不要再 create。用同一个 `--idempotency-key` 重发 create 会回到原任务，不再扣点。响应丢了就 `jobs list --idempotency-key KEY`。',
-        ),
-        p(
-          '只有用户要求时才 `jobs cancel`。排队和运行中会停并退积分。正在 persisting 时不能取消，错误码 `JOB_NOT_CANCELLABLE`。下载若目标已存在，是 `FILE_EXISTS`，换路径，不要删用户的文件。',
+        steps(
+          '在 WorkBuddy 的任务对话里，点开刚生成的海报。',
+          '回到幕芽，用刚才授权的账号打开[资产](/assets)，在 [[作品]] 里找到这张海报，点开即可看大图。',
         ),
       ],
     },
     {
-      id: 'exit-codes',
-      title: '退出码和错误码',
+      id: 'service',
+      title: '在其他 Agent 里使用',
       blocks: [
-        table(
-          ['退出码', '含义'],
-          ['0', '成功。等待超时但任务还在，也是 0'],
-          ['1', '未预期的错误'],
-          ['2', '命令或请求不合法，含 USAGE'],
-          ['3', '未登录，或登录待批准、被拒、过期'],
-          ['4', '被拒绝，或任务失败、取消'],
-          ['5', '积分不足、超过 max-credits，或当日额度用尽'],
-          ['6', '临时错误，可以用同一幂等键重试'],
-          ['7', '命令行太旧'],
-        ),
-        table(
-          ['错误码', '怎么处理'],
-          ['AUTH_REQUIRED / UNAUTHENTICATED', '看 auth status，再登录'],
-          ['SERVICE_MISMATCH', '退出码 4。清变量或 --switch-service，不要另开登录'],
-          ['AUTH_EXPIRED', '重新开始登录'],
-          ['AUTH_PENDING', '再跑一次 auth login，继续这一轮'],
-          ['AUTH_DENIED', '停。不要反复申请'],
-          ['CREDENTIAL_STORE_UNWRITABLE', '退出码 4。让目录可写，或设置 MUVLOOM_CONFIG_DIR'],
-          ['PLAN_REQUIRED', '退出码 4。4K 或 --quality high 都要会员。改成 1K/2K 或低/中画质'],
-          [
-            'INSUFFICIENT_CREDITS / QUOTA_EXCEEDED / MAX_CREDITS_EXCEEDED',
-            '退出码 5。告诉用户，不要重试',
-          ],
-          ['IDEMPOTENCY_CONFLICT', '换一个幂等键'],
-          [
-            'INVALID_REQUEST / MODEL_UNAVAILABLE / NOT_FOUND',
-            '改参数、重新 capabilities，或核对 id',
-          ],
-          ['JOB_FAILED / JOB_CANCELED', '看任务说明'],
-          ['JOB_NOT_CANCELLABLE', '已经在保存，不能取消'],
-          ['FILE_EXISTS', '换下载路径'],
-          [
-            'RATE_LIMITED / NETWORK_ERROR / TEMPORARILY_UNAVAILABLE / INTERNAL_ERROR',
-            '退出码 6。稍后用同一步骤重试',
-          ],
-          ['CAPABILITY_UNAVAILABLE', '命令行要同时开着 cli:api 和 accounts:sync。缺一个就是这个码'],
-          [
-            'UNSUPPORTED_VERSION',
-            '退出码 7。客户端太旧或 schema 对不上。服务端当前的最低版本常量是 0.1.0。auth status 本地比较出 outdated 时也要重装。UPGRADE_REQUIRED 只在命令行映射表里，服务端错误表没有这一码',
-          ],
-          [
-            'FORBIDDEN / CONFLICT / MEDIA_NOT_READY / REQUEST_TOO_LARGE',
-            '退出码 4。不要重试同一份过大的文件或未就绪的素材',
-          ],
-          ['USAGE', '看该命令的 --help'],
+        p(
+          '打开[插件集成](/connect)，切到豆包工作、Claude Code、Codex 或其他客户端，复制对应的安装提示词发给它。',
         ),
       ],
     },
     {
       id: 'plugin-faq',
-      title: '常见问题',
+      title: '安装后搜不到技能？',
       blocks: [
-        faq(
-          {
-            q: '能不能用 npm 装？',
-            a: '不能。没有官方的 @muvloom/cli。用上面的安装脚本。',
-          },
-          {
-            q: '要不要把验证码发给智能体？',
-            a: '不要。命令行自己打开批准页，你在浏览器里点批准。不要发送密码、验证码、Cookie 或令牌。',
-          },
-          {
-            q: 'SSH 里没有浏览器怎么办？',
-            a: '设置 MUVLOOM_NO_BROWSER=1，用 auth login --no-wait，在自己的电脑打开打印出来的链接。',
-          },
-          {
-            q: '等待超时是不是失败了？',
-            a: '不是。jobs wait 超时只表示这次没等到结束。用同一个任务 id 继续等。',
-          },
-          {
-            q: '技能菜单里看不到？',
-            a: '刷新宿主的会话。不要编一个别的斜杠名字。WorkBuddy 和豆包不要用 --host。',
-          },
-        ),
         p(
-          `维护命令的实现在 cli-go/internal/cli。网页接入在 apps/web/src/features/cli 和 apps/web/public/cli。服务端在 apps/bff/src/routes/cli.ts。联系 ${SUPPORT_CONTACT.email} 时说明版本号和错误码即可。`,
+          '先开一个新任务，再输入 `/muv`。如果菜单仍然没有 `muvloom`，重启 WorkBuddy，在新任务里再试一次。',
         ),
+      ],
+    },
+    {
+      id: 'exit-codes',
+      title: '网页上找不到作品？',
+      blocks: [
+        p(
+          '先确认 WorkBuddy 里的任务已经完成，再核对网页账号，刷新 [[资产]] 的 [[作品]] 页签。还在排队时，可以让 WorkBuddy 查询刚才的任务进度。',
+        ),
+      ],
+    },
+    {
+      id: 'not-npm',
+      title: '手动安装命令行',
+      blocks: [
+        p(
+          '需要自己操作终端时，下面两条命令任选与你系统对应的一条。使用其他幕芽站点时，到该站点的[插件集成](/connect)选择 [[我自己来]]，复制对应命令。',
+        ),
+        prompt('macOS / Linux', unixInstall),
+        prompt('Windows PowerShell', windowsInstall),
       ],
     },
   ],

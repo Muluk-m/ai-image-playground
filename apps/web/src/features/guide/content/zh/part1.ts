@@ -88,7 +88,7 @@ export const overview: GuidePage = {
           '右上角积分按钮打开账户概览，旁边是界面语言和个人账户。幕芽用邮箱密码或 Google 登录，注册在登录页的 [[立即注册]]。企业域名如果只开了飞书，邮箱入口不会出现，这是部署策略，不是页面坏了。',
         ),
         p(
-          '侧栏 [[插件集成]] 通向 Claude Code 和 Codex 的命令行。那条路用本机的 `muvloom` 二进制，不是 npm 包。人看的步骤在 [插件集成](/guide/plugins/cli/)，给智能体读的原文仍是 `/cli/setup.md`。',
+          '从侧栏的 [[插件集成]] 可以连接 WorkBuddy 等客户端。[在 WorkBuddy 里生成第一张图](/guide/plugins/cli/) 演示了安装、授权和查看作品的完整过程。',
         ),
         tip(
           '界面语言改成 English 后，指南对应地址是 `/guide/en/`。工作台里的按钮文案也会换成英文，本指南的演示视频仍是中文界面。',

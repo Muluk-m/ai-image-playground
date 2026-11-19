@@ -1,3 +1,4 @@
+import { siteAssetUrl } from '../../web/src/features/guide/content/siteAssets'
 import { counterpartPage, pageMeta, type SitePage } from './catalog'
 
 const origin = import.meta.env.VITE_PUBLIC_ORIGIN as string
@@ -27,8 +28,8 @@ export function pageHead(page: SitePage) {
       ...(canonical
         ? [
             { property: 'og:url', content: canonical },
-            { property: 'og:image', content: `${origin}/og/muvloom-og.jpg` },
-            { name: 'twitter:image', content: `${origin}/og/muvloom-og.jpg` },
+            { property: 'og:image', content: siteAssetUrl('/og/muvloom-og.jpg') },
+            { name: 'twitter:image', content: siteAssetUrl('/og/muvloom-og.jpg') },
           ]
         : []),
     ],
