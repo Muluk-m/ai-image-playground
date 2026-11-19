@@ -6,8 +6,9 @@ import PageHeader from '../../components/patterns/PageHeader'
 import SegmentedTabs from '../../components/patterns/SegmentedTabs'
 import { Button } from '../../components/ui/button'
 import { Icon } from '../../components/ui/icon'
-import { i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
+import { currentLocale, i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
 import { copyTextToClipboard } from '../../lib/clipboardText'
+import { GUIDE_PATHS } from '../guide/paths'
 import CliConnectionsSection from './CliConnectionsSection'
 import {
   agentSetupPath,
@@ -171,6 +172,12 @@ export default function CliConnectPage() {
           <section className="space-y-2">
             <h2 className="text-headline font-semibold">{t('cliConnect.hero')}</h2>
             <p className="text-body-md text-muted-foreground">{t('cliConnect.subtitle')}</p>
+            <a
+              href={`${GUIDE_PATHS[currentLocale()]}plugins/cli/`}
+              className="inline-block text-body-sm text-primary underline-offset-4 hover:underline focus-visible:underline"
+            >
+              {t('cliConnect.tutorial')}
+            </a>
           </section>
 
           <section

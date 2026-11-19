@@ -1,5 +1,5 @@
 /**
- * 指南和官网 public 不再收演示视频。成片在 cms-r2，地址只写在
+ * 指南和官网 public 不再收演示视频。成片在 ai-images，地址只写在
  * apps/web/src/features/guide/content/media.ts。封面 webp 仍留在仓库里。
  */
 import { readdirSync, readFileSync } from 'node:fs'
@@ -22,14 +22,17 @@ function walk(dir: string): void {
     const rel = join(dir, entry.name)
     if (entry.isDirectory()) walk(rel)
     else if (videoExt.has(extname(entry.name).toLowerCase()))
-      problems.push(`${rel}: 演示视频不能提交。用 cms CLI 上传到 cms-r2，再更新映射表`)
+      problems.push(
+        `${rel}: 演示视频不能提交。上传到 ai-images 的 muvloom/site/clips/，再更新映射表`,
+      )
   }
 }
 
 for (const tree of trees) walk(tree)
 
 const localVideo = /guide-assets\/[^"'`\s]+\.(?:mp4|webm|mov)\b/g
-const cdnVideo = /https:\/\/cms-r2\.deepclick\.com\/[^"'`\s]+\.(?:mp4|webm|mov)\b/g
+const cdnVideo =
+  /https:\/\/(?:store\.kaleidonova\.com|cms-r2\.deepclick\.com)\/[^"'`\s]+\.(?:mp4|webm|mov)\b/g
 const allowCdn = new Set(['apps/web/src/features/guide/content/media.ts'])
 
 const glob = new Bun.Glob('apps/**/*.{ts,tsx,html,mjs}')
