@@ -1,5 +1,5 @@
 import { agentModelImageMax, isGptDirectModel } from '@image-playground/shared'
-import { Fragment, type ReactNode, useMemo, useState } from 'react'
+import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { ModelList, useModelChoices } from '../../../components/composer/ModelSelector'
 import {
   RatioGrid,
@@ -171,6 +171,18 @@ export default function AgentParamsChip({
   const { ratio, setRatio } = useComposerRatio()
   const storedCount = useStore((state) => state.params.n)
   const [page, setPage] = useState<'main' | 'model'>('main')
+  const modelRowRef = useRef<HTMLButtonElement>(null)
+  const returning = useRef(false)
+  // 从二级页回来时，焦点落回「模型」这一行，不掉到 body。
+  const backToMain = () => {
+    returning.current = true
+    setPage('main')
+  }
+  useEffect(() => {
+    if (page !== 'main' || !returning.current) return
+    returning.current = false
+    modelRowRef.current?.focus()
+  }, [page])
   const labels = useDepthLabels()
   const countModel = imageMode ? current?.model : undefined
   const count = snapImageCount(storedCount, countModel)
@@ -235,7 +247,13 @@ export default function AgentParamsChip({
           ),
         },
         ...(ratio !== 'auto' ? [text('ratio', ratio)] : []),
-        text('count', t('composer:settings.count', { count })),
+        {
+          key: 'count',
+          // 张数关系到扣费，窄输入框收起文字时也留着。
+          node: (
+            <span className="shrink-0 tabular-nums">{t('composer:settings.count', { count })}</span>
+          ),
+        },
       ]
     : [
         ...(showAutoModel ? [] : [text('model', modelLabel)]),
@@ -255,7 +273,7 @@ export default function AgentParamsChip({
     const chosen = useStore.getState().params.n
     if (imageMode && chosen > agentModelImageMax(model))
       useStore.getState().setParams({ n: snapImageCount(chosen, model) })
-    setPage('main')
+    backToMain()
   }
 
   return (
@@ -284,7 +302,7 @@ export default function AgentParamsChip({
     >
       {() =>
         page === 'model' ? (
-          <SettingsSubpage title={t('params.model')} onBack={() => setPage('main')}>
+          <SettingsSubpage title={t('params.model')} onBack={backToMain}>
             {!imageMode && (
               <SettingsToggle
                 label={t('params.modelAutoToggle')}
@@ -326,6 +344,7 @@ export default function AgentParamsChip({
               <ConfirmToggle />
             )}
             <SettingsLinkRow
+              ref={modelRowRef}
               label={t('params.model')}
               value={showAutoModel ? t('composer:settings.autoOption') : modelLabel}
               onClick={() => setPage('model')}

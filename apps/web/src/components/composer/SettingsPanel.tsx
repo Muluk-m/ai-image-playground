@@ -1,4 +1,12 @@
-import { type InputHTMLAttributes, type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import {
+  type InputHTMLAttributes,
+  type ReactNode,
+  type Ref,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react'
 import { useTranslation } from '../../i18n'
 import { parseRatio } from '../../lib/size'
 import { cn } from '../../lib/utils'
@@ -83,6 +91,8 @@ export function SettingsPopover({
   const visible = summaryContent ?? summary
   // 分段摘要在窄输入框里只留图标（creation.css），那时悬停要给回完整文字。
   const segmented = summaryContent != null && typeof summaryContent !== 'string'
+  // 胶囊省掉了默认值时，悬停给回完整摘要。
+  const abridged = summaryContent !== undefined && visible !== summary
   useEffect(() => {
     const node = triggerRef.current?.closest('.creation-composer')
     if (!node || !segmented || typeof ResizeObserver === 'undefined') return
@@ -105,8 +115,8 @@ export function SettingsPopover({
           size={size === 'md' ? 'chip-lg' : 'chip-sm'}
           type="button"
           title={
-            iconsOnly || visible === ''
-              ? summary
+            iconsOnly || abridged
+              ? accessible
               : detail
                 ? `${title}: ${accessible}`
                 : summaryText.title
@@ -193,9 +203,13 @@ export function SettingsSubpage({
   children: ReactNode
 }) {
   const { t } = useTranslation('composer')
+  const backRef = useRef<HTMLButtonElement>(null)
+  // 进来的那一行随主页卸载，焦点交给返回按钮。
+  useEffect(() => backRef.current?.focus(), [])
   return (
     <section className="space-y-3" aria-label={title}>
       <Button
+        ref={backRef}
         type="button"
         variant="ghost"
         size="sm"
@@ -216,13 +230,16 @@ export function SettingsLinkRow({
   label,
   value,
   onClick,
+  ref,
 }: {
   label: string
   value: ReactNode
   onClick: () => void
+  ref?: Ref<HTMLButtonElement>
 }) {
   return (
     <Button
+      ref={ref}
       type="button"
       variant="ghost"
       className="-mx-2 h-9 w-[calc(100%+1rem)] justify-between px-2 font-normal"

@@ -173,6 +173,8 @@ describe('智能体输入框的生成设置', () => {
     render()
     expect(trigger().textContent).toBe('')
     expect(trigger().getAttribute('aria-label')).toBe('生成设置: 智能 · 均衡')
+    // 胶囊省掉的默认值悬停时给回来。
+    expect(trigger().getAttribute('aria-description')).toBe('智能 · 均衡')
     toggle()
     expect(button('恢复默认')).toBeUndefined()
   })
@@ -407,8 +409,11 @@ it('二级页的返回回到主页，关掉卡片再打开也从主页开始', (
   toggle()
   act(() => modelField().click())
   expect(group('画幅')).toBeNull()
+  // 进入二级页焦点落在返回，回来后落在「模型」那一行，不掉到 body。
+  expect(document.activeElement?.getAttribute('aria-label')).toBe('返回模型')
   act(() => document.body.querySelector<HTMLButtonElement>('[aria-label="返回模型"]')?.click())
   expect(group('画幅')).not.toBeNull()
+  expect(document.activeElement).toBe(modelField())
 
   act(() => modelField().click())
   toggle()

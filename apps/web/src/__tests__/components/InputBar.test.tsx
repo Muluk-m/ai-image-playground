@@ -152,6 +152,7 @@ describe('首屏的生成设置', () => {
     remount('generate')
     expect(settingsChip().getAttribute('aria-label')).toContain('智能 · 1 张')
     expect(settingsChip().textContent).toBe('1 张')
+    expect(settingsChip().getAttribute('aria-description')).toBe('智能 · 1 张')
     const group = openSettings()
     expect(group('比例')).not.toBeNull()
     expect(group('数量')).not.toBeNull()
