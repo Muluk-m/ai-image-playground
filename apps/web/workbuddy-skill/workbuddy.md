@@ -22,7 +22,7 @@
 
 1. 先运行 `muvloom auth status`。确认 `api_url` 对应本次接入的服务，`state: ready` 时直接验证 `muvloom capabilities`，保留已有连接。`state: unreachable` 是短暂故障：等待 5 秒再试，然后 15 秒，最多三次；不要发起新的登录。仍失败就告诉用户稍后重试，并保留已有连接。
 2. 未登录且能在用户本机打开浏览器时，先在这一条回复里告诉用户：授权页马上在系统默认浏览器里打开，请登录并点「授权」；你会在这里等，点完会自动继续，不需要回复我。**不要结束本回合。** 若当前环境控制不了用户的浏览器，改用 `MUVLOOM_NO_BROWSER=1 muvloom auth login --no-wait`，把 `verification_uri_complete` 和 `user_code` 贴进对话，请用户在默认浏览器打开，再用 `muvloom auth login --timeout N` 等待。
-3. 本机可打开浏览器时，紧接着前台运行 `muvloom --json auth login --timeout 15`，宿主的命令超时设为至少 30 秒。CLI 会尝试打开系统默认浏览器，点完授权即返回 `state: ready`。第一次返回 `AUTH_PENDING`（退出码 3）时，把同一次授权的 `verification_uri_complete` 和 `user_code` 发给用户，供没有看到弹窗时手动打开。若宿主截断命令，先用 `muvloom --json auth status` 取回待授权的链接与授权码。然后用 `muvloom auth login --timeout 15` 继续等待同一次授权。等待期间不要反复提示用户：
+3. 本机可打开浏览器时，紧接着前台运行 `muvloom --json auth login --timeout 15`，宿主的命令超时设为至少 30 秒。CLI 会尝试打开系统默认浏览器，点完授权即返回 `state: ready`。第一次返回 `AUTH_PENDING`（退出码 3）时，把同一次授权的 `verification_uri_complete` 和 `user_code` 发给用户，供没有看到弹窗时手动打开。若宿主截断命令，先用 `muvloom --json auth status` 取回待授权的链接与授权码。然后用 `muvloom auth login --timeout 15` 继续等待同一次授权，不会再打开新页面。等待期间不要反复提示用户：
    - `state: ready`：授权完成，继续第 4 步。
    - `AUTH_DENIED`：用户拒绝了，停止并说明。
    - `AUTH_EXPIRED`：授权码已过期（有效期 20 分钟），这时才重新运行 `muvloom auth login`，并再次提示用户。

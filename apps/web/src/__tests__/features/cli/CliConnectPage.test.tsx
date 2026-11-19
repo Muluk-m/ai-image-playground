@@ -199,7 +199,11 @@ describe('CliConnectPage', () => {
     expect(doubao).toContain('不要指定 Chrome')
     expect(doubao).toContain('操作电脑')
     expect(doubao).toContain('附属浏览器')
-    expect(workbuddy).toContain('让 CLI 自己打开系统默认浏览器')
+    expect(workbuddy).toContain('CLI 会尝试打开默认浏览器')
+    expect(workbuddy).toContain('`muvloom --json auth login --timeout 15`')
+    expect(workbuddy).toContain(
+      '第一次返回 `AUTH_PENDING` 时，立即把同一次授权的 `verification_uri_complete`',
+    )
   })
 
   // 机器已连着测试或企业服务时打开生产页面：不显式指定服务，CLI 会沿用已存连接，接入静默"成功"在错误环境上。
