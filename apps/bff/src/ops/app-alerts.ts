@@ -80,115 +80,124 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
   const readRestoreDrill = options.readRestoreDrill ?? readRestoreDrillFromStore
   const missed = options.onMissed
   const attempted = options.onAttempted
-  const [queue, backup, restoreDrill, heartbeats, api, failures, agentFailurePatterns, serverLogs] =
-    await Promise.all([
-      attempt(
-        'queue',
-        async () => {
-          const candidates = await Promise.all([
-            selectRunnableTasks('openai-compat', 1, options.now, {
-              excludeArchived: true,
-              orderByEligible: true,
-            }),
-            selectRunnableTasks('gemini', 1, options.now, {
-              excludeArchived: true,
-              orderByEligible: true,
-            }),
-          ])
-          const oldest = candidates
-            .flat()
-            .reduce<number | null>(
-              (current, task) =>
-                current === null ? task.eligibleSince : Math.min(current, task.eligibleSince),
-              null,
-            )
-          return {
-            oldest_queued_wait_ms: oldest === null ? null : Math.max(0, options.now - oldest),
-          }
-        },
-        missed,
-        attempted,
-      ),
-      attempt(
-        'backup',
-        async () => {
-          const { latest } = await readBackups()
-          return { latest_modified_at: latest?.modified_at ?? null }
-        },
-        missed,
-        attempted,
-      ),
-      attempt('restoreDrill', readRestoreDrill, missed, attempted),
-      attempt(
-        'heartbeats',
-        async () => {
-          const [row] = await db
-            .select({ last_seen_at: schema.service_heartbeats.last_seen_at })
-            .from(schema.service_heartbeats)
-            .where(and(eq(schema.service_heartbeats.service, 'bff')))
-            .orderBy(desc(schema.service_heartbeats.last_seen_at))
-            .limit(1)
-          return { bff: row?.last_seen_at ?? null }
-        },
-        missed,
-        attempted,
-      ),
-      attempt(
-        'api',
-        async () => {
-          const rows = (await db.execute(sql`
+  const [
+    queue,
+    backup,
+    restoreDrill,
+    heartbeats,
+    api,
+    failures,
+    agentFailurePatterns,
+    serverLogs,
+    slowGenerations,
+  ] = await Promise.all([
+    attempt(
+      'queue',
+      async () => {
+        const candidates = await Promise.all([
+          selectRunnableTasks('openai-compat', 1, options.now, {
+            excludeArchived: true,
+            orderByEligible: true,
+          }),
+          selectRunnableTasks('gemini', 1, options.now, {
+            excludeArchived: true,
+            orderByEligible: true,
+          }),
+        ])
+        const oldest = candidates
+          .flat()
+          .reduce<number | null>(
+            (current, task) =>
+              current === null ? task.eligibleSince : Math.min(current, task.eligibleSince),
+            null,
+          )
+        return {
+          oldest_queued_wait_ms: oldest === null ? null : Math.max(0, options.now - oldest),
+        }
+      },
+      missed,
+      attempted,
+    ),
+    attempt(
+      'backup',
+      async () => {
+        const { latest } = await readBackups()
+        return { latest_modified_at: latest?.modified_at ?? null }
+      },
+      missed,
+      attempted,
+    ),
+    attempt('restoreDrill', readRestoreDrill, missed, attempted),
+    attempt(
+      'heartbeats',
+      async () => {
+        const [row] = await db
+          .select({ last_seen_at: schema.service_heartbeats.last_seen_at })
+          .from(schema.service_heartbeats)
+          .where(and(eq(schema.service_heartbeats.service, 'bff')))
+          .orderBy(desc(schema.service_heartbeats.last_seen_at))
+          .limit(1)
+        return { bff: row?.last_seen_at ?? null }
+      },
+      missed,
+      attempted,
+    ),
+    attempt(
+      'api',
+      async () => {
+        const rows = (await db.execute(sql`
         SELECT EXTRACT(EPOCH FROM minute) * 1000 AS minute,
           requests, client_errors, server_errors, server_error_routes
         FROM api_minutes
         WHERE minute >= to_timestamp(${options.now / 1000}) - INTERVAL '15 minutes'
           AND minute <= to_timestamp(${options.now / 1000})
       `)) as unknown as Array<{
-            minute: string
-            requests: number
-            client_errors: number
-            server_errors: number
-            server_error_routes: Record<string, number> | null
-          }>
-          const api: NonNullable<AlertObservation['api']> = {
-            requests: 0,
-            server_errors: 0,
-            errors_by_minute: {},
-            successes_by_minute: {},
-            error_routes: {},
-          }
-          for (const row of rows) {
-            const minute = Number(row.minute)
-            api.requests += Number(row.requests)
-            api.server_errors += Number(row.server_errors)
-            if (row.server_errors > 0)
-              api.errors_by_minute[minute] =
-                (api.errors_by_minute[minute] ?? 0) + Number(row.server_errors)
-            if (row.requests > row.client_errors + row.server_errors)
-              api.successes_by_minute[minute] =
-                (api.successes_by_minute[minute] ?? 0) +
-                row.requests -
-                row.client_errors -
-                row.server_errors
-            for (const [route, count] of Object.entries(row.server_error_routes ?? {}))
-              api.error_routes[route] = (api.error_routes[route] ?? 0) + count
-          }
-          return api
-        },
-        missed,
-        attempted,
-      ),
-      attempt(
-        'failures',
-        async () => {
-          const watching = [...new Set(options.watchingModels ?? [])]
-          const [agentRaw, modelsRaw, successesRaw] = await Promise.all([
-            db.execute(sql`
+          minute: string
+          requests: number
+          client_errors: number
+          server_errors: number
+          server_error_routes: Record<string, number> | null
+        }>
+        const api: NonNullable<AlertObservation['api']> = {
+          requests: 0,
+          server_errors: 0,
+          errors_by_minute: {},
+          successes_by_minute: {},
+          error_routes: {},
+        }
+        for (const row of rows) {
+          const minute = Number(row.minute)
+          api.requests += Number(row.requests)
+          api.server_errors += Number(row.server_errors)
+          if (row.server_errors > 0)
+            api.errors_by_minute[minute] =
+              (api.errors_by_minute[minute] ?? 0) + Number(row.server_errors)
+          if (row.requests > row.client_errors + row.server_errors)
+            api.successes_by_minute[minute] =
+              (api.successes_by_minute[minute] ?? 0) +
+              row.requests -
+              row.client_errors -
+              row.server_errors
+          for (const [route, count] of Object.entries(row.server_error_routes ?? {}))
+            api.error_routes[route] = (api.error_routes[route] ?? 0) + count
+        }
+        return api
+      },
+      missed,
+      attempted,
+    ),
+    attempt(
+      'failures',
+      async () => {
+        const watching = [...new Set(options.watchingModels ?? [])]
+        const [agentRaw, modelsRaw, successesRaw] = await Promise.all([
+          db.execute(sql`
           SELECT COUNT(*) AS count FROM agent_turns
           WHERE stop_reason = 'failed' AND created_at >= NOW() - INTERVAL '15 minutes'
         `),
-            // 每个模型一行：失败次数，加上最近一次失败的类型、上游状态码和报错前 200 字。
-            // 系统失败总数就是各行之和，不再单独查一遍。
-            db.execute(sql`
+          // 每个模型一行：失败次数，加上最近一次失败的类型、上游状态码和报错前 200 字。
+          // 系统失败总数就是各行之和，不再单独查一遍。
+          db.execute(sql`
           WITH failed AS (
             SELECT t.id, t.model, t.error_type, t.upstream_status, t.completed_at
             FROM tasks t
@@ -225,11 +234,11 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
           LEFT JOIN model_availability m ON m.model = c.model
           ORDER BY failures DESC, last_failed_at DESC
         `),
-            // 恢复看的是「出事后这个模型有没有真的出过图」，不是失败数掉没掉。只查等待名单里的模型；
-            // 窗口相对现在：名单每轮都对一遍，成功一发生就在窗口里，多晚恢复都看得见。
-            watching.length === 0
-              ? Promise.resolve([])
-              : db.execute(sql`
+          // 恢复看的是「出事后这个模型有没有真的出过图」，不是失败数掉没掉。只查等待名单里的模型；
+          // 窗口相对现在：名单每轮都对一遍，成功一发生就在窗口里，多晚恢复都看得见。
+          watching.length === 0
+            ? Promise.resolve([])
+            : db.execute(sql`
           SELECT model, EXTRACT(EPOCH FROM MAX(completed_at)) * 1000 AS last_succeeded_at
           FROM tasks
           WHERE kind = 'queue' AND status = 'completed'
@@ -241,48 +250,49 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
             AND submitted_at >= NOW() - INTERVAL '8 days'
           GROUP BY model
         `),
-          ])
-          const agentRows = agentRaw as unknown as Array<Record<string, unknown>>
-          const modelRows = modelsRaw as unknown as Array<Record<string, unknown>>
-          const successRows = successesRaw as unknown as Array<Record<string, unknown>>
-          return {
-            generation_system: modelRows.reduce((sum, row) => sum + Number(row.failures ?? 0), 0),
-            agent: Number(agentRows[0]?.count ?? 0),
-            generation_models: modelRows.map((row) => ({
-              model: String(row.model ?? 'unknown'),
-              failures: Number(row.failures ?? 0),
-              errorType: String(row.error_type ?? 'unknown'),
-              upstreamStatus: row.upstream_status == null ? null : Number(row.upstream_status),
-              // 报错原文会外发到值班 webhook：先按服务端日志的规则抹掉令牌、密钥和带账号的地址，再截 200 字。
-              message: redactLogText(String(row.message ?? '')).slice(0, 200),
-              lastFailedAt: Number(row.last_failed_at ?? 0),
-              paused: row.paused === true,
-            })),
-            generation_successes: Object.fromEntries(
-              successRows.map((row) => [String(row.model), Number(row.last_succeeded_at ?? 0)]),
-            ),
-          }
-        },
-        missed,
-        attempted,
-      ),
-      attempt('agentFailurePatterns', readAgentFailurePatterns, missed, attempted),
-      attempt(
-        'serverLogs',
-        async () => {
-          const rows = (await db.execute(sql`
+        ])
+        const agentRows = agentRaw as unknown as Array<Record<string, unknown>>
+        const modelRows = modelsRaw as unknown as Array<Record<string, unknown>>
+        const successRows = successesRaw as unknown as Array<Record<string, unknown>>
+        return {
+          generation_system: modelRows.reduce((sum, row) => sum + Number(row.failures ?? 0), 0),
+          agent: Number(agentRows[0]?.count ?? 0),
+          generation_models: modelRows.map((row) => ({
+            model: String(row.model ?? 'unknown'),
+            failures: Number(row.failures ?? 0),
+            errorType: String(row.error_type ?? 'unknown'),
+            upstreamStatus: row.upstream_status == null ? null : Number(row.upstream_status),
+            // 报错原文会外发到值班 webhook：先按服务端日志的规则抹掉令牌、密钥和带账号的地址，再截 200 字。
+            message: redactLogText(String(row.message ?? '')).slice(0, 200),
+            lastFailedAt: Number(row.last_failed_at ?? 0),
+            paused: row.paused === true,
+          })),
+          generation_successes: Object.fromEntries(
+            successRows.map((row) => [String(row.model), Number(row.last_succeeded_at ?? 0)]),
+          ),
+        }
+      },
+      missed,
+      attempted,
+    ),
+    attempt('agentFailurePatterns', readAgentFailurePatterns, missed, attempted),
+    attempt(
+      'serverLogs',
+      async () => {
+        const rows = (await db.execute(sql`
             SELECT EXTRACT(EPOCH FROM at) * 1000 AS latest_at
             FROM server_logs
             ORDER BY at DESC, id DESC
             LIMIT 1
           `)) as unknown as Array<{ latest_at: string | number | null }>
-          const latest = rows[0]?.latest_at
-          return { latest_at: latest == null ? null : Number(latest) }
-        },
-        missed,
-        attempted,
-      ),
-    ])
+        const latest = rows[0]?.latest_at
+        return { latest_at: latest == null ? null : Number(latest) }
+      },
+      missed,
+      attempted,
+    ),
+    attempt('slowGenerations', readSlowGenerations, missed, attempted),
+  ])
   // 没开直连就不给这一块：没有预算可言，缺失也不会被当成已恢复。
   const gptDirectBudget = config.gptDirect.enabled
     ? await attempt(
@@ -312,9 +322,38 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
     failures,
     agentFailurePatterns,
     serverLogs,
+    slowGenerations,
     ...(gptDirectBudget ? { gptDirectBudget } : {}),
     ...(gptDirectKeys ? { gptDirectKeys } : {}),
   }
+}
+
+/** 近 1 小时出过慢任务的模型。用执行耗时（开始到完成），排队等待另有 queue 规则。 */
+async function readSlowGenerations(): Promise<NonNullable<AlertObservation['slowGenerations']>> {
+  const windowSeconds = OPS_THRESHOLDS.SLOW_GENERATION_WINDOW_MS / 1000
+  const slowSeconds = OPS_THRESHOLDS.SLOW_GENERATION_MS / 1000
+  const rows = (await db.execute(sql`
+    SELECT model,
+      COUNT(*) FILTER (
+        WHERE completed_at - started_at > make_interval(secs => ${slowSeconds})
+      ) AS slow,
+      COUNT(*) AS completed,
+      MAX(EXTRACT(EPOCH FROM completed_at - started_at)) * 1000 AS max_ms
+    FROM tasks
+    WHERE kind = 'queue' AND status = 'completed' AND started_at IS NOT NULL
+      AND completed_at >= NOW() - make_interval(secs => ${windowSeconds})
+      AND submitted_at >= NOW() - INTERVAL '7 days'
+    GROUP BY model
+    HAVING COUNT(*) FILTER (
+      WHERE completed_at - started_at > make_interval(secs => ${slowSeconds})
+    ) > 0
+  `)) as unknown as Array<Record<string, unknown>>
+  return rows.map((row) => ({
+    model: String(row.model ?? 'unknown'),
+    slow: Number(row.slow ?? 0),
+    completed: Number(row.completed ?? 0),
+    maxMs: Number(row.max_ms ?? 0),
+  }))
 }
 
 /** 近 6 小时每一类失败：同一模型、错误码与上游状态码各算一类，互不挤掉。 */

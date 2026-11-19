@@ -199,6 +199,31 @@ describe('observeApp', () => {
     expect((await observeApp({ now })).failures?.generation_successes).toEqual({})
   })
 
+  it('counts slow completed tasks per model within the last hour', async () => {
+    const done = (id: string, startedAgo: number, tookMs: number, status = 'completed') => ({
+      id,
+      provider: 'gemini' as const,
+      model: 'slow-alert-model',
+      status: status as 'completed' | 'failed',
+      request_payload: { prompt: 'x', device_id: 'd' },
+      submitted_at: now - startedAgo,
+      started_at: now - startedAgo,
+      completed_at: now - startedAgo + tookMs,
+    })
+    await writer.db.insert(writer.schema.tasks).values([
+      done('slow-a', 30 * minute, 5 * minute),
+      done('slow-b', 20 * minute, 3 * minute),
+      done('fast-c', 10 * minute, 30_000),
+      // 窗口外的慢任务、失败的慢任务都不算。
+      done('slow-old', 3 * hour, 5 * minute),
+      done('slow-failed', 10 * minute, 5 * minute, 'failed'),
+    ])
+    const slow = (await observeApp({ now })).slowGenerations?.find(
+      (one) => one.model === 'slow-alert-model',
+    )
+    expect(slow).toEqual({ model: 'slow-alert-model', slow: 2, completed: 3, maxMs: 5 * minute })
+  })
+
   it('reads the newest server_logs row, or null while the table is empty', async () => {
     expect((await observeApp({ now })).serverLogs).toEqual({ latest_at: null })
 

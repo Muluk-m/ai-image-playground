@@ -35,6 +35,13 @@ export const OPS_THRESHOLDS = {
   GENERATION_SYSTEM_FAILURES: 3,
   AGENT_TURN_FAILURES: 3,
   /**
+   * 同一模型 1 小时内有这么多个任务执行超过 SLOW_GENERATION_MS，就是上游整体变慢。
+   * 按 2026-10-20 至 11-19 的生产数据回测：单个长尾不触发，30 天内在 6 个真实变慢的日子触发。
+   */
+  SLOW_GENERATION_MS: 2 * 60 * 1000,
+  SLOW_GENERATION_WINDOW_MS: 60 * 60 * 1000,
+  SLOW_GENERATION_COUNT: 3,
+  /**
    * 同一模型、同一错误码与上游状态码在 6 小时内出现在这么多个不同轮次，就是系统性故障：
    * 低流量时失败分散，15 分钟计数永远到不了线（2026-10-16 luna 拒绝 reasoning off 持续约 16 小时）。
    */

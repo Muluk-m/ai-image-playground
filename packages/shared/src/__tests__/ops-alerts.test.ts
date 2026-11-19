@@ -105,6 +105,34 @@ describe('服务端日志静默', () => {
   })
 })
 
+describe('模型出图变慢', () => {
+  const slow = (count: number) => ({
+    slowGenerations: [
+      { model: 'gemini-nano-banana-2.1', slow: count, completed: 20, maxMs: 313_000 },
+    ],
+  })
+
+  it('一小时内单个长尾不报，同一模型 3 个慢任务才报', () => {
+    expect(run([[T0, slow(2)]])).toEqual([[]])
+    expect(run([[T0, slow(3)]])).toEqual([['firing:generation-latency']])
+  })
+
+  it('告警写明模型、慢任务数与最长耗时', () => {
+    const { messages } = evaluateAlerts(slow(3), {}, T0)
+    expect(messages[0]?.text).toContain('gemini-nano-banana-2.1：3/20 个慢任务，最长 313 秒')
+  })
+
+  it('慢任务滑出窗口后发已恢复，读数缺失不算恢复', () => {
+    expect(
+      run([
+        [T0, slow(4)],
+        [T0 + minute, {}],
+        [T0 + 2 * minute, { slowGenerations: [] }],
+      ]),
+    ).toEqual([['firing:generation-latency'], [], ['resolved:generation-latency']])
+  })
+})
+
 describe('用户错误告警', () => {
   const api = (requests: number, errors: number, success: number | null = null, bucket = T0) => ({
     api: {
