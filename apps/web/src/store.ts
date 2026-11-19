@@ -2383,18 +2383,6 @@ function resolveOutputId(
   return local.outputImages[index >= 0 ? index : 0]
 }
 
-/** 重试用的模型、参数与失败那一单完全一致，才能沿用原来的幂等键。 */
-function sameRetryIdentity(task: TaskRecord, model: string, params: TaskParams): boolean {
-  if (task.apiModel !== model) return false
-  const keys = new Set([...Object.keys(task.params), ...Object.keys(params)]) as Set<
-    keyof TaskParams
-  >
-  for (const key of keys) {
-    if (!Object.is(task.params[key], params[key])) return false
-  }
-  return true
-}
-
 /**
  * 重试失败的任务：创建新任务并执行。像素只在平台上的记录先搬回本机，重试和本机记录走同一条路。
  */
@@ -2428,13 +2416,10 @@ async function retryLocalTask(task: TaskRecord) {
       settings: requestSettings,
       profile: activeProfile,
       params: taskParams,
-      // 还没拿到服务端回执、且这次仍按原来的模型和参数重发，才沿用原幂等键。
-      // 已经受理但出图失败，或用户换了模型/参数再试，都是新的一单，必须新铸键。
-      ...(!task.bffRequestId &&
-      task.clientRequestId &&
-      sameRetryIdentity(task, activeView.model, taskParams)
-        ? { clientRequestId: task.clientRequestId }
-        : {}),
+      // 用户点击重试是新的一单，始终新铸幂等键。
+      // 若首次 POST 已落库但回执丢失，随后服务端任务失败，复用旧键会让 replayCommand
+      // 一直带回失败的旧单；换渠道时请求哈希也可能对不上。自动重试（queueClient 断网重 POST、
+      // 刷新后 resumeGeneration）仍沿用同一键。
       variants: [
         {
           prompt: replaceImageMentionsForApi(

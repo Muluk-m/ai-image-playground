@@ -434,6 +434,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       : null
   // 生成模式挂着模板胶囊时：素材条数要与素材位对上。画布档不管它（那是智能体的事）。
   const lookSubmitting = useLookSubmission((s) => s.submitting)
+  const lookCancellable = useLookSubmission((s) => s.cancellable)
   const libraryAssets = useLibraryStore((s) => s.assets)
   const lookCheck = useMemo(
     () => (activeLook ? checkLookSubmission(activeLook, inputImages, libraryAssets) : null),
@@ -534,28 +535,32 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     }
   }
   const onSubmitClick = () => {
-    if (lookSubmitting) cancelLookSubmission()
+    if (lookSubmitting && lookCancellable) cancelLookSubmission()
+    else if (lookSubmitting) return
     else if (apiReady) submit()
     else setShowSettings(true)
   }
   const submitDisabled =
-    image26Unavailable || (!lookSubmitting && apiReady && (!submitReady || batchSending))
-  const submitLabel = lookSubmitting
-    ? t('common:action.cancel')
-    : batchSending
-      ? t('submit.submitting')
-      : toCanvas
-        ? t('submit.startCanvas')
-        : maskDraft
-          ? t('submit.maskEdit')
-          : batchActive
-            ? batchTotalCredits === undefined
-              ? t('batch.sendLabel', { count: batchImageCount })
-              : t('batch.sendLabelCredits', {
-                  count: batchImageCount,
-                  credits: batchTotalCredits.toLocaleString(),
-                })
-            : generateLabel
+    image26Unavailable ||
+    (lookSubmitting && !lookCancellable) ||
+    (!lookSubmitting && apiReady && (!submitReady || batchSending))
+  const submitLabel =
+    lookSubmitting && lookCancellable
+      ? t('common:action.cancel')
+      : lookSubmitting || batchSending
+        ? t('submit.submitting')
+        : toCanvas
+          ? t('submit.startCanvas')
+          : maskDraft
+            ? t('submit.maskEdit')
+            : batchActive
+              ? batchTotalCredits === undefined
+                ? t('batch.sendLabel', { count: batchImageCount })
+                : t('batch.sendLabelCredits', {
+                    count: batchImageCount,
+                    credits: batchTotalCredits.toLocaleString(),
+                  })
+              : generateLabel
   const submitTitle =
     submissionGuard.disabledReason ??
     (toCanvas

@@ -2588,7 +2588,7 @@ describe('submitPrepared 显式参数提交接缝', () => {
     expect(useStore.getState().tasks[0]?.bffRequestId).toBe('rid-ack')
   })
 
-  it('还没拿到队列号的失败任务重试时沿用原来的幂等键', async () => {
+  it('用户点击重试时不沿用原来的幂等键，即使还没拿到队列号', async () => {
     const failed = task({
       id: 'unacked-failed',
       status: 'error',
@@ -2602,7 +2602,7 @@ describe('submitPrepared 显式参数提交接缝', () => {
     useStore.setState({ tasks: [failed], prompt: '' })
     await retryTask(failed)
     await waitUntil(() => vi.mocked(callImageApi).mock.calls.length === 1, 'retry did not submit')
-    expect(vi.mocked(callImageApi).mock.calls[0]![0].clientRequestId).toBe('keep-me')
+    expect(vi.mocked(callImageApi).mock.calls[0]![0].clientRequestId).not.toBe('keep-me')
   })
 
   it('换了模型再重试时不沿用原来的幂等键', async () => {

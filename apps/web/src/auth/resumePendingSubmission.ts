@@ -35,13 +35,19 @@ export async function resumePendingSubmission(): Promise<void> {
       const operation = beginLookSubmission()
       if (!operation) return
       try {
+        let acknowledged = Promise.resolve()
         await operation.wait(
           submitPrepared(pending.input, {
             signal: operation.signal,
             isCurrent: operation.isCurrent,
             onConfirmationPending: operation.setConfirmationPending,
+            onAcknowledged: (ack) => {
+              acknowledged = ack
+            },
           }),
         )
+        operation.endPrepare()
+        await acknowledged
       } catch {
         const timedOut = operation.signal.reason?.name === 'TimeoutError'
         if (!operation.signal.aborted || timedOut)

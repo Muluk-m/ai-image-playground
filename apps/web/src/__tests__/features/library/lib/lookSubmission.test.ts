@@ -190,6 +190,29 @@ it('freezes the submission and preserves a newer draft while preventing duplicat
   expect(useActiveLook.getState().look?.name).toBe('Next template')
 })
 
+it('keeps the look submission lock until the server acknowledges and ignores cancel after send starts', async () => {
+  const imageId = seedImage()
+  useStore.setState({
+    inputImages: [{ id: imageId, dataUrl: storage.images.get(imageId)!.dataUrl }],
+  })
+  let release!: (error: Error) => void
+  vi.spyOn(globalThis, 'fetch').mockImplementation(
+    () =>
+      new Promise((_, reject) => {
+        release = reject
+      }),
+  )
+  const sending = submitWithLook(look(), 'template')
+  await vi.waitFor(() => expect(useStore.getState().tasks).toHaveLength(1))
+  expect(useLookSubmission.getState()).toMatchObject({ submitting: true, cancellable: false })
+  cancelLookSubmission()
+  expect(useLookSubmission.getState().submitting).toBe(true)
+  expect(await submitWithLook(look(), 'duplicate')).toBe(false)
+  release(new Error('offline after task creation'))
+  expect(await sending).toBe(true)
+  expect(useLookSubmission.getState().submitting).toBe(false)
+})
+
 it('leaving generation while images load cancels before any task is created', async () => {
   const imageId = crypto.randomUUID()
   const dataUrl =
