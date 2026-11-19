@@ -1,6 +1,7 @@
 import { hostname } from 'node:os'
 import { extname, join } from 'node:path'
 import { cors } from '@elysiajs/cors'
+import { trace } from '@opentelemetry/api'
 import { Elysia, StatusMap } from 'elysia'
 import { config } from './config'
 import { StageAuthorizationError } from './lib/agent/stage-authorizations'
@@ -219,6 +220,13 @@ function responseStatus(value: unknown, status: number | string | undefined): nu
 export const app = new Elysia()
   .onRequest(({ request }) => {
     requestStartedAt.set(request, performance.now())
+  })
+  // 服务端 span 在 request-context 里建，那时还不知道路由模板；匹配到路由后补上，按路由聚合耗时。
+  .onBeforeHandle({ as: 'global' }, ({ request, route }) => {
+    const span = trace.getActiveSpan()
+    if (!span || !route) return
+    span.updateName(`${request.method} ${route}`)
+    span.setAttribute('http.route', route)
   })
   // 参数必须解构：Elysia 按用到的字段决定要不要提前解析请求体，整个 context 传进来会让所有路由
   // 都被预先读掉 body（头像上传、自读 JSON 的路由会坏）。

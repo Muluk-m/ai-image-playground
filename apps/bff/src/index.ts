@@ -20,10 +20,12 @@ import {
 import { startPeriodicSteps } from './lib/periodic'
 import { purgeDeletingUnreferencedMedia, purgeExpiredAttachmentMedia } from './lib/projectMedia'
 import { startServerLogs } from './lib/server-logs'
+import { initTelemetry, shutdownTelemetry } from './lib/telemetry'
 import { refreshUpstreamKeySources } from './lib/upstream/gpt-direct-admin'
 import { logFingerprintMacSourceOnce } from './lib/upstream/gpt-key-config'
 import { UPSTREAM_SECRET_REFRESH_MS } from './lib/upstream-secrets'
 
+initTelemetry('bff')
 const stopServerLogs = startServerLogs()
 config.assertValid()
 log.info(
@@ -286,6 +288,7 @@ const upstreamSecretTimer = setInterval(() => {
 let shuttingDown = false
 
 async function finalize(exitCode = 0): Promise<never> {
+  await shutdownTelemetry()
   await stopServerLogs()
   await closeDb()
   // pino async transport：log.flush() 同步刷盘，防 process.exit 吞最后几行。

@@ -2,6 +2,7 @@ import { hostname } from 'node:os'
 import pino from 'pino'
 import { appVersion } from './app-version'
 import { requestLogFields } from './request-context'
+import { traceLogFields } from './telemetry'
 
 /**
  * BFF 全局 logger。pino 输出 JSON line 到 stdout；部署里由 Docker 的 fluentd 日志驱动转给
@@ -24,6 +25,6 @@ export const log = pino({
   },
   // ISO 时间戳比 epoch 数值方便人工读 & 聚合工具友好
   timestamp: pino.stdTimeFunctions.isoTime,
-  // 请求里打的日志自动带上 requestId（见 request-context）。
-  mixin: requestLogFields,
+  // 请求里打的日志自动带上 requestId（见 request-context），span 里打的再带上 trace_id / span_id。
+  mixin: () => ({ ...requestLogFields(), ...traceLogFields() }),
 })

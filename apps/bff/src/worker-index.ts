@@ -15,6 +15,7 @@ import {
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
 import { startServerLogs } from './lib/server-logs'
 import { startSharedMaintenance } from './lib/shared-maintenance'
+import { initTelemetry, shutdownTelemetry } from './lib/telemetry'
 import { refreshUpstreamKeySources } from './lib/upstream/gpt-direct-admin'
 import { logFingerprintMacSourceOnce } from './lib/upstream/gpt-key-config'
 import { UPSTREAM_SECRET_REFRESH_MS } from './lib/upstream-secrets'
@@ -26,6 +27,7 @@ import { abortAllRunningTasks, runningTaskIds } from './workers/task-execution'
 import { TaskScheduler } from './workers/task-scheduler'
 import { startWorkerHealthServer } from './workers/worker-health'
 
+initTelemetry('worker')
 const stopServerLogs = startServerLogs()
 config.assertValid()
 logFingerprintMacSourceOnce()
@@ -203,6 +205,7 @@ log.info(
 let shuttingDown = false
 
 async function finalize(exitCode = 0): Promise<never> {
+  await shutdownTelemetry()
   await stopServerLogs()
   await closeDb()
   log.flush()

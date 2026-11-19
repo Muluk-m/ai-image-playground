@@ -1,4 +1,13 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
+import {
+  context as otelContext,
+  propagation,
+  ROOT_CONTEXT,
+  SpanKind,
+  SpanStatusCode,
+  trace,
+} from '@opentelemetry/api'
+import { tracer } from './telemetry'
 
 export const REQUEST_ID_HEADER = 'x-request-id'
 
@@ -23,23 +32,58 @@ export function withRequestContext<T extends Response | undefined>(
   return (request) => {
     const incoming = request.headers.get(REQUEST_ID_HEADER)
     const requestId = incoming && ACCEPTED_ID.test(incoming) ? incoming : crypto.randomUUID()
-    return context.run({ requestId }, async () => {
-      // A successful WebSocket upgrade returns no HTTP response.
-      const response = await handle(request)
-      if (!response) return response
-      try {
-        response.headers.set(REQUEST_ID_HEADER, requestId)
-        return response
-      } catch {
-        // 不可变的响应头（例如直接透传的 fetch 响应）：复制一份再加。
-        const headers = new Headers(response.headers)
-        headers.set(REQUEST_ID_HEADER, requestId)
-        return new Response(response.body, {
-          status: response.status,
-          statusText: response.statusText,
-          headers,
-        })
-      }
-    })
+    // 调用方带了 W3C traceparent 就接着它的链路。span 只量到响应头返回，流式响应体不计入。
+    const parent = propagation.extract(ROOT_CONTEXT, request.headers, headerGetter)
+    const span = tracer.startSpan(
+      `HTTP ${request.method}`,
+      {
+        kind: SpanKind.SERVER,
+        attributes: {
+          'http.request.method': request.method,
+          'url.path': new URL(request.url).pathname,
+          'request.id': requestId,
+        },
+      },
+      parent,
+    )
+    return otelContext.with(trace.setSpan(parent, span), () =>
+      context.run({ requestId }, async () => {
+        let response: T
+        try {
+          response = await handle(request)
+        } catch (error) {
+          span.recordException(error instanceof Error ? error : String(error))
+          span.setStatus({ code: SpanStatusCode.ERROR })
+          span.end()
+          throw error
+        }
+        // A successful WebSocket upgrade returns no HTTP response.
+        if (!response) {
+          span.end()
+          return response
+        }
+        span.setAttribute('http.response.status_code', response.status)
+        if (response.status >= 500) span.setStatus({ code: SpanStatusCode.ERROR })
+        span.end()
+        try {
+          response.headers.set(REQUEST_ID_HEADER, requestId)
+          return response
+        } catch {
+          // 不可变的响应头（例如直接透传的 fetch 响应）：复制一份再加。
+          const headers = new Headers(response.headers)
+          headers.set(REQUEST_ID_HEADER, requestId)
+          return new Response(response.body, {
+            status: response.status,
+            statusText: response.statusText,
+            headers,
+          })
+        }
+      }),
+    )
   }
+}
+
+const headerGetter = {
+  get: (headers: Headers, key: string) => headers.get(key) ?? undefined,
+  keys: (headers: Headers) => [...headers.keys()],
 }
