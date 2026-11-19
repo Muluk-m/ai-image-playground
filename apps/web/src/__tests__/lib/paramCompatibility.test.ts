@@ -95,6 +95,13 @@ describe('parameter compatibility', () => {
     expect(normalizeParamsForSettings(params, settings).transparent_output).toBe(false)
   })
 
+  it('drops a stored gemini thinking level: direct prompts leave it to the model', () => {
+    const params = { ...DEFAULT_PARAMS, gemini_thinking_level: 'high' as const }
+    const settings = settingsFor(useChannel('gemini-queue', 'gemini-3.1-flash-image'))
+
+    expect(normalizeParamsForSettings(params, settings)).not.toHaveProperty('gemini_thinking_level')
+  })
+
   it('keeps explicit no_rewrite choice across gemini channels (guard is provider-gated at dispatch)', () => {
     const params = { ...DEFAULT_PARAMS, no_rewrite: false }
     const settings = settingsFor(useChannel('gemini-queue', 'gemini-3.1-flash-image'))
@@ -117,12 +124,12 @@ describe('getParamCapabilities', () => {
     ).toBe(false)
   })
 
-  it('gemini channel on a gemini model: image size and thinking level are offered', () => {
+  it('gemini channel on a gemini model: image size is offered', () => {
     const profile = useChannel('gemini-queue', 'gemini-3.1-flash-image')
     expect(getParamCapabilities(profile, 'png').geminiImageTuning).toBe(true)
   })
 
-  it('gemini channel on a non-gemini model: image size and thinking level are withheld', () => {
+  it('gemini channel on a non-gemini model: image size is withheld', () => {
     const profile = useChannel('gemini-queue', 'imagen-4.0-generate')
     expect(getParamCapabilities(profile, 'png').geminiImageTuning).toBe(false)
   })
