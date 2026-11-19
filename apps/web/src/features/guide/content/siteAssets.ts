@@ -11,7 +11,9 @@ export function siteAssetUrl(path: string): string {
 }
 
 export function siteAssetSource(url: string): string {
-  const source = Object.entries(SITE_ASSETS).find(([, key]) => `${SITE_ASSET_BASE}${key}` === url)?.[0]
+  const source = Object.entries(SITE_ASSETS).find(
+    ([, key]) => `${SITE_ASSET_BASE}${key}` === url,
+  )?.[0]
   if (!source) throw new Error(`官网素材地址未登记：${url}`)
   return source
 }
