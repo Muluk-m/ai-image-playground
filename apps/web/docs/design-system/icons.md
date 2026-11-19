@@ -49,6 +49,7 @@ import { Icon } from '@/components/ui/icon'
 | `toolbox` | 工具箱 | toolbox |
 | `guide` | 使用指南 | book |
 | `chat` | 对话 | chat-round |
+| `feedback` | 反馈 | chat-square-line |
 | `canvas` | 画布 | frame |
 | `settings` | 设置 | settings |
 | `user` | 账户 | user-circle |

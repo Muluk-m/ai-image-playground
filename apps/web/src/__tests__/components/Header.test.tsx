@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { SUPPORT_CONTACT } from '@image-playground/shared/support-contact'
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -121,6 +122,30 @@ describe('the header', () => {
       host.querySelector<HTMLButtonElement>('[aria-label="打开个人账户"]')?.click()
     })
     expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('插件集成')
+  })
+
+  it('在积分左侧打开反馈，并在关闭后把焦点还给反馈入口', () => {
+    renderLoggedIn(vi.fn(async () => {}))
+    const feedback = host.querySelector<HTMLButtonElement>('button[aria-label="反馈"]')
+    const credits = host.querySelector('[aria-label="积分余额"]')
+    expect(feedback?.nextElementSibling).toBe(credits)
+
+    act(() => {
+      feedback?.focus()
+      feedback?.click()
+    })
+    const dialog = document.querySelector('[role="dialog"]')
+    expect(dialog?.querySelector('h2')?.textContent).toBe('反馈')
+    const mailto = dialog?.querySelector('a')?.getAttribute('href')
+    expect(mailto && decodeURIComponent(mailto)).toBe(
+      `mailto:${SUPPORT_CONTACT.email}?subject=幕芽使用反馈`,
+    )
+
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    })
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(feedback)
   })
 
   it('顶栏没有横栏了：账号这一簇浮在右上角，不带品牌与导航', () => {
