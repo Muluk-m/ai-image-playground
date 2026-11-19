@@ -190,7 +190,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
       'failures',
       async () => {
         const watching = [...new Set(options.watchingModels ?? [])]
-        const [agentRaw, modelsRaw, successesRaw] = await Promise.all([
+        const [agentRaw, modelsRaw, successesRaw, disabledRaw] = await Promise.all([
           db.execute(sql`
           SELECT COUNT(*) AS count FROM agent_turns
           WHERE stop_reason = 'failed' AND created_at >= NOW() - INTERVAL '15 minutes'
@@ -250,10 +250,18 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
             AND submitted_at >= NOW() - INTERVAL '8 days'
           GROUP BY model
         `),
+          // 运营手动下架的模型不会再出图，交给告警判断从等待恢复名单里划掉；自动暂停的仍留在名单里继续提醒。
+          db.execute(sql`
+          SELECT model
+          FROM model_availability
+          WHERE active = false AND pause_reason IS NULL
+          ORDER BY model
+        `),
         ])
         const agentRows = agentRaw as unknown as Array<Record<string, unknown>>
         const modelRows = modelsRaw as unknown as Array<Record<string, unknown>>
         const successRows = successesRaw as unknown as Array<Record<string, unknown>>
+        const disabledRows = disabledRaw as unknown as Array<Record<string, unknown>>
         return {
           generation_system: modelRows.reduce((sum, row) => sum + Number(row.failures ?? 0), 0),
           agent: Number(agentRows[0]?.count ?? 0),
@@ -270,6 +278,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
           generation_successes: Object.fromEntries(
             successRows.map((row) => [String(row.model), Number(row.last_succeeded_at ?? 0)]),
           ),
+          generation_disabled: disabledRows.map((row) => String(row.model)),
         }
       },
       missed,
