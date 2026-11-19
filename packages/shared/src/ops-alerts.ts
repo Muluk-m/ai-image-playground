@@ -17,6 +17,7 @@ export type AlertRule =
   | 'heartbeat:bff'
   | 'api'
   | 'generation'
+  | 'generation-latency'
   | 'agent'
   | 'agent-pattern'
   | 'blind'
@@ -56,6 +57,8 @@ export interface AlertObservation {
     /** 每个模型最近一次成功出图的时间（近 24 小时）。恢复以它为准，不只看失败数。 */
     generation_successes?: Readonly<Record<string, number>>
   }
+  /** 近 1 小时有任务执行超过 SLOW_GENERATION_MS 的模型；没有就是空数组。 */
+  slowGenerations?: readonly SlowGenerationModel[]
   /**
    * 近 6 小时每一类 Agent 轮次失败（模型、错误码、上游状态码各算一类）。
    * 没有失败时为 null 或空数组。整块没取到就不要给这个字段。
@@ -72,6 +75,18 @@ export interface AlertObservation {
    * 备份和演练只在实际列出失败时累计，被节流跳过的轮次既不加也不清零。
    */
   blindBlocks?: ReadonlyArray<{ block: string; rounds: number }>
+}
+
+export interface SlowGenerationModel {
+  model: string
+  /** 窗口内从提交到完成超过 SLOW_GENERATION_MS 的成功任务，加上已超过这条线、还没结束的任务。 */
+  slow: number
+  /** 窗口内成功任务数。 */
+  completed: number
+  /** 当前还没结束的任务数（排队、执行、归档重试、待核查）。 */
+  unfinished: number
+  /** 窗口内最长耗时（没结束的按已过去的时长）。 */
+  maxMs: number
 }
 
 export interface GenerationFailureModel {
@@ -277,6 +292,26 @@ function readings(
       sustainMs: 0,
       firingText: `近 15 分钟有 ${failures.agent} 次 Agent 轮次失败`,
       resolvedText: '已恢复：Agent 轮次失败回到告警线内',
+    }
+  }
+
+  if (observation.slowGenerations) {
+    const slow = observation.slowGenerations.filter(
+      (one) =>
+        one.slow >= OPS_THRESHOLDS.SLOW_GENERATION_COUNT &&
+        one.slow / Math.max(1, one.completed + one.unfinished) >=
+          OPS_THRESHOLDS.SLOW_GENERATION_MIN_RATIO,
+    )
+    out['generation-latency'] = {
+      breached: slow.length > 0,
+      sustainMs: 0,
+      firingText: `近 ${span(OPS_THRESHOLDS.SLOW_GENERATION_WINDOW_MS)}有模型出图耗时明显变长（单个任务从提交到完成超过 ${span(OPS_THRESHOLDS.SLOW_GENERATION_MS)}算慢，告警线 ${OPS_THRESHOLDS.SLOW_GENERATION_COUNT} 个）：\n${slow
+        .map(
+          (one) =>
+            `· ${one.model}：${one.slow}/${one.completed + one.unfinished} 个慢任务（含 ${one.unfinished} 个尚未完成），最长 ${Math.round(one.maxMs / 1000)} 秒`,
+        )
+        .join('\n')}`,
+      resolvedText: '已恢复：各模型出图耗时回到告警线内',
     }
   }
 

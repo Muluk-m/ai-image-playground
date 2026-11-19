@@ -1,4 +1,5 @@
 import type { HydratedSubmitRequest } from '../imageArchive'
+import { log } from '../logger'
 import { buildGeminiBody } from './gemini'
 import { clientError } from './shared'
 
@@ -91,6 +92,8 @@ export async function withVertexRateLimitRetry<T>(
   isTimeout: () => boolean,
   /** 原模型的总时限（epoch 毫秒）：下一次退避会越过它就不等了，按限流失败交给回落。 */
   capAt?: number,
+  /** 写进退避日志的定位字段（taskId、model）。 */
+  logFields?: Readonly<Record<string, unknown>>,
 ): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
     try {
@@ -101,6 +104,15 @@ export async function withVertexRateLimitRetry<T>(
       if (step === undefined) throw rateLimitedError(error)
       const delay = step * (0.75 + Math.random() * 0.5)
       if (capAt !== undefined && Date.now() + delay >= capAt) throw rateLimitedError(error)
+      log.warn(
+        {
+          event: 'upstream.vertex_rate_limit_backoff',
+          ...logFields,
+          attempt: attempt + 1,
+          delayMs: Math.round(delay),
+        },
+        'vertex 429; backing off before retry',
+      )
       try {
         await sleep(delay, signal)
       } catch (abort) {
