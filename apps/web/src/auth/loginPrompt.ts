@@ -58,21 +58,38 @@ const GUEST_LOGIN_PROMPT_DISMISSED_KEY = 'aip.guest-login-prompt-dismissed'
 /** 与官网语言跳转相同：爬虫不自动弹框，避免它们只抓到遮罩。 */
 const BOT_UA = /bot|crawl|spider|slurp|preview|facebookexternalhit/i
 
-export function guestLoginPromptDismissedThisSession(): boolean {
-  if (typeof sessionStorage === 'undefined') return false
+/** sessionStorage 写不进去时，仍保证这一次页面生命周期内不再自动弹出。 */
+let guestLoginPromptDismissed = false
+
+function guestLoginPromptStorage(): Storage | null {
   try {
-    return sessionStorage.getItem(GUEST_LOGIN_PROMPT_DISMISSED_KEY) === '1'
+    if (typeof window === 'undefined') return null
+    return window.sessionStorage
+  } catch {
+    return null
+  }
+}
+
+export function guestLoginPromptDismissedThisSession(): boolean {
+  if (guestLoginPromptDismissed) return true
+  try {
+    const storage = guestLoginPromptStorage()
+    if (storage?.getItem(GUEST_LOGIN_PROMPT_DISMISSED_KEY) === '1') {
+      guestLoginPromptDismissed = true
+      return true
+    }
+    return false
   } catch {
     return false
   }
 }
 
 export function rememberGuestLoginPromptDismissed(): void {
-  if (typeof sessionStorage === 'undefined') return
+  guestLoginPromptDismissed = true
   try {
-    sessionStorage.setItem(GUEST_LOGIN_PROMPT_DISMISSED_KEY, '1')
+    guestLoginPromptStorage()?.setItem(GUEST_LOGIN_PROMPT_DISMISSED_KEY, '1')
   } catch {
-    // 隐私模式写不进去时，这次会话里最多再自动弹一次。
+    // 内存标记已经记下，刷新后可能会再自动弹一次。
   }
 }
 

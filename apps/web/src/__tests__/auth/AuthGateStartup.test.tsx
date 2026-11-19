@@ -349,6 +349,34 @@ describe('anonymous startup', () => {
     expect(document.body.querySelector('.auth-dialog')).not.toBeNull()
   })
 
+  it('does not reopen the login dialog when sessionStorage cannot persist dismissal', async () => {
+    history.replaceState(null, '', '/image')
+    await bootAnonymously()
+    expect(document.body.querySelector('.auth-dialog')).not.toBeNull()
+
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('The quota has been exceeded.', 'QuotaExceededError')
+    })
+    try {
+      await act(async () => {
+        document.body.querySelector<HTMLButtonElement>('button[aria-label="关闭登录框"]')?.click()
+      })
+      expect(document.body.querySelector('.auth-dialog')).toBeNull()
+
+      await act(async () => {
+        history.pushState(null, '', '/pricing')
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      })
+      await act(async () => {
+        history.pushState(null, '', '/image')
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      })
+      expect(document.body.querySelector('.auth-dialog')).toBeNull()
+    } finally {
+      setItem.mockRestore()
+    }
+  })
+
   it('does not auto-open the login dialog for crawlers', async () => {
     vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
       'Mozilla/5.0 (compatible; Googlebot/2.1)',
