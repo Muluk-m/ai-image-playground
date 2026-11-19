@@ -306,13 +306,13 @@ export function ImageSettings({
     countVisible && params.output_format !== 'gif' && params.output_format !== 'svg'
       ? t('settings.count', { count: fixedCount ?? params.n })
       : ''
-  const summary = [...(formatSummary ?? sizeSummary), countSummary].filter(Boolean).join(' · ')
-  // 胶囊上只写改过的：智能比例不占字。
-  const visibleSummary = [
-    ...(formatSummary ?? sizeSummary.filter((part) => part !== autoLabel)),
-    countSummary,
-  ]
-    .filter(Boolean)
+  const summaryParts = [...(formatSummary ?? sizeSummary), countSummary]
+  const summary = summaryParts.filter(Boolean).join(' · ')
+  // 胶囊上只写改过的：智能比例（摘要第一段）不占字，完整摘要留给读屏与悬停。
+  const ratioOmitted =
+    !formatSummary && ratio === 'auto' && (isGemini || selection.kind !== 'custom')
+  const visibleSummary = summaryParts
+    .filter((part, index) => part && !(ratioOmitted && index === 0))
     .join(' · ')
   // 摘要里看不到、又偏离了默认值的参数。
   const dirty =

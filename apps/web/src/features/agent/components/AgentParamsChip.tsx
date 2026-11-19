@@ -1,5 +1,5 @@
 import { agentModelImageMax, isGptDirectModel } from '@image-playground/shared'
-import { Fragment, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, type ReactNode, useMemo, useRef, useState } from 'react'
 import { ModelList, useModelChoices } from '../../../components/composer/ModelSelector'
 import {
   RatioGrid,
@@ -122,29 +122,132 @@ function useComposerRatio() {
   return { ratio, setRatio }
 }
 
+interface Segment {
+  key: string
+  label: string
+  /** 偏离默认、写在胶囊上。 */
+  shown: boolean
+  /** 读屏与悬停的完整摘要里要不要它；缺省同 `shown`。 */
+  described?: boolean
+  /** 缺省可被收起、不被截断；模型名可截断，张数在窄输入框里也留着。 */
+  className?: string
+  icon?: ReactNode
+}
+
+const SEGMENT_TEXT = 'creation-params-text shrink-0'
+const MODEL_TEXT = 'creation-params-text creation-params-model'
+
 /** 胶囊上的几段文字，中间用圆点隔开；窄输入框里文字收起（creation.css）。 */
-function CapsuleSegments({
-  parts,
-  marked = false,
-}: {
-  parts: ReadonlyArray<{ key: string; node: ReactNode }>
-  /** 文字收起后用一个芽绿点提示「有改过的偏好」。 */
-  marked?: boolean
-}) {
+function CapsuleSegments({ segments }: { segments: readonly Segment[] }) {
   return (
     <span className="creation-params-segments">
-      {parts.map((part, index) => (
-        <Fragment key={part.key}>
+      {segments.map((segment, index) => (
+        <Fragment key={segment.key}>
           {index > 0 && (
-            <span className="creation-params-text shrink-0" aria-hidden="true">
+            <span className={SEGMENT_TEXT} aria-hidden="true">
               ·
             </span>
           )}
-          {part.node}
+          {segment.icon}
+          <span className={segment.className ?? SEGMENT_TEXT}>{segment.label}</span>
         </Fragment>
       ))}
-      {marked && <span className="creation-params-dot" aria-hidden="true" />}
     </span>
+  )
+}
+
+/** 卡片内容：关着时整块卸载，二级页状态随之回到主页。 */
+function AgentSettingsCard({
+  imageMode,
+  showThinking,
+  ratio,
+  ratios,
+  onRatio,
+  count,
+  countChoices,
+  modelValue,
+}: {
+  imageMode: boolean
+  showThinking: boolean
+  ratio: string
+  ratios: readonly string[]
+  onRatio: (value: string) => void
+  count: number
+  countChoices: readonly number[]
+  modelValue: string
+}) {
+  const { t } = useTranslation(['agent', 'composer'])
+  const modelAuto = useAgentStore((state) => state.modelAuto)
+  const setModelAuto = useAgentStore((state) => state.setModelAuto)
+  const { options, currentValue, pick } = useModelChoices()
+  const [page, setPage] = useState<'main' | 'model'>('main')
+  const modelRowRef = useRef<HTMLButtonElement>(null)
+
+  if (page === 'model') {
+    return (
+      <SettingsSubpage
+        title={t('params.model')}
+        onBack={() => setPage('main')}
+        returnFocusRef={modelRowRef}
+      >
+        {!imageMode && (
+          <SettingsToggle
+            label={t('params.modelAutoToggle')}
+            checked={modelAuto}
+            onChange={setModelAuto}
+          />
+        )}
+        {(imageMode || !modelAuto) && (
+          <ModelList
+            options={options}
+            value={currentValue}
+            onPick={(value) => {
+              pick(value)
+              // 切到单笔上限更低的模型（Lite 一单 4 张）：已选的 6、8 张随之落到能出的那一档。
+              const model = options.find((option) => option.value === value)?.model
+              const chosen = useStore.getState().params.n
+              if (imageMode && chosen > agentModelImageMax(model))
+                useStore.getState().setParams({ n: snapImageCount(chosen, model) })
+              setPage('main')
+            }}
+          />
+        )}
+      </SettingsSubpage>
+    )
+  }
+  return (
+    <>
+      <SettingsSection title={t('params.ratio')}>
+        <RatioGrid
+          label={t('params.ratio')}
+          options={ratios.map((value) => ({
+            value,
+            label: value === 'auto' ? t('composer:settings.autoOption') : value,
+          }))}
+          value={ratio}
+          onChange={onRatio}
+        />
+      </SettingsSection>
+      {showThinking && <SpeedSection />}
+      {imageMode ? (
+        <SettingsSection title={t('params.outputCount')}>
+          <SettingsSegmented
+            label={t('params.outputCount')}
+            options={countChoices.map((value) => ({ value, label: String(value) }))}
+            value={count}
+            onChange={(next) => useStore.getState().setParams({ n: next })}
+          />
+        </SettingsSection>
+      ) : (
+        <ConfirmToggle />
+      )}
+      <SettingsLinkRow
+        ref={modelRowRef}
+        label={t('params.model')}
+        value={modelValue}
+        onClick={() => setPage('model')}
+      />
+    </>
   )
 }
 
@@ -166,43 +269,10 @@ export default function AgentParamsChip({
   const setDepth = useAgentStore((state) => state.setThinkingDepth)
   const autoSubmit = useAgentStore((state) => state.autoSubmit)
   const modelAuto = useAgentStore((state) => state.modelAuto)
-  const setModelAuto = useAgentStore((state) => state.setModelAuto)
-  const { options, currentValue, current, pick } = useModelChoices()
+  const { current } = useModelChoices()
   const { ratio, setRatio } = useComposerRatio()
   const storedCount = useStore((state) => state.params.n)
-  const [page, setPage] = useState<'main' | 'model'>('main')
-  const modelRowRef = useRef<HTMLButtonElement>(null)
-  const returning = useRef(false)
-  // 从二级页回来时，焦点落回「模型」这一行，不掉到 body。
-  const backToMain = () => {
-    returning.current = true
-    setPage('main')
-  }
-  useEffect(() => {
-    if (page !== 'main' || !returning.current) return
-    returning.current = false
-    modelRowRef.current?.focus()
-  }, [page])
   const labels = useDepthLabels()
-  const countModel = imageMode ? current?.model : undefined
-  const count = snapImageCount(storedCount, countModel)
-  const countChoices = imageCountChoices(countModel)
-  const showThinking = thinkingControls && !imageMode
-  const showAutoModel = !imageMode && modelAuto
-  const modelLabel = showAutoModel
-    ? t('params.modelAuto')
-    : (current?.label ?? t('params.modelAuto'))
-  const summary = [
-    modelLabel,
-    showThinking ? labels[depth] : '',
-    ratio !== 'auto' ? ratio : '',
-    imageMode ? t('composer:settings.count', { count }) : '',
-    !imageMode && !autoSubmit ? t('params.confirmShort') : '',
-  ]
-    .filter(Boolean)
-    .join(' · ')
-  const ratioChoices = (imageMode ? IMAGE_RATIOS : AGENT_RATIOS) as readonly string[]
-  const ratios = ratioChoices.includes(ratio) ? ratioChoices : [ratio, ...ratioChoices]
 
   if (!generationControls) {
     return (
@@ -218,63 +288,61 @@ export default function AgentParamsChip({
     )
   }
 
-  // 空间不够时只截模型名，比例、张数这类短值保持完整。
-  const text = (key: string, value: string) => ({
-    key,
-    node: (
-      <span
-        className={
-          key === 'model'
-            ? 'creation-params-text creation-params-model'
-            : 'creation-params-text shrink-0'
-        }
-      >
-        {value}
-      </span>
-    ),
-  })
-  const parts = imageMode
+  const countModel = imageMode ? current?.model : undefined
+  const count = snapImageCount(storedCount, countModel)
+  const showThinking = thinkingControls && !imageMode
+  const showAutoModel = !imageMode && modelAuto
+  const modelLabel = showAutoModel
+    ? t('params.modelAuto')
+    : (current?.label ?? t('params.modelAuto'))
+  const ratioSegment: Segment = { key: 'ratio', label: ratio, shown: ratio !== 'auto' }
+  const segments: Segment[] = imageMode
     ? [
         {
           key: 'model',
-          node: (
-            <>
-              <span className="flex shrink-0">
-                <ModelLogo model={current?.model ?? ''} />
-              </span>
-              <span className="creation-params-text creation-params-model">{modelLabel}</span>
-            </>
+          label: modelLabel,
+          shown: true,
+          className: MODEL_TEXT,
+          icon: (
+            <span className="flex shrink-0">
+              <ModelLogo model={current?.model ?? ''} />
+            </span>
           ),
         },
-        ...(ratio !== 'auto' ? [text('ratio', ratio)] : []),
+        ratioSegment,
         {
           key: 'count',
+          label: t('composer:settings.count', { count }),
+          shown: true,
           // 张数关系到扣费，窄输入框收起文字时也留着。
-          node: (
-            <span className="shrink-0 tabular-nums">{t('composer:settings.count', { count })}</span>
-          ),
+          className: 'shrink-0 tabular-nums',
         },
       ]
     : [
-        ...(showAutoModel ? [] : [text('model', modelLabel)]),
-        ...(showThinking && depth !== 'medium' ? [text('depth', labels[depth])] : []),
-        ...(ratio !== 'auto' ? [text('ratio', ratio)] : []),
-        ...(autoSubmit ? [] : [text('confirm', t('params.confirmShort'))]),
+        {
+          key: 'model',
+          label: modelLabel,
+          shown: !showAutoModel,
+          described: true,
+          className: MODEL_TEXT,
+        },
+        {
+          key: 'depth',
+          label: labels[depth],
+          shown: showThinking && depth !== 'medium',
+          described: showThinking,
+        },
+        ratioSegment,
+        { key: 'confirm', label: t('params.confirmShort'), shown: !autoSubmit },
       ]
-  const changed =
-    ratio !== 'auto' ||
-    (imageMode
-      ? count !== DEFAULT_PARAMS.n
-      : !modelAuto || !autoSubmit || (showThinking && depth !== 'medium'))
-  const pickModel = (value: string) => {
-    pick(value)
-    // 切到单笔上限更低的模型（Lite 一单 4 张）：已选的 6、8 张随之落到能出的那一档。
-    const model = options.find((option) => option.value === value)?.model
-    const chosen = useStore.getState().params.n
-    if (imageMode && chosen > agentModelImageMax(model))
-      useStore.getState().setParams({ n: snapImageCount(chosen, model) })
-    backToMain()
-  }
+  const summary = segments
+    .filter((segment) => segment.described ?? segment.shown)
+    .map((segment) => segment.label)
+    .join(' · ')
+  const visible = segments.filter((segment) => segment.shown)
+  // 智能体模式里胶囊上写出来的就是改过的那几项。
+  const changed = imageMode ? ratio !== 'auto' || count !== DEFAULT_PARAMS.n : visible.length > 0
+  const ratioChoices = (imageMode ? IMAGE_RATIOS : AGENT_RATIOS) as readonly string[]
 
   return (
     <SettingsPopover
@@ -282,76 +350,34 @@ export default function AgentParamsChip({
       className="creation-params-capsule"
       summary={summary}
       title={t('composer:settings.title')}
-      onOpenChange={(open) => {
-        if (!open) setPage('main')
-      }}
+      dirty={!imageMode && changed}
       onReset={
         changed
           ? () => {
               setRatio('auto')
               if (imageMode) useStore.getState().setParams({ n: DEFAULT_PARAMS.n })
               else {
-                setModelAuto(true)
+                useAgentStore.getState().setModelAuto(true)
                 useAgentStore.getState().setAutoSubmit(true)
                 if (showThinking) setDepth('medium')
               }
             }
           : undefined
       }
-      summaryContent={parts.length > 0 ? <CapsuleSegments parts={parts} marked={!imageMode} /> : ''}
+      summaryContent={visible.length > 0 ? <CapsuleSegments segments={visible} /> : ''}
     >
-      {() =>
-        page === 'model' ? (
-          <SettingsSubpage title={t('params.model')} onBack={backToMain}>
-            {!imageMode && (
-              <SettingsToggle
-                label={t('params.modelAutoToggle')}
-                checked={modelAuto}
-                onChange={setModelAuto}
-              />
-            )}
-            {(imageMode || !modelAuto) && (
-              <ModelList options={options} value={currentValue} onPick={pickModel} />
-            )}
-          </SettingsSubpage>
-        ) : (
-          <>
-            <SettingsSection title={t('params.ratio')}>
-              <RatioGrid
-                label={t('params.ratio')}
-                options={ratios.map((value) => ({
-                  value,
-                  label: value === 'auto' ? t('composer:settings.autoOption') : value,
-                }))}
-                value={ratio}
-                onChange={setRatio}
-              />
-            </SettingsSection>
-            {showThinking && <SpeedSection />}
-            {imageMode ? (
-              <SettingsSection title={t('params.outputCount')}>
-                <SettingsSegmented
-                  label={t('params.outputCount')}
-                  options={countChoices.map((value) => ({
-                    value,
-                    label: String(value),
-                  }))}
-                  value={count}
-                  onChange={(next) => useStore.getState().setParams({ n: next })}
-                />
-              </SettingsSection>
-            ) : (
-              <ConfirmToggle />
-            )}
-            <SettingsLinkRow
-              ref={modelRowRef}
-              label={t('params.model')}
-              value={showAutoModel ? t('composer:settings.autoOption') : modelLabel}
-              onClick={() => setPage('model')}
-            />
-          </>
-        )
-      }
+      {() => (
+        <AgentSettingsCard
+          imageMode={imageMode}
+          showThinking={showThinking}
+          ratio={ratio}
+          ratios={ratioChoices.includes(ratio) ? ratioChoices : [ratio, ...ratioChoices]}
+          onRatio={setRatio}
+          count={count}
+          countChoices={imageCountChoices(countModel)}
+          modelValue={showAutoModel ? t('composer:settings.autoOption') : modelLabel}
+        />
+      )}
     </SettingsPopover>
   )
 }

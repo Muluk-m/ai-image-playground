@@ -125,14 +125,15 @@
 .creation-params-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 空间不够时只截模型名，至少留几个字认得出。 */
 .creation-params-model { min-width: 3em; }
-.creation-params-dot { display: none; }
+/* 智能体胶囊的改动都写在字上，芽绿点只在文字收起后出现。 */
+.creation-params-capsule [data-settings-dot] { display: none; }
 @container creation-composer (max-width: 400px) {
  .creation-params-capsule { flex: 0 0 auto; overflow: visible; }
  .creation-params-capsule .creation-params-text { display: none; }
  .creation-params-segments { gap: 8px; overflow: visible; }
  .creation-params-segments > span { flex: 0 0 auto; }
  .creation-params-segments svg { width: 16px; height: 16px; }
- .creation-params-dot { display: block; position: absolute; top: 6px; right: 6px; width: 6px; height: 6px; border-radius: 9999px; background: hsl(var(--primary)); }
+ .creation-params-capsule [data-settings-dot] { display: block; }
 }
 
 .creation-toolbar-status { grid-column: 1 / -1; overflow-wrap: anywhere; @apply text-label-sm; }

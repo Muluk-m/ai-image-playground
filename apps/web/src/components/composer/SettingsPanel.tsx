@@ -2,6 +2,7 @@ import {
   type InputHTMLAttributes,
   type ReactNode,
   type Ref,
+  type RefObject,
   useEffect,
   useId,
   useRef,
@@ -57,7 +58,6 @@ export function SettingsPopover({
   size = 'md',
   className,
   onReset,
-  onOpenChange,
   children,
 }: {
   /** 读屏与悬停用的完整摘要。 */
@@ -71,56 +71,32 @@ export function SettingsPopover({
   /** 摘要后的状态标记。 */
   badge?: ReactNode
   title: string
-  /** 胶囊上看不到的参数偏离了默认值：右上角亮一个芽绿点。 */
+  /** 胶囊上看不到的参数偏离了默认值：右上角亮一个芽绿点（`data-settings-dot`，调用方可用 CSS 控制何时显示）。 */
   dirty?: boolean
   size?: ComposerControlSize
   className?: string
   /** 只在有参数偏离默认值时传；不传就不显示「恢复默认」。 */
   onReset?: () => void
-  onOpenChange?: (open: boolean) => void
   children: () => ReactNode
 }) {
   const { t } = useTranslation('composer')
   const [open, setOpen] = useState(false)
   const titleId = useId()
-  const triggerRef = useRef<HTMLButtonElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
-  const [iconsOnly, setIconsOnly] = useState(false)
   const accessible = detail ? `${summary} · ${detail}` : summary
   const summaryText = useOverflowTitle<HTMLSpanElement>(summary)
   const visible = summaryContent ?? summary
-  // 分段摘要在窄输入框里只留图标（creation.css），那时悬停要给回完整文字。
   const segmented = summaryContent != null && typeof summaryContent !== 'string'
-  // 胶囊省掉了默认值时，悬停给回完整摘要。
+  // 胶囊省掉了默认值（分段摘要在窄输入框里还会只留图标）时，悬停给回完整摘要。
   const abridged = summaryContent !== undefined && visible !== summary
-  useEffect(() => {
-    const node = triggerRef.current?.closest('.creation-composer')
-    if (!node || !segmented || typeof ResizeObserver === 'undefined') return
-    const measure = () => setIconsOnly(node.clientWidth <= 400)
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [segmented])
-  const changeOpen = (next: boolean) => {
-    setOpen(next)
-    onOpenChange?.(next)
-  }
   return (
-    <Popover open={open} onOpenChange={changeOpen}>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
-          ref={triggerRef}
           variant="outline"
           size={size === 'md' ? 'chip-lg' : 'chip-sm'}
           type="button"
-          title={
-            iconsOnly || abridged
-              ? accessible
-              : detail
-                ? `${title}: ${accessible}`
-                : summaryText.title
-          }
+          title={abridged ? accessible : detail ? `${title}: ${accessible}` : summaryText.title}
           aria-label={`${title}: ${accessible}`}
           data-dirty={dirty || undefined}
           className={cn(composerChipClass(size), className)}
@@ -136,6 +112,7 @@ export function SettingsPopover({
           {badge && <span className="flex shrink-0">{badge}</span>}
           {dirty && (
             <span
+              data-settings-dot
               aria-hidden="true"
               className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-primary"
             />
@@ -179,7 +156,7 @@ export function SettingsPopover({
               size="icon-sm"
               type="button"
               aria-label={t('settings.close')}
-              onClick={() => changeOpen(false)}
+              onClick={() => setOpen(false)}
               className="text-muted-foreground hover:text-foreground"
             >
               <Icon name="close" />
@@ -196,16 +173,22 @@ export function SettingsPopover({
 export function SettingsSubpage({
   title,
   onBack,
+  returnFocusRef,
   children,
 }: {
   title: string
   onBack: () => void
+  /** 回到主页后接住焦点的那一行；卡片整个关掉时它不在，焦点照常交还触发按钮。 */
+  returnFocusRef?: RefObject<HTMLElement | null>
   children: ReactNode
 }) {
   const { t } = useTranslation('composer')
   const backRef = useRef<HTMLButtonElement>(null)
-  // 进来的那一行随主页卸载，焦点交给返回按钮。
-  useEffect(() => backRef.current?.focus(), [])
+  // 主页与二级页互相替换，点过的那一行会卸载；焦点在两边各自接住，不掉到 body。
+  useEffect(() => {
+    backRef.current?.focus()
+    return () => returnFocusRef?.current?.focus()
+  }, [returnFocusRef])
   return (
     <section className="space-y-3" aria-label={title}>
       <Button
