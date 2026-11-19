@@ -44,11 +44,7 @@ import {
   tierFits,
 } from '../lib/size'
 import { useStore } from '../store'
-import {
-  DEFAULT_PARAMS,
-  GEMINI_ASPECT_RATIOS,
-  type TaskParams,
-} from '../types'
+import { DEFAULT_PARAMS, GEMINI_ASPECT_RATIOS, type TaskParams } from '../types'
 import { ModelSelector } from './composer/ModelSelector'
 import {
   type ComposerControlSize,
