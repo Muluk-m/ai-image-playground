@@ -739,6 +739,56 @@ func TestClearWithTemporarilyUnavailableKeychainDoesNotResurrectStaleAccount(t *
 	}
 }
 
+func TestForceKeyringLockedClearReturnsErrorAndNeverResurrectsAccount(t *testing.T) {
+	dir := t.TempDir()
+	keychain := &userKeychain{entries: map[string]string{}}
+	forced := Store{Dir: dir, UseKeyring: true, ClearKeyring: true, ForceKeyring: true, Keychain: keychain}
+
+	// 1. Save Account A to keychain under MUVLOOM_CREDENTIALS_STORE=keychain.
+	if err := forced.Save(Credentials{AccessToken: "a-tok", RefreshToken: "a-ref", BaseURL: "https://api.example"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Keychain locks temporarily while saving Account B -> falls back to file with marker.
+	keychain.err = errors.New("keychain locked")
+	if err := forced.Save(Credentials{AccessToken: "b-tok", RefreshToken: "b-ref", BaseURL: "https://api.example"}); err != nil {
+		t.Fatalf("fallback Save failed: %v", err)
+	}
+	// Keychain unlocks later (still holding A): Load must still return B, not stale A.
+	keychain.err = nil
+	if got, err := forced.Load(); err != nil || got.RefreshToken != "b-ref" {
+		t.Fatalf("ForceKeyring bypassed keychain_fallback on Load: %+v, %v", got, err)
+	}
+	if info := forced.Describe(); info.Backend != "file" {
+		t.Fatalf("ForceKeyring Describe under keychain_fallback = %+v, want file", info)
+	}
+
+	// 3. Keychain locks again during Clear -> ForceKeyring Clear MUST report an error AND keep
+	// the safety marker so unlocking later still never resurrects Account A.
+	keychain.err = errors.New("keychain locked")
+	if err := forced.Clear(); err == nil {
+		t.Fatal("expected ForceKeyring Clear to fail when keychain removal cannot be confirmed")
+	}
+	keychain.err = nil
+	if _, err := forced.Load(); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("ForceKeyring resurrected Account A after locked Clear: %v", err)
+	}
+	if info := forced.Describe(); info.Backend != "none" {
+		t.Fatalf("ForceKeyring Describe after locked Clear = %+v, want none", info)
+	}
+
+	// 4. Subsequent Save while keychain is unlocked migrates cleanly back to keychain.
+	if err := forced.Save(Credentials{AccessToken: "c-tok", RefreshToken: "c-ref", BaseURL: "https://api.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := forced.Load(); err != nil || got.RefreshToken != "c-ref" {
+		t.Fatalf("ForceKeyring Load after recovery Save = %+v, %v", got, err)
+	}
+	if info := forced.Describe(); info.Backend != "keychain" {
+		t.Fatalf("ForceKeyring Describe after recovery Save = %+v, want keychain", info)
+	}
+}
+
 func TestSwitchingBackToKeychainAbortsWhenModeMarkerCannotBeCleared(t *testing.T) {
 	dir := t.TempDir()
 	keychain := &userKeychain{entries: map[string]string{}}

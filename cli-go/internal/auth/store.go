@@ -211,11 +211,19 @@ func (s Store) preferFileOverKeychain() bool {
 	return preferFile
 }
 
-// shouldUseKeychain reports whether this Store should read/write the system keychain.
-// When a sandboxed host wrote or cleared credentials in file mode, subsequent non-sandboxed
-// reads and refreshes stay on file mode so both environments remain in sync until an explicit
-// keychain override or a confirmed keychain-clearing sign-out.
-func (s Store) shouldUseKeychain() bool {
+// shouldUseKeychainForRead reports whether Load/Describe may trust the system keychain.
+// Even when ForceKeyring is set (MUVLOOM_CREDENTIALS_STORE=keychain), an active file-mode
+// marker (sandbox or keychain_fallback) stays authoritative for reads until a write or
+// confirmed keychain-clearing sign-out actually clears it, so a locked keychain recovering
+// later can never resurrect a stale or signed-out account.
+func (s Store) shouldUseKeychainForRead() bool {
+	return s.UseKeyring && !s.preferFileOverKeychain()
+}
+
+// shouldUseKeychainForWrite reports whether Save/Preflight should target the system keychain.
+// Normal non-sandboxed refreshes stay in file mode while a sandboxed host owns the login;
+// ForceKeyring (MUVLOOM_CREDENTIALS_STORE=keychain) explicitly migrates back on write.
+func (s Store) shouldUseKeychainForWrite() bool {
 	return s.UseKeyring && (s.ForceKeyring || !s.preferFileOverKeychain())
 }
 
@@ -231,7 +239,7 @@ func (s Store) Describe() Info {
 	var info Info
 	if s.UseKeyring {
 		mode, preferFile := s.readStoreMode()
-		useKeychain := s.ForceKeyring || !preferFile
+		useKeychain := !preferFile
 		if useKeychain || mode.Reason == "keychain_fallback" {
 			_, err := s.keychain().Get(keyringService, keyringUser)
 			switch {
@@ -258,7 +266,7 @@ func (s Store) Describe() Info {
 }
 
 func (s Store) Load() (Credentials, error) {
-	if s.shouldUseKeychain() {
+	if s.shouldUseKeychainForRead() {
 		if secret, err := s.keychain().Get(keyringService, keyringUser); err == nil {
 			var creds Credentials
 			if err := json.Unmarshal([]byte(secret), &creds); err != nil {
@@ -475,6 +483,8 @@ func (s Store) Clear() error {
 					keyringErr = fmt.Errorf("could not remove credentials from the system keychain: %w", err)
 				} else if errors.Is(getErr, keyring.ErrNotFound) {
 					keychainCleared = true
+				} else if s.ForceKeyring {
+					keyringErr = fmt.Errorf("could not confirm removal of credentials from the system keychain: %w", err)
 				}
 			}
 		}
@@ -496,7 +506,7 @@ func (s Store) Clear() error {
 // updated and emptied in place. It writes no secret and leaves stored credentials as they were.
 func (s Store) Preflight() error {
 	return s.locked(func() error {
-		if s.shouldUseKeychain() {
+		if s.shouldUseKeychainForWrite() {
 			kc := s.keychain()
 			if err := kc.Set(keyringService, keyringProbeUser, "ok"); err == nil {
 				_ = kc.Delete(keyringService, keyringProbeUser)
