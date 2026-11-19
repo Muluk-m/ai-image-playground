@@ -34,8 +34,8 @@ export function composerModelChipClass(size: ComposerControlSize = 'md') {
 }
 
 /**
- * 生成设置卡片：摘要 chip 点开，标题 + 关闭、中间分组、底部「恢复默认 / 完成」。
- * 改动即时写入，「完成」只是收起。图片与视频参数都走这一个外壳。
+ * 生成设置卡片：摘要 chip 点开，标题行放「恢复默认」与关闭，下面按组排列。
+ * 改动即时写入，没有确认按钮；点外面或 Esc 收起。图片与视频参数都走这一个外壳。
  * 分组由 `children` 渲染函数给出，卡片关着时不构建。
  */
 export function SettingsPopover({
@@ -49,66 +49,87 @@ export function SettingsPopover({
   size = 'md',
   className,
   onReset,
+  onOpenChange,
   children,
 }: {
+  /** 读屏与悬停用的完整摘要。 */
   summary: string
-  /** 摘要里要并排图标和文字时用它；`summary` 仍是读屏名称。 */
+  /** 胶囊上实际显示的内容；给了它，`summary` 只作读屏名称。空串表示只显示图标。 */
   summaryContent?: ReactNode
   /** 悬停与读屏多出来的一句，不进可见摘要。 */
   detail?: string
+  /** 缺省是调参图标。 */
   icon?: ReactNode
   /** 摘要后的状态标记。 */
   badge?: ReactNode
   title: string
-  /** 摘要里看不到的参数是否偏离默认值。 */
+  /** 胶囊上看不到的参数偏离了默认值：右上角亮一个芽绿点。 */
   dirty?: boolean
   size?: ComposerControlSize
   className?: string
+  /** 只在有参数偏离默认值时传；不传就不显示「恢复默认」。 */
   onReset?: () => void
+  onOpenChange?: (open: boolean) => void
   children: () => ReactNode
 }) {
   const { t } = useTranslation('composer')
   const [open, setOpen] = useState(false)
   const titleId = useId()
   const triggerRef = useRef<HTMLButtonElement>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
   const [iconsOnly, setIconsOnly] = useState(false)
   const accessible = detail ? `${summary} · ${detail}` : summary
   const summaryText = useOverflowTitle<HTMLSpanElement>(summary)
+  const visible = summaryContent ?? summary
+  // 分段摘要在窄输入框里只留图标（creation.css），那时悬停要给回完整文字。
+  const segmented = summaryContent != null && typeof summaryContent !== 'string'
   useEffect(() => {
     const node = triggerRef.current?.closest('.creation-composer')
-    if (!node || !summaryContent || typeof ResizeObserver === 'undefined') return
+    if (!node || !segmented || typeof ResizeObserver === 'undefined') return
     const measure = () => setIconsOnly(node.clientWidth <= 400)
     measure()
     const observer = new ResizeObserver(measure)
     observer.observe(node)
     return () => observer.disconnect()
-  }, [summaryContent])
+  }, [segmented])
+  const changeOpen = (next: boolean) => {
+    setOpen(next)
+    onOpenChange?.(next)
+  }
   return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next)
-      }}
-    >
+    <Popover open={open} onOpenChange={changeOpen}>
       <PopoverTrigger asChild>
         <Button
           ref={triggerRef}
           variant="outline"
           size={size === 'md' ? 'chip-lg' : 'chip-sm'}
           type="button"
-          title={iconsOnly ? summary : detail ? `${title}: ${accessible}` : summaryText.title}
+          title={
+            iconsOnly || visible === ''
+              ? summary
+              : detail
+                ? `${title}: ${accessible}`
+                : summaryText.title
+          }
           aria-label={`${title}: ${accessible}`}
           data-dirty={dirty || undefined}
           className={cn(composerChipClass(size), className)}
         >
-          {icon && <span className="flex shrink-0 text-muted-foreground">{icon}</span>}
-          <span
-            ref={summaryText.ref}
-            className={summaryContent ? 'min-w-0' : 'truncate tabular-nums'}
-          >
-            {summaryContent ?? summary}
+          <span className="flex shrink-0 text-muted-foreground">
+            {icon ?? <Icon name="settingsAdjust" />}
           </span>
+          {visible !== '' && (
+            <span ref={summaryText.ref} className={segmented ? 'min-w-0' : 'truncate tabular-nums'}>
+              {visible}
+            </span>
+          )}
           {badge && <span className="flex shrink-0">{badge}</span>}
+          {dirty && (
+            <span
+              aria-hidden="true"
+              className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-primary"
+            />
+          )}
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -122,36 +143,97 @@ export function SettingsPopover({
           'flex max-h-[min(36rem,var(--radix-popover-content-available-height))] w-[22rem] max-w-[calc(100vw-1.5rem)] flex-col gap-0 rounded-xl p-0 shadow-popover',
         )}
       >
-        <div className="flex items-center justify-between px-4 pb-1 pt-3">
+        <div className="flex items-center justify-between gap-2 px-4 pb-1 pt-3">
           <h2 id={titleId} className="text-title font-semibold text-foreground">
             {title}
           </h2>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            type="button"
-            aria-label={t('settings.close')}
-            onClick={() => setOpen(false)}
-            className="text-muted-foreground hover:text-foreground"
-          >
-            <Icon name="close" />
-          </Button>
+          <div className="flex items-center gap-1">
+            {onReset && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  onReset()
+                  // 恢复后按钮随之消失，焦点交给关闭按钮，免得落回 body。
+                  closeRef.current?.focus()
+                }}
+              >
+                {t('settings.reset')}
+              </Button>
+            )}
+            <Button
+              ref={closeRef}
+              variant="ghost"
+              size="icon-sm"
+              type="button"
+              aria-label={t('settings.close')}
+              onClick={() => changeOpen(false)}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <Icon name="close" />
+            </Button>
+          </div>
         </div>
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 pb-4 pt-2">{children()}</div>
-        <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-2.5">
-          {onReset ? (
-            <Button type="button" variant="ghost" size="sm" className="-ml-2" onClick={onReset}>
-              {t('settings.reset')}
-            </Button>
-          ) : (
-            <span />
-          )}
-          <Button type="button" size="sm" onClick={() => setOpen(false)}>
-            {t('settings.done')}
-          </Button>
-        </div>
       </PopoverContent>
     </Popover>
+  )
+}
+
+/** 卡片里的二级页：顶部一行返回，下面是这一项的完整选项。 */
+export function SettingsSubpage({
+  title,
+  onBack,
+  children,
+}: {
+  title: string
+  onBack: () => void
+  children: ReactNode
+}) {
+  const { t } = useTranslation('composer')
+  return (
+    <section className="space-y-3" aria-label={title}>
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="-ml-2 gap-1 font-medium"
+        aria-label={t('settings.back', { title })}
+        onClick={onBack}
+      >
+        <Icon name="chevronLeft" />
+        {title}
+      </Button>
+      {children}
+    </section>
+  )
+}
+
+/** 进入二级页的一行：名称在左，当前值与箭头在右。 */
+export function SettingsLinkRow({
+  label,
+  value,
+  onClick,
+}: {
+  label: string
+  value: ReactNode
+  onClick: () => void
+}) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      className="-mx-2 h-9 w-[calc(100%+1rem)] justify-between px-2 font-normal"
+      onClick={onClick}
+    >
+      <span className="text-body-sm text-foreground">{label}</span>
+      <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+        <span className="truncate">{value}</span>
+        <Icon name="chevronRight" />
+      </span>
+    </Button>
   )
 }
 

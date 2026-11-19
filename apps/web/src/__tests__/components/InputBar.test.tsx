@@ -148,21 +148,22 @@ describe('生成输入框的回车', () => {
 })
 
 describe('首屏的生成设置', () => {
-  it('直出档：摘要带张数，卡片里有数量、质量与格式', () => {
+  it('直出档：胶囊只写改过的项和张数，卡片里有数量、质量与格式', () => {
     remount('generate')
-    expect(settingsChip().getAttribute('aria-label')).toContain('1 张')
+    expect(settingsChip().getAttribute('aria-label')).toContain('智能 · 1 张')
+    expect(settingsChip().textContent).toBe('1 张')
     const group = openSettings()
     expect(group('比例')).not.toBeNull()
     expect(group('数量')).not.toBeNull()
     expect(group('格式')).not.toBeNull()
   })
 
-  it('交给智能体时保留画幅与思考深度，张数由它自己定', () => {
+  it('交给智能体时保留画幅与速度，张数由它自己定', () => {
     remount('canvas')
     expect(settingsChip().getAttribute('aria-label')).not.toContain('张')
     const group = openSettings()
     expect(group('画幅')).not.toBeNull()
-    expect(group('思考深度')).not.toBeNull()
+    expect(group('速度')).not.toBeNull()
     expect(group('张数')).toBeNull()
     expect(group('数量')).toBeNull()
     expect(group('质量')).toBeNull()
@@ -184,13 +185,16 @@ describe('首屏的生成设置', () => {
       one.textContent?.includes('16:9'),
     )
     expect(sixteenNine).toBeDefined()
+    const resetButton = () =>
+      [...document.body.querySelectorAll('button')].find((one) => one.textContent === '恢复默认')
+    expect(resetButton()).toBeUndefined()
     act(() => sixteenNine?.click())
     expect(useStore.getState().params.size).toBe('1280x720')
-    const reset = [...document.body.querySelectorAll('button')].find(
-      (one) => one.textContent === '恢复默认',
-    )
-    act(() => reset?.click())
+    expect(settingsChip().textContent).toBe('16:9 · 1K · 1 张')
+    act(() => resetButton()?.click())
     expect(useStore.getState().params.size).toBe('auto')
+    expect(resetButton()).toBeUndefined()
+    expect(settingsChip().textContent).toBe('1 张')
   })
 
   it('自定义宽高：改一边就提交完整尺寸，输入框不收起；被规整的值回显成实际尺寸', () => {
@@ -239,7 +243,7 @@ describe('首屏的生成设置', () => {
     act(() => useStore.getState().setParams({ n: 1 }))
   })
 
-  it('Gemini 模型下智能体胶囊只留画幅与思考深度，张数由它自己定', () => {
+  it('Gemini 模型下智能体胶囊只留画幅与速度，张数由它自己定', () => {
     setChannels([
       {
         id: 'gemini',
@@ -273,7 +277,7 @@ describe('首屏的生成设置', () => {
 
     const group = openSettings()
     expect(group('画幅')).not.toBeNull()
-    expect(group('思考深度')).not.toBeNull()
+    expect(group('速度')).not.toBeNull()
     expect(group('分辨率')).toBeNull()
     expect(group('张数')).toBeNull()
     expect(document.body.textContent).not.toContain('张数由 Agent 按需求决定')
