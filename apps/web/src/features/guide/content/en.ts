@@ -47,7 +47,7 @@ const overview: GuidePage = {
           '**Sidebar**: Create, Explore, Assets, Toolbox, Plugin. Recent chats and canvases sit below. [[+]] starts a new one.',
           '**Mode**: bottom-left of the composer, labelled Choose a creation mode. The options are Agent, Image generation, Video generation and Canvas.',
           '**Model**: the current name, for example Image 2.5 Flare. The menu groups GPT, Banana, Grok and Agnes.',
-          '**Settings**: a chip such as Auto · 1 or 3:4 · 1K · 1. Ratio, count, quality and format live here.',
+          '**Settings**: a chip such as 1 or 3:4 · 1K · 1. Only changed values appear; Auto ratio is left out. Ratio, count, quality and format live here.',
           '**Send**: the round button. Its accessible name is Generate. Shortcut {{Ctrl}}{{Enter}}. On a new canvas it reads Start creating.',
         ),
         still('zh', 'overview', 'The creation page'),
@@ -60,7 +60,7 @@ const overview: GuidePage = {
         steps(
           'Leave the mode on Image generation.',
           'Pick Image 2.5 Flare. Do not use Image 2.6 for this still. GIF and SVG have their own page.',
-          'Open settings. Ratio 3:4, count 1, quality Medium, then Done. Do not pick High or 4K. Those are member tiers.',
+          'Open settings. Ratio 3:4, count 1, quality Medium. Changes apply at once; click outside to close. Do not pick High or 4K. Those are member tiers.',
           'Write subject, light and use. The recording uses a cold brew on pale stone, afternoon light, commercial photo.',
           'Press Generate. My work appears under the composer when the card finishes.',
         ),
@@ -272,7 +272,7 @@ const settings: GuidePage = {
   updated,
   intro: [
     p(
-      'Open the settings chip, change values, then press Done. Reset restores Auto and clears the count and quality you just set.',
+      'Open the settings chip and change values. They apply at once; click outside or press Esc to close. Reset appears next to the title once something changed. It restores Auto and clears the count and quality you just set.',
     ),
     demo('03-generation-settings', 'Two 3:4 serum stills from one prompt', ui),
   ],
@@ -286,7 +286,7 @@ const settings: GuidePage = {
           'Pick a ratio such as 3:4. Auto lets the model choose the size.',
           'Pick a count. With two images the send button name becomes Generate 2.',
           'Pick Low, Medium or Auto. High is members only.',
-          'Press Done. The chip should show the ratio and the count.',
+          'Click outside to close. The chip should show the ratio and the count.',
         ),
       ],
     },
@@ -331,7 +331,7 @@ const settings: GuidePage = {
       title: 'Agent settings',
       blocks: [
         p(
-          'Agent settings are model, frame, thinking depth, and Direct image. Direct image on means it generates without waiting. Off means you get a plan first. There is no count stepper. The agent decides the count.',
+          'Agent settings are frame, speed, Confirm before generating, and model. The agent picks the model unless you turn off Auto-select model. With Confirm before generating off it generates without waiting; on means you get a plan first. There is no count stepper. The agent decides the count.',
         ),
         still('zh', 'settings-agent', 'Agent generation settings'),
       ],
@@ -441,7 +441,7 @@ const gpt26: GuidePage = {
           'In settings choose GIF. Do not keep a custom still size.',
           'Frames are 4, 6, 9, 12 or 16. Default 6. Durations on the page are 0.3, 0.2 and 0.1 seconds. Default 0.2. Sizes are 512 or 768 only.',
           'Remove reference images. GIF is disabled while one is attached.',
-          'Done, then Generate. A success is a playing multi-frame file, not a still.',
+          'Close settings, then Generate. A success is a playing multi-frame file, not a still.',
         ),
         table(['Frames', 'Credits'], ['Up to 6', '370'], ['7 to 9', '550'], ['10 to 16', '980']),
         p(
@@ -459,7 +459,7 @@ const gpt26: GuidePage = {
           '2026-11-10 test: format svg, service error, no vector file.',
         ),
         steps(
-          'Same model. In settings choose SVG, then Done.',
+          'Same model. In settings choose SVG; it applies at once.',
           'Ask for flat shapes, few colors, a clean background. No reference image.',
           'Count is 1. The price is 610 credits.',
         ),
@@ -610,10 +610,10 @@ const agent: GuidePage = {
       blocks: [
         steps(
           'Choose Agent. The type should read Agent mode.',
-          'Settings: model, frame, thinking, and Direct image. Leave them if you are unsure, then Done.',
+          'Settings: frame, speed, Confirm before generating, and model. Leave them if you are unsure; the agent picks the model.',
           'State the goal and the count. Say not to use a real brand if the product is fictional.',
           'Press Generate or Start creating, whichever the button shows.',
-          'If a plan appears, open a row. With Direct image off, nothing is generated until you confirm.',
+          'If a plan appears, open a row. With Confirm before generating on, nothing is generated until you confirm.',
         ),
         prompt('Example', '为这款虚构的柑橘香水做 2 张小红书封面，风格清爽，不要出现真实品牌名'),
       ],

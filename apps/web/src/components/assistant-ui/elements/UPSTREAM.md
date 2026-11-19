@@ -22,12 +22,12 @@ No assistant-ui runtime migration: existing Agent store, transport, persistence 
 
 ## Composer and run-state updates (2026-10-09)
 
-`reasoning-effort.tsx`, `stopped-run.tsx`, and `image-generation.tsx` are adapted from the official `https://r.assistant-ui.com/elements-<name>.json` registry fetched on 2026-10-09.
+`stopped-run.tsx` and `image-generation.tsx` are adapted from the official `https://r.assistant-ui.com/elements-<name>.json` registry fetched on 2026-10-09.
 `attachment.tsx` and `composer-trigger-popover.tsx` adapt the presentation in `attachment.aui.radix.tsx` and `composer-trigger-popover.aui.tsx` at assistant-ui commit `9121416f70e5fed68eaf7f8922a726e289e98aa5`.
 
 - Attachment tiles are compact and use a stable image skeleton while the confirmed cloud preview loads. Upload/retry/remove/mask actions retain the existing media ownership and send gating.
 - Trigger popovers use shadcn Button rows; the existing marked contenteditable editor owns `/` / `@` matching, IME, arrow/Enter/Tab/Escape, and serialized skill chips. This is a props-driven presentation adaptation, not `unstable_useSlashCommandAdapter` or a runtime migration.
-- ReasoningEffort maps to the existing fast/medium/deep values. Providers do not report a token budget, so no invented progress/budget meter is displayed.
+- ReasoningEffort was removed on 2026-11-19: the speed levels (fast/balanced/deep) now use the composer's `SettingsSegmented`. Providers still do not report a token budget, so no progress/budget meter is displayed.
 - StoppedRun shows existing cancellation receipts and only supported recovery actions. It does not pretend a cancelled paid generation can resume, or offer to discard persisted history.
 - OptionList retains persisted answer receipts and free-text answers. ThinkingIndicator remains the shared sending/thinking/stopping/job-status component.
 

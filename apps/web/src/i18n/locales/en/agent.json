@@ -323,17 +323,16 @@
   "params": {
     "model": "Model",
     "modelAuto": "Smart",
-    "modelAutoOption": "Smart (auto model)",
     "ratio": "Aspect",
     "outputCount": "Count",
-    "countUnit": "images",
     "thinkingFast": "Fast",
     "thinkingMedium": "Balanced",
     "thinkingDeep": "Deep",
-    "thinkingLegend": "Thinking depth",
-    "thinkingSummary": "Thinking: {{label}}",
-    "autoSubmitLabel": "Generate directly",
-    "autoSubmitHint": "Generate directly after drafting the prompt; turn off to confirm before generating."
+    "thinkingLegend": "Speed",
+    "thinkingSummary": "Speed: {{label}}",
+    "confirmBeforeGenerate": "Confirm before generating",
+    "confirmShort": "Confirm first",
+    "modelAutoToggle": "Auto-select model"
   },
   "mentions": {
     "headingResults": "Conversation images",

@@ -27,8 +27,26 @@ function trigger(): HTMLButtonElement {
   return host.querySelector<HTMLButtonElement>('button[aria-label^="生成设置: "]')!
 }
 
+/** 卡片里进入模型二级页的那一行。 */
 function modelField(): HTMLButtonElement {
-  return document.body.querySelector<HTMLButtonElement>('button[aria-label="模型"]')!
+  const row = [...document.body.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(
+    (node) => node.textContent?.startsWith('模型'),
+  )
+  if (!row) throw new Error('Missing model row')
+  return row
+}
+
+function button(text: string): HTMLButtonElement | undefined {
+  return [...document.body.querySelectorAll<HTMLButtonElement>('button')].find(
+    (node) => node.textContent === text,
+  )
+}
+
+/** 进模型二级页并关掉「自动选模型」，列出具体模型。 */
+function chooseModelManually(): void {
+  act(() => modelField().click())
+  const auto = document.body.querySelector<HTMLButtonElement>('[role="dialog"] [role="switch"]')!
+  act(() => auto.click())
 }
 
 function toggle(): void {
@@ -104,7 +122,7 @@ describe('智能体输入框的生成设置', () => {
     expect(trigger().getAttribute('aria-expanded')).toBe('false')
   })
 
-  it('选一格比例立即写回尺寸，卡片保持打开，点「完成」才收起', () => {
+  it('选一格比例立即写回尺寸，卡片保持打开，没有「完成」，点关闭收起', () => {
     useProfile('openai-queue', 'gpt-image-2.5-flare')
     render()
     toggle()
@@ -117,10 +135,10 @@ describe('智能体输入框的生成设置', () => {
     expect(group('张数')).toBeNull()
     expect(document.body.textContent).not.toContain('张数由 Agent 按需求决定')
 
-    const done = [...document.body.querySelectorAll('button')].find(
-      (node) => node.textContent === '完成',
+    expect(button('完成')).toBeUndefined()
+    act(() =>
+      document.body.querySelector<HTMLButtonElement>('[aria-label="关闭生成设置"]')?.click(),
     )
-    act(() => done?.click())
     expect(trigger().getAttribute('aria-expanded')).toBe('false')
   })
 
@@ -134,19 +152,31 @@ describe('智能体输入框的生成设置', () => {
     expect(useStore.getState().params.size).toBe('2048x2048')
   })
 
-  it('「恢复默认」回到智能比例与中等思考', () => {
+  it('「恢复默认」回到智能比例、均衡速度、自动模型与直接出图', () => {
     useStore.setState({ params: { ...DEFAULT_PARAMS, size: '2560x1440', quality: 'high' } })
-    useAgentStore.setState({ thinkingDepth: 'deep' })
+    useAgentStore.setState({ thinkingDepth: 'deep', autoSubmit: false, modelAuto: false })
     render()
     toggle()
 
-    const reset = [...document.body.querySelectorAll('button')].find(
-      (node) => node.textContent === '恢复默认',
-    )
-    act(() => reset?.click())
+    act(() => button('恢复默认')?.click())
     expect(useStore.getState().params.size).toBe('auto')
     expect(useAgentStore.getState().thinkingDepth).toBe('medium')
     expect(useAgentStore.getState().modelAuto).toBe(true)
+    expect(useAgentStore.getState().autoSubmit).toBe(true)
+    // 恢复后按钮消失，焦点交给关闭按钮。
+    expect(button('恢复默认')).toBeUndefined()
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('关闭生成设置')
+  })
+
+  it('全是默认时胶囊只有调参图标，也没有「恢复默认」', () => {
+    useAgentStore.setState({ autoSubmit: true })
+    render()
+    expect(trigger().textContent).toBe('')
+    expect(trigger().getAttribute('aria-label')).toBe('生成设置: 智能 · 均衡')
+    // 胶囊省掉的默认值悬停时给回来。
+    expect(trigger().getAttribute('aria-description')).toBe('智能 · 均衡')
+    toggle()
+    expect(button('恢复默认')).toBeUndefined()
   })
 })
 
@@ -199,7 +229,7 @@ describe('gemini 专属参数跟着当前模型走', () => {
 
     expect(group('画幅')).not.toBeNull()
     expect(group('分辨率')).toBeNull()
-    expect(group('思考深度')).not.toBeNull()
+    expect(group('速度')).not.toBeNull()
   })
 
   // 同一个 Gemini profile 也能指到别的模型；分辨率与思考级别只有 Gemini 图像模型认。
@@ -210,7 +240,7 @@ describe('gemini 专属参数跟着当前模型走', () => {
 
     expect(group('画幅')).not.toBeNull()
     expect(group('分辨率')).toBeNull()
-    expect(group('思考深度')).not.toBeNull()
+    expect(group('速度')).not.toBeNull()
   })
 
   it('不走 gemini 协议时一项都不给', () => {
@@ -287,23 +317,20 @@ it('画幅只提供固定几档，选中后写回尺寸并显示在胶囊上', (
   expect(trigger().getAttribute('aria-label')).toContain('16:9')
 })
 
-it('selects and remembers thinking depth independently of the image model', () => {
+it('速度三档只写文字，选了非默认档才写进胶囊', () => {
   render()
   toggle()
-  expect(depthPath(trigger(), 'medium')).toBe(glyphPath(ICONS.gaugeMid.line))
-  expect(depthPath(option('思考深度', '快速'), 'fast')).toBe(glyphPath(ICONS.gaugeLow.line))
-  expect(depthPath(option('思考深度', '中等'), 'medium')).toBe(glyphPath(ICONS.gaugeMid.line))
-  expect(depthPath(option('思考深度', '深度'), 'deep')).toBe(glyphPath(ICONS.gaugeHigh.line))
+  const levels = [...(group('速度')?.querySelectorAll('button') ?? [])]
+  expect(levels.map((node) => node.textContent)).toEqual(['快速', '均衡', '深度'])
+  expect(group('速度')?.querySelector('[data-thinking-depth]')).toBeNull()
+  expect(trigger().textContent).not.toContain('均衡')
 
-  act(() => option('思考深度', '深度').click())
-  expect(option('思考深度', '深度').getAttribute('aria-pressed')).toBe('true')
+  act(() => option('速度', '深度').click())
+  expect(option('速度', '深度').getAttribute('aria-pressed')).toBe('true')
   expect(useAgentStore.getState().thinkingDepth).toBe('deep')
   expect(localStorage.getItem('image-playground-agent-thinking-depth')).toBe('deep')
-  // 侧栏放不下「思考：深度」，收起后用仪表指针标在画幅后面；读屏名仍带上这一档。
-  expect(depthPath(trigger(), 'deep')).toBe(glyphPath(ICONS.gaugeHigh.line))
   expect(trigger().textContent).toContain('深度')
   expect(trigger().getAttribute('aria-label')).toContain('深度')
-  expect(trigger().hasAttribute('data-dirty')).toBe(false)
 })
 
 it('制作模式仅调整思考深度，不显示图片摘要或修改全局图片参数', () => {
@@ -312,18 +339,18 @@ it('制作模式仅调整思考深度，不显示图片摘要或修改全局图�
   // 没有模型 chip，摘要只写思考深度。
   const buttons = host.querySelectorAll<HTMLButtonElement>('button')
   expect(buttons).toHaveLength(1)
-  expect(buttons[0]!.textContent).toContain('思考：')
+  expect(buttons[0]!.getAttribute('aria-label')).toContain('速度：')
   expect(depthPath(buttons[0]!, 'medium')).toBe(glyphPath(ICONS.gaugeMid.line))
   expect(buttons[0]!.textContent).not.toContain('自动尺寸')
   act(() => buttons[0]!.click())
-  expect(group('思考深度')).not.toBeNull()
+  expect(group('速度')).not.toBeNull()
   expect(group('画幅')).toBeNull()
-  act(() => option('思考深度', '深度').click())
+  act(() => option('速度', '深度').click())
   expect(useAgentStore.getState().thinkingDepth).toBe('deep')
   expect(useStore.getState().params).toEqual(initialParams)
 })
 
-it('模型和画幅收在同一颗胶囊里，点选具体模型后摘要改用模型名', () => {
+it('模型默认交给智能体；在二级页关掉自动并点选模型后，胶囊写出模型名', () => {
   setChannels([
     {
       id: 'duo',
@@ -355,7 +382,15 @@ it('模型和画幅收在同一颗胶囊里，点选具体模型后摘要改用�
   expect(trigger().getAttribute('aria-label')).toContain('智能')
   expect(trigger().getAttribute('aria-label')).not.toContain('Image 2')
   toggle()
+  const sections = [...document.body.querySelectorAll('section h3')].map((node) => node.textContent)
+  expect(sections).toEqual(['画幅', '速度'])
+  expect(modelField().textContent).toBe('模型自动')
   act(() => modelField().click())
+  // 自动开着时不列模型，不在弹层里再套一层下拉。
+  expect(document.body.querySelector('[role="option"]')).toBeNull()
+  const auto = document.body.querySelector<HTMLButtonElement>('[role="dialog"] [role="switch"]')!
+  expect(auto.getAttribute('aria-checked')).toBe('true')
+  act(() => auto.click())
   const flare = [...document.body.querySelectorAll('[role="option"]')].find((node) =>
     node.textContent?.includes('Image 2.5 Flare'),
   ) as HTMLButtonElement
@@ -364,39 +399,52 @@ it('模型和画幅收在同一颗胶囊里，点选具体模型后摘要改用�
   expect(profile.selectedModelId).toBe('gpt-image-2.5-flare')
   expect(useAgentStore.getState().modelAuto).toBe(false)
   expect(trigger().getAttribute('aria-label')).toContain('Image 2.5 Flare')
-  const sections = [...document.body.querySelectorAll('section h3')].map((node) => node.textContent)
-  expect(sections.indexOf('模型')).toBeLessThan(sections.indexOf('画幅'))
-  expect(sections.indexOf('画幅')).toBeLessThan(sections.indexOf('思考深度'))
+  expect(trigger().textContent).toContain('Image 2.5 Flare')
+  // 选完回到主页。
+  expect(group('画幅')).not.toBeNull()
 })
 
-it('直接出图在卡片里显示为开，用户可以关掉', () => {
+it('二级页的返回回到主页，关掉卡片再打开也从主页开始', () => {
+  render()
+  toggle()
+  act(() => modelField().click())
+  expect(group('画幅')).toBeNull()
+  // 进入二级页焦点落在返回，回来后落在「模型」那一行，不掉到 body。
+  expect(document.activeElement?.getAttribute('aria-label')).toBe('返回模型')
+  act(() => document.body.querySelector<HTMLButtonElement>('[aria-label="返回模型"]')?.click())
+  expect(group('画幅')).not.toBeNull()
+  expect(document.activeElement).toBe(modelField())
+
+  act(() => modelField().click())
+  toggle()
+  toggle()
+  expect(group('画幅')).not.toBeNull()
+})
+
+it('「出图前确认」默认关，打开后智能体先给计划，胶囊写「先确认」', () => {
   useAgentStore.setState({ autoSubmit: true })
   render()
   toggle()
   const toggleSwitch = document.body.querySelector<HTMLButtonElement>('[role="switch"]')!
-  expect(toggleSwitch.getAttribute('aria-checked')).toBe('true')
-  expect(document.body.textContent).toContain('拟好提示词后直接生成')
+  expect(toggleSwitch.getAttribute('aria-checked')).toBe('false')
+  expect(document.body.textContent).toContain('出图前确认')
+  expect(document.body.textContent).not.toContain('拟好提示词后直接生成')
   act(() => toggleSwitch.click())
   expect(useAgentStore.getState().autoSubmit).toBe(false)
-  expect(toggleSwitch.getAttribute('aria-checked')).toBe('false')
-})
+  expect(toggleSwitch.getAttribute('aria-checked')).toBe('true')
+  expect(trigger().textContent).toContain('先确认')
+  expect(trigger().getAttribute('aria-label')).toContain('先确认')
 
-it('直接出图只在卡片里切换，胶囊上不再单独挂闪电', () => {
-  useAgentStore.setState({ autoSubmit: false })
-  render()
-  expect(trigger().querySelector('[aria-label="直接出图"]')).toBeNull()
-  toggle()
-  const toggleSwitch = document.body.querySelector<HTMLButtonElement>('[role="switch"]')!
   act(() => toggleSwitch.click())
   expect(useAgentStore.getState().autoSubmit).toBe(true)
-  expect(trigger().querySelector('[aria-label="直接出图"]')).toBeNull()
-  expect(document.body.querySelector('[role="switch"]')).not.toBeNull()
+  expect(trigger().textContent).not.toContain('先确认')
 })
 
 it('图片生成模式在胶囊里写张数，面板只有 1、2、3、4、6、8', () => {
   act(() => root.render(<AgentParamsChip imageMode />))
   toggle()
-  expect(group('思考深度')).toBeNull()
+  expect(group('速度')).toBeNull()
+  expect(document.body.textContent).not.toContain('出图前确认')
   expect(document.body.textContent).not.toContain('张数由 Agent 按需求决定')
   const counts = [...(group('张数')?.querySelectorAll('button') ?? [])].map(
     (node) => node.textContent,
@@ -405,6 +453,7 @@ it('图片生成模式在胶囊里写张数，面板只有 1、2、3、4、6、8
   act(() => option('张数', '6').click())
   expect(useStore.getState().params.n).toBe(6)
   expect(trigger().getAttribute('aria-label')).toContain('6 张')
+  expect(trigger().textContent).toContain('6 张')
 })
 
 it('图片生成模式选 Lite：只给 1、2、3、4，已选的 8 张落到 4 张（BUG-91）', () => {
@@ -484,9 +533,9 @@ it('模型列表可用方向键在选项间移动焦点', () => {
   })
   render()
   toggle()
-  act(() => modelField().click())
+  chooseModelManually()
   const options = [...document.body.querySelectorAll<HTMLButtonElement>('[role="option"]')]
-  expect(options.map((node) => node.tabIndex)).toEqual([0, -1, -1])
+  expect(options.map((node) => node.tabIndex)).toEqual([0, -1])
   options[0]!.focus()
   act(() => {
     options[0]!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
