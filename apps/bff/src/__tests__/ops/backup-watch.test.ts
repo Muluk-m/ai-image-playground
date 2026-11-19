@@ -70,4 +70,23 @@ describe('createBackupWatch', () => {
     }
     expect(lists).toBe(1)
   })
+
+  it('retries after a synchronous throw once the interval elapses', async () => {
+    let lists = 0
+    const watch = createBackupWatch({
+      intervalMs: interval,
+      readBackups: () => {
+        lists++
+        if (lists === 1) throw new Error('sync fail')
+        return Promise.resolve(backup(lists))
+      },
+      readRestoreDrill: async () => null,
+    })
+    await expect(watch.readBackups(0)).rejects.toThrow('sync fail')
+    await expect(watch.readBackups(1)).rejects.toBeInstanceOf(BackupWatchDeferred)
+    expect(lists).toBe(1)
+    const recovered = await watch.readBackups(interval)
+    expect(recovered.latest?.modified_at).toBe(2)
+    expect(lists).toBe(2)
+  })
 })

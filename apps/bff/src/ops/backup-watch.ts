@@ -1,4 +1,5 @@
 import { OPS_THRESHOLDS, type OpsBackups, type OpsRestoreDrill } from '@image-playground/shared'
+
 /**
  * 还没到下一次列出时间，并且没有可复用的成功结果。
  * 告警这一轮跳过该块：既不触发、也不算失明、更不当成已恢复。
@@ -38,9 +39,11 @@ function createThrottledRead<T>(read: () => Promise<T>, intervalMs: number): Thr
       throw new BackupWatchDeferred()
     }
     lastAttemptAt = now
+    // 先等到下一个微任务再调用 read()：如果它在返回 Promise 前同步抛错，
+    // 异步 IIFE 的 finally 不会在 `inflight = ...` 赋值完成前清空再被写回一个永久拒绝的 Promise。
     inflight = (async () => {
       try {
-        const value = await read()
+        const value = await Promise.resolve().then(read)
         cache = { value }
         lastSucceeded = true
         return value
