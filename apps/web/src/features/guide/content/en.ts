@@ -1286,12 +1286,12 @@ const plugins: GuidePage = {
           [
             'Other agents',
             'Switch to [[Other]] and copy the generic setup prompt',
-            'Download `/cli/muvloom-skill.zip`, unpack `muvloom/` into the host skill folder or upload via UI',
+            'Download `/cli/muvloom-skill.zip` (or run `muvloom skill install --host generic --output <dir>` to export the skill folder), then place `muvloom/` into the host skill folder or upload via UI',
             'Type `/muv` or ask the agent to generate with Muvloom',
           ],
         ),
         note(
-          '`muvloom skill install --host` accepts only `claude-code` and `codex` (with optional `--scope user|project`, default `user`). WorkBuddy and Doubao Work import their own skill packages—do not pass `--host workbuddy` or `--host doubao`.',
+          '`muvloom skill install --host` accepts only `claude-code`, `codex` (with optional `--scope user|project`, default `user`) and `generic` (with optional `--output <dir>` to export a generic skill folder). WorkBuddy and Doubao Work import their own dedicated skill packages—do not pass `--host workbuddy` or `--host doubao`.',
         ),
       ],
     },
@@ -1351,7 +1351,7 @@ const plugins: GuidePage = {
           ['https://test.muvloom.online', 'https://test-api.muvloom.online'],
         ),
         list(
-          '**Switching services**: The saved connection remembers its API URL. If `MUVLOOM_API_URL` disagrees with the saved connection, `muvloom auth status` reports `service_mismatch` (`SERVICE_MISMATCH`, exit 4). Unset the variable to keep the current connection, or run `muvloom auth login --switch-service` when you intend to switch.',
+          '**Switching services**: The saved connection remembers its API URL. If `MUVLOOM_API_URL` disagrees with the saved connection, `muvloom auth status` exits with `0` and reports `state: "service_mismatch"` (inspect the `state` field), whereas other authenticated commands fail with `SERVICE_MISMATCH` (exit 4). Unset the variable to keep the current connection, or run `muvloom auth login --switch-service` when you intend to switch.',
           '**SSH and cloud hosts without a local browser**: On remote servers, containers or cloud agents (such as Doubao Work cloud tasks), set `MUVLOOM_NO_BROWSER=1` and run `muvloom auth login --no-wait`. Open the printed link in your computer’s default browser to click [[Authorize]], then run `muvloom auth login --timeout 30` to finish.',
           '**Config and credential store**: Credentials use the system keychain when available and fall back to `credentials.json` in the config directory (`credential_store: file` in `auth status` is normal, not an error). Set `MUVLOOM_CONFIG_DIR` to isolate a directory or `MUVLOOM_CREDENTIALS_STORE=file` to force file storage.',
         ),
@@ -1394,12 +1394,12 @@ const plugins: GuidePage = {
           ['muvloom media upload | list | get | download', 'Upload or manage reference images'],
           [
             'muvloom skill install | status',
-            'Install or check the skill for Claude Code and Codex',
+            'Install the skill for Claude Code / Codex, export a generic skill folder (`--host generic`), or check skill status',
           ],
           ['muvloom update check / version', 'Check for a newer release or print the CLI version'],
         ),
         p(
-          '`images create` and `images validate` share `--prompt` (or `--prompt-file`), `--model`, `--aspect-ratio`, `--image-size` (`1K`, `2K` or `4K`—never a pixel string), `--quality` (`low`, `medium`, `high`), repeatable `--ref <local-file>`, `--max-credits`, and Image 2.6 flags `--output-format gif|svg`, `--frames`, `--frame-duration-ms` and `--frame-size`. `create` also accepts `--wait <seconds>` (`0` returns immediately after submit), `--download <dir>` and `--idempotency-key`.',
+          '`images create` and `images validate` share `--prompt` (or `--prompt-file`), `--model`, `--aspect-ratio`, `--image-size` (`1K`, `2K` or `4K`—never a pixel string), `--quality` (`low`, `medium`, `high`), repeatable `--ref <local-file>`, `--max-credits`, and Image 2.6 flags `--output-format gif|svg`, `--frames`, `--frame-duration-ms` and `--frame-size`. `create` also accepts `--wait <seconds>` (defaults to `0`, which returns immediately after submit; pass a positive integer up to `3600` to wait for completion or trigger `--download`), `--download <dir>` and `--idempotency-key`.',
         ),
         prompt(
           'Generate a still image and download to ./out',
@@ -1423,13 +1423,13 @@ const plugins: GuidePage = {
       title: 'Job lifecycle, wait timeouts and syncing across apps',
       blocks: [
         p(
-          'Jobs move through `queued` → `running` → `persisting` → `succeeded` (or `failed` / `canceled`). Finished images are downloaded locally by the agent or CLI and simultaneously appear in [Assets](/assets) under [[Works]] on the website. You can review active devices or click [[Revoke connection]] at the bottom of [Plugin integrations](/connect).',
+          'Jobs move through `queued` → `running` → `persisting` → `succeeded` (or `failed` / `canceled`). Every completed job syncs to [Assets](/assets) under [[Works]] on the website, and you can review active devices or click [[Revoke connection]] at the bottom of [Plugin integrations](/connect). The CLI downloads output files automatically only when `images create` is called with both a positive `--wait` and `--download <dir>` and the job reaches `succeeded` before the wait expires (`jobs wait` only polls status and does not download files—use `muvloom artifacts download <artifact-id>` afterwards).',
         ),
         list(
-          '**A wait timeout is not a failure**: `muvloom jobs wait` defaults to 300 seconds. When the deadline is reached first, `wait_timed_out` is `true` and the exit code stays `0` while the job continues on the server. Run `muvloom jobs wait <job-id>` on the same ID—**do not run `images create` again**, or you will start and pay for a second job.',
-          '**Idempotency**: Repeating `images create` with the same `--idempotency-key` (8–64 characters of letters, digits, `_`, `.`, `:`, `-`) returns the original job without charging twice. If a response is lost, find the job with `muvloom jobs list --idempotency-key <KEY>`.',
+          '**A wait timeout is not a failure**: `muvloom jobs wait` defaults to 300 seconds. When the deadline is reached first, `wait_timed_out` is `true` and the exit code stays `0` while the job continues on the server. Run `muvloom jobs wait <job-id>` on the same ID, and once it reaches `succeeded`, save each artifact from `job.artifacts` with `muvloom artifacts download <artifact-id> --output <path>`—**do not run `images create` again**, or you will start and pay for a second job.',
+          '**Idempotency**: Repeating `images create` with the same `--idempotency-key` (8–64 characters of letters, digits, `_`, `.`, `:`, `-`) returns the original job without charging twice. When omitted, the CLI generates a fresh random key per invocation and includes it as `idempotency_key` in the output or temporary error details. If a connection drops, query `muvloom jobs list --idempotency-key <KEY>` or pass that key when retrying—never re-run a keyless `images create` blindly.',
           '**Cancel and refund**: `muvloom jobs cancel <job-id>` stops a `queued` or `running` job and refunds its credits. Once a job reaches `persisting`, it returns `JOB_NOT_CANCELLABLE`.',
-          '**Existing files**: If the target file already exists during download, the CLI stops with `FILE_EXISTS` instead of overwriting your file. Pick a different `--download` path.',
+          '**Existing files**: If the target path already exists during download, the CLI compares the file contents first: if the bytes are identical, it succeeds with `already_present: true` (making interrupted downloads safe to re-run); only when the existing file holds different bytes does it stop with `FILE_EXISTS` (exit 4) instead of overwriting your file.',
         ),
       ],
     },
@@ -1448,8 +1448,8 @@ const plugins: GuidePage = {
           ['1', 'Unexpected internal error', 'Inspect the error output or re-run with `--json`'],
           [
             '2',
-            'Invalid command or flags (including `USAGE`)',
-            'Check `--help` for that subcommand and fix flags',
+            'Invalid command, flags or request validation (`USAGE`, `INVALID_REQUEST`)',
+            'Check `--help` or fix the flag combination / local reference file path',
           ],
           [
             '3',
@@ -1458,7 +1458,7 @@ const plugins: GuidePage = {
           ],
           [
             '4',
-            'Request rejected, or job failed / canceled',
+            'Request rejected by server, or job failed / canceled',
             'Fix the request parameters before retrying',
           ],
           [
@@ -1469,7 +1469,7 @@ const plugins: GuidePage = {
           [
             '6',
             'Temporary network or service error',
-            'Retry the same operation (and same idempotency key) after a short wait',
+            'Retry read-only commands directly; for `images create`, reuse `idempotency_key` from the output/error details (or run `jobs wait` if `job_id` is already present)',
           ],
           ['7', 'CLI version is too old', 'Re-run the verified installer from `/connect`'],
         ),
@@ -1477,19 +1477,19 @@ const plugins: GuidePage = {
           ['Error code', 'Cause and resolution'],
           [
             'AUTH_REQUIRED / UNAUTHENTICATED',
-            'Not signed in or connection revoked. Check `muvloom auth status`, then run `muvloom auth login`.',
+            'Not signed in or connection revoked (exit 3). Check `muvloom auth status`, then run `muvloom auth login`.',
           ],
           [
             'AUTH_PENDING',
-            'Browser approval is still pending. Run `muvloom auth login` again to resume waiting without opening a new page.',
+            'Browser approval is still pending (exit 3). Run `muvloom auth login` again to resume waiting without opening a new page.',
           ],
           [
             'AUTH_EXPIRED / AUTH_DENIED',
-            '`AUTH_EXPIRED` means the 20-minute code expired—start a new `auth login`. `AUTH_DENIED` means approval was declined—stop retrying.',
+            '`AUTH_EXPIRED` means the 20-minute code expired—start a new `auth login`. `AUTH_DENIED` means approval was declined—stop retrying (both exit 3).',
           ],
           [
             'SERVICE_MISMATCH',
-            '`MUVLOOM_API_URL` does not match the saved connection (exit 4). Unset the variable or pass `muvloom auth login --switch-service`.',
+            '`MUVLOOM_API_URL` does not match the saved connection (`auth status` exits 0 with `state: "service_mismatch"`; other authenticated commands fail with exit 4). Unset the variable or pass `muvloom auth login --switch-service`.',
           ],
           [
             'PLAN_REQUIRED',
@@ -1500,12 +1500,16 @@ const plugins: GuidePage = {
             'Not enough credits, daily quota spent, or quote exceeds `--max-credits` (exit 5). Do not retry automatically.',
           ],
           [
-            'INVALID_REQUEST / MODEL_UNAVAILABLE / REQUEST_TOO_LARGE',
-            'Unsupported flag combination, unavailable model, or reference file over 50 MB (exit 4). Check `muvloom capabilities`.',
+            'INVALID_REQUEST',
+            'Unsupported flag combination or unreadable / unsupported local reference file (exit 2). Check `muvloom capabilities`.',
+          ],
+          [
+            'MODEL_UNAVAILABLE / REQUEST_TOO_LARGE',
+            'Model is not enabled on this service, or reference file exceeds the 50 MB limit (exit 4). Pick an available model or a smaller file.',
           ],
           [
             'RATE_LIMITED / NETWORK_ERROR / TEMPORARILY_UNAVAILABLE',
-            'Transient rate limit or network hiccup (exit 6). Wait a few seconds and retry with the same idempotency key.',
+            'Transient rate limit or network hiccup (exit 6). Retry read-only commands after a short wait; for `images create`, pass `--idempotency-key` from the error details (or `jobs wait` if `job_id` was returned).',
           ],
           [
             'UNSUPPORTED_VERSION',

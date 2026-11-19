@@ -547,12 +547,12 @@ export const plugins: GuidePage = {
           [
             '其他 Agent',
             '切到 [[其他]] 复制通用提示词',
-            '下载 `/cli/muvloom-skill.zip`，解压 `muvloom/` 到宿主技能目录或从界面上传',
+            '下载 `/cli/muvloom-skill.zip`（或运行 `muvloom skill install --host generic --output <目录>` 导出技能目录），放入宿主技能目录或从界面上传',
             '输入 `/muv` 或直接说「用幕芽生成…」',
           ],
         ),
         note(
-          '`muvloom skill install --host` 只接受 `claude-code` 和 `codex`（可选 `--scope user|project`，默认 `user`）。WorkBuddy 和豆包工作走各自客户端的技能包导入，不要传 `--host workbuddy` 或 `--host doubao`。',
+          '`muvloom skill install --host` 只接受 `claude-code`、`codex`（可选 `--scope user|project`，默认 `user`）以及用于导出通用技能目录的 `generic`（可配 `--output <目录>`）。WorkBuddy 和豆包工作走各自客户端的专用技能包导入，不要传 `--host workbuddy` 或 `--host doubao`。',
         ),
       ],
     },
@@ -612,7 +612,7 @@ export const plugins: GuidePage = {
           ['https://test.muvloom.online', 'https://test-api.muvloom.online'],
         ),
         list(
-          '**切换服务**：连接成功后服务地址会保存在本地，日常命令不需要每次带环境变量。如果当前环境变量与已保存的连接不一致，`muvloom auth status` 会报 `service_mismatch`（错误码 `SERVICE_MISMATCH`）。清掉环境变量即可沿用原连接；确认要换站点时运行 `muvloom auth login --switch-service`。',
+          '**切换服务**：连接成功后服务地址会保存在本地，日常命令不需要每次带环境变量。如果当前环境变量与已保存的连接不一致，`muvloom auth status` 退出码仍为 `0` 并在结果中返回 `state: "service_mismatch"`（需读取 `state` 字段判断），而其他需要鉴权的命令会报错 `SERVICE_MISMATCH`（退出码 `4`）。清掉环境变量即可沿用原连接；确认要换站点时运行 `muvloom auth login --switch-service`。',
           '**SSH / 云端无浏览器环境**：豆包工作云端环境、远程服务器或容器里打不开本地浏览器时，设置 `MUVLOOM_NO_BROWSER=1` 并运行 `muvloom auth login --no-wait`，把打印出来的完整链接复制到你电脑的默认浏览器里打开并点 [[授权]]，再回到终端运行 `muvloom auth login --timeout 30` 完成连接。',
           '**配置与凭据存储**：默认优先存系统钥匙串；钥匙串不可用时自动退回配置目录下的 `credentials.json`（`auth status` 显示 `credential_store: file`，不属于报错）。可用 `MUVLOOM_CONFIG_DIR` 指定独立配置目录，或设 `MUVLOOM_CREDENTIALS_STORE=file` 强制使用文件存储。',
         ),
@@ -641,11 +641,14 @@ export const plugins: GuidePage = {
           ],
           ['muvloom artifacts get | download', '查看或下载已生成的结果文件'],
           ['muvloom media upload | list | get | download', '上传或管理参考图素材'],
-          ['muvloom skill install | status', '为 Claude Code / Codex 安装或检查技能状态'],
+          [
+            'muvloom skill install | status',
+            '为 Claude Code / Codex 安装技能，或用 `--host generic` 导出通用技能包；检查技能状态',
+          ],
           ['muvloom update check / version', '检查是否有新版本；打印当前 CLI 版本号'],
         ),
         p(
-          '`images create` 与 `images validate` 共用生成参数：`--prompt`（或 `--prompt-file`）、`--model`、`--aspect-ratio`、`--image-size`（只填 `1K`、`2K`、`4K`，不要写像素值）、`--quality`（`low`、`medium`、`high`）、可重复传入的 `--ref <本地图片路径>`、`--max-credits <积分上限>`，以及 Image 2.6 专用的 `--output-format gif|svg`、`--frames`、`--frame-duration-ms`、`--frame-size`。`create` 额外支持 `--wait <秒>`（默认等待，设 `0` 则提交后立即返回）、`--download <目录>` 和 `--idempotency-key`。',
+          '`images create` 与 `images validate` 共用生成参数：`--prompt`（或 `--prompt-file`）、`--model`、`--aspect-ratio`、`--image-size`（只填 `1K`、`2K`、`4K`，不要写像素值）、`--quality`（`low`、`medium`、`high`）、可重复传入的 `--ref <本地图片路径>`、`--max-credits <积分上限>`，以及 Image 2.6 专用的 `--output-format gif|svg`、`--frames`、`--frame-duration-ms`、`--frame-size`。`create` 额外支持 `--wait <秒>`（默认 `0`，即提交后立即返回；需要等待完成或自动执行 `--download` 时必须显式传入正整数等待秒数，最大 `3600`）、`--download <目录>` 和 `--idempotency-key`。',
         ),
         prompt(
           '终端生成静态图并下载到 ./out',
@@ -669,13 +672,13 @@ export const plugins: GuidePage = {
       title: '任务状态、等待超时与多端同步',
       blocks: [
         p(
-          '任务提交后会依次经过 `queued`（排队）→ `running`（生成中）→ `persisting`（保存作品）→ `succeeded`（完成，或 `failed` / `canceled`）。完成后，无论你在 Agent 对话里打开本地下载的文件，还是登录幕芽网页进入[资产](/assets)的 [[作品]] 页签，看到的都是同一张图；在[插件集成](/connect)底部还能查看各设备的最近使用时间或随时 [[撤销连接]]。',
+          '任务提交后会依次经过 `queued`（排队）→ `running`（生成中）→ `persisting`（保存作品）→ `succeeded`（完成，或 `failed` / `canceled`）。所有已完成的任务都会同步到幕芽网页[资产](/assets)的 [[作品]] 页签；在[插件集成](/connect)底部还能查看各设备的最近使用时间或随时 [[撤销连接]]。CLI 只有在 `images create` 同时显式传入正数 `--wait` 与 `--download <目录>`、且在等待时间内变成 `succeeded` 时才会自动把结果下载到本地（`jobs wait` 本身只等待状态、不下载文件，完成后需用 `muvloom artifacts download <artifact-id>` 保存）。',
         ),
         list(
-          '**等待超时不是失败**：`muvloom jobs wait` 默认等待 300 秒。如果到时间还没出完，返回结果里的 `wait_timed_out` 为 `true`、退出码仍是 `0`，代表任务还在后台跑。直接对同一个任务 ID 继续运行 `muvloom jobs wait <job-id>` 即可，**不要重新运行 `images create`**，否则会再扣一次积分。',
-          '**幂等防重扣**：使用同一个 `--idempotency-key`（8–64 位字母、数字、`_`、`.`、`:`、`-`）重发 `images create` 会直接返回原任务，不会重复扣费。如果中途断线弄丢了输出，可以用 `muvloom jobs list --idempotency-key <KEY>` 找回。',
+          '**等待超时不是失败**：`muvloom jobs wait` 默认等待 300 秒。如果到时间还没出完，返回结果里的 `wait_timed_out` 为 `true`、退出码仍是 `0`，代表任务还在后台跑。直接对同一个任务 ID 继续运行 `muvloom jobs wait <job-id>` 即可，等到 `succeeded` 后再用结果中 `job.artifacts` 里的 ID 运行 `muvloom artifacts download <artifact-id> --output <路径>` 下载文件；**切勿重新运行 `images create`**，否则会新建任务并再扣一次积分。',
+          '**幂等防重扣**：使用同一个 `--idempotency-key`（8–64 位字母、数字、`_`、`.`、`:`、`-`）重发 `images create` 会直接返回原任务，不会重复扣费。未显式传入时 CLI 每次都会生成新的随机键，并保存在输出或临时错误详情的 `idempotency_key` 字段中；若请求中途断线，先用 `muvloom jobs list --idempotency-key <KEY>` 查询或带上该键重试，不要无键直接重跑原命令。',
           '**取消与退款**：只有在排队（`queued`）或生成中（`running`）运行 `muvloom jobs cancel <job-id>` 才能取消并退回积分；一旦进入 `persisting` 阶段就不能取消（返回 `JOB_NOT_CANCELLABLE`）。',
-          '**本地文件保护**：下载结果时如果目标路径已有同名文件，CLI 会报 `FILE_EXISTS` 并停止，不会覆盖你原有的文件；换一个 `--download` 目录或文件名即可。',
+          '**本地文件保护**：下载结果时如果目标路径已存在同名文件，CLI 会先比对文件内容：字节完全相同时直接视为成功（返回 `already_present: true`，方便中断后安全重跑下载）；只有内容不同时才会报 `FILE_EXISTS`（退出码 `4`）并停止，不会覆盖你原有的其他文件。',
         ),
       ],
     },
@@ -688,34 +691,42 @@ export const plugins: GuidePage = {
           ['退出码', '含义', '处理方式'],
           ['0', '成功（含 `jobs wait` 超时但任务仍在运行）', '超时则继续 `jobs wait` 同一任务 ID'],
           ['1', '未预期的内部错误', '查看报错信息或加 `--json` 排查'],
-          ['2', '命令行参数或用法有误（含 `USAGE`）', '执行对应子命令的 `--help` 修正参数'],
+          [
+            '2',
+            '命令行参数或请求校验不合法（`USAGE`、`INVALID_REQUEST`）',
+            '执行 `--help` 或检查参数组合与本地参考图路径',
+          ],
           ['3', '未登录、等待授权中、授权被拒或已过期', '先跑 `auth status`，按状态继续或重新登录'],
-          ['4', '请求被拒绝，或任务失败 / 已取消', '修改参数后再试，不要原样死循环重试'],
+          ['4', '请求被服务端拒绝，或任务失败 / 已取消', '修改参数后再试，不要原样死循环重试'],
           [
             '5',
             '积分不足、超出 `--max-credits` 或当日额度用尽',
             '停止重试；充值、调大上限或等额度重置',
           ],
-          ['6', '网络或服务暂时不可用', '稍后用同一命令或同一幂等键重试'],
+          [
+            '6',
+            '网络或服务暂时不可用',
+            '只读命令可直接重试；`images create` 须复用输出/错误详情中的 `idempotency_key`（或已有 `job_id` 时改跑 `jobs wait`）',
+          ],
           ['7', 'CLI 版本过旧', '回到 `/connect` 重新执行安装命令升级'],
         ),
         table(
           ['常见错误码', '原因与解决办法'],
           [
             'AUTH_REQUIRED / UNAUTHENTICATED',
-            '当前未登录或连接已被撤销。先运行 `muvloom auth status`，再运行 `muvloom auth login`。',
+            '当前未登录或连接已被撤销（退出码 3）。先运行 `muvloom auth status`，再运行 `muvloom auth login`。',
           ],
           [
             'AUTH_PENDING',
-            '浏览器里的授权还没点完。再跑一次 `muvloom auth login` 会接着同一次登录等待，不会新开页面。',
+            '浏览器里的授权还没点完（退出码 3）。再跑一次 `muvloom auth login` 会接着同一次登录等待，不会新开页面。',
           ],
           [
             'AUTH_EXPIRED / AUTH_DENIED',
-            '`AUTH_EXPIRED` 表示 20 分钟设备码过期，重新执行 `auth login`；`AUTH_DENIED` 表示用户点了拒绝，停止重试。',
+            '`AUTH_EXPIRED` 表示 20 分钟设备码过期，重新执行 `auth login`；`AUTH_DENIED` 表示用户点了拒绝，停止重试（均为退出码 3）。',
           ],
           [
             'SERVICE_MISMATCH',
-            '环境变量 `MUVLOOM_API_URL` 与已保存连接的服务不一致（退出码 4）。清掉该环境变量，或用 `muvloom auth login --switch-service` 切换。',
+            '环境变量 `MUVLOOM_API_URL` 与已保存连接的服务不一致（除 `auth status` 返回退出码 0 和 `state: "service_mismatch"` 外，其余需连接命令均为退出码 4）。清掉该环境变量，或用 `muvloom auth login --switch-service` 切换。',
           ],
           [
             'PLAN_REQUIRED',
@@ -726,12 +737,16 @@ export const plugins: GuidePage = {
             '积分余额不足、当日额度用尽，或报价高于你传入的 `--max-credits`（退出码 5）。不要自动重试。',
           ],
           [
-            'INVALID_REQUEST / MODEL_UNAVAILABLE / REQUEST_TOO_LARGE',
-            '参数组合不合法、模型未开放，或参考图超过 50MB 上限（退出码 4）。先跑 `muvloom capabilities` 核对支持的模型与格式。',
+            'INVALID_REQUEST',
+            '请求参数组合不合法或本地参考图无法读取/格式不支持（退出码 2）。先跑 `muvloom capabilities` 核对支持的模型与格式。',
+          ],
+          [
+            'MODEL_UNAVAILABLE / REQUEST_TOO_LARGE',
+            '模型当前未开放，或参考图超过 50MB 上限（退出码 4）。更换可用模型或压缩参考图后再提交。',
           ],
           [
             'RATE_LIMITED / NETWORK_ERROR / TEMPORARILY_UNAVAILABLE',
-            '短暂限流或网络波动（退出码 6）。等几秒后重试同一操作；创建任务时带上同一幂等键。',
+            '短暂限流或网络波动（退出码 6）。只读查询稍后直接重试；`images create` 重试时必须传错误详情里的 `--idempotency-key`（若已返回 `job_id` 则直接 `jobs wait`）。',
           ],
           [
             'UNSUPPORTED_VERSION',
