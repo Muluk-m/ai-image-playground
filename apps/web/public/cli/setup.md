@@ -56,19 +56,20 @@ and a profile change is only picked up by later sessions. Do not write
 ### Windows (PowerShell)
 
 SHA-256 of `install.ps1`:
-`453cfa45ba6d41a59fcb9cd6b778db3a0882c06ca75fea753674553576b535fe`
+`a4f9b2f7d91547bf499f98a417884ddbb7857ae45a54f1040e081f7b3c0c5480`
 
 ```powershell
 $script = Join-Path $env:TEMP "muvloom-install.ps1"
-Invoke-WebRequest "<this-guide-origin>/cli/install.ps1?v=<this-page-v>" -OutFile $script
-if ((Get-FileHash $script -Algorithm SHA256).Hash.ToLower() -ne "453cfa45ba6d41a59fcb9cd6b778db3a0882c06ca75fea753674553576b535fe") { throw "checksum mismatch" }
+Invoke-WebRequest "<this-guide-origin>/cli/install.ps1?v=<this-page-v>" -UseBasicParsing -TimeoutSec 20 -OutFile $script
+if ((Get-FileHash $script -Algorithm SHA256).Hash.ToLower() -ne "a4f9b2f7d91547bf499f98a417884ddbb7857ae45a54f1040e081f7b3c0c5480") { throw "checksum mismatch" }
 $env:MUVLOOM_MIN_VERSION = "0.2.5"; powershell -NoProfile -ExecutionPolicy Bypass -File $script; if ($LASTEXITCODE -ne 0) { throw "muvloom installer failed with exit code $LASTEXITCODE" }
 $env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")
 ```
 
 The PATH update must also apply to subsequent commands in this agent session. If
-installation fails, report the error; do not bypass verification or skip the
-checksum.
+the direct release download fails, the installer automatically tries the official
+GitHub Release API and verifies the same SHA-256 checksums. If the installer
+still fails, report its error.
 
 ## 2. Select the service
 
