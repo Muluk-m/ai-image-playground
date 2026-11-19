@@ -487,11 +487,13 @@ it('aggregates error minute counts across instances without counting client erro
   }
 })
 
-it('logs safe storage diagnostics and preserves three-round blindness and recovery', async () => {
+it('logs safe storage diagnostics and preserves backup-watch blindness and recovery', async () => {
   const { log } = await import('../../lib/logger')
+  const { OPS_THRESHOLDS } = await import('@image-playground/shared')
   const warn = spyOn(log, 'warn').mockImplementation(() => {})
   const sent: AlertMessage[] = []
   let failed = true
+  let drillLists = 0
   const secret = 'fixture-signature-never-log'
   const error = new OpsStorageError(
     'read',
@@ -507,17 +509,21 @@ it('logs safe storage diagnostics and preserves three-round blindness and recove
     },
     readBackups: async () => ({ latest: null, previous: null }),
     readRestoreDrill: async () => {
+      drillLists++
       if (failed) throw error
       return null
     },
   })
   const blind = () => sent.filter((message) => message.rule === 'blind')
+  const interval = OPS_THRESHOLDS.BACKUP_WATCH_INTERVAL_MS
   try {
     await check(now)
     await check(now + minute)
     expect(blind()).toEqual([])
-    await check(now + 2 * minute)
+    expect(drillLists).toBe(1)
+    await check(now + interval)
     expect(blind().map((message) => message.kind)).toEqual(['firing'])
+    expect(drillLists).toBe(2)
     expect(warn.mock.calls[0]?.[0]).toEqual({
       event: 'ops.alert_observe_failed',
       block: 'restoreDrill',
@@ -532,13 +538,42 @@ it('logs safe storage diagnostics and preserves three-round blindness and recove
     })
     expect(JSON.stringify(warn.mock.calls)).not.toContain(secret)
     failed = false
-    await check(now + 3 * minute)
+    await check(now + interval * 2)
     expect(blind().map((message) => message.kind)).toEqual(['firing', 'resolved'])
+    expect(drillLists).toBe(3)
     failed = true
-    await check(now + 4 * minute)
-    await check(now + 5 * minute)
+    await check(now + interval * 3)
+    await check(now + interval * 3 + minute)
     expect(blind()).toHaveLength(2)
+    expect(drillLists).toBe(4)
   } finally {
     warn.mockRestore()
   }
+})
+
+it('reuses a successful backup list between intervals so a stale backup still alerts on the wall clock', async () => {
+  const { OPS_THRESHOLDS } = await import('@image-playground/shared')
+  const sent: AlertMessage[] = []
+  let lists = 0
+  const modifiedAt = now - (OPS_THRESHOLDS.BACKUP_MAX_AGE_MS - 2 * minute)
+  const check = createAppAlerting({
+    send: async (messages) => {
+      sent.push(...messages)
+    },
+    readBackups: async () => {
+      lists++
+      return {
+        latest: { key: 'pg/x.dump', size_bytes: 1, modified_at: modifiedAt },
+        previous: null,
+      }
+    },
+    readRestoreDrill: async () => null,
+  })
+  await check(now)
+  expect(sent.filter((message) => message.rule === 'backup')).toEqual([])
+  await check(now + 3 * minute)
+  expect(lists).toBe(1)
+  expect(
+    sent.filter((message) => message.rule === 'backup').map((message) => message.kind),
+  ).toEqual(['firing'])
 })

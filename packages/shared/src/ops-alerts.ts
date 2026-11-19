@@ -67,7 +67,10 @@ export interface AlertObservation {
   gptDirectKeys?: {
     disabled: ReadonlyArray<{ fingerprint: string; label: string; reason: 'quota' | 'invalid' }>
   }
-  /** 连续若干轮取不到读数的块，由调用方按轮次累计。 */
+  /**
+   * 连续若干轮取不到读数的块，由调用方按轮次累计。
+   * 备份和演练只在实际列出失败时累计，被节流跳过的轮次既不加也不清零。
+   */
   blindBlocks?: ReadonlyArray<{ block: string; rounds: number }>
 }
 
@@ -215,6 +218,12 @@ function span(ms: number): string {
   return hours % 24 === 0 ? `${days} 天` : `${days} 天 ${hours % 24} 小时`
 }
 
+function blindRoundsNeeded(block: string): number {
+  return block === 'backup' || block === 'restoreDrill'
+    ? OPS_THRESHOLDS.ALERT_BACKUP_BLIND_ROUNDS
+    : OPS_THRESHOLDS.ALERT_BLIND_ROUNDS
+}
+
 function heartbeatReading(label: string, lastSeenAt: number, now: number): Reading {
   const silence = now - lastSeenAt
   return {
@@ -236,7 +245,7 @@ function readings(
 
   if (observation.blindBlocks) {
     const blind = observation.blindBlocks.filter(
-      (one) => one.rounds >= OPS_THRESHOLDS.ALERT_BLIND_ROUNDS,
+      (one) => one.rounds >= blindRoundsNeeded(one.block),
     )
     out.blind = {
       breached: blind.length > 0,

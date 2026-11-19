@@ -42,8 +42,22 @@ export const OPS_THRESHOLDS = {
   AGENT_FAILURE_PATTERN_WINDOW_MS: 6 * 60 * 60 * 1000,
   /** 同类失败这么久没再出现就算恢复。 */
   AGENT_FAILURE_PATTERN_QUIET_MS: 30 * 60 * 1000,
-  /** 某一块告警读数连续这么多轮取不到，就说明对应规则已经失明。 */
+  /**
+   * 某一块告警读数连续这么多轮取不到，就说明对应规则已经失明。
+   * 按告警扫描轮次计，当前是 10 秒一轮；备份和演练见下面单独的次数。
+   */
   ALERT_BLIND_ROUNDS: 3,
+  /**
+   * 备份和演练结果按 BACKUP_WATCH_INTERVAL_MS 才真正列出一次。
+   * 连续这么多次实际列出失败才报失明：2 次约 10 分钟，既能滤掉单次 R2 抖动，
+   * 又不会像仍要 3 次那样拖到 15 分钟。
+   */
+  ALERT_BACKUP_BLIND_ROUNDS: 2,
+  /**
+   * worker 的告警循环仍是 10 秒一次，但备份和演练的 ListObjects 按这个间隔节流。
+   * 备份本身一小时一份，5 分钟足够及时，也能把每月 Class A 列出从约 52 万次降到约 1.7 万次。
+   */
+  BACKUP_WATCH_INTERVAL_MS: 5 * 60 * 1000,
   /** 看板判断「最近」接口情况的窗口。 */
   API_RECENT_WINDOW_MS: 15 * 60 * 1000,
   /** 心跳每 30 秒一次；超过这个时长没更新就当服务断了，也就是容忍连续丢 3 次。 */
