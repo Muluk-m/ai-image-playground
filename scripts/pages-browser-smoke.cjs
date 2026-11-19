@@ -214,6 +214,7 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
             }],
           },
           '/api/auth/me': { error: 'unauthorized' },
+          '/api/auth/oauth/providers': { providers: [], loginMethods: { password: true, registration: true } },
           // 侧栏未读点在工作台启动时读取，空列表即可。
           '/api/announcements': { items: [], unreadCount: 0 },
         }
@@ -307,6 +308,11 @@ async function checkWorkspace(browser, origin, { local = false, nodeCanvas = fal
             : nodeCanvas ? '[aria-label="创作画布"] .react-flow'
             : '[aria-label="创作画布"] canvas, [aria-label="创作画布"] .react-flow'
           await page.locator(ready).first().waitFor({ timeout: timeoutMs })
+          const closeLogin = page.getByRole('button', { name: '关闭登录框' })
+          if (await closeLogin.count()) {
+            await closeLogin.click()
+            await closeLogin.waitFor({ state: 'detached', timeout: timeoutMs })
+          }
           if (nodeCanvas && index === 1) {
             await page.getByRole('button', { name: '显示小地图', exact: true }).click()
             await page.locator('.react-flow__minimap').waitFor({ timeout: timeoutMs })

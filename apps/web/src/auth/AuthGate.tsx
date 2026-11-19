@@ -24,11 +24,18 @@ import { isChunkFailure, lazyWithReload } from '../lib/chunkLoad'
 import { clearScopedClientStorage } from '../lib/clearScopedStorage'
 import { isClientCapabilityEnabled } from '../lib/clientCapabilities'
 import { recoverStorageUser } from '../lib/localRecovery'
+import { usePathname } from '../lib/pathname'
 import { getRuntimeConfig } from '../lib/runtimeConfig'
 import { adoptAnonymousStorage } from '../lib/storageAdoption'
 import { AuthContextProvider } from './AuthContext'
 import { LoginDialog } from './LoginDialog'
-import { type LoginPromptReason, setSignedIn, subscribeLoginPrompt } from './loginPrompt'
+import {
+  type LoginPromptReason,
+  rememberGuestLoginPromptDismissed,
+  setSignedIn,
+  shouldAutoOpenGuestLoginPrompt,
+  subscribeLoginPrompt,
+} from './loginPrompt'
 import { discardPendingSubmission, hasPendingSubmission } from './pendingSubmission'
 import { SessionExpiredCard } from './SessionExpiredCard'
 
@@ -107,6 +114,7 @@ export function AuthGate() {
   const [adoptedTaskCount, setAdoptedTaskCount] = useState(0)
   const [loginReason, setLoginReason] = useState<LoginPromptReason | null>(null)
   const [sessionExpired, setSessionExpired] = useState(false)
+  const pathname = usePathname()
 
   useEffect(() => {
     let cancelled = false
@@ -130,7 +138,7 @@ export function AuthGate() {
           consumeLoginIntent()
           return
         }
-        // 没有会话不是错误：访客照样进工作台，按下需要账号的动作时再弹登录框。
+        // 没有会话不是错误：访客照样进工作台；会话判定完成后再决定要不要自动弹出登录框。
         // 没有页面上的提示 cookie、记住的用户，也不是 OAuth 刚回来时，不请求 /api/auth/me。
         const probeSession = shouldProbeSession()
         const readCurrentUser = () =>
@@ -244,6 +252,12 @@ export function AuthGate() {
 
   useEffect(() => subscribeLoginPrompt(setLoginReason), [])
 
+  useEffect(() => {
+    if (phase !== 'ready' || user || sessionExpired || loginReason) return
+    if (!shouldAutoOpenGuestLoginPrompt(pathname)) return
+    setLoginReason('gated-action')
+  }, [phase, user, sessionExpired, loginReason, pathname])
+
   const logout = useCallback(async (clearLocalData: boolean) => {
     let signedOut = false
     try {
@@ -304,7 +318,10 @@ export function AuthGate() {
       {sessionExpired && loginReason === null ? (
         <SessionExpiredCard
           onRelogin={() => setLoginReason('session-expired')}
-          onDismiss={() => setSessionExpired(false)}
+          onDismiss={() => {
+            setSessionExpired(false)
+            rememberGuestLoginPromptDismissed()
+          }}
         />
       ) : null}
       {loginReason ? (
@@ -312,6 +329,7 @@ export function AuthGate() {
           reason={loginReason}
           onClose={() => {
             setLoginReason(null)
+            rememberGuestLoginPromptDismissed()
             void discardPendingSubmission()
           }}
         />
