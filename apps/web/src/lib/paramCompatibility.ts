@@ -19,7 +19,7 @@ export interface ParamCapabilities {
   transparentOutput: boolean
   compression: boolean
   /**
-   * 分辨率（gemini_image_size）与思考级别（gemini_thinking_level）。
+   * 分辨率（gemini_image_size）。
    * 比例不在此列：走 gemini 协议时它顶的是尺寸控件的位置，任何模型都得有一个。
    */
   geminiImageTuning: boolean
@@ -29,7 +29,7 @@ export interface ParamCapabilities {
 
 /**
  * 是不是 Gemini 系的图像模型。同一个 gemini 协议下也能填 imagen 这类别的模型，
- * 那些模型认不得分辨率与思考级别——显示了却不生效，比没有这个开关更糟。
+ * 那些模型认不得分辨率——显示了却不生效，比没有这个开关更糟。
  */
 function isGeminiSeriesModel(model: string): boolean {
   return model.trim().toLowerCase().startsWith('gemini')
@@ -89,6 +89,9 @@ export function normalizeParamsForSettings(
       caps.geminiImageSizes,
     )
   }
+  // 思考级别是模型画图前的内部推理，提示词直出不开放：本地旧值、复用配置带回来的值
+  // 一律丢掉，免得看不见的参数照样发出去。智能体的生成计划不经这里，仍可自己定。
+  delete nextParams.gemini_thinking_level
   if (!caps.compression) {
     nextParams.output_compression = DEFAULT_PARAMS.output_compression
   }

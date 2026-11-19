@@ -68,6 +68,12 @@ async function resolutionOf(model: string, params: Partial<TaskParams> = {}) {
       ),
     ]
     return {
+      groups: [...document.body.querySelectorAll('[role="dialog"] [role="group"]')].map((one) =>
+        one.getAttribute('aria-label'),
+      ),
+      resettable: [...document.body.querySelectorAll('[role="dialog"] button')].some(
+        (one) => one.textContent === '恢复默认',
+      ),
       options: buttons.map((one) => one.textContent),
       selected: buttons
         .filter((one) => one.getAttribute('aria-pressed') === 'true')
@@ -101,4 +107,11 @@ it('shows a stored tier the model does not render as the nearest one it does', a
   expect(lite.summary).not.toContain('2K')
   const pro = await resolutionOf('gemini-3-pro-image', { gemini_image_size: '512' })
   expect(pro.selected).toEqual(['1K'])
+})
+
+it('does not offer the model thinking level, even when an old value is stored', async () => {
+  const pro = await resolutionOf('gemini-3-pro-image', { gemini_thinking_level: 'high' })
+  expect(pro.groups).toContain('分辨率')
+  expect(pro.groups).not.toContain('思考')
+  expect(pro.resettable).toBe(false)
 })
