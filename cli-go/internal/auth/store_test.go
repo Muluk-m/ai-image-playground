@@ -646,3 +646,52 @@ func TestAConfigDirectoryNeverTouchesTheKeychain(t *testing.T) {
 		t.Fatalf("explicit keychain override did not apply: %+v", forced)
 	}
 }
+
+func TestSandboxedFileLoginAndLogoutStayConsistentWithTerminalKeychain(t *testing.T) {
+	dir := t.TempDir()
+	keychain := &userKeychain{entries: map[string]string{}}
+	terminal := Store{Dir: dir, UseKeyring: true, ClearKeyring: true, Keychain: keychain}
+	sandbox := Store{Dir: dir, UseKeyring: false, ClearKeyring: false, Keychain: keychain}
+
+	// 1. User logs into Account A in normal terminal (stored in keychain).
+	if err := terminal.Save(Credentials{AccessToken: "a-tok", RefreshToken: "a-ref", BaseURL: "https://api.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if info := terminal.Describe(); info.Backend != "keychain" {
+		t.Fatalf("terminal Describe = %+v, want keychain", info)
+	}
+
+	// 2. User switches to Account B inside sandboxed host (writes file, never touches keychain).
+	if err := sandbox.Save(Credentials{AccessToken: "b-tok", RefreshToken: "b-ref", BaseURL: "https://api.example"}); err != nil {
+		t.Fatal(err)
+	}
+	// Keychain still holds Account A (sandbox did not touch it), yet terminal MUST load Account B!
+	if got, err := terminal.Load(); err != nil || got.RefreshToken != "b-ref" {
+		t.Fatalf("terminal reverted to stale keychain account: %+v, %v", got, err)
+	}
+	if info := terminal.Describe(); info.Backend != "file" {
+		t.Fatalf("terminal Describe after sandbox login = %+v, want file", info)
+	}
+
+	// 3. User signs out inside sandboxed host -> terminal must see signed out, not Account A.
+	if err := sandbox.Clear(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := terminal.Load(); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("terminal resurrected signed-out keychain account: %v", err)
+	}
+	if info := terminal.Describe(); info.Backend != "none" {
+		t.Fatalf("terminal Describe after sandbox clear = %+v, want none", info)
+	}
+
+	// 4. Subsequent login from normal terminal restores keychain authority cleanly.
+	if err := terminal.Save(Credentials{AccessToken: "c-tok", RefreshToken: "c-ref", BaseURL: "https://api.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := terminal.Load(); err != nil || got.RefreshToken != "c-ref" {
+		t.Fatalf("terminal Load after re-login = %+v, %v", got, err)
+	}
+	if info := terminal.Describe(); info.Backend != "keychain" {
+		t.Fatalf("terminal Describe after re-login = %+v, want keychain", info)
+	}
+}

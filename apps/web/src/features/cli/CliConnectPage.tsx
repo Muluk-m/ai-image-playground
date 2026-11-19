@@ -139,6 +139,7 @@ export default function CliConnectPage() {
   )
   const [connectedDetected, setConnectedDetected] = useState(false)
   const [cliAvailable, setCliAvailable] = useState(true)
+  const [pollStopped, setPollStopped] = useState(false)
   const [connectionsRefreshKey, setConnectionsRefreshKey] = useState(0)
   const baselineIdsRef = useRef<Set<string> | null>(null)
 
@@ -148,11 +149,12 @@ export default function CliConnectPage() {
   }, [])
 
   // 已登录时静默轮询连接列表，检测到新授权的智能体后自动更新等待提示并刷新列表。
-  // 后台标签页暂停轮询；CLI 能力未启用或鉴权失效时停止轮询并隐藏等待条。
+  // 后台标签页暂停轮询；CLI 能力未启用或鉴权失效时停止轮询并隐藏等待条，避免界面一直停在“页面会自动更新”。
   useEffect(() => {
     baselineIdsRef.current = null
     setConnectedDetected(false)
     setCliAvailable(true)
+    setPollStopped(false)
     if (!user?.id) return
     let cancelled = false
     let stopped = false
@@ -184,11 +186,14 @@ export default function CliConnectPage() {
         }
       } catch (error) {
         if (cancelled || controller.signal.aborted) return
-        if (
-          error instanceof AuthRequestError &&
-          (error.code === 'capability_unavailable' || error.status === 401 || error.status === 403)
-        ) {
-          if (error.code === 'capability_unavailable') setCliAvailable(false)
+        if (error instanceof AuthRequestError && error.code === 'capability_unavailable') {
+          setCliAvailable(false)
+          setPollStopped(true)
+          stopped = true
+          return
+        }
+        if (error instanceof AuthRequestError && (error.status === 401 || error.status === 403)) {
+          setPollStopped(true)
           stopped = true
           return
         }
@@ -293,7 +298,7 @@ export default function CliConnectPage() {
                 </a>
               </div>
 
-              {user && cliAvailable ? (
+              {user && cliAvailable && (connectedDetected || !pollStopped) ? (
                 <div
                   role="status"
                   className={`flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-body-sm ${
@@ -376,22 +381,28 @@ export default function CliConnectPage() {
                   {t('cliConnect.nextStepsTitle')}
                 </h3>
                 <ol className="space-y-4">
-                  {(
+                  {[
                     [
-                      ['01', 'step1Title', 'step1Body'],
-                      ['02', 'step2Title', 'step2Body'],
-                      ['03', 'step3Title', 'step3Body'],
-                    ] as const
-                  ).map(([index, titleKey, bodyKey]) => (
+                      '01',
+                      t('cliConnect.nextSteps.step1Title'),
+                      t('cliConnect.nextSteps.step1Body'),
+                    ],
+                    [
+                      '02',
+                      t('cliConnect.nextSteps.step2Title'),
+                      t('cliConnect.nextSteps.step2Body'),
+                    ],
+                    [
+                      '03',
+                      t('cliConnect.nextSteps.step3Title'),
+                      t('cliConnect.nextSteps.step3Body'),
+                    ],
+                  ].map(([index, title, body]) => (
                     <li key={index} className="grid grid-cols-[24px_minmax(0,1fr)] gap-3">
                       <span className="font-mono text-xs font-semibold text-primary">{index}</span>
                       <div className="space-y-0.5">
-                        <p className="text-sm font-semibold text-foreground">
-                          {t(`cliConnect.nextSteps.${titleKey}`)}
-                        </p>
-                        <p className="text-body-sm text-muted-foreground">
-                          {t(`cliConnect.nextSteps.${bodyKey}`)}
-                        </p>
+                        <p className="text-sm font-semibold text-foreground">{title}</p>
+                        <p className="text-body-sm text-muted-foreground">{body}</p>
                       </div>
                     </li>
                   ))}

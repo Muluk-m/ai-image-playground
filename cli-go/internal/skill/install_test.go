@@ -238,30 +238,89 @@ func TestInstallStillRejectsDoubaoHost(t *testing.T) {
 	}
 }
 
-func TestRefreshOutdatedUpgradesLegacyWorkbuddyZipInstall(t *testing.T) {
+func TestRefreshOutdatedUpgradesWorkbuddyInstallWithMetadata(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
-	dest := filepath.Join(home, ".workbuddy", "skills", "muvloom")
-	if err := os.MkdirAll(dest, 0o755); err != nil {
+	res, err := Install(InstallOptions{Host: "workbuddy", Scope: "user", Home: home})
+	if err != nil {
 		t.Fatal(err)
 	}
-	legacy := "---\r\nname: muvloom\r\ndescription: Old\r\nauthor: Muvloom\r\nversion: 1.0.0\r\n---\r\n\r\n# Old\r\n"
+	fakeRelease(t, res.Path, "0.2.0", "workbuddy", "user")
+	installed, failed, err := RefreshOutdated(home, cwd)
+	if err != nil || len(failed) != 0 {
+		t.Fatalf("refresh workbuddy: %v %v", failed, err)
+	}
+	if len(installed) != 1 || installed[0].Host != "workbuddy" || !installed[0].Current || installed[0].Version != BundleVersion {
+		t.Fatalf("workbuddy was not upgraded: %+v", installed)
+	}
+	// WorkBuddy-specific instructions, metadata, and reference must survive the upgrade.
+	if _, err := os.Stat(filepath.Join(res.Path, "references", "workbuddy.md")); err != nil {
+		t.Fatalf("workbuddy.md missing after refresh: %v", err)
+	}
+	skillBytes, _ := os.ReadFile(filepath.Join(res.Path, "SKILL.md"))
+	if !strings.Contains(string(skillBytes), "## WorkBuddy") || !strings.Contains(string(skillBytes), "display_name: 幕芽 Muvloom") {
+		t.Fatalf("WorkBuddy section or metadata missing after refresh")
+	}
+}
+
+func TestLegacyWorkbuddyZipIsNotSilentlyOverwrittenButCanBeExplicitlyUpgraded(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	dest := filepath.Join(home, ".workbuddy", "skills", "muvloom")
+	if err := os.MkdirAll(filepath.Join(dest, "references"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := "---\r\nname: muvloom\r\ndescription: Old custom edit\r\nauthor: Muvloom\r\nversion: 1.0.0\r\n---\r\n\r\n# My Custom Notes\r\n"
 	if err := os.WriteFile(filepath.Join(dest, "SKILL.md"), []byte(legacy), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(dest, "references", "my-notes.md"), []byte("keep me"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// RefreshOutdated must NOT silently overwrite an unhashed legacy directory.
 	installed, failed, err := RefreshOutdated(home, cwd)
 	if err != nil || len(failed) != 0 {
 		t.Fatalf("refresh legacy workbuddy: %v %v", failed, err)
 	}
-	if len(installed) != 1 || installed[0].Host != "workbuddy" || !installed[0].Current || installed[0].Version != BundleVersion {
-		t.Fatalf("legacy workbuddy was not upgraded: %+v", installed)
+	if len(installed) != 1 || installed[0].Host != "workbuddy" || installed[0].Intact || installed[0].Current {
+		t.Fatalf("expected unverified legacy workbuddy to report Intact=false: %+v", installed)
 	}
-	// WorkBuddy-specific instructions and reference must survive the upgrade.
-	if _, err := os.Stat(filepath.Join(dest, "references", "workbuddy.md")); err != nil {
-		t.Fatalf("workbuddy.md missing after refresh: %v", err)
+	if data, _ := os.ReadFile(filepath.Join(dest, "SKILL.md")); string(data) != legacy {
+		t.Fatal("RefreshOutdated silently overwrote unhashed legacy SKILL.md")
 	}
-	skillBytes, _ := os.ReadFile(filepath.Join(dest, "SKILL.md"))
-	if !strings.Contains(string(skillBytes), "## WorkBuddy") {
-		t.Fatalf("WorkBuddy section missing after refresh")
+	if data, _ := os.ReadFile(filepath.Join(dest, "references", "my-notes.md")); string(data) != "keep me" {
+		t.Fatal("RefreshOutdated deleted user markdown file in legacy dir")
+	}
+	// Explicit install upgrades the legacy WorkBuddy directory and writes .muvloom-skill.json.
+	if _, err := Install(InstallOptions{Host: "workbuddy", Scope: "user", Home: home}); err != nil {
+		t.Fatalf("explicit workbuddy install failed: %v", err)
+	}
+	after, err := Installed(home, cwd)
+	if err != nil || len(after) != 1 || !after[0].Intact || !after[0].Current || after[0].Version != BundleVersion {
+		t.Fatalf("after explicit install = %+v, %v", after, err)
+	}
+}
+
+func TestClaudeAndCodexFrontmatterSatisfiesAgentSkillsSpec(t *testing.T) {
+	for _, host := range []string{"claude-code", "codex"} {
+		files, _, err := bundleFilesForHost(host)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, f := range files {
+			if f.path != "SKILL.md" {
+				continue
+			}
+			text := string(f.data)
+			end := strings.Index(text[4:], "\n---\n")
+			if end < 0 {
+				t.Fatalf("%s SKILL.md missing frontmatter", host)
+			}
+			fm := text[4 : 4+end]
+			for _, forbidden := range []string{"display_name:", "display_name_en:", "description_zh:", "description_en:", "version:", "author:"} {
+				if strings.Contains(fm, forbidden) {
+					t.Fatalf("%s SKILL.md contains non-spec frontmatter key %s", host, forbidden)
+				}
+			}
+		}
 	}
 }
 

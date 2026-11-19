@@ -382,4 +382,13 @@ describe('CliConnectPage', () => {
     expect(host.textContent).not.toContain('正在等待智能体连接')
     expect(host.querySelector('#cli-connections-title')).toBeNull()
   })
+
+  it('轮询遇到 401/403 停止时隐藏等待条，不假装页面仍在自动更新', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ error: 'unauthorized' }, { status: 401 })),
+    )
+    await render()
+    expect(host.textContent).not.toContain('正在等待智能体连接')
+  })
 })

@@ -76,9 +76,11 @@ func Installed(home, cwd string) ([]Installation, error) {
 			path := filepath.Join(location.root, host.dir, "skills", "muvloom")
 			data, readErr := os.ReadFile(filepath.Join(path, ".muvloom-skill.json"))
 			if errors.Is(readErr, os.ErrNotExist) {
-				// Official ZIP installs in user-scoped WorkBuddy had no .muvloom-skill.json;
-				// detect them only under user scope and strict file layout validation so
-				// project directories and user-customized folders are never touched.
+				// Official ZIP installs in user-scoped WorkBuddy before .muvloom-skill.json
+				// existed have no integrity hash. Report them with Intact=false so auth status
+				// surfaces the explicit upgrade command without RefreshOutdated silently
+				// overwriting user edits. New ZIP downloads include .muvloom-skill.json and
+				// auto-refresh cleanly.
 				if host.name == "workbuddy" && location.scope == "user" && isOfficialZipSkillDir(path) {
 					result = append(result, Installation{
 						Skill:      "muvloom",
@@ -86,7 +88,7 @@ func Installed(home, cwd string) ([]Installation, error) {
 						Scope:      location.scope,
 						Path:       path,
 						Version:    "0.0.0",
-						Intact:     true,
+						Intact:     false,
 						Current:    false,
 						foundHost:  host.name,
 						foundScope: location.scope,

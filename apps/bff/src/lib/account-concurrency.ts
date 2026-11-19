@@ -1,5 +1,4 @@
 import type { AgentJobQueuePosition } from '@image-playground/shared'
-import { config } from '../config'
 import { type BffTransaction, loadPrivateBffOverlay } from './private-overlay'
 
 /**
@@ -38,17 +37,18 @@ export async function accountEffectiveConcurrencyLimit(
   tx: BffTransaction,
   userId: string,
   now: number,
+  idleConcurrencyEnabled: boolean,
 ): Promise<number> {
   const overlay = await loadPrivateBffOverlay()
   const hooks = overlay.taskHooks
-  if (!config.worker.idleConcurrencyEnabled || !hooks.accountConcurrencyEntitlement) {
+  if (!idleConcurrencyEnabled || !hooks.accountConcurrencyEntitlement) {
     return accountConcurrencyLimit(tx, userId, now)
   }
   const entitlement = await hooks.accountConcurrencyEntitlement({ tx, userId, now })
   return resolveEffectiveConcurrency(
     entitlement.guaranteed,
     entitlement.idle,
-    config.worker.idleConcurrencyEnabled,
+    idleConcurrencyEnabled,
   )
 }
 

@@ -30,6 +30,7 @@ import {
   resolveImageRequest,
 } from '@image-playground/shared/model-catalog'
 import { and, eq, inArray, like } from 'drizzle-orm'
+import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { accountEffectiveConcurrencyLimit } from '../account-concurrency'
 import { canonicalJson } from '../canonicalJson'
@@ -626,7 +627,12 @@ export async function imageCapabilities(userId: string) {
       models: listed,
       limits: {
         images_per_request: 1,
-        concurrent_jobs: await accountEffectiveConcurrencyLimit(tx, userId, Date.now()),
+        concurrent_jobs: await accountEffectiveConcurrencyLimit(
+          tx,
+          userId,
+          Date.now(),
+          config.worker.idleConcurrencyEnabled,
+        ),
         prompt_max_chars: CLI_PROMPT_MAX_CHARS,
       },
     }

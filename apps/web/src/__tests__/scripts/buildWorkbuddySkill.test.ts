@@ -140,9 +140,15 @@ describe('Doubao Skill package', () => {
 })
 
 describe('generic Skill package', () => {
-  it('ships the official SKILL.md pack under a muvloom/ root', () => {
+  it('ships the official SKILL.md pack under a muvloom/ root with spec-compliant frontmatter', () => {
     const files = unzipSync(createGenericSkillZip())
-    expect(strFromU8(files['muvloom/SKILL.md'])).toContain('name: muvloom')
+    const skill = strFromU8(files['muvloom/SKILL.md'])
+    const frontmatter = skill.match(/^---\n([\s\S]+?)\n---\n/)?.[1] ?? ''
+    expect(frontmatter).toMatch(/^name: muvloom$/m)
+    expect(frontmatter).toMatch(/^description: .+/m)
+    expect(frontmatter).not.toMatch(
+      /^(display_name|description_zh|description_en|version|author):/m,
+    )
     expect(files['muvloom/references/workbuddy.md']).toBeUndefined()
     expect(files['muvloom/references/doubao.md']).toBeUndefined()
     expect(Object.keys(files).every((name) => name.startsWith('muvloom/'))).toBe(true)
