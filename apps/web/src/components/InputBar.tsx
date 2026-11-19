@@ -133,6 +133,7 @@ import {
 import { CreationReferenceStack } from './creation/CreationReferenceStack'
 import { agentModeOf, creationModeOf } from './creation/composerMode'
 import HomeTargetPicker from './creation/HomeTargetPicker'
+import { MultiSceneHint } from './creation/MultiSceneHint'
 import { useReferenceDisplay } from './creation/referenceDisplay'
 import { LookCapsule } from './LookChips'
 import ParamControls from './ParamControls'
@@ -1760,6 +1761,11 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               )}
             </div>
           </CreationBody>
+          <MultiSceneHint
+            prompt={prompt}
+            imageCount={batchActive ? batchImageCount : submitImageCount}
+            creationMode={creationMode}
+          />
           <CreationToolbar
             mode={inline ? <HomeTargetPicker /> : undefined}
             status={

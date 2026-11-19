@@ -231,5 +231,11 @@
     "oversized": "Image {{index}} is over {{mb}} MB. Remove it or use a smaller one.",
     "sendLabel": "Generate {{count}} images, one per reference",
     "sendLabelCredits": "Generate {{count}} images, one per reference, {{credits}} credits"
+  },
+  "multiScene": {
+    "hint": "This will generate 1 image: one prompt produces one scene. To get {{count}} different scenes, write {{count}} separate prompts, or {{agent}}.",
+    "handToAgent": "hand it to the agent",
+    "dismiss": "Dismiss",
+    "hintNoAgent": "This will generate 1 image: one prompt produces one scene. To get {{count}} different scenes, write {{count}} separate prompts."
   }
 }
