@@ -22,7 +22,7 @@ export { adminDirectKeys, fingerprintMacSource, resetAdminDirectKeySnapshot }
  * 密钥材料用 INTERNAL_API_TOKEN，没有再用 EMAIL_CODE_SECRET，最后才用 UPSTREAM_SECRETS_MASTER_KEY。
  * 三个都没配就拒绝派生，直连和后台 key 都不可用，绝不用空密钥。
  * 主密钥经常后补，不能拿它当第一选择，否则补上之后指纹全变，本月花费和停用状态会对不上。
- * 0091 尚未上线，库里没有旧指纹。换上面这把已经在用的密钥，也会让本月已记花费不再归到这把 key。
+ * 换掉上面这把已经在用的密钥，本月已记花费也不再归到这把 key。
  * 日志和后台只出现这个标签。同一进程里同一把 key 只派生一次。
  */
 
