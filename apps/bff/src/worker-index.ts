@@ -126,6 +126,8 @@ const staleScanTimer = setInterval(() => {
         privateMaintenance = undefined
       })
   }
+  // 任务恢复和告警扫描仍是 10 秒一次。备份和演练的 ListObjects 在告警里按
+  // BACKUP_WATCH_INTERVAL_MS（默认 5 分钟）节流，避免每 10 秒打两次 R2。
   void checkAppAlerts()
   if (!scheduler.drainStatus().draining)
     Promise.all([

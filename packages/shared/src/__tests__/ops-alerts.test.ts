@@ -616,6 +616,17 @@ describe('告警读数失明', () => {
       ]),
     ).toEqual([[], [], ['firing:blind'], ['resolved:blind']])
   })
+
+  it('备份和演练连续 2 轮取不到就报，其它块仍要 3 轮', () => {
+    expect(run([[T0, { blindBlocks: [{ block: 'backup', rounds: 1 }] }]])).toEqual([[]])
+    expect(run([[T0, { blindBlocks: [{ block: 'backup', rounds: 2 }] }]])).toEqual([
+      ['firing:blind'],
+    ])
+    expect(run([[T0, { blindBlocks: [{ block: 'restoreDrill', rounds: 2 }] }]])).toEqual([
+      ['firing:blind'],
+    ])
+    expect(run([[T0, { blindBlocks: [{ block: 'failures', rounds: 2 }] }]])).toEqual([[]])
+  })
 })
 
 describe('生成失败告警：带模型明细，出图成功才恢复', () => {
