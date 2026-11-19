@@ -79,7 +79,6 @@ export function toAgentTurnParams(
   }
   if (params.gemini_aspect_ratio) next.gemini_aspect_ratio = params.gemini_aspect_ratio
   if (params.gemini_image_size) next.gemini_image_size = params.gemini_image_size
-  if (params.gemini_thinking_level) next.gemini_thinking_level = params.gemini_thinking_level
   if (options?.includeCount) {
     const count = snapImageCount(params.n, model)
     if (count >= 1 && count <= AGENT_IMAGE_MAX_N && count !== DEFAULT_PARAMS.n) next.n = count

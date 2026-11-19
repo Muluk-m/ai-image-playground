@@ -44,12 +44,7 @@ import {
   tierFits,
 } from '../lib/size'
 import { useStore } from '../store'
-import {
-  DEFAULT_PARAMS,
-  GEMINI_ASPECT_RATIOS,
-  GEMINI_THINKING_LEVELS,
-  type TaskParams,
-} from '../types'
+import { DEFAULT_PARAMS, GEMINI_ASPECT_RATIOS, type TaskParams } from '../types'
 import { ModelSelector } from './composer/ModelSelector'
 import {
   type ComposerControlSize,
@@ -322,15 +317,13 @@ export function ImageSettings({
         params.output_format !== DEFAULT_PARAMS.output_format ||
         params.output_compression != null ||
         (transparentVisible && params.transparent_output) ||
-        (noRewriteVisible && params.no_rewrite !== DEFAULT_PARAMS.no_rewrite))) ||
-    (tuning && !agentManaged && Boolean(params.gemini_thinking_level))
+        (noRewriteVisible && params.no_rewrite !== DEFAULT_PARAMS.no_rewrite)))
 
   const resetPatch = () => {
     const patch: Partial<TaskParams> = isGemini
       ? {
           gemini_aspect_ratio: undefined,
           gemini_image_size: undefined,
-          ...(agentManaged ? {} : { gemini_thinking_level: undefined }),
         }
       : { size: DEFAULT_PARAMS.size }
     if (countVisible && fixedCount === undefined) patch.n = DEFAULT_PARAMS.n
@@ -525,17 +518,6 @@ export function ImageSettings({
                 {t('settings.fixedCount', { count: fixedCount })}
               </p>
             )}
-          </SettingsSection>
-        )}
-
-        {tuning && !agentManaged && (
-          <SettingsSection title={t('param.thinking')}>
-            <SettingsSegmented
-              label={t('param.thinking')}
-              options={withAuto(GEMINI_THINKING_LEVELS, t('settings.autoOption'))}
-              value={params.gemini_thinking_level ?? 'auto'}
-              onChange={(value) => setParams({ gemini_thinking_level: fromAuto(value) })}
-            />
           </SettingsSection>
         )}
 
