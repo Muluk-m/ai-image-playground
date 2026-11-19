@@ -3,6 +3,7 @@ import { DEFAULT_SETTINGS, getActiveApiProfile, normalizeSettings } from '../../
 import type { ChannelCapability, ClientProfile, PublicChannel } from '../../lib/channels/types'
 import { switchImageOutputFormat } from '../../lib/image26Format'
 import {
+  getChangedParams,
   getOutputImageLimitForSettings,
   getParamCapabilities,
   normalizeParamsForSettings,
@@ -99,7 +100,10 @@ describe('parameter compatibility', () => {
     const params = { ...DEFAULT_PARAMS, gemini_thinking_level: 'high' as const }
     const settings = settingsFor(useChannel('gemini-queue', 'gemini-3.1-flash-image'))
 
-    expect(normalizeParamsForSettings(params, settings)).not.toHaveProperty('gemini_thinking_level')
+    const normalized = normalizeParamsForSettings(params, settings)
+    expect(normalized.gemini_thinking_level).toBeUndefined()
+    // 仓库按合并写回：差量里必须带上这一键，旧值才会被清掉。
+    expect(getChangedParams(params, normalized)).toEqual({ gemini_thinking_level: undefined })
   })
 
   it('keeps explicit no_rewrite choice across gemini channels (guard is provider-gated at dispatch)', () => {

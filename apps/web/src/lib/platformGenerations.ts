@@ -375,7 +375,8 @@ function statusFromGeneration(status: QueueStatus): TaskStatus {
 
 /**
  * 平台记录的参数投影。Gemini 那三项也照抄：这份参数同时是卡面显示和「复用配置」的来源，
- * 漏掉它们，复用一条 Gemini 生成就会悄悄换掉画面比例、分辨率档位和思考级别。
+ * 漏掉比例和分辨率，复用一条 Gemini 生成就会悄悄换掉画面。思考级别只留给卡面显示，
+ * 复用时由 `normalizeParamsForSettings` 丢掉：提示词直出不开放这一项。
  */
 /**
  * 平台记下的是发给上游的那一句：创作页开着「防改写」时钉了 guard 前缀，模型不认 `size` 时还缀了构图指令。
