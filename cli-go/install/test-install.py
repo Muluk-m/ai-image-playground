@@ -48,7 +48,21 @@ class DistributionHandler(BaseHTTPRequestHandler):
                 {"tag_name": "cli-v999.0.0-rc.1", "prerelease": True},
             ]
             body = json.dumps(releases).encode()
+        elif mode == "blocked" and parts[1:] == ["releases", "tags", f"cli-v{VERSION}"]:
+            body = json.dumps({"assets": [
+                {"id": 1, "name": "muvloom_windows_amd64.exe"},
+                {"id": 2, "name": "checksums.txt"},
+            ]}).encode()
+        elif mode == "blocked" and parts[1:3] == ["releases", "assets"] and len(parts) == 4:
+            name = {"1": "muvloom_windows_amd64.exe", "2": "checksums.txt"}.get(parts[3])
+            if name is None or self.headers.get("Accept") != "application/octet-stream":
+                self.send_error(400)
+                return
+            body = (DIST / name).read_bytes()
         elif len(parts) == 3 and parts[1] == f"cli-v{VERSION}":
+            if mode == "blocked":
+                self.send_error(403)
+                return
             if mode == "not-found":
                 self.send_error(404)
                 return
@@ -65,7 +79,7 @@ class DistributionHandler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         self.send_response(200)
-        self.send_header("Content-Type", "application/json" if parts[-1] == "releases" else "application/octet-stream")
+        self.send_header("Content-Type", "application/json" if parts[-1] == "releases" or parts[1:3] == ["releases", "tags"] else "application/octet-stream")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -118,13 +132,13 @@ class InstallTests(unittest.TestCase):
         self.binary = Path(self.env["MUVLOOM_INSTALL_DIR"]) / ("muvloom.exe" if self.windows else "muvloom")
         self.server.requests.clear()
 
-    def install(self, mode="ok", pin=True):
+    def install(self, mode="ok", pin=True, powershell="pwsh"):
         self.env["MUVLOOM_DISTRIBUTION_URL"] = f"{self.origin}/{mode}"
         if pin:
             self.env["MUVLOOM_VERSION"] = VERSION
         else:
             self.env.pop("MUVLOOM_VERSION", None)
-        command = ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(DIST / "install.ps1")] if self.windows else ["sh", str(DIST / "install.sh")]
+        command = [powershell, "-NoProfile", "-NonInteractive", "-File", str(DIST / "install.ps1")] if self.windows else ["sh", str(DIST / "install.sh")]
         return subprocess.run(command, cwd=self.project, env=self.env, text=True, capture_output=True, timeout=60)
 
     def cli(self, *args, code=0):
@@ -187,6 +201,20 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.cli("version")["data"]["version"], VERSION)
         self.assertTrue(any("page=2" in path for path, _ in self.server.requests))
+
+    def test_windows_falls_back_to_release_assets_when_direct_download_is_blocked(self):
+        if not self.windows:
+            self.skipTest("PowerShell installer only")
+        result = self.install("blocked", powershell="powershell")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.binary.read_bytes(), (DIST / "muvloom_windows_amd64.exe").read_bytes())
+        paths = [urlsplit(path).path for path, _ in self.server.requests]
+        self.assertEqual(paths, [
+            f"/blocked/cli-v{VERSION}/muvloom_windows_amd64.exe",
+            f"/blocked/releases/tags/cli-v{VERSION}",
+            "/blocked/releases/assets/1",
+            "/blocked/releases/assets/2",
+        ])
 
     def test_missing_release_fails(self):
         self.assert_failed(self.install("missing", pin=False), "could not find a muvloom release")
