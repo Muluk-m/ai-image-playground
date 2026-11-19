@@ -37,6 +37,7 @@ import type { TaskUsage } from '../lib/private-overlay'
 import { isAbortError } from '../lib/queueProvider'
 import { isRetryableError, planNextAttempt, shouldRetryEmptyResult } from '../lib/retry'
 import { taskFailureLogLevel } from '../lib/task-failure-log'
+import { runInLinkedSpan } from '../lib/telemetry'
 import {
   callUpstream,
   extractUpstreamFailure,
@@ -104,7 +105,17 @@ export async function runTask(id: string): Promise<void> {
   const execution = await claimTaskExecution(id)
   if (!execution) return
   try {
-    await executeTask(execution)
+    await runInLinkedSpan(
+      'task.execute',
+      execution.task.traceparent,
+      {
+        'task.id': id,
+        'task.provider': execution.task.provider,
+        'task.model': execution.task.model,
+        'task.attempt': execution.task.attempt_count,
+      },
+      () => executeTask(execution),
+    )
   } catch (error) {
     if (await execution.reconcile('执行中断，上游结果待核查')) throw error
     await execution.finish({

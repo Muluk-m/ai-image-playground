@@ -58,6 +58,7 @@ import { lockMediaOwner } from './projectMedia'
 import { publicTaskErrorMessage } from './public-task-error'
 import { asQueueProvider } from './queueProvider'
 import { type QuotaConsumeResult, tryConsumeQuotaInTransaction } from './quota'
+import { currentTraceparent } from './telemetry'
 import { isObject } from './type-guards'
 import { gptImage26Enabled } from './upstream/gpt-direct-availability'
 import { gptDirectConfigured, gptImage26DirectKey } from './upstream/gpt-routing'
@@ -1076,6 +1077,7 @@ async function submitQueueTask(
         agent_conversation_id: input.agent?.conversationId ?? null,
         agent_turn_id: input.agent?.turnId ?? null,
         metering,
+        traceparent: currentTraceparent(),
       })
       .onConflictDoNothing()
       .returning({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })

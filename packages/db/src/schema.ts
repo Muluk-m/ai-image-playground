@@ -1432,6 +1432,8 @@ export const tasks = pgTable(
     gpt_route: text('gpt_route').$type<'direct' | 'sub2api'>(),
     /** 最后实际发出直连请求的 key 指纹；只存可展示的 HMAC 指纹，不存密钥。 */
     gpt_key_fingerprint: text('gpt_key_fingerprint'),
+    /** 提交请求的 W3C traceparent；worker 执行时用 span link 接回提交链路（ADR 0033）。 */
+    traceparent: text('traceparent'),
     execution_token: text('execution_token'),
     lease_expires_at: epochMs('lease_expires_at'),
     submitted_at: epochMs('submitted_at').notNull(),
@@ -1544,6 +1546,7 @@ const {
   metering: _metering,
   gpt_route: gptRouteColumn,
   gpt_key_fingerprint: gptKeyFingerprintColumn,
+  traceparent: _traceparent,
   ...queueTaskColumns
 } = getTableColumns(tasks)
 export const queue_tasks = pgView('queue_tasks').as((qb) =>

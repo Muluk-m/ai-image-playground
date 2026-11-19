@@ -84,6 +84,7 @@ export type ClaimedTask = Pick<
   | 'upstream_invocation_count'
   | 'submitted_at'
   | 'gpt_route'
+  | 'traceparent'
 >
 
 /** 已提交的上游异步任务：回读只为补提交缺口，已落库的 id 一律只轮不重提。 */
@@ -659,6 +660,7 @@ export async function claimTaskExecution(
         upstream_invocation_count: schema.tasks.upstream_invocation_count,
         submitted_at: schema.tasks.submitted_at,
         gpt_route: schema.tasks.gpt_route,
+        traceparent: schema.tasks.traceparent,
       })
     if (row) await publishGenerations(tx, [id])
     return row
