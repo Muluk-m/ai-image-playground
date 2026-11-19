@@ -24,6 +24,7 @@ import HeaderMembershipChip from './HeaderMembershipChip'
 import LocaleGlobe from './LocaleGlobe'
 import { Button } from './ui/button'
 import { Icon } from './ui/icon'
+import { Hint } from './ui/tooltip'
 
 export default function Header() {
   const { t } = useTranslation('shell')
@@ -33,8 +34,9 @@ export default function Header() {
   const workbench = isWorkbenchMode(appMode)
   const [loggingOut, setLoggingOut] = useState(false)
   const [loginMethodsOpen, setLoginMethodsOpen] = useState(false)
-  const [contactOpen, setContactOpen] = useState(false)
+  const [contactIntent, setContactIntent] = useState<'contact' | 'feedback' | null>(null)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+  const feedbackLabel = t('header.feedback.label')
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const headerActionsRef = useRef<HTMLDivElement>(null)
   const auth = useAuth()
@@ -101,7 +103,7 @@ export default function Header() {
   }
   const openContact = () => {
     setAccountMenuOpen(false)
-    setContactOpen(true)
+    setContactIntent('contact')
   }
 
   return (
@@ -123,6 +125,22 @@ export default function Header() {
         {workbench && agentPanelPresent() ? <AgentJobInbox /> : null}
         <div className="studio-header-float flex items-center gap-2">
           <CanvasAssetsEntryButton />
+          <Hint tooltip={contactIntent ? undefined : feedbackLabel}>
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              className="rounded-full"
+              aria-label={feedbackLabel}
+              aria-haspopup="dialog"
+              onClick={() => {
+                setAccountMenuOpen(false)
+                setContactIntent('feedback')
+              }}
+            >
+              <Icon name="chat" />
+            </Button>
+          </Hint>
           {auth.user ? <PrivateWebHeaderCreditAction /> : null}
           {auth.user ? <HeaderMembershipChip /> : null}
           <div className="md:hidden">
@@ -256,7 +274,12 @@ export default function Header() {
         </div>
       </div>
       {loginMethodsOpen && <LoginMethodsPanel onClose={() => setLoginMethodsOpen(false)} />}
-      {contactOpen && <ContactDialog onClose={() => setContactOpen(false)} />}
+      {contactIntent && (
+        <ContactDialog
+          feedback={contactIntent === 'feedback'}
+          onClose={() => setContactIntent(null)}
+        />
+      )}
     </>
   )
 }
