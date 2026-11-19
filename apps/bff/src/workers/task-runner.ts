@@ -104,31 +104,35 @@ export async function runTask(id: string): Promise<void> {
   // runTask 让等待中的重试任务提前起跑。
   const execution = await claimTaskExecution(id)
   if (!execution) return
-  try {
-    await runInLinkedSpan(
-      'task.execute',
-      execution.task.traceparent,
-      {
-        'task.id': id,
-        'task.provider': execution.task.provider,
-        'task.model': execution.task.model,
-        'task.attempt': execution.task.attempt_count,
-      },
-      () => executeTask(execution),
-    )
-  } catch (error) {
-    if (await execution.reconcile('执行中断，上游结果待核查')) throw error
-    await execution.finish({
-      status: 'failed',
-      errorType: 'interrupted',
-      errorMessage: '任务执行异常',
-      preserveArchive: true,
-      completedAt: Date.now(),
-    })
-    throw error
-  } finally {
-    execution.release()
-  }
+  // 认领之后才知道 traceparent，所以认领本身不在链路里；中断收尾的日志要在里面，排查时才查得到。
+  await runInLinkedSpan(
+    'task.execute',
+    execution.task.traceparent,
+    {
+      'task.id': id,
+      'task.provider': execution.task.provider,
+      'task.model': execution.task.model,
+      // 与 task.retry_scheduled 日志同一口径：首次执行是第 1 次。
+      'task.attempt': execution.task.attempt_count + 1,
+    },
+    async () => {
+      try {
+        await executeTask(execution)
+      } catch (error) {
+        if (await execution.reconcile('执行中断，上游结果待核查')) throw error
+        await execution.finish({
+          status: 'failed',
+          errorType: 'interrupted',
+          errorMessage: '任务执行异常',
+          preserveArchive: true,
+          completedAt: Date.now(),
+        })
+        throw error
+      } finally {
+        execution.release()
+      }
+    },
+  )
 }
 
 async function executeTask(execution: TaskExecution): Promise<void> {

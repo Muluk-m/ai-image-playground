@@ -49,7 +49,7 @@ API 错误展示接口、HTTP 状态、原始错误码和已记录的具体原�
 
 数据库日志隐藏常见密钥字段、认证头、Cookie、原始请求体、响应预览和序列化 JSON 中的用户内容，消息里的 Bearer、常见 API key、URL 密钥参数与 URL 密码也会脱敏。单行消息最多 4000 字符；多行终端记录整体脱敏后最多保留 16000 字符，结构化字段超限会标记截断。应用日志仍应遵守不输出秘密和用户原文的约定。
 
-BFF 的 `/api/*` 与 `/v1/*` 请求用 OpenTelemetry 建链路（ADR 0033）：接着调用方的 W3C `traceparent`，在请求里打的 pino 日志自动带 `trace_id`、`span_id`，在本页用关键词搜 `trace_id` 就能查到同一请求的日志。健康检查、`/internal/*` 与静态资源不建链路。生成任务提交时把当前链路的 `traceparent` 写进 `tasks.traceparent`；worker 每次认领执行都开一个新的 `task.execute` 链路，用 span link 指回提交链路，执行期间的 worker 日志带这条新链路的 `trace_id`（同一任务的提交与执行仍可按任务 ID 关联）。上游请求与 R2 读写的 span 按 ADR 0033 的 P1 后续接入（#1917）。配置 `OTEL_EXPORTER_OTLP_ENDPOINT`（Collector 的 OTLP/HTTP 地址，不含 `/v1/traces`）时才导出 span，默认不导出；`OTEL_TRACES_SAMPLE_RATIO`（0–1，默认 1）按比例采样；`OTEL_DEPLOYMENT_ENVIRONMENT` 可选，写进 span 的 `deployment.environment.name`。
+BFF 的 `/api/*` 与 `/v1/*` 请求用 OpenTelemetry 建链路（ADR 0033）：接着调用方的 W3C `traceparent`，在请求里打的 pino 日志自动带 `trace_id`、`span_id`，在本页用关键词搜 `trace_id` 就能查到同一请求的日志。健康检查、`/internal/*` 与静态资源不建链路。生成任务提交时把当前链路的 `traceparent` 写进 `tasks.traceparent`；worker 每次认领执行都开一个新的 `task.execute` 链路，用 span link 指回提交链路，执行期间（含中断收尾）的 worker 日志带这条新链路的 `trace_id`；提交请求的 span 带 `task.id` 属性。从任务找提交链路看 `tasks.traceparent`，从执行链路找提交链路看 span link。认领本身（含弹性名额判定）发生在执行链路之前，相关日志只带任务 ID。上游请求与 R2 读写的 span 按 ADR 0033 的 P1 后续接入（#1917）。配置 `OTEL_EXPORTER_OTLP_ENDPOINT`（Collector 的 OTLP/HTTP 地址，不含 `/v1/traces`）时才导出 span，默认不导出；`OTEL_TRACES_SAMPLE_RATIO`（0–1，默认 1）按比例采样；`OTEL_DEPLOYMENT_ENVIRONMENT` 可选，写进 span 的 `deployment.environment.name`。
 
 `LOG_LEVEL` 控制 BFF 与 worker 的输出级别，默认 info。PostgreSQL 属于共享的基础设施栈，暂不转发，用 `docker logs` 查看。数据库不可用时界面报告读取失败，日志在采集容器里排队等待，现场排障仍可用 `docker logs`。
 

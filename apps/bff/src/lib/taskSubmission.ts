@@ -37,6 +37,7 @@ import {
   videoModelSupportOf,
   videoRateMultiplier,
 } from '@image-playground/shared'
+import { trace } from '@opentelemetry/api'
 import { and, eq, gt, isNull, notInArray, sql } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
@@ -1083,6 +1084,8 @@ async function submitQueueTask(
       .returning({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
 
     if (inserted.length === 0) return { kind: 'idempotency_conflict' as const }
+    // 提交链路上记下任务 ID：从任务反查提交 trace、从提交 trace 找到任务，两个方向都能查。
+    trace.getActiveSpan()?.setAttribute('task.id', id)
 
     let reservedCredits = 0
     if (metering.mode === 'credits') {
