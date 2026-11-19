@@ -234,6 +234,7 @@
   "multiScene": {
     "hint": "This will generate 1 image: one prompt produces one scene. To get {{count}} different scenes, write {{count}} separate prompts, or {{agent}}.",
     "handToAgent": "hand it to the agent",
-    "dismiss": "Dismiss"
+    "dismiss": "Dismiss",
+    "hintNoAgent": "This will generate 1 image: one prompt produces one scene. To get {{count}} different scenes, write {{count}} separate prompts."
   }
 }

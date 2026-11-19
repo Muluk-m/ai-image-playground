@@ -40,8 +40,15 @@ const COUNT_TOKEN =
   '(?<![十零一二三四五六七八九两])(?:两|十|[二三四五六七八九])(?![十零一二三四五六七八九十几多])|' +
   '\\b(?:two|three|four|five|six|seven|eight|nine|ten)\\b'
 
+/** 张/幅本身就是出图数量，后面的名词可以省略（「六张不同的」）。 */
+const ZH_SHEET_RE = new RegExp(
+  `(${COUNT_TOKEN})\\s*(?:张|幅)\\s*不同(?:的)?(?:场景|画面|图|风格|角度|构图)?`,
+  'u',
+)
+
+/** 个/种/套必须跟场景类名词，避免「两个不同年龄的人」被当成要出两张。 */
 const ZH_SCENE_RE = new RegExp(
-  `(${COUNT_TOKEN})\\s*(?:张|幅|套|个|种)?\\s*不同(?:的)?(?:场景|画面|图|风格|角度|构图)?`,
+  `(${COUNT_TOKEN})\\s*(?:个|种|套)\\s*不同(?:的)?(?:场景|画面|图|风格|角度|构图)`,
   'u',
 )
 
@@ -63,7 +70,7 @@ function parseCount(raw: string): number | null {
 
 function firstRequestedCount(prompt: string): number | null {
   let found: { index: number; count: number } | null = null
-  for (const pattern of [ZH_SCENE_RE, EN_SCENE_RE]) {
+  for (const pattern of [ZH_SHEET_RE, ZH_SCENE_RE, EN_SCENE_RE]) {
     pattern.lastIndex = 0
     for (const match of prompt.matchAll(
       new RegExp(pattern.source, pattern.flags.includes('i') ? 'giu' : 'gu'),

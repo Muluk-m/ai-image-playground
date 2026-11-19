@@ -1,9 +1,16 @@
 // @vitest-environment jsdom
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MultiSceneHint } from '../../../components/creation/MultiSceneHint'
 import { useStore } from '../../../store'
+
+const capabilities = { agentChat: true }
+vi.mock('../../../lib/clientCapabilities', async (original) => ({
+  ...(await original<typeof import('../../../lib/clientCapabilities')>()),
+  isClientCapabilityEnabled: (key: string) =>
+    key === 'agent:chat' ? capabilities.agentChat : false,
+}))
 
 declare global {
   // eslint-disable-next-line no-var
@@ -33,6 +40,7 @@ function hint(): HTMLElement | null {
 }
 
 beforeEach(() => {
+  capabilities.agentChat = true
   useStore.setState({ prompt: MATCHING, createTarget: 'generate' })
   mount(<MultiSceneHint prompt={MATCHING} imageCount={1} creationMode="image" />)
 })
@@ -90,5 +98,16 @@ describe('MultiSceneHint', () => {
     act(() => link?.click())
     expect(useStore.getState().createTarget).toBe('chat')
     expect(useStore.getState().prompt).toBe(MATCHING)
+  })
+
+  it('omits the agent handoff when agent:chat is disabled', () => {
+    capabilities.agentChat = false
+    rerender(<MultiSceneHint prompt={MATCHING} imageCount={1} creationMode="image" />)
+    const el = hint()
+    expect(el).not.toBeNull()
+    expect(el?.textContent).toContain('请分别写 6 条提示词')
+    expect(el?.textContent).not.toContain('交给智能体')
+    expect(el?.querySelector('button.creation-multi-scene-hint-agent')).toBeNull()
+    expect(useStore.getState().createTarget).toBe('generate')
   })
 })

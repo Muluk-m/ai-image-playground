@@ -227,6 +227,7 @@
   "multiScene": {
     "hint": "当前会出 1 张图：一条提示词只生成一个场景。想要 {{count}} 个不同场景，请分别写 {{count}} 条提示词，或{{agent}}。",
     "handToAgent": "交给智能体",
-    "dismiss": "关闭"
+    "dismiss": "关闭",
+    "hintNoAgent": "当前会出 1 张图：一条提示词只生成一个场景。想要 {{count}} 个不同场景，请分别写 {{count}} 条提示词。"
   }
 }

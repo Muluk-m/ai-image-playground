@@ -13,7 +13,7 @@ describe('detectRequestedSceneCount', () => {
     ['给我十张不同的', 10],
     ['两张不同的', 2],
     ['二幅不同的画', 2],
-    ['给我3套不同的包装', 3],
+    ['给我3套不同场景的包装', 3],
     ['出 4 个不同构图', 4],
     ['5 张不同画面', 5],
     ['6 different scenes', 6],
@@ -45,6 +45,9 @@ describe('detectRequestedSceneCount', () => {
     '12 different scenes',
     '20 different scenes',
     'eleven different scenes',
+    '画两个不同年龄的人站在一起',
+    '三个不同颜色的球',
+    '给我3套不同的包装',
     '',
     '   ',
   ])('ignores %s', (prompt) => {
