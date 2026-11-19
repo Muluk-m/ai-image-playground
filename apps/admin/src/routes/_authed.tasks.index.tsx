@@ -295,9 +295,18 @@ function GenerationTasksPage() {
                     )
                   })}
                 </div>
-                <div className="hidden overflow-x-auto md:block">
-                  <Table>
-                    <TableHeader>
+                <div className="hidden md:block">
+                  <Table
+                    className="min-w-[60rem] whitespace-nowrap"
+                    containerProps={{
+                      'aria-label': '生成任务表格',
+                      className:
+                        'max-h-[65vh] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring',
+                      role: 'region',
+                      tabIndex: 0,
+                    }}
+                  >
+                    <TableHeader className="sticky top-0 z-10 bg-muted">
                       <TableRow>
                         <TableHead>提交时间</TableHead>
                         <TableHead>任务</TableHead>
@@ -355,10 +364,10 @@ function GenerationTasksPage() {
                                 </p>
                               ) : null}
                             </TableCell>
-                            <TableCell className="max-w-72">
+                            <TableCell className="min-w-48 max-w-72">
                               <button
                                 type="button"
-                                className="line-clamp-2 text-left text-xs hover:underline"
+                                className="block max-w-full truncate text-left text-xs hover:underline"
                                 onClick={() =>
                                   void navigate({ search: { ...search, task: task.id } })
                                 }
