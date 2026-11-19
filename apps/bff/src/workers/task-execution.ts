@@ -22,6 +22,7 @@ import { getRoutableChannels } from '../lib/channels'
 import { durableGenerationInputs } from '../lib/generationMedia'
 import { log } from '../lib/logger'
 import { type BffTransaction, loadPrivateBffOverlay } from '../lib/private-overlay'
+import { recordTaskOutcome } from '../lib/telemetry'
 import { taskConcurrencyScope } from '../lib/upstream'
 import { cancelLateUpstreamTasks } from '../lib/upstream-cancel'
 import { checkIdleSlot, lockIdleSlotClaims, providerConcurrencyLimit } from './idle-concurrency'
@@ -356,35 +357,50 @@ class TaskExecutionHandle implements TaskExecution {
     reason: string,
     options: { requireReconciliation?: boolean } = {},
   ): Promise<boolean> {
-    if (!options.requireReconciliation)
-      return (await reconcileTasks(this.#own(), reason)).length > 0
-    return db.transaction(async (tx) => {
-      const updated = await tx
-        .update(schema.tasks)
-        .set({ reconciliation_required: true })
-        .where(this.#own())
-        .returning({ id: schema.tasks.id })
-      if (!updated.length) return false
-      return (await reconcileTasks(this.#own(), reason, tx)).length > 0
-    })
+    const moved = options.requireReconciliation
+      ? await db.transaction(async (tx) => {
+          const updated = await tx
+            .update(schema.tasks)
+            .set({ reconciliation_required: true })
+            .where(this.#own())
+            .returning({ id: schema.tasks.id })
+          if (!updated.length) return false
+          return (await reconcileTasks(this.#own(), reason, tx)).length > 0
+        })
+      : (await reconcileTasks(this.#own(), reason)).length > 0
+    if (moved) recordTaskOutcome('reconciling', reason)
+    return moved
   }
 
-  finish(update: TerminalTaskUpdate): Promise<boolean> {
+  async finish(update: TerminalTaskUpdate): Promise<boolean> {
     if (
       this.task.reconciliation_required &&
       update.status === 'failed' &&
       update.errorType === 'upstream_result_unknown'
     )
       return this.reconcile(update.errorMessage ?? '上游结果待核查')
-    return finishTask(this.taskId, update, this.#fence())
+    const finished = await finishTask(this.taskId, update, this.#fence())
+    if (finished)
+      recordTaskOutcome(
+        update.status,
+        [update.errorType, update.errorMessage].filter(Boolean).join(': '),
+      )
+    return finished
   }
 
-  requeue(attemptJustFailed: number, nextRetryAt: number): Promise<boolean> {
-    return requeueTask(this.taskId, attemptJustFailed, nextRetryAt, this.#fence())
+  async requeue(attemptJustFailed: number, nextRetryAt: number): Promise<boolean> {
+    const requeued = await requeueTask(this.taskId, attemptJustFailed, nextRetryAt, this.#fence())
+    if (requeued) recordTaskOutcome('retry_scheduled')
+    return requeued
   }
 
-  requeueArchive(nextRetryAt: number, payload?: TaskRow['archive_payload']): Promise<boolean> {
-    return requeueTaskArchive(this.taskId, nextRetryAt, payload, this.#fence())
+  async requeueArchive(
+    nextRetryAt: number,
+    payload?: TaskRow['archive_payload'],
+  ): Promise<boolean> {
+    const requeued = await requeueTaskArchive(this.taskId, nextRetryAt, payload, this.#fence())
+    if (requeued) recordTaskOutcome('archive_requeued')
+    return requeued
   }
 
   release(): void {
