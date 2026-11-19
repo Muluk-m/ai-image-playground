@@ -2223,6 +2223,31 @@ describe('快速生成的逐张生成', () => {
     expect(queued()).toHaveLength(0)
   })
 
+  it('删除还在排队的逐张任务后，提交的受理等待会结束', async () => {
+    await setupBatchState(7, true)
+    const gates: Array<() => void> = []
+    vi.mocked(callImageApi).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          gates.push(() =>
+            resolve({
+              images: ['data:image/png;base64,generated'],
+              actualParamsList: [{ size: '1x1' }],
+            }),
+          )
+        }),
+    )
+
+    const pending = submitTask()
+    await waitUntil(() => gates.length === 5, 'first five were not sent')
+    const queued = useStore.getState().tasks.filter((t) => t.batchQueued)
+    expect(queued).toHaveLength(2)
+    for (const item of queued) await removeTask(item)
+    for (const release of gates) release()
+    await pending
+    expect(useStore.getState().tasks.filter((t) => t.batchQueued)).toHaveLength(0)
+  })
+
   it('快速生成能分批加到 50 张，第 51 张按 50 张的上限拒绝', async () => {
     await setupBatchState(7, true)
     const more = (from: number, count: number) =>
@@ -2578,6 +2603,30 @@ describe('submitPrepared 显式参数提交接缝', () => {
     await retryTask(failed)
     await waitUntil(() => vi.mocked(callImageApi).mock.calls.length === 1, 'retry did not submit')
     expect(vi.mocked(callImageApi).mock.calls[0]![0].clientRequestId).toBe('keep-me')
+  })
+
+  it('换了模型再重试时不沿用原来的幂等键', async () => {
+    const failed = task({
+      id: 'unacked-switched',
+      status: 'error',
+      prompt: '一只猫',
+      clientRequestId: 'keep-me',
+      platformTask: true,
+      apiProfileId: preparedOpenAI.id,
+      apiModel: 'gpt-image-1',
+      error: '网络中断',
+    })
+    useStore.setState({
+      tasks: [failed],
+      prompt: '',
+      settings: {
+        ...useStore.getState().settings,
+        activeProfileId: preparedGemini.id,
+      },
+    })
+    await retryTask(failed)
+    await waitUntil(() => vi.mocked(callImageApi).mock.calls.length === 1, 'retry did not submit')
+    expect(vi.mocked(callImageApi).mock.calls[0]![0].clientRequestId).not.toBe('keep-me')
   })
 
   it('只有用户主动发送才记下作品卡注意力', async () => {

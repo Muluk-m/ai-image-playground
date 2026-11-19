@@ -155,8 +155,11 @@ export interface GenerationReport<H> extends GenerationOutcomeReport<H, CallApiR
 /** 起一批生成时还要能开记录：`open` 同步返回句柄（画布要求占位框在第一个 await 之前出现）。 */
 export interface GenerationSink<H, C> extends GenerationReport<H> {
   open(unit: GenerationUnit<C>): H
-  /** 有就由它决定什么时候真正发出（排队限并发）；没有就立刻发。 */
-  schedule?(handle: H, send: () => Promise<void>): void
+  /**
+   * 有就由它决定什么时候真正发出（排队限并发）；没有就立刻发。
+   * 决定不发时必须调用 `acknowledge`，否则整批的受理等待不会结束，提交按钮会一直锁着。
+   */
+  schedule?(handle: H, send: () => Promise<void>, acknowledge: () => void): void
 }
 
 /**
@@ -267,9 +270,9 @@ export function startGeneration<H, C>(spec: GenerationSpec<C>, sink: GenerationS
       }
       const handle = sink.open(unit)
       handles.push(handle)
-      const { send, acknowledged } = runUnit(spec.settings, unit, handle, sink)
+      const { send, acknowledged, acknowledge } = runUnit(spec.settings, unit, handle, sink)
       acknowledgements.push(acknowledged)
-      if (sink.schedule) sink.schedule(handle, send)
+      if (sink.schedule) sink.schedule(handle, send, acknowledge)
       else void send()
     }
   }
@@ -330,7 +333,7 @@ function runUnit<H>(
   source: GenerationUnit<unknown> | (() => Promise<GenerationUnit<unknown>>),
   handle: H,
   report: GenerationReport<H>,
-): { send: () => Promise<void>; acknowledged: Promise<void> } {
+): { send: () => Promise<void>; acknowledged: Promise<void>; acknowledge: () => void } {
   let settled = false
   let settle: () => void = () => {}
   const acknowledged = new Promise<void>((resolve) => {
@@ -379,7 +382,7 @@ function runUnit<H>(
         acknowledge()
       }
     })
-  return { send, acknowledged }
+  return { send, acknowledged, acknowledge }
 }
 
 /**

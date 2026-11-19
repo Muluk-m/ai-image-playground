@@ -1456,6 +1456,8 @@ export interface PreparedSubmissionOptions {
   template?: true
   onConfirmationPending?: (pending: boolean) => void
   onLoginQueued?: () => void
+  /** 服务端受理或提交失败后决议，不等出图结束。创作页提交按钮锁到这一刻。 */
+  onAcknowledged?: (ack: Promise<void>) => void
 }
 
 type ConfirmDialog = NonNullable<AppState['confirmDialog']>
@@ -1655,16 +1657,13 @@ export async function submitPrepared(
   if (!current()) return []
   // 一组参考图对应一条变体：合并参考是整条一组，逐张生成是每张图自成一组。
   const referenceGroups = eachImage ? input.inputImages.map((img) => [img]) : [input.inputImages]
-  let acknowledged = Promise.resolve()
   const jobs = startGeneration<WorkbenchJob, WorkbenchVariant>(
     {
       settings: requestSettings,
       profile,
       params: taskParams,
       ...(input.clientRequestId ? { clientRequestId: input.clientRequestId } : {}),
-      onAcknowledged: (ack) => {
-        acknowledged = ack
-      },
+      onAcknowledged: options.onAcknowledged,
       variants: referenceGroups.flatMap((group, groupIndex) => {
         const inputImageDataUrls = group.map((img) => img.dataUrl)
         return prompts.map((taskPrompt, promptIndex) => {
@@ -1713,7 +1712,6 @@ export async function submitPrepared(
     }),
   )
 
-  if (jobs.length > 0) await acknowledged
   return jobs.map((job) => job.taskId)
 }
 
@@ -1751,6 +1749,7 @@ export async function submitTask(options: { holdClear?: Promise<unknown> } = {})
   const controller = new AbortController()
   const context = watchSubmissionContext(undefined, () => controller.abort())
   let createdTaskIds: string[]
+  let acknowledged = Promise.resolve()
   try {
     createdTaskIds = await submitPrepared(
       {
@@ -1762,12 +1761,19 @@ export async function submitTask(options: { holdClear?: Promise<unknown> } = {})
         profileId: activeProfile.id,
         ...(eachImage ? { eachImage: true as const } : {}),
       },
-      { signal: controller.signal, isCurrent: context.isCurrent },
+      {
+        signal: controller.signal,
+        isCurrent: context.isCurrent,
+        onAcknowledged: (ack) => {
+          acknowledged = ack
+        },
+      },
     )
   } finally {
     context.dispose()
   }
   if (createdTaskIds.length === 0) return
+  await acknowledged
 
   // 新卡在输入框下方。滚不滚、高亮和焦点由作品网格在卡片挂上之后做；这里只标记「这次是用户主动发送」。
   noteUserSubmittedTasks(createdTaskIds)
@@ -2062,12 +2068,13 @@ function workbenchSink(
     },
     ...(queued
       ? {
-          schedule(job: WorkbenchJob, send: () => Promise<void>) {
+          schedule(job: WorkbenchJob, send: () => Promise<void>, acknowledge: () => void) {
             void batchLimit.run(async () => {
               // 排队期间被删掉或中止的那张不再发。
               const latest = useStore.getState().tasks.find((t) => t.id === job.taskId)
               if (!latest || !isGenerationOpen(activityFromRecord(latest))) {
                 releaseGenerationTask(job.taskId)
+                acknowledge()
                 return
               }
               if (activityFromRecord(latest).phase === 'batch-queued') {
@@ -2376,6 +2383,18 @@ function resolveOutputId(
   return local.outputImages[index >= 0 ? index : 0]
 }
 
+/** 重试用的模型、参数与失败那一单完全一致，才能沿用原来的幂等键。 */
+function sameRetryIdentity(task: TaskRecord, model: string, params: TaskParams): boolean {
+  if (task.apiModel !== model) return false
+  const keys = new Set([...Object.keys(task.params), ...Object.keys(params)]) as Set<
+    keyof TaskParams
+  >
+  for (const key of keys) {
+    if (!Object.is(task.params[key], params[key])) return false
+  }
+  return true
+}
+
 /**
  * 重试失败的任务：创建新任务并执行。像素只在平台上的记录先搬回本机，重试和本机记录走同一条路。
  */
@@ -2409,9 +2428,11 @@ async function retryLocalTask(task: TaskRecord) {
       settings: requestSettings,
       profile: activeProfile,
       params: taskParams,
-      // 还没拿到服务端回执的那次（多半是提交时断网）沿用原幂等键，避免再建成一单。
-      // 已经受理但出图失败的重试是用户再来一次，必须新铸键。
-      ...(!task.bffRequestId && task.clientRequestId
+      // 还没拿到服务端回执、且这次仍按原来的模型和参数重发，才沿用原幂等键。
+      // 已经受理但出图失败，或用户换了模型/参数再试，都是新的一单，必须新铸键。
+      ...(!task.bffRequestId &&
+      task.clientRequestId &&
+      sameRetryIdentity(task, activeView.model, taskParams)
         ? { clientRequestId: task.clientRequestId }
         : {}),
       variants: [

@@ -324,6 +324,33 @@ describe('受理与结算通知', () => {
     await vi.waitFor(() => expect(ack).toBeDefined())
     await ack
   })
+
+  it('调度器决定不发时也会决议 onAcknowledged，提交按钮不会一直锁着', async () => {
+    const settings = builtinSettings(channelWith(['generate']))
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    let ack: Promise<void> | undefined
+    const { sink } = recordingSink()
+    sink.schedule = (_handle, _send, acknowledge) => {
+      acknowledge()
+    }
+
+    startGeneration(
+      {
+        settings,
+        profile: getActiveApiProfile(settings),
+        params: { ...DEFAULT_PARAMS, n: 1 },
+        variants: [{ prompt: '一只猫', inputImageDataUrls: [], context: 'a' }],
+        onAcknowledged: (promise) => {
+          ack = promise
+        },
+      },
+      sink,
+    )
+
+    await vi.waitFor(() => expect(ack).toBeDefined())
+    await ack
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
 })
 
 describe('刷新后续跑与首次提交同一套收尾', () => {
