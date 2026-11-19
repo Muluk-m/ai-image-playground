@@ -2069,6 +2069,8 @@ function workbenchSink(
     ...(queued
       ? {
           schedule(job: WorkbenchJob, send: () => Promise<void>, acknowledge: () => void) {
+            // 超过并发的任务先在本地排队：立刻结束受理等待，避免按钮一直锁到前序出图完成。
+            if (batchLimit.active + batchLimit.waiting >= BATCH_GENERATE_CONCURRENCY) acknowledge()
             void batchLimit.run(async () => {
               // 排队期间被删掉或中止的那张不再发。
               const latest = useStore.getState().tasks.find((t) => t.id === job.taskId)

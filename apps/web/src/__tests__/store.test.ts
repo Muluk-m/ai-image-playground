@@ -2223,6 +2223,40 @@ describe('快速生成的逐张生成', () => {
     expect(queued()).toHaveLength(0)
   })
 
+  it('逐张超过并发时，排队中的任务算已受理，不必等前序出图', async () => {
+    await setupBatchState(7, true)
+    const gates: Array<() => void> = []
+    vi.mocked(callImageApi).mockImplementation((opts) => {
+      const requestId = `queued-ack-${gates.length}`
+      opts.onQueueSubmitted?.(requestId)
+      return new Promise((resolve) => {
+        gates.push(() =>
+          resolve({
+            images: ['data:image/png;base64,generated'],
+            actualParamsList: [{ size: '1x1' }],
+          }),
+        )
+      })
+    })
+
+    let done = false
+    const pending = submitTask().then(() => {
+      done = true
+    })
+    await waitUntil(() => gates.length === 5, 'first five were not sent')
+    await waitUntil(() => done, 'submit stayed locked on later queued shots')
+    expect(useStore.getState().tasks.filter((t) => t.batchQueued)).toHaveLength(2)
+    expect(useStore.getState().tasks.filter((t) => t.status === 'done')).toHaveLength(0)
+    for (const release of [...gates]) release()
+    await waitUntil(() => gates.length === 7, 'queued shots were not sent after ack')
+    for (const release of gates.slice(5)) release()
+    await pending
+    await waitUntil(
+      () => useStore.getState().tasks.every((t) => t.status === 'done'),
+      'batch did not finish after ack',
+    )
+  })
+
   it('删除还在排队的逐张任务后，提交的受理等待会结束', async () => {
     await setupBatchState(7, true)
     const gates: Array<() => void> = []
