@@ -7,6 +7,7 @@
 #   $env:MUVLOOM_NO_MODIFY_PATH = "1"     leave the user PATH, and this session's PATH, unchanged
 #   $env:MUVLOOM_DISTRIBUTION_URL = "http://127.0.0.1:PORT/PATH"  local CI only
 $ErrorActionPreference = "Stop"
+$ProgressPreference = "SilentlyContinue"
 $repo = "Muluk-m/ai-image-playground"
 
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT -or -not [Environment]::Is64BitOperatingSystem -or $env:PROCESSOR_ARCHITECTURE -eq "ARM64" -or $env:PROCESSOR_ARCHITEW6432 -eq "ARM64") {
@@ -44,7 +45,7 @@ if (-not $installDir) {
 $exe = Join-Path $installDir "muvloom.exe"
 $api = "https://api.github.com/repos/$repo/releases"
 $download = "https://github.com/$repo/releases/download"
-$requestOptions = @{}
+$requestOptions = @{ UseBasicParsing = $true }
 if ($env:MUVLOOM_DISTRIBUTION_URL) {
   if ($env:MUVLOOM_DISTRIBUTION_URL -cnotmatch '^http://127\.0\.0\.1:[0-9]+(/[A-Za-z0-9_-]+)+$') {
     throw "muvloom install: distribution override must be a loopback URL with a port and path"
@@ -60,7 +61,7 @@ function Get-LatestVersion {
   $releases = @()
   for ($page = 1; $page -le 20; $page++) {
     # Assign the response directly: @() around the cmdlet nests its JSON array as one item.
-    $batch = Invoke-RestMethod "${api}?per_page=100&page=$page" @requestOptions
+    $batch = Invoke-RestMethod "${api}?per_page=100&page=$page" -TimeoutSec 20 @requestOptions
     if ($batch.Count -eq 0) { break }
     $releases += $batch
   }
@@ -106,8 +107,24 @@ if (-not $skipDownload) {
   $tmp = New-Item -ItemType Directory -Path (Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid()))
   try {
     Write-Host "Downloading $asset ($tag)"
-    Invoke-WebRequest "$base/$asset" -OutFile (Join-Path $tmp $asset) @requestOptions
-    Invoke-WebRequest "$base/checksums.txt" -OutFile (Join-Path $tmp "checksums.txt") @requestOptions
+    try {
+      Invoke-WebRequest "$base/$asset" -OutFile (Join-Path $tmp $asset) -TimeoutSec 25 @requestOptions
+      Invoke-WebRequest "$base/checksums.txt" -OutFile (Join-Path $tmp "checksums.txt") -TimeoutSec 25 @requestOptions
+    } catch {
+      $directError = $_.Exception.Message
+      Write-Host "Direct download failed; trying the official GitHub Release API."
+      try {
+        $release = Invoke-RestMethod "$api/tags/$tag" -TimeoutSec 20 @requestOptions
+        foreach ($name in @($asset, "checksums.txt")) {
+          $id = ($release.assets | Where-Object { $_.name -ceq $name } | Select-Object -First 1).id
+          if ("$id" -cnotmatch '^[0-9]+$') { throw "No release asset found for $name" }
+          # The download query keeps binary responses separate from cached JSON metadata.
+          Invoke-WebRequest "$api/assets/${id}?download=1" -Headers @{ Accept = "application/octet-stream" } -OutFile (Join-Path $tmp $name) -TimeoutSec 60 @requestOptions
+        }
+      } catch {
+        throw "muvloom install: direct download failed ($directError); GitHub Release API failed ($($_.Exception.Message))"
+      }
+    }
     $line = Get-Content (Join-Path $tmp "checksums.txt") | Where-Object { $_ -match " $([regex]::Escape($asset))$" }
     if (-not $line) { throw "muvloom install: no checksum published for $asset" }
     $expected = ($line -split " ")[0].ToLower()
