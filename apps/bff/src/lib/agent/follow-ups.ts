@@ -6,7 +6,7 @@ import {
 import { and, desc, eq } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
-import { askChatModel, ChatTimeoutError, isTransientChatError } from '../chatCompletion'
+import { askChatModel, isTransientChatError } from '../chatCompletion'
 import { log } from '../logger'
 import { isObject } from '../type-guards'
 import { trackAgentBackgroundWork } from './background-work'
@@ -19,11 +19,12 @@ import { stripDisallowedScripts } from './reply-script'
 const FOLLOW_UP_MAX_TOKENS = 400
 /**
  * 线上小模型也经常要 15 秒以上才答完，15 秒的 deadline 会把还在写的下一句切成超时。
- * 单次给 30 秒。超时和瞬时故障再试一次，两次就是上限，不再往上加。
+ * 单次给 30 秒。超时不再重试：再等 30 秒也帮不上忙，只是多占上游。
+ * 瞬时故障再试一次，两次就是上限。
  */
 const FOLLOW_UP_TIMEOUT_MS = 30_000
 const FOLLOW_UP_ATTEMPTS = 2
-/** 第一次超时后稍等再问，避免立刻撞上同一次拥塞。测试可以收成 0。 */
+/** 瞬时故障重试前稍等再问，避免立刻撞上同一次拥塞。测试可以收成 0。 */
 const FOLLOW_UP_RETRY_DELAY_MS = 500
 const FOLLOW_UP_INPUT_CHARS = 2_000
 const FOLLOW_UP_CONTEXT_CHARS = 1_500
@@ -182,12 +183,11 @@ export function followUpLimitsForTesting(): {
 }
 
 /**
- * askChatModel 不重试自己的 deadline：那会把还在跑的主轮拖长。
- * 下一句在终帧之后，主轮已经结束，超时再问一次不会挡住用户。
+ * 超时不重试：再问一次还是等满 30 秒，没有帮上忙。
  * 配额耗尽、答歪、本地预算拒绝都不算瞬时故障，重试只是再撞一次墙。
+ * 只有瞬时故障（例如 502）再试一次。
  */
 function isFollowUpRetryable(err: unknown): boolean {
-  if (err instanceof ChatTimeoutError) return true
   return isTransientChatError(err, config.agent.followUpModel)
 }
 
@@ -196,7 +196,7 @@ function retryPause(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, followUpRetryDelayMs))
 }
 
-/** 最多两次。列在两次都结束前保持 null，调用方据此把「还在问」和「问完是空的」分开。 */
+/** 瞬时故障最多两次。列在请求结束前保持 null，调用方据此把「还在问」和「问完是空的」分开。 */
 async function askFollowUps(ask: FollowUpAsk, prompt: string): Promise<unknown> {
   let lastError: unknown
   for (let attempt = 1; attempt <= FOLLOW_UP_ATTEMPTS; attempt += 1) {
@@ -205,7 +205,15 @@ async function askFollowUps(ask: FollowUpAsk, prompt: string): Promise<unknown> 
     } catch (err) {
       lastError = err
       if (attempt >= FOLLOW_UP_ATTEMPTS || !isFollowUpRetryable(err)) throw err
-      log.warn({ event: 'agent.follow_ups_retry', attempt, err }, 'follow-up suggestion retried')
+      log.warn(
+        {
+          event: 'agent.follow_ups_retry',
+          attempt,
+          err,
+          model: config.agent.followUpModel,
+        },
+        'follow-up suggestion retried',
+      )
       await retryPause()
     }
   }
@@ -213,8 +221,8 @@ async function askFollowUps(ask: FollowUpAsk, prompt: string): Promise<unknown> 
 }
 
 /**
- * 用小模型预测用户最可能打的下一句。单次最多 30 秒，超时或瞬时故障再试一次，
- * 总次数有界。失败或答不出一句都是空数组：主轮已经结束，这里不能再抛。
+ * 用小模型预测用户最可能打的下一句。单次最多 30 秒，超时不重试。
+ * 瞬时故障再试一次。失败或答不出一句都是空数组：主轮已经结束，这里不能再抛。
  */
 export async function suggestFollowUps(
   source: FollowUpSource,
@@ -241,7 +249,10 @@ export async function suggestFollowUps(
     )
     return normalizeFollowUpLines(value, userText, keys)
   } catch (err) {
-    log.warn({ event: 'agent.follow_ups_failed', err }, 'follow-up suggestions were not generated')
+    log.warn(
+      { event: 'agent.follow_ups_failed', err, model: config.agent.followUpModel },
+      'follow-up suggestions were not generated',
+    )
     return []
   }
 }
@@ -292,7 +303,7 @@ export async function readAgentFollowUps(
 
 /**
  * 终帧之后再问，不进这一轮的账单，也不挡终帧。调用方不要 await。
- * 问完才落库：超时或瞬时故障最多再试一次，两次都失败才写成空数组。
+ * 问完才落库：超时失败立即写成空数组；瞬时故障最多再试一次，都失败才写成空数组。
  * 写成空数组也算问过。问的过程中列保持 null，读接口据此区分还在等和已经没有。
  */
 export function scheduleAgentFollowUps(
@@ -306,7 +317,12 @@ export function scheduleAgentFollowUps(
   const write = (lines: readonly string[]) =>
     recordAgentFollowUps(input.conversationId, input.turnId, lines).catch((err) => {
       log.warn(
-        { event: 'agent.follow_ups_failed', turnId: input.turnId, err },
+        {
+          event: 'agent.follow_ups_failed',
+          turnId: input.turnId,
+          err,
+          model: config.agent.followUpModel,
+        },
         'follow-up suggestions were not stored',
       )
     })
@@ -320,7 +336,12 @@ export function scheduleAgentFollowUps(
         userText = await previousUserText(input.conversationId)
       } catch (err) {
         log.warn(
-          { event: 'agent.follow_ups_failed', turnId: input.turnId, err },
+          {
+            event: 'agent.follow_ups_failed',
+            turnId: input.turnId,
+            err,
+            model: config.agent.followUpModel,
+          },
           'follow-up suggestions were not generated',
         )
         await write([])
@@ -357,7 +378,12 @@ export function scheduleAgentFollowUps(
   trackAgentBackgroundWork(
     run().catch((err) =>
       log.warn(
-        { event: 'agent.follow_ups_failed', turnId: input.turnId, err },
+        {
+          event: 'agent.follow_ups_failed',
+          turnId: input.turnId,
+          err,
+          model: config.agent.followUpModel,
+        },
         'follow-up suggestions were not generated',
       ),
     ),

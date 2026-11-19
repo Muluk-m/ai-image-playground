@@ -233,7 +233,7 @@ describe('下一句的句子', () => {
     expect(down.calls).toBe(1)
   })
 
-  it('单次 30 秒，超时或瞬时故障只再试一次', async () => {
+  it('单次 30 秒，超时不重试；瞬时故障只再试一次', async () => {
     expect(followUpLimitsForTesting()).toEqual({ timeoutMs: 30_000, attempts: 2 })
 
     const timeout = countedAsk((call) => {
@@ -242,8 +242,8 @@ describe('下一句的句子', () => {
     })
     expect(
       await suggestFollowUps({ userText: '画一张', assistantText: '好' }, timeout.ask),
-    ).toEqual(['换成夜景。'])
-    expect(timeout.calls).toBe(2)
+    ).toEqual([])
+    expect(timeout.calls).toBe(1)
 
     const hung = countedAsk(() => {
       throw new ChatTimeoutError(30_000)
@@ -251,7 +251,7 @@ describe('下一句的句子', () => {
     expect(await suggestFollowUps({ userText: '画一张', assistantText: '好' }, hung.ask)).toEqual(
       [],
     )
-    expect(hung.calls).toBe(2)
+    expect(hung.calls).toBe(1)
 
     const gateway = countedAsk((call) => {
       if (call === 1) throw new ChatUpstreamError(502, 'bad gateway')
@@ -352,7 +352,7 @@ describe('下一句落库', () => {
     expect(await readAgentFollowUps(conversationId, 'turn-2')).toEqual(['背景改成夜晚。'])
   })
 
-  it('超时重试还没结束时仍是 pending，两次都失败才写成空数组', async () => {
+  it('超时一次失败就写成空数组，请求还没结束时仍是 pending', async () => {
     const conversationId = await conversation()
     await recordAgentTurnSummary({
       conversationId,
@@ -365,7 +365,7 @@ describe('下一句落库', () => {
     const hold = new Promise<void>((resolve) => {
       release = resolve
     })
-    const { promise: secondStarted, resolve: markSecond } = Promise.withResolvers<void>()
+    const { promise: firstStarted, resolve: markFirst } = Promise.withResolvers<void>()
     scheduleAgentFollowUps(
       {
         conversationId,
@@ -374,19 +374,18 @@ describe('下一句落库', () => {
       },
       async () => {
         calls += 1
-        if (calls === 1) throw new ChatTimeoutError(30_000)
-        markSecond()
+        markFirst()
         await hold
         throw new ChatTimeoutError(30_000)
       },
     )
-    await secondStarted
-    expect(calls).toBe(2)
+    await firstStarted
+    expect(calls).toBe(1)
     expect(await readAgentFollowUps(conversationId, 'turn-1')).toBeNull()
     release()
     await settled(conversationId, 'turn-1')
     expect(await readAgentFollowUps(conversationId, 'turn-1')).toEqual([])
-    expect(calls).toBe(2)
+    expect(calls).toBe(1)
   })
 
   it('出图后的复查没有新的用户原话时，沿用会话里上一句', async () => {
