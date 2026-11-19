@@ -10,7 +10,6 @@ const { runPrivateMigrations } = await import('../../lib/private-overlay')
 await runPrivateMigrations(process.env.DATABASE_URL)
 const { db, schema, close } = await import('../../db/client')
 const { recoverAbandonedTasks } = await import('../../db/maintenance')
-const { claimTaskExecution } = await import('../../workers/task-execution')
 const {
   AGENT_EXECUTION_LEASE_MS,
   ConversationExecutionLost,
@@ -23,7 +22,6 @@ const {
 beforeEach(async () => {
   await db.delete(schema.tasks)
   await db.delete(schema.agent_conversations)
-  await db.delete(schema.deployment_controls)
 })
 afterAll(close)
 
@@ -135,27 +133,5 @@ describe('durable execution ownership', () => {
     await expect(
       withConversationExecution('conversation', 'lost-turn', async () => undefined),
     ).rejects.toBeInstanceOf(ConversationExecutionLost)
-  })
-
-  it('stops legacy admission without interrupting its active tasks or blocking a fenced worker', async () => {
-    await task('active-legacy')
-    await task('waiting', { status: 'queued' })
-    await db
-      .insert(schema.deployment_controls)
-      .values({ key: 'legacy_claims_disabled', enabled: true })
-    const oldClaim = await db
-      .update(schema.tasks)
-      .set({ status: 'in_progress' })
-      .where(eq(schema.tasks.id, 'waiting'))
-      .returning()
-    expect(oldClaim).toHaveLength(0)
-    const fenced = await claimTaskExecution('waiting')
-    expect(fenced).not.toBeNull()
-    fenced!.release()
-    const [oldTask] = await db
-      .select()
-      .from(schema.tasks)
-      .where(eq(schema.tasks.id, 'active-legacy'))
-    expect(oldTask?.status).toBe('in_progress')
   })
 })

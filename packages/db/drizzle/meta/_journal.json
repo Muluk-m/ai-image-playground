@@ -673,6 +673,13 @@
       "when": 1794700000000,
       "tag": "0097_task_gpt_route_attribution",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1794800000000,
+      "tag": "0098_drop_legacy_task_claim_guard",
+      "breakpoints": true
     }
   ]
 }
