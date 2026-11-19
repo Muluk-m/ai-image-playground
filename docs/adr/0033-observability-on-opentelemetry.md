@@ -6,7 +6,7 @@
 
 我们改用业内标准的三层结构，三层都不绑定厂商：
 
-1. **埋点用 OpenTelemetry。** 业务代码只依赖 `@opentelemetry/api`；SDK 用 `sdk-trace-base`、`context-async-hooks`（Bun 支持 AsyncLocalStorage），通过 `exporter-trace-otlp-proto` 输出 OTLP。HTTP 服务端 span 由 `@elysiajs/opentelemetry` 生成，并解析 W3C `traceparent`。Bun 上 OTel 的自动埋点（require hook、undici）覆盖不到 `Bun.serve` 和 Bun 的 `fetch`，所以上游请求、Vertex 退避、R2 上传、任务状态转移都在现有的少数出口函数里手动建 span。pino 保留，mixin 从当前 span 取 `trace_id`、`span_id` 写进每一行。
+1. **埋点用 OpenTelemetry。** 业务代码只依赖 `@opentelemetry/api`；SDK 用 OTel JS 3.x 的 `@opentelemetry/sdk-trace`（取代 `sdk-trace-base`）、`context-async-hooks`（Bun 支持 AsyncLocalStorage），通过 `exporter-trace-otlp-proto` 输出 OTLP。HTTP 服务端 span 不用 `@elysiajs/opentelemetry` 插件，而是在 `request-context` 的 `withRequestContext` 边界手动建，并解析 W3C `traceparent`；匹配到路由后由 `app.ts` 的 `onBeforeHandle` 补上 span 名和 `http.route`。这样做是为了和 requestId 放在同一层，也避开 Elysia 钩子预读请求体的风险。外部传入的 `traceparent` 只用来接链路，是否采样由我们自己的采样器决定。Bun 上 OTel 的自动埋点（require hook、undici）覆盖不到 `Bun.serve` 和 Bun 的 `fetch`，所以上游请求、Vertex 退避、R2 上传、任务状态转移都在现有的少数出口函数里手动建 span。pino 保留，mixin 从当前 span 取 `trace_id`、`span_id` 写进每一行。
 2. **任务跨进程按 OTel 消息语义串起来。** 提交任务时把 `traceparent` 存进 task 行（新增字段，迁移向后兼容）；worker 领取时开新的 trace，用 span link 指回提交时的 trace。这样提交、排队、执行、每次上游尝试和落盘在一条链路上，各段耗时都能直接看到。
 3. **采集用 OpenTelemetry Collector（contrib 发行版）。** `fluentforward` receiver 直接接收现在 Docker fluentd 驱动的输出，容器日志的采集方式不变，只替换 Fluent Bit；同一个 Collector 接收 OTLP span。脱敏、多行合并、字段解析从 BFF 移到 Collector 的 processor；后端不可用时用 `file_storage` 在磁盘上排队。
 4. **存储和查询用自建 OpenObserve。** 单容器，限制内存，数据放 R2（已有）。原生支持 OTLP，日志、追踪、指标在同一处，自带 UI 和告警。HTTP `_search` 接口用 SQL 查询。开源版没有只读角色，所以前面加一个只读代理，只放行查询接口。仓库新增 `scripts/obs.ts`，通过这个代理按 task_id、trace_id、服务、级别、时间段查询，Agent 和命令行不再依赖 Admin。

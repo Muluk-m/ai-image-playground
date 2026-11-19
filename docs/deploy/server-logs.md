@@ -49,6 +49,8 @@ API 错误展示接口、HTTP 状态、原始错误码和已记录的具体原�
 
 数据库日志隐藏常见密钥字段、认证头、Cookie、原始请求体、响应预览和序列化 JSON 中的用户内容，消息里的 Bearer、常见 API key、URL 密钥参数与 URL 密码也会脱敏。单行消息最多 4000 字符；多行终端记录整体脱敏后最多保留 16000 字符，结构化字段超限会标记截断。应用日志仍应遵守不输出秘密和用户原文的约定。
 
+BFF 的 `/api/*` 与 `/v1/*` 请求用 OpenTelemetry 建链路（ADR 0033）：接着调用方的 W3C `traceparent`，在请求里打的 pino 日志自动带 `trace_id`、`span_id`，在本页用关键词搜 `trace_id` 就能查到同一请求的日志。健康检查、`/internal/*` 与静态资源不建链路。worker 的任务执行、上游请求与 R2 读写按 ADR 0033 的 P1 后续接入（#1917），在那之前 worker 日志不带 `trace_id`。配置 `OTEL_EXPORTER_OTLP_ENDPOINT`（Collector 的 OTLP/HTTP 地址，不含 `/v1/traces`）时才导出 span，默认不导出；`OTEL_TRACES_SAMPLE_RATIO`（0–1，默认 1）按比例采样；`OTEL_DEPLOYMENT_ENVIRONMENT` 可选，写进 span 的 `deployment.environment.name`。
+
 `LOG_LEVEL` 控制 BFF 与 worker 的输出级别，默认 info。PostgreSQL 属于共享的基础设施栈，暂不转发，用 `docker logs` 查看。数据库不可用时界面报告读取失败，日志在采集容器里排队等待，现场排障仍可用 `docker logs`。
 
 页面的「采集容器状态」打开运维看板，检查 Fluent Bit 容器是否运行和宿主机采样是否新鲜。旧 BFF 内存缓冲的心跳计数已停用，不代表当前 Docker → Fluent Bit 传输状态。Fluent Bit 的重试错误用 `docker logs <部署>-log-collector-1` 查看；当前未接入其缓冲积压、丢弃量指标。
