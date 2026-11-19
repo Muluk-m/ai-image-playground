@@ -20,6 +20,18 @@ describe('toAgentTurnParams', () => {
     ).toEqual({ autoSubmit: false })
   })
 
+  it('仓库里留着旧的 Gemini 思考级别也不带给智能体，比例和分辨率照送', () => {
+    const params = {
+      ...DEFAULT_PARAMS,
+      gemini_aspect_ratio: '3:4' as const,
+      gemini_image_size: '2K' as const,
+      gemini_thinking_level: 'high' as const,
+    }
+    const turn = toAgentTurnParams(params, 'model-a', true)
+    expect(turn).toMatchObject({ gemini_aspect_ratio: '3:4', gemini_image_size: '2K' })
+    expect(turn).not.toHaveProperty('gemini_thinking_level')
+  })
+
   it('不在 1/2/3/4/6/8 里的张数收到最近的一档，超出范围的不送', () => {
     expect(
       toAgentTurnParams({ ...DEFAULT_PARAMS, n: 5 }, undefined, false, { includeCount: true }),
