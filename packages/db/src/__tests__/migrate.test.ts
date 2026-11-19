@@ -104,12 +104,14 @@ describe('runMigrations', () => {
         expect(await guardObjects()).toEqual({ trigger: 1, fn: 1, table: 'deployment_controls' })
         await runMigrations(url)
         expect(await guardObjects()).toEqual({ trigger: 0, fn: 0, table: null })
-        await sql`INSERT INTO tasks (id, provider, model, status, request_payload, submitted_at)
-          VALUES ('waiting', 'openai-compat', 'test', 'queued', '{}', now())`
-        await sql`UPDATE tasks SET status = 'in_progress' WHERE id = 'waiting'`
-        expect(await sql`SELECT status FROM tasks WHERE id = 'waiting'`).toEqual([
-          { status: 'in_progress' },
-        ])
+        const unfencedClaim = async (id: string) => {
+          await sql`INSERT INTO tasks (id, provider, model, status, request_payload, submitted_at)
+            VALUES (${id}, 'openai-compat', 'test', 'queued', '{}', now())`
+          return (await sql`UPDATE tasks SET status = 'in_progress' WHERE id = ${id} RETURNING id`)
+            .length
+        }
+        // 闸门还在时，开关打开会挡住不带 execution_token 的认领；删掉之后再挡不住。
+        expect(await unfencedClaim('after-drop')).toBe(1)
         await sql.unsafe(
           await Bun.file(
             join(migrationsDirectory, 'rollback/0098_drop_legacy_task_claim_guard.down.sql'),
@@ -119,6 +121,13 @@ describe('runMigrations', () => {
         expect(await sql`SELECT key, enabled FROM deployment_controls`).toEqual([
           { key: 'legacy_claims_disabled', enabled: false },
         ])
+        expect(await unfencedClaim('rolled-back-open')).toBe(1)
+        await sql`UPDATE deployment_controls SET enabled = true WHERE key = 'legacy_claims_disabled'`
+        expect(await unfencedClaim('rolled-back-closed')).toBe(0)
+        expect(
+          await sql`UPDATE tasks SET status = 'in_progress', execution_token = 'fenced'
+            WHERE id = 'rolled-back-closed' RETURNING id`,
+        ).toEqual([{ id: 'rolled-back-closed' }])
       } finally {
         await sql.close()
       }
