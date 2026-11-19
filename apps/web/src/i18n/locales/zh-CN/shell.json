@@ -19,6 +19,10 @@
       "help": "帮助与指南",
       "viewPlans": "查看套餐"
     },
+    "feedback": {
+      "label": "反馈",
+      "subject": "幕芽使用反馈"
+    },
     "contact": {
       "menu": "联系我们",
       "title": "联系我们",

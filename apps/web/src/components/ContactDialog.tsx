@@ -5,8 +5,13 @@ import { copyTextToClipboard } from '../lib/clipboardText'
 import Dialog from './patterns/Dialog'
 import { Button } from './ui/button'
 
-/** 账户菜单里的「联系我们」。只展示邮箱，地址从 support-contact 取。 */
-export default function ContactDialog({ onClose }: { onClose: () => void }) {
+export default function ContactDialog({
+  feedback = false,
+  onClose,
+}: {
+  feedback?: boolean
+  onClose: () => void
+}) {
   const { t } = useTranslation('shell')
   const [copied, setCopied] = useState<'idle' | 'done' | 'failed'>('idle')
   const resetTimer = useRef<number | undefined>(undefined)
@@ -29,7 +34,11 @@ export default function ContactDialog({ onClose }: { onClose: () => void }) {
         ? t('header.contact.copyFailed')
         : t('header.contact.copy')
   return (
-    <Dialog onClose={onClose} tier="raised" title={t('header.contact.title')}>
+    <Dialog
+      onClose={onClose}
+      tier={feedback ? 'artifact' : 'raised'}
+      title={feedback ? t('header.feedback.label') : t('header.contact.title')}
+    >
       {/* 窄屏放不下一行时按钮换到下一行，邮箱完整显示、不省略。 */}
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border p-3 text-sm">
         <div className="min-w-0 flex-[1_1_12rem]">
@@ -43,7 +52,15 @@ export default function ContactDialog({ onClose }: { onClose: () => void }) {
             {copyLabel}
           </Button>
           <Button asChild size="sm">
-            <a href={SUPPORT_MAILTO}>{t('header.contact.send')}</a>
+            <a
+              href={
+                feedback
+                  ? `${SUPPORT_MAILTO}?subject=${encodeURIComponent(t('header.feedback.subject'))}`
+                  : SUPPORT_MAILTO
+              }
+            >
+              {t('header.contact.send')}
+            </a>
           </Button>
         </div>
       </div>
