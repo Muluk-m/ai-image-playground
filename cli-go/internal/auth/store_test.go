@@ -618,10 +618,29 @@ func TestAConfigDirectoryNeverTouchesTheKeychain(t *testing.T) {
 	if def := Default(); !def.UseKeyring || !def.ClearKeyring {
 		t.Fatalf("the default directory lost the keychain: %+v", def)
 	}
+	// Non-sandboxed MUVLOOM_CREDENTIALS_STORE=file must still clear stale keychain entries.
+	t.Setenv("MUVLOOM_CREDENTIALS_STORE", "file")
+	if filePref := Default(); filePref.UseKeyring || !filePref.ClearKeyring {
+		t.Fatalf("file store preference dropped ClearKeyring: %+v", filePref)
+	}
+	t.Setenv("MUVLOOM_CREDENTIALS_STORE", "")
+	t.Setenv("WORKBUDDY_SANDBOX", "0")
+	if notSandboxed := Default(); !notSandboxed.UseKeyring || !notSandboxed.ClearKeyring {
+		t.Fatalf("WORKBUDDY_SANDBOX=0 misdetected as sandbox: %+v", notSandboxed)
+	}
+	t.Setenv("WORKBUDDY_SANDBOX", "")
 	t.Setenv("SANDBOX_CENTER_IPC_ADDRESS", "/tmp/workbuddy-sandbox-center.sock")
 	if sandboxed := Default(); sandboxed.UseKeyring || sandboxed.ClearKeyring {
 		t.Fatalf("sandboxed desktop host touched the keychain: %+v", sandboxed)
 	}
+	// Even with MUVLOOM_CONFIG_DIR in a sandbox, DefaultLoginElsewhere must not probe keychain.
+	t.Setenv("MUVLOOM_CONFIG_DIR", t.TempDir())
+	sandboxStore := Default()
+	sandboxStore.Keychain = &userKeychain{entries: map[string]string{keyringUser: `{"refresh_token":"prod"}`}}
+	if sandboxStore.DefaultLoginElsewhere() {
+		t.Fatal("sandboxed host probed system keychain via DefaultLoginElsewhere")
+	}
+	t.Setenv("MUVLOOM_CONFIG_DIR", "")
 	t.Setenv("MUVLOOM_CREDENTIALS_STORE", "keychain")
 	if forced := Default(); !forced.UseKeyring {
 		t.Fatalf("explicit keychain override did not apply: %+v", forced)

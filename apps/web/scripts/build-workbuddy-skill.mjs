@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -7,6 +8,25 @@ const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const sourceRoot = resolve(webRoot, '../../cli-go/internal/skill/assets')
 const installRoot = resolve(webRoot, '../../cli-go/install')
 
+function cliBundleVersion() {
+  const src = readFileSync(resolve(webRoot, '../../cli-go/internal/skill/install.go'), 'utf8')
+  const match = src.match(/const BundleVersion = "([^"]+)"/)
+  return match?.[1] ?? '0.2.5'
+}
+
+function hashSkillFiles(files) {
+  const entries = Object.entries(files)
+    .filter(([name]) => name !== 'muvloom/.muvloom-skill.json')
+    .map(([name, bytes]) => [name.replace(/^muvloom\//, ''), bytes])
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  const h = createHash('sha256')
+  for (const [rel, bytes] of entries) {
+    h.update(`${rel}\x00${bytes.length}\x00`)
+    h.update(bytes)
+  }
+  return h.digest('hex')
+}
+
 function collectSkillFiles(sourceDirectory) {
   const files = {}
   function collect(directory, prefix = '') {
@@ -14,7 +34,7 @@ function collectSkillFiles(sourceDirectory) {
       a.name.localeCompare(b.name, 'en'),
     )) {
       const relative = prefix ? `${prefix}/${entry.name}` : entry.name
-      if (relative === 'agents') continue
+      if (relative === 'agents' || relative === 'references/workbuddy.md') continue
       if (entry.isSymbolicLink()) throw new Error(`Skill source contains a symlink: ${relative}`)
       if (entry.isDirectory()) collect(join(directory, entry.name), relative)
       else if (entry.isFile())
@@ -82,6 +102,14 @@ export function createWorkBuddySkillZip({ sourceDirectory = sourceRoot } = {}) {
   files['muvloom/references/workbuddy.md'] = readFileSync(
     resolve(webRoot, 'workbuddy-skill/workbuddy.md'),
   )
+  const meta = {
+    skill: 'muvloom',
+    version: cliBundleVersion(),
+    host: 'workbuddy',
+    scope: 'user',
+    file_hash: hashSkillFiles(files),
+  }
+  files['muvloom/.muvloom-skill.json'] = Buffer.from(`${JSON.stringify(meta, null, 2)}\n`)
   return zipFiles(files)
 }
 

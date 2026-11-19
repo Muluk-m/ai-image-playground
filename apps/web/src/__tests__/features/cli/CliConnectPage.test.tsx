@@ -338,4 +338,48 @@ describe('CliConnectPage', () => {
     expect(window.location.pathname).toBe('/connect')
     expect(host.textContent).not.toContain('CLI 连接')
   })
+
+  it('轮询检测到新连接的智能体后自动更新等待提示，并在 CLI 能力不可用时停止轮询', async () => {
+    vi.useFakeTimers()
+    try {
+      let pollCount = 0
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => {
+          pollCount++
+          return Response.json({
+            connections:
+              pollCount >= 3
+                ? [
+                    {
+                      id: 'conn-new',
+                      client_name: 'Muvloom CLI',
+                      created_at: Date.now(),
+                      last_used_at: null,
+                    },
+                  ]
+                : [],
+          })
+        }),
+      )
+      await render()
+      expect(host.textContent).toContain('正在等待智能体连接')
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4100)
+      })
+      expect(host.textContent).toContain('已检测到智能体连接成功')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('CLI 能力未启用时隐藏等待条和空设备卡片并停止轮询', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ error: 'capability_unavailable' }, { status: 404 })),
+    )
+    await render()
+    expect(host.textContent).not.toContain('正在等待智能体连接')
+    expect(host.querySelector('#cli-connections-title')).toBeNull()
+  })
 })

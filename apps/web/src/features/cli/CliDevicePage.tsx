@@ -268,16 +268,26 @@ export default function CliDevicePage() {
 
   const accountLabel = user?.nickname?.trim() || user?.username || ''
   const accountInitial = (accountLabel.slice(0, 1) || 'M').toUpperCase()
+  const showStepper =
+    outcome !== 'failed' &&
+    phase.kind !== 'denied' &&
+    phase.kind !== 'invalid' &&
+    phase.kind !== 'failed'
+
+  const pendingScopes = phase.kind === 'pending' ? phase.authorization.scopes : []
   const capabilityTags = [
-    t('cliDevice.capabilities.generate'),
-    t('cliDevice.capabilities.reference'),
-    t('cliDevice.capabilities.media'),
-    t('cliDevice.capabilities.jobs'),
+    ...(pendingScopes.includes('images:write') ? [t('cliDevice.capabilities.generate')] : []),
+    ...(pendingScopes.includes('media:write') ? [t('cliDevice.capabilities.reference')] : []),
+    ...(pendingScopes.includes('images:read') || pendingScopes.includes('media:read')
+      ? [t('cliDevice.capabilities.jobs')]
+      : []),
   ]
+  const unknownScopes = pendingScopes.filter((scope) => !(scope in scopeLabels))
+  const spendsCredits = pendingScopes.includes('images:write')
 
   return (
     <main className="flex min-h-svh flex-col items-center justify-center gap-6 bg-background px-4 py-8 text-foreground">
-      {outcome !== 'failed' ? <Stepper step={currentStep} showLoginStep={showLoginStep} /> : null}
+      {showStepper ? <Stepper step={currentStep} showLoginStep={showLoginStep} /> : null}
 
       <section className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-dialog sm:p-8">
         {outcome && !code ? (
@@ -355,16 +365,30 @@ export default function CliDevicePage() {
 
             <div className="space-y-3 border-t border-border pt-5">
               <p className="text-xs text-muted-foreground">{t('cliDevice.capabilitiesLabel')}</p>
-              <div className="flex flex-wrap gap-2">
-                {capabilityTags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="rounded-full bg-secondary px-3 py-1 text-body-sm font-medium text-foreground"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
+              {capabilityTags.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {capabilityTags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="rounded-full bg-secondary px-3 py-1 text-body-sm font-medium text-foreground"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {spendsCredits ? (
+                <p className="text-xs text-muted-foreground">{t('cliDevice.creditsNotice')}</p>
+              ) : null}
+              {unknownScopes.length > 0 ? (
+                <ul className="space-y-1 rounded-xl border border-border bg-background px-3.5 py-2 text-xs text-foreground">
+                  {unknownScopes.map((scope) => (
+                    <li key={scope} className="font-mono">
+                      {scope}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               <div>
                 <Button
                   type="button"

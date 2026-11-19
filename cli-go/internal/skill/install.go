@@ -151,11 +151,11 @@ func Install(opts InstallOptions) (Result, error) {
 			return Result{}, errNotNeeded
 		}
 	}
-	files, hash, err := bundleFiles()
+	files, hash, err := bundleFilesForHost(opts.Host)
 	if err != nil {
 		return Result{}, err
 	}
-	if err := installTree(destination, files, metadata{Skill: "muvloom", Version: BundleVersion, Host: opts.Host, Scope: opts.Scope, FileHash: hash}); err != nil {
+	if err := installTree(destination, files, metadata{Skill: "muvloom", Version: BundleVersion, Host: opts.Host, Scope: opts.Scope, FileHash: hash}, opts.Host == "workbuddy" && opts.Scope == "user"); err != nil {
 		return Result{}, err
 	}
 	return Result{Host: opts.Host, Scope: opts.Scope, ProjectDir: projectDir, Path: destination, Version: BundleVersion, FileHash: hash}, nil
@@ -202,7 +202,7 @@ func installGeneric(opts InstallOptions) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if err := installTree(destination, files, metadata{Skill: "muvloom", Version: BundleVersion, Host: "generic", Scope: "local", FileHash: hash}); err != nil {
+	if err := installTree(destination, files, metadata{Skill: "muvloom", Version: BundleVersion, Host: "generic", Scope: "local", FileHash: hash}, false); err != nil {
 		return Result{}, err
 	}
 	return Result{Host: "generic", Scope: "local", Path: destination, Version: BundleVersion, FileHash: hash}, nil
@@ -260,7 +260,16 @@ type bundleFile struct {
 	data []byte
 }
 
+const workbuddySection = "\n## WorkBuddy\n\nFor installation, account connection or local permission errors, first follow [WorkBuddy setup](references/workbuddy.md). Run the login command in the foreground and keep the turn open while it waits for the user. Use the system default browser; never launch Chrome or another specific browser.\n\n## Flow\n"
+
 func bundleFiles() ([]bundleFile, string, error) {
+	return bundleFilesForHost("")
+}
+
+// bundleFilesForHost returns the files for a host install. WorkBuddy receives the
+// WorkBuddy setup section in SKILL.md and references/workbuddy.md; other hosts exclude
+// WorkBuddy-specific files so generic/Claude/Codex bundles stay focused.
+func bundleFilesForHost(host string) ([]bundleFile, string, error) {
 	var files []bundleFile
 	err := fs.WalkDir(bundled, "assets", func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -269,11 +278,20 @@ func bundleFiles() ([]bundleFile, string, error) {
 		if entry.IsDir() {
 			return nil
 		}
+		rel := strings.TrimPrefix(path, "assets/")
+		if host != "workbuddy" && rel == "references/workbuddy.md" {
+			return nil
+		}
+		if host == "workbuddy" && strings.HasPrefix(rel, "agents/") {
+			return nil
+		}
 		data, err := fs.ReadFile(bundled, path)
 		if err != nil {
 			return err
 		}
-		rel := strings.TrimPrefix(path, "assets/")
+		if host == "workbuddy" && rel == "SKILL.md" {
+			data = []byte(strings.Replace(string(data), "\n## Flow\n", workbuddySection, 1))
+		}
 		files = append(files, bundleFile{path: rel, data: data})
 		return nil
 	})
@@ -299,7 +317,7 @@ func hashFiles(files []bundleFile) string {
 // checkReplaceableSkillDir refuses to replace a path that is not an existing
 // Muvloom Skill install (or an empty directory), so a project or user folder
 // named muvloom is never moved aside and deleted.
-func checkReplaceableSkillDir(destination string) error {
+func checkReplaceableSkillDir(destination string, allowLegacyWorkbuddyZip bool) error {
 	info, err := os.Lstat(destination)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -319,9 +337,9 @@ func checkReplaceableSkillDir(destination string) error {
 	}
 	data, err := os.ReadFile(filepath.Join(destination, ".muvloom-skill.json"))
 	if err != nil {
-		// WorkBuddy copies unpacked from the official ZIP before CLI native install had no
-		// .muvloom-skill.json yet; allow replacing them when SKILL.md proves ownership.
-		if isOfficialZipSkillDir(destination) {
+		// WorkBuddy copies unpacked from an official ZIP before .muvloom-skill.json existed
+		// may be replaced only for user-scoped WorkBuddy installs after strict validation.
+		if allowLegacyWorkbuddyZip && isOfficialZipSkillDir(destination) {
 			return nil
 		}
 		return fmt.Errorf("%s already exists and is not a Muvloom Skill install; refusing to replace it", destination)
@@ -333,28 +351,85 @@ func checkReplaceableSkillDir(destination string) error {
 	return nil
 }
 
-// isOfficialZipSkillDir recognizes a Muvloom Skill directory unpacked from an official ZIP
-// (which carries SKILL.md with `name: muvloom` and `author: Muvloom` in frontmatter, before
-// `.muvloom-skill.json` metadata existed).
+// isOfficialZipSkillDir strictly verifies a user-scoped WorkBuddy Muvloom Skill directory
+// unpacked from an older official ZIP (before .muvloom-skill.json was bundled):
+// - SKILL.md must be a regular file (never a symlink)
+// - YAML frontmatter (LF or CRLF) must have exact keys `name: muvloom` and `author: Muvloom`
+// - The directory must contain no symlinks and no unexpected user-added files outside the
+//   known official file layout (`SKILL.md` and `references/*.md`).
 func isOfficialZipSkillDir(destination string) bool {
-	raw, err := os.ReadFile(filepath.Join(destination, "SKILL.md"))
+	skillPath := filepath.Join(destination, "SKILL.md")
+	info, err := os.Lstat(skillPath)
+	if err != nil || !info.Mode().IsRegular() {
+		return false
+	}
+	raw, err := os.ReadFile(skillPath)
 	if err != nil {
 		return false
 	}
-	text := string(raw)
-	if !strings.HasPrefix(text, "---\n") {
+	normalized := strings.ReplaceAll(string(raw), "\r\n", "\n")
+	if !strings.HasPrefix(normalized, "---\n") {
 		return false
 	}
-	end := strings.Index(text[4:], "\n---\n")
+	end := strings.Index(normalized[4:], "\n---\n")
 	if end < 0 {
 		return false
 	}
-	fm := text[4 : 4+end]
-	return strings.Contains(fm, "name: muvloom") && strings.Contains(fm, "author: Muvloom")
+	var hasName, hasAuthor bool
+	for _, line := range strings.Split(normalized[4:4+end], "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "name: muvloom" || trimmed == `name: "muvloom"` || trimmed == "name: 'muvloom'" {
+			hasName = true
+		}
+		if trimmed == "author: Muvloom" || trimmed == `author: "Muvloom"` || trimmed == "author: 'Muvloom'" {
+			hasAuthor = true
+		}
+	}
+	if !hasName || !hasAuthor {
+		return false
+	}
+	// Refuse if the directory contains any symlinks or custom files outside SKILL.md & references/*.md.
+	clean := true
+	walkErr := filepath.WalkDir(destination, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			clean = false
+			return err
+		}
+		if path == destination {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			clean = false
+			return fs.SkipAll
+		}
+		rel, relErr := filepath.Rel(destination, path)
+		if relErr != nil {
+			clean = false
+			return fs.SkipAll
+		}
+		rel = filepath.ToSlash(rel)
+		if entry.IsDir() {
+			if rel != "references" {
+				clean = false
+				return fs.SkipAll
+			}
+			return nil
+		}
+		if !entry.Type().IsRegular() {
+			clean = false
+			return fs.SkipAll
+		}
+		if rel != "SKILL.md" && !(strings.HasPrefix(rel, "references/") && strings.HasSuffix(rel, ".md") && !strings.Contains(strings.TrimPrefix(rel, "references/"), "/")) {
+			clean = false
+			return fs.SkipAll
+		}
+		return nil
+	})
+	return walkErr == nil && clean
 }
 
-func installTree(destination string, files []bundleFile, meta metadata) error {
-	if err := checkReplaceableSkillDir(destination); err != nil {
+func installTree(destination string, files []bundleFile, meta metadata, allowLegacyWorkbuddyZip bool) error {
+	if err := checkReplaceableSkillDir(destination, allowLegacyWorkbuddyZip); err != nil {
 		return err
 	}
 	parent := filepath.Dir(destination)

@@ -133,16 +133,16 @@ func Default() Store {
 		return Store{Dir: ConfigDir()}
 	}
 	storePref := strings.ToLower(strings.TrimSpace(os.Getenv("MUVLOOM_CREDENTIALS_STORE")))
-	useKeyring := storePref != "file" && !inKeychainSandboxedHost()
+	sandboxed := inKeychainSandboxedHost()
 	return Store{
 		Dir:          ConfigDir(),
-		UseKeyring:   useKeyring,
-		ClearKeyring: useKeyring,
+		UseKeyring:   storePref != "file" && !sandboxed,
+		ClearKeyring: !sandboxed,
 	}
 }
 
-// inKeychainSandboxedHost detects desktop agent sandboxes (such as WorkBuddy) whose file
-// guards intercept writes to ~/Library/Keychains/. In those hosts the CLI prefers the 0600
+// inKeychainSandboxedHost detects desktop agent sandboxes (such as WorkBuddy on macOS) whose
+// file guards intercept writes to ~/Library/Keychains/. In those hosts the CLI prefers the 0600
 // credentials.json file unless the user explicitly requested MUVLOOM_CREDENTIALS_STORE=keychain.
 func inKeychainSandboxedHost() bool {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("MUVLOOM_CREDENTIALS_STORE")), "keychain") {
@@ -151,20 +151,20 @@ func inKeychainSandboxedHost() bool {
 	for _, key := range []string{
 		"SANDBOX_CENTER_IPC_ADDRESS",
 		"CODEBUDDY_SANDBOX_CENTER_START_MODE",
-		"WORKBUDDY_SANDBOX",
 	} {
-		if os.Getenv(key) != "" {
+		if strings.TrimSpace(os.Getenv(key)) != "" {
 			return true
 		}
 	}
-	return false
+	wb := strings.ToLower(strings.TrimSpace(os.Getenv("WORKBUDDY_SANDBOX")))
+	return wb != "" && wb != "0" && wb != "false" && wb != "no" && wb != "off"
 }
 
 // DefaultLoginElsewhere reports that this store is a MUVLOOM_CONFIG_DIR directory without a
 // login while the keychain holds the default directory's: before 0.2.1 such a directory
 // shared that entry, so its user must sign in here again.
 func (s Store) DefaultLoginElsewhere() bool {
-	if s.UseKeyring || s.ClearKeyring || os.Getenv("MUVLOOM_CONFIG_DIR") == "" {
+	if s.UseKeyring || s.ClearKeyring || os.Getenv("MUVLOOM_CONFIG_DIR") == "" || inKeychainSandboxedHost() {
 		return false
 	}
 	if _, err := s.Load(); err == nil {

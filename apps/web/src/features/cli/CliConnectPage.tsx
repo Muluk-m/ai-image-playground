@@ -6,7 +6,7 @@ import SegmentedTabs from '../../components/patterns/SegmentedTabs'
 import { Button } from '../../components/ui/button'
 import { Icon } from '../../components/ui/icon'
 import { currentLocale, i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
-import { fetchCliConnections } from '../../lib/authClient'
+import { AuthRequestError, fetchCliConnections } from '../../lib/authClient'
 import { copyTextToClipboard } from '../../lib/clipboardText'
 import { GUIDE_PATHS } from '../guide/paths'
 import CliConnectionsSection from './CliConnectionsSection'
@@ -138,6 +138,7 @@ export default function CliConnectPage() {
     detectPlatform(typeof navigator === 'undefined' ? '' : navigator.userAgent),
   )
   const [connectedDetected, setConnectedDetected] = useState(false)
+  const [cliAvailable, setCliAvailable] = useState(true)
   const [connectionsRefreshKey, setConnectionsRefreshKey] = useState(0)
   const baselineIdsRef = useRef<Set<string> | null>(null)
 
@@ -147,33 +148,72 @@ export default function CliConnectPage() {
   }, [])
 
   // 已登录时静默轮询连接列表，检测到新授权的智能体后自动更新等待提示并刷新列表。
+  // 后台标签页暂停轮询；CLI 能力未启用或鉴权失效时停止轮询并隐藏等待条。
   useEffect(() => {
     baselineIdsRef.current = null
     setConnectedDetected(false)
+    setCliAvailable(true)
     if (!user?.id) return
     let cancelled = false
+    let stopped = false
     let timer: number | undefined
+    let activeController: AbortController | null = null
+
+    const schedule = () => {
+      if (cancelled || stopped) return
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      timer = window.setTimeout(() => void poll(), 4000)
+    }
+
     const poll = async () => {
+      if (cancelled || stopped) return
+      activeController?.abort()
+      const controller = new AbortController()
+      activeController = controller
       try {
-        const list = await fetchCliConnections()
-        if (cancelled) return
+        const list = await fetchCliConnections(controller.signal)
+        if (cancelled || controller.signal.aborted) return
         if (baselineIdsRef.current === null) {
           baselineIdsRef.current = new Set(list.map((item) => item.id))
         } else if (list.some((item) => !baselineIdsRef.current!.has(item.id))) {
           baselineIdsRef.current = new Set(list.map((item) => item.id))
           setConnectedDetected(true)
           setConnectionsRefreshKey((k) => k + 1)
+          stopped = true
           return
         }
-      } catch {
-        // 静默忽略短暂轮询失败，下次继续。
+      } catch (error) {
+        if (cancelled || controller.signal.aborted) return
+        if (
+          error instanceof AuthRequestError &&
+          (error.code === 'capability_unavailable' || error.status === 401 || error.status === 403)
+        ) {
+          if (error.code === 'capability_unavailable') setCliAvailable(false)
+          stopped = true
+          return
+        }
       }
-      if (!cancelled) timer = window.setTimeout(() => void poll(), 4000)
+      schedule()
     }
+
+    const onVisibility = () => {
+      if (cancelled || stopped) return
+      if (document.visibilityState === 'visible') {
+        window.clearTimeout(timer)
+        void poll()
+      } else {
+        window.clearTimeout(timer)
+      }
+    }
+
+    document.addEventListener('visibilitychange', onVisibility)
     void poll()
     return () => {
       cancelled = true
+      stopped = true
       window.clearTimeout(timer)
+      activeController?.abort()
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [user?.id])
 
@@ -224,7 +264,7 @@ export default function CliConnectPage() {
                   label={t('cliConnect.copyMessage')}
                   variant="default"
                   size="default"
-                  className="shrink-0 rounded-full"
+                  className="shrink-0"
                 />
               </div>
 
@@ -246,14 +286,14 @@ export default function CliConnectPage() {
                 ))}
                 <a
                   href={`${GUIDE_PATHS[currentLocale()]}plugins/cli/`}
-                  className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-muted-foreground underline-offset-4 hover:text-primary hover:underline focus-visible:underline"
+                  className="ml-auto inline-flex items-center gap-1 rounded-xs text-xs font-medium text-muted-foreground underline-offset-4 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {t('cliConnect.tutorial')}
                   <Icon name="arrowRight" size="xs" />
                 </a>
               </div>
 
-              {user ? (
+              {user && cliAvailable ? (
                 <div
                   role="status"
                   className={`flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-body-sm ${
@@ -370,20 +410,24 @@ export default function CliConnectPage() {
             </div>
           </section>
 
-          <section className="space-y-4">
-            {user ? (
-              <div className="rounded-2xl border border-border bg-card p-6">
-                <CliConnectionsSection key={connectionsRefreshKey} standalone />
-              </div>
-            ) : (
+          {user ? (
+            cliAvailable ? (
+              <section className="space-y-4">
+                <div className="rounded-2xl border border-border bg-card p-6">
+                  <CliConnectionsSection key={connectionsRefreshKey} standalone />
+                </div>
+              </section>
+            ) : null
+          ) : (
+            <section className="space-y-4">
               <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border px-6 py-8 text-center">
                 <p className="text-body-sm text-muted-foreground">{t('cliConnect.signInHint')}</p>
                 <Button type="button" variant="outline" onClick={() => promptLogin('gated-action')}>
                   {t('cliDevice.signIn')}
                 </Button>
               </div>
-            )}
-          </section>
+            </section>
+          )}
         </div>
       </div>
     </main>

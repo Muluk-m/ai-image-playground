@@ -35,6 +35,10 @@ describe('WorkBuddy Skill package', () => {
       'muvloom/SKILL.md',
     ])
     expect(files['muvloom/references/workbuddy.md']).toBeDefined()
+    expect(files['muvloom/.muvloom-skill.json']).toBeDefined()
+    const meta = JSON.parse(strFromU8(files['muvloom/.muvloom-skill.json']))
+    expect(meta).toMatchObject({ skill: 'muvloom', host: 'workbuddy', scope: 'user' })
+    expect(meta.file_hash).toMatch(/^[a-f0-9]{64}$/)
     expect(skill).toContain('[WorkBuddy setup](references/workbuddy.md)')
     for (const [name, bytes] of Object.entries(files)) {
       expect(name.startsWith('muvloom/')).toBe(true)

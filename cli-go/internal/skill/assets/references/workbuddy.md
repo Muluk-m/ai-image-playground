@@ -1,0 +1,44 @@
+# WorkBuddy 安装与授权
+
+幕芽、muya、muvloom 是同一个服务。技能名是 `muvloom`，展示名是「幕芽 Muvloom」。
+
+用户只要求安装、更新或验收技能时，仅执行技能安装和发现检查：保留现有 CLI、账号和服务，不运行 `auth status`、`auth login`、`capabilities` 或其他账号探测，不访问凭据存储。只有用户要求连接账号或继续生成任务时才进入账号连接流程。
+
+## 确认技能已安装
+
+在 WorkBuddy「专家·技能·连接器 → 技能 → 已安装」中确认「幕芽 Muvloom」已启用；也可在输入框输入 `/mu` 检查候选技能。账号授权成功不代表技能安装成功。
+
+还未安装时，由 WorkBuddy 在对话中下载幕芽接入指南同源的 `muvloom-workbuddy.zip`，检查技能内容和包内路径后，将 `muvloom/` 安装到当前用户的 `~/.workbuddy/skills/muvloom/`（Windows 使用用户主目录）。读回 `SKILL.md` 和引用文件，重新加载技能后验证已发现并启用。若新任务输入 `/muv` 仍无候选，保留安装文件，请用户完整退出并重新打开客户端，再输入 `/muv` 并选择 `muvloom`；本机 WorkBuddy 5.9.3 已实测恢复，其他版本仍以实际结果为准。不要重复安装或预先宣称成功。不要把手动上传交给用户作为默认安装步骤，不要假装该包已在技能市场上架。必要权限和安全确认使用宿主正常提示，不修改全局保护。
+
+用户要求连接账号时，按当前接入指南页面的域名，为本次会话选择该页面对应的 API；这一步也适用于已经安装 CLI 的情况。CLI 安装和服务地址选择按接入页面的安装指南执行。CLI 0.2.5 的 `skill install --host` 只支持 Claude Code 和 Codex；WorkBuddy 通过对话安装本地技能，不发明 CLI host 参数。
+
+## 连接账号
+
+所有认证命令使用 WorkBuddy 的前台、可交互执行方式；Bash 的 `run_in_background` 保持关闭，让需要的权限确认可以显示给用户。前台执行仍可能受权限保护，不保证免于确认。
+
+用户点完授权，你应当自动继续，**不需要用户再回复你**。
+
+授权必须使用系统默认浏览器。用户可能已经在默认浏览器里登录了幕芽。不要指定 Chrome 或任何其他浏览器，不要用 `Start-Process` 打开浏览器，不要用桌面控制寻找浏览器，不要为打开网址申请提高权限。
+
+1. 先运行 `muvloom auth status`。确认 `api_url` 对应本次接入的服务，`state: ready` 时直接验证 `muvloom capabilities`，保留已有连接。`state: unreachable` 是短暂故障：等待 5 秒再试，然后 15 秒，最多三次；不要发起新的登录。仍失败就告诉用户稍后重试，并保留已有连接。
+2. 未登录且能在用户本机打开浏览器时，先在这一条回复里告诉用户：授权页马上在系统默认浏览器里打开，请登录并点「允许」；你会在这里等，点完会自动继续，不需要回复我。**不要结束本回合。** 若当前环境控制不了用户的浏览器，改用 `MUVLOOM_NO_BROWSER=1 muvloom auth login --no-wait`，把 `verification_uri_complete` 和 `user_code` 贴进对话，请用户在默认浏览器打开，再用 `muvloom auth login --timeout N` 等待。
+3. 本机可打开浏览器时，紧接着前台运行 `muvloom --json auth login --timeout 15`，宿主的命令超时设为至少 30 秒。CLI 会尝试打开系统默认浏览器，点完授权即返回 `state: ready`。第一次返回 `AUTH_PENDING`（退出码 3）时，把同一次授权的 `verification_uri_complete` 和 `user_code` 发给用户，供没有看到弹窗时手动打开。若宿主截断命令，先用 `muvloom --json auth status` 取回待授权的链接与授权码。然后用 `muvloom auth login --timeout 15` 继续等待同一次授权，不会再打开新页面。等待期间不要反复提示用户：
+   - `state: ready`：授权完成，继续第 4 步。
+   - `AUTH_DENIED`：用户拒绝了，停止并说明。
+   - `AUTH_EXPIRED`：授权码已过期（有效期 20 分钟），这时才重新运行 `muvloom auth login`，并再次提示用户。
+4. 运行 `muvloom auth status` 确认 `ready`，再运行 `muvloom capabilities`，并用 `muvloom images validate --prompt "setup smoke"` 做零花费报价。短暂失败按第 1 步的三次重试处理。
+5. 宿主打断等待时的兜底：如果等待命令被宿主中断（超时被终止，或为权限确认而重放），先运行 `muvloom auth status`，`ready` 就是成功；仍未就绪就再等一次。同一次授权里等待命令**连续两次**都被中断，才退回到让用户确认：告诉用户点完授权后回复一句，收到后先查 `auth status`，仍未就绪再前台运行 `muvloom auth login --timeout 15` 收尾。
+
+## 本地写入或清理受限
+
+出现 `operation not permitted`、`permission denied` 或保存凭据失败时，保留并说明真实错误，暂停登录收尾。由用户按 WorkBuddy 的权限提示决定是否允许 CLI 对幕芽配置目录进行必要操作，确认权限后先查 `auth status` 再继续。
+
+权限拒绝、保存失败或命令未完成，只能说明该次状态检查未完成，不能据此断言账号未登录、原连接丢失或授权已过期。
+
+凭据由 CLI 管理。不要手动读取、复制、覆盖或删除凭据文件，不把 token 写入 Skill、提示词或聊天，也不修改全局权限或安全规则来绕过拦截。`credential_store: file` 且 `credential_store_issue: unavailable` 只表示当前环境无法使用钥匙串、登录改存在配置目录的文件里，不是安装失败。
+
+`AUTH_REQUIRED` 提示码无效或已使用时，先检查现有连接；它不等于码过期。只有 CLI 明确返回 `AUTH_EXPIRED` 才按过期处理。确认本地权限问题已经解决、状态仍未登录后，再向用户说明需要重新授权一次。
+
+## 安装完成条件
+
+技能安装以已启用且新任务输入 `/muv` 能找到幕芽为准；用户要求账号接入时，还需确认 `auth status` 为 `ready`、`capabilities` 成功，以及零花费的 `images validate` 成功。安装验收不生成图片。完成后回到用户原来的图片任务；仅安装请求则停止。

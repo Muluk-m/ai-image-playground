@@ -82,6 +82,11 @@ describe('CliDevicePage', () => {
     expect(host.textContent).toContain('Muvloom CLI')
     // 已登录用户直接进入授权确认，步骤条跳过「登录」。
     expect(host.querySelector('[aria-label="授权步骤"]')?.textContent).not.toContain('登录')
+    // 按 scopes 动态展示能力胶囊（本用例不含 media:write，不展示「参考图编辑」），并默认显示消耗积分提示。
+    expect(host.textContent).toContain('生成图像')
+    expect(host.textContent).toContain('查询与下载')
+    expect(host.textContent).not.toContain('参考图编辑')
+    expect(host.textContent).toContain('生成图片会消耗当前账户积分。')
     // 详细权限默认折叠，点击「查看所有权限」后展开。
     expect(host.textContent).not.toContain('提交与取消生成任务（消耗账户积分）')
     await act(async () => button('查看所有权限').click())
@@ -96,6 +101,9 @@ describe('CliDevicePage', () => {
       }),
     )
     expect(host.querySelector('[role="status"]')?.textContent).toBe(outcome)
+    if (decision === 'deny') {
+      expect(host.querySelector('[aria-label="授权步骤"]')).toBeNull()
+    }
   })
 
   it('sends the browser back to the CLI that opened it, with its state', async () => {
@@ -334,5 +342,22 @@ describe('CliDevicePage', () => {
     await act(async () => old.resolve(Response.json({ ok: true })))
     expect(host.textContent).not.toContain('已授权。')
     expect(button('登录后继续')).toBeDefined()
+  })
+
+  it('auto-opens login prompt when arriving signed out with user_code and surfaces unknown scopes directly', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          client_name: 'Muvloom CLI',
+          scopes: ['images:read', 'billing:admin'],
+        }),
+      ),
+    )
+    await render(null)
+    expect(promptLogin).toHaveBeenCalledWith('gated-action')
+    await render(USER)
+    expect(host.textContent).toContain('billing:admin')
+    expect(host.textContent).not.toContain('生成图片会消耗当前账户积分。')
   })
 })

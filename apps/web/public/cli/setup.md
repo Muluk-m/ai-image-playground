@@ -20,7 +20,7 @@ Combine checking/installing the CLI and installing the host skill into a single
 shell command whenever this host can run shell commands, so setup finishes in
 two steps (1. install CLI + skill, 2. authorize account):
 
-- **WorkBuddy** (`~/.workbuddy/skills/muvloom/`): download `<this-guide-origin>/cli/muvloom-workbuddy.zip?v=<this-page-v>`, verify entries stay under `muvloom/` with no `..` or symlinks, and extract into `~/.workbuddy/skills/` (or `%USERPROFILE%\.workbuddy\skills\` on Windows). No need to fetch `workbuddy.md` separately unless troubleshooting.
+- **WorkBuddy** (`~/.workbuddy/skills/muvloom/`): download `<this-guide-origin>/cli/muvloom-workbuddy.zip?v=<this-page-v>`, verify entries stay under `muvloom/` with no `..` or symlinks, and extract into `~/.workbuddy/skills/` (or `%USERPROFILE%\.workbuddy\skills\` on Windows). Confirm the skill is enabled and `/muv` finds 幕芽 in a new task (if not visible yet, ask the user to fully quit and reopen WorkBuddy, then retry `/muv`). Only fetch [the WorkBuddy guide](workbuddy.md) if you need detailed troubleshooting.
 - **Claude Code**: run `muvloom skill install --host claude-code` right after installing/finding the CLI.
 - **Codex**: run `muvloom skill install --host codex` right after installing/finding the CLI.
 - **豆包工作**: follow [the Doubao Work guide](doubao.md) (keeping `?v=`) to import `muvloom-doubao.zip`.
@@ -125,9 +125,10 @@ For Codex, run:
 muvloom skill install --host codex
 ```
 
-For WorkBuddy, follow [the WorkBuddy guide](workbuddy.md) to install the official
-skill from the conversation and connect the account. Confirm that a new task's
-`/muv` finds 幕芽 before reporting setup complete.
+For WorkBuddy, use the Fast path above (or follow [the WorkBuddy guide](workbuddy.md)
+if detailed troubleshooting is needed) to install `muvloom-workbuddy.zip` into
+`~/.workbuddy/skills/muvloom/`. Confirm that a new task's `/muv` finds 幕芽 before
+reporting setup complete.
 
 For 豆包工作, follow [the Doubao Work guide](doubao.md) to install the official
 skill from the conversation and connect the account. Confirm that a new work

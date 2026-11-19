@@ -53,7 +53,7 @@ ENVIRONMENT
   MUVLOOM_API_URL             Service for the first sign-in; later runs use the stored connection
   MUVLOOM_NO_BROWSER=1        Print the approval link instead of opening a browser (SSH, containers)
   MUVLOOM_CONFIG_DIR          Where the connection is kept; a directory set here is its own login, in files, never the keychain
-  MUVLOOM_CREDENTIALS_STORE   "file" keeps credentials in the config directory instead of the keychain
+  MUVLOOM_CREDENTIALS_STORE   "file" stores in the config directory; "keychain" forces the system keychain even in sandboxed hosts
 
 EXIT CODES
   0 success   2 invalid command or request   3 sign-in needed   4 rejected, or the job failed
