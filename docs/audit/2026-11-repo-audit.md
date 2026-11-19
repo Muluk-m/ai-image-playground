@@ -151,6 +151,7 @@
 - 为什么没直接修：重做才几天，`overview-signals` 的测试还在描述指挥台规则。删组件会留下只被测试引用的库，删库又必须删测试。
 - 建议做法：确认指挥台不再回来后，删组件、`useTodayErrors`，并决定 `overview-signals` 是留下还是连测试一起退役。
 - 风险等级：低
+- 处理结果（2026-11-19）：组件已在更早的 PR 删除；`useTodayErrors`、`overview-signals.ts` 与其测试已删。服务端 `/api/overview/errors`、`getTodayErrors` 已无前端调用方，待确认没有外部调用后再退役（#1912 第 7 项）。
 
 ### Admin 未使用的依赖
 
@@ -159,6 +160,7 @@
 - 为什么没直接修：公开 `pnpm-lock.yaml` 含 `private/apps/*` 三个 importer。没有 `private/` 时重装 lockfile 会删掉它们，muvloom 的 `--frozen-lockfile` 会失败。
 - 建议做法：在带 overlay 的检出里删依赖并更新 lockfile。
 - 风险等级：低
+- 处理结果（2026-11-19）：已从 `apps/admin/package.json` 删除两项。lockfile 在原文件上精确删除，并在带 `private.lock` 钉住的 overlay 的检出里用 `--frozen-lockfile` 校验。`@hookform/resolvers` 仍由 `private/apps/admin/package.json` 声明，lockfile 里 `private/apps/admin` 下的条目要保留，不要再删。
 
 ### `ui/` 原语的 import 风格不统一
 
