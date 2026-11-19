@@ -21,6 +21,7 @@ import { directBudgetCapMicroUsd, directSpentThisMonth } from '../lib/upstream/g
 import { disabledDirectKeys } from '../lib/upstream/gpt-keys'
 import { selectRunnableTasks } from '../workers/runnable-tasks'
 import type { AlertSender } from './alert-sender'
+import { createBackupWatch, isBackupWatchDeferred } from './backup-watch'
 
 /**
  * 应用层的告警由 worker 的维护循环检查；接口与业务失败只读现有的汇总/事实表。
@@ -33,6 +34,8 @@ interface ObserveOptions {
   now: number
   /** 这一轮取不到读数的块；调用方据此累计“失明”轮数。 */
   onMissed?: (block: string) => void
+  /** 这一轮真正尝试读取了的块（成功或失败都算；被节流跳过的不算）。 */
+  onAttempted?: (block: string) => void
   readBackups?: () => Promise<OpsBackups>
   readRestoreDrill?: () => Promise<OpsRestoreDrill | null>
   /**
@@ -46,10 +49,15 @@ async function attempt<T>(
   block: string,
   read: () => Promise<T>,
   onMissed?: (block: string) => void,
+  onAttempted?: (block: string) => void,
 ): Promise<T | undefined> {
   try {
-    return await read()
+    const value = await read()
+    onAttempted?.(block)
+    return value
   } catch (error) {
+    if (isBackupWatchDeferred(error)) return undefined
+    onAttempted?.(block)
     onMissed?.(block)
     log.warn(
       {
@@ -71,6 +79,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
   const readBackups = options.readBackups ?? readBackupsFromStore
   const readRestoreDrill = options.readRestoreDrill ?? readRestoreDrillFromStore
   const missed = options.onMissed
+  const attempted = options.onAttempted
   const [queue, backup, restoreDrill, heartbeats, api, failures, agentFailurePatterns, serverLogs] =
     await Promise.all([
       attempt(
@@ -98,6 +107,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
           }
         },
         missed,
+        attempted,
       ),
       attempt(
         'backup',
@@ -106,8 +116,9 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
           return { latest_modified_at: latest?.modified_at ?? null }
         },
         missed,
+        attempted,
       ),
-      attempt('restoreDrill', readRestoreDrill, missed),
+      attempt('restoreDrill', readRestoreDrill, missed, attempted),
       attempt(
         'heartbeats',
         async () => {
@@ -120,6 +131,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
           return { bff: row?.last_seen_at ?? null }
         },
         missed,
+        attempted,
       ),
       attempt(
         'api',
@@ -163,6 +175,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
           return api
         },
         missed,
+        attempted,
       ),
       attempt(
         'failures',
@@ -251,8 +264,9 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
           }
         },
         missed,
+        attempted,
       ),
-      attempt('agentFailurePatterns', readAgentFailurePatterns, missed),
+      attempt('agentFailurePatterns', readAgentFailurePatterns, missed, attempted),
       attempt(
         'serverLogs',
         async () => {
@@ -266,6 +280,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
           return { latest_at: latest == null ? null : Number(latest) }
         },
         missed,
+        attempted,
       ),
     ])
   // 没开直连就不给这一块：没有预算可言，缺失也不会被当成已恢复。
@@ -277,10 +292,16 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
           cap_micro_usd: directBudgetCapMicroUsd(),
         }),
         missed,
+        attempted,
       )
     : undefined
   const gptDirectKeys = config.gptDirect.enabled
-    ? await attempt('gptDirectKeys', async () => ({ disabled: await disabledDirectKeys() }), missed)
+    ? await attempt(
+        'gptDirectKeys',
+        async () => ({ disabled: await disabledDirectKeys() }),
+        missed,
+        attempted,
+      )
     : undefined
   return {
     queue,
@@ -331,6 +352,8 @@ interface AppAlertingOptions {
   send: AlertSender
   readBackups?: () => Promise<OpsBackups>
   readRestoreDrill?: () => Promise<OpsRestoreDrill | null>
+  /** 备份和演练列出的最短间隔；默认 5 分钟。测试可改短。 */
+  backupWatchIntervalMs?: number
 }
 
 /**
@@ -342,6 +365,11 @@ export function createAppAlerting(options: AppAlertingOptions): (now?: number) =
   let pending = false
   let again = false
   const blindRounds = new Map<string, number>()
+  const backupWatch = createBackupWatch({
+    intervalMs: options.backupWatchIntervalMs ?? OPS_THRESHOLDS.BACKUP_WATCH_INTERVAL_MS,
+    readBackups: options.readBackups ?? readBackupsFromStore,
+    readRestoreDrill: options.readRestoreDrill ?? readRestoreDrillFromStore,
+  })
   return async (now = Date.now()) => {
     // 停用密钥的请求会再踢一轮。正在扫的时候踢到，等这一轮结束马上再扫，不丢这次告警。
     if (pending) {
@@ -354,14 +382,19 @@ export function createAppAlerting(options: AppAlertingOptions): (now?: number) =
       do {
         again = false
         const missed = new Set<string>()
+        const attempted = new Set<string>()
         const observation = await observeApp({
           now: roundNow,
-          readBackups: options.readBackups,
-          readRestoreDrill: options.readRestoreDrill,
+          readBackups: () => backupWatch.readBackups(roundNow),
+          readRestoreDrill: () => backupWatch.readRestoreDrill(roundNow),
           watchingModels: Object.keys(state.generationWatch ?? {}),
           onMissed: (block) => missed.add(block),
+          onAttempted: (block) => attempted.add(block),
         })
-        for (const block of blindRounds.keys()) if (!missed.has(block)) blindRounds.delete(block)
+        // 被节流跳过的块既不加轮次，也不清零；只有这一轮真正读到了才算恢复。
+        for (const block of [...blindRounds.keys()]) {
+          if (attempted.has(block) && !missed.has(block)) blindRounds.delete(block)
+        }
         for (const block of missed) blindRounds.set(block, (blindRounds.get(block) ?? 0) + 1)
         const result = evaluateAlerts(
           {
