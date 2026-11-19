@@ -4,18 +4,25 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 import { GUIDE_CLIP_URLS } from '../../../web/src/features/guide/content/media'
-import { SITE_ASSET_BASE, SITE_ASSETS } from '../../../web/src/features/guide/content/siteAssets'
+import {
+  SITE_ASSET_BASE,
+  siteAssetSource,
+} from '../../../web/src/features/guide/content/siteAssets'
 import { guideEntries, pageBlocks } from '../../../web/src/features/guide/model'
+import { guideImageSizes } from '../../imageSizes'
 import { editions, pageList } from '../catalog'
 import { Guide } from '../components/Guide'
 
-const publicFile = (src: string) => {
-  const path = Object.entries(SITE_ASSETS).find(
-    ([, key]) => `${SITE_ASSET_BASE}${key}` === src,
-  )?.[0]
-  if (!path) throw new Error(`Unregistered site image: ${src}`)
-  return resolve(import.meta.dirname, '../../../web/public', `.${path}`)
-}
+const publicDir = resolve(import.meta.dirname, '../../../web/public')
+const publicFile = (url: string) => resolve(publicDir, `.${siteAssetSource(url)}`)
+
+it('reads intrinsic guide image dimensions from checked-in sources for CDN URLs', () => {
+  const sizes = guideImageSizes(publicDir)
+  const entry = Object.entries(sizes).find(([url]) => url.includes('/workbuddy-tutorial-poster-'))
+  expect(entry?.[0]).toMatch(/^https:\/\/store\.kaleidonova\.com\//)
+  expect(entry?.[1]).toMatchObject({ width: expect.any(Number), height: expect.any(Number) })
+})
+
 const clipUrls = new Set<string>(Object.values(GUIDE_CLIP_URLS))
 
 const CLIP_FILES = [

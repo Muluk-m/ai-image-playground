@@ -9,3 +9,9 @@ export function siteAssetUrl(path: string): string {
   if (!key) throw new Error(`官网素材未登记：${path}`)
   return `${SITE_ASSET_BASE}${key}`
 }
+
+export function siteAssetSource(url: string): string {
+  const source = Object.entries(SITE_ASSETS).find(([, key]) => `${SITE_ASSET_BASE}${key}` === url)?.[0]
+  if (!source) throw new Error(`官网素材地址未登记：${url}`)
+  return source
+}

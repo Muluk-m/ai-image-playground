@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { siteAssetSource } from '../web/src/features/guide/content/siteAssets'
 import { guideEntries, pageBlocks } from '../web/src/features/guide/model'
 import { editions } from './src/catalog'
 
@@ -15,7 +16,7 @@ export function guideImageSizes(publicDir: string) {
   )
   return Object.fromEntries(
     [...paths].map((path) => {
-      const data = readFileSync(resolve(publicDir, `.${path}`))
+      const data = readFileSync(resolve(publicDir, `.${siteAssetSource(path)}`))
       if (data.toString('ascii', 0, 4) !== 'RIFF' || data.toString('ascii', 8, 12) !== 'WEBP')
         throw new Error(`Guide image must be WebP: ${path}`)
       const chunk = data.toString('ascii', 12, 16)
