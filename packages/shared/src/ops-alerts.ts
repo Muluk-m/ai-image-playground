@@ -56,6 +56,8 @@ export interface AlertObservation {
     generation_models?: readonly GenerationFailureModel[]
     /** 每个模型最近一次成功出图的时间（近 24 小时）。恢复以它为准，不只看失败数。 */
     generation_successes?: Readonly<Record<string, number>>
+    /** 运营手动下架的模型（active = false 且非自动暂停）；不再等待它们重新出图，直接移出等待恢复名单。 */
+    generation_disabled?: readonly string[]
   }
   /** 近 1 小时有任务执行超过 SLOW_GENERATION_MS 的模型；没有就是空数组。 */
   slowGenerations?: readonly SlowGenerationModel[]
@@ -282,10 +284,7 @@ function readings(
       firingText: breached
         ? `${overThreshold ? `近 15 分钟有 ${failures.generation_system} 次非内容策略的生成失败` : '上游报模型不可用，模型已自动暂停'}${models.length > 0 ? `\n${models.slice(0, GENERATION_MODELS_IN_TEXT).map(generationModelLine).join('\n')}` : ''}`
         : `生成失败已回到告警线内，但这些模型出事后还没有成功出过图，暂不发恢复：\n${generationWaiting.map(generationModelLine).join('\n')}`,
-      resolvedText:
-        Object.keys(state.generationWatch ?? {}).length > 0
-          ? `已恢复：${Object.keys(state.generationWatch ?? {}).join('、')} 已重新成功出图，生成失败回到告警线内`
-          : '已恢复：生成系统失败回到告警线内',
+      resolvedText: generationResolvedText(state.generationWatch, failures.generation_disabled),
     }
     out.agent = {
       breached: failures.agent >= OPS_THRESHOLDS.AGENT_TURN_FAILURES,
@@ -480,7 +479,28 @@ function stepGenerationWatch(
       if ((successes[model] ?? 0) > entry.lastFailedAt) delete watch[model]
     }
   }
+  for (const model of failures.generation_disabled ?? []) {
+    delete watch[model]
+  }
   return watch
+}
+
+function generationResolvedText(
+  watch: Record<string, GenerationWatchEntry> | undefined,
+  disabledModels: readonly string[] | undefined,
+): string {
+  const watched = Object.keys(watch ?? {})
+  if (watched.length === 0) return '已恢复：生成系统失败回到告警线内'
+  const disabledSet = new Set(disabledModels ?? [])
+  const disabled = watched.filter((model) => disabledSet.has(model))
+  const succeeded = watched.filter((model) => !disabledSet.has(model))
+  if (succeeded.length > 0 && disabled.length > 0) {
+    return `已恢复：${succeeded.join('、')} 已重新成功出图，${disabled.join('、')} 已手动下架，生成失败回到告警线内`
+  }
+  if (disabled.length > 0) {
+    return `已恢复：${disabled.join('、')} 已手动下架，生成失败回到告警线内`
+  }
+  return `已恢复：${succeeded.join('、')} 已重新成功出图，生成失败回到告警线内`
 }
 
 function generationDetail(

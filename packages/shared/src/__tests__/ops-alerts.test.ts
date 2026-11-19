@@ -897,6 +897,156 @@ describe('生成失败告警：带模型明细，出图成功才恢复', () => {
     ])
     expect(rounds.map((round) => round.map((message) => message.kind))).toEqual([['firing'], []])
   })
+
+  it('自动暂停的模型被运营手动下架后立即移出等待名单并解除告警，不再每小时提醒', () => {
+    const grok = (at: number, paused: boolean) => ({
+      model: 'grok-imagine-video-1.5-lite',
+      failures: 1,
+      errorType: 'model_unavailable',
+      upstreamStatus: 503,
+      message: 'No eligible Grok media accounts',
+      lastFailedAt: at,
+      paused,
+    })
+    const rounds = steps([
+      [
+        T0,
+        {
+          failures: {
+            generation_system: 1,
+            agent: 0,
+            generation_models: [grok(T0 - minute, true)],
+            generation_successes: {},
+            generation_disabled: [],
+          },
+        },
+      ],
+      [
+        // 5 分钟后运营手动下架：15 分钟窗口内仍有那 1 条失败，但 paused=false 且进入 generation_disabled。
+        T0 + 5 * minute,
+        {
+          failures: {
+            generation_system: 1,
+            agent: 0,
+            generation_models: [grok(T0 - minute, false)],
+            generation_successes: {},
+            generation_disabled: ['grok-imagine-video-1.5-lite'],
+          },
+        },
+      ],
+      [
+        // 过了 1 小时提醒间隔也不应再发告警。
+        T0 + 70 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: {},
+            generation_disabled: ['grok-imagine-video-1.5-lite'],
+          },
+        },
+      ],
+    ])
+    expect(rounds.map((round) => round.map((message) => message.kind))).toEqual([
+      ['firing'],
+      ['resolved'],
+      [],
+    ])
+    expect(rounds[1]![0]!.text).toBe(
+      '已恢复：grok-imagine-video-1.5-lite 已手动下架，生成失败回到告警线内',
+    )
+  })
+
+  it('多个等待模型里只下架一个时继续等其余模型，全部消掉后按各自原因说明恢复', () => {
+    const grok = {
+      model: 'grok-imagine-video-1.5-lite',
+      failures: 2,
+      errorType: 'upstream_error',
+      upstreamStatus: 502,
+      message: 'Bad gateway',
+      lastFailedAt: T0 - minute,
+    }
+    const rounds = steps([
+      [
+        T0,
+        {
+          failures: {
+            generation_system: 5,
+            agent: 0,
+            generation_models: [flare(3, T0 - minute), grok],
+            generation_successes: {},
+            generation_disabled: [],
+          },
+        },
+      ],
+      [
+        // 只下架 grok，flare 还没出图，不发恢复。
+        T0 + 20 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: {},
+            generation_disabled: ['grok-imagine-video-1.5-lite'],
+          },
+        },
+      ],
+      [
+        // flare 重新出图后发恢复，此时等待名单里只剩 flare。
+        T0 + 25 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: { 'gpt-image-2.5-flare': T0 + 24 * minute },
+            generation_disabled: ['grok-imagine-video-1.5-lite'],
+          },
+        },
+      ],
+    ])
+    expect(rounds.map((round) => round.map((message) => message.kind))).toEqual([
+      ['firing'],
+      [],
+      ['resolved'],
+    ])
+    expect(rounds[2]![0]!.text).toBe(
+      '已恢复：gpt-image-2.5-flare 已重新成功出图，生成失败回到告警线内',
+    )
+
+    // 同一轮里一个出图、一个手动下架，恢复文案同时写清两者。
+    const sameRound = steps([
+      [
+        T0,
+        {
+          failures: {
+            generation_system: 5,
+            agent: 0,
+            generation_models: [flare(3, T0 - minute), grok],
+            generation_successes: {},
+            generation_disabled: [],
+          },
+        },
+      ],
+      [
+        T0 + 20 * minute,
+        {
+          failures: {
+            generation_system: 0,
+            agent: 0,
+            generation_models: [],
+            generation_successes: { 'gpt-image-2.5-flare': T0 + 19 * minute },
+            generation_disabled: ['grok-imagine-video-1.5-lite'],
+          },
+        },
+      ],
+    ])
+    expect(sameRound[1]![0]!.text).toBe(
+      '已恢复：gpt-image-2.5-flare 已重新成功出图，grok-imagine-video-1.5-lite 已手动下架，生成失败回到告警线内',
+    )
+  })
 })
 
 describe('直连密钥停用', () => {
