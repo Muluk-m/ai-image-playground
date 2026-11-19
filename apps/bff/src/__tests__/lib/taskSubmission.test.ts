@@ -942,6 +942,58 @@ it('replays an existing command when strict execution policy is introduced', asy
   expect(await db.select().from(schema.tasks)).toHaveLength(1)
 })
 
+it('同一幂等键重放时不再归档参考图', async () => {
+  await ensureBillingUser()
+  const writes = () => store.events.filter((event) => event.startsWith('write:'))
+  const input = {
+    entry: 'web-direct' as const,
+    provider: 'openai-compat' as const,
+    model: 'gpt-image-2.5-flare',
+    userId: BILLING_USER,
+    request: request({ client_request_id: crypto.randomUUID() }),
+  }
+  const first = await createQueueTask(input)
+  expect(first.kind).toBe('created')
+  const archived = writes().length
+  expect(archived).toBeGreaterThan(0)
+  const replay = await createQueueTask(input)
+  expect(replay).toEqual(first)
+  expect(writes()).toHaveLength(archived)
+})
+
+it('近期相同内容的重复提交在归档参考图之前就被拒绝', async () => {
+  await ensureBillingUser()
+  const previousOperator = config.operator
+  config.operator = {
+    ...previousOperator,
+    capabilities: { ...previousOperator.capabilities, 'billing:credits': true },
+  }
+  const writes = () => store.events.filter((event) => event.startsWith('write:'))
+  try {
+    const input = {
+      entry: 'web-direct' as const,
+      provider: 'openai-compat' as const,
+      model: 'gpt-image-2.5-flare',
+      userId: BILLING_USER,
+      dedupeRepeats: true as const,
+      request: request({ client_request_id: crypto.randomUUID() }),
+    }
+    const first = await createQueueTask(input)
+    expect(first.kind).toBe('created')
+    if (first.kind !== 'created') throw new Error('expected created')
+    const archived = writes().length
+    expect(archived).toBeGreaterThan(0)
+    const second = await createQueueTask({
+      ...input,
+      request: { ...input.request, client_request_id: crypto.randomUUID() },
+    })
+    expect(second).toEqual({ kind: 'duplicate_submission', taskId: first.taskId })
+    expect(writes()).toHaveLength(archived)
+  } finally {
+    config.operator = previousOperator
+  }
+})
+
 afterAll(close)
 
 const AGENT = { conversationId: 'conversation-1', turnId: 'turn-1' } as const

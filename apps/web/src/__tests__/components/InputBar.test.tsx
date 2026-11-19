@@ -611,35 +611,44 @@ it('clears references and their masks while preserving prompt text', () => {
 })
 
 describe('快速生成的发送按钮', () => {
-  it('双击或连按回车只发出一条任务：点下去就锁住，转完圈才能再发', async () => {
-    vi.useFakeTimers()
-    try {
-      remount('generate')
-      const submitTask = vi.spyOn(storeModule, 'submitTask').mockResolvedValue(undefined)
-      act(() => useStore.setState({ prompt: '一只橘猫' }))
-      act(() => useStore.getState().setSettings({ enterSubmit: true }))
-      const send = () =>
-        [...host.querySelectorAll<HTMLButtonElement>('button')].find(
-          (one) => one.getAttribute('aria-label') === '生成',
-        )!
-      act(() => {
-        send().click()
-        send().click()
-        editor().dispatchEvent(
-          new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
-        )
-      })
-      expect(submitTask).toHaveBeenCalledTimes(1)
-      expect(send().disabled).toBe(true)
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(600)
-      })
-      expect(send().disabled).toBe(false)
-      act(() => send().click())
-      expect(submitTask).toHaveBeenCalledTimes(2)
-    } finally {
-      vi.useRealTimers()
-    }
+  it('双击或连按回车只发出一条任务：点下去就锁住，服务端受理之前不能再发', async () => {
+    remount('generate')
+    let release: () => void = () => {}
+    const submitTask = vi.spyOn(storeModule, 'submitTask').mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = resolve
+        }),
+    )
+    act(() => useStore.setState({ prompt: '一只橘猫' }))
+    act(() => useStore.getState().setSettings({ enterSubmit: true }))
+    const send = () =>
+      [...host.querySelectorAll<HTMLButtonElement>('button')].find((one) => {
+        const label = one.getAttribute('aria-label')
+        return label === '生成' || label === '提交中'
+      })!
+    act(() => {
+      send().click()
+      send().click()
+      editor().dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      )
+    })
+    expect(submitTask).toHaveBeenCalledTimes(1)
+    expect(send().disabled).toBe(true)
+    expect(send().getAttribute('aria-label')).toBe('提交中')
+    expect(send().getAttribute('aria-busy')).toBe('true')
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(send().disabled).toBe(true)
+    await act(async () => {
+      release()
+    })
+    expect(send().disabled).toBe(false)
+    expect(send().getAttribute('aria-label')).toBe('生成')
+    act(() => send().click())
+    expect(submitTask).toHaveBeenCalledTimes(2)
   })
 
   it('只有空白、控制符或零宽字符时发不出去', () => {

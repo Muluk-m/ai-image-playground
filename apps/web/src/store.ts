@@ -1456,6 +1456,8 @@ export interface PreparedSubmissionOptions {
   template?: true
   onConfirmationPending?: (pending: boolean) => void
   onLoginQueued?: () => void
+  /** 服务端受理或提交失败后决议，不等出图结束。创作页提交按钮锁到这一刻。 */
+  onAcknowledged?: (ack: Promise<void>) => void
 }
 
 type ConfirmDialog = NonNullable<AppState['confirmDialog']>
@@ -1661,6 +1663,7 @@ export async function submitPrepared(
       profile,
       params: taskParams,
       ...(input.clientRequestId ? { clientRequestId: input.clientRequestId } : {}),
+      onAcknowledged: options.onAcknowledged,
       variants: referenceGroups.flatMap((group, groupIndex) => {
         const inputImageDataUrls = group.map((img) => img.dataUrl)
         return prompts.map((taskPrompt, promptIndex) => {
@@ -1746,6 +1749,7 @@ export async function submitTask(options: { holdClear?: Promise<unknown> } = {})
   const controller = new AbortController()
   const context = watchSubmissionContext(undefined, () => controller.abort())
   let createdTaskIds: string[]
+  let acknowledged = Promise.resolve()
   try {
     createdTaskIds = await submitPrepared(
       {
@@ -1757,12 +1761,19 @@ export async function submitTask(options: { holdClear?: Promise<unknown> } = {})
         profileId: activeProfile.id,
         ...(eachImage ? { eachImage: true as const } : {}),
       },
-      { signal: controller.signal, isCurrent: context.isCurrent },
+      {
+        signal: controller.signal,
+        isCurrent: context.isCurrent,
+        onAcknowledged: (ack) => {
+          acknowledged = ack
+        },
+      },
     )
   } finally {
     context.dispose()
   }
   if (createdTaskIds.length === 0) return
+  await acknowledged
 
   // 新卡在输入框下方。滚不滚、高亮和焦点由作品网格在卡片挂上之后做；这里只标记「这次是用户主动发送」。
   noteUserSubmittedTasks(createdTaskIds)
@@ -2057,12 +2068,15 @@ function workbenchSink(
     },
     ...(queued
       ? {
-          schedule(job: WorkbenchJob, send: () => Promise<void>) {
+          schedule(job: WorkbenchJob, send: () => Promise<void>, acknowledge: () => void) {
+            // 超过并发的任务先在本地排队：立刻结束受理等待，避免按钮一直锁到前序出图完成。
+            if (batchLimit.active + batchLimit.waiting >= BATCH_GENERATE_CONCURRENCY) acknowledge()
             void batchLimit.run(async () => {
               // 排队期间被删掉或中止的那张不再发。
               const latest = useStore.getState().tasks.find((t) => t.id === job.taskId)
               if (!latest || !isGenerationOpen(activityFromRecord(latest))) {
                 releaseGenerationTask(job.taskId)
+                acknowledge()
                 return
               }
               if (activityFromRecord(latest).phase === 'batch-queued') {
@@ -2404,6 +2418,10 @@ async function retryLocalTask(task: TaskRecord) {
       settings: requestSettings,
       profile: activeProfile,
       params: taskParams,
+      // 用户点击重试是新的一单，始终新铸幂等键。
+      // 若首次 POST 已落库但回执丢失，随后服务端任务失败，复用旧键会让 replayCommand
+      // 一直带回失败的旧单；换渠道时请求哈希也可能对不上。自动重试（queueClient 断网重 POST、
+      // 刷新后 resumeGeneration）仍沿用同一键。
       variants: [
         {
           prompt: replaceImageMentionsForApi(

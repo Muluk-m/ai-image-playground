@@ -9,7 +9,10 @@ import { watchSubmissionContext } from '../../../lib/submissionContext'
 import { useStore } from '../../../store'
 import { useActiveLook } from './activeLook'
 
-export const useLookSubmission = create<{ submitting: boolean }>(() => ({ submitting: false }))
+export const useLookSubmission = create<{ submitting: boolean; cancellable: boolean }>(() => ({
+  submitting: false,
+  cancellable: false,
+}))
 
 interface LookSubmissionOperation {
   id: string
@@ -21,6 +24,8 @@ interface LookSubmissionOperation {
   markPending: () => void
   setConfirmationPending: (pending: boolean) => void
   wait: <T>(work: Promise<T>) => Promise<T>
+  /** 任务已启动：停掉准备阶段超时，按钮从“取消”改为锁住的“提交中”。 */
+  endPrepare: () => void
   finish: () => void
   cancel: () => void
 }
@@ -45,6 +50,7 @@ export function beginLookSubmission(): LookSubmissionOperation | null {
   let remainingMs = 30_000
   let timerStartedAt = Date.now()
   let confirming = false
+  let sealed = false
   const armTimeout = () =>
     setTimeout(() => controller.abort(new DOMException('timeout', 'TimeoutError')), remainingMs)
   let timeout = armTimeout()
@@ -112,12 +118,20 @@ export function beginLookSubmission(): LookSubmissionOperation | null {
           .then(resolve, reject)
           .finally(() => controller.signal.removeEventListener('abort', abort))
       }),
+    endPrepare: () => {
+      if (controller.signal.aborted || sealed) return
+      sealed = true
+      clearTimeout(timeout)
+      if (active === operation) useLookSubmission.setState({ cancellable: false })
+    },
     cancel: () => {
+      // 任务已经发出去以后不能再取消：解开锁会让用户再发一单、重复扣费。
+      if (sealed) return
       controller.abort()
       cleanup()
       if (active === operation) {
         active = null
-        useLookSubmission.setState({ submitting: false })
+        useLookSubmission.setState({ submitting: false, cancellable: false })
       }
       if (pending) void discardPendingSubmission(operation.id).catch(() => {})
     },
@@ -126,11 +140,11 @@ export function beginLookSubmission(): LookSubmissionOperation | null {
       if (!pending) cleanup()
       if (active === operation) {
         if (!pending) active = null
-        useLookSubmission.setState({ submitting: false })
+        useLookSubmission.setState({ submitting: false, cancellable: false })
       }
     },
   }
   active = operation
-  useLookSubmission.setState({ submitting: true })
+  useLookSubmission.setState({ submitting: true, cancellable: true })
   return operation
 }

@@ -2201,25 +2201,85 @@ describe('快速生成的逐张生成', () => {
         }),
     )
 
-    await submitTask()
+    const pending = submitTask()
     await waitUntil(() => gates.length === 5, 'first five were not sent')
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(vi.mocked(callImageApi).mock.calls).toHaveLength(5)
     const queued = () => useStore.getState().tasks.filter((t) => t.batchQueued)
     expect(queued().map((t) => t.origin?.shotId)).toEqual(['6', '7'])
 
-    gates[0]()
+    gates[0]!()
     await waitUntil(() => gates.length === 6, 'sixth was not sent after one finished')
     expect(queued().map((t) => t.origin?.shotId)).toEqual(['7'])
 
-    for (let i = 1; i < 6; i++) gates[i]()
+    for (let i = 1; i < 6; i++) gates[i]!()
     await waitUntil(() => gates.length === 7, 'last was not sent')
-    gates[6]()
+    gates[6]!()
+    await pending
     await waitUntil(
       () => useStore.getState().tasks.every((t) => t.status === 'done'),
       'batch did not finish',
     )
     expect(queued()).toHaveLength(0)
+  })
+
+  it('逐张超过并发时，排队中的任务算已受理，不必等前序出图', async () => {
+    await setupBatchState(7, true)
+    const gates: Array<() => void> = []
+    vi.mocked(callImageApi).mockImplementation((opts) => {
+      const requestId = `queued-ack-${gates.length}`
+      opts.onQueueSubmitted?.(requestId)
+      return new Promise((resolve) => {
+        gates.push(() =>
+          resolve({
+            images: ['data:image/png;base64,generated'],
+            actualParamsList: [{ size: '1x1' }],
+          }),
+        )
+      })
+    })
+
+    let done = false
+    const pending = submitTask().then(() => {
+      done = true
+    })
+    await waitUntil(() => gates.length === 5, 'first five were not sent')
+    await waitUntil(() => done, 'submit stayed locked on later queued shots')
+    expect(useStore.getState().tasks.filter((t) => t.batchQueued)).toHaveLength(2)
+    expect(useStore.getState().tasks.filter((t) => t.status === 'done')).toHaveLength(0)
+    for (const release of [...gates]) release()
+    await waitUntil(() => gates.length === 7, 'queued shots were not sent after ack')
+    for (const release of gates.slice(5)) release()
+    await pending
+    await waitUntil(
+      () => useStore.getState().tasks.every((t) => t.status === 'done'),
+      'batch did not finish after ack',
+    )
+  })
+
+  it('删除还在排队的逐张任务后，提交的受理等待会结束', async () => {
+    await setupBatchState(7, true)
+    const gates: Array<() => void> = []
+    vi.mocked(callImageApi).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          gates.push(() =>
+            resolve({
+              images: ['data:image/png;base64,generated'],
+              actualParamsList: [{ size: '1x1' }],
+            }),
+          )
+        }),
+    )
+
+    const pending = submitTask()
+    await waitUntil(() => gates.length === 5, 'first five were not sent')
+    const queued = useStore.getState().tasks.filter((t) => t.batchQueued)
+    expect(queued).toHaveLength(2)
+    for (const item of queued) await removeTask(item)
+    for (const release of gates) release()
+    await pending
+    expect(useStore.getState().tasks.filter((t) => t.batchQueued)).toHaveLength(0)
   })
 
   it('快速生成能分批加到 50 张，第 51 张按 50 张的上限拒绝', async () => {
@@ -2537,6 +2597,70 @@ describe('submitPrepared 显式参数提交接缝', () => {
     await submitTask({ holdClear: Promise.resolve() })
     expect(useStore.getState().prompt).toBe('')
     expect(useStore.getState().inputImages).toHaveLength(0)
+  })
+
+  it('等到服务端受理才结束这次提交，出图未完成也不再等', async () => {
+    let acknowledge: (requestId: string) => void = () => {}
+    const started = new Promise<void>((resolve) => {
+      vi.mocked(callImageApi).mockImplementationOnce((opts) => {
+        acknowledge = (requestId) => opts.onQueueSubmitted?.(requestId)
+        resolve()
+        return new Promise(() => {})
+      })
+    })
+    useStore.setState({ prompt: '一只猫' })
+    let done = false
+    const pending = submitTask().then(() => {
+      done = true
+    })
+    await started
+    await vi.waitFor(() => expect(useStore.getState().tasks).toHaveLength(1))
+    expect(done).toBe(false)
+    acknowledge('rid-ack')
+    await pending
+    expect(done).toBe(true)
+    expect(useStore.getState().tasks[0]?.bffRequestId).toBe('rid-ack')
+  })
+
+  it('用户点击重试时不沿用原来的幂等键，即使还没拿到队列号', async () => {
+    const failed = task({
+      id: 'unacked-failed',
+      status: 'error',
+      prompt: '一只猫',
+      clientRequestId: 'keep-me',
+      platformTask: true,
+      apiProfileId: preparedOpenAI.id,
+      apiModel: 'gpt-image-1',
+      error: '网络中断',
+    })
+    useStore.setState({ tasks: [failed], prompt: '' })
+    await retryTask(failed)
+    await waitUntil(() => vi.mocked(callImageApi).mock.calls.length === 1, 'retry did not submit')
+    expect(vi.mocked(callImageApi).mock.calls[0]![0].clientRequestId).not.toBe('keep-me')
+  })
+
+  it('换了模型再重试时不沿用原来的幂等键', async () => {
+    const failed = task({
+      id: 'unacked-switched',
+      status: 'error',
+      prompt: '一只猫',
+      clientRequestId: 'keep-me',
+      platformTask: true,
+      apiProfileId: preparedOpenAI.id,
+      apiModel: 'gpt-image-1',
+      error: '网络中断',
+    })
+    useStore.setState({
+      tasks: [failed],
+      prompt: '',
+      settings: {
+        ...useStore.getState().settings,
+        activeProfileId: preparedGemini.id,
+      },
+    })
+    await retryTask(failed)
+    await waitUntil(() => vi.mocked(callImageApi).mock.calls.length === 1, 'retry did not submit')
+    expect(vi.mocked(callImageApi).mock.calls[0]![0].clientRequestId).not.toBe('keep-me')
   })
 
   it('只有用户主动发送才记下作品卡注意力', async () => {
