@@ -272,6 +272,7 @@ describe('anonymous startup', () => {
   })
 
   it('mounts the workspace for a visitor without a session', async () => {
+    history.replaceState(null, '', '/pricing')
     await bootAnonymously()
 
     const calls = vi.mocked(fetch).mock.calls
@@ -279,6 +280,111 @@ describe('anonymous startup', () => {
     expect(calls.some(([url]) => String(url).includes('/api/channels'))).toBe(true)
     const { scopedStorageName } = await import('../../lib/authScope')
     expect(scopedStorageName('image-playground')).toBe('image-playground')
+    expect(document.body.querySelector('.auth-dialog')).toBeNull()
+  })
+
+  it('opens the login dialog when a logged-out visitor lands on /image', async () => {
+    history.replaceState(null, '', '/image')
+    await bootAnonymously()
+
+    expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
+    expect(document.body.querySelector('.auth-dialog')).not.toBeNull()
+  })
+
+  it('does not open the login dialog for a signed-in user on /image', async () => {
+    markSessionHint()
+    history.replaceState(null, '', '/image')
+    await boot()
+
+    expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
+    expect(document.body.querySelector('.auth-dialog')).toBeNull()
+  })
+
+  it('does not reopen the login dialog after it is dismissed in the same session', async () => {
+    history.replaceState(null, '', '/image')
+    await bootAnonymously()
+    expect(document.body.querySelector('.auth-dialog')).not.toBeNull()
+
+    await act(async () => {
+      document.body.querySelector<HTMLButtonElement>('button[aria-label="关闭登录框"]')?.click()
+    })
+    expect(document.body.querySelector('.auth-dialog')).toBeNull()
+
+    await act(async () => {
+      history.pushState(null, '', '/pricing')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    expect(document.body.querySelector('.auth-dialog')).toBeNull()
+
+    await act(async () => {
+      history.pushState(null, '', '/image')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    expect(document.body.querySelector('.auth-dialog')).toBeNull()
+
+    const { requireAccount } = await import('../../auth/loginPrompt')
+    await act(async () => {
+      requireAccount()
+    })
+    expect(document.body.querySelector('.auth-dialog')).not.toBeNull()
+  })
+
+  it('does not open the login dialog on excluded routes', async () => {
+    history.replaceState(null, '', '/pricing')
+    await bootAnonymously()
+    expect(document.body.querySelector('.auth-dialog')).toBeNull()
+
+    for (const path of ['/terms', '/privacy', '/device', '/connect', '/changelog']) {
+      await act(async () => {
+        history.pushState(null, '', path)
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      })
+      expect(document.body.querySelector('.auth-dialog'), path).toBeNull()
+    }
+
+    await act(async () => {
+      history.pushState(null, '', '/image')
+      window.dispatchEvent(new PopStateEvent('popstate'))
+    })
+    expect(document.body.querySelector('.auth-dialog')).not.toBeNull()
+  })
+
+  it('does not reopen the login dialog when sessionStorage cannot persist dismissal', async () => {
+    history.replaceState(null, '', '/image')
+    await bootAnonymously()
+    expect(document.body.querySelector('.auth-dialog')).not.toBeNull()
+
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('The quota has been exceeded.', 'QuotaExceededError')
+    })
+    try {
+      await act(async () => {
+        document.body.querySelector<HTMLButtonElement>('button[aria-label="关闭登录框"]')?.click()
+      })
+      expect(document.body.querySelector('.auth-dialog')).toBeNull()
+
+      await act(async () => {
+        history.pushState(null, '', '/pricing')
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      })
+      await act(async () => {
+        history.pushState(null, '', '/image')
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      })
+      expect(document.body.querySelector('.auth-dialog')).toBeNull()
+    } finally {
+      setItem.mockRestore()
+    }
+  })
+
+  it('does not auto-open the login dialog for crawlers', async () => {
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (compatible; Googlebot/2.1)',
+    )
+    history.replaceState(null, '', '/image')
+    await bootAnonymously()
+
+    expect(host.querySelector('[data-testid="workspace"]')).not.toBeNull()
     expect(document.body.querySelector('.auth-dialog')).toBeNull()
   })
   it('opens the login intent after anonymous boot and removes only that parameter', async () => {
@@ -299,6 +405,7 @@ describe('anonymous startup', () => {
   })
 
   it('opens the login dialog when a gated action asks for an account', async () => {
+    history.replaceState(null, '', '/pricing')
     await bootAnonymously()
     const { requireAccount } = await import('../../auth/loginPrompt')
 
@@ -313,6 +420,7 @@ describe('anonymous startup', () => {
   })
 
   it('closing the login dialog cancels the interrupted send', async () => {
+    history.replaceState(null, '', '/pricing')
     await bootAnonymously()
     const { queuePendingSubmission, hasPendingSubmission } = await import(
       '../../auth/pendingSubmission'

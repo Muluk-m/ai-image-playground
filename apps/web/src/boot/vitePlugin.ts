@@ -292,14 +292,29 @@ function createStartupGuardScript(requiredAssets: BootAsset[] = []) {
     };
     if(wait===0)reveal();else setTimeout(reveal,wait);
   };
+  let timeoutStarted=sproutStarted;
   const deadline=()=>{
     if(rendered)return;
+    // A background tab can stall painting; that is not a failed foreground cold start.
+    if(document.visibilityState==='hidden')return;
     const now=performance.now();
     const idle=now-lastProgress;
-    if(idle<${UNRENDERED_TIMEOUT_MS}&&now-sproutStarted<${UNRENDERED_HARD_TIMEOUT_MS}){timer=setTimeout(deadline,Math.min(${UNRENDERED_TIMEOUT_MS}-idle,${UNRENDERED_HARD_TIMEOUT_MS}-(now-sproutStarted)));return}
+    if(idle<${UNRENDERED_TIMEOUT_MS}&&now-timeoutStarted<${UNRENDERED_HARD_TIMEOUT_MS}){timer=setTimeout(deadline,Math.min(${UNRENDERED_TIMEOUT_MS}-idle,${UNRENDERED_HARD_TIMEOUT_MS}-(now-timeoutStarted)));return}
     fail('timeout');
   };
-  timer=setTimeout(deadline,${UNRENDERED_TIMEOUT_MS});
+  const armDeadline=()=>{
+    if(rendered||fatal||document.visibilityState==='hidden')return;
+    clearTimeout(timer);
+    lastProgress=performance.now();
+    timeoutStarted=performance.now();
+    timer=setTimeout(deadline,${UNRENDERED_TIMEOUT_MS});
+  };
+  document.addEventListener('visibilitychange',()=>{
+    if(rendered||fatal)return;
+    if(document.visibilityState==='hidden'){clearTimeout(timer);return}
+    armDeadline();
+  });
+  armDeadline();
   window.addEventListener('error',onError,true);
   window.addEventListener('unhandledrejection',onRejection);
   window.addEventListener('vite:preloadError',onPreloadError);

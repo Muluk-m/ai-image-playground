@@ -78,7 +78,22 @@ function installGuard(script = STARTUP_GUARD_SCRIPT) {
   onWindow.mockRestore()
   onDocument.mockRestore()
 }
+let visibility: DocumentVisibilityState = 'visible'
+function setVisibility(state: DocumentVisibilityState) {
+  visibility = state
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    get: () => visibility,
+  })
+  document.dispatchEvent(new Event('visibilitychange'))
+}
+
 beforeEach(() => {
+  visibility = 'visible'
+  Object.defineProperty(document, 'visibilityState', {
+    configurable: true,
+    get: () => visibility,
+  })
   unregister.mockClear()
   replace.mockClear()
   Object.defineProperty(navigator, 'serviceWorker', {
@@ -132,6 +147,29 @@ const preloadError = (message?: string) => {
 
 it('stops indefinite loading when React never renders', () => {
   vi.advanceTimersByTime(30000)
+  expect(document.getElementById('boot')?.dataset.state).toBe('error')
+})
+it('does not report a boot timeout while the page stays hidden', () => {
+  setVisibility('hidden')
+  // Re-install so the guard arms against the hidden tab from the start.
+  installGuard()
+  vi.advanceTimersByTime(120_000)
+  expect(errorPanelVisible()).toBe(false)
+  setVisibility('visible')
+  vi.advanceTimersByTime(29_000)
+  expect(errorPanelVisible()).toBe(false)
+  vi.advanceTimersByTime(1_000)
+  expect(document.getElementById('boot')?.dataset.state).toBe('error')
+})
+it('restarts the unrendered timeout once a hidden tab becomes visible', () => {
+  vi.advanceTimersByTime(20_000)
+  setVisibility('hidden')
+  vi.advanceTimersByTime(20_000)
+  expect(errorPanelVisible()).toBe(false)
+  setVisibility('visible')
+  vi.advanceTimersByTime(29_000)
+  expect(errorPanelVisible()).toBe(false)
+  vi.advanceTimersByTime(1_000)
   expect(document.getElementById('boot')?.dataset.state).toBe('error')
 })
 it('keeps the splash while a slow network is still making progress', () => {
