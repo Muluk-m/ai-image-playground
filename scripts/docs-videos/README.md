@@ -45,9 +45,13 @@ python3 scripts/docs-videos/publish-site-media.py --refresh-images
 python3 scripts/docs-videos/publish-site-media.py
 # 上传并逐个下载公开 URL，核对完整 SHA-256 和文件大小
 python3 scripts/docs-videos/publish-site-media.py --upload --env-file /path/to/private/app.env
+# 已登录指定 Cloudflare 账号时也可用 Wrangler，先检查目标对象再上传
+python3 scripts/docs-videos/publish-site-media.py --upload-with-wrangler
 # 可重复验收，不需要密钥
 python3 scripts/docs-videos/publish-site-media.py --verify-only
 ```
+
+Wrangler 模式先从 R2 核对同名对象。它没有条件写入参数，有并发发布时使用 S3 的 `--upload` 模式。
 
 `--video-dir` 可指定最终成片所在目录。原始录屏不得上传。报告写到该目录的 `site-media-verification.json`；只有 `complete: true` 且所有对象验收成功后，才发布页面引用。网络、权限或公开域名绑定失败时脚本停止，报告保留未完成状态。旧资源留存，回滚页面时仍可使用。
 

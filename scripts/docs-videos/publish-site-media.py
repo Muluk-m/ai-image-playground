@@ -2,6 +2,7 @@
 """Publish only the website/tutorial manifest to the existing ai-images bucket."""
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import hashlib
 import json
 import mimetypes
@@ -12,7 +13,6 @@ import shlex
 import subprocess
 import sys
 import tempfile
-from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[2]
 PUBLIC = ROOT / "apps/web/public"
@@ -52,12 +52,13 @@ def image_manifest():
 
 
 def download(url, destination):
-    # The migration sources are public URLs from the checked-in legacy inventory.
-    with urlopen(url, timeout=60) as response, destination.open("wb") as output:
-        if response.status != 200:
-            raise ValueError(f"Download HTTP {response.status}: {url}")
-        while chunk := response.read(1024 * 1024):
-            output.write(chunk)
+    result = subprocess.run([
+        "curl", "--silent", "--show-error", "--fail", "--retry", "2",
+        "--connect-timeout", "10", "--max-time", "120",
+        "--output", str(destination), "--write-out", "%{http_code}", url,
+    ], capture_output=True, text=True)
+    if result.returncode or result.stdout != "200":
+        raise RuntimeError(f"Download HTTP {result.stdout}: {url} ({result.stderr.strip()})")
 
 
 def aws_environment(env_file):
@@ -105,6 +106,31 @@ def upload(path, key, sha, env, endpoint):
         raise RuntimeError(f"R2 upload failed for {key}; check connectivity and object-write access")
 
 
+def upload_with_wrangler(path, key, sha, temp):
+    env = dict(os.environ, CLOUDFLARE_ACCOUNT_ID=ACCOUNT)
+    target = f"{BUCKET}/muvloom/site/{key}"
+    command = ["wrangler", "r2", "object"]
+    result = subprocess.run(
+        [*command, "get", target, "--remote", "--file", str(temp)],
+        env=env, capture_output=True, text=True, timeout=90,
+    )
+    if result.returncode == 0:
+        if digest(temp) != sha:
+            raise ValueError(f"Existing object content does not match source: {key}")
+        return
+    if "The specified key does not exist." not in result.stderr:
+        raise RuntimeError(f"Wrangler could not check existing object: {key}")
+    mime = mimetypes.guess_type(path.name)[0]
+    if not mime:
+        raise ValueError(f"Unknown content type: {path.name}")
+    result = subprocess.run([
+        *command, "put", target, "--remote", "--file", str(path),
+        "--content-type", mime, "--cache-control", "public, max-age=31536000, immutable",
+    ], env=env, capture_output=True, text=True, timeout=120)
+    if result.returncode:
+        raise RuntimeError(f"Wrangler upload failed for {key}: {result.stderr.strip()}")
+
+
 def verify_public(url, expected_sha, expected_size, temp):
     download(url, temp)
     if temp.stat().st_size != expected_size or digest(temp) != expected_sha:
@@ -116,6 +142,7 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--refresh-images", action="store_true")
     mode.add_argument("--upload", action="store_true")
+    mode.add_argument("--upload-with-wrangler", action="store_true")
     mode.add_argument("--verify-only", action="store_true")
     parser.add_argument("--env-file", type=Path)
     parser.add_argument("--video-dir", type=Path, default=ROOT / "scripts/docs-videos/out")
@@ -133,7 +160,7 @@ def main():
         temporary.replace(report_path)
 
     # Invalidate an old success before any manifest, film, or credential validation.
-    if args.upload or args.verify_only:
+    if args.upload or args.upload_with_wrangler or args.verify_only:
         args.video_dir.mkdir(parents=True, exist_ok=True)
         save_report(False)
     images = image_manifest()
@@ -158,7 +185,7 @@ def main():
         if not path.is_file() or digest(path) != sha:
             raise ValueError(f"Missing or changed approved final film: {name}")
     print(f"Inventory: {len(images)} images, {len(clips)} videos; target {BUCKET} at {BASE}")
-    if not args.upload and not args.verify_only:
+    if not (args.upload or args.upload_with_wrangler or args.verify_only):
         print("Plan checked. No remote writes; use --upload to copy and verify all public bytes.")
         return
     if args.upload and not args.env_file:
@@ -167,23 +194,37 @@ def main():
     save_report(False)
     with tempfile.TemporaryDirectory(prefix="muvloom-site-media-") as work:
         temp = Path(work)
-        objects = [(PUBLIC / source.lstrip("/"), key) for source, key in images.items()]
-        # Fetch old videos only from the exact legacy URLs, never enumerate user assets.
+        objects = [(PUBLIC / source.lstrip("/"), key, None) for source, key in images.items()]
         for name, url in clips.items():
-            if name in NEW_CLIPS:
-                source = args.video_dir / name
-            else:
-                source = temp / name
-                download(legacy[name], source)
-            objects.append((source, url.removeprefix(BASE)))
-        for path, key in objects:
+            source = args.video_dir / name if name in NEW_CLIPS else temp / name
+            objects.append((source, url.removeprefix(BASE), legacy.get(name)))
+        if len({key for _, key, _ in objects}) != len(objects):
+            raise ValueError("Duplicate paths in the media inventory")
+
+        def publish(path, key, legacy_url):
+            if legacy_url:
+                download(legacy_url, path)
             sha, size = digest(path), path.stat().st_size
-            if credentials:
-                upload(path, key, sha, *credentials)
-            verify_public(BASE + key, sha, size, temp / "public-check")
-            report.append({"url": BASE + key, "sha256": sha, "bytes": size})
-            save_report(False)
-            print(f"Verified {len(report)}/{len(objects)}: {key}", flush=True)
+            with tempfile.TemporaryDirectory(dir=temp) as directory:
+                check = Path(directory) / "download"
+                if credentials:
+                    upload(path, key, sha, *credentials)
+                elif args.upload_with_wrangler:
+                    upload_with_wrangler(path, key, sha, check)
+                verify_public(BASE + key, sha, size, check)
+            return {"url": BASE + key, "sha256": sha, "bytes": size}
+
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            futures = [executor.submit(publish, *obj) for obj in objects]
+            try:
+                for future in as_completed(futures):
+                    item = future.result()
+                    report.append(item)
+                    save_report(False)
+                    print(f"Verified {len(report)}/{len(objects)}: {item['url']}", flush=True)
+            finally:
+                for future in futures:
+                    future.cancel()
     save_report(True)
     print(f"All {len(report)} objects verified. Report: {report_path}")
 
@@ -191,6 +232,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (OSError, ValueError, RuntimeError) as error:
+    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         print(f"Migration stopped: {error}", file=sys.stderr)
         sys.exit(1)
