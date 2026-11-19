@@ -193,6 +193,7 @@ describe('observeApp', () => {
         },
       ],
       generation_successes: { 'gpt-image-2': now - 2 * hour },
+      generation_disabled: [],
     })
 
     // 没在等哪个模型恢复时，不去查成功记录。
@@ -289,13 +290,15 @@ describe('observeApp', () => {
       updated_at: now,
     })
     try {
-      // 运营手动停用：不算自动暂停，不能让告警说「已自动暂停」。
+      // 运营手动停用：不算自动暂停，不能让告警说「已自动暂停」，但会进入 generation_disabled 以便解除等待。
       expect(await pausedOf()).toBe(false)
+      expect((await observeApp({ now })).failures?.generation_disabled).toEqual(['gpt-image-2'])
       await writer.db
         .update(table)
         .set({ pause_reason: 'upstream_unavailable', paused_at: now })
         .where(eq(table.model, 'gpt-image-2'))
       expect(await pausedOf()).toBe(true)
+      expect((await observeApp({ now })).failures?.generation_disabled).toEqual([])
     } finally {
       await writer.db.delete(table).where(eq(table.model, 'gpt-image-2'))
     }
