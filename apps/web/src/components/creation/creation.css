@@ -291,3 +291,39 @@
  .creation-mode-trigger > svg:last-child { width: 12px; height: 12px; }
  .creation-toolbar .creation-model-trigger { background: hsl(var(--muted) / .4); }
 }
+
+/* 张数为 1、提示词却要多个不同场景时，写在工具栏上方的说明。 */
+.creation-multi-scene-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 var(--creation-space) 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: hsl(var(--secondary));
+}
+.creation-multi-scene-hint-text {
+  min-width: 0;
+  flex: 1;
+  color: hsl(var(--muted-foreground));
+  @apply text-xs leading-snug;
+}
+.creation-multi-scene-hint-agent {
+  display: inline-block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.creation-multi-scene-hint-agent:hover { color: hsl(var(--foreground)); }
+.creation-multi-scene-hint-dismiss {
+  flex-shrink: 0;
+  margin-top: -2px;
+  color: hsl(var(--muted-foreground));
+}
+.creation-multi-scene-hint-dismiss:hover { color: hsl(var(--foreground)); }
