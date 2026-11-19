@@ -673,7 +673,20 @@ func TestSandboxedFileLoginAndLogoutStayConsistentWithTerminalKeychain(t *testin
 		t.Fatalf("terminal Describe after sandbox login = %+v, want file", info)
 	}
 
-	// 3. User signs out inside sandboxed host -> terminal must see signed out, not Account A.
+	// 3. Terminal auto-refreshes tokens: must stay in file mode so sandbox keeps seeing the
+	// refreshed login instead of becoming unauthenticated!
+	if err := terminal.Save(Credentials{AccessToken: "b-tok-2", RefreshToken: "b-ref-2", BaseURL: "https://api.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := sandbox.Load(); err != nil || got.RefreshToken != "b-ref-2" {
+		t.Fatalf("sandbox lost login after terminal refresh: %+v, %v", got, err)
+	}
+	if got, err := terminal.Load(); err != nil || got.RefreshToken != "b-ref-2" {
+		t.Fatalf("terminal Load after refresh = %+v, %v", got, err)
+	}
+
+	// 4. User signs out inside sandboxed host -> terminal must see signed out, not Account A.
+	keychain.entries[keyringUser] = `{"access_token":"a-tok","refresh_token":"a-ref","base_url":"https://api.example"}`
 	if err := sandbox.Clear(); err != nil {
 		t.Fatal(err)
 	}
@@ -684,7 +697,10 @@ func TestSandboxedFileLoginAndLogoutStayConsistentWithTerminalKeychain(t *testin
 		t.Fatalf("terminal Describe after sandbox clear = %+v, want none", info)
 	}
 
-	// 4. Subsequent login from normal terminal restores keychain authority cleanly.
+	// 5. Confirmed keychain-clearing sign-out from normal terminal restores keychain authority.
+	if err := terminal.Clear(); err != nil {
+		t.Fatal(err)
+	}
 	if err := terminal.Save(Credentials{AccessToken: "c-tok", RefreshToken: "c-ref", BaseURL: "https://api.example"}); err != nil {
 		t.Fatal(err)
 	}
@@ -693,5 +709,58 @@ func TestSandboxedFileLoginAndLogoutStayConsistentWithTerminalKeychain(t *testin
 	}
 	if info := terminal.Describe(); info.Backend != "keychain" {
 		t.Fatalf("terminal Describe after re-login = %+v, want keychain", info)
+	}
+}
+
+func TestClearWithTemporarilyUnavailableKeychainDoesNotResurrectStaleAccount(t *testing.T) {
+	dir := t.TempDir()
+	keychain := &userKeychain{entries: map[string]string{}}
+	terminal := Store{Dir: dir, UseKeyring: true, ClearKeyring: true, Keychain: keychain}
+	sandbox := Store{Dir: dir, UseKeyring: false, ClearKeyring: false, Keychain: keychain}
+
+	// Terminal saves Account A to keychain, then sandbox switches to Account B.
+	if err := terminal.Save(Credentials{AccessToken: "a-tok", RefreshToken: "a-ref", BaseURL: "https://api.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sandbox.Save(Credentials{AccessToken: "b-tok", RefreshToken: "b-ref", BaseURL: "https://api.example"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Keychain becomes temporarily unavailable when terminal signs out.
+	keychain.err = errors.New("keychain locked")
+	if err := terminal.Clear(); err != nil {
+		t.Fatalf("Clear with temporarily unavailable keychain returned unexpected error: %v", err)
+	}
+
+	// Keychain unlocks later (still holding Account A): Load must NOT resurrect Account A.
+	keychain.err = nil
+	if _, err := terminal.Load(); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("resurrected Account A after keychain recovered: %v", err)
+	}
+}
+
+func TestSwitchingBackToKeychainAbortsWhenModeMarkerCannotBeCleared(t *testing.T) {
+	dir := t.TempDir()
+	keychain := &userKeychain{entries: map[string]string{}}
+	sandbox := Store{Dir: dir, UseKeyring: false, ClearKeyring: false, Keychain: keychain}
+	forced := Store{Dir: dir, UseKeyring: true, ClearKeyring: true, ForceKeyring: true, Keychain: keychain}
+
+	if err := sandbox.Save(Credentials{AccessToken: "b-tok", RefreshToken: "b-ref", BaseURL: "https://api.example"}); err != nil {
+		t.Fatal(err)
+	}
+	// Replace store-mode.json with a directory so os.Truncate fails reliably across OSes (including root/Windows).
+	if err := os.Remove(sandbox.storeModeFile()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(sandbox.storeModeFile(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := forced.Save(Credentials{AccessToken: "c-tok", RefreshToken: "c-ref", BaseURL: "https://api.example"}); err == nil {
+		t.Fatal("expected Save to fail when store-mode.json cannot be cleared")
+	}
+	// Existing credentials.json must still be intact and readable (not wiped to ErrNotFound).
+	if got, err := sandbox.Load(); err != nil || got.RefreshToken != "b-ref" {
+		t.Fatalf("credentials.json was wiped despite failed mode switch: %+v, %v", got, err)
 	}
 }
