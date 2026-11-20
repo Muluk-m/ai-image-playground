@@ -66,7 +66,7 @@ if [ "$cmd" = exec ]; then
   esac
   exit 0
 fi
-[ "$cmd" != compose ] || printf 'compose-env profiles=%s match=%s\n' "\${COMPOSE_PROFILES-}" "\${OBS_LOG_MATCH-}" >> "$M/log"
+[ "$cmd" != compose ] || printf 'compose-env profiles=%s match=%s\n' "$COMPOSE_PROFILES" "$OBS_LOG_MATCH" >> "$M/log"
 printf '%s %s\n' "$cmd" "$*" >> "$M/log"
 case "$cmd" in
   image)
