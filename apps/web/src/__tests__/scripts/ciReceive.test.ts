@@ -417,6 +417,24 @@ describe('ci-receive.sh', () => {
       expect(readlinkSync(join(runtimes(), 'current-paid'))).toBe(join(runtimes(), mainCommit))
     })
 
+    it('never prunes the runtime in production, however many deploys fail after it', () => {
+      expect(receive(`deploy ${id} paid 1`).status).toBe(0)
+      for (let n = 0; n < 7; n++) {
+        const commit = commitRuntime(`failing${n}`)
+        const release = `aip-${n.toString(16).repeat(12)}-${'b'.repeat(12)}`
+        const failed = receive(
+          `deploy ${release} paid ${n + 10}`,
+          releaseTar(manifest('paid', commit)),
+          {
+            TEST_DEPLOY_EXIT: '1',
+          },
+        )
+        expect(failed.status).toBe(1)
+      }
+      expect(readlinkSync(join(runtimes(), 'current-paid'))).toBe(join(runtimes(), mainCommit))
+      expect(existsSync(join(runtimes(), mainCommit, 'scripts', 'vps-deploy.sh'))).toBe(true)
+    })
+
     it('refuses a commit whose runtime lacks a file it needs, leaving nothing behind', () => {
       git(origin, 'rm', '-q', 'scripts/rollout-runtime.sh')
       git(origin, 'commit', '-q', '-m', 'broken')

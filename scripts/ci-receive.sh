@@ -127,7 +127,15 @@ paid_runtime() {
   mirror=$runtimes/.mirror.git
   dir=$runtimes/$release_commit
   mkdir -p "$runtimes"
-  # Left over by an unpack that was killed; nothing else writes these.
+  # The host deploy lock is only taken later, inside vps-deploy.sh. Mirror, unpack and cleanup are
+  # shared between receivers, so they get a lock of their own, held until this function's
+  # subshell exits.
+  exec 9>"$runtimes/.lock"
+  flock -w 600 9 || {
+    echo "Another receiver held $runtimes/.lock for 10 minutes; not deploying" >&2
+    return 1
+  }
+  # Left over by an unpack that was killed. Holding the lock, no other receiver is mid-unpack.
   rm -rf "$runtimes"/.incoming.* 2>/dev/null || true
   [ -d "$mirror" ] || git init -q --bare "$mirror"
   # Re-aligned on every deploy, so a mirror created halfway (killed between init and remote add)
@@ -184,13 +192,24 @@ paid_runtime() {
     mv "$incoming_runtime" "$dir"
   fi
   date -u +%Y-%m-%dT%H:%M:%SZ > "$dir/.verified"
-  # Keep the five most recent runtimes besides this one. Housekeeping never decides whether a
-  # release ships, so a directory that cannot be removed is left for later.
-  {
-    ls -1dt "$runtimes"/* 2>/dev/null | grep -Ex '.*/[0-9a-f]{40}' | grep -v "/$release_commit\$" |
-      tail -n +6 | while IFS= read -r old; do rm -rf "$old" || true; done
-  } 2>/dev/null || true
+  # Pruning keeps the most recently used runtimes; using one counts.
+  touch "$dir"
   printf '%s\n' "$dir"
+}
+
+# After a successful paid deploy: keep the runtime current-paid points at and the five most
+# recently used others. Housekeeping never decides whether a release ships.
+prune_runtimes() {
+  exec 9>"$runtimes/.lock"
+  flock -w 60 9 || return 0
+  keep=$(readlink "$runtimes/current-paid" 2>/dev/null || true)
+  for candidate in "$runtimes"/*; do
+    name=${candidate##*/}
+    [ "${#name}" -eq 40 ] || continue
+    case $name in *[!0-9a-f]*) continue ;; esac
+    [ "$candidate" = "$keep" ] && continue
+    printf '%s %s\n' "$(stat -c %Y "$candidate")" "$candidate"
+  done | sort -rn | tail -n +6 | while read -r _ old; do rm -rf "$old" || true; done
 }
 
 if [ "$target" = paid ]; then
@@ -226,8 +245,10 @@ if [ "$status" -eq 75 ]; then
   rm -rf "$release"
   echo "Deploy lock busy; release $release_id was not applied. Retry once the running deploy finishes." >&2
 elif [ "$status" -eq 0 ] && [ "$target" = paid ]; then
-  # Only a runtime that just deployed successfully becomes the one to use by hand.
+  # Only a runtime that just deployed successfully becomes the one to use by hand, and pruning
+  # waits until then so a run of failed deploys can never remove the one in production.
   ln -sfn "$runtime_root" "$runtimes/current-paid" || true
+  (prune_runtimes) 2>/dev/null || true
 elif [ "$status" -ne 0 ]; then
   # Keep the failed release for inspection, out of the way of a retry of the same commit.
   failed=$release.failed-run-$run_id
