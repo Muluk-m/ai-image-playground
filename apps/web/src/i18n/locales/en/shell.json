@@ -21,7 +21,31 @@
     },
     "feedback": {
       "label": "Feedback",
-      "subject": "Muvloom feedback"
+      "subject": "Muvloom feedback",
+      "emptyTitle": "Start a conversation",
+      "emptyHint": "Describe your issue or suggestion below. Each message can include one screenshot.",
+      "placeholder": "Write your feedback…",
+      "addImage": "Add screenshot",
+      "imageLimit": "PNG, JPEG, or WebP · 1 image · up to 10 MB",
+      "send": "Send",
+      "removeAttachment": "Remove screenshot",
+      "previewAttachment": "View full image",
+      "attachmentAlt": "Feedback screenshot",
+      "attachmentLoadFailed": "Could not load screenshot",
+      "senderYou": "You",
+      "senderSupport": "Muvloom Support",
+      "loadFailed": "Could not load feedback history",
+      "signInTitle": "Sign in to send feedback",
+      "signInHint": "Send text and screenshots, and read replies here.",
+      "unread": "Unread feedback replies",
+      "errors": {
+        "attachmentType": "Only PNG, JPEG, or WebP images are supported",
+        "attachmentTooLarge": "Image must be 10 MB or smaller",
+        "attachmentInvalid": "Could not read that image. Try another file.",
+        "bodyTooLong": "Feedback must be 4,000 characters or fewer",
+        "rateLimited": "Too many messages. Please try again later.",
+        "sendFailed": "Could not send feedback. Please try again."
+      }
     },
     "contact": {
       "menu": "Contact us",

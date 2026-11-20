@@ -21,7 +21,31 @@
     },
     "feedback": {
       "label": "反馈",
-      "subject": "幕芽使用反馈"
+      "subject": "幕芽使用反馈",
+      "emptyTitle": "开始会话",
+      "emptyHint": "在下方描述问题或建议。每条消息可以添加一张截图。",
+      "placeholder": "输入反馈内容…",
+      "addImage": "添加截图",
+      "imageLimit": "PNG、JPEG 或 WebP · 一张图片 · 不超过 10 MB",
+      "send": "发送",
+      "removeAttachment": "移除截图",
+      "previewAttachment": "查看原图",
+      "attachmentAlt": "反馈截图",
+      "attachmentLoadFailed": "截图加载失败",
+      "senderYou": "你",
+      "senderSupport": "幕芽支持",
+      "loadFailed": "反馈记录加载失败",
+      "signInTitle": "登录后发送反馈",
+      "signInHint": "支持文字与截图，我们会在这里回复你。",
+      "unread": "有未读反馈回复",
+      "errors": {
+        "attachmentType": "仅支持 PNG、JPEG 或 WebP 图片",
+        "attachmentTooLarge": "图片不能超过 10 MB",
+        "attachmentInvalid": "无法读取该图片，请换一张重试",
+        "bodyTooLong": "反馈内容不能超过 4000 字",
+        "rateLimited": "发送过于频繁，请稍后再试",
+        "sendFailed": "发送失败，请重试"
+      }
     },
     "contact": {
       "menu": "联系我们",

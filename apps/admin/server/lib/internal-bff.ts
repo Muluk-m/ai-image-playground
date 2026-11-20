@@ -5,6 +5,7 @@ export interface InternalBffRequest {
   path: string
   body?: unknown
   operator?: string
+  accept?: string
 }
 
 /** Forward an authenticated Admin request to the BFF's service-only operational surface. */
@@ -16,7 +17,7 @@ export async function forwardInternalBff(request: InternalBffRequest): Promise<R
   const response = await fetch(`${config.bffInternalUrl}${request.path}`, {
     method: request.method ?? 'GET',
     headers: {
-      accept: 'application/json',
+      accept: request.accept ?? 'application/json',
       authorization: `Bearer ${token}`,
       ...(request.body === undefined ? {} : { 'content-type': 'application/json' }),
       ...(request.operator ? { 'x-admin-operator': request.operator } : {}),
@@ -26,6 +27,10 @@ export async function forwardInternalBff(request: InternalBffRequest): Promise<R
   })
   return new Response(response.body, {
     status: response.status,
-    headers: { 'content-type': response.headers.get('content-type') ?? 'application/json' },
+    headers: {
+      'content-type': response.headers.get('content-type') ?? 'application/json',
+      'cache-control': 'private, no-store',
+      'x-content-type-options': 'nosniff',
+    },
   })
 }

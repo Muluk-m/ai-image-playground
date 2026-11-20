@@ -117,9 +117,12 @@ describe('overlay sidebar links', () => {
 })
 
 describe('prompt navigation', () => {
-  it('includes the prompt ledger in business navigation and command destinations', () => {
+  it('includes the prompt ledger and feedback inbox in business navigation and command destinations', () => {
     expect(NAV_GROUPS.find((group) => group.label === '经营')?.entries).toContainEqual(
       expect.objectContaining({ to: '/prompts', label: '提示词' }),
+    )
+    expect(NAV_GROUPS.find((group) => group.label === '经营')?.entries).toContainEqual(
+      expect.objectContaining({ to: '/feedback', label: '用户反馈' }),
     )
   })
 })

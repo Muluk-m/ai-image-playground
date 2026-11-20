@@ -26,6 +26,7 @@ import { capabilitiesRoutes, internalCapabilitiesRoutes } from './routes/capabil
 import { channelsRoutes } from './routes/channels'
 import { cliAccountRoutes, cliApiRoutes, cliOAuthRoutes } from './routes/cli'
 import { clientErrorRoutes } from './routes/client-errors'
+import { internalFeedbackRoutes, publicFeedbackRoutes } from './routes/feedback'
 import { generationRoutes } from './routes/generations'
 import { gptPremiumRoutes } from './routes/gpt-premium'
 import { internalInspirationRoutes, publicInspirationRoutes } from './routes/inspirations'
@@ -293,6 +294,7 @@ export const app = new Elysia()
   .use(mediaRoutes)
   .use(publicInspirationRoutes)
   .use(publicAnnouncementRoutes)
+  .use(publicFeedbackRoutes)
   .use(clientErrorRoutes)
   .use(generationRoutes)
   .use(internalAgentModelRoutes)
@@ -305,6 +307,7 @@ export const app = new Elysia()
   .use(internalLogRoutes)
   .use(internalInspirationRoutes)
   .use(internalAnnouncementRoutes)
+  .use(internalFeedbackRoutes)
   .use(internalDrainRoutes)
   .use(internalCapabilitiesRoutes)
   .use(internalOperatorConfigRoutes)
