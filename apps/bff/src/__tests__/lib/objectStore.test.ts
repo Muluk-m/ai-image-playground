@@ -504,3 +504,45 @@ it('cancels a streamed PUT even after the destination has consumed all input', a
     restore()
   }
 })
+
+describe('S3ObjectStore 链路', () => {
+  it('每次读写在当前链路下建一个 CLIENT span，只记操作和字节数，失败时标错且不带签名', async () => {
+    const { InMemorySpanExporter, SimpleSpanProcessor } = await import('@opentelemetry/sdk-trace')
+    const { SpanKind, SpanStatusCode } = await import('@opentelemetry/api')
+    const { initTelemetry, tracer } = await import('../../lib/telemetry')
+    const exporter = new InMemorySpanExporter()
+    initTelemetry('worker', [new SimpleSpanProcessor({ exporter })])
+
+    const client = new FakeS3Client()
+    const subject = store(client, 'paid/')
+    const restore = stubGlobalFetch(() => {
+      throw new Error('connect failed: https://r2.example.test/paid/k?X-Amz-Signature=abc')
+    })
+    try {
+      await tracer.startActiveSpan('task.execute', async (parent) => {
+        await subject.write('k', new Uint8Array(5), 'image/png')
+        expect((await subject.read('k')).byteLength).toBe(5)
+        await expect(subject.read('k', new AbortController().signal)).rejects.toThrow()
+        parent.end()
+      })
+    } finally {
+      restore()
+    }
+
+    const finished = exporter.getFinishedSpans()
+    const parent = finished.find((span) => span.name === 'task.execute')
+    const r2 = finished.filter((span) => span.name.startsWith('r2 '))
+    expect(r2.map((span) => [span.name, span.attributes['object_store.bytes']])).toEqual([
+      ['r2 write', 5],
+      ['r2 read', 5],
+      ['r2 read', undefined],
+    ])
+    for (const span of r2) {
+      expect(span.kind).toBe(SpanKind.CLIENT)
+      expect(span.parentSpanContext?.spanId).toBe(parent?.spanContext().spanId)
+      expect(JSON.stringify(span.attributes)).not.toContain('paid/k')
+    }
+    expect(r2[2]?.status.code).toBe(SpanStatusCode.ERROR)
+    expect(JSON.stringify(r2[2]?.events)).not.toContain('X-Amz-Signature')
+  })
+})

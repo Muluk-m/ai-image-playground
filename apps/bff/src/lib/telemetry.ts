@@ -7,6 +7,8 @@ import {
   type Link,
   propagation,
   ROOT_CONTEXT,
+  type Span,
+  SpanKind,
   SpanStatusCode,
   trace,
 } from '@opentelemetry/api'
@@ -124,21 +126,65 @@ export async function runInLinkedSpan<T>(
     const linked = trace.getSpanContext(propagation.extract(ROOT_CONTEXT, { traceparent }))
     if (linked && isSpanContextValid(linked)) links.push({ context: linked })
   }
-  return tracer.startActiveSpan(name, { root: true, links, attributes }, async (span) => {
-    try {
-      return await work()
-    } catch (error) {
-      span.recordException({
-        name: error instanceof Error ? error.name : 'Error',
-        message: redactLogText(error instanceof Error ? error.message : String(error)),
-      })
-      span.setStatus({ code: SpanStatusCode.ERROR })
-      throw error
-    } finally {
-      span.end()
-    }
-  })
+  return tracer.startActiveSpan(name, { root: true, links, attributes }, (span) =>
+    runRecorded(span, work),
+  )
 }
+
+/**
+ * 在当前链路下建一个子 span 跑一段调用（R2 读写之类的出口）：抛错时记下脱敏后的异常、标成错误，
+ * 照原样往外抛。`work` 拿到 span，可以按结果补属性。
+ */
+export function withSpan<T>(
+  name: string,
+  options: { kind?: SpanKind; attributes?: Attributes },
+  work: (span: Span) => Promise<T>,
+): Promise<T> {
+  return tracer.startActiveSpan(name, options, (span) => runRecorded(span, () => work(span)))
+}
+
+async function runRecorded<T>(span: Span, work: () => Promise<T>): Promise<T> {
+  try {
+    return await work()
+  } catch (error) {
+    recordSpanError(span, error)
+    throw error
+  } finally {
+    span.end()
+  }
+}
+
+/**
+ * 把异常写进 span：只留名字和脱敏后的消息，不带堆栈。传输层错误的消息里常带完整地址，
+ * 查询串可能是 R2 预签名或 `?key=`，一律去掉，只留到路径。
+ */
+export function recordSpanError(span: Span, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error)
+  span.recordException({
+    name: error instanceof Error ? error.name : 'Error',
+    message: redactLogText(message.replace(/(https?:\/\/[^\s?#"']+)\?[^\s"']*/gi, '$1?<redacted>')),
+  })
+  span.setStatus({ code: SpanStatusCode.ERROR })
+}
+
+/**
+ * 发上游请求前把 span 的 traceparent 写进请求头，上游（Vertex 之类）能把它们那边的记录挂到同一条链路。
+ * 不改调用方的 headers 对象；span 没被采样或 SDK 没初始化时原样返回。
+ */
+export function withTraceHeaders<H>(headers: H, span: Span): H | Headers | Record<string, string> {
+  const carrier: Record<string, string> = {}
+  propagation.inject(trace.setSpan(context.active(), span), carrier)
+  if (Object.keys(carrier).length === 0) return headers
+  if (headers instanceof Headers) {
+    const copy = new Headers(headers)
+    for (const [name, value] of Object.entries(carrier)) copy.set(name, value)
+    return copy
+  }
+  if (Array.isArray(headers)) return new Headers([...headers, ...Object.entries(carrier)])
+  return { ...(headers as Record<string, string> | undefined), ...carrier }
+}
+
+export { SpanKind, SpanStatusCode }
 
 export type TaskOutcome =
   | 'completed'
