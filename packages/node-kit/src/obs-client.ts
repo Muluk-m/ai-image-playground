@@ -121,6 +121,16 @@ export function createObsClient(
         throw new ObsQueryError('failed', `查询失败（${response.status}）`, response.status)
       throw new ObsQueryError('failed', '观测代理返回的结果读不出来', response.status)
     }
+    // `null`、数组或数字也是合法 JSON：先按状态码认鉴权失败，其余一律当查询失败。
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      if (response.status === 401)
+        throw new ObsQueryError('unauthorized', '观测代理拒绝了令牌', response.status)
+      throw new ObsQueryError(
+        'failed',
+        `查询失败（${response.status}）：返回的不是对象`,
+        response.status,
+      )
+    }
     if (!response.ok) {
       // 还没有任何数据写进来时流不存在：当作没结果。
       if (/stream not found/i.test(String(payload.message))) return []

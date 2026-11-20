@@ -105,6 +105,10 @@ describe('obs client', () => {
     expect(await failure(client.search({ sql: 's', startMs: 0, endMs: 1 }))).toBe('failed')
     reply = () => Response.json({ took: 1 })
     expect(await failure(client.search({ sql: 's', startMs: 0, endMs: 1 }))).toBe('failed')
+    reply = () => Response.json(null)
+    expect(await failure(client.search({ sql: 's', startMs: 0, endMs: 1 }))).toBe('failed')
+    reply = () => Response.json(null, { status: 401 })
+    expect(await failure(client.search({ sql: 's', startMs: 0, endMs: 1 }))).toBe('unauthorized')
     reply = () => new Response('denied', { status: 401 })
     expect(await failure(client.search({ sql: 's', startMs: 0, endMs: 1 }))).toBe('unauthorized')
 
