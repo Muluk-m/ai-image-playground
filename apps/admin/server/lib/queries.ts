@@ -21,6 +21,7 @@ import type {
   TimeWindow,
   UserDetailResult,
   UserKpis,
+  UserSegment,
   UserTasksResult,
   VolumeBucketUnit,
 } from '../../contracts'
@@ -35,6 +36,7 @@ import {
   redactUpstreamBody,
 } from './redact-task-detail'
 import { taskSourceSql } from './task-source'
+import { userSegmentFilters } from './user-segments'
 
 function rangeMs(range: Range): number {
   return range === '1d' ? 24 * 3600_000 : range === '7d' ? 7 * 24 * 3600_000 : 30 * 24 * 3600_000
@@ -252,6 +254,8 @@ const ACTIVE_SESSION_JOIN = sql`
 `
 
 export interface UserListOptions {
+  segment?: UserSegment
+  segments?: boolean
   status?: 'active' | 'disabled'
   registeredFrom?: number
   registeredTo?: number
@@ -306,11 +310,14 @@ export async function listUsers(
         WHERE t.user_id = u.id AND t.submitted_at > ${new Date(options.activeTo)}
       )
     )`)
-  const where = sql.join(filters, sql` AND `)
+  const scope = sql.join(filters, sql` AND `)
+  const segments = options.segment || options.segments ? await userSegmentFilters(db) : null
+  const segmentFilter = options.segment ? (segments?.get(options.segment) ?? sql`FALSE`) : sql`TRUE`
+  const from = sql`FROM users u LEFT JOIN admin_user_notes n ON n.user_id = u.id`
+  const where = sql`${scope} AND ${segmentFilter}`
   const userRowsPromise = db.execute(sql`
     SELECT ${ADMIN_USER_PROJECTION}
-    FROM users u
-    LEFT JOIN admin_user_notes n ON n.user_id = u.id
+    ${from}
     ${ACTIVE_SESSION_JOIN}
     LEFT JOIN LATERAL (
       SELECT COUNT(*) AS task_count, MAX(t.submitted_at) AS last_task_at
@@ -321,16 +328,34 @@ export async function listUsers(
     ORDER BY ${orderBy}
     LIMIT ${pageSize} OFFSET ${offset}
   `)
+  const countColumns = options.segments
+    ? [...(segments ?? [])].map(
+        ([key, filter]) => sql`
+        COUNT(*) FILTER (WHERE ${filter})::int AS ${sql.identifier(key)}
+      `,
+      )
+    : []
   const countPromise = db.execute(sql`
-    SELECT COUNT(*)::int AS total
-    FROM users u
-    LEFT JOIN admin_user_notes n ON n.user_id = u.id
-    WHERE ${where}
+    SELECT COUNT(*)::int AS "all"
+    ${countColumns.length ? sql`, ${sql.join(countColumns, sql`, `)}` : sql``}
+    ${from}
+    WHERE ${options.segments ? scope : where}
   `)
 
-  const [userRowsRaw, countRowsRaw] = await Promise.all([userRowsPromise, countPromise])
+  const [userRowsRaw, [counts]] = await Promise.all([userRowsPromise, countPromise])
   const userRows = userRowsRaw as unknown as Array<Record<string, unknown>>
-  const total = Number((countRowsRaw as unknown as Array<Record<string, unknown>>)[0]?.total ?? 0)
+  const segmentCounts: ListUsersResult['segments'] = options.segments
+    ? { all: Number(counts?.all ?? 0) }
+    : undefined
+  if (segmentCounts) {
+    for (const key of segments?.keys() ?? []) {
+      segmentCounts[key] = Number(counts?.[key] ?? 0)
+    }
+  }
+  const total =
+    options.segment && !segments?.has(options.segment)
+      ? 0
+      : Number(counts?.[options.segments && options.segment ? options.segment : 'all'] ?? 0)
   const users = userRows.map(mapAdminUser)
   return {
     users,
@@ -338,6 +363,7 @@ export async function listUsers(
     page,
     pageSize,
     truncated: offset + users.length < total,
+    ...(segmentCounts ? { segments: segmentCounts } : {}),
   }
 }
 
@@ -946,7 +972,10 @@ const SYNC_FOOTPRINT = sql`
   (SELECT COALESCE(SUM(bytes), 0) FROM user_asset_objects WHERE user_id = u.id) AS asset_bytes
 `
 
-export async function getUserDetail(userId: string): Promise<UserDetailResult | null> {
+export async function getUserDetail(
+  userId: string,
+  includeVolume = true,
+): Promise<UserDetailResult | null> {
   const { db } = getHandle()
   const [userRowsRaw, volume] = await Promise.all([
     db.execute(sql`
@@ -961,7 +990,7 @@ export async function getUserDetail(userId: string): Promise<UserDetailResult | 
       ${ACTIVE_SESSION_JOIN}
       WHERE u.id = ${userId}
     `),
-    getTaskVolume(USER_VOLUME_RANGE, userId),
+    includeVolume ? getTaskVolume(USER_VOLUME_RANGE, userId) : [],
   ])
   const userRow = (userRowsRaw as unknown as Array<Record<string, unknown>>)[0]
   if (!userRow) return null

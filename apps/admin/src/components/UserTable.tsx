@@ -30,12 +30,16 @@ const USER_DATE_FORMAT = new Intl.DateTimeFormat('zh-CN', {
 
 const LOGIN_METHOD_LABELS: Readonly<Record<string, string>> = {
   password: '密码',
+  feishu: '飞书',
   google: 'Google',
 }
 
 function UserIdentity({ user }: { user: AdminUserRow }) {
   return (
-    <span className="block min-w-0 truncate text-sm font-semibold group-hover:text-primary">
+    <span
+      className="block min-w-0 truncate text-sm font-semibold group-hover:text-primary"
+      title={user.username}
+    >
       {user.username}
     </span>
   )
@@ -68,7 +72,7 @@ function UserTimeline({
   )
 }
 
-function LoginMethods({
+export function LoginMethods({
   methods,
   align = 'start',
 }: {
@@ -85,7 +89,7 @@ function LoginMethods({
     </div>
   )
 }
-function RegistrationOrigin({
+export function RegistrationOrigin({
   summary,
   align = 'start',
 }: {
@@ -125,7 +129,7 @@ function SummaryValue({ summary }: { summary: PrivateAdminUserSummary | undefine
     <span className="block min-w-0 text-right">
       <span
         className={`block truncate font-mono text-xs font-semibold ${
-          summary?.tone === 'warning' ? 'text-amber-600' : ''
+          summary?.tone === 'warning' ? 'text-warning' : ''
         }`}
       >
         {summary?.primary ?? '…'}
@@ -177,7 +181,7 @@ export function UserTable({
   const { enabled: privateAdminOverlayEnabled, summaries } = usePrivateAdminUserSummaries(
     users.map((user) => user.id),
   )
-  const tableWidth = privateAdminOverlayEnabled ? 'min-w-[930px]' : 'min-w-[760px]'
+  const tableWidth = privateAdminOverlayEnabled ? 'min-w-[940px]' : 'min-w-[800px]'
   if (!users.length) return <EmptyState label="没有匹配的用户" />
 
   return (
@@ -246,19 +250,27 @@ export function UserTable({
                 <MessageSquarePlus />
               </Button>
             )}
+            <Button variant="ghost" asChild className="mt-2">
+              <Link
+                to="/users/$userId"
+                params={{ userId: user.id }}
+                aria-label={`查看 ${user.username} 的详情`}
+              >
+                详情
+              </Link>
+            </Button>
           </article>
         ))}
       </div>
-      <div className="hidden min-w-0 overflow-hidden rounded-xl border bg-card/70 md:block">
+      <div className="hidden min-w-0 overflow-hidden md:block">
         <Table className={`${tableWidth} table-fixed`}>
           <TableHeader className="bg-muted/40">
             <TableRow className="hover:bg-transparent">
-              <TableHead className={`${privateAdminOverlayEnabled ? 'w-[26%]' : 'w-[30%]'} pl-4`}>
-                用户
-              </TableHead>
-              <TableHead className="w-[10%]">状态</TableHead>
-              <TableHead className="w-[14%] text-right">任务 / 会话</TableHead>
-              <TableHead className="w-[13%] text-right">
+              <TableHead className="pl-4">用户</TableHead>
+              <TableHead className="w-[64px]">状态</TableHead>
+              <TableHead className="w-[100px]">备注</TableHead>
+              <TableHead className="w-[100px] text-right">任务 / 会话</TableHead>
+              <TableHead className="w-[92px] text-right">
                 <SortHeader
                   label="最近活动"
                   active={sort === 'activity'}
@@ -266,9 +278,7 @@ export function UserTable({
                   onClick={() => onSort?.('activity')}
                 />
               </TableHead>
-              <TableHead
-                className={`${privateAdminOverlayEnabled ? 'w-[19%]' : 'w-[25%]'} text-right`}
-              >
+              <TableHead className="w-[120px] text-right">
                 <SortHeader
                   label="注册时间"
                   active={sort === 'created'}
@@ -277,12 +287,13 @@ export function UserTable({
                 />
               </TableHead>
               {privateAdminOverlayEnabled ? (
-                <TableHead className="w-[18%] pr-4 text-right">
+                <TableHead className="w-[146px] text-right">
                   {privateUserSummaryColumnTitle}
                 </TableHead>
-              ) : (
-                <TableHead className="w-[8%] pr-4 text-right">详情</TableHead>
-              )}
+              ) : null}
+              <TableHead className="sticky right-0 z-10 w-[120px] border-l bg-card">
+                <span className="sr-only">操作</span>
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -299,29 +310,6 @@ export function UserTable({
                     </Link>
                     <UserIdentityMeta user={user} />
                   </div>
-                  {user.note ? (
-                    <button
-                      type="button"
-                      className="mt-1 block max-w-full truncate text-left text-xs text-muted-foreground hover:text-primary"
-                      title={user.note}
-                      aria-label={`${user.username}：编辑备注`}
-                      onClick={() => setEditingNote(user)}
-                    >
-                      备注：{user.note}
-                    </button>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
-                      title="添加备注"
-                      aria-label={`${user.username}：添加备注`}
-                      className="mt-1 text-muted-foreground"
-                      onClick={() => setEditingNote(user)}
-                    >
-                      <MessageSquarePlus />
-                    </Button>
-                  )}
                 </TableCell>
                 <TableCell>
                   <Badge variant={user.status === 'active' ? 'success' : 'secondary'}>
@@ -329,11 +317,35 @@ export function UserTable({
                   </Badge>
                 </TableCell>
                 <TableCell>
-                  <div className="flex items-baseline justify-end gap-2 whitespace-nowrap">
-                    <span className="font-mono text-sm tabular-nums">{user.task_count}</span>
-                    <span className="text-[11px] text-muted-foreground">任务</span>
-                    <span className="font-mono text-sm tabular-nums">{user.active_sessions}</span>
-                    <span className="text-[11px] text-muted-foreground">会话</span>
+                  {user.note ? (
+                    <button
+                      type="button"
+                      className="block min-h-9 max-w-full truncate text-left text-xs text-muted-foreground hover:text-primary"
+                      title={user.note}
+                      aria-label={`${user.username}：编辑备注`}
+                      onClick={() => setEditingNote(user)}
+                    >
+                      {user.note}
+                    </button>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      title="添加备注"
+                      aria-label={`${user.username}：添加备注`}
+                      className="text-muted-foreground"
+                      onClick={() => setEditingNote(user)}
+                    >
+                      <MessageSquarePlus />
+                    </Button>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <div className="whitespace-nowrap text-right font-mono text-xs tabular-nums">
+                    {user.task_count}
+                    <span className="mx-1.5 text-muted-foreground">/</span>
+                    {user.active_sessions}
                   </div>
                 </TableCell>
                 <TableCell className="text-right text-xs">
@@ -346,18 +358,30 @@ export function UserTable({
                     align="end"
                   />
                 </TableCell>
-                <TableCell className="pr-4">
-                  {privateAdminOverlayEnabled ? (
+                {privateAdminOverlayEnabled ? (
+                  <TableCell>
                     <SummaryValue summary={summaries[user.id]} />
-                  ) : (
+                  </TableCell>
+                ) : null}
+                <TableCell className="sticky right-0 z-10 whitespace-nowrap border-l bg-card pr-3 text-right group-hover:bg-muted">
+                  <Button variant="ghost" className="px-2.5 text-xs" asChild>
+                    <Link
+                      to="/tasks"
+                      search={{ userId: user.id, preset: '30d' }}
+                      aria-label={`查看 ${user.username} 的任务`}
+                    >
+                      看任务
+                    </Link>
+                  </Button>
+                  <Button variant="ghost" className="px-2.5 text-xs" asChild>
                     <Link
                       to="/users/$userId"
                       params={{ userId: user.id }}
-                      className="flex justify-end text-xs text-primary hover:underline"
+                      aria-label={`查看 ${user.username} 的详情`}
                     >
-                      查看
+                      详情
                     </Link>
-                  )}
+                  </Button>
                 </TableCell>
               </TableRow>
             ))}

@@ -69,6 +69,7 @@ export const config = {
 export interface ResolvedAdminCapabilities {
   readonly accountsLogin: boolean
   readonly accountsSync: boolean
+  readonly billingCredits?: boolean
 }
 
 let resolvedAdminCapabilities: ResolvedAdminCapabilities = Object.freeze({
@@ -101,5 +102,6 @@ export async function loadAdminCapabilities(
   resolvedAdminCapabilities = Object.freeze({
     accountsLogin: body['accounts:login'],
     accountsSync: body['accounts:sync'] === true,
+    ...(body['billing:credits'] === true ? { billingCredits: true } : {}),
   })
 }

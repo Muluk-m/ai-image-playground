@@ -21,12 +21,14 @@ import {
   parseRange,
   parseSort,
   parseTimeWindow,
+  parseUserSegment,
   RANGE_LABEL,
   RANGES,
   type Range,
   SORT_LABEL,
   SORTS,
   type SortKey,
+  type UserSegment,
 } from '../../contracts'
 
 export type { OpsRange, Range, SortKey }
@@ -166,6 +168,7 @@ export function parseOpsSearch(input: Record<string, unknown>): OpsSearch {
 }
 
 export interface UsersSearch {
+  segment?: UserSegment
   q?: string
   status?: 'active' | 'disabled'
   registeredFrom?: number
@@ -191,6 +194,8 @@ export function parseUsersSearch(input: Record<string, unknown>): UsersSearch {
     const q = input.q.trim().slice(0, 128)
     if (q) out.q = q
   }
+  const segment = parseUserSegment(input.segment)
+  if (segment) out.segment = segment
   if (input.status === 'active' || input.status === 'disabled') out.status = input.status
   if (input.sort === 'activity' || input.sort === 'created' || input.sort === 'login')
     out.sort = input.sort
