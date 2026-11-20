@@ -313,18 +313,23 @@ function traced<T>(
     {
       kind: SpanKind.CLIENT,
       attributes: { 'object_store.operation': operation, ...attributes },
-      expectedFailure: expectedObjectFailure,
+      expectedFailure: (error) => expectedObjectFailure(operation, error),
     },
     work,
   )
 }
 
 /**
- * 对象不存在（缓存未命中、资料没写过）和调用方取消是正常分支，不算存储故障。
+ * 调用方取消，以及读和查大小时对象不存在（缓存未命中、资料没写过），是正常分支，不算存储故障。
+ * 写、列、删回 404 说明桶或配置错了，照常标错。
  * 404 有三种样子：带期限读的 ObjectStoreHttpError、预签名 HEAD 的状态码消息、Bun S3 客户端的 NoSuchKey。
  */
-function expectedObjectFailure(error: unknown): string | undefined {
+function expectedObjectFailure(
+  operation: 'write' | 'read' | 'stat' | 'list' | 'delete',
+  error: unknown,
+): string | undefined {
   if ((error as { name?: unknown } | null)?.name === 'AbortError') return 'aborted'
+  if (operation !== 'read' && operation !== 'stat') return undefined
   if (error instanceof ObjectStoreHttpError) return error.status === 404 ? 'not_found' : undefined
   const code = (error as { code?: unknown } | null)?.code
   if (code === 'NoSuchKey') return 'not_found'

@@ -1101,10 +1101,11 @@ async function callUpstreamVia(
       const relayAbort = () => requestAbort.abort()
       if (counted) {
         sentAt = performance.now()
-        span = tracer.startSpan(`upstream ${init.method ?? 'GET'}`, {
+        const method = init?.method ?? 'GET'
+        span = tracer.startSpan(`upstream ${method}`, {
           kind: SpanKind.CLIENT,
           attributes: {
-            'http.request.method': init.method ?? 'GET',
+            'http.request.method': method,
             'server.address': upstreamHost(url),
             'upstream.provider': provider,
             'upstream.model': requestModel,
@@ -1116,7 +1117,7 @@ async function callUpstreamVia(
       const responsePromise = upstreamTransport.current(url, {
         ...fetchInit(init),
         ...(span
-          ? { headers: withTraceHeaders(init.headers, span) as UpstreamFetchInit['headers'] }
+          ? { headers: withTraceHeaders(init?.headers, span) as UpstreamFetchInit['headers'] }
           : {}),
         signal: requestAbort.signal,
       })
