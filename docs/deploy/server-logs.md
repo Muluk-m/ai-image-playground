@@ -81,4 +81,13 @@ bun scripts/obs.ts sql 'SELECT upstream_model, COUNT(*) FROM "app" WHERE span_st
 
 ## 断流告警
 
-worker 的应用告警每轮读 `server_logs` 最新一行的时间：超过 10 分钟没有新记录（`OPS_THRESHOLDS.SERVER_LOGS_MAX_AGE_MS`）就经值班 webhook 告警，恢复写入后发已恢复。低流量部署每分钟也有宿主机采样上报等周期日志，正常不会踩线；表里还没有任何记录的新部署不告警，正在告警时表被清空不算恢复。
+worker 的应用告警每分钟经只读代理读一次 OpenObserve 最近 1 小时最新一条日志的时间（#1940）：超过 10 分钟没有新日志（`OPS_THRESHOLDS.SERVER_LOGS_MAX_AGE_MS`）就经值班 webhook 告警，恢复后发已恢复。低流量部署每分钟也有备份、宿主机采样等周期日志，正常不会踩线。最近 1 小时一条都没有时，持续 10 分钟才报，新部署因此有宽限。读不到 OpenObserve 算这一块失明，连续失明另有告警。没配 `OBS_PROXY_URL` 的部署（测试环境）不观测。
+
+## 上游告警
+
+ADR 0033 P4（#1938）：worker 每分钟从 OpenObserve 里的 `upstream POST` span 聚合最近 15 分钟，按上游渠道和模型统计请求数、失败数和 429 数。
+
+- `upstream-errors`：同一渠道和模型至少 10 次请求，且三成以上失败。失败只算 5xx 和连接、读取失败（没有状态码）；4xx 是请求本身的问题（参数、内容审核），不算上游故障。
+- `upstream-throttle`：同一渠道和模型 15 分钟内 429 至少 10 次。
+
+告警文本列出出事的渠道和模型；回到线内发已恢复；读数缺失既不触发，也不算恢复。阈值在 `packages/shared/src/ops.ts` 的 `UPSTREAM_*`，先按 2026-11 的流量定，跑一段时间再调。API 5xx 比例、生成失败、出图变慢这三项早就有规则（`api`、`generation`、`generation-latency`，读 PostgreSQL），P4 没有重复建设。
