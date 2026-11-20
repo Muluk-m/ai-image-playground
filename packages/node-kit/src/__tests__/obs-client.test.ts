@@ -101,6 +101,8 @@ describe('obs client', () => {
     // 响应头已经 200，正文却不是结果：查询失败，不是「没有日志」。
     reply = () => new Response('<html>gateway</html>', { status: 200 })
     expect(await failure(client.search({ sql: 's', startMs: 0, endMs: 1 }))).toBe('failed')
+    reply = () => Response.json({ hits: [{ latest: 1 }], is_partial: true })
+    expect(await failure(client.search({ sql: 's', startMs: 0, endMs: 1 }))).toBe('failed')
     reply = () => Response.json({ took: 1 })
     expect(await failure(client.search({ sql: 's', startMs: 0, endMs: 1 }))).toBe('failed')
     reply = () => new Response('denied', { status: 401 })

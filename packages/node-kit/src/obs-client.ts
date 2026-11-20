@@ -108,7 +108,7 @@ export function createObsClient(
       )
     }
     // fetch 在收到响应头时就返回：正文读到一半超时、断开或不是 JSON，都是查询失败，不能当成没有结果。
-    let payload: { hits?: unknown; message?: unknown; error?: unknown }
+    let payload: { hits?: unknown; message?: unknown; error?: unknown; is_partial?: unknown }
     try {
       payload = (await response.json()) as typeof payload
     } catch (error) {
@@ -133,6 +133,9 @@ export function createObsClient(
         response.status,
       )
     }
+    // 查询超时或部分节点失败时 OpenObserve 仍回 200，只带一部分结果：聚合值和分页都不可信。
+    if (payload.is_partial === true)
+      throw new ObsQueryError('failed', '观测代理只返回了部分结果', response.status)
     if (!Array.isArray(payload.hits))
       throw new ObsQueryError('failed', '观测代理返回的结果缺少 hits', response.status)
     return payload.hits as ObsRecord[]
