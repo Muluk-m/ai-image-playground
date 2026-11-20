@@ -9,7 +9,7 @@ process.env.DATABASE_URL = await resetTestDatabase('admin_today')
 process.env.ADMIN_PASSWORD = 'test-pass-1234'
 process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
 const writer = createDb(process.env.DATABASE_URL)
-useTableLogSource(writer)
+await useTableLogSource(writer)
 const from = Date.UTC(2026, 9, 1, 16)
 const to = from + 3600_000
 await writer.db.insert(writer.schema.users).values([

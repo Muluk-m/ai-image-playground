@@ -11,7 +11,7 @@ process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.PORT = '0'
 
 const writer = createDb(databaseUrl)
-useTableLogSource(writer)
+await useTableLogSource(writer)
 const now = Date.now()
 const day = 86_400_000
 const from = now - day

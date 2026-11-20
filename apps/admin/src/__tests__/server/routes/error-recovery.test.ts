@@ -8,7 +8,7 @@ process.env.ADMIN_PASSWORD = 'test-pass-1234'
 process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
 process.env.DATABASE_URL = await resetTestDatabase('admin_error_recovery')
 const writer = createDb(process.env.DATABASE_URL)
-useTableLogSource(writer)
+await useTableLogSource(writer)
 const { getTodayErrors } = await import('../../../../server/lib/today')
 afterAll(() => writer.close())
 const now = Date.UTC(2026, 9, 15, 6)

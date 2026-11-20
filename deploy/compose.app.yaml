@@ -640,6 +640,10 @@ configs:
                 - set(severity_number, SEVERITY_NUMBER_WARN) where attributes["level"] == 40 or attributes["level"] == "warn"
                 - set(severity_number, SEVERITY_NUMBER_ERROR) where attributes["level"] == 50 or attributes["level"] == "error"
                 - set(severity_number, SEVERITY_NUMBER_FATAL) where attributes["level"] == 60 or attributes["level"] == "fatal"
+                # Same as the old server_logs parser (container-logs.ts): FTL is fatal, and a client
+                # that hung up mid-request (cloudflared `ERR ... context canceled`) is only a warning.
+                - set(severity_number, SEVERITY_NUMBER_FATAL) where severity_number == SEVERITY_NUMBER_UNSPECIFIED and IsMatch(body, "^\\S+\\s+FTL\\s")
+                - set(severity_number, SEVERITY_NUMBER_WARN) where severity_number == SEVERITY_NUMBER_UNSPECIFIED and IsMatch(body, "^\\S+\\s+ERR\\s") and IsMatch(body, "\\bcontext canceled\\b")
                 - set(severity_number, SEVERITY_NUMBER_ERROR) where severity_number == SEVERITY_NUMBER_UNSPECIFIED and IsMatch(body, "^\\S+\\s+ERR\\s")
                 - set(severity_number, SEVERITY_NUMBER_WARN) where severity_number == SEVERITY_NUMBER_UNSPECIFIED and IsMatch(body, "^\\S+\\s+WRN\\s")
                 - set(severity_number, SEVERITY_NUMBER_INFO) where severity_number == SEVERITY_NUMBER_UNSPECIFIED and IsMatch(body, "^\\S+\\s+INF\\s")

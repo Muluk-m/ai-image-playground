@@ -12,7 +12,10 @@
 import type { ObsClient, ObsRecord } from '@image-playground/node-kit'
 import { sqlString } from '@image-playground/shared'
 import { type SQL, sql } from 'drizzle-orm'
+import type { ServerLogAvailability } from '../../contracts'
 import { logFields, logSql, obsClientOrNull, toEntry } from './server-logs'
+
+type LogSql = ReturnType<typeof logSql>
 
 /** `server_logs` 一行，SQL 用得到的列。 */
 export interface LegacyLogRow {
@@ -31,23 +34,29 @@ export interface LegacyLogRow {
 }
 
 /**
- * 给定时间段（毫秒），返回这段时间里分类要用的日志行。`errorsOnly` 只要 ERROR/FATAL
- * （概览动态只列最新几条错误，用不上隧道和原因行）。
+ * 日志读得全不全：`truncated` 是错误多到被截断（总数是下限），`unavailable` 是这次没读到
+ * OpenObserve，`off` 是这个部署没开观测。后两种的服务端错误都不是「没有」，是「不知道」。
  */
-export type ServerLogSource = (
-  from: number,
-  to: number,
-  options?: { errorsOnly?: boolean },
-) => Promise<LegacyLogRow[]>
+export type LogAvailability = ServerLogAvailability
+
+export interface ServerLogBatch {
+  rows: LegacyLogRow[]
+  availability: LogAvailability
+}
+
+export interface ServerLogSource {
+  /**
+   * 这段时间（毫秒）里分类要用的行：ERROR/FATAL，加上 cloudflared 的重连证据。
+   * `errorsOnly` 只要错误（概览动态只列最新几条，用不上隧道行）。
+   */
+  logs(from: number, to: number, options?: { errorsOnly?: boolean }): Promise<ServerLogBatch>
+  /** 这些请求里带原因字段的行，只给面板上实际展示的错误补查。 */
+  causes(requestIds: readonly string[], from: number, to: number): Promise<LegacyLogRow[]>
+}
 
 /** 一次最多取这么多条错误：再多也只展示最新的 10 条，总数会偏小，但不至于拖垮概览。 */
 const MAX_PAGES = 5
 const REQUEST_CHUNK = 100
-/**
- * 原因只给面板上展示的那几条错误配（每类最新 10 条），取最新这么多条错误的请求就够，
- * 不按全部错误去查。
- */
-const CAUSE_REQUESTS = 300
 /** 原因字段：旧 SQL 用 `fields ? 'errorCode' / 'reason' / 'err' / 'error'` 判断。 */
 const CAUSE_FIELDS = ['errorcode', 'reason', 'err', 'err_message', 'error', 'error_message']
 
@@ -57,22 +66,42 @@ export function _setServerLogSourceForTesting(source: ServerLogSource | undefine
   override = source
 }
 
+const EMPTY: ServerLogSource = {
+  async logs() {
+    return { rows: [], availability: 'off' }
+  },
+  async causes() {
+    return []
+  },
+}
+
 /**
- * 当前的来源；没开 OpenObserve 的部署没有服务端日志可读，返回空。OpenObserve 一时读不到也返回空：
- * 概览里的任务、用户和前端错误只依赖 PostgreSQL，不能被日志拖垮。
+ * 当前的来源。没开 OpenObserve 的部署读不到服务端日志；OpenObserve 一时读不到时标成
+ * `unavailable`：概览里的任务、用户和前端错误只依赖 PostgreSQL，不能被日志拖垮，但也不能把
+ * 「没读到」显示成「没有错误」。
  */
 export function serverLogSource(): ServerLogSource {
   if (override) return override
   const client = obsClientOrNull()
-  if (!client) return async () => []
+  if (!client) return EMPTY
   const source = obsServerLogSource(client)
-  return async (from, to, options) => {
-    try {
-      return await source(from, to, options)
-    } catch (error) {
-      console.error('[overview] server logs unavailable from OpenObserve', error)
-      return []
-    }
+  return {
+    async logs(from, to, options) {
+      try {
+        return await source.logs(from, to, options)
+      } catch (error) {
+        console.error('[overview] server logs unavailable from OpenObserve', error)
+        return { rows: [], availability: 'unavailable' }
+      }
+    },
+    async causes(requestIds, from, to) {
+      try {
+        return await source.causes(requestIds, from, to)
+      } catch (error) {
+        console.error('[overview] cause lines unavailable from OpenObserve', error)
+        return []
+      }
+    },
   }
 }
 
@@ -124,67 +153,71 @@ export function legacyRow(hit: ObsRecord): LegacyLogRow {
 }
 
 export function obsServerLogSource(client: ObsClient): ServerLogSource {
-  return async (from, to, options = {}) => {
+  async function query(from: number, to: number, where: (exprs: LogSql) => string) {
     const exprs = logSql(await logFields(client))
-    const range = { type: 'logs' as const, startMs: from, endMs: to }
-    const all = async (where: string, what: string) => {
-      const { records, truncated } = await client.searchAll(
-        {
-          ...range,
-          sql: `${exprs.record} WHERE ${where} ORDER BY _timestamp DESC, log_instance, log_key`,
-        },
-        { maxPages: MAX_PAGES },
-      )
-      // 截掉的是最旧的行：错误总数偏小，较早的错误可能缺了恢复证据，判成「待确认」。
-      if (truncated)
-        console.warn(`[overview] ${what} truncated at ${records.length} rows from OpenObserve`)
-      return records
-    }
-    if (options.errorsOnly) return (await all(`${exprs.severity} >= 17`, 'errors')).map(legacyRow)
-    const body = exprs.col('body')
-    const tunnel = [
-      'Registered tunnel connection',
-      'Serve tunnel error',
-      'Lost connection with the edge',
-    ]
-      .map((text) => `str_match(${body}, ${sqlString(text)})`)
-      .join(' OR ')
-    const [errors, tunnels] = await Promise.all([
-      all(`${exprs.severity} >= 17`, 'errors'),
-      all(`${exprs.service} = 'cloudflared' AND (${tunnel})`, 'tunnel lines'),
-    ])
-    const requestColumn = exprs.col('requestid')
-    const causeColumns = CAUSE_FIELDS.map(exprs.col).filter((column) => column !== 'NULL')
-    const requestIds = [
-      ...new Set(
-        errors
-          .slice(0, CAUSE_REQUESTS)
-          .map((hit) => hit.requestid)
-          .filter((id): id is string => typeof id === 'string'),
-      ),
-    ]
-    const causes: ObsRecord[] = []
-    if (requestColumn !== 'NULL' && causeColumns.length > 0) {
+    return client.searchAll(
+      {
+        type: 'logs',
+        startMs: from,
+        endMs: to,
+        sql: `${exprs.record} WHERE ${where(exprs)} ORDER BY _timestamp DESC, log_instance, log_key`,
+      },
+      { maxPages: MAX_PAGES },
+    )
+  }
+  return {
+    async logs(from, to, options = {}) {
+      const errors = await query(from, to, (exprs) => `${exprs.severity} >= 17`)
+      // 截掉的是最旧的行：总数是下限，较早的错误可能缺恢复证据而判成「待确认」。
+      const availability: LogAvailability = errors.truncated ? 'truncated' : 'complete'
+      if (options.errorsOnly) return { rows: errors.records.map(legacyRow), availability }
+      const tunnels = await query(from, to, (exprs) => {
+        const body = exprs.col('body')
+        const lines = [
+          'Registered tunnel connection',
+          'Serve tunnel error',
+          'Lost connection with the edge',
+        ]
+          .map((text) => `str_match(${body}, ${sqlString(text)})`)
+          .join(' OR ')
+        return `${exprs.service} = 'cloudflared' AND (${lines})`
+      })
+      if (tunnels.truncated)
+        console.warn(`[overview] tunnel lines truncated at ${tunnels.records.length} rows`)
+      return { rows: unique([...errors.records, ...tunnels.records]), availability }
+    },
+    async causes(requestIds, from, to) {
+      const exprs = logSql(await logFields(client))
+      const requestColumn = exprs.col('requestid')
+      const causeColumns = CAUSE_FIELDS.map(exprs.col).filter((column) => column !== 'NULL')
+      if (requestColumn === 'NULL' || causeColumns.length === 0 || requestIds.length === 0)
+        return []
+      const found: ObsRecord[] = []
       for (let index = 0; index < requestIds.length; index += REQUEST_CHUNK) {
         const ids = requestIds
           .slice(index, index + REQUEST_CHUNK)
           .map(sqlString)
           .join(', ')
-        causes.push(
-          ...(await all(
+        const { records } = await query(
+          from,
+          to,
+          () =>
             `${requestColumn} IN (${ids}) AND (${causeColumns.map((column) => `${column} IS NOT NULL`).join(' OR ')})`,
-            'cause lines',
-          )),
         )
+        found.push(...records)
       }
-    }
-    const rows = new Map<string, LegacyLogRow>()
-    for (const hit of [...errors, ...tunnels, ...causes]) {
-      const row = legacyRow(hit)
-      rows.set(row.id, row)
-    }
-    return [...rows.values()]
+      return unique(found)
+    },
   }
+}
+
+function unique(records: readonly ObsRecord[]): LegacyLogRow[] {
+  const rows = new Map<string, LegacyLogRow>()
+  for (const record of records) {
+    const row = legacyRow(record)
+    rows.set(row.id, row)
+  }
+  return [...rows.values()]
 }
 
 /** 把来源的行做成名为 `server_logs` 的 CTE，放在原 SQL 的 WITH 里，遮住同名的表。 */

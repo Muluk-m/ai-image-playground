@@ -838,7 +838,15 @@ export interface OverviewClientError extends OverviewErrorItem {
 export interface OverviewActivityResult {
   window: TimeWindow
   tasks: GenerationTaskItem[]
-  server: { total: number; entries: OverviewServerError[] }
+  server: {
+    /**
+     * 服务端日志读得全不全（来自 OpenObserve）：`truncated` 时 total 是下限；
+     * `unavailable`、`off` 时 total 为 0 但不代表没有错误。旧版本不带这个字段。
+     */
+    availability?: ServerLogAvailability
+    total: number
+    entries: OverviewServerError[]
+  }
   client: { total: number; entries: OverviewClientError[] }
 }
 
@@ -922,8 +930,12 @@ export interface ErrorWindow {
   recovery?: Record<ErrorRecoveryState, ErrorRecoveryGroup>
 }
 
+export type ServerLogAvailability = 'complete' | 'truncated' | 'unavailable' | 'off'
+
 export interface TodayErrorsResult extends ErrorWindow {
   recent?: ErrorWindow
+  /** 同 OverviewActivityResult.server.availability。 */
+  serverLogs?: ServerLogAvailability
 }
 
 export type AgentPromptStatus = 'awaiting' | 'running' | 'completed' | 'failed'
