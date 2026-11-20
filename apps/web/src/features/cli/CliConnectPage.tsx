@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { promptLogin } from '../../auth/loginPrompt'
 import PageHeader from '../../components/patterns/PageHeader'
@@ -6,7 +6,11 @@ import SegmentedTabs from '../../components/patterns/SegmentedTabs'
 import { Button } from '../../components/ui/button'
 import { Icon } from '../../components/ui/icon'
 import { currentLocale, i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
-import { AuthRequestError, fetchCliConnections } from '../../lib/authClient'
+import {
+  AuthRequestError,
+  type CliConnectionSummary,
+  fetchCliConnections,
+} from '../../lib/authClient'
 import { copyTextToClipboard } from '../../lib/clipboardText'
 import { GUIDE_PATHS } from '../guide/paths'
 import CliConnectionsSection from './CliConnectionsSection'
@@ -23,6 +27,9 @@ import {
 } from './connectAgents'
 
 type CopyState = 'idle' | 'done' | 'failed'
+
+const POLL_INTERVAL_MS = 4000
+const POLL_TIMEOUT_MS = 10 * 60 * 1000
 
 const AGENT_LABEL = {
   workbuddy: 'cliConnect.agent.workbuddy',
@@ -59,10 +66,17 @@ const FEATURED_AGENTS = [
 ] as const
 
 /** 复制按钮：点一次出一次反馈，1.6 秒后复位。 */
-function useCopy() {
+function useCopy(onCopied?: () => void) {
   const [state, setState] = useState<CopyState>('idle')
   const timer = useRef<number | undefined>(undefined)
-  useEffect(() => () => window.clearTimeout(timer.current), [])
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+      window.clearTimeout(timer.current)
+    }
+  }, [])
   async function copy(text: string) {
     let result: CopyState = 'done'
     try {
@@ -70,8 +84,10 @@ function useCopy() {
     } catch {
       result = 'failed'
     }
+    if (!mounted.current) return
     window.clearTimeout(timer.current)
     setState(result)
+    if (result === 'done') onCopied?.()
     timer.current = window.setTimeout(() => setState('idle'), 1600)
   }
   return { state, copy }
@@ -83,15 +99,17 @@ function CopyButton({
   variant = 'outline',
   size = 'sm',
   className,
+  onCopied,
 }: {
   text: string
   label: string
   variant?: 'default' | 'outline'
   size?: 'default' | 'sm'
   className?: string
+  onCopied?: () => void
 }) {
   const { t } = useTranslation('auth')
-  const { state, copy } = useCopy()
+  const { state, copy } = useCopy(onCopied)
   const text_ =
     state === 'done'
       ? t('cliConnect.copied')
@@ -127,7 +145,8 @@ function CommandBlock({ lines }: { lines: string[] }) {
 
 /**
  * 智能体接入页：全宿主共用一条极简消息，由智能体自动识别宿主与系统；
- * 实时轮询新连接并在连上后自动提示；手动命令与技能包下载收进底部折叠区。
+ * 用户复制提示词、复制命令或下载技能包后再后台静默监听新连接，连上后提示并刷新列表；
+ * 手动命令与技能包下载收进底部折叠区。
  */
 export default function CliConnectPage() {
   const { t } = useTranslation('auth')
@@ -137,64 +156,108 @@ export default function CliConnectPage() {
   const [platform, setPlatform] = useState<ConnectPlatform>(() =>
     detectPlatform(typeof navigator === 'undefined' ? '' : navigator.userAgent),
   )
+  const [watchingUserId, setWatchingUserId] = useState<string | null>(null)
   const [connectedDetected, setConnectedDetected] = useState(false)
   const [cliAvailable, setCliAvailable] = useState(true)
-  const [pollStopped, setPollStopped] = useState(false)
   const [connectionsRefreshKey, setConnectionsRefreshKey] = useState(0)
-  const baselineIdsRef = useRef<Set<string> | null>(null)
+  const listedIdsRef = useRef<Set<string> | null>(null)
+  const watchDeadlineRef = useRef(0)
+  const isWatching = cliAvailable && watchingUserId !== null && watchingUserId === user?.id
+
+  const recordListedConnections = useCallback((connections: readonly CliConnectionSummary[]) => {
+    listedIdsRef.current = new Set(connections.map((connection) => connection.id))
+  }, [])
+
+  const handleCliUnavailable = useCallback(() => {
+    setCliAvailable(false)
+    setWatchingUserId(null)
+  }, [])
+
+  const startWatching = useCallback(() => {
+    if (!user?.id || !cliAvailable) return
+    watchDeadlineRef.current = Date.now() + POLL_TIMEOUT_MS
+    setConnectedDetected(false)
+    setWatchingUserId(user.id)
+  }, [user?.id, cliAvailable])
 
   useEffect(() => {
     setDocumentTitleOverride(() => i18next.t('cliConnect.documentTitle', { ns: 'auth' }))
     return () => setDocumentTitleOverride(null)
   }, [])
 
-  // 已登录时静默轮询连接列表，检测到新授权的智能体后自动更新等待提示并刷新列表。
-  // 后台标签页暂停轮询；CLI 能力未启用或鉴权失效时停止轮询并隐藏等待条，避免界面一直停在“页面会自动更新”。
   useEffect(() => {
-    baselineIdsRef.current = null
+    listedIdsRef.current = null
+    watchDeadlineRef.current = 0
+    setWatchingUserId(null)
     setConnectedDetected(false)
     setCliAvailable(true)
-    setPollStopped(false)
-    if (!user?.id) return
+  }, [user?.id])
+
+  // 仅在用户主动复制或下载后后台静默轮询新连接，不展示常驻加载态；
+  // 后台标签页暂停轮询，超时、CLI 能力未启用或鉴权失效时自动停止。
+  useEffect(() => {
+    if (!user?.id || !isWatching) return
+    let baselineIds = listedIdsRef.current
     let cancelled = false
     let stopped = false
     let timer: number | undefined
+    let expiryTimer: number | undefined
     let activeController: AbortController | null = null
+
+    const stopWatching = () => {
+      stopped = true
+      window.clearTimeout(timer)
+      window.clearTimeout(expiryTimer)
+      activeController?.abort()
+      if (!cancelled) setWatchingUserId(null)
+    }
+
+    const checkExpiry = () => {
+      const remaining = watchDeadlineRef.current - Date.now()
+      if (remaining <= 0) {
+        stopWatching()
+        return
+      }
+      expiryTimer = window.setTimeout(checkExpiry, remaining)
+    }
 
     const schedule = () => {
       if (cancelled || stopped) return
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
-      timer = window.setTimeout(() => void poll(), 4000)
+      if (document.visibilityState === 'hidden') return
+      timer = window.setTimeout(() => void poll(), POLL_INTERVAL_MS)
     }
 
     const poll = async () => {
       if (cancelled || stopped) return
+      if (Date.now() >= watchDeadlineRef.current) {
+        stopWatching()
+        return
+      }
       activeController?.abort()
       const controller = new AbortController()
       activeController = controller
       try {
         const list = await fetchCliConnections(controller.signal)
         if (cancelled || controller.signal.aborted) return
-        if (baselineIdsRef.current === null) {
-          baselineIdsRef.current = new Set(list.map((item) => item.id))
-        } else if (list.some((item) => !baselineIdsRef.current!.has(item.id))) {
-          baselineIdsRef.current = new Set(list.map((item) => item.id))
+        baselineIds ??= listedIdsRef.current
+        const baseline = baselineIds
+        if (baseline === null) {
+          baselineIds = new Set(list.map((item) => item.id))
+        } else if (list.some((item) => !baseline.has(item.id))) {
           setConnectedDetected(true)
           setConnectionsRefreshKey((k) => k + 1)
-          stopped = true
+          stopWatching()
           return
         }
       } catch (error) {
         if (cancelled || controller.signal.aborted) return
         if (error instanceof AuthRequestError && error.code === 'capability_unavailable') {
           setCliAvailable(false)
-          setPollStopped(true)
-          stopped = true
+          stopWatching()
           return
         }
         if (error instanceof AuthRequestError && (error.status === 401 || error.status === 403)) {
-          setPollStopped(true)
-          stopped = true
+          stopWatching()
           return
         }
       }
@@ -203,24 +266,24 @@ export default function CliConnectPage() {
 
     const onVisibility = () => {
       if (cancelled || stopped) return
+      window.clearTimeout(timer)
       if (document.visibilityState === 'visible') {
-        window.clearTimeout(timer)
         void poll()
-      } else {
-        window.clearTimeout(timer)
       }
     }
 
     document.addEventListener('visibilitychange', onVisibility)
+    checkExpiry()
     void poll()
     return () => {
       cancelled = true
       stopped = true
       window.clearTimeout(timer)
+      window.clearTimeout(expiryTimer)
       activeController?.abort()
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [user?.id])
+  }, [user?.id, isWatching])
 
   const setupUrl = useMemo(() => guideUrl(AGENT_SETUP_PATH, window.location.origin), [])
   const universalPrompt = t('cliConnect.universalPrompt', { setupUrl })
@@ -265,11 +328,13 @@ export default function CliConnectPage() {
                   {universalPrompt}
                 </p>
                 <CopyButton
+                  key={user?.id}
                   text={universalPrompt}
                   label={t('cliConnect.copyMessage')}
                   variant="default"
                   size="default"
                   className="shrink-0"
+                  onCopied={startWatching}
                 />
               </div>
 
@@ -298,25 +363,13 @@ export default function CliConnectPage() {
                 </a>
               </div>
 
-              {user && cliAvailable && (connectedDetected || !pollStopped) ? (
+              {user && cliAvailable && connectedDetected ? (
                 <div
                   role="status"
-                  className={`flex items-center gap-2.5 rounded-xl px-3.5 py-2.5 text-body-sm ${
-                    connectedDetected
-                      ? 'bg-primary/15 font-medium text-primary'
-                      : 'bg-secondary text-muted-foreground'
-                  }`}
+                  className="flex items-center gap-2.5 rounded-xl bg-primary/15 px-3.5 py-2.5 text-body-sm font-medium text-primary"
                 >
-                  <Icon
-                    name={connectedDetected ? 'success' : 'loading'}
-                    size="sm"
-                    className={connectedDetected ? 'text-success' : 'animate-spin text-primary'}
-                  />
-                  <span>
-                    {t(
-                      connectedDetected ? 'cliConnect.connectedStatus' : 'cliConnect.waitingStatus',
-                    )}
-                  </span>
+                  <Icon name="success" size="sm" className="text-success" />
+                  <span>{t('cliConnect.connectedStatus')}</span>
                 </div>
               ) : null}
 
@@ -356,14 +409,19 @@ export default function CliConnectPage() {
                           ]}
                         />
                       </div>
-                      <CopyButton text={manual.join('\n')} label={t('cliConnect.copyCommands')} />
+                      <CopyButton
+                        key={user?.id}
+                        text={manual.join('\n')}
+                        label={t('cliConnect.copyCommands')}
+                        onCopied={startWatching}
+                      />
                     </div>
                     <CommandBlock lines={manual} />
                     {pack ? (
                       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
                         <p className="text-xs text-muted-foreground">{t(SKILL_COPY[pack].hint)}</p>
                         <Button asChild variant="outline" size="sm">
-                          <a href={SKILL_PACKAGE_PATH[pack]} download>
+                          <a href={SKILL_PACKAGE_PATH[pack]} download onClick={startWatching}>
                             <Icon name="download" size="xs" />
                             {t(SKILL_COPY[pack].download)}
                           </a>
@@ -423,11 +481,12 @@ export default function CliConnectPage() {
 
           {user ? (
             cliAvailable ? (
-              <section className="space-y-4">
-                <div className="rounded-2xl border border-border bg-card p-6">
-                  <CliConnectionsSection key={connectionsRefreshKey} standalone />
-                </div>
-              </section>
+              <CliConnectionsSection
+                key={`${user.id}:${connectionsRefreshKey}`}
+                standalone
+                onLoaded={recordListedConnections}
+                onUnavailable={handleCliUnavailable}
+              />
             ) : null
           ) : (
             <section className="space-y-4">

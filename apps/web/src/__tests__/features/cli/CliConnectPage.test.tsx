@@ -339,56 +339,170 @@ describe('CliConnectPage', () => {
     expect(host.textContent).not.toContain('CLI 连接')
   })
 
-  it('轮询检测到新连接的智能体后自动更新等待提示，并在 CLI 能力不可用时停止轮询', async () => {
+  it('进入页面默认不展示转圈等待条，也不后台轮询', async () => {
     vi.useFakeTimers()
     try {
-      let pollCount = 0
-      vi.stubGlobal(
-        'fetch',
-        vi.fn(async () => {
-          pollCount++
-          return Response.json({
-            connections:
-              pollCount >= 3
-                ? [
-                    {
-                      id: 'conn-new',
-                      client_name: 'Muvloom CLI',
-                      created_at: Date.now(),
-                      last_used_at: null,
-                    },
-                  ]
-                : [],
-          })
-        }),
-      )
+      const fetchMock = vi.fn(async () => Response.json({ connections: [] }))
+      vi.stubGlobal('fetch', fetchMock)
       await render()
-      expect(host.textContent).toContain('正在等待智能体连接')
+      expect(host.textContent).not.toContain('正在等待智能体连接')
+      expect(host.querySelector('.animate-spin')).toBeNull()
+      // 仅下方已连接列表初始化拉取一次，不会自动开始轮询。
+      expect(fetchMock).toHaveBeenCalledTimes(1)
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(4100)
+        await vi.advanceTimersByTimeAsync(12_000)
       })
-      expect(host.textContent).toContain('已检测到智能体连接成功')
+      expect(fetchMock).toHaveBeenCalledTimes(1)
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('CLI 能力未启用时隐藏等待条和空设备卡片并停止轮询', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Response.json({ error: 'capability_unavailable' }, { status: 404 })),
-    )
-    await render()
-    expect(host.textContent).not.toContain('正在等待智能体连接')
-    expect(host.querySelector('#cli-connections-title')).toBeNull()
+  it('点击复制消息后静默监听新连接，连上后提示成功、刷新列表并停止轮询', async () => {
+    vi.useFakeTimers()
+    try {
+      let pollCount = 0
+      const fetchMock = vi.fn(async () => {
+        pollCount++
+        return Response.json({
+          connections:
+            pollCount >= 3
+              ? [
+                  {
+                    id: 'conn-new',
+                    client_name: 'Muvloom CLI',
+                    created_at: Date.now(),
+                    last_used_at: null,
+                  },
+                ]
+              : [],
+        })
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      await render()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      await click('复制消息')
+      expect(host.textContent).not.toContain('正在等待智能体连接')
+      expect(host.querySelector('.animate-spin')).toBeNull()
+      // 复制后先拉一次基线，不显示加载条。
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4100)
+      })
+      expect(host.textContent).toContain('已检测到智能体连接成功')
+      expect(host.textContent).toContain('Muvloom CLI')
+      const countAfterConnected = fetchMock.mock.calls.length
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(12_000)
+      })
+      expect(fetchMock).toHaveBeenCalledTimes(countAfterConnected)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
-  it('轮询遇到 401/403 停止时隐藏等待条，不假装页面仍在自动更新', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Response.json({ error: 'unauthorized' }, { status: 401 })),
-    )
-    await render()
-    expect(host.textContent).not.toContain('正在等待智能体连接')
+  it('点击下载技能包也会触发静默监听，且超时后自动停止轮询', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = vi.fn(async () => Response.json({ connections: [] }))
+      vi.stubGlobal('fetch', fetchMock)
+      await render()
+      await click('手动安装或下载技能包')
+      const link = host.querySelector<HTMLAnchorElement>(`a[href="${WORKBUDDY_SKILL_PATH}"]`)
+      if (!link) throw new Error('Missing WorkBuddy skill download link')
+      link.addEventListener('click', (event) => event.preventDefault())
+      await act(async () => {
+        link.click()
+      })
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10 * 60 * 1000)
+      })
+      const countAtTimeout = fetchMock.mock.calls.length
+      expect(countAtTimeout).toBeGreaterThan(2)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20_000)
+      })
+      expect(fetchMock).toHaveBeenCalledTimes(countAtTimeout)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('首次轮询暂时失败后仍能检测到新连接', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = vi.fn(async () =>
+        Response.json({
+          connections: [
+            {
+              id: 'conn-new',
+              client_name: 'Muvloom CLI',
+              created_at: Date.now(),
+              last_used_at: null,
+            },
+          ],
+        }),
+      )
+      fetchMock
+        .mockResolvedValueOnce(Response.json({ connections: [] }))
+        .mockRejectedValueOnce(new TypeError('Network error'))
+      vi.stubGlobal('fetch', fetchMock)
+      await render()
+      await click('复制消息')
+      expect(host.textContent).not.toContain('已检测到智能体连接成功')
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4100)
+      })
+      expect(host.textContent).toContain('已检测到智能体连接成功')
+      expect(host.textContent).toContain('Muvloom CLI')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('CLI 能力未启用时隐藏空设备卡片，且点击复制不会发起轮询', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = vi.fn(async () =>
+        Response.json({ error: 'capability_unavailable' }, { status: 404 }),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+      await render()
+      expect(host.textContent).not.toContain('正在等待智能体连接')
+      expect(host.querySelector('#cli-connections-title')).toBeNull()
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      await click('复制消息')
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(8000)
+      })
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('静默轮询遇到 401/403 时停止轮询，不展示状态提示', async () => {
+    vi.useFakeTimers()
+    try {
+      let calls = 0
+      const fetchMock = vi.fn(async () => {
+        calls++
+        if (calls === 1) return Response.json({ connections: [] })
+        return Response.json({ error: 'unauthorized' }, { status: 401 })
+      })
+      vi.stubGlobal('fetch', fetchMock)
+      await render()
+      await click('复制消息')
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(12_000)
+      })
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+      expect(host.textContent).not.toContain('正在等待智能体连接')
+      expect(host.textContent).not.toContain('已检测到智能体连接成功')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
