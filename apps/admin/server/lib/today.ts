@@ -681,7 +681,8 @@ export async function getOverviewActivity(window: TimeWindow): Promise<OverviewA
   const from = new Date(window.from)
   const to = new Date(window.to)
   const db = getDbHandle().db
-  const logs = await serverLogSource()(window.from, window.to)
+  // 这里只列最新几条错误和总数，用不上隧道与原因行。
+  const logs = await serverLogSource()(window.from, window.to, { errorsOnly: true })
   const [tasks, server, client] = await Promise.all([
     db.execute(sql`
       ${taskSelect}

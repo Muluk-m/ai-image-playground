@@ -30,12 +30,24 @@ export interface LegacyLogRow {
   fields: Record<string, unknown>
 }
 
-/** 给定时间段（毫秒），返回这段时间里分类要用的日志行。 */
-export type ServerLogSource = (from: number, to: number) => Promise<LegacyLogRow[]>
+/**
+ * 给定时间段（毫秒），返回这段时间里分类要用的日志行。`errorsOnly` 只要 ERROR/FATAL
+ * （概览动态只列最新几条错误，用不上隧道和原因行）。
+ */
+export type ServerLogSource = (
+  from: number,
+  to: number,
+  options?: { errorsOnly?: boolean },
+) => Promise<LegacyLogRow[]>
 
 /** 一次最多取这么多条错误：再多也只展示最新的 10 条，总数会偏小，但不至于拖垮概览。 */
 const MAX_PAGES = 5
 const REQUEST_CHUNK = 100
+/**
+ * 原因只给面板上展示的那几条错误配（每类最新 10 条），取最新这么多条错误的请求就够，
+ * 不按全部错误去查。
+ */
+const CAUSE_REQUESTS = 300
 /** 原因字段：旧 SQL 用 `fields ? 'errorCode' / 'reason' / 'err' / 'error'` 判断。 */
 const CAUSE_FIELDS = ['errorcode', 'reason', 'err', 'err_message', 'error', 'error_message']
 
@@ -45,11 +57,37 @@ export function _setServerLogSourceForTesting(source: ServerLogSource | undefine
   override = source
 }
 
-/** 当前的来源；没开 OpenObserve 的部署没有服务端日志可读，返回空。 */
+/**
+ * 当前的来源；没开 OpenObserve 的部署没有服务端日志可读，返回空。OpenObserve 一时读不到也返回空：
+ * 概览里的任务、用户和前端错误只依赖 PostgreSQL，不能被日志拖垮。
+ */
 export function serverLogSource(): ServerLogSource {
   if (override) return override
   const client = obsClientOrNull()
-  return client ? obsServerLogSource(client) : async () => []
+  if (!client) return async () => []
+  const source = obsServerLogSource(client)
+  return async (from, to, options) => {
+    try {
+      return await source(from, to, options)
+    } catch (error) {
+      console.error('[overview] server logs unavailable from OpenObserve', error)
+      return []
+    }
+  }
+}
+
+/** PostgreSQL 的 text 与 jsonb 都存不了 NUL：容器吐出的二进制会让整个 `::jsonb` 失败。 */
+function withoutNul(value: unknown): unknown {
+  if (typeof value === 'string') return value.split('\u0000').join('')
+  if (Array.isArray(value)) return value.map(withoutNul)
+  if (value && typeof value === 'object')
+    return Object.fromEntries(
+      Object.entries(value).map(([key, inner]) => [
+        key.split('\u0000').join(''),
+        withoutNul(inner),
+      ]),
+    )
+  return value
 }
 
 /**
@@ -57,7 +95,7 @@ export function serverLogSource(): ServerLogSource {
  * 名字转小写（`err.stack` → `err_stack`，`errorCode` → `errorcode`），旧 SQL 和页面按原名读。
  */
 export function legacyRow(hit: ObsRecord): LegacyLogRow {
-  const entry = toEntry(hit)
+  const entry = toEntry(withoutNul(hit) as ObsRecord)
   const raw = entry.fields
   const fields: Record<string, unknown> = { ...raw }
   const text = (key: string) =>
@@ -86,19 +124,23 @@ export function legacyRow(hit: ObsRecord): LegacyLogRow {
 }
 
 export function obsServerLogSource(client: ObsClient): ServerLogSource {
-  return async (from, to) => {
+  return async (from, to, options = {}) => {
     const exprs = logSql(await logFields(client))
     const range = { type: 'logs' as const, startMs: from, endMs: to }
-    const all = async (where: string) =>
-      (
-        await client.searchAll(
-          {
-            ...range,
-            sql: `${exprs.record} WHERE ${where} ORDER BY _timestamp DESC, log_instance, log_key`,
-          },
-          { maxPages: MAX_PAGES },
-        )
-      ).records
+    const all = async (where: string, what: string) => {
+      const { records, truncated } = await client.searchAll(
+        {
+          ...range,
+          sql: `${exprs.record} WHERE ${where} ORDER BY _timestamp DESC, log_instance, log_key`,
+        },
+        { maxPages: MAX_PAGES },
+      )
+      // 截掉的是最旧的行：错误总数偏小，较早的错误可能缺了恢复证据，判成「待确认」。
+      if (truncated)
+        console.warn(`[overview] ${what} truncated at ${records.length} rows from OpenObserve`)
+      return records
+    }
+    if (options.errorsOnly) return (await all(`${exprs.severity} >= 17`, 'errors')).map(legacyRow)
     const body = exprs.col('body')
     const tunnel = [
       'Registered tunnel connection',
@@ -108,14 +150,17 @@ export function obsServerLogSource(client: ObsClient): ServerLogSource {
       .map((text) => `str_match(${body}, ${sqlString(text)})`)
       .join(' OR ')
     const [errors, tunnels] = await Promise.all([
-      all(`${exprs.severity} >= 17`),
-      all(`${exprs.service} = 'cloudflared' AND (${tunnel})`),
+      all(`${exprs.severity} >= 17`, 'errors'),
+      all(`${exprs.service} = 'cloudflared' AND (${tunnel})`, 'tunnel lines'),
     ])
     const requestColumn = exprs.col('requestid')
     const causeColumns = CAUSE_FIELDS.map(exprs.col).filter((column) => column !== 'NULL')
     const requestIds = [
       ...new Set(
-        errors.map((hit) => hit.requestid).filter((id): id is string => typeof id === 'string'),
+        errors
+          .slice(0, CAUSE_REQUESTS)
+          .map((hit) => hit.requestid)
+          .filter((id): id is string => typeof id === 'string'),
       ),
     ]
     const causes: ObsRecord[] = []
@@ -128,6 +173,7 @@ export function obsServerLogSource(client: ObsClient): ServerLogSource {
         causes.push(
           ...(await all(
             `${requestColumn} IN (${ids}) AND (${causeColumns.map((column) => `${column} IS NOT NULL`).join(' OR ')})`,
+            'cause lines',
           )),
         )
       }

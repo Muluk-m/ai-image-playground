@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
+import { useTableLogSource } from '../helpers/table-log-source'
 
 const databaseUrl = await resetTestDatabase('admin_overview_window')
 process.env.ADMIN_PASSWORD = 'test-pass-1234'
@@ -10,6 +11,7 @@ process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.PORT = '0'
 
 const writer = createDb(databaseUrl)
+useTableLogSource(writer)
 const now = Date.now()
 const day = 86_400_000
 const from = now - day

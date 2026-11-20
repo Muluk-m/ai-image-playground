@@ -10,9 +10,14 @@ delete process.env.OBS_PROXY_TOKEN
 const writer = createDb(process.env.DATABASE_URL)
 afterAll(() => writer.close())
 
-const { legacyRow, obsServerLogSource, serverLogSource, serverLogsCte } = await import(
-  '../../../../server/lib/server-log-source'
-)
+const {
+  _setServerLogSourceForTesting,
+  legacyRow,
+  obsServerLogSource,
+  serverLogSource,
+  serverLogsCte,
+} = await import('../../../../server/lib/server-log-source')
+const { getTodayErrors } = await import('../../../../server/lib/today')
 const { _setObsClientForTesting } = await import('../../../../server/lib/server-logs')
 
 const now = Date.UTC(2026, 10, 20, 6)
@@ -156,5 +161,93 @@ describe('server log source for the overview errors', () => {
       sql`WITH ${serverLogsCte([])} SELECT count(*)::int AS total FROM server_logs`,
     )) as unknown as Array<{ total: number }>
     expect(empty?.total).toBe(0)
+  })
+
+  it('keeps the overview up when OpenObserve fails, and drops NUL bytes PostgreSQL cannot store', async () => {
+    const failing: ObsClient = {
+      async search() {
+        throw new Error('proxy down')
+      },
+      async searchAll() {
+        throw new Error('proxy down')
+      },
+      async streamFields() {
+        return SCHEMA
+      },
+    }
+    _setObsClientForTesting(failing)
+    expect(await serverLogSource()(0, now)).toEqual([])
+    _setObsClientForTesting(null)
+    const row = legacyRow(record({ body: 'bin\u0000ary', errorcode: 'x\u0000y' }))
+    expect(row.message).toBe('binary')
+    expect(row.fields.errorCode).toBe('xy')
+    const [result] = (await writer.db.execute(
+      sql`WITH ${serverLogsCte([row])} SELECT message FROM server_logs`,
+    )) as unknown as Array<{ message: string }>
+    expect(result?.message).toBe('binary')
+  })
+
+  it('only asks for error rows when the caller lists errors without classifying them', async () => {
+    const queries: string[] = []
+    const client: ObsClient = {
+      async search() {
+        return []
+      },
+      async searchAll(query) {
+        queries.push(query.sql)
+        return { records: [record({})], truncated: false }
+      },
+      async streamFields() {
+        return SCHEMA
+      },
+    }
+    expect(await obsServerLogSource(client)(0, now, { errorsOnly: true })).toHaveLength(1)
+    expect(queries).toHaveLength(1)
+    expect(queries[0]).toContain('>= 17')
+  })
+
+  it('classifies a cloudflared reconnect from OpenObserve rows the same way as from server_logs', async () => {
+    const at = now - 10 * 60_000
+    const line = (offset: number, text: string, severity: number, key: string) =>
+      legacyRow(
+        record({
+          _timestamp: (at + offset) * 1_000,
+          body: `${new Date(at + offset).toISOString()} ${text}`,
+          service: 'cloudflared',
+          log_service: 'cloudflared',
+          instance: null,
+          container_name: '/image-playground-paid-cloudflared-1',
+          log_instance: '/image-playground-paid-cloudflared-1',
+          severity_number: severity,
+          log_key: key.repeat(32),
+          source: 'stderr',
+        }),
+      )
+    const failure = line(
+      0,
+      'ERR failed to serve incoming request error="Error shutting down control stream: rpc: connection closed"',
+      17,
+      '1',
+    )
+    _setServerLogSourceForTesting(async () => [
+      failure,
+      line(
+        100,
+        'WRN Serve tunnel error error="Error shutting down control stream: rpc: connection closed" connIndex=2',
+        13,
+        '2',
+      ),
+      line(1_500, 'INF Registered tunnel connection connIndex=2 location=sjc01', 9, '3'),
+    ])
+    try {
+      const data = await getTodayErrors(now)
+      const found = data.recovery?.recovered.entries.find((entry) => entry.id === failure.id)
+      expect(found).toMatchObject({
+        service: 'cloudflared',
+        recovery: { state: 'recovered', recoveredAt: at + 1_500 },
+      })
+    } finally {
+      _setServerLogSourceForTesting(undefined)
+    }
   })
 })
