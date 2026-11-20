@@ -117,8 +117,8 @@ describe('TasksLogTable', () => {
     const headers = within(table).getAllByRole('columnheader')
     // First 3 columns are sticky left with deterministic left offsets
     expect(headers[0]).toHaveStyle({ left: '0px' })
-    expect(headers[1]).toHaveStyle({ left: '100px' })
-    expect(headers[2]).toHaveStyle({ left: '244px' })
+    expect(headers[1]).toHaveStyle({ left: '104px' })
+    expect(headers[2]).toHaveStyle({ left: '248px' })
     expect(headers[3]?.style.left).toBe('')
     for (const header of headers) {
       expect(header.className).toContain('whitespace-nowrap')

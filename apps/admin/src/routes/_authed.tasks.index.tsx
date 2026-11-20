@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { Download, Pause, Play } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { LightboxDialog } from '@/components/LightboxDialog'
 import { ListPagination } from '@/components/ListPagination'
@@ -49,6 +49,14 @@ function GenerationTasksPage() {
   const [exportError, setExportError] = useState('')
   const [liveEnabled, setLiveEnabled] = useState(true)
   const [prefs, setPrefs] = useState<TasksTablePrefs>(() => readTasksTablePrefs())
+  const didMountPrefs = useRef(false)
+  useEffect(() => {
+    if (!didMountPrefs.current) {
+      didMountPrefs.current = true
+      return
+    }
+    writeTasksTablePrefs(prefs)
+  }, [prefs])
 
   const isRolling = search.from === undefined && search.to === undefined
   const preset: TaskDatePreset = search.preset ?? (isRolling ? 'today' : 'custom')
@@ -82,11 +90,7 @@ function GenerationTasksPage() {
   const total = query.data?.total ?? tasks.length
 
   function updatePrefs(patch: Partial<TasksTablePrefs>) {
-    setPrefs((previous) => {
-      const next = { ...previous, ...patch }
-      writeTasksTablePrefs(next)
-      return next
-    })
+    setPrefs((previous) => ({ ...previous, ...patch }))
   }
 
   function update(patch: Partial<GenerationTasksSearch>) {

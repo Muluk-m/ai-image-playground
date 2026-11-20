@@ -388,7 +388,10 @@ function taskConditions(
     const parts = []
     if (known.length === 1) parts.push(sql`t.error_type = ${known[0]}`)
     else if (known.length > 1) parts.push(sqlTextIn(sql`t.error_type`, known))
-    if (unknown) parts.push(sql`(t.error_type IS NULL AND t.status IN ('failed', 'reconciling'))`)
+    if (unknown)
+      parts.push(
+        sql`(t.error_type = 'unknown' OR (t.error_type IS NULL AND t.status IN ('failed', 'reconciling')))`,
+      )
     if (parts.length === 1) conditions.push(parts[0]!)
     else if (parts.length > 1) conditions.push(sql`(${sql.join(parts, sql` OR `)})`)
   }
@@ -490,6 +493,78 @@ function nullableMs(value: unknown): number | null {
   return Number.isFinite(num) ? Math.round(num) : null
 }
 
+function parsePercentilePair(value: unknown): [number | null, number | null] {
+  if (Array.isArray(value)) return [nullableMs(value[0]), nullableMs(value[1])]
+  if (typeof value === 'string') {
+    const trimmed = value.replace(/^\{|\}$/g, '')
+    if (!trimmed) return [null, null]
+    const parts = trimmed.split(',').map((part) => (part === 'NULL' ? null : nullableMs(part)))
+    return [parts[0] ?? null, parts[1] ?? null]
+  }
+  return [null, null]
+}
+
+const TASK_FACETS_CACHE_MS = 10_000
+type WindowFacetOptions = Pick<GenerationTasksFacets, 'models' | 'providers' | 'errorTypes'>
+const windowFacetsCache = new Map<
+  string,
+  { at: number; db: ReturnType<typeof getDbHandle>; value: WindowFacetOptions }
+>()
+
+async function getWindowFacetOptions(window: TimeWindow): Promise<WindowFacetOptions> {
+  const handle = getDbHandle()
+  const key = `${window.from}:${window.to}`
+  const now = Date.now()
+  const cached = windowFacetsCache.get(key)
+  if (cached && cached.db === handle && now - cached.at < TASK_FACETS_CACHE_MS) {
+    return cached.value
+  }
+  const facetRows = (await handle.db.execute(sql`
+    SELECT
+      GROUPING(f.model) AS g_model,
+      GROUPING(f.provider) AS g_provider,
+      GROUPING(f.err_key) AS g_err,
+      f.model,
+      f.provider,
+      f.err_key,
+      COUNT(*)::int AS count
+    FROM (
+      SELECT
+        model,
+        provider,
+        CASE
+          WHEN error_type IS NOT NULL THEN error_type
+          WHEN status IN ('failed', 'reconciling') THEN 'unknown'
+          ELSE NULL
+        END AS err_key
+      FROM queue_tasks
+      WHERE submitted_at >= ${new Date(window.from)} AND submitted_at <= ${new Date(window.to)}
+    ) f
+    GROUP BY GROUPING SETS ((f.model), (f.provider), (f.err_key))
+  `)) as unknown as Row[]
+
+  const modelOptions: GenerationTasksFacetOption[] = []
+  const providerOptions: GenerationTasksFacetOption[] = []
+  const errorOptions: GenerationTasksFacetOption[] = []
+  for (const row of facetRows) {
+    const count = Number(row.count ?? 0)
+    if (Number(row.g_model) === 0 && row.model != null)
+      modelOptions.push({ value: String(row.model), count })
+    else if (Number(row.g_provider) === 0 && row.provider != null)
+      providerOptions.push({ value: String(row.provider), count })
+    else if (Number(row.g_err) === 0 && row.err_key != null)
+      errorOptions.push({ value: String(row.err_key), count })
+  }
+  const value: WindowFacetOptions = {
+    models: sortFacetOptions(modelOptions),
+    providers: sortFacetOptions(providerOptions),
+    errorTypes: sortFacetOptions(errorOptions),
+  }
+  if (windowFacetsCache.size > 32) windowFacetsCache.clear()
+  windowFacetsCache.set(key, { at: now, db: handle, value })
+  return value
+}
+
 const taskSelect = sql`
   SELECT t.id, t.provider, t.model, t.status, t.submitted_at, t.started_at, t.completed_at,
     t.error_type, t.upstream_status, t.gpt_route, t.gpt_key_fingerprint,
@@ -587,12 +662,10 @@ export async function getGenerationTasks(
   const paged = filters.page !== undefined
   const pageSize = filters.pageSize ?? (paged ? 50 : CURSOR_PAGE_SIZE)
   const page = filters.page ?? 1
-  if (
-    !paged &&
-    cursor &&
-    ((filters.sort && filters.sort !== 'submitted_at') || filters.dir === 'asc')
+  const customOrder = Boolean(
+    (filters.sort && filters.sort !== 'submitted_at') || filters.dir === 'asc',
   )
-    throw new TaskQueryError('游标分页仅支持按提交时间降序')
+  if (!paged && cursor && customOrder) throw new TaskQueryError('游标分页仅支持按提交时间降序')
 
   const conditions = taskConditions(filters, window, { cursor: paged ? undefined : cursor })
   const where = sql.join(conditions, sql` AND `)
@@ -605,7 +678,7 @@ export async function getGenerationTasks(
       ? sql.join(taskConditions(filters, window, { ignoreStatus: true }), sql` AND `)
       : null
 
-    const [rows, summaryRows, facetRows, statusRows] = await Promise.all([
+    const [rows, summaryRows, windowFacets, statusRows] = await Promise.all([
       db.execute(sql`
         ${taskSelect}
         WHERE ${where}
@@ -621,48 +694,18 @@ export async function getGenerationTasks(
           COUNT(*) FILTER (WHERE t.status = 'queued')::int AS queued,
           COUNT(*) FILTER (WHERE t.status = 'reconciling')::int AS reconciling,
           COUNT(*) FILTER (WHERE t.status = 'cancelled')::int AS cancelled,
-          PERCENTILE_CONT(0.5) WITHIN GROUP (
+          PERCENTILE_CONT(ARRAY[0.5, 0.95]) WITHIN GROUP (
             ORDER BY EXTRACT(EPOCH FROM (t.completed_at - t.started_at)) * 1000
           ) FILTER (
             WHERE t.status = 'completed'
               AND t.started_at IS NOT NULL
               AND t.completed_at IS NOT NULL
               AND t.completed_at >= t.started_at
-          ) AS p50_run_ms,
-          PERCENTILE_CONT(0.95) WITHIN GROUP (
-            ORDER BY EXTRACT(EPOCH FROM (t.completed_at - t.started_at)) * 1000
-          ) FILTER (
-            WHERE t.status = 'completed'
-              AND t.started_at IS NOT NULL
-              AND t.completed_at IS NOT NULL
-              AND t.completed_at >= t.started_at
-          ) AS p95_run_ms
+          ) AS run_percentiles
         FROM queue_tasks t LEFT JOIN users u ON u.id = t.user_id
         WHERE ${where}
       `) as Promise<unknown> as Promise<Row[]>,
-      db.execute(sql`
-        SELECT
-          GROUPING(f.model) AS g_model,
-          GROUPING(f.provider) AS g_provider,
-          GROUPING(f.err_key) AS g_err,
-          f.model,
-          f.provider,
-          f.err_key,
-          COUNT(*)::int AS count
-        FROM (
-          SELECT
-            model,
-            provider,
-            CASE
-              WHEN error_type IS NOT NULL THEN error_type
-              WHEN status IN ('failed', 'reconciling') THEN 'unknown'
-              ELSE NULL
-            END AS err_key
-          FROM queue_tasks
-          WHERE submitted_at >= ${new Date(window.from)} AND submitted_at <= ${new Date(window.to)}
-        ) f
-        GROUP BY GROUPING SETS ((f.model), (f.provider), (f.err_key))
-      `) as Promise<unknown> as Promise<Row[]>,
+      getWindowFacetOptions(window),
       statusWhere
         ? (db.execute(sql`
             SELECT t.status, COUNT(*)::int AS count
@@ -675,6 +718,7 @@ export async function getGenerationTasks(
 
     const summaryRow = summaryRows[0] ?? {}
     const total = Number(summaryRow.total ?? 0)
+    const [p50RunMs, p95RunMs] = parsePercentilePair(summaryRow.run_percentiles)
     const summary: GenerationTasksSummary = {
       total,
       completed: Number(summaryRow.completed ?? 0),
@@ -683,8 +727,8 @@ export async function getGenerationTasks(
       queued: Number(summaryRow.queued ?? 0),
       reconciling: Number(summaryRow.reconciling ?? 0),
       cancelled: Number(summaryRow.cancelled ?? 0),
-      p50_run_ms: nullableMs(summaryRow.p50_run_ms),
-      p95_run_ms: nullableMs(summaryRow.p95_run_ms),
+      p50_run_ms: p50RunMs,
+      p95_run_ms: p95RunMs,
     }
 
     const statusCounts = emptyStatusCounts()
@@ -702,23 +746,9 @@ export async function getGenerationTasks(
       statusCounts.cancelled = summary.cancelled
     }
 
-    const modelOptions: GenerationTasksFacetOption[] = []
-    const providerOptions: GenerationTasksFacetOption[] = []
-    const errorOptions: GenerationTasksFacetOption[] = []
-    for (const row of facetRows) {
-      const count = Number(row.count ?? 0)
-      if (Number(row.g_model) === 0 && row.model != null)
-        modelOptions.push({ value: String(row.model), count })
-      else if (Number(row.g_provider) === 0 && row.provider != null)
-        providerOptions.push({ value: String(row.provider), count })
-      else if (Number(row.g_err) === 0 && row.err_key != null)
-        errorOptions.push({ value: String(row.err_key), count })
-    }
     const facets: GenerationTasksFacets = {
       statusCounts,
-      models: sortFacetOptions(modelOptions),
-      providers: sortFacetOptions(providerOptions),
-      errorTypes: sortFacetOptions(errorOptions),
+      ...windowFacets,
     }
 
     const tasks = rows.map(mapGenerationTask)
@@ -744,7 +774,10 @@ export async function getGenerationTasks(
   return {
     window,
     tasks,
-    nextCursor: rows.length > CURSOR_PAGE_SIZE && last ? `${last.submitted_at}_${last.id}` : null,
+    nextCursor:
+      !customOrder && rows.length > CURSOR_PAGE_SIZE && last
+        ? `${last.submitted_at}_${last.id}`
+        : null,
   }
 }
 

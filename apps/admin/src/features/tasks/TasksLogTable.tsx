@@ -105,6 +105,7 @@ export function TasksLogTable({
       return { ...col, pinned, isPinEdge, left: offset }
     })
   }, [pinCount, hiddenSet])
+  const totalTableWidth = useMemo(() => columns.reduce((sum, col) => sum + col.width, 0), [columns])
 
   const syncScrollIndicators = useCallback(() => {
     const node = scrollRef.current
@@ -425,13 +426,21 @@ export function TasksLogTable({
       </div>
 
       {/* Desktop Single-Line Sticky-Left Horizontal Scroll Table */}
-      <div className="relative hidden md:block">
+      <div className="relative isolate hidden md:block">
         <div
           ref={scrollRef}
           onScroll={syncScrollIndicators}
           className="max-h-[calc(100vh-20rem)] min-h-[360px] w-full overflow-auto"
         >
-          <table className="w-max min-w-full border-separate border-spacing-0 text-xs">
+          <table
+            style={{ width: `${totalTableWidth}px` }}
+            className="min-w-full table-fixed border-separate border-spacing-0 text-xs"
+          >
+            <colgroup>
+              {columns.map((col) => (
+                <col key={col.id} style={{ width: `${col.width}px` }} />
+              ))}
+            </colgroup>
             <thead>
               <tr>
                 {columns.map((col) => {
@@ -654,6 +663,7 @@ function TaskCell({
 
     case 'prompt': {
       const text = task.prompt || '查看任务'
+      const preview = task.prompt.length > 400 ? `${task.prompt.slice(0, 400)}…` : task.prompt
       return (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -665,13 +675,13 @@ function TaskCell({
               {text}
             </button>
           </TooltipTrigger>
-          {task.prompt ? (
+          {preview ? (
             <TooltipContent
               side="bottom"
               align="start"
-              className="max-w-md whitespace-pre-wrap break-words"
+              className="max-h-60 max-w-md overflow-hidden whitespace-pre-wrap break-words"
             >
-              {task.prompt}
+              {preview}
             </TooltipContent>
           ) : null}
         </Tooltip>

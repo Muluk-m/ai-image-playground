@@ -193,4 +193,28 @@ describe('generation tasks refresh', () => {
     await advance()
     expect(result.current.data).toBeUndefined()
   })
+
+  it('freezes the rolling clock when live refresh is paused without firing an extra fetch', async () => {
+    const { rerender } = renderHook(
+      ({ live }) => {
+        const clock = useGenerationTasksClock(live)
+        return useGenerationTasks({ ...todayWindow(clock), page: 1, pageSize: 50 }, 'today')
+      },
+      {
+        initialProps: { live: true },
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        ),
+      },
+    )
+    await advance()
+    expect(get).toHaveBeenCalledTimes(1)
+    await advance(10_000)
+    rerender({ live: false })
+    await advance(60_000)
+    expect(get).toHaveBeenCalledTimes(1)
+    rerender({ live: true })
+    await advance()
+    expect(get).toHaveBeenCalledTimes(2)
+  })
 })

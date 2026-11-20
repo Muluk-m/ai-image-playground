@@ -494,6 +494,7 @@ describe('today generation overview', () => {
       'from=bad&to=1',
       `from=${from}&to=${from}`,
       'userId=a&deviceId=b',
+      'userId=a&actorType=device',
       'status=nope',
       'statuses=failed,nope',
       'sources=chat,nope',

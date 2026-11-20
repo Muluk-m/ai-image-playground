@@ -80,7 +80,10 @@ function validateTaskFilterQuery(
     if (query[key] !== undefined && query[key] !== '' && String(filters[key] ?? '') !== query[key])
       return '无效的任务筛选条件'
   }
-  if ([filters.userId, filters.deviceId, filters.unassigned].filter(Boolean).length > 1)
+  if (
+    [filters.userId, filters.deviceId, filters.unassigned, filters.actorType].filter(Boolean)
+      .length > 1
+  )
     return '只能选择一种任务归属'
   if (
     filters.minDurationSec !== undefined &&

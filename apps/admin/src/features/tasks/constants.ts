@@ -206,9 +206,9 @@ export interface TaskColumnDef {
 }
 
 export const TASK_COLUMNS: readonly TaskColumnDef[] = [
-  { id: 'status', label: '状态', width: 100, sortField: 'status' },
+  { id: 'status', label: '状态', width: 104, sortField: 'status' },
   { id: 'submitted_at', label: '提交时间', width: 144, sortField: 'submitted_at' },
-  { id: 'task_id', label: '任务 ID', width: 156 },
+  { id: 'task_id', label: '任务 ID', width: 172 },
   { id: 'actor', label: '用户 / 归属', width: 200 },
   { id: 'prompt', label: '需求 / 提示词', width: 300 },
   { id: 'model', label: '模型', width: 188 },

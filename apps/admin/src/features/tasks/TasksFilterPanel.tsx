@@ -179,7 +179,7 @@ export function TasksFilterPanel({
 
   function commitSearch(raw: string) {
     const trimmed = raw.trim()
-    const jump = /^tsk_[A-Za-z0-9_-]+$/.test(trimmed) || /^[0-9a-f-]{16,}$/i.test(trimmed)
+    const jump = /^tsk_[A-Za-z0-9_-]+$/.test(trimmed)
     onUpdate({ q: trimmed || undefined, ...(jump ? { task: trimmed } : {}) })
   }
 
@@ -946,6 +946,7 @@ function MultiSelectField({
                 type="submit"
                 size="icon-xs"
                 variant="outline"
+                autoTooltip={false}
                 aria-label={`添加${label}`}
                 disabled={!customDraft.trim()}
               >
@@ -1002,6 +1003,10 @@ function CustomRangeForm({
         }
         if (nextTo - nextFrom > 31 * 86_400_000) {
           setError('最多 31 天')
+          return
+        }
+        if (nextTo > Date.now() + 60_000) {
+          setError('结束时间不能在未来')
           return
         }
         setError('')
