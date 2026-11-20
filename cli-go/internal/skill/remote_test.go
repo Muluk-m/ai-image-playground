@@ -641,9 +641,11 @@ func TestRecoverInterruptedUpdateJournalHealsCrashedUpdate(t *testing.T) {
 	// Simulate a crash mid-update: persisted journal exists, SKILL.md was truncated/corrupted,
 	// and a stray new file was written before SIGKILL.
 	journal := updateJournal{
+		Root:        home,
 		Destination: res.Path,
 		Host:        "workbuddy",
 		Scope:       "user",
+		FromHash:    res.FileHash,
 		Snapshot:    snap,
 		Planned:     []string{"SKILL.md", "references/half-written.md"},
 	}
@@ -767,5 +769,156 @@ func TestMaybeAutoUpdateRespectsBudgetAndCachesArchiveDownloadFailures(t *testin
 	// Shared archive failed once -> must NOT be re-requested for codex.
 	if archiveAttempts.Load() != 1 {
 		t.Fatalf("archive download retried %d times across shared hosts, want 1", archiveAttempts.Load())
+	}
+}
+
+func TestRecoverInterruptedUpdatePreservesNewerReinstallAndUserFiles(t *testing.T) {
+	t.Run("already intact newer install clears stale journal without rolling back", func(t *testing.T) {
+		home, stateDir := t.TempDir(), t.TempDir()
+		res, err := Install(InstallOptions{Host: "workbuddy", Scope: "user", Home: home})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Simulate an older journal left behind before the user ran `skill install` to 0.2.6.
+		oldSnap := map[string][]byte{
+			"SKILL.md":            []byte("# ancient 0.1.0\n"),
+			".muvloom-skill.json": []byte(`{"skill":"muvloom","version":"0.1.0","host":"workbuddy","scope":"user","file_hash":"` + strings.Repeat("1", 64) + `"}`),
+		}
+		jPath := journalPathForDest(stateDir, res.Path)
+		if err := os.MkdirAll(filepath.Dir(jPath), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		jBytes, _ := json.Marshal(updateJournal{
+			Root: home, Destination: res.Path, Host: "workbuddy", Scope: "user",
+			FromHash: strings.Repeat("1", 64), Snapshot: oldSnap, Planned: []string{"SKILL.md"},
+		})
+		if err := os.WriteFile(jPath, jBytes, 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		recoverInterruptedUpdates(context.Background(), stateDir, time.Second)
+		// Current intact install must NOT be rolled back to 0.1.0, and stale journal is cleared.
+		if data, _ := os.ReadFile(filepath.Join(res.Path, "SKILL.md")); strings.Contains(string(data), "ancient") {
+			t.Fatal("recovery rolled back an intact newer installation")
+		}
+		if data, _ := os.ReadFile(jPath); len(bytes.TrimSpace(data)) != 0 {
+			t.Fatalf("stale journal was not cleared: %q", data)
+		}
+	})
+
+	t.Run("unexpected user-added file aborts recovery without deleting it", func(t *testing.T) {
+		home, stateDir := t.TempDir(), t.TempDir()
+		res, err := Install(InstallOptions{Host: "workbuddy", Scope: "user", Home: home})
+		if err != nil {
+			t.Fatal(err)
+		}
+		snap, err := snapshotSkillDir(res.Path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Simulate interrupted update + user manually added custom-notes.txt afterward.
+		userFile := filepath.Join(res.Path, "custom-notes.txt")
+		if err := os.WriteFile(userFile, []byte("precious user notes"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		jPath := journalPathForDest(stateDir, res.Path)
+		if err := os.MkdirAll(filepath.Dir(jPath), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		jBytes, _ := json.Marshal(updateJournal{
+			Root: home, Destination: res.Path, Host: "workbuddy", Scope: "user",
+			FromHash: res.FileHash, Snapshot: snap, Planned: []string{"SKILL.md"},
+		})
+		if err := os.WriteFile(jPath, jBytes, 0o600); err != nil {
+			t.Fatal(err)
+		}
+
+		recoverInterruptedUpdates(context.Background(), stateDir, time.Second)
+		if data, err := os.ReadFile(userFile); err != nil || string(data) != "precious user notes" {
+			t.Fatalf("recovery deleted or damaged user file: %q %v", data, err)
+		}
+	})
+}
+
+func TestRecoverInterruptedUpdateRefusesSymlinksBeforeDeleteOrWrite(t *testing.T) {
+	home, stateDir := t.TempDir(), t.TempDir()
+	outside := t.TempDir()
+	outsideTarget := filepath.Join(outside, "victim.txt")
+	if err := os.WriteFile(outsideTarget, []byte("do not touch"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Install(InstallOptions{Host: "workbuddy", Scope: "user", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := snapshotSkillDir(res.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Replace SKILL.md with a symlink to outsideTarget AND add a symlinked scripts/ dir pointing outside.
+	if err := os.Remove(filepath.Join(res.Path, "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outsideTarget, filepath.Join(res.Path, "SKILL.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(res.Path, "scripts")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	jPath := journalPathForDest(stateDir, res.Path)
+	if err := os.MkdirAll(filepath.Dir(jPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	jBytes, _ := json.Marshal(updateJournal{
+		Root: home, Destination: res.Path, Host: "workbuddy", Scope: "user",
+		FromHash: res.FileHash, Snapshot: snap, Planned: []string{"SKILL.md", "scripts/victim.txt"},
+	})
+	if err := os.WriteFile(jPath, jBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	recoverInterruptedUpdates(context.Background(), stateDir, time.Second)
+	// Outside victim.txt must neither be deleted (via scripts/victim.txt) nor overwritten (via SKILL.md)!
+	if data, err := os.ReadFile(outsideTarget); err != nil || string(data) != "do not touch" {
+		t.Fatalf("recovery followed symlink outside Skill dir: %q %v", data, err)
+	}
+	// Journal stays intact when recovery refuses symlink.
+	if data, _ := os.ReadFile(jPath); len(bytes.TrimSpace(data)) == 0 {
+		t.Fatal("journal was cleared despite symlink refusal")
+	}
+}
+
+func TestRecoverInterruptedUpdateRespectsExpiredContext(t *testing.T) {
+	home, stateDir := t.TempDir(), t.TempDir()
+	res, err := Install(InstallOptions{Host: "workbuddy", Scope: "user", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := snapshotSkillDir(res.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	jPath := journalPathForDest(stateDir, res.Path)
+	if err := os.MkdirAll(filepath.Dir(jPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	jBytes, _ := json.Marshal(updateJournal{
+		Root: home, Destination: res.Path, Host: "workbuddy", Scope: "user",
+		FromHash: res.FileHash, Snapshot: snap, Planned: []string{"SKILL.md"},
+	})
+	if err := os.WriteFile(jPath, jBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	expiredCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	recoverInterruptedUpdates(expiredCtx, stateDir, 5*time.Second)
+	if time.Since(start) > 500*time.Millisecond {
+		t.Fatalf("recoverInterruptedUpdates ignored canceled context and took %v", time.Since(start))
+	}
+	if data, _ := os.ReadFile(jPath); len(bytes.TrimSpace(data)) == 0 {
+		t.Fatal("journal was modified despite canceled context")
 	}
 }

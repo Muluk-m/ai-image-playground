@@ -168,9 +168,11 @@ type remoteUpdateState struct {
 // updateJournal persists a pre-update snapshot in <StateDir>/updates/ so an interrupted
 // process (SIGKILL, crash, or failed rollback) automatically heals on the next run.
 type updateJournal struct {
+	Root        string            `json:"root"`
 	Destination string            `json:"destination"`
 	Host        string            `json:"host"`
 	Scope       string            `json:"scope"`
+	FromHash    string            `json:"from_hash"`
 	Snapshot    map[string][]byte `json:"snapshot"`
 	Planned     []string          `json:"planned,omitempty"`
 }
@@ -281,7 +283,7 @@ func MaybeAutoUpdate(ctx context.Context, opts RemoteUpdateOptions) RemoteUpdate
 	defer release()
 
 	// Heal any interrupted update from an earlier crashed process before inspecting installs.
-	recoverInterruptedUpdates(opts.StateDir, autoLockWait)
+	recoverInterruptedUpdates(ctx, opts.StateDir, autoLockWait)
 
 	installed, err := Installed(opts.Home, opts.CWD)
 	if err != nil {
@@ -379,7 +381,7 @@ func CheckOrUpdateRemote(ctx context.Context, opts RemoteUpdateOptions, checkOnl
 			return RemoteUpdateResult{}, err
 		}
 		release = unlock
-		recoverInterruptedUpdates(opts.StateDir, installLockWait)
+		recoverInterruptedUpdates(ctx, opts.StateDir, installLockWait)
 		state = readRemoteState(opts.StateDir)
 	}
 	if release != nil {
@@ -876,9 +878,11 @@ func applyInPlaceUpdate(
 	}
 
 	journal := updateJournal{
+		Root:        root,
 		Destination: destination,
 		Host:        item.foundHost,
 		Scope:       item.foundScope,
+		FromHash:    item.FileHash,
 		Snapshot:    snapshot,
 		Planned:     planned,
 	}
@@ -899,7 +903,7 @@ func applyInPlaceUpdate(
 		}
 	}
 	rollback := func() {
-		if restoreFromJournal(journal) == nil {
+		if restoreFromJournal(journal, true) == nil {
 			clearJournal()
 		}
 		// If rollback itself fails, keep journalPath on disk so the next startup recovers it.
@@ -1011,8 +1015,9 @@ func applyInPlaceUpdate(
 
 // recoverInterruptedUpdates heals any Skill directory whose earlier hot-update was
 // interrupted by a crash or failed rollback, using the persisted journal in StateDir.
-func recoverInterruptedUpdates(stateDir string, lockWait time.Duration) {
-	if stateDir == "" {
+// It honors ctx cancellation/deadline so normal commands never stall on unrelated locks.
+func recoverInterruptedUpdates(ctx context.Context, stateDir string, lockWait time.Duration) {
+	if stateDir == "" || ctx.Err() != nil {
 		return
 	}
 	updatesDir := filepath.Join(stateDir, "updates")
@@ -1021,6 +1026,9 @@ func recoverInterruptedUpdates(stateDir string, lockWait time.Duration) {
 		return
 	}
 	for _, entry := range entries {
+		if ctx.Err() != nil {
+			return
+		}
 		name := entry.Name()
 		if !entry.Type().IsRegular() || !strings.HasPrefix(name, "tx-") || !strings.HasSuffix(name, ".json") {
 			continue
@@ -1034,24 +1042,150 @@ func recoverInterruptedUpdates(stateDir string, lockWait time.Duration) {
 		if err := json.Unmarshal(data, &journal); err != nil || journal.Destination == "" || len(journal.Snapshot) == 0 {
 			continue
 		}
-		release, err := auth.LockFile(filepath.Join(filepath.Dir(journal.Destination), ".muvloom-install.lock"), lockWait)
+		wait := lockWait
+		if deadline, ok := ctx.Deadline(); ok {
+			rem := time.Until(deadline)
+			if rem <= 0 {
+				return
+			}
+			if rem < wait {
+				wait = rem
+			}
+		}
+		release, err := auth.LockFile(filepath.Join(filepath.Dir(journal.Destination), ".muvloom-install.lock"), wait)
 		if err != nil {
 			continue
 		}
-		if info, statErr := os.Lstat(journal.Destination); statErr == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
-			if restoreFromJournal(journal) == nil {
-				_ = os.Truncate(jPath, 0)
+		// Reject symlinked destinations or project ancestors before reading or touching anything.
+		if journal.Root != "" && journal.Scope != "" {
+			if checkDestination(journal.Scope, journal.Root, journal.Destination) != nil {
+				release()
+				continue
 			}
+		}
+		// If the installation is already intact (e.g. update finished before journal truncation,
+		// or the user explicitly ran `muvloom skill install` afterward), do NOT roll it back;
+		// simply clear the stale journal.
+		if isAlreadyIntactInstall(journal.Destination) {
+			_ = os.Truncate(jPath, 0)
+			release()
+			continue
+		}
+		if restoreFromJournal(journal, false) == nil {
+			_ = os.Truncate(jPath, 0)
 		}
 		release()
 	}
 }
 
-func restoreFromJournal(journal updateJournal) error {
+func isAlreadyIntactInstall(dest string) bool {
+	info, err := os.Lstat(dest)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return false
+	}
+	metaBytes, err := os.ReadFile(filepath.Join(dest, ".muvloom-skill.json"))
+	if err != nil {
+		return false
+	}
+	var meta metadata
+	if err := json.Unmarshal(metaBytes, &meta); err != nil || meta.Skill != "muvloom" || meta.FileHash == "" {
+		return false
+	}
+	onDisk, err := treeHash(dest)
+	return err == nil && onDisk == meta.FileHash
+}
+
+// restoreFromJournal safely rolls a Skill directory back to journal.Snapshot.
+// In startup recovery mode (inProcess == false), it strictly validates destination/ancestor
+// symlink boundaries, refuses any symlink anywhere inside destination, verifies the on-disk
+// metadata still belongs to this transaction's FromHash, and refuses to delete any unexpected
+// user-added file outside journal.Planned and journal.Snapshot.
+func restoreFromJournal(journal updateJournal, inProcess bool) error {
 	dest := journal.Destination
-	var cleanupDirs []string
-	// Remove any newly planned files not present in the original snapshot (or conflicting
-	// with original snapshot paths/casing).
+	// 1. Validate destination and (for project scope) ancestor symlink boundaries.
+	if journal.Root != "" && journal.Scope != "" {
+		if err := checkDestination(journal.Scope, journal.Root, dest); err != nil {
+			return err
+		}
+	} else {
+		info, err := os.Lstat(dest)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("destination is missing or a symlink")
+		}
+	}
+
+	// 2. Validate every path recorded in the journal so a tampered journal cannot escape dest.
+	for _, plannedRel := range journal.Planned {
+		if !isSafeRelativeSkillPath(plannedRel) {
+			return fmt.Errorf("unsafe planned path %q in journal", plannedRel)
+		}
+	}
+	for snapRel := range journal.Snapshot {
+		if snapRel != ".muvloom-skill.json" && !isSafeRelativeSkillPath(snapRel) {
+			return fmt.Errorf("unsafe snapshot path %q in journal", snapRel)
+		}
+	}
+
+	// 3. In startup recovery, confirm metadata still matches FromHash (never roll back an
+	// unrelated reinstall) and ensure no symlinks or user-added files exist inside dest.
+	plannedSet := make(map[string]struct{}, len(journal.Planned))
+	for _, p := range journal.Planned {
+		plannedSet[p] = struct{}{}
+	}
+	if !inProcess {
+		if journal.FromHash != "" {
+			if curMetaBytes, err := os.ReadFile(filepath.Join(dest, ".muvloom-skill.json")); err == nil {
+				var curMeta metadata
+				if json.Unmarshal(curMetaBytes, &curMeta) == nil && curMeta.FileHash != "" && curMeta.FileHash != journal.FromHash {
+					return errors.New("destination metadata does not match journal transaction")
+				}
+			}
+		}
+	}
+
+	var hasSymlink bool
+	var hasUnexpectedUserFile bool
+	walkErr := filepath.WalkDir(dest, func(p string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if p == dest {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			hasSymlink = true
+			return fs.SkipAll
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, relErr := filepath.Rel(dest, p)
+		if relErr != nil {
+			return relErr
+		}
+		rel = filepath.ToSlash(rel)
+		if !inProcess {
+			_, inSnap := journal.Snapshot[rel]
+			_, inPlanned := plannedSet[rel]
+			if !inSnap && !inPlanned {
+				hasUnexpectedUserFile = true
+				return fs.SkipAll
+			}
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return walkErr
+	}
+	if hasSymlink {
+		return errors.New("refusing to recover through a symlink inside Skill directory")
+	}
+	if hasUnexpectedUserFile {
+		return errors.New("refusing to overwrite unexpected user file during recovery")
+	}
+
+	// 4. Remove ONLY files created/planned by this transaction that are not in Snapshot,
+	// checking symlink boundaries before every delete.
 	snapFolded := map[string]string{}
 	snapDirFolded := map[string]string{}
 	for rel := range journal.Snapshot {
@@ -1060,41 +1194,41 @@ func restoreFromJournal(journal updateJournal) error {
 			snapDirFolded[strings.ToLower(d)] = d
 		}
 	}
+	var cleanupDirs []string
 	for _, plannedRel := range journal.Planned {
-		if _, inSnap := journal.Snapshot[plannedRel]; !inSnap {
-			_ = os.Remove(filepath.Join(dest, filepath.FromSlash(plannedRel)))
-			cleanupDirs = append(cleanupDirs, parentDirs(plannedRel)...)
+		if _, inSnap := journal.Snapshot[plannedRel]; inSnap {
+			continue
+		}
+		target := filepath.Join(dest, filepath.FromSlash(plannedRel))
+		if _, statErr := os.Lstat(target); statErr != nil {
+			continue
+		}
+		if err := refuseSymlinks(dest, target); err != nil {
+			return err
+		}
+		_ = os.Remove(target)
+		cleanupDirs = append(cleanupDirs, parentDirs(plannedRel)...)
+	}
+	// Remove any directories created for planned files that conflict with snapshot files or dir casing.
+	for _, plannedRel := range journal.Planned {
+		for _, d := range parentDirs(plannedRel) {
+			if _, fileWantsPath := snapFolded[strings.ToLower(d)]; fileWantsPath {
+				cleanupDirs = append(cleanupDirs, d)
+			}
+			if snapDir, ok := snapDirFolded[strings.ToLower(d)]; ok && snapDir != d {
+				cleanupDirs = append(cleanupDirs, d)
+			}
 		}
 	}
-	// Also remove any on-disk files/dirs inside dest that conflict with snapshot layout.
-	_ = filepath.WalkDir(dest, func(p string, entry fs.DirEntry, err error) error {
-		if err != nil || p == dest {
-			return nil
-		}
-		rel, relErr := filepath.Rel(dest, p)
-		if relErr != nil {
-			return nil
-		}
-		rel = filepath.ToSlash(rel)
-		if entry.IsDir() {
-			if _, fileWantsPath := snapFolded[strings.ToLower(rel)]; fileWantsPath {
-				cleanupDirs = append(cleanupDirs, rel)
-			}
-			if snapDir, ok := snapDirFolded[strings.ToLower(rel)]; ok && snapDir != rel {
-				cleanupDirs = append(cleanupDirs, rel)
-			}
-			return nil
-		}
-		if _, inSnap := journal.Snapshot[rel]; !inSnap {
-			_ = os.Remove(p)
-			cleanupDirs = append(cleanupDirs, parentDirs(rel)...)
-		}
-		return nil
-	})
 	pruneDirsDeepestFirst(dest, cleanupDirs)
 
+	// 5. Restore snapshot files in place, checking symlink boundaries before every write.
 	for rel, data := range journal.Snapshot {
-		if err := writeSkillFileInPlace(filepath.Join(dest, filepath.FromSlash(rel)), data); err != nil {
+		target := filepath.Join(dest, filepath.FromSlash(rel))
+		if err := refuseSymlinks(dest, target); err != nil {
+			return err
+		}
+		if err := writeSkillFileInPlace(target, data); err != nil {
 			return err
 		}
 	}
