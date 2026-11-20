@@ -20,11 +20,12 @@ it('refreshes the latest messages when the open conversation moves outside the i
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: Infinity } },
   })
+  const initialProps: { revision?: number; before?: number } = { revision: 1_795_000_000_000 }
   const { rerender } = renderHook(
     ({ revision, before }: { revision?: number; before?: number }) =>
       useFeedbackThread('thread-1', before, revision),
     {
-      initialProps: { revision: 1_795_000_000_000 },
+      initialProps,
       wrapper: ({ children }: { children: ReactNode }) => (
         <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
       ),
