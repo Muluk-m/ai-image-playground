@@ -186,19 +186,16 @@ export function recordSpanError(span: Span, error: unknown): void {
 
 /**
  * 发上游请求前把 span 的 traceparent 写进请求头，上游（Vertex 之类）能把它们那边的记录挂到同一条链路。
- * 不改调用方的 headers 对象；span 没被采样或 SDK 没初始化时原样返回。
+ * 先复制成 Headers 再 `set`：调用方已经带了 traceparent（任何大小写）也是覆盖，不会合并成逗号串；
+ * 调用方的 headers 对象不改。SDK 没初始化时原样返回。
  */
-export function withTraceHeaders<H>(headers: H, span: Span): H | Headers | Record<string, string> {
+export function withTraceHeaders(headers: unknown, span: Span): unknown {
   const carrier: Record<string, string> = {}
   propagation.inject(trace.setSpan(context.active(), span), carrier)
   if (Object.keys(carrier).length === 0) return headers
-  if (headers instanceof Headers) {
-    const copy = new Headers(headers)
-    for (const [name, value] of Object.entries(carrier)) copy.set(name, value)
-    return copy
-  }
-  if (Array.isArray(headers)) return new Headers([...headers, ...Object.entries(carrier)])
-  return { ...(headers as Record<string, string> | undefined), ...carrier }
+  const merged = new Headers(headers as HeadersInit | undefined)
+  for (const [name, value] of Object.entries(carrier)) merged.set(name, value)
+  return merged
 }
 
 export { SpanKind, SpanStatusCode }

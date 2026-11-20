@@ -1117,7 +1117,12 @@ async function callUpstreamVia(
       const responsePromise = upstreamTransport.current(url, {
         ...fetchInit(init),
         ...(span
-          ? { headers: withTraceHeaders(init?.headers, span) as UpstreamFetchInit['headers'] }
+          ? {
+              headers: withTraceHeaders(
+                init?.headers,
+                span,
+              ) as NonNullable<UpstreamFetchInit>['headers'],
+            }
           : {}),
         signal: requestAbort.signal,
       })

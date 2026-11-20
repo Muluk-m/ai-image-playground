@@ -210,18 +210,27 @@ describe('出口 span 工具', () => {
     expect(finished?.status.code).toBe(SpanStatusCode.ERROR)
   })
 
-  it('traceparent 注入不改调用方的 headers，三种 headers 写法都认', () => {
+  it('traceparent 注入不改调用方的 headers；几种写法都认，已有的同名头（任何大小写）被覆盖', () => {
     const span = tracer.startSpan('upstream POST')
     const expected = `00-${span.spanContext().traceId}-${span.spanContext().spanId}-01`
-    const record = { authorization: 'Bearer x' }
-    expect(withTraceHeaders(record, span)).toEqual({ ...record, traceparent: expected })
-    expect(record).toEqual({ authorization: 'Bearer x' })
+    const stale = '00-11111111111111111111111111111111-2222222222222222-01'
+    const injected = (headers: unknown) => withTraceHeaders(headers, span) as Headers
+
+    const record = { authorization: 'Bearer x', Traceparent: stale }
+    expect(injected(record).get('traceparent')).toBe(expected)
+    expect(injected(record).get('authorization')).toBe('Bearer x')
+    expect(record).toEqual({ authorization: 'Bearer x', Traceparent: stale })
+
     const headers = new Headers({ authorization: 'Bearer x' })
-    expect((withTraceHeaders(headers, span) as Headers).get('traceparent')).toBe(expected)
+    expect(injected(headers).get('traceparent')).toBe(expected)
     expect(headers.has('traceparent')).toBe(false)
-    const pairs: [string, string][] = [['authorization', 'Bearer x']]
-    expect((withTraceHeaders(pairs, span) as Headers).get('traceparent')).toBe(expected)
-    expect(withTraceHeaders(undefined, span)).toEqual({ traceparent: expected })
+
+    const pairs: [string, string][] = [
+      ['authorization', 'Bearer x'],
+      ['traceparent', stale],
+    ]
+    expect(injected(pairs).get('traceparent')).toBe(expected)
+    expect(injected(undefined).get('traceparent')).toBe(expected)
     span.end()
   })
 })
