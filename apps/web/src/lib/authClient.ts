@@ -300,28 +300,15 @@ export interface CliConnectionSummary {
 }
 
 export async function fetchCliConnections(signal?: AbortSignal): Promise<CliConnectionSummary[]> {
-  return (await fetchCliConnectionSnapshot(signal)).connections
-}
-
-export async function fetchCliConnectionSnapshot(signal?: AbortSignal) {
   const res = await authenticatedBffFetch(bffUrl('/api/me/cli-connections'), { signal })
   if (!res.ok) throw await parseError(res)
-  const body: unknown = await res.json()
+  const body = (await res.json()) as { connections?: unknown } | null
   // 响应体不符合契约时按加载失败处理，避免账户页渲染时整页白屏。
-  if (
-    typeof body !== 'object' ||
-    body === null ||
-    !('connections' in body) ||
-    !Array.isArray(body.connections) ||
-    !body.connections.every(isCliConnectionSummary)
-  ) {
+  const connections = body?.connections
+  if (!Array.isArray(connections) || !connections.every(isCliConnectionSummary)) {
     throw new AuthRequestError(res.status, 'invalid_response')
   }
-  const observedAt = 'observed_at' in body ? body.observed_at : null
-  return {
-    connections: body.connections,
-    observedAt: typeof observedAt === 'number' && Number.isFinite(observedAt) ? observedAt : null,
-  }
+  return connections
 }
 
 function isCliConnectionSummary(value: unknown): value is CliConnectionSummary {

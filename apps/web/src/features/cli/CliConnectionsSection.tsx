@@ -9,12 +9,16 @@ import {
   revokeCliConnection,
 } from '../../lib/authClient'
 
+const POLL_INTERVAL_MS = 4000
+
 /** Account-only CLI sessions; the server decides whether this deployment offers CLI access. */
 export default function CliConnectionsSection({
   standalone = false,
+  watchUntil,
   onUnavailable,
 }: {
   standalone?: boolean
+  watchUntil?: number
   onUnavailable?: () => void
 }) {
   const { t, i18n } = useTranslation('auth')
@@ -23,35 +27,85 @@ export default function CliConnectionsSection({
   const [attempt, setAttempt] = useState(0)
   const [revoking, setRevoking] = useState<string | null>(null)
   const [notice, setNotice] = useState<'revoked' | 'revokeFailed' | null>(null)
-  const pending = useRef(false)
-  const request = useRef<AbortController | null>(null)
+  const revocation = useRef<AbortController | null>(null)
+  const readRevision = useRef(0)
+
+  useEffect(() => () => revocation.current?.abort(), [])
 
   useEffect(() => {
     const controller = new AbortController()
-    request.current = controller
-    setState('loading')
-    setNotice(null)
-    void fetchCliConnections(controller.signal).then(
-      (loaded) => {
-        if (controller.signal.aborted) return
+    const remaining = watchUntil === undefined ? 0 : watchUntil - performance.now()
+    const watching = remaining > 0
+    let timer: number | undefined
+    let inFlight = false
+
+    function schedule() {
+      if (!watching || controller.signal.aborted || document.visibilityState === 'hidden') return
+      timer = window.setTimeout(() => void load(), POLL_INTERVAL_MS)
+    }
+
+    async function load() {
+      if (controller.signal.aborted || inFlight) return
+      if (revocation.current) {
+        schedule()
+        return
+      }
+      inFlight = true
+      const revision = readRevision.current
+      try {
+        const loaded = await fetchCliConnections(controller.signal)
+        if (controller.signal.aborted || revision !== readRevision.current) return
         setConnections(loaded)
         setState('ready')
-      },
-      (error: unknown) => {
-        if (controller.signal.aborted) return
-        const unavailable =
-          error instanceof AuthRequestError && error.code === 'capability_unavailable'
-        setState(unavailable ? 'unavailable' : 'failed')
-        if (unavailable) onUnavailable?.()
-      },
-    )
-    return () => controller.abort()
-  }, [attempt, onUnavailable])
+      } catch (error) {
+        if (controller.signal.aborted || revision !== readRevision.current) return
+        if (error instanceof AuthRequestError && error.code === 'capability_unavailable') {
+          setState('unavailable')
+          controller.abort()
+          onUnavailable?.()
+        } else if (
+          error instanceof AuthRequestError &&
+          (error.status === 401 || error.status === 403)
+        ) {
+          setState('failed')
+          controller.abort()
+        } else {
+          setState((current) => (current === 'ready' && watching ? current : 'failed'))
+        }
+      } finally {
+        inFlight = false
+        schedule()
+      }
+    }
+
+    function onVisibility() {
+      window.clearTimeout(timer)
+      if (document.visibilityState === 'visible') void load()
+    }
+
+    const expiry = watching
+      ? window.setTimeout(() => {
+          controller.abort()
+          window.clearTimeout(timer)
+          setState((current) => (current === 'loading' ? 'failed' : current))
+        }, remaining)
+      : undefined
+
+    if (watching) document.addEventListener('visibilitychange', onVisibility)
+    void load()
+    return () => {
+      controller.abort()
+      window.clearTimeout(timer)
+      window.clearTimeout(expiry)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [attempt, onUnavailable, watchUntil])
 
   async function revoke(id: string) {
-    const controller = request.current
-    if (pending.current || state !== 'ready' || !controller || controller.signal.aborted) return
-    pending.current = true
+    if (revocation.current || state !== 'ready') return
+    const controller = new AbortController()
+    revocation.current = controller
+    readRevision.current++
     setRevoking(id)
     setNotice(null)
     try {
@@ -62,7 +116,7 @@ export default function CliConnectionsSection({
     } catch {
       if (!controller.signal.aborted) setNotice('revokeFailed')
     } finally {
-      pending.current = false
+      revocation.current = null
       if (!controller.signal.aborted) setRevoking(null)
     }
   }
@@ -88,7 +142,11 @@ export default function CliConnectionsSection({
           size="icon-sm"
           aria-label={t('cliConnections.refresh')}
           disabled={state === 'loading' || revoking !== null}
-          onClick={() => setAttempt((current) => current + 1)}
+          onClick={() => {
+            setState('loading')
+            setNotice(null)
+            setAttempt((current) => current + 1)
+          }}
         >
           <Icon name="refresh" />
         </Button>

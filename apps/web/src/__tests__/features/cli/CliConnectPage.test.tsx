@@ -358,7 +358,7 @@ describe('CliConnectPage', () => {
     }
   })
 
-  it('点击复制消息后静默监听新连接，连上后提示成功、刷新列表并停止轮询', async () => {
+  it('点击复制消息后静默更新实际连接列表', async () => {
     vi.useFakeTimers()
     try {
       let pollCount = 0
@@ -389,13 +389,8 @@ describe('CliConnectPage', () => {
       await act(async () => {
         await vi.advanceTimersByTimeAsync(4100)
       })
-      expect(host.textContent).toContain('已检测到智能体连接成功')
       expect(host.textContent).toContain('Muvloom CLI')
-      const countAfterConnected = fetchMock.mock.calls.length
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(12_000)
-      })
-      expect(fetchMock).toHaveBeenCalledTimes(countAfterConnected)
+      expect(host.textContent).not.toContain('已检测到智能体连接成功')
     } finally {
       vi.useRealTimers()
     }
@@ -429,10 +424,8 @@ describe('CliConnectPage', () => {
     }
   })
 
-  it.each([
-    -60_000, 60_000,
-  ])('初始请求失败且客户端有时钟偏差时仍能报告新连接（%d ms）', async (offset) => {
-    vi.useFakeTimers({ toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout'] })
+  it('初始列表和首次刷新失败后，首个成功响应直接更新连接列表', async () => {
+    vi.useFakeTimers()
     try {
       const fetchMock = vi.fn(async () =>
         Response.json({
@@ -440,11 +433,10 @@ describe('CliConnectPage', () => {
             {
               id: 'conn-new',
               client_name: 'Muvloom CLI',
-              created_at: Date.now() + offset - 1000,
+              created_at: Date.now(),
               last_used_at: null,
             },
           ],
-          observed_at: Date.now() + offset,
         }),
       )
       fetchMock
@@ -453,111 +445,40 @@ describe('CliConnectPage', () => {
       vi.stubGlobal('fetch', fetchMock)
       await render()
       await click('复制消息')
-      expect(host.textContent).not.toContain('已检测到智能体连接成功')
+      expect(host.textContent).toContain('暂时无法读取连接')
       await act(async () => {
         await vi.advanceTimersByTimeAsync(4100)
       })
-      expect(host.textContent).toContain('已检测到智能体连接成功')
+      expect(host.textContent).not.toContain('暂时无法读取连接')
       expect(host.textContent).toContain('Muvloom CLI')
+      expect(host.textContent).not.toContain('已检测到智能体连接成功')
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('连接列表刷新失败后，新一轮监听不会重复提示上一轮的连接', async () => {
-    vi.useFakeTimers()
-    try {
-      const connections: Array<{
-        id: string
-        client_name: string
-        created_at: number
-        last_used_at: null
-      }> = []
-      const fetchMock = vi.fn(async () => Response.json({ connections, observed_at: Date.now() }))
-      vi.stubGlobal('fetch', fetchMock)
-      await render()
-      await click('复制消息')
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1000)
-      })
-      connections.push({
-        id: 'first',
-        client_name: 'First CLI',
-        created_at: Date.now(),
-        last_used_at: null,
-      })
-      fetchMock
-        .mockResolvedValueOnce(Response.json({ connections, observed_at: Date.now() + 3000 }))
-        .mockRejectedValueOnce(new TypeError('Network error'))
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(3100)
-      })
-      expect(host.textContent).toContain('已检测到智能体连接成功')
-      expect(host.textContent).not.toContain('First CLI')
-
-      await click('复制消息')
-      expect(host.textContent).not.toContain('已检测到智能体连接成功')
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1000)
-      })
-      connections.push({
-        id: 'second',
-        client_name: 'Second CLI',
-        created_at: Date.now(),
-        last_used_at: null,
-      })
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(3100)
-      })
-      expect(host.textContent).toContain('已检测到智能体连接成功')
-      expect(host.textContent).toContain('Second CLI')
-    } finally {
-      vi.useRealTimers()
+  it('撤销连接时，已发出的刷新响应不会把该连接重新显示出来', async () => {
+    const connection = {
+      id: 'old',
+      client_name: 'Revoked CLI',
+      created_at: Date.now(),
+      last_used_at: null,
     }
-  })
+    const delayedPoll = Promise.withResolvers<Response>()
+    const fetchMock = vi
+      .fn(async () => Response.json({ connections: [connection] }))
+      .mockImplementationOnce(async () => Response.json({ connections: [connection] }))
+      .mockImplementationOnce(() => delayedPoll.promise)
+    vi.stubGlobal('fetch', fetchMock)
+    await render()
+    await click('复制消息')
+    await click('撤销连接')
+    expect(host.textContent).not.toContain('Revoked CLI')
 
-  it('重新监听时忽略超时后、这次复制前完成的连接', async () => {
-    vi.useFakeTimers()
-    try {
-      const fetchMock = vi.fn(async () => Response.json({ connections: [] }))
-      vi.stubGlobal('fetch', fetchMock)
-      await render()
-      await click('复制消息')
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(10 * 60 * 1000 + 5000)
-      })
-      const lateConnection = {
-        id: 'late',
-        client_name: 'Late CLI',
-        created_at: Date.now() - 1000,
-        last_used_at: null,
-      }
-      fetchMock.mockResolvedValueOnce(
-        Response.json({ connections: [lateConnection], observed_at: Date.now() }),
-      )
-      await click('复制消息')
-      expect(host.textContent).not.toContain('已检测到智能体连接成功')
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1000)
-      })
-      const newConnection = {
-        id: 'new',
-        client_name: 'New CLI',
-        created_at: Date.now(),
-        last_used_at: null,
-      }
-      fetchMock.mockImplementation(async () =>
-        Response.json({ connections: [lateConnection, newConnection] }),
-      )
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(3100)
-      })
-      expect(host.textContent).toContain('已检测到智能体连接成功')
-      expect(host.textContent).toContain('New CLI')
-    } finally {
-      vi.useRealTimers()
-    }
+    await act(async () => {
+      delayedPoll.resolve(Response.json({ connections: [connection] }))
+    })
+    expect(host.textContent).not.toContain('Revoked CLI')
   })
 
   it('CLI 能力未启用时隐藏空设备卡片，且点击复制不会发起轮询', async () => {
@@ -581,7 +502,7 @@ describe('CliConnectPage', () => {
     }
   })
 
-  it('静默轮询遇到 401/403 时停止轮询，不展示状态提示', async () => {
+  it('静默刷新遇到 401 时停止轮询', async () => {
     vi.useFakeTimers()
     try {
       let calls = 0
