@@ -178,7 +178,7 @@ export function UserTable({
   const { enabled: privateAdminOverlayEnabled, summaries } = usePrivateAdminUserSummaries(
     users.map((user) => user.id),
   )
-  const tableWidth = privateAdminOverlayEnabled ? 'min-w-[1020px]' : 'min-w-[820px]'
+  const tableWidth = privateAdminOverlayEnabled ? 'min-w-[1020px]' : 'min-w-[860px]'
   if (!users.length) return <EmptyState label="没有匹配的用户" />
 
   return (
@@ -264,10 +264,10 @@ export function UserTable({
           <TableHeader className="bg-muted/40">
             <TableRow className="hover:bg-transparent">
               <TableHead className="pl-4">用户</TableHead>
-              <TableHead className="w-[8%]">状态</TableHead>
-              <TableHead className="w-[16%]">备注</TableHead>
-              <TableHead className="w-[12%] text-right">任务 / 会话</TableHead>
-              <TableHead className="w-[10%] text-right">
+              <TableHead className="w-[72px]">状态</TableHead>
+              <TableHead className="w-[112px]">备注</TableHead>
+              <TableHead className="w-[108px] text-right">任务 / 会话</TableHead>
+              <TableHead className="w-[100px] text-right">
                 <SortHeader
                   label="最近活动"
                   active={sort === 'activity'}
@@ -275,7 +275,7 @@ export function UserTable({
                   onClick={() => onSort?.('activity')}
                 />
               </TableHead>
-              <TableHead className="w-[18%] text-right">
+              <TableHead className="w-[130px] text-right">
                 <SortHeader
                   label="注册时间"
                   active={sort === 'created'}
@@ -284,7 +284,7 @@ export function UserTable({
                 />
               </TableHead>
               {privateAdminOverlayEnabled ? (
-                <TableHead className="w-[16%] text-right">
+                <TableHead className="w-[160px] text-right">
                   {privateUserSummaryColumnTitle}
                 </TableHead>
               ) : null}
