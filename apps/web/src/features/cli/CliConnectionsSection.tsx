@@ -75,7 +75,9 @@ export default function CliConnectionsSection({
   return (
     <section
       className={
-        standalone ? 'rounded-2xl border border-border bg-card p-6' : 'mt-6 border-t border-border pt-6'
+        standalone
+          ? 'rounded-2xl border border-border bg-card p-6'
+          : 'mt-6 border-t border-border pt-6'
       }
       aria-labelledby="cli-connections-title"
     >

@@ -435,7 +435,12 @@ describe('CliConnectPage', () => {
       const fetchMock = vi.fn(async () =>
         Response.json({
           connections: [
-            { id: 'conn-new', client_name: 'Muvloom CLI', created_at: Date.now(), last_used_at: null },
+            {
+              id: 'conn-new',
+              client_name: 'Muvloom CLI',
+              created_at: Date.now(),
+              last_used_at: null,
+            },
           ],
         }),
       )
