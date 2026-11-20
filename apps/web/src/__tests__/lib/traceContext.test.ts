@@ -45,6 +45,9 @@ describe('trace context', () => {
     expect(requiresPreflight({ method: 'DELETE' })).toBe(true)
     expect(requiresPreflight({ method: 'patch' })).toBe(true)
     expect(requiresPreflight({ headers: { 'idempotency-key': 'k' } })).toBe(true)
+    expect(requiresPreflight({ headers: { range: 'bytes=0-' } })).toBe(false)
+    expect(requiresPreflight({ headers: { range: 'bytes=100-199' } })).toBe(false)
+    expect(requiresPreflight({ headers: { range: 'bytes=0-1,5-9' } })).toBe(true)
     // 没写 content-type 时浏览器按 Blob 自己的类型补，image/png 不在安全列表里。
     expect(
       requiresPreflight({ method: 'POST', body: new Blob(['x'], { type: 'image/png' }) }),

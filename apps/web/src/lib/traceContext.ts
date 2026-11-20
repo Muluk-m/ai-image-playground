@@ -67,6 +67,11 @@ export function requiresPreflight(init: RequestInit): boolean {
   const headers = new Headers(init.headers)
   let explicitType = false
   for (const [name, value] of headers) {
+    // 单段 `bytes=N-` / `bytes=N-M` 的 Range 也免预检（视频分段之类）。
+    if (name === 'range') {
+      if (!/^bytes=\d+-\d*$/.test(value)) return true
+      continue
+    }
     if (!SAFELISTED_HEADERS.has(name)) return true
     if (name === 'content-type') {
       explicitType = true
