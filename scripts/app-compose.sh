@@ -203,6 +203,11 @@ start_observability() {
     echo "Warning: OBSERVABILITY_ENABLED=true but OBS_PROXY_HOST_PORT or OBS_UI_HOST_PORT is not set in $env_file; observability services not started." >&2
     return 0
   fi
+  # The worker's log-pipeline alert reads OpenObserve through the proxy; without the address the
+  # rule quietly stops observing, so say so on every deploy.
+  if [ -z "$(app_env_value OBS_PROXY_URL)" ]; then
+    echo "Warning: OBSERVABILITY_ENABLED=true but OBS_PROXY_URL is not set in $env_file; the log-pipeline alert is not observed." >&2
+  fi
   compose up --detach --no-deps openobserve otel-collector obs-proxy ||
     echo "Warning: the observability services did not start; server_logs still has the logs." >&2
 }

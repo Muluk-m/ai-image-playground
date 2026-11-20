@@ -908,6 +908,7 @@ describe('app-compose.sh up', () => {
     expect(readFileSync(releases('route.json'), 'utf8')).toBe(routeFor(bff, worker))
   })
 
+  let lastStderr = ''
   function upWithAppEnv(appEnv: string): string[] {
     config = join(xdg, 'ai-image-playground/apps/fixture')
     write(join(config, 'app.env'), appEnv)
@@ -928,6 +929,7 @@ describe('app-compose.sh up', () => {
       },
     })
     expect(result.status, result.stderr).toBe(0)
+    lastStderr = result.stderr
     return logLines()
   }
   const observability = /^compose .* up --detach --no-deps openobserve otel-collector obs-proxy$/
@@ -952,6 +954,15 @@ describe('app-compose.sh up', () => {
     expect(started).toBeGreaterThan(collector)
     expect(started).toBeLessThan(indexOf(log, /^create /))
     expect(indexOf(log, takenDown)).toBe(-1)
+  })
+
+  it('warns on every deploy when observability is on but the worker cannot reach the proxy', () => {
+    upWithAppEnv(`APP_IMAGE=fixture:new\nOBSERVABILITY_ENABLED=true\n${ports}`)
+    expect(lastStderr).toContain('OBS_PROXY_URL is not set')
+    upWithAppEnv(
+      `APP_IMAGE=fixture:new\nOBSERVABILITY_ENABLED=true\n${ports}OBS_PROXY_URL=http://obs-proxy:5090\n`,
+    )
+    expect(lastStderr).not.toContain('OBS_PROXY_URL')
   })
 
   it('reads the switch the way Compose reads app.env: trailing comments, CRLF, quotes', () => {
