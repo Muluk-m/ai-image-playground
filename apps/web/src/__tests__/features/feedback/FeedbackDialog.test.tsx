@@ -151,6 +151,63 @@ describe('FeedbackDialog', () => {
     )
   })
 
+  it('retries confirming a displayed reply after a failed acknowledgment without downloading attachments', async () => {
+    vi.useFakeTimers()
+    try {
+      clientMock.fetchFeedbackThread
+        .mockResolvedValueOnce({
+          thread: { id: 'thread', unreadReplyCount: 1 },
+          messages: [
+            {
+              id: 'reply',
+              senderType: 'admin',
+              body: '已收到反馈',
+              attachment: null,
+              createdAt: 1_795_000_000_000,
+            },
+          ],
+          hasMore: false,
+        })
+        .mockResolvedValue({
+          thread: { id: 'thread', unreadReplyCount: 1 },
+          messages: [],
+          hasMore: false,
+        })
+      clientMock.markFeedbackRead
+        .mockRejectedValueOnce(new Error('temporary'))
+        .mockResolvedValueOnce({ unreadReplyCount: 0 })
+      const onUnreadChange = vi.fn()
+      await act(async () => {
+        root.render(
+          <AuthContextProvider
+            value={{
+              enabled: true,
+              user: { id: 'u1', username: 'qa@example.com' },
+              login: vi.fn(),
+              logout: vi.fn(async () => {}),
+            }}
+          >
+            <FeedbackDialog onClose={vi.fn()} onUnreadChange={onUnreadChange} />
+          </AuthContextProvider>,
+        )
+      })
+      expect(document.body.textContent).toContain('已收到反馈')
+      expect(clientMock.markFeedbackRead).toHaveBeenCalledTimes(1)
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000)
+      })
+      expect(clientMock.fetchFeedbackThread).toHaveBeenLastCalledWith(
+        { before: undefined, after: 1_795_000_000_000 },
+        expect.any(AbortSignal),
+      )
+      expect(clientMock.markFeedbackRead).toHaveBeenCalledTimes(2)
+      expect(onUnreadChange).toHaveBeenLastCalledWith(0)
+      expect(clientMock.fetchFeedbackAttachmentBlobUrl).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('prompts guest users to sign in without loading or sending feedback', async () => {
     const login = vi.fn()
     const onClose = vi.fn()

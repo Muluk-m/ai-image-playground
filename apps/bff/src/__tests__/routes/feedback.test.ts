@@ -335,6 +335,42 @@ describe('feedback routes', () => {
     ])
   })
 
+  it('bounds message history and exposes a cursor for the older page', async () => {
+    const cookie = await signIn('page-test')
+    const first = await request(
+      '/api/feedback/messages',
+      'POST',
+      { body: 'First message' },
+      { cookie },
+    )
+    const created = await first.json()
+    const timestamp = created.message.createdAt
+    await db.insert(schema.feedback_messages).values(
+      Array.from({ length: 21 }, (_, index) => ({
+        id: `page-message-${index}`,
+        thread_id: created.thread.id,
+        sender_type: 'user' as const,
+        sender_user_id: 'page-test',
+        body: `Message ${index}`,
+        created_at: timestamp + index + 1,
+      })),
+    )
+
+    const recent = await (await request('/api/feedback', 'GET', undefined, { cookie })).json()
+    expect(recent.messages).toHaveLength(20)
+    expect(recent.hasMore).toBe(true)
+    const older = await (
+      await request(`/api/feedback?before=${recent.messages[0].createdAt}`, 'GET', undefined, {
+        cookie,
+      })
+    ).json()
+    expect(older.messages.map((message: { body: string }) => message.body)).toEqual([
+      'First message',
+      'Message 0',
+    ])
+    expect(older.hasMore).toBe(false)
+  })
+
   it('rejects a feedback write from an untrusted browser origin', async () => {
     const cookie = await signIn('origin-test')
     const response = await request(

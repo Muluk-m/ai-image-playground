@@ -175,7 +175,7 @@ export const apiClient = {
         signal,
       })
     const parse = (response: Response) => response.blob()
-    const retry = async () =>
+    const retry = async (): Promise<Blob> =>
       handleResponse(await request(), { refreshOnUnauthorized: false }, retry, url, parse)
     return handleResponse(await request(), undefined, retry, url, parse)
   },

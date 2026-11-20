@@ -91,6 +91,26 @@ describe('api-client', () => {
     ])
   })
 
+  it('refreshes an expired session before returning an attachment blob', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(401, { error: 'unauthorized' }))
+      .mockResolvedValueOnce(jsonResponse(200, { ok: true }))
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/png' } }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const asset = await apiClient.getBlob('/api/feedback/attachments/example')
+    expect(asset.type).toBe('image/png')
+    expect(new Uint8Array(await asset.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]))
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      '/api/feedback/attachments/example',
+      '/api/auth/refresh',
+      '/api/feedback/attachments/example',
+    ])
+  })
+
   it('can delegate 401 handling to the caller without clearing or navigating', async () => {
     vi.stubGlobal(
       'fetch',
