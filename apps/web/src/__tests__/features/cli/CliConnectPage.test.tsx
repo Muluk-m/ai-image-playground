@@ -464,11 +464,14 @@ describe('CliConnectPage', () => {
       created_at: Date.now(),
       last_used_at: null,
     }
-    const delayedPoll = Promise.withResolvers<Response>()
+    let resolvePoll!: (response: Response) => void
+    const delayedPoll = new Promise<Response>((resolve) => {
+      resolvePoll = resolve
+    })
     const fetchMock = vi
       .fn(async () => Response.json({ connections: [connection] }))
       .mockImplementationOnce(async () => Response.json({ connections: [connection] }))
-      .mockImplementationOnce(() => delayedPoll.promise)
+      .mockImplementationOnce(() => delayedPoll)
     vi.stubGlobal('fetch', fetchMock)
     await render()
     await click('复制消息')
@@ -476,7 +479,7 @@ describe('CliConnectPage', () => {
     expect(host.textContent).not.toContain('Revoked CLI')
 
     await act(async () => {
-      delayedPoll.resolve(Response.json({ connections: [connection] }))
+      resolvePoll(Response.json({ connections: [connection] }))
     })
     expect(host.textContent).not.toContain('Revoked CLI')
   })
