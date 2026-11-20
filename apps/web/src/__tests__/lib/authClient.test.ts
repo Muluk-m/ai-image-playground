@@ -182,6 +182,35 @@ describe('auth client', () => {
     expect(Reflect.get(error as object, 'traceId')).toBe(recentFailedTraceId())
   })
 
+  it('keeps the real failure when a later request is cancelled, but notes timeouts', async () => {
+    _resetTraceContextForTesting()
+    vi.stubGlobal('location', new URL('https://app.example.com/'))
+    const failed = '4bf92f3577b34da6a3ce929d0e0e4736'
+    let next: () => Promise<Response> = async () =>
+      new Response(null, { status: 502, headers: { 'x-trace-id': failed } })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => next()),
+    )
+    await authenticatedBffFetch('/api/projects')
+    expect(recentFailedTraceId()).toBe(failed)
+
+    next = async () => {
+      throw new DOMException('The operation was aborted.', 'AbortError')
+    }
+    await expect(authenticatedBffFetch('/api/agent/sessions')).rejects.toMatchObject({
+      name: 'AbortError',
+    })
+    expect(recentFailedTraceId()).toBe(failed)
+
+    next = async () => {
+      throw new DOMException('signal timed out', 'TimeoutError')
+    }
+    const timeout = await authenticatedBffFetch('/api/projects').catch((reason: unknown) => reason)
+    expect(recentFailedTraceId()).toBe(Reflect.get(timeout as object, 'traceId'))
+    expect(recentFailedTraceId()).not.toBe(failed)
+  })
+
   it('leaves simple cross-origin requests without traceparent and does not note 401s', async () => {
     _resetTraceContextForTesting()
     vi.stubGlobal('location', new URL('https://app.example.com/'))

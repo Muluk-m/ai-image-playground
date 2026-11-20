@@ -518,7 +518,10 @@ export async function authenticatedBffFetch(
       if (!response.ok && response.status !== 401) noteFailedTrace(responseTrace)
       return response
     } catch (error) {
-      noteFailedTrace(traced.traceId)
+      // 主动取消（切换会话、预取让路）不是故障，不能顶掉此前真正失败的链路；超时（TimeoutError）照记。
+      const aborted =
+        error !== null && typeof error === 'object' && Reflect.get(error, 'name') === 'AbortError'
+      if (!aborted) noteFailedTrace(traced.traceId)
       throw tagTraceId(error, traced.traceId)
     }
   }

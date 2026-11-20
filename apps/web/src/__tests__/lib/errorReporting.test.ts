@@ -462,7 +462,9 @@ it('carries the trace id the error names, else the BFF request that just failed'
   reportClientError('error', Object.assign(new Error('names junk'), { traceId: 'junk' }))
   reportClientError(
     'error',
-    new Error('wraps one', { cause: Object.assign(new Error('inner'), { traceId: own }) }),
+    Object.assign(new Error('wraps one'), {
+      cause: Object.assign(new Error('inner'), { traceId: own }),
+    }),
   )
   flushClientErrors()
   const reports = (await sentBodies()).flatMap((sent) => sent.body.errors)
