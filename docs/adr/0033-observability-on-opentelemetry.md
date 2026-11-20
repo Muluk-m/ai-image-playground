@@ -44,3 +44,9 @@ P2 实施（2026-11-20，macmini2 端到端：Docker fluentd 驱动 → Fluent B
 - 字段名小写、点换下划线：span 属性 `task.id` 存成 `task_id`，日志字段 `taskId` 存成 `taskid`。
 
 代价：观测后端和生产服务在同一台 VPS 上，要占内存；宿主机挂掉时日志 UI 也不可用，但数据在 R2 里，可以在别处起一个 OpenObserve 读取。多了 Collector 和 OpenObserve 两个组件要升级和监控。Bun 上需要手动埋点，新增上游或存储出口时要记得建 span，靠评审保证。
+
+P4 实施（2026-11-20，#1938）：
+
+- **不引入 OTel metrics SDK。** 核心三项（API 5xx 比例、生成失败、出图耗时）在 `app-alerts` 里早有规则，读的是 PostgreSQL 的分钟级 API 统计和任务表。缺的只有上游维度，而每次上游请求都已经有 span（渠道、模型、结果、状态码），在 OpenObserve 里按 15 分钟聚合就够了。加 metrics SDK 要动依赖锁文件和私有 overlay，还要新增一条 Collector 管道，换来的数据和现有的重复。
+- 上游告警接进现有的 `app-alerts` 规则引擎（`upstream-errors`、`upstream-throttle`），复用它的去抖、恢复、失明计数和值班 webhook。OpenObserve 自带的告警不用：它的规则要用 root 账号去配，绕开了只读代理。
+

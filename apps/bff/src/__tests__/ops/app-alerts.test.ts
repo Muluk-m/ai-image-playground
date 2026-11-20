@@ -9,7 +9,9 @@ const databaseUrl = await resetTestDatabase('bff_app_alerts')
 process.env.DATABASE_URL = databaseUrl
 
 const writer = createDb(databaseUrl)
-const { createAppAlerting, latestObsLogReader, observeApp } = await import('../../ops/app-alerts')
+const { createAppAlerting, latestObsLogReader, observeApp, upstreamStatsReader } = await import(
+  '../../ops/app-alerts'
+)
 const { close } = await import('../../db/client')
 
 afterAll(async () => {
@@ -276,6 +278,73 @@ describe('observeApp', () => {
     })
     expect(failing.serverLogs).toBeUndefined()
     expect(missed).toContain('serverLogs')
+  })
+
+  it('aggregates upstream spans per provider and model, counting only upstream-side failures', async () => {
+    const queries: Array<{ sql: string; type?: string; startMs: number }> = []
+    let fields = new Set([
+      'operation_name',
+      'span_id',
+      'upstream_provider',
+      'upstream_model',
+      'upstream_outcome',
+    ])
+    const read = upstreamStatsReader({
+      search: async (query) => {
+        queries.push(query)
+        return [{ provider: 'gemini', model: 'veo', requests: 12, failures: '4', throttled: 1 }]
+      },
+      searchAll: async () => ({ records: [], truncated: false }),
+      streamFields: async () => fields,
+    })
+    expect(await read(now)).toEqual([
+      { provider: 'gemini', model: 'veo', requests: 12, failures: 4, throttled: 1 },
+    ])
+    // 没有 server_address 字段时不按主机分组。
+    expect(queries[0]?.sql).toContain("GROUP BY upstream_provider, '', upstream_model")
+    // 取消不算请求；连接、读取失败不论状态码都算失败；没有状态码字段时 5xx 与 429 数不出来。
+    expect(queries[0]?.sql).toContain("upstream_outcome <> 'aborted'")
+    expect(queries[0]?.sql).toContain("upstream_outcome IN ('read_error', 'transport_error')")
+    expect(queries[0]?.sql).toContain('COUNT(DISTINCT CASE WHEN NULL = 429 THEN span_id END)')
+    expect(queries[0]).toMatchObject({ type: 'traces', startMs: now - 15 * minute })
+    fields = new Set([...fields, 'http_response_status_code', 'task_id', 'server_address'])
+    await read(now)
+    // 直连与网关按实际访问的主机分开统计。
+    expect(queries[1]?.sql).toContain('GROUP BY upstream_provider, server_address, upstream_model')
+    expect(queries[1]?.sql).toContain(
+      "upstream_outcome = 'http_error' AND CAST(http_response_status_code AS BIGINT) >= 500",
+    )
+    // 同一任务的退避重试只算一次限流。
+    expect(queries[1]?.sql).toContain(
+      'COUNT(DISTINCT CASE WHEN CAST(http_response_status_code AS BIGINT) = 429 THEN COALESCE(task_id, span_id) END)',
+    )
+    // 新部署还没有任何 span：不查。
+    fields = new Set()
+    expect(await read(now)).toEqual([])
+    expect(queries).toHaveLength(2)
+  })
+
+  it('warns once when spans exist but the upstream fields are gone', async () => {
+    const { log } = await import('../../lib/logger')
+    const warn = spyOn(log, 'warn').mockImplementation(() => {})
+    const read = upstreamStatsReader({
+      search: async () => [],
+      searchAll: async () => ({ records: [], truncated: false }),
+      streamFields: async () => new Set(['operation_name', 'span_id']),
+    })
+    // 读不到不是零请求：抛出去，这一块算失明。
+    await expect(read(now)).rejects.toThrow('upstream spans lack')
+    await expect(read(now)).rejects.toThrow('upstream spans lack')
+    expect(warn).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
+  })
+
+  it('observes upstream only where observability is configured', async () => {
+    expect((await observeApp({ now })).upstream).toBeUndefined()
+    const upstream = [{ provider: 'p', model: 'm', requests: 1, failures: 0, throttled: 0 }]
+    expect((await observeApp({ now, readUpstream: async () => upstream })).upstream).toEqual(
+      upstream,
+    )
   })
 
   it('asks OpenObserve for the newest log in the last hour and converts microseconds', async () => {

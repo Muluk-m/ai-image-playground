@@ -14,7 +14,7 @@ delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT
 
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { runTask } = await import('../../workers/task-runner')
-const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
+const { callUpstream, setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setVertexRateLimitBackoffForTesting } = await import('../../lib/upstream/vertex')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
@@ -93,6 +93,32 @@ afterAll(async () => {
 })
 
 describe('上游请求链路', () => {
+  it('调用方取消的请求记成 aborted，不标错：上游告警不把它算成上游故障', async () => {
+    const controller = new AbortController()
+    setUpstreamFetchForTesting(
+      ((_input: Parameters<TestFetch>[0], init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('The operation was aborted.', 'AbortError')),
+          )
+          setTimeout(() => controller.abort(), 10)
+        })) as unknown as TestFetch,
+    )
+    await expect(
+      callUpstream({
+        provider: 'gemini',
+        model: FALLBACK,
+        request: { prompt: 'cancelled', n: 1 },
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow()
+    const upstream = spans
+      .getFinishedSpans()
+      .filter((span) => span.kind === SpanKind.CLIENT && span.name === 'upstream POST')
+    expect(upstream.at(-1)?.attributes['upstream.outcome']).toBe('aborted')
+    expect(upstream.at(-1)?.status.code).toBe(SpanStatusCode.UNSET)
+  })
+
   it('每条上游请求一个 CLIENT span 挂在执行 span 下并把 traceparent 带给上游；429 标错，退避记成 event', async () => {
     await db.insert(schema.tasks).values({
       id: 'traced',
