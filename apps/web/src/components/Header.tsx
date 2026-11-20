@@ -120,7 +120,7 @@ export default function Header() {
       <div
         ref={headerActionsRef}
         data-no-drag-select
-        className="studio-global-account fixed z-40 flex items-center gap-2"
+        className="studio-global-account fixed z-40 flex items-center gap-2 md:gap-3"
       >
         {workbench && agentPanelPresent() ? <AgentJobInbox /> : null}
         <div className="studio-header-float flex items-center gap-2">
