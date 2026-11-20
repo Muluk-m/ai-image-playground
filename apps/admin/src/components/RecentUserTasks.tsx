@@ -126,13 +126,13 @@ export function RecentUserTasks({
         ) : tasks.length === 0 ? (
           <EmptyState label="没有匹配的任务" />
         ) : (
-          <div className="overflow-hidden rounded-md border">
-            <Table className="min-w-[650px] table-fixed">
-              <TableHeader className="bg-muted/40">
+          <div className="overflow-hidden rounded-md border [&>div:first-child]:max-h-[min(60vh,34rem)]">
+            <Table className="min-w-[610px] table-fixed">
+              <TableHeader className="sticky top-0 z-10 bg-card">
                 <TableRow>
                   <TableHead className="w-[86px]">状态</TableHead>
-                  <TableHead className="w-[140px]">模型</TableHead>
-                  <TableHead className="w-[72px]">来源</TableHead>
+                  <TableHead className="w-[132px]">模型</TableHead>
+                  <TableHead className="w-[64px]">来源</TableHead>
                   <TableHead>提示词 / 错误码</TableHead>
                   <TableHead className="w-[75px] text-right">耗时</TableHead>
                   <TableHead className="w-[90px] text-right">提交时间</TableHead>

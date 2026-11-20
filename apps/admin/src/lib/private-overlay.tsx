@@ -162,11 +162,13 @@ export function PrivateAdminUserDetailPanel(props: {
   return (
     <div
       className={
-        enabled ? 'space-y-4' : 'grid items-start gap-4 xl:grid-cols-[280px_minmax(0,1fr)]'
+        enabled
+          ? 'space-y-4'
+          : 'grid items-start gap-4 lg:grid-cols-[248px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)]'
       }
     >
       {props.profile}
-      {content}
+      <div className={enabled ? undefined : 'order-first min-w-0 lg:order-none'}>{content}</div>
     </div>
   )
 }

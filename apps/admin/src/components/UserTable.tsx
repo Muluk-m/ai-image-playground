@@ -288,7 +288,7 @@ export function UserTable({
                   {privateUserSummaryColumnTitle}
                 </TableHead>
               ) : null}
-              <TableHead className="w-[148px]">
+              <TableHead className="sticky right-0 z-10 w-[148px] border-l bg-card">
                 <span className="sr-only">操作</span>
               </TableHead>
             </TableRow>
@@ -361,7 +361,7 @@ export function UserTable({
                     <SummaryValue summary={summaries[user.id]} />
                   </TableCell>
                 ) : null}
-                <TableCell className="whitespace-nowrap pr-3 text-right">
+                <TableCell className="sticky right-0 z-10 whitespace-nowrap border-l bg-card pr-3 text-right group-hover:bg-muted">
                   <Button variant="ghost" asChild>
                     <Link
                       to="/tasks"
