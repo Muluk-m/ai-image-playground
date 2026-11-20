@@ -118,6 +118,7 @@ describe('callUpstream Vertex AI direct channel', () => {
       generationConfig: {
         responseModalities: ['IMAGE'],
         imageConfig: { aspectRatio: '16:9', imageSize: '2K' },
+        thinkingConfig: { thinkingLevel: 'high' },
       },
     })
   })
@@ -608,6 +609,19 @@ describe('callUpstream Vertex AI direct channel', () => {
         expect(attempts.at(-1)).toContain(`/models/${LITE}:`)
         expect(bodies[0]).toContain('"imageSize":"2K"')
         expect(bodies.at(-1)).toContain('"imageSize":"1K"')
+      })
+
+      it('the fallback request carries the same default thinking level', async () => {
+        throttle(LITE)
+        await callUpstream({
+          provider: 'gemini',
+          model: LITE,
+          request: { prompt: 'a cup' },
+          rateLimitFallbackModel: FALLBACK,
+        })
+        expect(attempts.at(-1)).toContain(`/models/${FALLBACK}:`)
+        expect(bodies[0]).toContain('"thinkingConfig":{"thinkingLevel":"high"}')
+        expect(bodies.at(-1)).toContain('"thinkingConfig":{"thinkingLevel":"high"}')
       })
 
       it('fails without a task retry when the fallback is throttled as well', async () => {

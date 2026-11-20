@@ -1,3 +1,4 @@
+import { findCatalogModel } from '@image-playground/shared/model-catalog'
 import { trace } from '@opentelemetry/api'
 import type { HydratedSubmitRequest } from '../imageArchive'
 import { log } from '../logger'
@@ -14,6 +15,21 @@ import { clientError } from './shared'
  * - 三者都认 thinkingLevel minimal / high。
  * 每个模型认哪几档写在 channels.json 的 `imageSizes`（4K 倍率已定义，渠道仍不开放）。
  */
+
+/**
+ * 请求没指定思考级别时用最高一档：画面构图、图中文字更稳，代价是更慢、上游多耗推理 token
+ * （平台按张计费，不改用户扣费）。只对目录里声明了 `high` 的模型补，且只用在 Vertex 线路
+ * （上面实测过的端点）；显式给的值（智能体计划、extra.generationConfig）照旧以调用方为准。
+ * 429 回落换模型时按回落模型再求一次，同一单的几张图思考档一致。
+ */
+export function withDefaultThinking<T extends { thinking_level?: string }>(
+  request: T,
+  model: string,
+): T {
+  if (request.thinking_level) return request
+  const levels = findCatalogModel(model)?.image?.thinking?.levels
+  return levels?.includes('high') ? { ...request, thinking_level: 'high' } : request
+}
 
 /** Gemini 3 系图像模型单次最多 14 张参考图（官方上限）；超出时上游 400，提交前就拦下并说清楚。 */
 export const VERTEX_MAX_INPUT_IMAGES = 14

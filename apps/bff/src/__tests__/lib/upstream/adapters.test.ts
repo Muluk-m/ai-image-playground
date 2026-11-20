@@ -129,6 +129,58 @@ describe('image adapters plan platform requests into upstream calls', () => {
     expect(plan.dropped).toEqual([])
   })
 
+  it('vertex gemini defaults to the highest thinking level the model declares', () => {
+    const plan = geminiAdapter.plan(
+      { prompt: 'a cup', resolution: '1K', ratio: '1:1', count: 1 },
+      'gemini-nano-banana-2.1',
+      { ...guest, vertex: true, imageSizes: ['1K', '2K'] },
+    )
+    expect(plan.calls[0]!.body).toMatchObject({
+      generationConfig: { thinkingConfig: { thinkingLevel: 'high' } },
+    })
+    expect(plan.applied).toMatchObject({ thinking_level: 'high' })
+  })
+
+  it('the receipt reports the thinking level actually sent when extra overrides it', () => {
+    const plan = geminiAdapter.plan(
+      {
+        prompt: 'a cup',
+        count: 1,
+        extra: { generationConfig: { thinkingConfig: { thinkingLevel: 'minimal' } } },
+      },
+      'gemini-nano-banana-2.1',
+      { ...guest, vertex: true },
+    )
+    expect(plan.calls[0]!.body).toMatchObject({
+      generationConfig: { thinkingConfig: { thinkingLevel: 'minimal' } },
+    })
+    expect(plan.applied).toMatchObject({ thinking_level: 'minimal' })
+  })
+
+  it('gemini keeps an explicit level, skips models without one and the generic gateway', () => {
+    const minimal = geminiAdapter.plan(
+      { prompt: 'a cup', count: 1, thinking: 'minimal' },
+      'gemini-3-pro-image',
+      { ...guest, vertex: true },
+    )
+    expect(minimal.calls[0]!.body).toMatchObject({
+      generationConfig: { thinkingConfig: { thinkingLevel: 'minimal' } },
+    })
+    const unknown = geminiAdapter.plan({ prompt: 'a cup', count: 1 }, 'imagen-4.0-generate', {
+      ...guest,
+      vertex: true,
+    })
+    expect(JSON.stringify(unknown.calls[0]!.body)).not.toContain('thinkingConfig')
+    expect(unknown.applied).not.toHaveProperty('thinking_level')
+    // 通用网关线路没实测过 thinkingConfig，不补默认值。
+    const gateway = geminiAdapter.plan(
+      { prompt: 'a cup', count: 1 },
+      'gemini-3.1-flash-image',
+      guest,
+    )
+    expect(JSON.stringify(gateway.calls[0]!.body)).not.toContain('thinkingConfig')
+  })
+
   it('gemini 4K is downgraded when that tier is not open', () => {
     const plan = geminiAdapter.plan(
       { prompt: 'a cup', resolution: '4K', ratio: '16:9', count: 1 },

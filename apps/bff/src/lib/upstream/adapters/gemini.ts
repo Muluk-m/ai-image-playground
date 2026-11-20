@@ -1,7 +1,7 @@
 import { isObject } from '../../type-guards'
 import { buildGeminiBody, mergeGeminiCandidateResults } from '../gemini'
 import type { UpstreamCallResult } from '../shared'
-import { buildVertexBody } from '../vertex'
+import { buildVertexBody, withDefaultThinking } from '../vertex'
 import { catalogCapabilities, isResolutionTier } from './catalog'
 import { parsePayload, workingRequest } from './platform'
 import type { DroppedParam, ImageAdapter, ResolutionTier } from './types'
@@ -18,16 +18,23 @@ function openTiers(model: string): ResolutionTier[] {
   }).tiers.filter((tier) => tier !== '4K')
 }
 
-function imageConfigOf(body: Record<string, unknown>): {
+/** 读最终请求体里真正发出去的档位：`extra.generationConfig` 会压过扁平参数，回执以它为准。 */
+function sentConfigOf(body: Record<string, unknown>): {
   imageSize?: string
   aspectRatio?: string
+  thinkingLevel?: string
 } {
-  if (!isObject(body.generationConfig) || !isObject(body.generationConfig.imageConfig)) return {}
-  const imageConfig = body.generationConfig.imageConfig
+  if (!isObject(body.generationConfig)) return {}
+  const { imageConfig, thinkingConfig } = body.generationConfig
   return {
-    ...(typeof imageConfig.imageSize === 'string' ? { imageSize: imageConfig.imageSize } : {}),
-    ...(typeof imageConfig.aspectRatio === 'string'
+    ...(isObject(imageConfig) && typeof imageConfig.imageSize === 'string'
+      ? { imageSize: imageConfig.imageSize }
+      : {}),
+    ...(isObject(imageConfig) && typeof imageConfig.aspectRatio === 'string'
       ? { aspectRatio: imageConfig.aspectRatio }
+      : {}),
+    ...(isObject(thinkingConfig) && typeof thinkingConfig.thinkingLevel === 'string'
+      ? { thinkingLevel: thinkingConfig.thinkingLevel }
       : {}),
   }
 }
@@ -44,11 +51,12 @@ export const geminiAdapter: ImageAdapter = {
     return { ...base, tiers: openTiers(model) }
   },
   plan: (req, model, ctx) => {
-    const request = workingRequest(req, model, ctx)
+    const working = workingRequest(req, model, ctx)
+    const request = ctx.vertex ? withDefaultThinking(working, model) : working
     const body = ctx.vertex
       ? buildVertexBody(request, ctx.imageSizes)
       : buildGeminiBody(request, ctx.imageSizes)
-    const sent = imageConfigOf(body)
+    const sent = sentConfigOf(body)
     const extraConfig = request.extra?.generationConfig
     const requested =
       isObject(extraConfig) && isObject(extraConfig.imageConfig)
@@ -72,7 +80,7 @@ export const geminiAdapter: ImageAdapter = {
       applied: {
         ...(sent.imageSize ? { image_size: sent.imageSize } : {}),
         ...(sent.aspectRatio ? { aspect_ratio: sent.aspectRatio } : {}),
-        ...(request.thinking_level ? { thinking_level: request.thinking_level } : {}),
+        ...(sent.thinkingLevel ? { thinking_level: sent.thinkingLevel } : {}),
         n: count,
       },
       dropped,
