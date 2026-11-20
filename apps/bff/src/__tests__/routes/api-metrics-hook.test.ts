@@ -61,6 +61,7 @@ describe('API statistics on the real request pipeline', () => {
       route: 'GET /api/capabilities',
     })
     expect(byRequest('access-log-request')[0]).not.toHaveProperty('path')
+    expect(byRequest('rejected-log-request')).toHaveLength(1)
     expect(byRequest('rejected-log-request')[0]).toMatchObject({
       level: 40,
       status: 404,

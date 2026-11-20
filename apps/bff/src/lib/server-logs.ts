@@ -29,6 +29,7 @@ export async function closeServerLogDatabase() {
   if (handle) await handle.client.close({ timeout: 0 })
 }
 
+/** P3-5（#1937）起已没有生产调用方，只剩测试用它造数据；P3-6 删表时一并删掉。 */
 export async function writeServerLogs(entries: ServerLogEntry[]): Promise<void> {
   await getLogDatabase().db.insert(schema.server_logs).values(entries).onConflictDoNothing()
 }
