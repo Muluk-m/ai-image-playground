@@ -72,7 +72,7 @@ export const OPS_THRESHOLDS = {
   /** 心跳每 30 秒一次；超过这个时长没更新就当服务断了，也就是容忍连续丢 3 次。 */
   HEARTBEAT_MAX_AGE_MS: 2 * 60 * 1000,
   /**
-   * server_logs 超过这个时长没有新行就是采集管道断了（2026-10-31 旧 compose 重建丢掉 fluentd
+   * OpenObserve 超过这个时长没有新日志就是采集管道断了（2026-10-31 旧 compose 重建丢掉 fluentd
    * 驱动，断流九小时才被发现）。低流量部署每分钟也有宿主机采样上报等周期日志，实测最大静默约 1 分钟。
    */
   SERVER_LOGS_MAX_AGE_MS: 10 * 60 * 1000,

@@ -59,6 +59,8 @@ app.env 里 `OBSERVABILITY_ENABLED=true` 时，下一次发布由 `scripts/app-c
 - `openobserve`（v1.1.2，上限 512 MB）：日志和 span 都写进 `app` 流，以 Parquet 存在 `OBS_S3_BUCKET` 的 `OBS_S3_PREFIX` 下，保留 `OBS_RETENTION_DAYS` 天（默认 30）。本地卷 `openobserve-data` 只放预写日志和查询缓存（数据缓存 1 GB、结果缓存 128 MB 封顶；宿主机约有 19 GB 空闲）。关了遥测、GeoIP 下载和模型价格同步，除 R2 外不外连。镜像没有 shell，不配容器健康检查。它自己的输出只留在 `docker logs`：转发进来会自己喂自己。
 - `obs-proxy`：开源版 OpenObserve 没有只读角色，对外只开这个代理。它用自己的 `OBS_PROXY_TOKEN`（Bearer，至少 32 字符）鉴权，只放行 `POST /api/default/_search`、`GET /api/default/streams` 和 `GET /api/default/<流>/traces/latest`，OpenObserve 账号由代理代填（`apps/bff/src/ops/obs-proxy.ts`）。
 
+Admin 和 worker 也经这个代理读 OpenObserve（ADR 0033 P3，#1937）。需要 app.env 设 `OBS_PROXY_URL=http://obs-proxy:5090`，令牌用同一个 `OBS_PROXY_TOKEN`。不设时视为这个部署没开观测，依赖它的页面显示「未配置」（测试环境就是这样）。查询客户端在 `packages/node-kit/src/obs-client.ts`，SQL 拼装在 `packages/shared/src/obs-query.ts`，CLI、Admin、BFF 共用。
+
 查询用 `scripts/obs.ts`，不需要 Admin：
 
 ```sh

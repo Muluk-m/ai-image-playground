@@ -20,6 +20,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { parseArgs } from 'node:util'
+import { createObsClient, ObsQueryError } from '../packages/node-kit/src/obs-client'
 import {
   formatLog,
   formatTrace,
@@ -29,7 +30,7 @@ import {
   parseDuration,
   taskSpansSql,
   traceSql,
-} from '../apps/bff/src/ops/obs-query'
+} from '../packages/shared/src/obs-query'
 
 const { values, positionals } = parseArgs({
   allowPositionals: true,
@@ -58,51 +59,32 @@ const { url, token, org } = connection(values.env!)
 const limit = Number(values.limit)
 if (!Number.isSafeInteger(limit) || limit <= 0) usage(2, `--limit 要是正整数：${values.limit}`)
 const sinceMs = parseDuration(values.since ?? (command === 'task' ? '7d' : '1h'))
-const endUs = (Date.now() + 60_000) * 1_000
-const startUs = (Date.now() - sinceMs) * 1_000
+const endMs = Date.now() + 60_000
+const startMs = Date.now() - sinceMs
+const client = createObsClient({ url, token, org })
 
 type Hit = Record<string, unknown>
 
-async function search(
-  sql: string,
-  type: 'logs' | 'traces',
-  size = 1_000,
-  from = 0,
-): Promise<Hit[]> {
-  const response = await fetch(`${url}/api/${org}/_search?type=${type}`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ query: { sql, start_time: startUs, end_time: endUs, from, size } }),
-    signal: AbortSignal.timeout(60_000),
-  }).catch((error: unknown) =>
-    fail(`连不上 ${url}：${error instanceof Error ? error.message : String(error)}`),
-  )
-  const payload = (await response.json().catch(() => ({}))) as { hits?: unknown; message?: string }
-  if (!response.ok) {
-    // 还没有任何数据写进来时流不存在：当作没结果。
-    if (/stream not found/i.test(String(payload.message))) return []
-    if (response.status === 401) fail('令牌不对：检查 OBS_TOKEN 或 obs.env 里的令牌')
-    fail(
-      `查询失败（${response.status}）：${payload.message ?? (payload as { error?: string }).error ?? '未知错误'}`,
-    )
-  }
-  return (payload.hits as Hit[]) ?? []
+function explain(error: unknown): never {
+  if (error instanceof ObsQueryError && error.failure === 'unauthorized')
+    fail('令牌不对：检查 OBS_TOKEN 或 obs.env 里的令牌')
+  fail(error instanceof Error ? error.message : String(error))
 }
 
-/** 一条链路的 span 可能上千个：按页拉全，最多 MAX_PAGES 页；到顶就明说结果不完整。 */
-const PAGE = 1_000
-const MAX_PAGES = 20
+function search(sql: string, type: 'logs' | 'traces', size = 1_000): Promise<Hit[]> {
+  return client.search({ sql, type, startMs, endMs, size }).catch(explain)
+}
+
+/** 一条链路的 span 可能上千个：按页拉全；到顶就明说结果不完整。 */
 async function searchAll(sql: string, type: 'logs' | 'traces'): Promise<Hit[]> {
-  const all: Hit[] = []
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const hits = await search(sql, type, PAGE, page * PAGE)
-    all.push(...hits)
-    if (hits.length < PAGE) return all
-  }
-  console.error(
-    `注意：结果超过 ${PAGE * MAX_PAGES} 条，只取了前 ${PAGE * MAX_PAGES} 条，链路可能不完整`,
-  )
-  return all
+  const { records, truncated } = await client
+    .searchAll({ sql, type, startMs, endMs })
+    .catch(explain)
+  if (truncated)
+    console.error(
+      `注意：结果超过 ${records.length} 条，只取了前 ${records.length} 条，链路可能不完整`,
+    )
+  return records
 }
 
 /** 日志查询按时间倒序取最新的 limit 条，输出一律转成正序；取满了就提示还有更早的。 */

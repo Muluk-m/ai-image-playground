@@ -1,8 +1,10 @@
+import { createObsClient, type ObsClient, obsConnectionFromEnv } from '@image-playground/node-kit'
 import {
   type AgentFailurePattern,
   type AlertObservation,
   type AlertState,
   evaluateAlerts,
+  OBS_STREAM,
   OPS_THRESHOLDS,
   type OpsBackups,
   type OpsRestoreDrill,
@@ -30,8 +32,40 @@ import { createBackupWatch, isBackupWatchDeferred } from './backup-watch'
  * worker 不判断自己的心跳：发告警的就是它，它挂了这条本来也发不出来。
  */
 
+/** 读最新一条日志的时间（毫秒）；窗口里一条都没有时为 null。null 表示这个部署没开观测。 */
+type LatestLogReader = ((now: number) => Promise<number | null>) | null
+
+/** 断流观测只看最近这么久：够覆盖告警线和进程重启，又不让每分钟一次的查询扫太多分区。 */
+const LATEST_LOG_WINDOW_MS = 60 * 60_000
+
+/**
+ * 日志管道的新鲜度从 OpenObserve 读（ADR 0033 P3）：容器日志经 Fluent Bit → Collector 写进
+ * `app` 流，这里取最新一条的时间。宿主机采样、备份等周期日志保证低流量部署也每分钟有新行。
+ */
+export function latestObsLogReader(client: ObsClient): (now: number) => Promise<number | null> {
+  return async (now) => {
+    const [row] = await client.search({
+      sql: `SELECT MAX(_timestamp) AS latest FROM "${OBS_STREAM}"`,
+      type: 'logs',
+      startMs: now - LATEST_LOG_WINDOW_MS,
+      endMs: now + 60_000,
+      size: 1,
+    })
+    const latest = Number(row?.latest)
+    // _timestamp 是微秒。
+    return Number.isFinite(latest) && latest > 0 ? Math.floor(latest / 1_000) : null
+  }
+}
+
+function latestLogReaderFromEnv(): LatestLogReader {
+  const connection = obsConnectionFromEnv()
+  return connection ? latestObsLogReader(createObsClient(connection, { timeoutMs: 15_000 })) : null
+}
+
 interface ObserveOptions {
   now: number
+  /** 默认按 `OBS_PROXY_URL`/`OBS_PROXY_TOKEN` 读 OpenObserve，没配为 null（不观测）。测试注入。 */
+  readLatestLogAt?: LatestLogReader
   /** 这一轮取不到读数的块；调用方据此累计“失明”轮数。 */
   onMissed?: (block: string) => void
   /** 这一轮真正尝试读取了的块（成功或失败都算；被节流跳过的不算）。 */
@@ -78,6 +112,8 @@ async function attempt<T>(
 export async function observeApp(options: ObserveOptions): Promise<AlertObservation> {
   const readBackups = options.readBackups ?? readBackupsFromStore
   const readRestoreDrill = options.readRestoreDrill ?? readRestoreDrillFromStore
+  const readLatestLogAt =
+    options.readLatestLogAt === undefined ? latestLogReaderFromEnv() : options.readLatestLogAt
   const missed = options.onMissed
   const attempted = options.onAttempted
   const [
@@ -285,21 +321,15 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
       attempted,
     ),
     attempt('agentFailurePatterns', readAgentFailurePatterns, missed, attempted),
-    attempt(
-      'serverLogs',
-      async () => {
-        const rows = (await db.execute(sql`
-            SELECT EXTRACT(EPOCH FROM at) * 1000 AS latest_at
-            FROM server_logs
-            ORDER BY at DESC, id DESC
-            LIMIT 1
-          `)) as unknown as Array<{ latest_at: string | number | null }>
-        const latest = rows[0]?.latest_at
-        return { latest_at: latest == null ? null : Number(latest) }
-      },
-      missed,
-      attempted,
-    ),
+    // 没开观测（测试环境）就不给这一块：没有管道可言，缺失也不会被当成已恢复。
+    readLatestLogAt
+      ? attempt(
+          'serverLogs',
+          async () => ({ latest_at: await readLatestLogAt(options.now) }),
+          missed,
+          attempted,
+        )
+      : undefined,
     attempt('slowGenerations', readSlowGenerations, missed, attempted),
   ])
   // 没开直连就不给这一块：没有预算可言，缺失也不会被当成已恢复。
@@ -413,6 +443,7 @@ interface AppAlertingOptions {
   readRestoreDrill?: () => Promise<OpsRestoreDrill | null>
   /** 备份和演练列出的最短间隔；默认 5 分钟。测试可改短。 */
   backupWatchIntervalMs?: number
+  readLatestLogAt?: LatestLogReader
 }
 
 /**
@@ -424,6 +455,8 @@ export function createAppAlerting(options: AppAlertingOptions): (now?: number) =
   let pending = false
   let again = false
   const blindRounds = new Map<string, number>()
+  const readLatestLogAt =
+    options.readLatestLogAt === undefined ? latestLogReaderFromEnv() : options.readLatestLogAt
   const backupWatch = createBackupWatch({
     intervalMs: options.backupWatchIntervalMs ?? OPS_THRESHOLDS.BACKUP_WATCH_INTERVAL_MS,
     readBackups: options.readBackups ?? readBackupsFromStore,
@@ -447,6 +480,7 @@ export function createAppAlerting(options: AppAlertingOptions): (now?: number) =
           readBackups: () => backupWatch.readBackups(roundNow),
           readRestoreDrill: () => backupWatch.readRestoreDrill(roundNow),
           watchingModels: Object.keys(state.generationWatch ?? {}),
+          readLatestLogAt,
           onMissed: (block) => missed.add(block),
           onAttempted: (block) => attempted.add(block),
         })

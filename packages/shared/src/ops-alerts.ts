@@ -38,7 +38,10 @@ export interface AlertObservation {
   host?: HostSample
   queue?: { oldest_queued_wait_ms: number | null }
   backup?: { latest_modified_at: number | null }
-  /** server_logs 里最新一条的时间。null 表示表里还没有任何日志（新部署），不告警。 */
+  /**
+   * OpenObserve 里最近 1 小时最新一条日志的时间（ADR 0033 P3）。null 表示窗口里一条都没有：
+   * 新部署不告警，已经在报时继续报。没开观测的部署不给这一块。
+   */
   serverLogs?: { latest_at: number | null }
   restoreDrill?: OpsRestoreDrill | null
   heartbeats?: { bff?: number | null }
@@ -383,16 +386,16 @@ function readings(
     out['server-logs'] = {
       breached: age > OPS_THRESHOLDS.SERVER_LOGS_MAX_AGE_MS,
       sustainMs: 0,
-      firingText: `服务端日志已经 ${span(age)}没有新记录了（告警线 ${span(OPS_THRESHOLDS.SERVER_LOGS_MAX_AGE_MS)}），日志采集管道可能断了`,
-      resolvedText: '已恢复：服务端日志有新记录了',
+      firingText: `OpenObserve 已经 ${span(age)}没有收到新日志了（告警线 ${span(OPS_THRESHOLDS.SERVER_LOGS_MAX_AGE_MS)}），日志采集管道可能断了`,
+      resolvedText: '已恢复：OpenObserve 又收到新日志了',
     }
   } else if (serverLogs && state['server-logs']?.firing) {
-    // 正在报的时候表被清空：还没好，不是「从来没有过」。
+    // 正在报的时候连最近 1 小时都没有日志了：还没好，不是「从来没有过」。
     out['server-logs'] = {
       breached: true,
       sustainMs: 0,
-      firingText: '服务端日志表里已经没有任何记录，日志采集管道可能断了',
-      resolvedText: '已恢复：服务端日志有新记录了',
+      firingText: 'OpenObserve 最近 1 小时没有收到任何日志，日志采集管道可能断了',
+      resolvedText: '已恢复：OpenObserve 又收到新日志了',
     }
   }
 
