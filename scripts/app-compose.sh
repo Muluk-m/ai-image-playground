@@ -108,9 +108,11 @@ export LOG_FORWARD_DIR
 # (OpenObserve, the OTel Collector, the read-only proxy) and the log collector's second output to
 # it. Off, the profile stays inactive and that output matches no tag. Read here rather than through
 # --env-file because profiles and this match are decided before compose interpolates anything.
+app_env_value() {
+  sed -n "s/^[[:space:]]*$1=//p" "$env_file" | tail -n 1 | tr -d "\"' "
+}
 observability_enabled() {
-  value=$(sed -n 's/^[[:space:]]*OBSERVABILITY_ENABLED=//p' "$env_file" | tail -n 1 | tr -d "\"' ")
-  [ "$value" = true ]
+  [ "$(app_env_value OBSERVABILITY_ENABLED)" = true ]
 }
 if observability_enabled; then
   COMPOSE_PROFILES=observability
@@ -166,7 +168,22 @@ start_log_collector() {
 # Same footing as the log collector: watches the deployment, is not part of it. A failure here is a
 # warning; server_logs keeps the logs and the BFF drops spans it cannot export.
 start_observability() {
-  observability_enabled || return 0
+  if ! observability_enabled; then
+    # Switched off: take the containers down so they stop holding memory. Their volumes stay, so
+    # switching back on picks up where it left off. A no-op where they never ran.
+    (
+      COMPOSE_PROFILES=observability
+      export COMPOSE_PROFILES
+      compose rm --stop --force openobserve otel-collector obs-proxy
+    ) >/dev/null 2>&1 || true
+    return 0
+  fi
+  # Loopback ports are per deployment; two deployments on one host falling back to the same
+  # default would leave the second without observability and only a warning to show for it.
+  if [ -z "$(app_env_value OBS_PROXY_HOST_PORT)" ] || [ -z "$(app_env_value OBS_UI_HOST_PORT)" ]; then
+    echo "Warning: OBSERVABILITY_ENABLED=true but OBS_PROXY_HOST_PORT or OBS_UI_HOST_PORT is not set in $env_file; observability services not started." >&2
+    return 0
+  fi
   compose up --detach --no-deps openobserve otel-collector obs-proxy ||
     echo "Warning: the observability services did not start; server_logs still has the logs." >&2
 }
@@ -213,7 +230,8 @@ case "$command" in
     take_host_lock
     compose_bff=$(timeout 10 docker ps -a --filter "name=^/$project-bff-1$" --format '{{.Names}}') || exit 1
     if release_managed || [ -n "$compose_bff" ]; then
-      rollout_image=${APP_IMAGE:-$(compose config --images | head -n 1)}
+      # Without the observability profile, so the Collector and OpenObserve images are not candidates.
+      rollout_image=${APP_IMAGE:-$(COMPOSE_PROFILES= && export COMPOSE_PROFILES && compose config --images | head -n 1)}
       start_log_collector
       "$repo_root/scripts/rollout-runtime.sh" "$project" "$rollout_image"
     else

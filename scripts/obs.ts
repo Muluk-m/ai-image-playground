@@ -13,7 +13,8 @@
  *
  * 地址与令牌：环境变量 OBS_URL / OBS_TOKEN；没设时读
  * `$XDG_CONFIG_HOME/ai-image-playground/obs.env` 里的 OBS_<ENV>_URL / OBS_<ENV>_TOKEN
- * （例如 OBS_PAID_URL）。令牌就是代理的 OBS_PROXY_TOKEN，不要提交进仓库。
+ * （例如 OBS_PAID_URL）；组织不是 default 时再设 OBS_ORG / OBS_<ENV>_ORG。令牌就是代理的
+ * OBS_PROXY_TOKEN，不要提交进仓库。
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -53,7 +54,7 @@ process.on('unhandledRejection', (error) =>
 )
 if (values.help || !command) usage(0)
 
-const { url, token } = connection(values.env!)
+const { url, token, org } = connection(values.env!)
 const sinceMs = parseDuration(values.since ?? (command === 'task' ? '7d' : '1h'))
 const endUs = (Date.now() + 60_000) * 1_000
 const startUs = (Date.now() - sinceMs) * 1_000
@@ -63,7 +64,7 @@ async function search(
   type: 'logs' | 'traces',
   size = 1_000,
 ): Promise<Record<string, unknown>[]> {
-  const response = await fetch(`${url}/api/default/_search?type=${type}`, {
+  const response = await fetch(`${url}/api/${org}/_search?type=${type}`, {
     method: 'POST',
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
     body: JSON.stringify({ query: { sql, start_time: startUs, end_time: endUs, from: 0, size } }),
@@ -153,7 +154,7 @@ switch (command) {
     usage(2, `不认识的命令：${command}`)
 }
 
-function connection(env: string): { url: string; token: string } {
+function connection(env: string): { url: string; token: string; org: string } {
   const fromFile = readEnvFile()
   const key = env.toUpperCase().replace(/[^A-Z0-9]/g, '_')
   const url = process.env.OBS_URL ?? fromFile[`OBS_${key}_URL`]
@@ -163,7 +164,8 @@ function connection(env: string): { url: string; token: string } {
       2,
       `没找到 ${env} 的地址或令牌：设 OBS_URL/OBS_TOKEN，或在 obs.env 写 OBS_${key}_URL/OBS_${key}_TOKEN`,
     )
-  return { url: url!.replace(/\/+$/, ''), token: token! }
+  const org = process.env.OBS_ORG ?? fromFile[`OBS_${key}_ORG`] ?? 'default'
+  return { url: url!.replace(/\/+$/, ''), token: token!, org }
 }
 
 function readEnvFile(): Record<string, string> {

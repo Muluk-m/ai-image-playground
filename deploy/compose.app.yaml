@@ -402,7 +402,13 @@ services:
     profiles: [observability]
     init: true
     restart: unless-stopped
-    logging: *log-forward
+    # Its own output stays with Docker: every ingest request it logs would travel back to it through
+    # the log copy below, a loop that never settles (and fills server_logs on the way).
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       ZO_ROOT_USER_EMAIL: ${OBS_ROOT_EMAIL:-}
       ZO_ROOT_USER_PASSWORD: ${OBS_ROOT_PASSWORD:-}
@@ -417,9 +423,10 @@ services:
       ZO_S3_SECRET_KEY: ${OBS_S3_SECRET_ACCESS_KEY:-}
       ZO_DATA_DIR: /data
       ZO_COMPACT_DATA_RETENTION_DAYS: ${OBS_RETENTION_DAYS:-30}
-      # The host has 3.6 GB for everything; caches are capped instead of sized from it.
-      ZO_DISK_CACHE_MAX_SIZE: "2048"
-      ZO_DISK_RESULT_CACHE_MAX_SIZE: "256"
+      # The host has 3.6 GB of memory and ~19 GB of free disk for everything; caches are capped
+      # instead of sized from it (1 GB of data cache, 128 MB of result cache in openobserve-data).
+      ZO_DISK_CACHE_MAX_SIZE: "1024"
+      ZO_DISK_RESULT_CACHE_MAX_SIZE: "128"
       ZO_MEMORY_CACHE_DATAFUSION_MAX_SIZE: "128"
       # No calls out besides R2: no usage heartbeat, GeoIP database or model price list.
       ZO_TELEMETRY: "false"
@@ -661,7 +668,13 @@ configs:
                 - replace_all_patterns(attributes, "value", "(?i)\\b(sk-[a-z0-9_-]{8,}|AIza[a-z0-9_-]{15,})\\b", "[REDACTED]")
                 - replace_all_patterns(attributes, "value", "(?i)((api[_-]?key|token|password|secret|signature|credential)[\"']?\\s*[:=]\\s*[\"']?)[^\\s&#\"',}]+", "$$1[REDACTED]")
                 - replace_all_patterns(attributes, "value", "(?i)([a-z][a-z0-9+.-]*://)[^\\s/@]+:[^\\s/@]+@", "$$1[REDACTED]@")
+                - replace_all_patterns(attributes, "value", "(?i)data:[^;\\s]+;base64,[a-z0-9+/=]+", "[BINARY REDACTED]")
+                # A labelled private field inside text (error messages, stacks, JSON embedded in a
+                # string): everything from the label on goes, like redact-log.ts privateAssignment.
+                - replace_pattern(body, "(?is)\\b(prompt|contents?|messages|parts|payload|request_payload|responsebody|errorbody|body|input|output)([\"']?\\s*[:=]).*$$", "$$1$$2 [REDACTED PAYLOAD]")
+                - replace_all_patterns(attributes, "value", "(?is)\\b(prompt|contents?|messages|parts|payload|request_payload|responsebody|errorbody|body|input|output)([\"']?\\s*[:=]).*$$", "$$1$$2 [REDACTED PAYLOAD]")
                 - set(body, Substring(body, 0, 16000)) where Len(body) > 16000
+                - truncate_all(attributes, 4000)
         resource:
           attributes:
             - key: deployment.environment.name
@@ -680,7 +693,9 @@ configs:
           sending_queue:
             enabled: true
             storage: file_storage/queue
-            queue_size: 2000
+            # At most 500 batches of up to 2048 records on disk (otel-queue) while OpenObserve is
+            # away; past that the oldest data is dropped rather than the disk filled.
+            queue_size: 500
           retry_on_failure:
             enabled: true
             max_elapsed_time: 0

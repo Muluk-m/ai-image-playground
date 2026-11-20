@@ -66,6 +66,7 @@ if [ "$cmd" = exec ]; then
   esac
   exit 0
 fi
+[ "$cmd" != compose ] || printf 'compose-env profiles=%s match=%s\n' "\${COMPOSE_PROFILES-}" "\${OBS_LOG_MATCH-}" >> "$M/log"
 printf '%s %s\n' "$cmd" "$*" >> "$M/log"
 case "$cmd" in
   image)
@@ -930,20 +931,32 @@ describe('app-compose.sh up', () => {
     return logLines()
   }
   const observability = /^compose .* up --detach --no-deps openobserve otel-collector obs-proxy$/
+  const takenDown = /^compose .* rm --stop --force openobserve otel-collector obs-proxy$/
+  const ports = 'OBS_PROXY_HOST_PORT=15091\nOBS_UI_HOST_PORT=15081\n'
 
-  it('leaves the observability services alone while app.env has them off', () => {
-    expect(
-      indexOf(upWithAppEnv('APP_IMAGE=fixture:new\nOBSERVABILITY_ENABLED=false\n'), observability),
-    ).toBe(-1)
+  it('keeps the observability profile and the log copy off, and takes the services down, while app.env has them off', () => {
+    const log = upWithAppEnv('APP_IMAGE=fixture:new\nOBSERVABILITY_ENABLED=false\n')
+    expect(indexOf(log, observability)).toBe(-1)
+    expect(indexOf(log, takenDown)).toBeGreaterThan(-1)
+    const collector = indexOf(log, /^compose .* up --detach --no-deps log-collector$/)
+    expect(collector).toBeGreaterThan(-1)
+    expect(log[collector - 1]).toBe('compose-env profiles= match=__observability_off__')
   })
 
-  it('starts the observability services beside the log collector, before the executors, when app.env turns them on (ADR 0033 P2)', () => {
-    const log = upWithAppEnv('APP_IMAGE=fixture:new\nOBSERVABILITY_ENABLED="true"\n')
+  it('turns the profile and the log copy on together and starts the services before the executors (ADR 0033 P2)', () => {
+    const log = upWithAppEnv(`APP_IMAGE=fixture:new\nOBSERVABILITY_ENABLED="true"\n${ports}`)
+    const collector = indexOf(log, /^compose .* up --detach --no-deps log-collector$/)
+    expect(collector).toBeGreaterThan(-1)
+    expect(log[collector - 1]).toBe('compose-env profiles=observability match=*')
     const started = indexOf(log, observability)
-    expect(started).toBeGreaterThan(
-      indexOf(log, /^compose .* up --detach --no-deps log-collector$/),
-    )
+    expect(started).toBeGreaterThan(collector)
     expect(started).toBeLessThan(indexOf(log, /^create /))
+    expect(indexOf(log, takenDown)).toBe(-1)
+  })
+
+  it('does not start the services without per-deployment loopback ports', () => {
+    const log = upWithAppEnv('APP_IMAGE=fixture:new\nOBSERVABILITY_ENABLED=true\n')
+    expect(indexOf(log, observability)).toBe(-1)
   })
 
   it('repairs stale current from the route and re-enters the same image without creating executors', () => {
