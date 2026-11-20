@@ -278,10 +278,12 @@ export function FeedbackInboxPage({
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className="truncate font-mono text-xs text-muted-foreground">
-                        {item.username}
-                      </span>
                       <StatusIndicator thread={item} />
+                      {displayName !== item.username && (
+                        <span className="truncate font-mono text-xs text-muted-foreground">
+                          {item.username}
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                       {item.lastMessageHasAttachment ? (
@@ -322,8 +324,9 @@ export function FeedbackInboxPage({
                       <StatusIndicator thread={activeThread} />
                     </div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      <span className="font-mono">{activeThread.username}</span>
-                      <span>·</span>
+                      {threadDisplayName(activeThread) !== activeThread.username && (
+                        <span className="font-mono">{activeThread.username}</span>
+                      )}
                       <span>共 {activeThread.messageCount} 条消息</span>
                     </div>
                   </div>
