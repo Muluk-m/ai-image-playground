@@ -141,6 +141,22 @@ describe('image adapters plan platform requests into upstream calls', () => {
     expect(plan.applied).toMatchObject({ thinking_level: 'high' })
   })
 
+  it('the receipt reports the thinking level actually sent when extra overrides it', () => {
+    const plan = geminiAdapter.plan(
+      {
+        prompt: 'a cup',
+        count: 1,
+        extra: { generationConfig: { thinkingConfig: { thinkingLevel: 'minimal' } } },
+      },
+      'gemini-nano-banana-2.1',
+      { ...guest, vertex: true },
+    )
+    expect(plan.calls[0]!.body).toMatchObject({
+      generationConfig: { thinkingConfig: { thinkingLevel: 'minimal' } },
+    })
+    expect(plan.applied).toMatchObject({ thinking_level: 'minimal' })
+  })
+
   it('gemini keeps an explicit level, skips models without one and the generic gateway', () => {
     const minimal = geminiAdapter.plan(
       { prompt: 'a cup', count: 1, thinking: 'minimal' },
