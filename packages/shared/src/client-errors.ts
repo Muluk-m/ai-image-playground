@@ -39,6 +39,11 @@ export interface ClientErrorReport {
   url?: string
   /** 前端构建标识，取自 index.html 的 `aip-html-build`。 */
   release?: string
+  /**
+   * 相关的服务端链路（W3C trace id，32 位小写十六进制）：错误自己带的，或出错前 15 秒内最近一次
+   * 失败的 BFF 请求。只是排查线索，不保证就是这条错误的起因。
+   */
+  traceId?: string
   context?: Record<string, unknown>
 }
 

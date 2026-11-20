@@ -20,6 +20,7 @@ import {
 } from '../../lib/authClient'
 import { bootstrapClientCapabilities } from '../../lib/clientCapabilities'
 import { _setRuntimeConfigForTesting } from '../../lib/runtimeConfig'
+import { _resetTraceContextForTesting, recentFailedTraceId } from '../../lib/traceContext'
 import { allCapabilitiesOff } from '../fixtures/capabilities'
 
 const USER = {
@@ -106,6 +107,54 @@ describe('auth client', () => {
       'https://bff.example.com/api/auth/logout',
       expect.objectContaining({ method: 'POST', credentials: 'include' }),
     ])
+  })
+
+  it('traces a preflighted request across the session-refresh retry and remembers its failure', async () => {
+    _resetTraceContextForTesting()
+    vi.stubGlobal('window', new EventTarget())
+    vi.stubGlobal('navigator', {})
+    vi.stubGlobal('location', new URL('https://app.example.com/'))
+    setSignedIn(true)
+    const sent: Array<string | null> = []
+    let attempts = 0
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string, init?: RequestInit) => {
+        if (String(input).endsWith('/api/auth/refresh'))
+          return Response.json({ ok: true, access_expires_at: Date.now() + 60_000 })
+        sent.push(new Headers(init?.headers).get('traceparent'))
+        attempts += 1
+        return new Response(null, { status: attempts === 1 ? 401 : 503 })
+      }),
+    )
+
+    const response = await authenticatedBffFetch('https://bff.example.com/api/tasks', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    })
+
+    expect(response.status).toBe(503)
+    const [first, retry] = sent.map((value) => value?.split('-'))
+    expect(first?.[1]).toMatch(/^[0-9a-f]{32}$/)
+    expect(retry?.[1]).toBe(first?.[1])
+    expect(retry?.[2]).not.toBe(first?.[2])
+    // 401 只是会话过期；记下的是后面真正失败的那次。
+    expect(recentFailedTraceId()).toBe(first?.[1])
+  })
+
+  it('leaves simple cross-origin requests without traceparent and does not note 401s', async () => {
+    _resetTraceContextForTesting()
+    vi.stubGlobal('location', new URL('https://app.example.com/'))
+    const fetchSpy = vi.fn(async () => new Response(null, { status: 401 }))
+    vi.stubGlobal('fetch', fetchSpy)
+
+    await authenticatedBffFetch('https://bff.example.com/api/projects')
+
+    expect(fetchSpy).toHaveBeenCalledWith('https://bff.example.com/api/projects', {
+      credentials: 'include',
+    })
+    expect(recentFailedTraceId()).toBeUndefined()
   })
 
   it('preserves a safe server error code without exposing response details', async () => {

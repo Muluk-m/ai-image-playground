@@ -21,6 +21,9 @@ export interface ParsedClientErrorBatch {
 const KINDS = new Set<string>(CLIENT_ERROR_KINDS)
 
 // PostgreSQL 的 text 与 jsonb 都存不了 NUL；留着它，一条坏数据会让整批 INSERT 失败。
+/** W3C trace id：32 位小写十六进制，全零无效。 */
+const TRACE_ID = /^(?!0{32}$)[0-9a-f]{32}$/
+
 function clip(value: unknown, max: number): string | undefined {
   if (typeof value !== 'string') return undefined
   const trimmed = value.replaceAll('\0', '').trim()
@@ -81,6 +84,10 @@ export function parseClientErrorBatch(raw: string): ParsedClientErrorBatch | nul
       stack: clip(entry.stack, CLIENT_ERROR_LIMITS.stack),
       url: clip(entry.url, CLIENT_ERROR_LIMITS.url),
       release: clip(entry.release, CLIENT_ERROR_LIMITS.release),
+      traceId:
+        typeof entry.traceId === 'string' && TRACE_ID.test(entry.traceId)
+          ? entry.traceId
+          : undefined,
       context: clipContext(entry.context),
     })
   }
@@ -174,7 +181,10 @@ export async function recordClientErrors(
       device_id: meta.deviceId,
       user_id: meta.userId,
       user_agent: userAgent,
-      context: report.context ?? null,
+      // 不单开列：运营后台原样展示 context，排查时拿它去 `obs trace` 查服务端链路。
+      context: report.traceId
+        ? { ...report.context, traceId: report.traceId }
+        : (report.context ?? null),
     })),
   )
 }

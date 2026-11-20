@@ -20,6 +20,7 @@ import {
 import { BUILD_META_NAME } from '../boot/constants'
 import { accountScope } from './authScope'
 import { getDeviceId } from './deviceId'
+import { isTraceId, recentFailedTraceId } from './traceContext'
 
 /** 一次页面会话最多报这么多条，出错循环的页面不该一直往外发。 */
 const MAX_REPORTS_PER_PAGE = 30
@@ -153,6 +154,12 @@ function boundedContext(
   return fits(essential) ? essential : undefined
 }
 
+/** 错误自己带的 trace id 优先；否则取最近一次失败的 BFF 请求，见 traceContext。 */
+function reportTraceId(error: unknown): string | undefined {
+  const own = errorField(error, 'traceId')
+  return isTraceId(own) ? own : recentFailedTraceId()
+}
+
 function currentRelease(): string | undefined {
   const meta = document.querySelector<HTMLMetaElement>(`meta[name="${BUILD_META_NAME}"]`)
   return meta?.content.slice(0, 12) || undefined
@@ -187,6 +194,7 @@ export function reportClientError(
     stack: clip(described.stack, CLIENT_ERROR_LIMITS.stack),
     url: clip(currentUrl(), CLIENT_ERROR_LIMITS.url),
     release: currentRelease(),
+    traceId: reportTraceId(error),
     context: diagnosticContext,
   })
   scheduleFlush()

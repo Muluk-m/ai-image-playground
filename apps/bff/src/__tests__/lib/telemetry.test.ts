@@ -37,12 +37,13 @@ describe('HTTP 服务端 span', () => {
       seen.push(traceLogFields())
       return new Response('ok', { status: 201 })
     })
-    await handle(
+    const response = await handle(
       new Request('http://localhost/api/tasks', {
         method: 'POST',
         headers: { traceparent: `00-${PARENT_TRACE}-${PARENT_SPAN}-01` },
       }),
     )
+    expect(response.headers.get('x-trace-id')).toBe(PARENT_TRACE)
     const [span] = exporter.getFinishedSpans()
     expect(span?.kind).toBe(SpanKind.SERVER)
     expect(span?.spanContext().traceId).toBe(PARENT_TRACE)
@@ -59,12 +60,16 @@ describe('HTTP 服务端 span', () => {
       seen.push(traceLogFields())
       return new Response('ok')
     })
-    await Promise.all([
+    const responses = await Promise.all([
       handle(new Request('http://localhost/api/a')),
       handle(new Request('http://localhost/api/b')),
     ])
     const traces = exporter.getFinishedSpans().map((span) => span.spanContext().traceId)
     expect(new Set(traces).size).toBe(2)
+    // 响应头回传服务端自己开的 trace id，前端拿它把错误上报和这条链路对上。
+    expect(responses.map((response) => response.headers.get('x-trace-id')).sort()).toEqual(
+      [...traces].sort(),
+    )
     expect(seen.map((fields) => fields.trace_id).sort()).toEqual([...traces].sort())
   })
 
@@ -89,6 +94,7 @@ describe('HTTP 服务端 span', () => {
     )
     expect(exporter.getFinishedSpans()).toEqual([])
     expect(responses.every((response) => response.headers.get('x-request-id'))).toBe(true)
+    expect(responses.some((response) => response.headers.has('x-trace-id'))).toBe(false)
   })
 
   it('调用方 traceparent 标了不采样也照样记录，调用方关不掉我们的链路', async () => {

@@ -25,6 +25,7 @@ import {
   clearRefreshJournal,
   completeRefreshAttempt,
 } from './sessionRefreshJournal'
+import { attachTraceparent, newTraceId, noteFailedTrace, responseTraceId } from './traceContext'
 export const AUTH_SESSION_EXPIRED_EVENT = 'image-playground:auth-session-expired'
 export type LoginMethodsPolicy = OAuthProvidersResponse['loginMethods']
 export type LoginOptions = OAuthProvidersResponse
@@ -495,7 +496,22 @@ export async function authenticatedBffFetch(
   if (!underBun && accountRequired() && requestPath(input) === '/api/billing/account') {
     return new Response(null, { status: 401 })
   }
-  const res = await fetch(input, { ...init, credentials: 'include' })
+  // 一次调用一条链路：刷新会话后的重试是同一 trace 下的新 span。
+  const traceId = newTraceId()
+  const send = async (): Promise<Response> => {
+    const traced = attachTraceparent(input, { ...init, credentials: 'include' }, traceId)
+    try {
+      const response = await fetch(input, traced.init)
+      // 401 走刷新会话，不算服务端故障，不让它顶掉更有用的失败链路。
+      if (!response.ok && response.status !== 401)
+        noteFailedTrace(responseTraceId(response, traced.traceId))
+      return response
+    } catch (error) {
+      noteFailedTrace(traced.traceId)
+      throw error
+    }
+  }
+  const res = await send()
   const canRefresh =
     res.status === 401 &&
     isSignedIn() &&
@@ -506,13 +522,13 @@ export async function authenticatedBffFetch(
   if (!canRefresh) return res
   const outcome = await refreshWebSession()
   if ((outcome === 'ok' || outcome === 'raced') && !init.signal?.aborted) {
-    const retried = await fetch(input, { ...init, credentials: 'include' })
+    const retried = await send()
     if (retried.status !== 401) return retried
     // 409 不签发新令牌。胜者的 Set-Cookie 可能晚一步才进 jar，再刷新一次再决定要不要登出。
     if (outcome === 'raced') {
       const again = await refreshWebSession()
       if ((again === 'ok' || again === 'raced') && !init.signal?.aborted) {
-        const second = await fetch(input, { ...init, credentials: 'include' })
+        const second = await send()
         if (second.status === 401) announceSessionExpired()
         return second
       }

@@ -90,6 +90,61 @@ describe('POST /api/client-errors', () => {
     expect(rows.find((row) => row.kind === 'boot')?.context).toEqual({ rendered: false })
   })
 
+  it('keeps a well-formed trace id in context for the ops page and drops anything else', async () => {
+    const traceId = '4bf92f3577b34da6a3ce929d0e0e4736'
+    const base = {
+      kind: 'error',
+      name: 'TypeError',
+      message: 'trace probe',
+      stack: stackAt('a.js', 1),
+    }
+    const response = await report({
+      errors: [
+        { ...base, traceId, context: { operation: 'canvas.scene.save' } },
+        { ...base, traceId },
+        { ...base, traceId: '0'.repeat(32) },
+        { ...base, traceId: traceId.toUpperCase() },
+        { ...base, traceId: `${traceId}; DROP` },
+      ],
+    })
+    expect(response.status).toBe(204)
+    const rows = await db.select().from(schema.client_errors)
+    expect(rows.map((row) => row.context)).toEqual(
+      expect.arrayContaining([
+        { operation: 'canvas.scene.save', traceId },
+        { traceId },
+        null,
+        null,
+        null,
+      ]),
+    )
+    // 链路不进指纹：同一个 bug 不因每次请求的 trace 不同而拆成多组。
+    expect(new Set(rows.map((row) => row.fingerprint)).size).toBe(1)
+  })
+
+  it('lets a cross-origin page send traceparent and read the trace id back', async () => {
+    const origin = 'https://app.example.com'
+    const preflight = await app.handle(
+      new Request('http://localhost/api/channels', {
+        method: 'OPTIONS',
+        headers: {
+          origin,
+          'access-control-request-method': 'POST',
+          'access-control-request-headers': 'content-type,traceparent',
+        },
+      }),
+    )
+    expect(preflight.headers.get('access-control-allow-headers')?.toLowerCase()).toContain(
+      'traceparent',
+    )
+    const response = await app.handle(
+      new Request('http://localhost/api/channels', { headers: { origin } }),
+    )
+    expect(response.headers.get('access-control-expose-headers')?.toLowerCase()).toContain(
+      'x-trace-id',
+    )
+  })
+
   it('rejects unreadable bodies and oversize payloads', async () => {
     expect((await report(null, { raw: 'not json' })).status).toBe(400)
     expect((await report({ errors: 'nope' })).status).toBe(400)
