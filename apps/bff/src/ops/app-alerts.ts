@@ -23,7 +23,7 @@ import { directBudgetCapMicroUsd, directSpentThisMonth } from '../lib/upstream/g
 import { disabledDirectKeys } from '../lib/upstream/gpt-keys'
 import { selectRunnableTasks } from '../workers/runnable-tasks'
 import type { AlertSender } from './alert-sender'
-import { createBackupWatch, isBackupWatchDeferred } from './backup-watch'
+import { createBackupWatch, createThrottledRead, isBackupWatchDeferred } from './backup-watch'
 
 /**
  * 应用层的告警由 worker 的维护循环检查；接口与业务失败只读现有的汇总/事实表。
@@ -37,6 +37,8 @@ type LatestLogReader = ((now: number) => Promise<number | null>) | null
 
 /** 断流观测只看最近这么久：够覆盖告警线和进程重启，又不让每分钟一次的查询扫太多分区。 */
 const LATEST_LOG_WINDOW_MS = 60 * 60_000
+/** 断流观测最多每分钟真正查一次。 */
+const LATEST_LOG_INTERVAL_MS = 60_000
 
 /**
  * 日志管道的新鲜度从 OpenObserve 读（ADR 0033 P3）：容器日志经 Fluent Bit → Collector 写进
@@ -455,8 +457,13 @@ export function createAppAlerting(options: AppAlertingOptions): (now?: number) =
   let pending = false
   let again = false
   const blindRounds = new Map<string, number>()
-  const readLatestLogAt =
+  const latestLogReader =
     options.readLatestLogAt === undefined ? latestLogReaderFromEnv() : options.readLatestLogAt
+  // 维护循环每 10 秒扫一次告警；OpenObserve 的聚合每分钟查一次就够，间隔内复用上次成功的读数，
+  // 年龄仍按当前时间算。
+  const readLatestLogAt = latestLogReader
+    ? createThrottledRead(latestLogReader, LATEST_LOG_INTERVAL_MS)
+    : null
   const backupWatch = createBackupWatch({
     intervalMs: options.backupWatchIntervalMs ?? OPS_THRESHOLDS.BACKUP_WATCH_INTERVAL_MS,
     readBackups: options.readBackups ?? readBackupsFromStore,

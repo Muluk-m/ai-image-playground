@@ -22,11 +22,15 @@ interface BackupWatchOptions {
   readRestoreDrill: () => Promise<OpsRestoreDrill | null>
 }
 
-interface ThrottledRead<T> {
+export interface ThrottledRead<T> {
   (now: number): Promise<T>
 }
 
-function createThrottledRead<T>(read: () => Promise<T>, intervalMs: number): ThrottledRead<T> {
+/** 告警里的慢读数（对象存储列出、OpenObserve 聚合）共用的节流：间隔内复用上次成功的结果。 */
+export function createThrottledRead<T>(
+  read: (now: number) => Promise<T>,
+  intervalMs: number,
+): ThrottledRead<T> {
   let lastAttemptAt: number | undefined
   let lastSucceeded = false
   let cache: { value: T } | undefined
@@ -43,7 +47,7 @@ function createThrottledRead<T>(read: () => Promise<T>, intervalMs: number): Thr
     // 异步 IIFE 的 finally 不会在 `inflight = ...` 赋值完成前清空再被写回一个永久拒绝的 Promise。
     inflight = (async () => {
       try {
-        const value = await Promise.resolve().then(read)
+        const value = await Promise.resolve().then(() => read(now))
         cache = { value }
         lastSucceeded = true
         return value

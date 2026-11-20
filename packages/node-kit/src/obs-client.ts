@@ -34,7 +34,8 @@ export class ObsQueryError extends Error {
 export function obsConnectionFromEnv(
   env: Record<string, string | undefined> = process.env,
 ): ObsConnection | null {
-  const url = env.OBS_PROXY_URL?.trim().replace(/\/+$/, '')
+  let url = env.OBS_PROXY_URL?.trim() ?? ''
+  while (url.endsWith('/')) url = url.slice(0, -1)
   const token = env.OBS_PROXY_TOKEN?.trim()
   if (!url || !token) return null
   return { url, token, org: env.OBS_ORG?.trim() || 'default' }
@@ -106,10 +107,19 @@ export function createObsClient(
         `连不上 ${connection.url}：${error instanceof Error ? error.message : String(error)}`,
       )
     }
-    const payload = (await response.json().catch(() => ({}))) as {
-      hits?: unknown
-      message?: unknown
-      error?: unknown
+    // fetch 在收到响应头时就返回：正文读到一半超时、断开或不是 JSON，都是查询失败，不能当成没有结果。
+    let payload: { hits?: unknown; message?: unknown; error?: unknown }
+    try {
+      payload = (await response.json()) as typeof payload
+    } catch (error) {
+      const name = error instanceof Error ? error.name : ''
+      if (name === 'TimeoutError' || name === 'AbortError')
+        throw new ObsQueryError('timeout', `查询超过 ${timeoutMs / 1_000} 秒没有返回`)
+      if (response.status === 401)
+        throw new ObsQueryError('unauthorized', '观测代理拒绝了令牌', response.status)
+      if (!response.ok)
+        throw new ObsQueryError('failed', `查询失败（${response.status}）`, response.status)
+      throw new ObsQueryError('failed', '观测代理返回的结果读不出来', response.status)
     }
     if (!response.ok) {
       // 还没有任何数据写进来时流不存在：当作没结果。
@@ -123,7 +133,9 @@ export function createObsClient(
         response.status,
       )
     }
-    return Array.isArray(payload.hits) ? (payload.hits as ObsRecord[]) : []
+    if (!Array.isArray(payload.hits))
+      throw new ObsQueryError('failed', '观测代理返回的结果缺少 hits', response.status)
+    return payload.hits as ObsRecord[]
   }
 
   async function searchAll(

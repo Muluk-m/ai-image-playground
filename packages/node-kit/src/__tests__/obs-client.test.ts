@@ -98,6 +98,30 @@ describe('obs client', () => {
     reply = () => Response.json({ message: 'syntax error' }, { status: 400 })
     expect(await failure(client.search({ sql: 's', startMs: 0, endMs: 1 }))).toBe('failed')
 
+    // 响应头已经 200，正文却不是结果：查询失败，不是「没有日志」。
+    reply = () => new Response('<html>gateway</html>', { status: 200 })
+    expect(await failure(client.search({ sql: 's', startMs: 0, endMs: 1 }))).toBe('failed')
+    reply = () => Response.json({ took: 1 })
+    expect(await failure(client.search({ sql: 's', startMs: 0, endMs: 1 }))).toBe('failed')
+    reply = () => new Response('denied', { status: 401 })
+    expect(await failure(client.search({ sql: 's', startMs: 0, endMs: 1 }))).toBe('unauthorized')
+
+    // 正文读到一半卡住，直到超时。
+    const stalled = createObsClient(connection, {
+      timeoutMs: 50,
+      fetch: async (_input, init) =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('{"hits":['))
+              init?.signal?.addEventListener('abort', () => controller.error(init.signal?.reason))
+            },
+          }),
+          { status: 200 },
+        ),
+    })
+    expect(await failure(stalled.search({ sql: 's', startMs: 0, endMs: 1 }))).toBe('timeout')
+
     const offline = createObsClient({ ...connection, url: 'http://127.0.0.1:9' })
     expect(await failure(offline.search({ sql: 's', startMs: 0, endMs: 1 }))).toBe('unreachable')
 

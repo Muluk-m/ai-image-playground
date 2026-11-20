@@ -407,6 +407,27 @@ describe('createAppAlerting', () => {
       'resolved:server-logs',
     ])
   })
+  it('asks OpenObserve at most once a minute and judges age against the current time', async () => {
+    let reads = 0
+    const sent: AlertMessage[] = []
+    const check = createAppAlerting({
+      send: async (messages) => {
+        sent.push(...messages.filter((message) => message.rule === 'server-logs'))
+      },
+      readBackups: async () => ({ latest: null, previous: null }),
+      readRestoreDrill: async () => null,
+      readLatestLogAt: async () => {
+        reads++
+        return now
+      },
+    })
+    for (let second = 0; second < 60; second += 10) await check(now + second * 1_000)
+    expect(reads).toBe(1)
+    await check(now + minute)
+    expect(reads).toBe(2)
+    expect(sent).toEqual([])
+  })
+
   it('never lets a failed send escape into the maintenance loop, and retries next round', async () => {
     let attempts = 0
     const check = createAppAlerting({
