@@ -962,6 +962,14 @@ describe('app-compose.sh up', () => {
     expect(indexOf(log, takenDown)).toBe(-1)
   })
 
+  it('neither starts nor takes down the services when the switch refers to another variable', () => {
+    const log = upWithAppEnv(
+      'APP_IMAGE=fixture:new\nENABLE_OBS=true\nOBSERVABILITY_ENABLED=${ENABLE_OBS:-false}\nOBS_PROXY_HOST_PORT=15091\nOBS_UI_HOST_PORT=15081\n',
+    )
+    expect(indexOf(log, observability)).toBe(-1)
+    expect(indexOf(log, takenDown)).toBe(-1)
+  })
+
   it('does not start the services when a port is only a comment', () => {
     const log = upWithAppEnv(
       'APP_IMAGE=fixture:new\nOBSERVABILITY_ENABLED=true\nOBS_PROXY_HOST_PORT= # todo\nOBS_UI_HOST_PORT=15081\n',

@@ -126,6 +126,23 @@ describe('OpenObserve 只读代理', () => {
     expect(streamed.status).toBe(413)
     expect(pulled).toBeLessThan(OBS_PROXY_MAX_BODY_BYTES * 4)
 
+    // 上传中途出错：400，不往外抛。
+    const broken = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(new Error('client went away'))
+      },
+    })
+    const aborted = await handle(
+      new Request('http://obs/api/default/_search', {
+        method: 'POST',
+        headers: AUTH,
+        body: broken,
+        // @ts-expect-error Bun/undici 需要 duplex 才能发流式请求体
+        duplex: 'half',
+      }),
+    )
+    expect(aborted.status).toBe(400)
+
     const down = createObsProxy({
       upstream: 'http://openobserve:5080',
       org: 'default',

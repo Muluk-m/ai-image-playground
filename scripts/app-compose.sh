@@ -124,6 +124,11 @@ app_env_value() {
 observability_enabled() {
   [ "$(app_env_value OBSERVABILITY_ENABLED)" = true ]
 }
+# A value built from another variable (${...}) is Compose's to expand, not ours: rather than guess,
+# start_observability leaves the services exactly as they are.
+observability_switch_unreadable() {
+  case $(app_env_value OBSERVABILITY_ENABLED) in *'$'*) return 0 ;; *) return 1 ;; esac
+}
 if observability_enabled; then
   COMPOSE_PROFILES=observability
   OBS_LOG_MATCH='*'
@@ -178,6 +183,10 @@ start_log_collector() {
 # Same footing as the log collector: watches the deployment, is not part of it. A failure here is a
 # warning; server_logs keeps the logs and the BFF drops spans it cannot export.
 start_observability() {
+  if observability_switch_unreadable; then
+    echo "Warning: OBSERVABILITY_ENABLED in $env_file refers to another variable; write true or false. Observability services left as they are." >&2
+    return 0
+  fi
   if ! observability_enabled; then
     # Switched off: take the containers down so they stop holding memory. Their volumes stay, so
     # switching back on picks up where it left off. A no-op where they never ran.

@@ -18,7 +18,9 @@ describe('obs 查询拼装', () => {
     )
     expect(logsSql({ limit: 10 })).toBe('SELECT * FROM "app" ORDER BY _timestamp DESC LIMIT 10')
     expect(traceSql('abc')).toContain(`trace_id = 'abc'`)
+    expect(traceSql('abc')).toMatch(/ORDER BY start_time, span_id$/)
     expect(taskSpansSql('t-1')).toContain(`task_id = 't-1'`)
+    expect(taskSpansSql('t-1')).toMatch(/ORDER BY started, trace_id$/)
   })
 
   it('参数里的单引号不会打断查询', () => {

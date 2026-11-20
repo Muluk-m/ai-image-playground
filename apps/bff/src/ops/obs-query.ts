@@ -52,11 +52,12 @@ export function logsSql(filter: LogFilter): string {
 }
 
 export function traceSql(traceId: string): string {
-  return `SELECT * FROM "${OBS_STREAM}" WHERE trace_id = ${sqlString(traceId)} ORDER BY start_time`
+  // span_id 兜底：时间相同的 span 跨页时顺序也固定，偏移分页不重不漏。
+  return `SELECT * FROM "${OBS_STREAM}" WHERE trace_id = ${sqlString(traceId)} ORDER BY start_time, span_id`
 }
 
 export function taskSpansSql(taskId: string): string {
-  return `SELECT trace_id, MIN(start_time) AS started FROM "${OBS_STREAM}" WHERE task_id = ${sqlString(taskId)} GROUP BY trace_id ORDER BY started`
+  return `SELECT trace_id, MIN(start_time) AS started FROM "${OBS_STREAM}" WHERE task_id = ${sqlString(taskId)} GROUP BY trace_id ORDER BY started, trace_id`
 }
 
 type Hit = Record<string, unknown>

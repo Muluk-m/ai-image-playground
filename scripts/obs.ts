@@ -55,6 +55,8 @@ process.on('unhandledRejection', (error) =>
 if (values.help || !command) usage(0)
 
 const { url, token, org } = connection(values.env!)
+const limit = Number(values.limit)
+if (!Number.isSafeInteger(limit) || limit <= 0) usage(2, `--limit 要是正整数：${values.limit}`)
 const sinceMs = parseDuration(values.since ?? (command === 'task' ? '7d' : '1h'))
 const endUs = (Date.now() + 60_000) * 1_000
 const startUs = (Date.now() - sinceMs) * 1_000
@@ -125,7 +127,7 @@ switch (command) {
       service: values.service,
       level: level as LogFilter['level'],
       grep: values.grep,
-      limit: Number(values.limit) || 100,
+      limit,
     }
     const logs = await recentLogs(filter)
     console.log(values.json ? JSON.stringify(logs, null, 2) : logList(logs))
@@ -143,12 +145,11 @@ switch (command) {
     if (!argument) usage(2, '缺任务 id')
     const logs = await recentLogs({ taskId: argument, limit: 500 })
     const executions = await searchAll(taskSpansSql(argument), 'traces')
-    const traces = await Promise.all(
-      executions.map(async (row) => ({
-        traceId: String(row.trace_id),
-        spans: await searchAll(traceSql(String(row.trace_id)), 'traces'),
-      })),
-    )
+    // 一次最多 4 个查询：OpenObserve 只有 512 MB，执行次数多的任务不该一下子压上去。
+    const traces = await mapLimited(executions, 4, async (row) => ({
+      traceId: String(row.trace_id),
+      spans: await searchAll(traceSql(String(row.trace_id)), 'traces'),
+    }))
     if (values.json) {
       console.log(JSON.stringify({ logs, traces }, null, 2))
       break
@@ -163,7 +164,7 @@ switch (command) {
   case 'sql': {
     if (!argument) usage(2, '缺 SQL')
     const type = values.type === 'traces' ? 'traces' : 'logs'
-    console.log(JSON.stringify(await search(argument, type, Number(values.limit) || 100), null, 2))
+    console.log(JSON.stringify(await search(argument, type, limit), null, 2))
     break
   }
   default:
@@ -194,6 +195,24 @@ function readEnvFile(): Record<string, string> {
     if (match) entries[match[1]!] = match[2]!.replace(/^(['"])(.*)\1$/, '$2')
   }
   return entries
+}
+
+/** 固定并发跑完所有项，结果保持原顺序。 */
+async function mapLimited<T, R>(
+  items: readonly T[],
+  width: number,
+  work: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let next = 0
+  const lanes = Array.from({ length: Math.min(width, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++
+      results[index] = await work(items[index]!)
+    }
+  })
+  await Promise.all(lanes)
+  return results
 }
 
 function fail(message: string): never {
