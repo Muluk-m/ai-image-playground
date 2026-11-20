@@ -150,16 +150,17 @@ export function useUserKpis() {
   })
 }
 
-export function useUsers(search: string, options: UserListOptions = {}) {
+export function useUsers(search: string, { segments = false, ...filters }: UserListOptions = {}) {
   return useQuery({
-    queryKey: ['users', { search, ...options }],
-    placeholderData: options.segments ? (previous) => previous : undefined,
+    queryKey: ['users', { search, segments, ...filters }],
+    placeholderData: segments ? (previous) => previous : undefined,
     queryFn: () => {
       const params = new URLSearchParams()
       if (search) params.set('q', search)
-      for (const [key, value] of Object.entries(options)) {
-        if (value !== undefined) params.set(key, value === true ? '1' : String(value))
+      for (const [key, value] of Object.entries(filters)) {
+        if (value !== undefined) params.set(key, String(value))
       }
+      if (segments) params.set('segments', '1')
       const query = params.toString()
       return apiClient.get<ListUsersResult>(`/api/users${query ? `?${query}` : ''}`)
     },
