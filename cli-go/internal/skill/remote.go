@@ -845,9 +845,11 @@ func applyInPlaceUpdate(
 		return false, err
 	}
 	stillRefreshable := false
+	lockedFromHash := item.FileHash
 	for _, again := range current {
 		if again.Path == destination {
 			stillRefreshable = remoteRefreshable(again, targetVersion)
+			lockedFromHash = again.FileHash
 			break
 		}
 	}
@@ -882,7 +884,7 @@ func applyInPlaceUpdate(
 		Destination: destination,
 		Host:        item.foundHost,
 		Scope:       item.foundScope,
-		FromHash:    item.FileHash,
+		FromHash:    lockedFromHash,
 		Snapshot:    snapshot,
 		Planned:     planned,
 	}

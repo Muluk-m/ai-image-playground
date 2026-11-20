@@ -922,3 +922,34 @@ func TestRecoverInterruptedUpdateRespectsExpiredContext(t *testing.T) {
 		t.Fatal("journal was modified despite canceled context")
 	}
 }
+
+func TestApplyInPlaceUpdateRecordsLockedSnapshotFromHash(t *testing.T) {
+	home, cwd, stateDir := t.TempDir(), t.TempDir(), t.TempDir()
+	res, err := Install(InstallOptions{Host: "workbuddy", Scope: "user", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate an outdated pre-lock Installation snapshot (stale FileHash) while disk holds
+	// a newer intermediate version (res.FileHash) installed concurrently before lock acquisition.
+	staleItem := Installation{
+		Skill:      "muvloom",
+		Host:       "workbuddy",
+		Scope:      "user",
+		Path:       res.Path,
+		Version:    "0.2.5",
+		FileHash:   strings.Repeat("9", 64),
+		Intact:     true,
+		foundHost:  "workbuddy",
+		foundScope: "user",
+	}
+	// Force a post-write treeHash mismatch to trigger rollback with a bad targetHash, confirming
+	// applyInPlaceUpdate uses the locked on-disk hash and restores cleanly without corrupting res.Path.
+	newFiles := []bundleFile{{path: "SKILL.md", data: []byte("# next\n")}}
+	if _, err := applyInPlaceUpdate(staleItem, home, cwd, stateDir, SkillVersion+".1", strings.Repeat("0", 64), newFiles, time.Second); err == nil {
+		t.Fatal("expected treeHash mismatch error")
+	}
+	after, err := Installed(home, cwd)
+	if err != nil || len(after) != 1 || !after[0].Intact || after[0].FileHash != res.FileHash {
+		t.Fatalf("after rollback Installed = %+v, %v (want intact FileHash=%s)", after, err, res.FileHash)
+	}
+}
