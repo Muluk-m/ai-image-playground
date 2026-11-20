@@ -12,11 +12,9 @@ import {
 /** Account-only CLI sessions; the server decides whether this deployment offers CLI access. */
 export default function CliConnectionsSection({
   standalone = false,
-  onLoaded,
   onUnavailable,
 }: {
   standalone?: boolean
-  onLoaded?: (connections: readonly CliConnectionSummary[]) => void
   onUnavailable?: () => void
 }) {
   const { t, i18n } = useTranslation('auth')
@@ -38,7 +36,6 @@ export default function CliConnectionsSection({
         if (controller.signal.aborted) return
         setConnections(loaded)
         setState('ready')
-        onLoaded?.(loaded)
       },
       (error: unknown) => {
         if (controller.signal.aborted) return
@@ -49,7 +46,7 @@ export default function CliConnectionsSection({
       },
     )
     return () => controller.abort()
-  }, [attempt, onLoaded, onUnavailable])
+  }, [attempt, onUnavailable])
 
   async function revoke(id: string) {
     const controller = request.current

@@ -7,7 +7,7 @@ import {
   sqlString,
   taskSpansSql,
   traceSql,
-} from '../../ops/obs-query'
+} from '../obs-query'
 
 describe('obs 查询拼装', () => {
   it('筛选条件拼成 WHERE，字段名用 OpenObserve 的小写形式', () => {

@@ -9,7 +9,7 @@ const databaseUrl = await resetTestDatabase('bff_app_alerts')
 process.env.DATABASE_URL = databaseUrl
 
 const writer = createDb(databaseUrl)
-const { createAppAlerting, observeApp } = await import('../../ops/app-alerts')
+const { createAppAlerting, latestObsLogReader, observeApp } = await import('../../ops/app-alerts')
 const { close } = await import('../../db/client')
 
 afterAll(async () => {
@@ -256,24 +256,48 @@ describe('observeApp', () => {
     }
   })
 
-  it('reads the newest server_logs row, or null while the table is empty', async () => {
-    expect((await observeApp({ now })).serverLogs).toEqual({ latest_at: null })
-
-    const row = (id: string, at: number) => ({
-      id,
-      at,
-      service: 'bff' as const,
-      instance: 'i',
-      version: 'v',
-      level: 'info' as const,
-      group_key: 'g',
-      message: id,
-      fields: {},
+  it('observes log freshness only where observability is configured', async () => {
+    expect((await observeApp({ now })).serverLogs).toBeUndefined()
+    expect((await observeApp({ now, readLatestLogAt: null })).serverLogs).toBeUndefined()
+    expect(
+      (await observeApp({ now, readLatestLogAt: async () => now - minute })).serverLogs,
+    ).toEqual({ latest_at: now - minute })
+    expect((await observeApp({ now, readLatestLogAt: async () => null })).serverLogs).toEqual({
+      latest_at: null,
     })
-    await writer.db
-      .insert(writer.schema.server_logs)
-      .values([row('log-old', now - 2 * hour), row('log-new', now - minute)])
-    expect((await observeApp({ now })).serverLogs).toEqual({ latest_at: now - minute })
+    // 读不到 OpenObserve 是这一块失明，不当成恢复。
+    const missed: string[] = []
+    const failing = await observeApp({
+      now,
+      readLatestLogAt: async () => {
+        throw new Error('proxy down')
+      },
+      onMissed: (block) => missed.push(block),
+    })
+    expect(failing.serverLogs).toBeUndefined()
+    expect(missed).toContain('serverLogs')
+  })
+
+  it('asks OpenObserve for the newest log in the last hour and converts microseconds', async () => {
+    const queries: unknown[] = []
+    let latest: unknown = (now - minute) * 1_000
+    const read = latestObsLogReader({
+      search: async (query) => {
+        queries.push(query)
+        return latest === undefined ? [] : [{ latest }]
+      },
+      searchAll: async () => ({ records: [], truncated: false }),
+      streamFields: async () => new Set<string>(),
+    })
+    expect(await read(now)).toBe(now - minute)
+    expect(queries[0]).toEqual({
+      sql: 'SELECT MAX(_timestamp) AS latest FROM "app"',
+      type: 'logs',
+      startMs: now - hour,
+      endMs: now + minute,
+      size: 1,
+    })
+    for (latest of [null, 0, undefined]) expect(await read(now)).toBeNull()
   })
 
   it('marks a failing model paused only when it was auto-paused for upstream unavailability', async () => {
@@ -332,18 +356,8 @@ describe('observeApp', () => {
 
 describe('createAppAlerting', () => {
   it('fires the rules once, then stays quiet, then reports the recovery', async () => {
-    // 自己控制日志新鲜度：这一行让 server-logs 规则起初安静，静默超线后也要走 firing → resolved。
-    await writer.db.insert(writer.schema.server_logs).values({
-      id: 'alert-flow-log',
-      at: now,
-      service: 'bff',
-      instance: 'i',
-      version: 'v',
-      level: 'info',
-      group_key: 'g',
-      message: 'alert-flow',
-      fields: {},
-    })
+    // 自己控制日志新鲜度：起初安静，静默超线后也要走 firing → resolved。
+    let latestLogAt = now
     const sent: AlertMessage[] = []
     let backupAt = now - 30 * hour
     let drillOk = false
@@ -360,6 +374,7 @@ describe('createAppAlerting', () => {
         finished_at: now - hour,
         error: drillOk ? null : 'x',
       }),
+      readLatestLogAt: async () => latestLogAt,
     })
 
     await check(now)
@@ -386,23 +401,34 @@ describe('createAppAlerting', () => {
     await check(now + 16 * minute)
     expect(sent.map((message) => `${message.kind}:${message.rule}`)).toEqual(['firing:server-logs'])
 
-    await writer.db.insert(writer.schema.server_logs).values({
-      id: 'alert-flow-log-recovered',
-      at: now + 16 * minute,
-      service: 'bff',
-      instance: 'i',
-      version: 'v',
-      level: 'info',
-      group_key: 'g',
-      message: 'alert-flow-recovered',
-      fields: {},
-    })
+    latestLogAt = now + 16 * minute
     sent.length = 0
     await check(now + 17 * minute)
     expect(sent.map((message) => `${message.kind}:${message.rule}`)).toEqual([
       'resolved:server-logs',
     ])
   })
+  it('asks OpenObserve at most once a minute and judges age against the current time', async () => {
+    let reads = 0
+    const sent: AlertMessage[] = []
+    const check = createAppAlerting({
+      send: async (messages) => {
+        sent.push(...messages.filter((message) => message.rule === 'server-logs'))
+      },
+      readBackups: async () => ({ latest: null, previous: null }),
+      readRestoreDrill: async () => null,
+      readLatestLogAt: async () => {
+        reads++
+        return now
+      },
+    })
+    for (let second = 0; second < 60; second += 10) await check(now + second * 1_000)
+    expect(reads).toBe(1)
+    await check(now + minute)
+    expect(reads).toBe(2)
+    expect(sent).toEqual([])
+  })
+
   it('never lets a failed send escape into the maintenance loop, and retries next round', async () => {
     let attempts = 0
     const check = createAppAlerting({

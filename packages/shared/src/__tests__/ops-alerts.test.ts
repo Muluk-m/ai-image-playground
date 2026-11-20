@@ -79,8 +79,22 @@ describe('阈值两侧', () => {
 })
 
 describe('服务端日志静默', () => {
-  it('新部署表里还没有日志时不报', () => {
-    expect(run([[T0, { serverLogs: { latest_at: null } }]])).toEqual([[]])
+  it('最近 1 小时没有日志：给新部署 10 分钟宽限，之后照报（断了很久后重启进程也一样）', () => {
+    expect(
+      run([
+        [T0, { serverLogs: { latest_at: null } }],
+        [T0 + 9 * minute, { serverLogs: { latest_at: null } }],
+        [T0 + 10 * minute, { serverLogs: { latest_at: null } }],
+        [T0 + 11 * minute, { serverLogs: { latest_at: T0 + 11 * minute } }],
+      ]),
+    ).toEqual([[], [], ['firing:server-logs'], ['resolved:server-logs']])
+    // 新部署在宽限期内就有了日志：一次都不报。
+    expect(
+      run([
+        [T0, { serverLogs: { latest_at: null } }],
+        [T0 + minute, { serverLogs: { latest_at: T0 + minute } }],
+      ]),
+    ).toEqual([[], []])
   })
 
   it('恢复写入后发已恢复，期间不重复报', () => {
@@ -93,7 +107,7 @@ describe('服务端日志静默', () => {
     ).toEqual([['firing:server-logs'], [], ['resolved:server-logs']])
   })
 
-  it('报过之后表被清空不算恢复，读数缺失也不算恢复', () => {
+  it('报过之后窗口里一条都没有了也不算恢复，读数缺失也不算恢复', () => {
     expect(
       run([
         [T0, { serverLogs: { latest_at: T0 - 11 * minute } }],

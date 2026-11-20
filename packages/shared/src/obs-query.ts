@@ -1,6 +1,6 @@
 /**
- * `scripts/obs.ts` 的查询拼装与输出格式（ADR 0033）。只做纯函数：SQL 怎么拼、结果怎么排版，
- * 网络请求留在 CLI 里。
+ * OpenObserve 查询的拼装与输出格式（ADR 0033），`scripts/obs.ts`、Admin 与 BFF 共用。只做纯函数：
+ * SQL 怎么拼、结果怎么排版；网络请求在 `@image-playground/node-kit` 的 obs-client。
  *
  * OpenObserve 里的字段名都是小写、点换成下划线：日志的 `taskId` 存成 `taskid`，span 属性
  * `task.id` 存成 `task_id`，`upstream.model` 存成 `upstream_model`。
@@ -28,7 +28,7 @@ export function parseDuration(value: string): number {
 
 /** SQL 字符串字面量：单引号加倍。只经只读代理执行，转义是为了查询本身不被参数打断。 */
 export function sqlString(value: string): string {
-  return `'${value.replaceAll("'", "''")}'`
+  return `'${value.replace(/'/g, "''")}'`
 }
 
 export interface LogFilter {
@@ -60,7 +60,9 @@ export function taskSpansSql(taskId: string): string {
   return `SELECT trace_id, MIN(start_time) AS started FROM "${OBS_STREAM}" WHERE task_id = ${sqlString(taskId)} GROUP BY trace_id ORDER BY started, trace_id`
 }
 
-type Hit = Record<string, unknown>
+/** OpenObserve `_search` 返回的一条记录（日志或 span），字段名已是小写下划线形式。 */
+export type ObsHit = Record<string, unknown>
+type Hit = ObsHit
 
 /** 日志字段里排版时单独显示、不再列进「其余字段」的那些。 */
 const LOG_SHOWN = new Set([
