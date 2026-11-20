@@ -268,7 +268,7 @@ export default function AgentJobInbox() {
   return (
     <div
       ref={host}
-      className="studio-agent-job-inbox pointer-events-auto flex items-center md:relative"
+      className="studio-agent-job-inbox pointer-events-auto flex items-center md:relative md:self-start"
     >
       <Button
         type="button"
