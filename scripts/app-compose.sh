@@ -108,8 +108,18 @@ export LOG_FORWARD_DIR
 # (OpenObserve, the OTel Collector, the read-only proxy) and the log collector's second output to
 # it. Off, the profile stays inactive and that output matches no tag. Read here rather than through
 # --env-file because profiles and this match are decided before compose interpolates anything.
+# The last assignment of $1, read the way Compose reads an env file: CRLF tolerated, a quoted
+# value taken as is, otherwise a ` #` comment and surrounding blanks dropped.
 app_env_value() {
-  sed -n "s/^[[:space:]]*$1=//p" "$env_file" | tail -n 1 | tr -d "\"' "
+  value=$(sed -n "s/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}$1[[:space:]]*=//p" "$env_file" |
+    tail -n 1 | tr -d '\r')
+  value=${value#"${value%%[![:space:]]*}"}
+  case $value in
+    \"*) value=${value#\"}; value=${value%%\"*} ;;
+    \'*) value=${value#\'}; value=${value%%\'*} ;;
+    *) value=$(printf '%s' "$value" | sed -e 's/^#.*$//' -e 's/[[:space:]]#.*$//' -e 's/[[:space:]]*$//') ;;
+  esac
+  printf '%s' "$value"
 }
 observability_enabled() {
   [ "$(app_env_value OBSERVABILITY_ENABLED)" = true ]

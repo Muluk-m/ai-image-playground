@@ -4,7 +4,7 @@
  *
  *   bun scripts/obs.ts task <task-id>             任务的日志，加上它每次执行的链路
  *   bun scripts/obs.ts trace <trace-id>           一条链路的 span 树和日志
- *   bun scripts/obs.ts logs [筛选]                日志，新的在前
+ *   bun scripts/obs.ts logs [筛选]                最新的 --limit 条日志，按时间正序输出（最新的在最后）
  *       --task <id> --trace <id> --service <bff|worker|...> --level <info|warn|error>
  *       --grep <文字> --limit <n>
  *   bun scripts/obs.ts sql <SQL> [--type logs|traces]   原样执行一句 SQL
@@ -59,15 +59,18 @@ const sinceMs = parseDuration(values.since ?? (command === 'task' ? '7d' : '1h')
 const endUs = (Date.now() + 60_000) * 1_000
 const startUs = (Date.now() - sinceMs) * 1_000
 
+type Hit = Record<string, unknown>
+
 async function search(
   sql: string,
   type: 'logs' | 'traces',
   size = 1_000,
-): Promise<Record<string, unknown>[]> {
+  from = 0,
+): Promise<Hit[]> {
   const response = await fetch(`${url}/api/${org}/_search?type=${type}`, {
     method: 'POST',
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ query: { sql, start_time: startUs, end_time: endUs, from: 0, size } }),
+    body: JSON.stringify({ query: { sql, start_time: startUs, end_time: endUs, from, size } }),
     signal: AbortSignal.timeout(60_000),
   }).catch((error: unknown) =>
     fail(`连不上 ${url}：${error instanceof Error ? error.message : String(error)}`),
@@ -81,23 +84,35 @@ async function search(
       `查询失败（${response.status}）：${payload.message ?? (payload as { error?: string }).error ?? '未知错误'}`,
     )
   }
-  return (payload.hits as Record<string, unknown>[]) ?? []
+  return (payload.hits as Hit[]) ?? []
 }
 
-function print(
-  hits: Record<string, unknown>[],
-  render: (hits: Record<string, unknown>[]) => string,
-) {
-  console.log(values.json ? JSON.stringify(hits, null, 2) : render(hits))
+/** 一条链路的 span 可能上千个：按页拉全，最多 MAX_PAGES 页；到顶就明说结果不完整。 */
+const PAGE = 1_000
+const MAX_PAGES = 20
+async function searchAll(sql: string, type: 'logs' | 'traces'): Promise<Hit[]> {
+  const all: Hit[] = []
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const hits = await search(sql, type, PAGE, page * PAGE)
+    all.push(...hits)
+    if (hits.length < PAGE) return all
+  }
+  console.error(
+    `注意：结果超过 ${PAGE * MAX_PAGES} 条，只取了前 ${PAGE * MAX_PAGES} 条，链路可能不完整`,
+  )
+  return all
 }
 
-const logList = (hits: Record<string, unknown>[]) =>
-  hits.length
-    ? [...hits]
-        .reverse()
-        .map((hit) => formatLog(hit))
-        .join('\n')
-    : '（没有日志）'
+/** 日志查询按时间倒序取最新的 limit 条，输出一律转成正序；取满了就提示还有更早的。 */
+async function recentLogs(filter: LogFilter): Promise<Hit[]> {
+  const hits = await search(logsSql(filter), 'logs', filter.limit)
+  if (hits.length >= filter.limit)
+    console.error(`注意：只显示最新的 ${filter.limit} 条日志，更早的用 --limit 或缩小 --since`)
+  return [...hits].reverse()
+}
+
+const logList = (hits: Hit[]) =>
+  hits.length ? hits.map((hit) => formatLog(hit)).join('\n') : '（没有日志）'
 
 switch (command) {
   case 'logs': {
@@ -112,25 +127,26 @@ switch (command) {
       grep: values.grep,
       limit: Number(values.limit) || 100,
     }
-    print(await search(logsSql(filter), 'logs'), logList)
+    const logs = await recentLogs(filter)
+    console.log(values.json ? JSON.stringify(logs, null, 2) : logList(logs))
     break
   }
   case 'trace': {
     if (!argument) usage(2, '缺 trace id')
-    const spans = await search(traceSql(argument), 'traces')
-    const logs = await search(logsSql({ traceId: argument, limit: 500 }), 'logs')
+    const spans = await searchAll(traceSql(argument), 'traces')
+    const logs = await recentLogs({ traceId: argument, limit: 500 })
     if (values.json) console.log(JSON.stringify({ spans, logs }, null, 2))
     else console.log(`${formatTrace(spans)}\n\n${logList(logs)}`)
     break
   }
   case 'task': {
     if (!argument) usage(2, '缺任务 id')
-    const logs = await search(logsSql({ taskId: argument, limit: 500 }), 'logs')
-    const executions = await search(taskSpansSql(argument), 'traces')
+    const logs = await recentLogs({ taskId: argument, limit: 500 })
+    const executions = await searchAll(taskSpansSql(argument), 'traces')
     const traces = await Promise.all(
       executions.map(async (row) => ({
         traceId: String(row.trace_id),
-        spans: await search(traceSql(String(row.trace_id)), 'traces'),
+        spans: await searchAll(traceSql(String(row.trace_id)), 'traces'),
       })),
     )
     if (values.json) {

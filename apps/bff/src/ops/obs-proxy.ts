@@ -49,12 +49,12 @@ export function createObsProxy(options: ObsProxyOptions): (request: Request) => 
     if (!ALLOWED.some((rule) => rule.method === request.method && rule.pattern.test(rest)))
       return json(403, { error: 'forbidden' })
 
-    let body: ArrayBuffer | undefined
+    let body: Uint8Array | undefined
     if (request.method === 'POST') {
       const declared = Number(request.headers.get('content-length') ?? 0)
       if (declared > OBS_PROXY_MAX_BODY_BYTES) return json(413, { error: 'body too large' })
-      body = await request.arrayBuffer()
-      if (body.byteLength > OBS_PROXY_MAX_BODY_BYTES) return json(413, { error: 'body too large' })
+      body = await readCapped(request, OBS_PROXY_MAX_BODY_BYTES)
+      if (!body) return json(413, { error: 'body too large' })
     }
 
     const response = await fetchImpl(`${upstream}${url.pathname}${url.search}`, {
@@ -74,6 +74,31 @@ export function createObsProxy(options: ObsProxyOptions): (request: Request) => 
       headers: { 'content-type': response.headers.get('content-type') ?? 'application/json' },
     })
   }
+}
+
+/** 边读边数：分块上传没有 Content-Length，超过上限就取消读取，不把整个请求体攒进内存。 */
+async function readCapped(request: Request, max: number): Promise<Uint8Array | undefined> {
+  if (!request.body) return new Uint8Array(0)
+  const reader = request.body.getReader()
+  const parts: Uint8Array[] = []
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > max) {
+      await reader.cancel().catch(() => {})
+      return undefined
+    }
+    parts.push(value)
+  }
+  const out = new Uint8Array(total)
+  let offset = 0
+  for (const part of parts) {
+    out.set(part, offset)
+    offset += part.byteLength
+  }
+  return out
 }
 
 function digest(value: string): Buffer {

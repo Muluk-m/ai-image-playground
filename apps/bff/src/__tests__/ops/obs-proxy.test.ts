@@ -54,7 +54,11 @@ describe('OpenObserve 只读代理', () => {
 
   it('令牌不对、没带令牌一律 401，不碰后端', async () => {
     const { handle, calls } = proxy()
-    const cases = [{}, { authorization: `Bearer ${TOKEN}x` }, { authorization: `Basic ${TOKEN}` }]
+    const cases: Record<string, string>[] = [
+      {},
+      { authorization: `Bearer ${TOKEN}x` },
+      { authorization: `Basic ${TOKEN}` },
+    ]
     for (const headers of cases) {
       const response = await handle(
         new Request('http://obs/api/default/_search', { method: 'POST', headers, body: '{}' }),
@@ -100,6 +104,27 @@ describe('OpenObserve 只读代理', () => {
       }),
     )
     expect(big.status).toBe(413)
+
+    // 分块上传不带 Content-Length：边读边数，超限就停，不先把整个请求体读进内存。
+    let pulled = 0
+    const chunk = new Uint8Array(16 * 1024)
+    const endless = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += chunk.byteLength
+        controller.enqueue(chunk)
+      },
+    })
+    const streamed = await handle(
+      new Request('http://obs/api/default/_search', {
+        method: 'POST',
+        headers: AUTH,
+        body: endless,
+        // @ts-expect-error Bun/undici 需要 duplex 才能发流式请求体
+        duplex: 'half',
+      }),
+    )
+    expect(streamed.status).toBe(413)
+    expect(pulled).toBeLessThan(OBS_PROXY_MAX_BODY_BYTES * 4)
 
     const down = createObsProxy({
       upstream: 'http://openobserve:5080',

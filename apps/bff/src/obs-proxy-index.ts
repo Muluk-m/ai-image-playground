@@ -1,4 +1,4 @@
-import { createObsProxy } from './ops/obs-proxy'
+import { createObsProxy, OBS_PROXY_MAX_BODY_BYTES } from './ops/obs-proxy'
 
 /** OpenObserve 只读代理的进程入口（compose 服务 `obs-proxy`，APP_ROLE=obs-proxy）。 */
 
@@ -33,6 +33,10 @@ const handle = createObsProxy({
 const port = Number(process.env.PORT) || 5081
 const server = Bun.serve({
   port,
+  // Bun 自己也把请求体挡在上限外；处理器里还会边读边数，覆盖分块上传。
+  maxRequestBodySize: OBS_PROXY_MAX_BODY_BYTES,
+  // 默认 10 秒空闲就断开，而查询最长等 60 秒（createObsProxy 的 timeoutMs）。单位秒，上限 255。
+  idleTimeout: 90,
   async fetch(request) {
     const startedAt = performance.now()
     const response = await handle(request)

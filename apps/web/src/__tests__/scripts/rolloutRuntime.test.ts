@@ -954,6 +954,21 @@ describe('app-compose.sh up', () => {
     expect(indexOf(log, takenDown)).toBe(-1)
   })
 
+  it('reads the switch the way Compose reads app.env: trailing comments, CRLF, quotes', () => {
+    const log = upWithAppEnv(
+      'APP_IMAGE=fixture:new\r\nOBSERVABILITY_ENABLED=true # second copy of the logs\r\nOBS_PROXY_HOST_PORT="15091"\r\nOBS_UI_HOST_PORT=15081 # loopback\r\n',
+    )
+    expect(indexOf(log, observability)).toBeGreaterThan(-1)
+    expect(indexOf(log, takenDown)).toBe(-1)
+  })
+
+  it('does not start the services when a port is only a comment', () => {
+    const log = upWithAppEnv(
+      'APP_IMAGE=fixture:new\nOBSERVABILITY_ENABLED=true\nOBS_PROXY_HOST_PORT= # todo\nOBS_UI_HOST_PORT=15081\n',
+    )
+    expect(indexOf(log, observability)).toBe(-1)
+  })
+
   it('does not start the services without per-deployment loopback ports', () => {
     const log = upWithAppEnv('APP_IMAGE=fixture:new\nOBSERVABILITY_ENABLED=true\n')
     expect(indexOf(log, observability)).toBe(-1)

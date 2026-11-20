@@ -682,6 +682,7 @@ configs:
               action: upsert
         batch:
           send_batch_size: 2048
+          send_batch_max_size: 2048
           timeout: 2s
       exporters:
         otlp_http/openobserve:
@@ -693,9 +694,11 @@ configs:
           sending_queue:
             enabled: true
             storage: file_storage/queue
-            # At most 500 batches of up to 2048 records on disk (otel-queue) while OpenObserve is
-            # away; past that the oldest data is dropped rather than the disk filled.
-            queue_size: 500
+            # Counted in bytes: at most 256 MB on disk (otel-queue) per pipeline, logs and traces
+            # each, while OpenObserve is away. Past that new data is refused rather than the disk
+            # filled.
+            sizer: bytes
+            queue_size: 268435456
           retry_on_failure:
             enabled: true
             max_elapsed_time: 0
