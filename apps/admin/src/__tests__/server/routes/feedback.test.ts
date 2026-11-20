@@ -100,13 +100,13 @@ describe('Admin feedback proxy routes', () => {
         method: 'POST',
         path: '/internal/admin/feedback/thread-1/replies',
         search: '',
-        operator: 'password',
+        operator: 'password-admin',
       },
       {
         method: 'PATCH',
         path: '/internal/admin/feedback/thread-1/status',
         search: '',
-        operator: 'password',
+        operator: 'password-admin',
       },
       {
         method: 'GET',
