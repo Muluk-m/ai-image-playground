@@ -10,7 +10,15 @@ import {
 } from '../../lib/authClient'
 
 /** Account-only CLI sessions; the server decides whether this deployment offers CLI access. */
-export default function CliConnectionsSection({ standalone = false }: { standalone?: boolean }) {
+export default function CliConnectionsSection({
+  standalone = false,
+  onLoaded,
+  onUnavailable,
+}: {
+  standalone?: boolean
+  onLoaded?: (connections: readonly CliConnectionSummary[]) => void
+  onUnavailable?: () => void
+}) {
   const { t, i18n } = useTranslation('auth')
   const [connections, setConnections] = useState<CliConnectionSummary[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'failed' | 'unavailable'>('loading')
@@ -30,18 +38,18 @@ export default function CliConnectionsSection({ standalone = false }: { standalo
         if (controller.signal.aborted) return
         setConnections(loaded)
         setState('ready')
+        onLoaded?.(loaded)
       },
       (error: unknown) => {
         if (controller.signal.aborted) return
-        setState(
+        const unavailable =
           error instanceof AuthRequestError && error.code === 'capability_unavailable'
-            ? 'unavailable'
-            : 'failed',
-        )
+        setState(unavailable ? 'unavailable' : 'failed')
+        if (unavailable) onUnavailable?.()
       },
     )
     return () => controller.abort()
-  }, [attempt])
+  }, [attempt, onLoaded, onUnavailable])
 
   async function revoke(id: string) {
     const controller = request.current
@@ -66,7 +74,9 @@ export default function CliConnectionsSection({ standalone = false }: { standalo
 
   return (
     <section
-      className={standalone ? undefined : 'mt-6 border-t border-border pt-6'}
+      className={
+        standalone ? 'rounded-2xl border border-border bg-card p-6' : 'mt-6 border-t border-border pt-6'
+      }
       aria-labelledby="cli-connections-title"
     >
       <div className="mb-3 flex items-center justify-between gap-3">
