@@ -687,6 +687,13 @@
       "when": 1794900000000,
       "tag": "0099_task_traceparent",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1795000000000,
+      "tag": "0100_user_feedback",
+      "breakpoints": true
     }
   ]
 }

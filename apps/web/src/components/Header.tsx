@@ -1,11 +1,13 @@
 import { OAUTH_LINK_ERROR_QUERY_PARAM, OAUTH_LINK_QUERY_PARAM } from '@image-playground/shared'
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { LoginMethodsPanel } from '../auth/LoginMethodsPanel'
 import AgentJobInbox from '../features/agent/components/AgentJobInbox'
 import { agentPanelPresent } from '../features/agent/panelLayout'
 import { AnnouncementEntry, AnnouncementMenuRow } from '../features/announcements/AnnouncementEntry'
 import CanvasAssetsEntryButton from '../features/canvas/components/CanvasAssetsEntryButton'
+import { fetchFeedbackSummary } from '../features/feedback/client'
+import FeedbackDialog from '../features/feedback/FeedbackDialog'
 import { useWorkspaceViewport } from '../hooks/useMobileWorkspace'
 import { BRAND_WORDMARK, brandNeedsWordmark, useTranslation } from '../i18n'
 import { isInFloatingLayer } from '../lib/dropdown'
@@ -14,6 +16,7 @@ import {
   PrivateWebHeaderCreditAction,
   PrivateWebReplacesAuthActions,
 } from '../lib/privateOverlay'
+import { getRuntimeConfig } from '../lib/runtimeConfig'
 import { useSyncStatus } from '../lib/sync/status'
 import { isWorkbenchMode, useStore } from '../store'
 import BrandAvatar from './BrandAvatar'
@@ -34,12 +37,48 @@ export default function Header() {
   const workbench = isWorkbenchMode(appMode)
   const [loggingOut, setLoggingOut] = useState(false)
   const [loginMethodsOpen, setLoginMethodsOpen] = useState(false)
-  const [contactIntent, setContactIntent] = useState<'contact' | 'feedback' | null>(null)
+  const [contactOpen, setContactOpen] = useState(false)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [feedbackUnreadCount, setFeedbackUnreadCount] = useState(0)
   const [accountMenuOpen, setAccountMenuOpen] = useState(false)
   const feedbackLabel = t('header.feedback.label')
   const accountMenuRef = useRef<HTMLDivElement>(null)
   const headerActionsRef = useRef<HTMLDivElement>(null)
   const auth = useAuth()
+
+  const feedbackUserId = auth.user?.id
+  const updateFeedbackUnread = useCallback((count: number) => setFeedbackUnreadCount(count), [])
+
+  useEffect(() => {
+    if (!feedbackUserId || !getRuntimeConfig().bff.enabled) {
+      setFeedbackUnreadCount(0)
+      return
+    }
+    if (feedbackOpen) return
+
+    let request: AbortController | undefined
+    const refresh = () => {
+      if (document.hidden || request) return
+      const controller = new AbortController()
+      request = controller
+      void fetchFeedbackSummary(controller.signal)
+        .then(({ unreadReplyCount }) => {
+          if (!controller.signal.aborted) setFeedbackUnreadCount(unreadReplyCount)
+        })
+        .catch(() => {})
+        .finally(() => {
+          request = undefined
+        })
+    }
+    refresh()
+    const timer = window.setInterval(refresh, 60_000)
+    document.addEventListener('visibilitychange', refresh)
+    return () => {
+      request?.abort()
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', refresh)
+    }
+  }, [feedbackUserId, feedbackOpen])
 
   const syncPending = useSyncStatus((s) => s.enabled && (s.pending > 0 || s.status === 'error'))
 
@@ -103,7 +142,7 @@ export default function Header() {
   }
   const openContact = () => {
     setAccountMenuOpen(false)
-    setContactIntent('contact')
+    setContactOpen(true)
   }
 
   return (
@@ -125,20 +164,27 @@ export default function Header() {
         {workbench && agentPanelPresent() ? <AgentJobInbox /> : null}
         <div className="studio-header-float flex items-center gap-2">
           <CanvasAssetsEntryButton />
-          <Hint tooltip={contactIntent ? undefined : feedbackLabel}>
+          <Hint tooltip={feedbackOpen ? undefined : feedbackLabel}>
             <Button
               type="button"
               size="icon-sm"
               variant="ghost"
-              className="rounded-full [&_svg]:size-5"
+              className="relative rounded-full [&_svg]:size-5"
               aria-label={feedbackLabel}
+              aria-description={feedbackUnreadCount > 0 ? t('header.feedback.unread') : undefined}
               aria-haspopup="dialog"
               onClick={() => {
                 setAccountMenuOpen(false)
-                setContactIntent('feedback')
+                setFeedbackOpen(true)
               }}
             >
               <Icon name="feedback" />
+              {feedbackUnreadCount > 0 ? (
+                <span
+                  aria-hidden
+                  className="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary"
+                />
+              ) : null}
             </Button>
           </Hint>
           {auth.user ? <PrivateWebHeaderCreditAction /> : null}
@@ -274,12 +320,17 @@ export default function Header() {
         </div>
       </div>
       {loginMethodsOpen && <LoginMethodsPanel onClose={() => setLoginMethodsOpen(false)} />}
-      {contactIntent && (
-        <ContactDialog
-          feedback={contactIntent === 'feedback'}
-          onClose={() => setContactIntent(null)}
-        />
-      )}
+      {contactOpen && <ContactDialog onClose={() => setContactOpen(false)} />}
+      {feedbackOpen &&
+        (getRuntimeConfig().bff.enabled && auth.enabled ? (
+          <FeedbackDialog
+            key={feedbackUserId ?? 'guest'}
+            onClose={() => setFeedbackOpen(false)}
+            onUnreadChange={updateFeedbackUnread}
+          />
+        ) : (
+          <ContactDialog feedback onClose={() => setFeedbackOpen(false)} />
+        ))}
     </>
   )
 }
