@@ -40,6 +40,8 @@ export interface ServerLogFilters {
   q?: string
   requestId?: string
   taskId?: string
+  /** W3C trace id：同一条链路上的日志（ADR 0033）。 */
+  traceId?: string
   userId?: string
   mediaId?: string
   instance?: string
