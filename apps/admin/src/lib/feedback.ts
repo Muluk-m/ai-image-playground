@@ -89,12 +89,15 @@ export function useFeedbackMutations() {
       onSuccess: (_data, variables) => refresh(variables.threadId),
     }),
     setStatus: useMutation({
-      mutationFn: (input: { threadId: string; status: FeedbackStatus }) =>
+      mutationFn: (input: { threadId: string; status: FeedbackStatus; lastMessageAt: number }) =>
         apiClient.patch<{ thread: FeedbackAdminThreadSummary }>(
           `/api/feedback/${encodeURIComponent(input.threadId)}/status`,
-          { status: input.status },
+          { status: input.status, lastMessageAt: input.lastMessageAt },
         ),
       onSuccess: (_data, variables) => refresh(variables.threadId),
+      onError: async (error, variables) => {
+        if (error instanceof ApiError && error.status === 409) await refresh(variables.threadId)
+      },
     }),
   }
 }
@@ -123,6 +126,7 @@ export function feedbackErrorMessage(error: unknown): string {
     if (code === 'empty_message') return '回复内容不能为空'
     if (code === 'body_too_long') return '回复内容不能超过 4000 字'
     if (code === 'not_found') return '该反馈会话不存在'
+    if (code === 'stale_thread') return '会话有新消息，请查看后再更新状态'
     return `操作失败（HTTP ${error.status}）`
   }
   return '操作失败，请重试'

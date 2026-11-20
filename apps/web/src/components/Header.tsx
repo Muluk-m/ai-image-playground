@@ -16,7 +16,7 @@ import {
   PrivateWebHeaderCreditAction,
   PrivateWebReplacesAuthActions,
 } from '../lib/privateOverlay'
-import { isBffEnabled } from '../lib/runtimeConfig'
+import { getRuntimeConfig } from '../lib/runtimeConfig'
 import { useSyncStatus } from '../lib/sync/status'
 import { isWorkbenchMode, useStore } from '../store'
 import BrandAvatar from './BrandAvatar'
@@ -50,7 +50,7 @@ export default function Header() {
   const updateFeedbackUnread = useCallback((count: number) => setFeedbackUnreadCount(count), [])
 
   useEffect(() => {
-    if (!feedbackUserId || !isBffEnabled()) {
+    if (!feedbackUserId || !getRuntimeConfig().bff.enabled) {
       setFeedbackUnreadCount(0)
       return
     }
@@ -322,7 +322,7 @@ export default function Header() {
       {loginMethodsOpen && <LoginMethodsPanel onClose={() => setLoginMethodsOpen(false)} />}
       {contactOpen && <ContactDialog onClose={() => setContactOpen(false)} />}
       {feedbackOpen &&
-        (isBffEnabled() && auth.enabled ? (
+        (getRuntimeConfig().bff.enabled && auth.enabled ? (
           <FeedbackDialog
             key={feedbackUserId ?? 'guest'}
             onClose={() => setFeedbackOpen(false)}

@@ -1,5 +1,6 @@
 import { FEEDBACK_MESSAGE_MAX_CHARS } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
+import { config } from '../config'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import {
   FeedbackError,
@@ -36,9 +37,19 @@ const messageIdParams = t.Object({ messageId: t.String({ minLength: 1, maxLength
 
 export const publicFeedbackRoutes = new Elysia({ prefix: '/api/feedback' })
   .use(resolveAuthUser)
-  .onBeforeHandle(({ set }) => {
+  .onBeforeHandle(({ request, set, status }) => {
     set.headers['cache-control'] = 'private, no-store'
     if (!isCapabilityEnabled('accounts:login')) return capabilityUnavailable('accounts:login')
+    const origin = request.headers.get('origin')
+    if (
+      request.method === 'POST' &&
+      origin &&
+      origin !== new URL(request.url).origin &&
+      !config.auth.publicOrigins.includes(origin) &&
+      !config.auth.frontendOrigins.includes(origin)
+    ) {
+      return status(403, { error: 'forbidden_origin' })
+    }
   })
   .get('/summary', async ({ authUser, status }) => {
     if (!authUser) return status(401, { error: 'unauthorized' })
@@ -152,7 +163,12 @@ export const internalFeedbackRoutes = new Elysia({ prefix: '/internal/admin/feed
     '/:id/status',
     async ({ body, params, request, status }) => {
       try {
-        return await updateAdminFeedbackThreadStatus(params.id, body.status, operatorId(request))
+        return await updateAdminFeedbackThreadStatus({
+          threadId: params.id,
+          nextStatus: body.status,
+          operatorId: operatorId(request),
+          lastMessageAt: body.lastMessageAt,
+        })
       } catch (error) {
         return handleFeedbackError(error, status)
       }
@@ -161,6 +177,7 @@ export const internalFeedbackRoutes = new Elysia({ prefix: '/internal/admin/feed
       params: idParams,
       body: t.Object({
         status: t.Union([t.Literal('open'), t.Literal('resolved')]),
+        lastMessageAt: t.Integer({ minimum: 1, maximum: 8_640_000_000_000_000 }),
       }),
     },
   )

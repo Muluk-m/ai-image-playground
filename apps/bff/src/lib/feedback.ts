@@ -14,7 +14,6 @@ import {
   type FeedbackThreadResponse,
   type FeedbackUserThread,
   isFeedbackAttachmentMimeType,
-  isFeedbackStatus,
 } from '@image-playground/shared'
 import { and, asc, desc, eq, gt, inArray, sql } from 'drizzle-orm'
 import sharp from 'sharp'
@@ -32,7 +31,7 @@ export type FeedbackErrorCode =
   | 'attachment_type'
   | 'attachment_too_large'
   | 'attachment_invalid'
-  | 'invalid_status'
+  | 'stale_thread'
 
 export class FeedbackError extends Error {
   constructor(
@@ -437,7 +436,11 @@ async function buildAdminSummaries(
       thread: threads,
       username: users.username,
       nickname: users.nickname,
-      latestMessage,
+      latestMessage: {
+        preview: latestMessage.preview,
+        hasAttachment: latestMessage.hasAttachment,
+        senderType: latestMessage.senderType,
+      },
       messageCount: db.$count(messages, eq(messages.thread_id, threads.id)),
     })
     .from(threads)
@@ -601,22 +604,33 @@ export async function replyAdminFeedbackThread(
   }
 }
 
-export async function updateAdminFeedbackThreadStatus(
-  threadId: string,
-  nextStatus: unknown,
-  operatorId: string,
-): Promise<{ thread: FeedbackAdminThreadSummary }> {
-  if (!isFeedbackStatus(nextStatus)) {
-    throw new FeedbackError('invalid_status', 400)
-  }
+export async function updateAdminFeedbackThreadStatus({
+  threadId,
+  nextStatus,
+  operatorId,
+  lastMessageAt,
+}: {
+  threadId: string
+  nextStatus: FeedbackStatus
+  operatorId: string
+  lastMessageAt: number
+}): Promise<{ thread: FeedbackAdminThreadSummary }> {
   const now = Date.now()
+  const threads = schema.feedback_threads
   await db.transaction(async (tx) => {
     const [updated] = await tx
-      .update(schema.feedback_threads)
+      .update(threads)
       .set({ status: nextStatus, updated_at: now })
-      .where(eq(schema.feedback_threads.id, threadId))
-      .returning({ id: schema.feedback_threads.id })
-    if (!updated) throw new FeedbackError('not_found', 404)
+      .where(and(eq(threads.id, threadId), eq(threads.last_message_at, lastMessageAt)))
+      .returning({ id: threads.id })
+    if (!updated) {
+      const [current] = await tx
+        .select({ id: threads.id })
+        .from(threads)
+        .where(eq(threads.id, threadId))
+      if (!current) throw new FeedbackError('not_found', 404)
+      throw new FeedbackError('stale_thread', 409)
+    }
 
     await tx.insert(schema.operator_audits).values({
       id: randomUUID(),

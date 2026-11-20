@@ -271,7 +271,7 @@ describe('feedback routes', () => {
     const resolved = await request(
       `/internal/admin/feedback/${createdBody.thread.id}/status`,
       'PATCH',
-      { status: 'resolved' },
+      { status: 'resolved', lastMessageAt: secondReply.createdAt },
       serviceHeaders,
     )
     expect(resolved.status).toBe(200)
@@ -285,6 +285,15 @@ describe('feedback routes', () => {
     )
     expect(followUp.status).toBe(201)
     expect((await followUp.json()).thread).toMatchObject({ status: 'open', unreadReplyCount: 1 })
+
+    const staleResolve = await request(
+      `/internal/admin/feedback/${createdBody.thread.id}/status`,
+      'PATCH',
+      { status: 'resolved', lastMessageAt: secondReply.createdAt },
+      serviceHeaders,
+    )
+    expect(staleResolve.status).toBe(409)
+    expect((await staleResolve.json()).error).toBe('stale_thread')
 
     const finalRead = await request(
       '/api/feedback/read',
@@ -302,6 +311,21 @@ describe('feedback routes', () => {
       'feedback.reply',
       'feedback.status',
     ])
+  })
+
+  it('rejects a feedback write from an untrusted browser origin', async () => {
+    const cookie = await signIn('origin-test')
+    const response = await request(
+      '/api/feedback/messages',
+      'POST',
+      { body: 'test' },
+      {
+        cookie,
+        origin: 'https://untrusted.example.com',
+      },
+    )
+    expect(response.status).toBe(403)
+    expect(await response.json()).toEqual({ error: 'forbidden_origin' })
   })
 
   it('rejects empty messages and spoofed or non-image attachments', async () => {

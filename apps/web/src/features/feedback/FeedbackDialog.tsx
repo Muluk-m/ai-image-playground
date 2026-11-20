@@ -175,7 +175,7 @@ export default function FeedbackDialog({
         setLoadError(false)
         setUnread(data.thread?.unreadReplyCount ?? 0)
         setMessages((current) => {
-          const newestFetched = data.messages.at(-1)?.createdAt ?? 0
+          const newestFetched = data.messages[data.messages.length - 1]?.createdAt ?? 0
           return [
             ...data.messages,
             ...current.filter((message) => message.createdAt > newestFetched),
@@ -199,7 +199,14 @@ export default function FeedbackDialog({
     }
   }, [canUseInApp, reload])
 
-  const latestReplyId = messages.findLast((message) => message.senderType === 'admin')?.id
+  let latestReplyId: string | undefined
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message?.senderType === 'admin') {
+      latestReplyId = message.id
+      break
+    }
+  }
   useEffect(() => {
     if (!canUseInApp || loading || loadError) return
     onUnreadChange?.(unread)

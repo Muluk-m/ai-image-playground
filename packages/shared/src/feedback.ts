@@ -81,10 +81,6 @@ export interface FeedbackAdminDetailResponse {
   messages: FeedbackMessage[]
 }
 
-export function isFeedbackStatus(value: unknown): value is FeedbackStatus {
-  return value === 'open' || value === 'resolved'
-}
-
 export function isFeedbackAttachmentMimeType(value: unknown): value is FeedbackAttachmentMimeType {
   return value === 'image/png' || value === 'image/jpeg' || value === 'image/webp'
 }

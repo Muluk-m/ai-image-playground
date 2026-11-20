@@ -122,8 +122,10 @@ export function FeedbackInboxPage({
   const items = listQuery.data?.items ?? []
   const counts = listQuery.data?.counts
 
-  const activeThreadId =
-    search.thread && items.some((item) => item.id === search.thread) ? search.thread : items[0]?.id
+  const activeThreadId = search.thread ?? items[0]?.id
+  useEffect(() => {
+    if (activeThreadId && !search.thread) onSearchChange({ thread: activeThreadId })
+  }, [activeThreadId, onSearchChange, search.thread])
 
   const detailQuery = useFeedbackThread(activeThreadId)
   const { reply, setStatus } = useFeedbackMutations()
@@ -159,7 +161,7 @@ export function FeedbackInboxPage({
 
   function handleSearchSubmit(event: FormEvent) {
     event.preventDefault()
-    onSearchChange({ q: draftQuery.trim() || undefined })
+    onSearchChange({ q: draftQuery.trim() || undefined, thread: undefined })
   }
 
   async function handleSendReply() {
@@ -187,6 +189,7 @@ export function FeedbackInboxPage({
       await setStatus.mutateAsync({
         threadId: thread.id,
         status: thread.status === 'resolved' ? 'open' : 'resolved',
+        lastMessageAt: thread.lastMessageAt,
       })
     } catch (error) {
       setActionError(feedbackErrorMessage(error))
@@ -229,7 +232,7 @@ export function FeedbackInboxPage({
               size="sm"
               onClick={() => {
                 setDraftQuery('')
-                onSearchChange({ q: undefined })
+                onSearchChange({ q: undefined, thread: undefined })
               }}
             >
               清空
@@ -242,7 +245,7 @@ export function FeedbackInboxPage({
         <PendingState label="正在加载反馈列表" />
       ) : listQuery.isError ? (
         <ErrorState label="反馈列表加载失败" error={listQuery.error} />
-      ) : items.length === 0 ? (
+      ) : items.length === 0 && !activeThreadId ? (
         <EmptyState label={search.q || search.filter ? '当前筛选条件下没有反馈' : '暂无用户反馈'} />
       ) : (
         <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
