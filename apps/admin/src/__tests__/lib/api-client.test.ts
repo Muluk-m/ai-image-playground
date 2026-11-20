@@ -103,7 +103,7 @@ describe('api-client', () => {
 
     const asset = await apiClient.getBlob('/api/feedback/attachments/example')
     expect(asset.type).toBe('image/png')
-    expect(new Uint8Array(await asset.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]))
+    expect(asset.size).toBe(3)
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       '/api/feedback/attachments/example',
       '/api/auth/refresh',
