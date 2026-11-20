@@ -314,14 +314,18 @@ export function clearInspirationItem<T extends { item?: string }>(
   return rest
 }
 
+export type TaskDatePreset = '1h' | 'today' | '24h' | '7d' | '30d' | 'custom'
+
 export interface GenerationTasksSearch extends GenerationTaskFilters, TaskViewSearch {
-  preset?: DatePreset
+  preset?: TaskDatePreset
 }
 export function parseGenerationTasksSearch(input: Record<string, unknown>): GenerationTasksSearch {
   if ((input.from !== undefined || input.to !== undefined) && !parseTimeWindow(input))
     throw new Error('任务时间范围无效：需要完整的起止时间，范围不超过 31 天，且不能在未来。')
   const preset =
+    input.preset === '1h' ||
     input.preset === 'today' ||
+    input.preset === '24h' ||
     input.preset === '7d' ||
     input.preset === '30d' ||
     input.preset === 'custom'

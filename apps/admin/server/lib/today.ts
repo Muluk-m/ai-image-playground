@@ -5,9 +5,13 @@ import {
   type ErrorWindow,
   type GenerationActor,
   type GenerationTaskFilters,
+  type GenerationTasksFacetOption,
+  type GenerationTasksFacets,
   type GenerationTasksResult,
+  type GenerationTasksSummary,
   type GenerationUsersOverview,
   type OverviewActivityResult,
+  type TaskStatus,
   type TimeWindow,
   type TodayErrorItem,
   type TodayErrorsResult,
@@ -327,7 +331,19 @@ function taskWindow(filters: GenerationTaskFilters): TimeWindow {
     : todayWindow()
 }
 
-function taskConditions(filters: GenerationTaskFilters, window: TimeWindow, cursor?: string) {
+function mergedStatuses(filters: GenerationTaskFilters): TaskStatus[] {
+  return [...new Set([...(filters.status ? [filters.status] : []), ...(filters.statuses ?? [])])]
+}
+
+function mergedSources(filters: GenerationTaskFilters): string[] {
+  return [...new Set([...(filters.source ? [filters.source] : []), ...(filters.sources ?? [])])]
+}
+
+function taskConditions(
+  filters: GenerationTaskFilters,
+  window: TimeWindow,
+  options: { cursor?: string; ignoreStatus?: boolean } = {},
+) {
   const conditions = [
     sql`t.submitted_at >= ${new Date(window.from)} AND t.submitted_at <= ${new Date(window.to)}`,
   ]
@@ -335,43 +351,84 @@ function taskConditions(filters: GenerationTaskFilters, window: TimeWindow, curs
   if (filters.deviceId)
     conditions.push(sql`t.user_id IS NULL AND t.device_id = ${filters.deviceId}`)
   if (filters.unassigned) conditions.push(sql`t.user_id IS NULL AND t.device_id IS NULL`)
-  if (filters.status) conditions.push(sql`t.status = ${filters.status}`)
-  if (filters.source)
-    conditions.push(
-      sql`${taskSourceSql(sql`t.id`, sql`t.agent_conversation_id`)} = ${filters.source}`,
-    )
+  if (filters.actorType === 'user') conditions.push(sql`t.user_id IS NOT NULL`)
+  else if (filters.actorType === 'device')
+    conditions.push(sql`t.user_id IS NULL AND t.device_id IS NOT NULL`)
+  else if (filters.actorType === 'unassigned')
+    conditions.push(sql`t.user_id IS NULL AND t.device_id IS NULL`)
+
+  if (!options.ignoreStatus) {
+    const statuses = mergedStatuses(filters)
+    if (statuses.length === 1) conditions.push(sql`t.status = ${statuses[0]}`)
+    else if (statuses.length > 1) conditions.push(sqlTextIn(sql`t.status`, statuses))
+  }
+
+  const sources = mergedSources(filters)
+  const sourceExpr = taskSourceSql(sql`t.id`, sql`t.agent_conversation_id`)
+  if (sources.length === 1) conditions.push(sql`${sourceExpr} = ${sources[0]}`)
+  else if (sources.length > 1) conditions.push(sqlTextIn(sourceExpr, sources))
+
   const models = [
     ...new Set([...(filters.model ? [filters.model] : []), ...(filters.models ?? [])]),
   ]
   if (models.length === 1) conditions.push(sql`t.model = ${models[0]}`)
   else if (models.length > 1) conditions.push(sqlTextIn(sql`t.model`, models))
+
   if (filters.providers?.length === 1) conditions.push(sql`t.provider = ${filters.providers[0]}`)
   else if (filters.providers && filters.providers.length > 1)
     conditions.push(sqlTextIn(sql`t.provider`, filters.providers))
+
+  if (filters.gptRoute === 'direct') conditions.push(sql`t.gpt_route = 'direct'`)
+  else if (filters.gptRoute === 'sub2api') conditions.push(sql`t.gpt_route = 'sub2api'`)
+  else if (filters.gptRoute === 'none') conditions.push(sql`t.gpt_route IS NULL`)
+
   if (filters.errorTypes?.length) {
     const known = filters.errorTypes.filter((value) => value !== 'unknown')
     const unknown = filters.errorTypes.includes('unknown')
     const parts = []
     if (known.length === 1) parts.push(sql`t.error_type = ${known[0]}`)
     else if (known.length > 1) parts.push(sqlTextIn(sql`t.error_type`, known))
-    if (unknown) parts.push(sql`t.error_type IS NULL`)
+    if (unknown) parts.push(sql`(t.error_type IS NULL AND t.status IN ('failed', 'reconciling'))`)
     if (parts.length === 1) conditions.push(parts[0]!)
     else if (parts.length > 1) conditions.push(sql`(${sql.join(parts, sql` OR `)})`)
   }
-  if (filters.minDurationSec)
+
+  if (filters.httpBuckets?.length) {
+    const parts = filters.httpBuckets.map((bucket) => {
+      if (bucket === '2xx') return sql`(t.upstream_status >= 200 AND t.upstream_status < 300)`
+      if (bucket === '4xx') return sql`(t.upstream_status >= 400 AND t.upstream_status < 500)`
+      if (bucket === '429') return sql`t.upstream_status = 429`
+      if (bucket === '5xx') return sql`(t.upstream_status >= 500 AND t.upstream_status < 600)`
+      return sql`t.upstream_status IS NULL`
+    })
+    if (parts.length === 1) conditions.push(parts[0]!)
+    else conditions.push(sql`(${sql.join(parts, sql` OR `)})`)
+  }
+
+  if (filters.minDurationSec !== undefined)
     conditions.push(
-      sql`t.started_at IS NOT NULL AND t.completed_at IS NOT NULL AND EXTRACT(EPOCH FROM (t.completed_at - t.started_at)) > ${filters.minDurationSec}`,
+      sql`t.started_at IS NOT NULL AND t.completed_at IS NOT NULL AND t.completed_at >= t.started_at AND EXTRACT(EPOCH FROM (t.completed_at - t.started_at)) >= ${filters.minDurationSec}`,
     )
+  if (filters.maxDurationSec !== undefined)
+    conditions.push(
+      sql`t.started_at IS NOT NULL AND t.completed_at IS NOT NULL AND t.completed_at >= t.started_at AND EXTRACT(EPOCH FROM (t.completed_at - t.started_at)) <= ${filters.maxDurationSec}`,
+    )
+  if (filters.retried === '1') conditions.push(sql`t.attempt_count > 1`)
+  if (filters.minQueueSec !== undefined)
+    conditions.push(
+      sql`t.started_at IS NOT NULL AND t.started_at >= t.submitted_at AND EXTRACT(EPOCH FROM (t.started_at - t.submitted_at)) >= ${filters.minQueueSec}`,
+    )
+
   if (filters.q) {
     const pattern = ilikeContains(filters.q)
     conditions.push(
-      sql`(t.id = ${filters.q} OR u.username ILIKE ${pattern} ESCAPE '\\' OR ${promptText} ILIKE ${pattern} ESCAPE '\\')`,
+      sql`(t.id = ${filters.q} OR t.id ILIKE ${pattern} ESCAPE '\\' OR t.device_id = ${filters.q} OR t.gpt_key_fingerprint = ${filters.q} OR t.model ILIKE ${pattern} ESCAPE '\\' OR u.username ILIKE ${pattern} ESCAPE '\\' OR ${promptText} ILIKE ${pattern} ESCAPE '\\')`,
     )
   }
-  if (cursor) {
-    const separator = cursor.indexOf('_')
-    const at = Number(cursor.slice(0, separator))
-    const id = cursor.slice(separator + 1)
+  if (options.cursor) {
+    const separator = options.cursor.indexOf('_')
+    const at = Number(options.cursor.slice(0, separator))
+    const id = options.cursor.slice(separator + 1)
     if (
       separator < 1 ||
       !Number.isSafeInteger(at) ||
@@ -384,6 +441,53 @@ function taskConditions(filters: GenerationTaskFilters, window: TimeWindow, curs
     conditions.push(sql`(t.submitted_at, t.id) < (${new Date(at)}, ${id})`)
   }
   return conditions
+}
+
+function taskOrderBy(filters: GenerationTaskFilters) {
+  const sort = filters.sort ?? 'submitted_at'
+  const dir = filters.dir ?? (sort === 'status' ? 'asc' : 'desc')
+  const direction = dir === 'asc' ? sql`ASC` : sql`DESC`
+  switch (sort) {
+    case 'run_ms':
+      return sql`CASE WHEN t.started_at IS NOT NULL AND t.completed_at IS NOT NULL AND t.completed_at >= t.started_at THEN EXTRACT(EPOCH FROM (t.completed_at - t.started_at)) END ${direction} NULLS LAST, t.submitted_at DESC, t.id DESC`
+    case 'queue_ms':
+      return sql`CASE WHEN t.started_at IS NOT NULL AND t.started_at >= t.submitted_at THEN EXTRACT(EPOCH FROM (t.started_at - t.submitted_at)) END ${direction} NULLS LAST, t.submitted_at DESC, t.id DESC`
+    case 'total_ms':
+      return sql`CASE WHEN t.completed_at IS NOT NULL AND t.completed_at >= t.submitted_at THEN EXTRACT(EPOCH FROM (t.completed_at - t.submitted_at)) END ${direction} NULLS LAST, t.submitted_at DESC, t.id DESC`
+    case 'attempt_count':
+      return sql`t.attempt_count ${direction}, t.upstream_invocation_count ${direction}, t.submitted_at DESC, t.id DESC`
+    case 'upstream_invocation_count':
+      return sql`t.upstream_invocation_count ${direction}, t.attempt_count ${direction}, t.submitted_at DESC, t.id DESC`
+    case 'upstream_status':
+      return sql`t.upstream_status ${direction} NULLS LAST, t.submitted_at DESC, t.id DESC`
+    case 'status':
+      return sql`CASE t.status WHEN 'in_progress' THEN 1 WHEN 'reconciling' THEN 2 WHEN 'queued' THEN 3 WHEN 'failed' THEN 4 WHEN 'completed' THEN 5 WHEN 'cancelled' THEN 6 ELSE 7 END ${direction}, t.submitted_at DESC, t.id DESC`
+    default:
+      return sql`t.submitted_at ${direction}, t.id ${direction}`
+  }
+}
+
+function emptyStatusCounts(): Record<TaskStatus, number> {
+  return {
+    queued: 0,
+    in_progress: 0,
+    reconciling: 0,
+    completed: 0,
+    failed: 0,
+    cancelled: 0,
+  }
+}
+
+function sortFacetOptions(items: GenerationTasksFacetOption[]): GenerationTasksFacetOption[] {
+  return items.sort((a, b) =>
+    b.count !== a.count ? b.count - a.count : a.value.localeCompare(b.value),
+  )
+}
+
+function nullableMs(value: unknown): number | null {
+  if (value === null || value === undefined) return null
+  const num = Number(value)
+  return Number.isFinite(num) ? Math.round(num) : null
 }
 
 const taskSelect = sql`
@@ -472,29 +576,151 @@ export async function getGenerationTasks(
   filters: GenerationTaskFilters,
   cursor?: string,
 ): Promise<GenerationTasksResult> {
+  if (
+    filters.minDurationSec !== undefined &&
+    filters.maxDurationSec !== undefined &&
+    filters.maxDurationSec < filters.minDurationSec
+  )
+    throw new TaskQueryError('最大耗时不能小于最小耗时')
+
   const window = taskWindow(filters)
   const paged = filters.page !== undefined
   const pageSize = filters.pageSize ?? (paged ? 50 : CURSOR_PAGE_SIZE)
   const page = filters.page ?? 1
-  const conditions = taskConditions(filters, window, paged ? undefined : cursor)
+  if (
+    !paged &&
+    cursor &&
+    ((filters.sort && filters.sort !== 'submitted_at') || filters.dir === 'asc')
+  )
+    throw new TaskQueryError('游标分页仅支持按提交时间降序')
+
+  const conditions = taskConditions(filters, window, { cursor: paged ? undefined : cursor })
   const where = sql.join(conditions, sql` AND `)
+  const orderBy = taskOrderBy(filters)
   const db = getDbHandle().db
   if (paged) {
     const offset = (page - 1) * pageSize
-    const [rows, countRows] = await Promise.all([
+    const hasStatusFilter = mergedStatuses(filters).length > 0
+    const statusWhere = hasStatusFilter
+      ? sql.join(taskConditions(filters, window, { ignoreStatus: true }), sql` AND `)
+      : null
+
+    const [rows, summaryRows, facetRows, statusRows] = await Promise.all([
       db.execute(sql`
         ${taskSelect}
         WHERE ${where}
-        ORDER BY t.submitted_at DESC, t.id DESC
+        ORDER BY ${orderBy}
         LIMIT ${pageSize} OFFSET ${offset}
       `) as Promise<unknown> as Promise<Row[]>,
       db.execute(sql`
-        SELECT COUNT(*)::int AS total
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE t.status = 'completed')::int AS completed,
+          COUNT(*) FILTER (WHERE t.status = 'failed')::int AS failed,
+          COUNT(*) FILTER (WHERE t.status = 'in_progress')::int AS in_progress,
+          COUNT(*) FILTER (WHERE t.status = 'queued')::int AS queued,
+          COUNT(*) FILTER (WHERE t.status = 'reconciling')::int AS reconciling,
+          COUNT(*) FILTER (WHERE t.status = 'cancelled')::int AS cancelled,
+          PERCENTILE_CONT(0.5) WITHIN GROUP (
+            ORDER BY EXTRACT(EPOCH FROM (t.completed_at - t.started_at)) * 1000
+          ) FILTER (
+            WHERE t.status = 'completed'
+              AND t.started_at IS NOT NULL
+              AND t.completed_at IS NOT NULL
+              AND t.completed_at >= t.started_at
+          ) AS p50_run_ms,
+          PERCENTILE_CONT(0.95) WITHIN GROUP (
+            ORDER BY EXTRACT(EPOCH FROM (t.completed_at - t.started_at)) * 1000
+          ) FILTER (
+            WHERE t.status = 'completed'
+              AND t.started_at IS NOT NULL
+              AND t.completed_at IS NOT NULL
+              AND t.completed_at >= t.started_at
+          ) AS p95_run_ms
         FROM queue_tasks t LEFT JOIN users u ON u.id = t.user_id
         WHERE ${where}
       `) as Promise<unknown> as Promise<Row[]>,
+      db.execute(sql`
+        SELECT
+          GROUPING(f.model) AS g_model,
+          GROUPING(f.provider) AS g_provider,
+          GROUPING(f.err_key) AS g_err,
+          f.model,
+          f.provider,
+          f.err_key,
+          COUNT(*)::int AS count
+        FROM (
+          SELECT
+            model,
+            provider,
+            CASE
+              WHEN error_type IS NOT NULL THEN error_type
+              WHEN status IN ('failed', 'reconciling') THEN 'unknown'
+              ELSE NULL
+            END AS err_key
+          FROM queue_tasks
+          WHERE submitted_at >= ${new Date(window.from)} AND submitted_at <= ${new Date(window.to)}
+        ) f
+        GROUP BY GROUPING SETS ((f.model), (f.provider), (f.err_key))
+      `) as Promise<unknown> as Promise<Row[]>,
+      statusWhere
+        ? (db.execute(sql`
+            SELECT t.status, COUNT(*)::int AS count
+            FROM queue_tasks t LEFT JOIN users u ON u.id = t.user_id
+            WHERE ${statusWhere}
+            GROUP BY t.status
+          `) as Promise<unknown> as Promise<Row[]>)
+        : Promise.resolve(null),
     ])
-    const total = Number(countRows[0]?.total ?? 0)
+
+    const summaryRow = summaryRows[0] ?? {}
+    const total = Number(summaryRow.total ?? 0)
+    const summary: GenerationTasksSummary = {
+      total,
+      completed: Number(summaryRow.completed ?? 0),
+      failed: Number(summaryRow.failed ?? 0),
+      in_progress: Number(summaryRow.in_progress ?? 0),
+      queued: Number(summaryRow.queued ?? 0),
+      reconciling: Number(summaryRow.reconciling ?? 0),
+      cancelled: Number(summaryRow.cancelled ?? 0),
+      p50_run_ms: nullableMs(summaryRow.p50_run_ms),
+      p95_run_ms: nullableMs(summaryRow.p95_run_ms),
+    }
+
+    const statusCounts = emptyStatusCounts()
+    if (statusRows) {
+      for (const row of statusRows) {
+        const key = String(row.status) as TaskStatus
+        if (key in statusCounts) statusCounts[key] = Number(row.count ?? 0)
+      }
+    } else {
+      statusCounts.completed = summary.completed
+      statusCounts.failed = summary.failed
+      statusCounts.in_progress = summary.in_progress
+      statusCounts.queued = summary.queued
+      statusCounts.reconciling = summary.reconciling
+      statusCounts.cancelled = summary.cancelled
+    }
+
+    const modelOptions: GenerationTasksFacetOption[] = []
+    const providerOptions: GenerationTasksFacetOption[] = []
+    const errorOptions: GenerationTasksFacetOption[] = []
+    for (const row of facetRows) {
+      const count = Number(row.count ?? 0)
+      if (Number(row.g_model) === 0 && row.model != null)
+        modelOptions.push({ value: String(row.model), count })
+      else if (Number(row.g_provider) === 0 && row.provider != null)
+        providerOptions.push({ value: String(row.provider), count })
+      else if (Number(row.g_err) === 0 && row.err_key != null)
+        errorOptions.push({ value: String(row.err_key), count })
+    }
+    const facets: GenerationTasksFacets = {
+      statusCounts,
+      models: sortFacetOptions(modelOptions),
+      providers: sortFacetOptions(providerOptions),
+      errorTypes: sortFacetOptions(errorOptions),
+    }
+
     const tasks = rows.map(mapGenerationTask)
     const last = tasks[tasks.length - 1]
     return {
@@ -503,13 +729,15 @@ export async function getGenerationTasks(
       total,
       page,
       pageSize,
+      summary,
+      facets,
       nextCursor: offset + tasks.length < total && last ? `${last.submitted_at}_${last.id}` : null,
     }
   }
   const rows = (await db.execute(sql`
     ${taskSelect}
     WHERE ${where}
-    ORDER BY t.submitted_at DESC, t.id DESC LIMIT ${CURSOR_PAGE_SIZE + 1}
+    ORDER BY ${orderBy} LIMIT ${CURSOR_PAGE_SIZE + 1}
   `)) as unknown as Row[]
   const tasks = rows.slice(0, CURSOR_PAGE_SIZE).map(mapGenerationTask)
   const last = tasks[tasks.length - 1]
@@ -525,11 +753,17 @@ export async function exportGenerationTasks(filters: GenerationTaskFilters): Pro
   tasks: ReturnType<typeof mapGenerationTask>[]
   truncated: boolean
 }> {
+  if (
+    filters.minDurationSec !== undefined &&
+    filters.maxDurationSec !== undefined &&
+    filters.maxDurationSec < filters.minDurationSec
+  )
+    throw new TaskQueryError('最大耗时不能小于最小耗时')
   const window = taskWindow(filters)
   const rows = (await getDbHandle().db.execute(sql`
     ${taskSelect}
     WHERE ${sql.join(taskConditions(filters, window), sql` AND `)}
-    ORDER BY t.submitted_at DESC, t.id DESC
+    ORDER BY ${taskOrderBy(filters)}
     LIMIT ${EXPORT_CAP + 1}
   `)) as unknown as Row[]
   return {
@@ -554,6 +788,13 @@ export function generationTasksCsv(
     'model',
     'duration_seconds',
     'prompt',
+    'queue_seconds',
+    'attempt_count',
+    'upstream_invocation_count',
+    'upstream_status',
+    'gpt_route',
+    'gpt_key_fingerprint',
+    'device_id',
   ]
   const cell = (value: string) => {
     const safe = /^[=+\-@]/.test(value) ? `'${value}` : value
@@ -561,8 +802,12 @@ export function generationTasksCsv(
   }
   const lines = tasks.map((task) => {
     const duration =
-      task.started_at != null && task.completed_at != null
+      task.started_at != null && task.completed_at != null && task.completed_at >= task.started_at
         ? ((task.completed_at - task.started_at) / 1000).toFixed(3)
+        : ''
+    const queue =
+      task.started_at != null && task.started_at >= task.submitted_at
+        ? ((task.started_at - task.submitted_at) / 1000).toFixed(3)
         : ''
     return [
       task.id,
@@ -576,6 +821,13 @@ export function generationTasksCsv(
       task.model,
       duration,
       task.prompt,
+      queue,
+      String(task.attempt_count),
+      String(task.upstream_invocation_count),
+      task.upstream_status != null ? String(task.upstream_status) : '',
+      task.gpt_route ?? '',
+      task.gpt_key_fingerprint ?? '',
+      task.device_id ?? '',
     ]
       .map((value) => cell(value))
       .join(',')

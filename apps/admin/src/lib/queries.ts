@@ -1,5 +1,6 @@
 import type { GptDirectAdminView } from '@image-playground/shared'
 import {
+  hashKey,
   type QueryClient,
   replaceEqualDeep,
   useInfiniteQuery,
@@ -20,6 +21,7 @@ import {
   generationRefreshInterval,
   generationWindow,
 } from './generation-overview'
+import type { TaskDatePreset } from './search-params'
 import type {
   ClientErrorEventsResult,
   ClientErrorsResult,
@@ -295,17 +297,26 @@ export function useGenerationTasksClock(live: boolean) {
   }, [live, activatedAt])
   return clock.live === live ? clock.now : activatedAt.now
 }
-export function useGenerationTasks(filters: GenerationTaskFilters) {
+export function useGenerationTasks(
+  filters: GenerationTaskFilters,
+  rollingPreset?: Exclude<TaskDatePreset, 'custom'>,
+) {
+  const { from, to, ...selection } = filters
+  // 同一筛选下滚动时间窗刷新保留现有数据，避免表格重建与横向/纵向滚动位置丢失。
+  const selectionKey = hashKey([selection, rollingPreset, rollingPreset === 'today' ? from : null])
   return useQuery({
-    queryKey: ['generation-tasks', filters],
+    queryKey: ['generation-tasks', selectionKey, from, to] as const,
     queryFn: () => {
       const params = new URLSearchParams()
       for (const [key, value] of Object.entries(filters)) {
         if (value === undefined) continue
+        if (Array.isArray(value) && value.length === 0) continue
         params.set(key, Array.isArray(value) ? value.join(',') : String(value))
       }
       return apiClient.get<GenerationTasksResult>(`/api/tasks?${params}`)
     },
+    placeholderData: (previous, previousQuery) =>
+      rollingPreset && previousQuery?.queryKey[1] === selectionKey ? previous : undefined,
     staleTime: 0,
     refetchInterval: false,
     refetchOnWindowFocus: false,
