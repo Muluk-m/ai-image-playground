@@ -49,7 +49,27 @@ API 错误展示接口、HTTP 状态、原始错误码和已记录的具体原�
 
 数据库日志隐藏常见密钥字段、认证头、Cookie、原始请求体、响应预览和序列化 JSON 中的用户内容，消息里的 Bearer、常见 API key、URL 密钥参数与 URL 密码也会脱敏。单行消息最多 4000 字符；多行终端记录整体脱敏后最多保留 16000 字符，结构化字段超限会标记截断。应用日志仍应遵守不输出秘密和用户原文的约定。
 
-BFF 的 `/api/*` 与 `/v1/*` 请求用 OpenTelemetry 建链路（ADR 0033）：接着调用方的 W3C `traceparent`，在请求里打的 pino 日志自动带 `trace_id`、`span_id`，在本页用关键词搜 `trace_id` 就能查到同一请求的日志。健康检查、`/internal/*` 与静态资源不建链路。生成任务提交时把当前链路的 `traceparent` 写进 `tasks.traceparent`；worker 每次认领执行都开一个新的 `task.execute` 链路，用 span link 指回提交链路，执行期间（含中断收尾）的 worker 日志带这条新链路的 `trace_id`；提交请求的 span 带 `task.id` 属性。从任务找提交链路看 `tasks.traceparent`，从执行链路找提交链路看 span link。认领本身（含弹性名额判定）发生在执行链路之前，相关日志只带任务 ID。上游请求与 R2 读写的 span 按 ADR 0033 的 P1 后续接入（#1917）。配置 `OTEL_EXPORTER_OTLP_ENDPOINT`（Collector 的 OTLP/HTTP 地址，不含 `/v1/traces`）时才导出 span，默认不导出；`OTEL_TRACES_SAMPLE_RATIO`（0–1，默认 1）按比例采样；`OTEL_DEPLOYMENT_ENVIRONMENT` 可选，写进 span 的 `deployment.environment.name`。
+BFF 的 `/api/*` 与 `/v1/*` 请求用 OpenTelemetry 建链路（ADR 0033）：接着调用方的 W3C `traceparent`，在请求里打的 pino 日志自动带 `trace_id`、`span_id`，在本页用关键词搜 `trace_id` 就能查到同一请求的日志。健康检查、`/internal/*` 与静态资源不建链路。生成任务提交时把当前链路的 `traceparent` 写进 `tasks.traceparent`；worker 每次认领执行都开一个新的 `task.execute` 链路，用 span link 指回提交链路，执行期间（含中断收尾）的 worker 日志带这条新链路的 `trace_id`；提交请求的 span 带 `task.id` 属性。从任务找提交链路看 `tasks.traceparent`，从执行链路找提交链路看 span link。认领本身（含弹性名额判定）发生在执行链路之前，相关日志只带任务 ID。上游请求（CLIENT span，并把 `traceparent` 带给上游）、Vertex 限流退避（执行 span 上的事件）与 R2 读写（CLIENT span，只记操作和字节数）也各有 span（#1927）。配置 `OTEL_EXPORTER_OTLP_ENDPOINT`（Collector 的 OTLP/HTTP 地址，不含 `/v1/traces`）时才导出 span，默认不导出；`OTEL_TRACES_SAMPLE_RATIO`（0–1，默认 1）按比例采样；`OTEL_DEPLOYMENT_ENVIRONMENT` 可选，写进 span 的 `deployment.environment.name`。
+
+## OpenTelemetry 与 OpenObserve（ADR 0033 P2）
+
+app.env 里 `OBSERVABILITY_ENABLED=true` 时，下一次发布由 `scripts/app-compose.sh` 拉起 `observability` profile 的三个服务。Fluent Bit 多一路输出，把多行合并之后的同一份日志发给 Collector；`server_logs` 照常接收，P3 之前两份并存。关掉开关后的下一次发布会停掉并删除这三个容器（数据卷保留），回到只有 `server_logs`。开启时 app.env 必须同时设 `OBS_PROXY_HOST_PORT`、`OBS_UI_HOST_PORT`（同一宿主机上每个部署各用一对），缺了只打警告、不启动。
+
+- `otel-collector`（otelcol-contrib 0.165.0，上限 200 MB）：`fluent_forward` 收容器日志，OTLP/HTTP `:4318` 收 BFF 和 worker 的 span（app.env 设 `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318`）。处理规则写在 `deploy/compose.app.yaml` 的 `configs.otel-collector`：pino 行拆成字段，消息作正文，用 pino 的毫秒时间，日志挂到 `trace_id`/`span_id`，级别映射成 OTel severity（cloudflared 的 `INF/WRN/ERR` 也认），没写 service 的按容器名推断；脱敏对照 `server_logs`（`packages/shared/src/redact-log.ts`），实现方式不同：键名命中私密字段（`prompt`、`messages`、`headers`、含 `token`/`secret`/`password`/`api_key` 等）的整项按任意层级删掉；正文和每个字段值里的 Bearer/Basic、`sk-`/`AIza` 形状的 key、`token=` 一类赋值、URL 账号密码、base64 图片替换掉；文本里一旦出现 `prompt:`、`content=`、`messages:`、`body:` 这类带标签的私密字段（包括字符串里嵌的 JSON），从标签起到行尾整段换成 `[REDACTED PAYLOAD]`。和 `server_logs` 的差别：字符串里嵌的 JSON 不解析，命中标签就截掉后面全部（比逐字段清更宽）；字段值截到 4000 字符、正文 16000 字符。发送队列放在 `otel-queue` 卷，OpenObserve 重启期间不丢；按字节计量，日志和链路各至多 256 MB，满了就拒收新数据，不会写满磁盘。
+- `openobserve`（v1.1.2，上限 512 MB）：日志和 span 都写进 `app` 流，以 Parquet 存在 `OBS_S3_BUCKET` 的 `OBS_S3_PREFIX` 下，保留 `OBS_RETENTION_DAYS` 天（默认 30）。本地卷 `openobserve-data` 只放预写日志和查询缓存（数据缓存 1 GB、结果缓存 128 MB 封顶；宿主机约有 19 GB 空闲）。关了遥测、GeoIP 下载和模型价格同步，除 R2 外不外连。镜像没有 shell，不配容器健康检查。它自己的输出只留在 `docker logs`：转发进来会自己喂自己。
+- `obs-proxy`：开源版 OpenObserve 没有只读角色，对外只开这个代理。它用自己的 `OBS_PROXY_TOKEN`（Bearer，至少 32 字符）鉴权，只放行 `POST /api/default/_search`、`GET /api/default/streams` 和 `GET /api/default/<流>/traces/latest`，OpenObserve 账号由代理代填（`apps/bff/src/ops/obs-proxy.ts`）。
+
+查询用 `scripts/obs.ts`，不需要 Admin：
+
+```sh
+bun scripts/obs.ts task <任务ID>                 # 任务的日志 + 每次执行的 span 树
+bun scripts/obs.ts trace <trace_id>              # 一条链路的 span 树和日志
+bun scripts/obs.ts logs --service worker --level error --since 2h
+bun scripts/obs.ts logs --grep timeout --env test
+bun scripts/obs.ts sql 'SELECT upstream_model, COUNT(*) FROM "app" WHERE span_status = '"'"'ERROR'"'"' GROUP BY 1' --type traces
+```
+
+代理和 OpenObserve 界面只绑在宿主机回环地址上（`OBS_PROXY_HOST_PORT`，生产 15090、测试 15091；`OBS_UI_HOST_PORT`，生产 15080、测试 15081），不经 Cloudflare 暴露。本机查询先开 SSH 隧道，例如 `ssh -N -L 15090:127.0.0.1:15090 tx-vps`，再把 `OBS_PAID_URL` 设成 `http://127.0.0.1:15090`；看界面同理转发 15080，用 `OBS_ROOT_EMAIL` 登录。地址和令牌放在 `$XDG_CONFIG_HOME/ai-image-playground/obs.env`（`OBS_PAID_URL`、`OBS_PAID_TOKEN`、`OBS_TEST_URL`、`OBS_TEST_TOKEN`），或用环境变量 `OBS_URL`/`OBS_TOKEN` 覆盖。OpenObserve 里字段名全是小写、点换成下划线：日志 `taskid`、`service`、`event`、`severity`、`body`、`trace_id`；span `trace_id`、`span_id`、`reference_parent_span_id`、`operation_name`、`duration`（微秒）、`span_status`、`task_id`、`upstream_model`、`http_response_status_code`。
 
 `LOG_LEVEL` 控制 BFF 与 worker 的输出级别，默认 info。PostgreSQL 属于共享的基础设施栈，暂不转发，用 `docker logs` 查看。数据库不可用时界面报告读取失败，日志在采集容器里排队等待，现场排障仍可用 `docker logs`。
 

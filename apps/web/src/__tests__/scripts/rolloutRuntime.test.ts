@@ -66,6 +66,7 @@ if [ "$cmd" = exec ]; then
   esac
   exit 0
 fi
+[ "$cmd" != compose ] || printf 'compose-env profiles=%s match=%s\n' "$COMPOSE_PROFILES" "$OBS_LOG_MATCH" >> "$M/log"
 printf '%s %s\n' "$cmd" "$*" >> "$M/log"
 case "$cmd" in
   image)
@@ -905,6 +906,80 @@ describe('app-compose.sh up', () => {
     )
     const [bff, worker] = currentPair()
     expect(readFileSync(releases('route.json'), 'utf8')).toBe(routeFor(bff, worker))
+  })
+
+  function upWithAppEnv(appEnv: string): string[] {
+    config = join(xdg, 'ai-image-playground/apps/fixture')
+    write(join(config, 'app.env'), appEnv)
+    write(join(config, 'migrate.env'), '')
+    write(join(config, 'cloudflared/credentials.json'), '{}')
+    currentGeneration()
+    const result = spawnSync('sh', [composeScript, 'up', 'fixture'], {
+      encoding: 'utf8',
+      timeout: 20_000,
+      env: {
+        ...process.env,
+        PATH: `${join(root, 'bin')}:${process.env.PATH}`,
+        MOCK_ROOT: root,
+        XDG_CONFIG_HOME: xdg,
+        APP_IMAGE: 'fixture:new',
+        APP_CONFIG_DIR: '',
+        DEPLOY_DRAIN_DEADLINE_SECONDS: '0',
+      },
+    })
+    expect(result.status, result.stderr).toBe(0)
+    return logLines()
+  }
+  const observability = /^compose .* up --detach --no-deps openobserve otel-collector obs-proxy$/
+  const takenDown = /^compose .* rm --stop --force openobserve otel-collector obs-proxy$/
+  const ports = 'OBS_PROXY_HOST_PORT=15091\nOBS_UI_HOST_PORT=15081\n'
+
+  it('keeps the observability profile and the log copy off, and takes the services down, while app.env has them off', () => {
+    const log = upWithAppEnv('APP_IMAGE=fixture:new\nOBSERVABILITY_ENABLED=false\n')
+    expect(indexOf(log, observability)).toBe(-1)
+    expect(indexOf(log, takenDown)).toBeGreaterThan(-1)
+    const collector = indexOf(log, /^compose .* up --detach --no-deps log-collector$/)
+    expect(collector).toBeGreaterThan(-1)
+    expect(log[collector - 1]).toBe('compose-env profiles= match=__observability_off__')
+  })
+
+  it('turns the profile and the log copy on together and starts the services before the executors (ADR 0033 P2)', () => {
+    const log = upWithAppEnv(`APP_IMAGE=fixture:new\nOBSERVABILITY_ENABLED="true"\n${ports}`)
+    const collector = indexOf(log, /^compose .* up --detach --no-deps log-collector$/)
+    expect(collector).toBeGreaterThan(-1)
+    expect(log[collector - 1]).toBe('compose-env profiles=observability match=*')
+    const started = indexOf(log, observability)
+    expect(started).toBeGreaterThan(collector)
+    expect(started).toBeLessThan(indexOf(log, /^create /))
+    expect(indexOf(log, takenDown)).toBe(-1)
+  })
+
+  it('reads the switch the way Compose reads app.env: trailing comments, CRLF, quotes', () => {
+    const log = upWithAppEnv(
+      'APP_IMAGE=fixture:new\r\nOBSERVABILITY_ENABLED=true # second copy of the logs\r\nOBS_PROXY_HOST_PORT="15091"\r\nOBS_UI_HOST_PORT=15081 # loopback\r\n',
+    )
+    expect(indexOf(log, observability)).toBeGreaterThan(-1)
+    expect(indexOf(log, takenDown)).toBe(-1)
+  })
+
+  it('neither starts nor takes down the services when the switch refers to another variable', () => {
+    const log = upWithAppEnv(
+      'APP_IMAGE=fixture:new\nENABLE_OBS=true\nOBSERVABILITY_ENABLED=${ENABLE_OBS:-false}\nOBS_PROXY_HOST_PORT=15091\nOBS_UI_HOST_PORT=15081\n',
+    )
+    expect(indexOf(log, observability)).toBe(-1)
+    expect(indexOf(log, takenDown)).toBe(-1)
+  })
+
+  it('does not start the services when a port is only a comment', () => {
+    const log = upWithAppEnv(
+      'APP_IMAGE=fixture:new\nOBSERVABILITY_ENABLED=true\nOBS_PROXY_HOST_PORT= # todo\nOBS_UI_HOST_PORT=15081\n',
+    )
+    expect(indexOf(log, observability)).toBe(-1)
+  })
+
+  it('does not start the services without per-deployment loopback ports', () => {
+    const log = upWithAppEnv('APP_IMAGE=fixture:new\nOBSERVABILITY_ENABLED=true\n')
+    expect(indexOf(log, observability)).toBe(-1)
   })
 
   it('repairs stale current from the route and re-enters the same image without creating executors', () => {
