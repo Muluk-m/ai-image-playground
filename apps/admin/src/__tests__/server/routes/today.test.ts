@@ -573,6 +573,7 @@ describe('today generation overview', () => {
         model: 'gpt-image-2.5-flare',
         provider: 'openai-compat',
         status: 'reconciling',
+        reconciliation_required: true,
         gpt_route: 'direct',
         gpt_key_fingerprint: 'a91f30c2',
         upstream_status: 502,
