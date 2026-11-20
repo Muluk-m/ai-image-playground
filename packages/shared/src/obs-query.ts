@@ -28,7 +28,7 @@ export function parseDuration(value: string): number {
 
 /** SQL 字符串字面量：单引号加倍。只经只读代理执行，转义是为了查询本身不被参数打断。 */
 export function sqlString(value: string): string {
-  return `'${value.replaceAll("'", "''")}'`
+  return `'${value.replace(/'/g, "''")}'`
 }
 
 export interface LogFilter {
