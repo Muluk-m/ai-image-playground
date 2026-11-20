@@ -46,6 +46,9 @@ const server = Bun.serve({
       console.log(
         JSON.stringify({
           level: response.status >= 500 ? 'error' : response.status >= 400 ? 'warn' : 'info',
+          // Collector 用 pino 的 time 和 msg 填时间与正文；没有 msg 时正文就是整行 JSON。
+          time: new Date().toISOString(),
+          msg: `${request.method} ${path} ${response.status}`,
           service: 'obs-proxy',
           event: 'obs_proxy.request',
           method: request.method,
@@ -59,7 +62,14 @@ const server = Bun.serve({
 })
 
 console.log(
-  JSON.stringify({ level: 'info', service: 'obs-proxy', event: 'listen', port: server.port }),
+  JSON.stringify({
+    level: 'info',
+    time: new Date().toISOString(),
+    msg: 'obs proxy listening',
+    service: 'obs-proxy',
+    event: 'listen',
+    port: server.port,
+  }),
 )
 
 for (const signal of ['SIGTERM', 'SIGINT'] as const) {

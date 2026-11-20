@@ -138,6 +138,23 @@ else
 fi
 export COMPOSE_PROFILES OBS_LOG_MATCH
 
+# Compose leaves a running container alone when only an inline `configs:` body changed, so a new
+# collector config never reached production until someone recreated it by hand. Each collector
+# carries a label with the digest of its config body; a changed body changes the label, and the
+# next `up` recreates exactly that collector.
+config_digest() {
+  awk -v name="  $1:" '
+    /^configs:/ { in_configs = 1; next }
+    in_configs && /^[^ ]/ { exit }
+    in_configs && $0 == name { found = 1; next }
+    found && /^  [^ ]/ { exit }
+    found { print }
+  ' "$compose_file" | cksum | awk '{ print $1 "-" $2 }'
+}
+LOG_COLLECTOR_CONFIG_DIGEST=$(config_digest log-collector)
+OTEL_COLLECTOR_CONFIG_DIGEST=$(config_digest otel-collector)
+export LOG_COLLECTOR_CONFIG_DIGEST OTEL_COLLECTOR_CONFIG_DIGEST
+
 write_container_names() {
   names=$OPS_BOARD_DIR/container-names.tsv
   if docker ps --all --no-trunc --format '{{.ID}}	{{.Names}}' >"$names.next"; then

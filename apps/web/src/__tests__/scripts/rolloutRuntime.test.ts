@@ -66,6 +66,7 @@ if [ "$cmd" = exec ]; then
   esac
   exit 0
 fi
+[ "$cmd" != compose ] || printf 'compose-digest log=%s otel=%s\n' "$LOG_COLLECTOR_CONFIG_DIGEST" "$OTEL_COLLECTOR_CONFIG_DIGEST" >> "$M/log"
 [ "$cmd" != compose ] || printf 'compose-env profiles=%s match=%s\n' "$COMPOSE_PROFILES" "$OBS_LOG_MATCH" >> "$M/log"
 printf '%s %s\n' "$cmd" "$*" >> "$M/log"
 case "$cmd" in
@@ -963,6 +964,22 @@ describe('app-compose.sh up', () => {
       `APP_IMAGE=fixture:new\nOBSERVABILITY_ENABLED=true\n${ports}OBS_PROXY_URL=http://obs-proxy:5090\n`,
     )
     expect(lastStderr).not.toContain('OBS_PROXY_URL')
+  })
+
+  it('labels each collector with the digest of its own config, so a config change recreates it', () => {
+    const log = upWithAppEnv(`APP_IMAGE=fixture:new\nOBSERVABILITY_ENABLED=true\n${ports}`)
+    const digests = log.filter((line) => line.startsWith('compose-digest '))
+    expect(digests.length).toBeGreaterThan(0)
+    const match = /^compose-digest log=(\d+-\d+) otel=(\d+-\d+)$/.exec(digests[0]!)
+    expect(match).not.toBeNull()
+    // 两段配置各算各的：改 Collector 的配置不会顺带重建 Fluent Bit。
+    expect(match![1]).not.toBe(match![2])
+    expect(new Set(digests).size).toBe(1)
+    const compose = readFileSync(join(repo, 'deploy/compose.app.yaml'), 'utf8')
+    expect(compose).toContain(
+      'ai.image-playground.config-digest: ${OTEL_COLLECTOR_CONFIG_DIGEST:-}',
+    )
+    expect(compose).toContain('ai.image-playground.config-digest: ${LOG_COLLECTOR_CONFIG_DIGEST:-}')
   })
 
   it('reads the switch the way Compose reads app.env: trailing comments, CRLF, quotes', () => {
