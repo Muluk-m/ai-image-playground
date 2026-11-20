@@ -434,7 +434,7 @@ export function TasksLogTable({
         >
           <table
             style={{ width: `${totalTableWidth}px` }}
-            className="min-w-full table-fixed border-separate border-spacing-0 text-xs"
+            className="table-fixed border-separate border-spacing-0 text-xs"
           >
             <colgroup>
               {columns.map((col) => (
@@ -778,7 +778,7 @@ function TaskCell({
     }
 
     case 'attempts': {
-      const retried = task.attempt_count > 1 || task.upstream_invocation_count > 1
+      const retried = task.attempt_count > 1
       return (
         <span
           className={cn(

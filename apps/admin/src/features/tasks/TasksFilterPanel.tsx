@@ -179,7 +179,9 @@ export function TasksFilterPanel({
 
   function commitSearch(raw: string) {
     const trimmed = raw.trim()
-    const jump = /^tsk_[A-Za-z0-9_-]+$/.test(trimmed) || /^[0-9a-f-]{16,}$/i.test(trimmed)
+    const jump =
+      /^tsk_[A-Za-z0-9_-]+$/.test(trimmed) ||
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed)
     onUpdate({ q: trimmed || undefined, ...(jump ? { task: trimmed } : {}) })
   }
 

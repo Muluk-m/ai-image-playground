@@ -194,7 +194,7 @@ describe('TasksFilterPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '重置全部' }))
     expect(onReplace).toHaveBeenCalledWith({ pageSize: undefined })
 
-    // Submitting a UUID task ID jumps straight to the task detail drawer as well as filtering
+    // Submitting a strict UUID task ID jumps straight to the task detail drawer as well as filtering
     const uuid = '5fc069d6-7a41-48f2-b1c9-2c7e2b9104a1'
     const searchInput = screen.getByRole('textbox', {
       name: '搜索任务 ID、提示词、用户名、指纹或模型',
@@ -202,5 +202,11 @@ describe('TasksFilterPanel', () => {
     fireEvent.change(searchInput, { target: { value: uuid } })
     fireEvent.submit(searchInput.closest('form')!)
     expect(onUpdate).toHaveBeenCalledWith({ q: uuid, task: uuid })
+
+    // Plain 16-digit hex/numeric search terms should only filter, not open a nonexistent task drawer
+    onUpdate.mockClear()
+    fireEvent.change(searchInput, { target: { value: '1234567890123456' } })
+    fireEvent.submit(searchInput.closest('form')!)
+    expect(onUpdate).toHaveBeenCalledWith({ q: '1234567890123456' })
   })
 })

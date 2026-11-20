@@ -504,10 +504,13 @@ function parsePercentilePair(value: unknown): [number | null, number | null] {
   return [null, null]
 }
 
-// 按 2 分钟时间桶复用窗口分面，覆盖多次 30 秒自动刷新并合并并发查询，避免轮询反复扫全窗。
-const TASK_FACETS_CACHE_MS = 120_000
-const TASK_FACETS_BUCKET_MS = 120_000
+// 精确时间窗与精确筛选条件短缓存 + 并发合并：翻页、改排序和并发查看复用聚合结果，不同时间窗绝不串数据。
+const TASK_AGGREGATE_CACHE_MS = 60_000
 type WindowFacetOptions = Pick<GenerationTasksFacets, 'models' | 'providers' | 'errorTypes'>
+interface TaskSummarySnapshot {
+  summary: GenerationTasksSummary
+  statusCounts: Record<TaskStatus, number>
+}
 const windowFacetsCache = new Map<
   string,
   { at: number; db: ReturnType<typeof getDbHandle>; value: WindowFacetOptions }
@@ -516,15 +519,21 @@ const windowFacetsPending = new Map<
   string,
   { db: ReturnType<typeof getDbHandle>; promise: Promise<WindowFacetOptions> }
 >()
+const taskSummaryCache = new Map<
+  string,
+  { at: number; db: ReturnType<typeof getDbHandle>; value: TaskSummarySnapshot }
+>()
+const taskSummaryPending = new Map<
+  string,
+  { db: ReturnType<typeof getDbHandle>; promise: Promise<TaskSummarySnapshot> }
+>()
 
 async function getWindowFacetOptions(window: TimeWindow): Promise<WindowFacetOptions> {
   const handle = getDbHandle()
-  const fromBucket = Math.floor(window.from / TASK_FACETS_BUCKET_MS)
-  const toBucket = Math.floor(window.to / TASK_FACETS_BUCKET_MS)
-  const key = `${fromBucket}:${toBucket}`
+  const key = `${window.from}:${window.to}`
   const now = Date.now()
   const cached = windowFacetsCache.get(key)
-  if (cached && cached.db === handle && now - cached.at < TASK_FACETS_CACHE_MS) {
+  if (cached && cached.db === handle && now - cached.at < TASK_AGGREGATE_CACHE_MS) {
     return cached.value
   }
   const pending = windowFacetsPending.get(key)
@@ -582,6 +591,112 @@ async function getWindowFacetOptions(window: TimeWindow): Promise<WindowFacetOpt
     return await promise
   } finally {
     if (windowFacetsPending.get(key)?.promise === promise) windowFacetsPending.delete(key)
+  }
+}
+
+function summaryCacheKey(filters: GenerationTaskFilters, window: TimeWindow): string {
+  const {
+    page: _page,
+    pageSize: _pageSize,
+    sort: _sort,
+    dir: _dir,
+    from: _from,
+    to: _to,
+    ...selection
+  } = filters
+  return JSON.stringify({ window, selection })
+}
+
+async function getTaskSummarySnapshot(
+  filters: GenerationTaskFilters,
+  window: TimeWindow,
+  where: ReturnType<typeof sql>,
+): Promise<TaskSummarySnapshot> {
+  const handle = getDbHandle()
+  const key = summaryCacheKey(filters, window)
+  const now = Date.now()
+  const cached = taskSummaryCache.get(key)
+  if (cached && cached.db === handle && now - cached.at < TASK_AGGREGATE_CACHE_MS) {
+    return cached.value
+  }
+  const pending = taskSummaryPending.get(key)
+  if (pending && pending.db === handle) {
+    return pending.promise
+  }
+  const promise = (async () => {
+    const hasStatusFilter = mergedStatuses(filters).length > 0
+    const statusWhere = hasStatusFilter
+      ? sql.join(taskConditions(filters, window, { ignoreStatus: true }), sql` AND `)
+      : null
+    const [summaryRows, statusRows] = await Promise.all([
+      handle.db.execute(sql`
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE t.status = 'completed')::int AS completed,
+          COUNT(*) FILTER (WHERE t.status = 'failed')::int AS failed,
+          COUNT(*) FILTER (WHERE t.status = 'in_progress')::int AS in_progress,
+          COUNT(*) FILTER (WHERE t.status = 'queued')::int AS queued,
+          COUNT(*) FILTER (WHERE t.status = 'reconciling')::int AS reconciling,
+          COUNT(*) FILTER (WHERE t.status = 'cancelled')::int AS cancelled,
+          PERCENTILE_CONT(ARRAY[0.5, 0.95]) WITHIN GROUP (
+            ORDER BY EXTRACT(EPOCH FROM (t.completed_at - t.started_at)) * 1000
+          ) FILTER (
+            WHERE t.status = 'completed'
+              AND t.started_at IS NOT NULL
+              AND t.completed_at IS NOT NULL
+              AND t.completed_at >= t.started_at
+          ) AS run_percentiles
+        FROM queue_tasks t LEFT JOIN users u ON u.id = t.user_id
+        WHERE ${where}
+      `) as Promise<unknown> as Promise<Row[]>,
+      statusWhere
+        ? (handle.db.execute(sql`
+            SELECT t.status, COUNT(*)::int AS count
+            FROM queue_tasks t LEFT JOIN users u ON u.id = t.user_id
+            WHERE ${statusWhere}
+            GROUP BY t.status
+          `) as Promise<unknown> as Promise<Row[]>)
+        : Promise.resolve(null),
+    ])
+
+    const summaryRow = summaryRows[0] ?? {}
+    const total = Number(summaryRow.total ?? 0)
+    const [p50RunMs, p95RunMs] = parsePercentilePair(summaryRow.run_percentiles)
+    const summary: GenerationTasksSummary = {
+      total,
+      completed: Number(summaryRow.completed ?? 0),
+      failed: Number(summaryRow.failed ?? 0),
+      in_progress: Number(summaryRow.in_progress ?? 0),
+      queued: Number(summaryRow.queued ?? 0),
+      reconciling: Number(summaryRow.reconciling ?? 0),
+      cancelled: Number(summaryRow.cancelled ?? 0),
+      p50_run_ms: p50RunMs,
+      p95_run_ms: p95RunMs,
+    }
+    const statusCounts = emptyStatusCounts()
+    if (statusRows) {
+      for (const row of statusRows) {
+        const statusKey = String(row.status) as TaskStatus
+        if (statusKey in statusCounts) statusCounts[statusKey] = Number(row.count ?? 0)
+      }
+    } else {
+      statusCounts.completed = summary.completed
+      statusCounts.failed = summary.failed
+      statusCounts.in_progress = summary.in_progress
+      statusCounts.queued = summary.queued
+      statusCounts.reconciling = summary.reconciling
+      statusCounts.cancelled = summary.cancelled
+    }
+    const value: TaskSummarySnapshot = { summary, statusCounts }
+    if (taskSummaryCache.size > 64) taskSummaryCache.clear()
+    taskSummaryCache.set(key, { at: Date.now(), db: handle, value })
+    return value
+  })()
+  taskSummaryPending.set(key, { db: handle, promise })
+  try {
+    return await promise
+  } finally {
+    if (taskSummaryPending.get(key)?.promise === promise) taskSummaryPending.delete(key)
   }
 }
 
@@ -693,79 +808,19 @@ export async function getGenerationTasks(
   const db = getDbHandle().db
   if (paged) {
     const offset = (page - 1) * pageSize
-    const hasStatusFilter = mergedStatuses(filters).length > 0
-    const statusWhere = hasStatusFilter
-      ? sql.join(taskConditions(filters, window, { ignoreStatus: true }), sql` AND `)
-      : null
-
-    const [rows, summaryRows, windowFacets, statusRows] = await Promise.all([
+    const [rows, summarySnapshot, windowFacets] = await Promise.all([
       db.execute(sql`
         ${taskSelect}
         WHERE ${where}
         ORDER BY ${orderBy}
         LIMIT ${pageSize} OFFSET ${offset}
       `) as Promise<unknown> as Promise<Row[]>,
-      db.execute(sql`
-        SELECT
-          COUNT(*)::int AS total,
-          COUNT(*) FILTER (WHERE t.status = 'completed')::int AS completed,
-          COUNT(*) FILTER (WHERE t.status = 'failed')::int AS failed,
-          COUNT(*) FILTER (WHERE t.status = 'in_progress')::int AS in_progress,
-          COUNT(*) FILTER (WHERE t.status = 'queued')::int AS queued,
-          COUNT(*) FILTER (WHERE t.status = 'reconciling')::int AS reconciling,
-          COUNT(*) FILTER (WHERE t.status = 'cancelled')::int AS cancelled,
-          PERCENTILE_CONT(ARRAY[0.5, 0.95]) WITHIN GROUP (
-            ORDER BY EXTRACT(EPOCH FROM (t.completed_at - t.started_at)) * 1000
-          ) FILTER (
-            WHERE t.status = 'completed'
-              AND t.started_at IS NOT NULL
-              AND t.completed_at IS NOT NULL
-              AND t.completed_at >= t.started_at
-          ) AS run_percentiles
-        FROM queue_tasks t LEFT JOIN users u ON u.id = t.user_id
-        WHERE ${where}
-      `) as Promise<unknown> as Promise<Row[]>,
+      getTaskSummarySnapshot(filters, window, where),
       getWindowFacetOptions(window),
-      statusWhere
-        ? (db.execute(sql`
-            SELECT t.status, COUNT(*)::int AS count
-            FROM queue_tasks t LEFT JOIN users u ON u.id = t.user_id
-            WHERE ${statusWhere}
-            GROUP BY t.status
-          `) as Promise<unknown> as Promise<Row[]>)
-        : Promise.resolve(null),
     ])
 
-    const summaryRow = summaryRows[0] ?? {}
-    const total = Number(summaryRow.total ?? 0)
-    const [p50RunMs, p95RunMs] = parsePercentilePair(summaryRow.run_percentiles)
-    const summary: GenerationTasksSummary = {
-      total,
-      completed: Number(summaryRow.completed ?? 0),
-      failed: Number(summaryRow.failed ?? 0),
-      in_progress: Number(summaryRow.in_progress ?? 0),
-      queued: Number(summaryRow.queued ?? 0),
-      reconciling: Number(summaryRow.reconciling ?? 0),
-      cancelled: Number(summaryRow.cancelled ?? 0),
-      p50_run_ms: p50RunMs,
-      p95_run_ms: p95RunMs,
-    }
-
-    const statusCounts = emptyStatusCounts()
-    if (statusRows) {
-      for (const row of statusRows) {
-        const key = String(row.status) as TaskStatus
-        if (key in statusCounts) statusCounts[key] = Number(row.count ?? 0)
-      }
-    } else {
-      statusCounts.completed = summary.completed
-      statusCounts.failed = summary.failed
-      statusCounts.in_progress = summary.in_progress
-      statusCounts.queued = summary.queued
-      statusCounts.reconciling = summary.reconciling
-      statusCounts.cancelled = summary.cancelled
-    }
-
+    const { summary, statusCounts } = summarySnapshot
+    const total = summary.total
     const facets: GenerationTasksFacets = {
       statusCounts,
       ...windowFacets,
