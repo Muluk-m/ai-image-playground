@@ -38,7 +38,10 @@ export interface AlertObservation {
   host?: HostSample
   queue?: { oldest_queued_wait_ms: number | null }
   backup?: { latest_modified_at: number | null }
-  /** server_logs 里最新一条的时间。null 表示表里还没有任何日志（新部署），不告警。 */
+  /**
+   * OpenObserve 里最近 1 小时最新一条日志的时间（ADR 0033 P3）。null 表示窗口里一条都没有，
+   * 持续超过告警线就报（新部署因此有宽限）。没开观测的部署不给这一块。
+   */
   serverLogs?: { latest_at: number | null }
   restoreDrill?: OpsRestoreDrill | null
   heartbeats?: { bff?: number | null }
@@ -383,16 +386,17 @@ function readings(
     out['server-logs'] = {
       breached: age > OPS_THRESHOLDS.SERVER_LOGS_MAX_AGE_MS,
       sustainMs: 0,
-      firingText: `服务端日志已经 ${span(age)}没有新记录了（告警线 ${span(OPS_THRESHOLDS.SERVER_LOGS_MAX_AGE_MS)}），日志采集管道可能断了`,
-      resolvedText: '已恢复：服务端日志有新记录了',
+      firingText: `OpenObserve 已经 ${span(age)}没有收到新日志了（告警线 ${span(OPS_THRESHOLDS.SERVER_LOGS_MAX_AGE_MS)}），日志采集管道可能断了`,
+      resolvedText: '已恢复：OpenObserve 又收到新日志了',
     }
-  } else if (serverLogs && state['server-logs']?.firing) {
-    // 正在报的时候表被清空：还没好，不是「从来没有过」。
+  } else if (serverLogs) {
+    // 配了观测，最近 1 小时却一条都没有：管道断了超过窗口，或刚开观测还没进数据。
+    // 持续告警线这么久才报：新部署有宽限，断了很久后重启进程（告警状态在内存里）也照样会报。
     out['server-logs'] = {
       breached: true,
-      sustainMs: 0,
-      firingText: '服务端日志表里已经没有任何记录，日志采集管道可能断了',
-      resolvedText: '已恢复：服务端日志有新记录了',
+      sustainMs: OPS_THRESHOLDS.SERVER_LOGS_MAX_AGE_MS,
+      firingText: 'OpenObserve 最近 1 小时没有收到任何日志，日志采集管道可能断了',
+      resolvedText: '已恢复：OpenObserve 又收到新日志了',
     }
   }
 
