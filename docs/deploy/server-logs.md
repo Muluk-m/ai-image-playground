@@ -40,12 +40,12 @@ API 错误展示接口、HTTP 状态、原始错误码和已记录的具体原�
 采集不改应用代码，走 Docker 本身的日志转发（ADR 0021）：
 
 1. `deploy/compose.app.yaml` 的 `x-log-forward` 把每个容器的日志驱动设为 `fluentd`，非阻塞异步发往本部署的 `log-collector`；`scripts/rollout-runtime.sh` 用同样的参数创建 BFF、worker、发布路由和迁移容器。Docker 本地缓存轮转上限为 3 × 10 MB，`docker logs` 照常可用；驱动或磁盘失败仍可能丢失缓存。
-2. `log-collector`（Fluent Bit 5.1）在 `$XDG_CONFIG_HOME/ai-image-playground/log-forward/<部署>/forward.sock` 上收日志，每 2 秒把一批记录发到 BFF 的 `/internal/logs/ingest`（通过独立的 `bff-logs` 网络别名，内部令牌鉴权）。BFF 写入失败时回 503，采集容器保留这批数据，按退避重试；未送达的数据存在 `log-buffer` 卷，上限 256 MB。
-3. Fluent Bit 将同容器、同输出流的 WARN / ERROR 标题及连续堆栈行合并，跨批次缓冲最多等待 1 秒，随后按完整记录转发；Docker 默认 tag 区分容器，采集器只对原始标签追加输出流；重发标签跳过改写，避免重复处理。BFF 以容器、驱动时间戳和原始输出的摘要去重重试批次，解析每条记录：pino 的 JSON 行保留级别、事件、请求 ID、任务 ID 和结构化字段；其他程序的纯文本行优先认时间戳后面的级别词（cloudflared 的 `INF` / `WRN` / `ERR`），没有这个词再在整行里找 `ERR` / `WARN` / `INFO`。消息里的 `error=` 不会把一条 `WRN` 抬成错误。判断不出时 stderr 记为警告、stdout 记为信息。服务名取自容器名，无法识别的记为 `other`。
+2. `log-collector`（Fluent Bit 5.1）在 `$XDG_CONFIG_HOME/ai-image-playground/log-forward/<部署>/forward.sock` 上收日志，合并多行后用 forward 协议发给本部署的 `otel-collector`（见下文「OpenTelemetry 与 OpenObserve」），由它解析、脱敏后写进 OpenObserve。Collector 不可用时数据留在 `log-buffer` 卷里按退避重试，上限 256 MB。没开 OpenObserve 的部署（测试环境）没有输出目标，日志只留在 `docker logs`。2026-11 起（ADR 0033 P3，#1937）BFF 不再接收和入库容器日志：`/internal/logs/ingest` 与 `bff-logs` 网络别名已移除。
+3. Fluent Bit 将同容器、同输出流的 WARN / ERROR 标题及连续堆栈行合并，跨批次缓冲最多等待 1 秒，随后按完整记录转发；Docker 默认 tag 区分容器，采集器只对原始标签追加输出流；重发标签跳过改写，避免重复处理。
 
-采集容器停止期间，运行中的容器在内存里暂存日志，恢复后补发（每容器驱动最多缓存 4096 条，超限会丢弃）；运行时间短于停机时间的一次性容器（例如迁移）会丢失这段输出。采集容器自身的输出只留在 `docker logs`，否则会形成回路。初次部署时 `scripts/app-compose.sh` 在其他服务之前启动它，启动失败只打警告，不影响发布。Compose BFF 和动态 BFF 都声明 `bff-logs` 别名。首个兼容 BFF 启动前，HTTP 连接失败由采集器缓冲重试，不向尚未支持接口的旧发布路由发送；后续新旧兼容实例可共同接收并去重。HTTP 400/401/404/413 等不可重试响应会丢弃该批次，不能用 Retry_Limit 声称所有错误都会补发。发布收尾用 Compose 更新 admin、采集和备份。已经在跑的 cloudflared 不重建，避免每次发布都把边缘连接拆掉。
+采集容器停止期间，运行中的容器在内存里暂存日志，恢复后补发（每容器驱动最多缓存 4096 条，超限会丢弃）；运行时间短于停机时间的一次性容器（例如迁移）会丢失这段输出。采集容器自身的输出只留在 `docker logs`，否则会形成回路。初次部署时 `scripts/app-compose.sh` 在其他服务之前启动它，启动失败只打警告，不影响发布。采集容器带着自己配置的摘要标签，配置一改，下次发布就会重建它。发布收尾用 Compose 更新 admin、采集和备份。已经在跑的 cloudflared 不重建，避免每次发布都把边缘连接拆掉。
 
-迁移 `0060_server_logs` 建表，`0061_server_logs_containers` 放宽服务名约束，`0062_server_logs_instance_at` 支持同容器上下文范围查询；只有 BFF 写入。P3 期间这张表照常写入，Admin 的日志页和概览错误面板都已改读 OpenObserve，停写和删表见 #1937。日志界面和接口都要求 Admin 会话。写入使用独立单连接池，连接超时 2 秒、语句超时 1.5 秒，避免挤占业务连接。
+迁移 `0060_server_logs` 建表，`0061_server_logs_containers` 放宽服务名约束，`0062_server_logs_instance_at` 支持同容器上下文范围查询。P3-5 起不再写入，旧数据由原有的保留期清理自然过期，P3-6 删表（#1937）。日志界面和接口都要求 Admin 会话。写入使用独立单连接池，连接超时 2 秒、语句超时 1.5 秒，避免挤占业务连接。
 
 日志保留由持有 PostgreSQL session advisory lock 的单个维护执行者在启动时及每分钟清理，保留近 7 天、约 20 万条。保留原来的每分钟清理能力，同时避免所有 BFF／worker 重复删除同一共享数据。单次删除最多 5000 条，容量超限会逐步回落。领导连接关闭或失败后释放锁，其他实例下一周期尝试接管；每个维护 job 的领导者占用一个专用连接，跟随者不保留空闲连接。worker 的过期服务心跳与宿主机历史采样从 10 秒任务恢复循环移到独立的 5 分钟共享维护。接管或重启后可能在同一时间窗口再次清理，删除操作幂等；清理失败不阻塞业务，任务恢复、取消检测与租约续期保持原频率。
 

@@ -380,18 +380,20 @@ afterEach(() => {
 })
 
 describe('rollout-runtime.sh: safe retirement', () => {
-  it('exposes a direct ingestion alias only on compatible runtime generations', () => {
+  it('no longer gives executors a log-ingestion alias: logs go to the Collector (ADR 0033 P3)', () => {
     currentGeneration()
     const result = run()
     expect(result.status).toBe(0)
     for (const role of ['bff', 'worker']) {
-      expect(
-        result.log.find((line) => line.startsWith('create ') && line.includes(`APP_ROLE=${role} `)),
-      ).toContain(`--network-alias ${role}-logs`)
+      const create = result.log.find(
+        (line) => line.startsWith('create ') && line.includes(`APP_ROLE=${role} `),
+      )
+      expect(create).toBeDefined()
+      expect(create).not.toContain('-logs')
     }
-    expect(readFileSync(join(repo, 'deploy/compose.app.yaml'), 'utf8')).toContain(
-      'host: ${LOG_INGEST_HOST:-bff-logs}',
-    )
+    const compose = readFileSync(join(repo, 'deploy/compose.app.yaml'), 'utf8')
+    expect(compose).not.toContain('/internal/logs/ingest')
+    expect(compose).not.toContain('bff-logs')
   })
 
   it('preserves a socket path with spaces as one Docker argument', () => {

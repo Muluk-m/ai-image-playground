@@ -34,7 +34,6 @@ import { internalAgentModelRoutes } from './routes/internal-agent-models'
 import { internalAuditRoutes } from './routes/internal-audits'
 import { internalDrainRoutes } from './routes/internal-drain'
 import { internalGptDirectRoutes } from './routes/internal-gpt-direct'
-import { internalLogRoutes } from './routes/internal-logs'
 import { internalModelRoutes } from './routes/internal-models'
 import { internalOperatorConfigRoutes } from './routes/internal-operator-config'
 import { internalOpsRoutes } from './routes/internal-ops'
@@ -310,7 +309,6 @@ export const app = new Elysia()
   .use(internalTaskReconciliationRoutes)
   .use(internalOpsRoutes)
   .use(internalGptDirectRoutes)
-  .use(internalLogRoutes)
   .use(internalInspirationRoutes)
   .use(internalAnnouncementRoutes)
   .use(internalFeedbackRoutes)

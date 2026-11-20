@@ -1,7 +1,6 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import { eq } from 'drizzle-orm'
 
 const bffRoot = resolve(import.meta.dir, '../../..')
 const allowedOrigin = 'https://app.example.com'
@@ -30,7 +29,7 @@ function get(path: string, headers: Record<string, string> = {}): Promise<Respon
 }
 
 describe('API statistics on the real request pipeline', () => {
-  it('stores access logs forwarded by the collector, with request correlation and a template route, excluding health and internal requests', async () => {
+  it('writes access logs with request correlation and a template route, excluding health and internal requests', async () => {
     const handler = withRequestContext((request) => app.handle(request))
     await handler(
       new Request('http://localhost/api/capabilities', {
@@ -48,13 +47,29 @@ describe('API statistics on the real request pipeline', () => {
       }),
     )
     await new Promise((resolve) => setTimeout(resolve, 20))
-    // What the deployment's Fluent Bit posts: one record per line the BFF container printed.
-    const forwarded = lines.splice(0).map((line) => ({
-      date: Date.now() / 1000,
-      container_name: '/image-playground-paid-r20261007153518-2827408-bff',
-      source: 'stdout',
-      log: line,
-    }))
+    // 容器输出的这些行就是 Collector 收到的日志（ADR 0033 P3，不再经 BFF 入库）。
+    const records = lines
+      .splice(0)
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+      .filter((record) => record.event === 'http.request')
+    const byRequest = (id: string) => records.filter((record) => record.requestId === id)
+    expect(byRequest('access-log-request')).toHaveLength(1)
+    expect(byRequest('access-log-request')[0]).toMatchObject({
+      service: 'bff',
+      level: 30,
+      status: 200,
+      route: 'GET /api/capabilities',
+    })
+    expect(byRequest('access-log-request')[0]).not.toHaveProperty('path')
+    expect(byRequest('rejected-log-request')[0]).toMatchObject({
+      level: 40,
+      status: 404,
+      path: '/api/no-such-endpoint',
+    })
+    expect(byRequest('excluded-health-request')).toHaveLength(0)
+  })
+
+  it('no longer accepts container logs: the BFF does not store them', async () => {
     const ingest = await app.handle(
       new Request('http://localhost/internal/logs/ingest', {
         method: 'POST',
@@ -62,51 +77,10 @@ describe('API statistics on the real request pipeline', () => {
           authorization: 'Bearer fixture-service-credential-alpha',
           'content-type': 'application/json',
         },
-        body: JSON.stringify(forwarded),
+        body: '[]',
       }),
     )
-    expect(ingest.status).toBe(204)
-    const retry = await app.handle(
-      new Request('http://localhost/internal/logs/ingest', {
-        method: 'POST',
-        headers: {
-          authorization: 'Bearer fixture-service-credential-alpha',
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify([...forwarded, null, {}]),
-      }),
-    )
-    expect(retry.status).toBe(204)
-    const denied = await app.handle(
-      new Request('http://localhost/internal/logs/ingest', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(forwarded),
-      }),
-    )
-    expect(denied.status).toBe(401)
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    // The ingest call itself is never logged, or every flush would feed the next one.
-    expect(lines.some((line) => line.includes('/internal/logs/ingest'))).toBe(false)
-    const records = await db
-      .select()
-      .from(schema.server_logs)
-      .where(eq(schema.server_logs.event, 'http.request'))
-    expect(records.filter((row) => row.request_id === 'access-log-request')).toHaveLength(1)
-    const successful = records.find((row) => row.request_id === 'access-log-request')
-    const rejected = records.find((row) => row.request_id === 'rejected-log-request')
-    expect(successful).toMatchObject({
-      service: 'bff',
-      instance: 'image-playground-paid-r20261007153518-2827408-bff',
-      level: 'info',
-      fields: { status: 200, route: 'GET /api/capabilities' },
-    })
-    expect(rejected).toMatchObject({
-      level: 'warn',
-      fields: { status: 404, path: '/api/no-such-endpoint' },
-    })
-    expect(successful?.fields).not.toHaveProperty('path')
-    expect(records.some((row) => row.request_id === 'excluded-health-request')).toBe(false)
+    expect(ingest.status).toBe(404)
   })
 
   it('counts user-facing API calls by route template and status, and nothing else', async () => {
@@ -126,31 +100,6 @@ describe('API statistics on the real request pipeline', () => {
     const clientErrors = rows.reduce((sum, row) => sum + row.client_errors, 0)
     expect(requests).toBe(2)
     expect(clientErrors).toBe(1)
-  })
-  it('rejects oversized bodies before parsing and invalid batch envelopes', async () => {
-    const send = (body: BodyInit, headers: Record<string, string> = {}) =>
-      app.handle(
-        new Request('http://localhost/internal/logs/ingest', {
-          method: 'POST',
-          headers: {
-            authorization: 'Bearer fixture-service-credential-alpha',
-            'content-type': 'application/json',
-            ...headers,
-          },
-          body,
-        }),
-      )
-    expect((await send('[]', { 'content-length': String(9 * 1024 * 1024) })).status).toBe(413)
-    expect((await send(JSON.stringify(Array(20_001).fill(null)))).status).toBe(413)
-    expect((await send('{')).status).toBe(400)
-    expect((await send('{}')).status).toBe(400)
-    const stream = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new Uint8Array(8 * 1024 * 1024 + 1))
-        controller.close()
-      },
-    })
-    expect((await send(stream)).status).toBe(413)
   })
 })
 
