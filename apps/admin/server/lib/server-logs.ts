@@ -94,8 +94,15 @@ export function logSql(fields: ReadonlySet<string>) {
   const group = String.raw`COALESCE(${col('event')}, substr(regexp_replace(regexp_replace(regexp_replace(regexp_replace(${col('body')}, '^\S*\d{4}-\d{2}-\d{2}[T ][\d:.]+Z?\s*', ''), '(?i)\b[0-9a-f]{8}-[0-9a-f-]{27,}\b', '<id>', 'g'), '(?i)\b[0-9a-f]{12,}\b', '<hex>', 'g'), '\d+(\.\d+)*', '<n>', 'g'), 1, 120))`
   /** pino 行带 instance；纯文本行只有容器名，用它代替，「同实例」和上下文才查得到。 */
   const instance = `COALESCE(${col('instance')}, ${col('container_name')})`
-  /** 同一实例同一时刻的行靠它排开：正文相同、请求或任务不同也分得开。 */
-  const key = `md5(concat(${col('body')}, '|', ${col('requestid')}, '|', ${col('taskid')}))`
+  /**
+   * 同一实例同一时刻的行靠它排开。Collector 给每条日志写了随机的 `log_id`（UUID），有它就用它；
+   * 之前进来的旧日志没有，退回正文、请求、任务、事件、级别、span、输出流的 md5，只有这些全一样的行才会重。
+   */
+  const key = `COALESCE(${col('log_id')}, md5(concat(${['body', 'requestid', 'taskid', 'event']
+    .map(col)
+    .join(
+      ", '|', ",
+    )}, '|', CAST(${col('severity_number')} AS VARCHAR), '|', ${col('span_id')}, '|', ${col('source')})))`
   const level = `CASE WHEN ${severity} >= 21 THEN 'fatal' WHEN ${severity} >= 17 THEN 'error' WHEN ${severity} >= 13 THEN 'warn' WHEN ${severity} >= 9 THEN 'info' WHEN ${severity} >= 5 THEN 'debug' ELSE 'trace' END`
   return {
     col,
@@ -216,13 +223,16 @@ export function parseLogQuery(query: Record<string, unknown>, now = Date.now()) 
   return { filters, cursor }
 }
 
-/** 游标和行 id 用同一种编码：时间戳、base64url 的实例、32 位十六进制排序键。 */
+/** 游标和行 id 用同一种编码：时间戳、base64url 的实例、排序键（UUID 或 32 位十六进制 md5）。 */
 function encodeSortKey({ timestampUs, instance, key }: SortKey): string {
   return `${timestampUs}-${Buffer.from(instance).toString('base64url')}-${key}`
 }
 
 function decodeSortKey(value: string): SortKey {
-  const match = /^(\d{1,20})-([A-Za-z0-9_-]{0,600})-([0-9a-f]{32})$/.exec(value)
+  const match =
+    /^(\d{1,20})-([A-Za-z0-9_-]{0,600})-([0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(
+      value,
+    )
   const timestampUs = Number(match?.[1])
   if (!match || !Number.isSafeInteger(timestampUs)) throw new LogQueryError('无效的日志 ID')
   return {
@@ -300,6 +310,7 @@ const OMITTED = new Set([
   'log_instance',
   'log_key',
   'log_service',
+  'log_id',
   'container_id',
   'fluent_tag',
   'dropped_attributes_count',

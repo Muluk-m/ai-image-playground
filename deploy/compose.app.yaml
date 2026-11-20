@@ -675,6 +675,8 @@ configs:
                 - replace_all_patterns(attributes, "value", "(?is)\\b(prompt|contents?|messages|parts|payload|request_payload|responsebody|errorbody|body|input|output)([\"']?\\s*[:=]).*$$", "$$1$$2 [REDACTED PAYLOAD]")
                 - set(body, Substring(body, 0, 16000)) where Len(body) > 16000
                 - truncate_all(attributes, 4000)
+                # OpenObserve has no row id; Admin pages, cursors and context lookups key on this.
+                - set(attributes["log_id"], UUID())
         resource:
           attributes:
             - key: deployment.environment.name

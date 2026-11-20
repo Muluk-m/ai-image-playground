@@ -120,7 +120,7 @@ const fake: ObsClient = {
         { level: 'info', count: 1 },
       ]
     // 记录：第二页按游标条件取剩下的。
-    const rest = query.sql.includes(' AND (_timestamp < ') ? pageHits.slice(100) : pageHits
+    const rest = query.sql.includes('(_timestamp < ') ? pageHits.slice(100) : pageHits
     return rest.slice(0, query.size ?? 1_000)
   },
   async searchAll(query) {
@@ -223,7 +223,7 @@ describe('server log explorer on OpenObserve', () => {
     const page = searches.filter((s) => s.sql.startsWith('SELECT *,')).at(-1)!
     const ts = us(now - 60_000)
     expect(page.sql).toContain(
-      `(_timestamp < ${ts} OR (_timestamp = ${ts} AND (COALESCE(instance, container_name) > 'bb272d8bb3c5' OR (COALESCE(instance, container_name) = 'bb272d8bb3c5' AND md5(concat(body, '|', requestid, '|', taskid)) > '${keyOf(99)}'))))`,
+      `(_timestamp < ${ts} OR (_timestamp = ${ts} AND (COALESCE(instance, container_name) > 'bb272d8bb3c5' OR (COALESCE(instance, container_name) = 'bb272d8bb3c5' AND ${exprs.key} > '${keyOf(99)}'))))`,
     )
     expect(page.sql).toContain('ORDER BY _timestamp DESC, log_instance, log_key')
   })
@@ -269,6 +269,18 @@ describe('server log explorer on OpenObserve', () => {
     expect(clauses[11]).toContain("str_match_ignore_case(body, ''' OR 1=1--')")
     expect(clauses[11]).not.toContain('err_stack')
     expect(level).toBe('COALESCE(severity_number, 9) >= 13 AND COALESCE(severity_number, 9) < 17')
+  })
+
+  it('keys rows on the Collector log_id when the stream has it, and on a wide hash before that', () => {
+    expect(exprs.key).toBe(
+      "COALESCE(NULL, md5(concat(body, '|', requestid, '|', taskid, '|', event, '|', CAST(severity_number AS VARCHAR), '|', NULL, '|', source)))",
+    )
+    const withIds = logSql(new Set([...SCHEMA, 'log_id', 'span_id']))
+    expect(withIds.key.startsWith('COALESCE(log_id, md5(')).toBe(true)
+    const uuid = '0b6f1c2e-9a43-4d1e-8f2a-1c3d5e7f9a0b'
+    const entry = toEntry(hit(1, { log_key: uuid, log_id: uuid }))
+    expect(entry.id.endsWith(`-${uuid}`)).toBe(true)
+    expect(entry.fields).not.toHaveProperty('log_id')
   })
 
   it('never references a field the stream does not have', () => {
