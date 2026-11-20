@@ -702,17 +702,17 @@ export async function getOverviewActivity(window: TimeWindow): Promise<OverviewA
   const from = new Date(window.from)
   const to = new Date(window.to)
   const db = getDbHandle().db
-  // 这里只列最新几条错误和总数，用不上隧道与原因行。
-  const { rows: logs, availability } = await serverLogSource().logs(window.from, window.to, {
-    errorsOnly: true,
-  })
-  const [tasks, server, client] = await Promise.all([
+  // 这里只列最新几条错误和总数，用不上隧道与原因行。日志和下面的数据库查询并行读。
+  const logRead = serverLogSource().logs(window.from, window.to, { errorsOnly: true })
+  const [tasks, { server, availability }, client] = await Promise.all([
     db.execute(sql`
       ${taskSelect}
       WHERE t.submitted_at >= ${from} AND t.submitted_at <= ${to}
       ORDER BY t.submitted_at DESC, t.id DESC LIMIT 10
     `),
-    db.execute(sql`
+    logRead.then(async ({ rows: logs, availability }) => ({
+      availability,
+      server: await db.execute(sql`
       WITH ${serverLogsCte(logs)}
       SELECT id, at, service, message, task_id, request_id, instance,
         COALESCE(fields->>'stack', fields->'err'->>'stack') AS stack,
@@ -722,6 +722,7 @@ export async function getOverviewActivity(window: TimeWindow): Promise<OverviewA
         AND ${effectiveLogLevel} IN ('error', 'fatal')
       ORDER BY at DESC, id DESC LIMIT 5
     `),
+    })),
     db.execute(sql`
       SELECT e.id, e.received_at AS at, e.fingerprint, e.stack, e.user_id, e.device_id, u.username,
         CASE WHEN e.name IS NULL THEN e.message ELSE e.name || ': ' || e.message END AS message,

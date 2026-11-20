@@ -66,6 +66,23 @@ export function _setServerLogSourceForTesting(source: ServerLogSource | undefine
   override = source
 }
 
+/**
+ * 每次读日志的总预算。单个请求有 20 秒超时，但分页最多串行 5 页：OpenObserve 慢而不死时，
+ * 概览不能跟着等上一分多钟。超时当作这次读不到。
+ */
+const READ_BUDGET_MS = 15_000
+
+function withinBudget<T>(work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`OpenObserve took longer than ${READ_BUDGET_MS / 1_000}s`)),
+      READ_BUDGET_MS,
+    )
+  })
+  return Promise.race([work, deadline]).finally(() => clearTimeout(timer))
+}
+
 const EMPTY: ServerLogSource = {
   async logs() {
     return { rows: [], availability: 'off' }
@@ -88,7 +105,7 @@ export function serverLogSource(): ServerLogSource {
   return {
     async logs(from, to, options) {
       try {
-        return await source.logs(from, to, options)
+        return await withinBudget(source.logs(from, to, options))
       } catch (error) {
         console.error('[overview] server logs unavailable from OpenObserve', error)
         return { rows: [], availability: 'unavailable' }
@@ -96,7 +113,7 @@ export function serverLogSource(): ServerLogSource {
     },
     async causes(requestIds, from, to) {
       try {
-        return await source.causes(requestIds, from, to)
+        return await withinBudget(source.causes(requestIds, from, to))
       } catch (error) {
         console.error('[overview] cause lines unavailable from OpenObserve', error)
         return []
