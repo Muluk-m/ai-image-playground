@@ -25,7 +25,15 @@ import {
   clearRefreshJournal,
   completeRefreshAttempt,
 } from './sessionRefreshJournal'
-import { attachTraceparent, newTraceId, noteFailedTrace, responseTraceId } from './traceContext'
+import {
+  attachTraceparent,
+  newTraceId,
+  noteFailedTrace,
+  rememberResponseTrace,
+  responseTraceId,
+  tagTraceId,
+  traceIdOf,
+} from './traceContext'
 export const AUTH_SESSION_EXPIRED_EVENT = 'image-playground:auth-session-expired'
 export type LoginMethodsPolicy = OAuthProvidersResponse['loginMethods']
 export type LoginOptions = OAuthProvidersResponse
