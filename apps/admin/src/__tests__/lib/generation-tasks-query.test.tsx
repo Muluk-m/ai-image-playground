@@ -7,11 +7,7 @@ import {
 import { act, cleanup, renderHook } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  type GenerationTaskFilters,
-  type GenerationTasksResult,
-  todayWindow,
-} from '../../../contracts'
+import { type GenerationTasksResult, todayWindow } from '../../../contracts'
 import { presetWindow } from '../../components/FilterBar'
 import { ADMIN_REFRESH_EVENT, useGenerationTasks, useGenerationTasksClock } from '../../lib/queries'
 
@@ -44,12 +40,12 @@ function mount(initial: {
   preset: 'today' | '7d' | '30d'
   from?: number
   to?: number
-  status?: GenerationTaskFilters['status']
+  status?: 'failed'
 }) {
   return renderHook(
     ({ preset, from, to, status }) => {
-      const live = from === undefined && to === undefined
-      const clock = useGenerationTasksClock(live)
+      const rolling = from === undefined && to === undefined
+      const clock = useGenerationTasksClock(rolling)
       const window =
         from !== undefined && to !== undefined
           ? { from, to }
@@ -57,8 +53,8 @@ function mount(initial: {
             ? todayWindow(clock)
             : presetWindow(preset, clock)
       return useGenerationTasks(
-        { ...window, page: 1, pageSize: 50, status },
-        live ? preset : undefined,
+        { ...window, ...(status ? { status } : {}), page: 1, pageSize: 50 },
+        rolling ? preset : undefined,
       )
     },
     {
@@ -93,20 +89,6 @@ async function manualRefresh() {
 }
 
 describe('generation tasks refresh', () => {
-  it('keeps the displayed tasks during a rolling refresh and clears them when filters change', async () => {
-    const { result, rerender } = mount({ preset: 'today' })
-    await advance(1)
-    expect(result.current.data).toEqual(response)
-
-    get.mockImplementation(() => new Promise(() => {}))
-    await advance(30_000)
-    expect(result.current.isFetching).toBe(true)
-    expect(result.current.data).toEqual(response)
-
-    rerender({ preset: 'today', status: 'failed' })
-    expect(result.current.data).toBeUndefined()
-  })
-
   it.each([
     'today',
     '7d',
@@ -188,5 +170,51 @@ describe('generation tasks refresh', () => {
     window.dispatchEvent(event)
     expect(event.defaultPrevented).toBe(false)
     expect(get).toHaveBeenCalledTimes(1)
+  })
+
+  it('retains previous data across rolling ticks for the same selection, and drops it on filter change', async () => {
+    let resolveNext!: (value: GenerationTasksResult) => void
+    const secondPending = new Promise<GenerationTasksResult>((resolve) => {
+      resolveNext = resolve
+    })
+    get
+      .mockResolvedValueOnce(response)
+      .mockImplementationOnce(() => secondPending)
+      .mockImplementationOnce(() => new Promise<GenerationTasksResult>(() => {}))
+    const { result, rerender } = mount({ preset: 'today' })
+    await advance()
+    expect(result.current.data).toBe(response)
+    await advance(30_000)
+    expect(result.current.data).toBe(response)
+    resolveNext({ ...response, total: 2 })
+    await advance()
+    expect(result.current.data?.total).toBe(2)
+    rerender({ preset: 'today', status: 'failed' })
+    await advance()
+    expect(result.current.data).toBeUndefined()
+  })
+
+  it('freezes the rolling clock when live refresh is paused without firing an extra fetch', async () => {
+    const { rerender } = renderHook(
+      ({ live }) => {
+        const clock = useGenerationTasksClock(live)
+        return useGenerationTasks({ ...todayWindow(clock), page: 1, pageSize: 50 }, 'today')
+      },
+      {
+        initialProps: { live: true },
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        ),
+      },
+    )
+    await advance()
+    expect(get).toHaveBeenCalledTimes(1)
+    await advance(10_000)
+    rerender({ live: false })
+    await advance(60_000)
+    expect(get).toHaveBeenCalledTimes(1)
+    rerender({ live: true })
+    await advance()
+    expect(get).toHaveBeenCalledTimes(2)
   })
 })

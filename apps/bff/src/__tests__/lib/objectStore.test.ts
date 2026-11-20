@@ -504,3 +504,67 @@ it('cancels a streamed PUT even after the destination has consumed all input', a
     restore()
   }
 })
+
+describe('S3ObjectStore 链路', () => {
+  it('每次调用在当前链路下建一个 CLIENT span，只记操作和字节数；读的 404 不算故障，写的 404 和传输故障标错且不带 key', async () => {
+    delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT
+    const { InMemorySpanExporter, SimpleSpanProcessor } = await import('@opentelemetry/sdk-trace')
+    const { SpanKind, SpanStatusCode } = await import('@opentelemetry/api')
+    const { initTelemetry, tracer } = await import('../../lib/telemetry')
+    const exporter = new InMemorySpanExporter()
+    initTelemetry('worker', [new SimpleSpanProcessor({ exporter })])
+
+    const client = new FakeS3Client()
+    const subject = store(client, 'paid/')
+    const signal = new AbortController().signal
+    let calls = 0
+    const restore = stubGlobalFetch(() => {
+      calls += 1
+      // 读的 404 是未命中；写的 404 说明桶或配置错了。
+      if (calls <= 2) return new Response(null, { status: 404 })
+      // 预签名 HEAD 的传输错误不经 withoutSignedUrl，消息里是完整地址。
+      throw new Error(
+        'connect failed: https://r2.example.test/paid/user-1/k?X-Amz-Signature=abc&X-Amz-Credential=x',
+      )
+    })
+    try {
+      await tracer.startActiveSpan('task.execute', async (parent) => {
+        await subject.write('user-1/k', new Uint8Array(5), 'image/png')
+        expect((await subject.read('user-1/k')).byteLength).toBe(5)
+        await expect(subject.read('user-1/missing', signal)).rejects.toThrow('(404)')
+        await expect(
+          subject.write('user-1/k', new Uint8Array(3), 'image/png', signal),
+        ).rejects.toThrow('(404)')
+        await expect(subject.open('user-1/k', signal)).rejects.toThrow('connect failed')
+        parent.end()
+      })
+    } finally {
+      restore()
+    }
+
+    const finished = exporter.getFinishedSpans()
+    const parent = finished.find((span) => span.name === 'task.execute')
+    const r2 = finished.filter((span) => span.name.startsWith('r2 '))
+    expect(
+      r2.map((span) => [
+        span.name,
+        span.attributes['object_store.bytes'],
+        span.attributes.outcome,
+        span.status.code,
+      ]),
+    ).toEqual([
+      ['r2 write', 5, undefined, SpanStatusCode.UNSET],
+      ['r2 read', 5, undefined, SpanStatusCode.UNSET],
+      ['r2 read', undefined, 'not_found', SpanStatusCode.UNSET],
+      ['r2 write', 3, undefined, SpanStatusCode.ERROR],
+      ['r2 stat', undefined, undefined, SpanStatusCode.ERROR],
+    ])
+    for (const span of r2) {
+      expect(span.kind).toBe(SpanKind.CLIENT)
+      expect(span.parentSpanContext?.spanId).toBe(parent?.spanContext().spanId)
+      expect(JSON.stringify([span.attributes, span.events])).not.toContain('user-1')
+    }
+    expect(JSON.stringify(r2[4]?.events)).toContain('https://r2.example.test/<redacted>')
+    expect(JSON.stringify(r2[4]?.events)).not.toContain('X-Amz')
+  })
+})

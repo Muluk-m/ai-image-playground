@@ -4,15 +4,16 @@ import { Plus, RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 
 import { FilterBar, type FilterChip, presetWindow } from '@/components/FilterBar'
-import { Kpi } from '@/components/Kpi'
 import { ListPagination } from '@/components/ListPagination'
 import { ErrorState, Page, PendingState } from '@/components/Page'
 import { UserFormDialog } from '@/components/UserFormDialog'
 import { UserTable } from '@/components/UserTable'
 import { Button } from '@/components/ui/button'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { usePrivateAdminOverlayEnabled } from '@/lib/private-overlay'
 import { refreshUserKpis, useUserKpis, useUsers } from '@/lib/queries'
 import { parseUsersSearch } from '@/lib/search-params'
-import type { ListUsersResult, UserKpis } from '@/lib/types'
+import { parseUserSegment, type UserSegment } from '../../contracts'
 
 export const Route = createFileRoute('/_authed/users/')({
   validateSearch: parseUsersSearch,
@@ -21,6 +22,20 @@ export const Route = createFileRoute('/_authed/users/')({
   },
   component: UsersPage,
 })
+
+const SEGMENTS: ReadonlyArray<{
+  value: UserSegment | 'all'
+  label: string
+  billing?: boolean
+  warning?: boolean
+}> = [
+  { value: 'all', label: '全部用户' },
+  { value: 'active-7d', label: '7 日活跃' },
+  { value: 'members', label: '付费会员', billing: true },
+  { value: 'expiring', label: '7 天内到期', billing: true, warning: true },
+  { value: 'out-of-credits', label: '积分耗尽', billing: true, warning: true },
+  { value: 'disabled', label: '已停用' },
+]
 
 function UsersPage() {
   const search = Route.useSearch()
@@ -34,9 +49,12 @@ function UsersPage() {
       : preset === 'today' || preset === '7d' || preset === '30d'
         ? presetWindow(preset, clock)
         : undefined
-  const kpisQuery = useUserKpis()
+  const kpis = useUserKpis()
+  const billingEnabled = usePrivateAdminOverlayEnabled()
   const query = useUsers(term, {
     status: search.status,
+    segment: search.segment,
+    segments: true,
     registeredFrom: search.registeredFrom,
     registeredTo: search.registeredTo,
     activeFrom: activeWindow?.from ?? search.activeFrom,
@@ -51,14 +69,23 @@ function UsersPage() {
   return (
     <Page
       crumbs={[{ label: '用户' }]}
-      description="开通、会话与任务追踪"
       actions={
         <>
+          {kpis.data ? (
+            <span className="mr-2 whitespace-nowrap text-xs text-muted-foreground">
+              24h 提交{' '}
+              <span className="font-mono text-foreground">{kpis.data.submissions_24h}</span>
+              {' · '}失败率{' '}
+              <span className="font-mono text-foreground">
+                {Math.round(kpis.data.failure_rate_24h * 1000) / 10}%
+              </span>
+            </span>
+          ) : null}
           <Button
             size="sm"
             variant="outline"
-            disabled={query.isFetching || kpisQuery.isFetching}
-            aria-busy={query.isFetching || kpisQuery.isFetching}
+            disabled={query.isFetching}
+            aria-busy={query.isFetching}
             onClick={() =>
               void Promise.all([
                 queryClient.invalidateQueries({ queryKey: ['users'] }),
@@ -67,10 +94,8 @@ function UsersPage() {
               ])
             }
           >
-            <RefreshCw
-              className={query.isFetching || kpisQuery.isFetching ? 'animate-spin' : undefined}
-            />
-            {query.isFetching || kpisQuery.isFetching ? '刷新中…' : '刷新'}
+            <RefreshCw className={query.isFetching ? 'animate-spin' : undefined} />
+            {query.isFetching ? '刷新中…' : '刷新'}
           </Button>
           <Button size="sm" variant="brand" onClick={() => setCreating(true)}>
             <Plus />
@@ -79,35 +104,23 @@ function UsersPage() {
         </>
       }
     >
-      {query.isPending ? (
-        <PendingState label="加载用户" />
-      ) : query.isError ? (
-        <ErrorState label="加载用户失败" error={query.error} />
-      ) : (
-        <UsersContent
-          data={query.data}
-          kpis={kpisQuery.data}
-          kpisError={kpisQuery.isError ? kpisQuery.error : undefined}
-        />
-      )}
+      <UsersContent query={query} billingEnabled={billingEnabled} />
       <UserFormDialog mode="create" open={creating} onOpenChange={setCreating} />
     </Page>
   )
 }
 
 function UsersContent({
-  data,
-  kpis,
-  kpisError,
+  query,
+  billingEnabled,
 }: {
-  data: ListUsersResult
-  kpis: UserKpis | undefined
-  kpisError: unknown
+  query: ReturnType<typeof useUsers>
+  billingEnabled: boolean
 }) {
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
-  const { users, total, page, pageSize } = data
-  const metric = (value: number | undefined) => (value === undefined ? '—' : String(value))
+  const counts = query.data?.segments
+  const data = query.isPlaceholderData ? undefined : query.data
   const chips: FilterChip[] = []
   if (search.status)
     chips.push({
@@ -133,17 +146,37 @@ function UsersContent({
   }
   return (
     <>
-      {kpisError ? <ErrorState label="加载用户指标失败" error={kpisError} /> : null}
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4" aria-label="用户指标">
-        <Kpi label="用户总数" value={metric(kpis?.total_users)} note="所有用户" />
-        <Kpi label="7 日活跃" value={metric(kpis?.active_users_7d)} note="登录或提交过任务" />
-        <Kpi label="24h 提交" value={metric(kpis?.submissions_24h)} note="全部用户任务" />
-        <Kpi
-          label="24h 失败率"
-          value={kpis ? `${Math.round(kpis.failure_rate_24h * 1000) / 10}%` : '—'}
-          note="失败 / 提交"
-        />
-      </section>
+      <div className="overflow-x-auto border-b">
+        <ToggleGroup
+          type="single"
+          value={search.segment ?? 'all'}
+          aria-label="用户分群"
+          onValueChange={(value) => {
+            if (value) update({ segment: parseUserSegment(value) })
+          }}
+          className="min-w-max justify-start gap-2"
+        >
+          {SEGMENTS.filter(
+            (segment) =>
+              !segment.billing ||
+              segment.value === search.segment ||
+              (billingEnabled && counts?.[segment.value] !== undefined),
+          ).map(({ value, label, warning }) => (
+            <ToggleGroupItem
+              key={value}
+              value={value}
+              className="h-10 w-auto gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent px-3 text-xs text-muted-foreground data-[state=on]:border-brand-hover data-[state=on]:bg-transparent data-[state=on]:text-foreground"
+            >
+              {label}
+              <span
+                className={`font-mono tabular-nums ${warning && counts?.[value] ? 'text-warning' : 'text-muted-foreground'}`}
+              >
+                {counts?.[value] ?? '—'}
+              </span>
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </div>
       <FilterBar
         savedViewKey="users"
         presets={['all', 'today', '7d', '30d', 'custom']}
@@ -189,26 +222,32 @@ function UsersContent({
         }
         onClear={() => void navigate({ search: {}, replace: true })}
       />
-      <div className="overflow-hidden rounded-xl border bg-card">
-        <UserTable
-          users={users}
-          sort={search.sort ?? 'activity'}
-          dir={search.dir ?? 'desc'}
-          onSort={(sort) =>
-            update({
-              sort,
-              dir: search.sort === sort && search.dir !== 'asc' ? 'asc' : 'desc',
-            })
-          }
-        />
-        <ListPagination
-          page={page ?? 1}
-          pageSize={pageSize === 100 ? 100 : 50}
-          total={total ?? users.length}
-          onPage={(next) => update({ page: next })}
-          onPageSize={(size) => update({ pageSize: size, page: 1 })}
-        />
-      </div>
+      {query.isError ? (
+        <ErrorState label="加载用户失败" error={query.error} />
+      ) : !data ? (
+        <PendingState label="加载用户" />
+      ) : (
+        <div className="overflow-hidden rounded-xl border bg-card">
+          <UserTable
+            users={data.users}
+            sort={search.sort ?? 'activity'}
+            dir={search.dir ?? 'desc'}
+            onSort={(sort) =>
+              update({
+                sort,
+                dir: search.sort === sort && search.dir !== 'asc' ? 'asc' : 'desc',
+              })
+            }
+          />
+          <ListPagination
+            page={data.page}
+            pageSize={data.pageSize === 100 ? 100 : 50}
+            total={data.total}
+            onPage={(next) => update({ page: next })}
+            onPageSize={(size) => update({ pageSize: size, page: 1 })}
+          />
+        </div>
+      )}
     </>
   )
 }

@@ -21,12 +21,14 @@ import {
   parseRange,
   parseSort,
   parseTimeWindow,
+  parseUserSegment,
   RANGE_LABEL,
   RANGES,
   type Range,
   SORT_LABEL,
   SORTS,
   type SortKey,
+  type UserSegment,
 } from '../../contracts'
 
 export type { OpsRange, Range, SortKey }
@@ -166,6 +168,7 @@ export function parseOpsSearch(input: Record<string, unknown>): OpsSearch {
 }
 
 export interface UsersSearch {
+  segment?: UserSegment
   q?: string
   status?: 'active' | 'disabled'
   registeredFrom?: number
@@ -191,6 +194,8 @@ export function parseUsersSearch(input: Record<string, unknown>): UsersSearch {
     const q = input.q.trim().slice(0, 128)
     if (q) out.q = q
   }
+  const segment = parseUserSegment(input.segment)
+  if (segment) out.segment = segment
   if (input.status === 'active' || input.status === 'disabled') out.status = input.status
   if (input.sort === 'activity' || input.sort === 'created' || input.sort === 'login')
     out.sort = input.sort
@@ -314,14 +319,18 @@ export function clearInspirationItem<T extends { item?: string }>(
   return rest
 }
 
+export type TaskDatePreset = '1h' | 'today' | '24h' | '7d' | '30d' | 'custom'
+
 export interface GenerationTasksSearch extends GenerationTaskFilters, TaskViewSearch {
-  preset?: DatePreset
+  preset?: TaskDatePreset
 }
 export function parseGenerationTasksSearch(input: Record<string, unknown>): GenerationTasksSearch {
   if ((input.from !== undefined || input.to !== undefined) && !parseTimeWindow(input))
     throw new Error('任务时间范围无效：需要完整的起止时间，范围不超过 31 天，且不能在未来。')
   const preset =
+    input.preset === '1h' ||
     input.preset === 'today' ||
+    input.preset === '24h' ||
     input.preset === '7d' ||
     input.preset === '30d' ||
     input.preset === 'custom'

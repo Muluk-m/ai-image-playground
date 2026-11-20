@@ -10,6 +10,7 @@ import {
   QUEUE_TIMEOUTS,
   type QueueProvider,
 } from '@image-playground/shared'
+import type { Span } from '@opentelemetry/api'
 import { FormData } from 'undici'
 import { config } from '../config'
 import { disabledModelChannel, getRoutableChannels, type InternalChannel } from './channels'
@@ -17,6 +18,7 @@ import type { HydratedSubmitRequest } from './imageArchive'
 import { log } from './logger'
 import { ImageResponsesError, readImageResponses } from './openaiImageResponses'
 import { resolveApiKey } from './resolveApiKey'
+import { recordSpanError, SpanKind, SpanStatusCode, tracer, withTraceHeaders } from './telemetry'
 import {
   createDispatcher,
   createFetchSlot,
@@ -389,6 +391,15 @@ const upstreamDispatcher = createDispatcher({
 })
 
 const upstreamTransport = createFetchSlot<UpstreamFetch>()
+
+/** span 只记主机名：完整地址的查询串里可能带 key（Gemini 的 `?key=`）。 */
+function upstreamHost(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return 'invalid-url'
+  }
+}
 
 export function setUpstreamFetchForTesting(fetchImpl?: UpstreamFetch): void {
   upstreamTransport.set(fetchImpl)
@@ -1001,8 +1012,9 @@ async function callUpstreamVia(
   /** 计数请求的发出时刻与首字节耗时；响应读完时写 `upstream.request_finished`。 */
   const dispatchTimings = new WeakMap<
     UpstreamResponse,
-    { sentAt: number; headersMs: number; model: string }
+    { sentAt: number; headersMs: number; model: string; span: Span }
   >()
+  /** 写耗时日志，同时收尾这条请求的 CLIENT span：两者同起同止，耗时口径一致。 */
   const logRequestFinished = (fields: {
     outcome: 'ok' | 'http_error' | 'read_error' | 'transport_error'
     status: number | null
@@ -1010,7 +1022,16 @@ async function callUpstreamVia(
     sentAt: number
     /** 实际请求的模型：Vertex 限流回落时与任务模型不同。 */
     model: string
+    span: Span
+    error?: unknown
   }) => {
+    const { span } = fields
+    if (fields.status !== null) span.setAttribute('http.response.status_code', fields.status)
+    if (fields.headersMs !== null) span.setAttribute('upstream.headers_ms', fields.headersMs)
+    span.setAttribute('upstream.outcome', fields.outcome)
+    if (fields.error !== undefined) recordSpanError(span, fields.error)
+    else if (fields.outcome !== 'ok') span.setStatus({ code: SpanStatusCode.ERROR })
+    span.end()
     log.info(
       {
         event: 'upstream.request_finished',
@@ -1064,6 +1085,7 @@ async function callUpstreamVia(
     }
     let sent = false
     let sentAt: number | undefined
+    let span: Span | undefined
     let headersAt: number | undefined
     // 记账回调开始前都确定没发出；回调里失败时不知道它是否已提交，按原样当「结果未知」。
     let committing = false
@@ -1078,9 +1100,31 @@ async function callUpstreamVia(
       // create a charged task without a corresponding upstream invocation.
       const requestAbort = new AbortController()
       const relayAbort = () => requestAbort.abort()
-      if (counted) sentAt = performance.now()
+      if (counted) {
+        sentAt = performance.now()
+        const method = init?.method ?? 'GET'
+        span = tracer.startSpan(`upstream ${method}`, {
+          kind: SpanKind.CLIENT,
+          attributes: {
+            'http.request.method': method,
+            'server.address': upstreamHost(url),
+            'upstream.provider': provider,
+            'upstream.model': requestModel,
+            'upstream.style': style,
+            ...(params.taskId ? { 'task.id': params.taskId } : {}),
+          },
+        })
+      }
       const responsePromise = upstreamTransport.current(url, {
         ...fetchInit(init),
+        ...(span
+          ? {
+              headers: withTraceHeaders(
+                init?.headers,
+                span,
+              ) as NonNullable<UpstreamFetchInit>['headers'],
+            }
+          : {}),
         signal: requestAbort.signal,
       })
       // 首字节时刻挂在上游响应本身上，不被下面并行的记账写库拖长。
@@ -1107,11 +1151,12 @@ async function callUpstreamVia(
           throw error
         }
         if (dispatchId) dispatchIdentities.set(response, dispatchId)
-        if (sentAt !== undefined)
+        if (sentAt !== undefined && span)
           dispatchTimings.set(response, {
             sentAt,
             headersMs: Math.round((headersAt ?? performance.now()) - sentAt),
             model: requestModel,
+            span,
           })
         if (lease) {
           schedulerLeases.set(response, lease)
@@ -1126,13 +1171,15 @@ async function callUpstreamVia(
         deadline.signal.removeEventListener('abort', relayAbort)
       }
     } catch (err) {
-      if (sentAt !== undefined)
+      if (sentAt !== undefined && span)
         logRequestFinished({
           outcome: 'transport_error',
           status: null,
           headersMs: null,
           sentAt,
           model: requestModel,
+          span,
+          error: err,
         })
       // 记账回调之前就失败：这次没发出去，张数退回。
       if (lease) await releaseLease(lease, !sent)

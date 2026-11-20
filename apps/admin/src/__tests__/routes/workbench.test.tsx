@@ -478,20 +478,18 @@ describe('sidebar navigation', () => {
 describe('sync footprint', () => {
   it('shows the template, asset and byte counts when accounts:sync is enabled', async () => {
     renderAt('/users/user-1')
-    expect(await screen.findByText('模板')).toBeInTheDocument()
+    expect(await screen.findByText('云端模板')).toBeInTheDocument()
     expect(screen.getByText('4')).toBeInTheDocument()
-    expect(screen.getByText('素材')).toBeInTheDocument()
-    expect(screen.getByText('12')).toBeInTheDocument()
-    expect(screen.getByText('素材占用')).toBeInTheDocument()
-    expect(screen.getByText('3.0 MB')).toBeInTheDocument()
+    expect(screen.getByText('云端素材')).toBeInTheDocument()
+    expect(screen.getByText('12 · 3.0 MB')).toBeInTheDocument()
   })
 
   it('hides the sync footprint when accounts:sync is disabled', async () => {
     session.accountsSync = false
     renderAt('/users/user-1')
     expect(await screen.findByLabelText('任务状态筛选')).toBeInTheDocument()
-    expect(screen.queryByText('模板')).not.toBeInTheDocument()
-    expect(screen.queryByText('素材占用')).not.toBeInTheDocument()
+    expect(screen.queryByText('云端模板')).not.toBeInTheDocument()
+    expect(screen.queryByText('云端素材')).not.toBeInTheDocument()
   })
 })
 

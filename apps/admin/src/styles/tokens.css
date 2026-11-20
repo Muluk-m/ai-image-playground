@@ -52,6 +52,8 @@
     --status-rose-light: 350 85% 65%;
     --status-red: 0 84.2% 60.2%;
     --status-red-dark: 0 62.8% 30.6%;
+    --status-sky: 199 89% 40%;
+    --status-sky-light: 199 89% 60%;
     --status-violet: 265 70% 52%;
     --status-violet-light: 265 80% 72%;
 
@@ -82,6 +84,7 @@
     --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
     --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.1);
     --shadow-lg: 0 16px 40px -12px rgb(0 0 0 / 0.25);
+    --shadow-sticky-x: 8px 0 16px -6px rgb(0 0 0 / 0.14);
     --duration-fast: 120ms;
     --duration-normal: 200ms;
 
@@ -109,6 +112,7 @@
     --success: var(--status-emerald);
     --warning: var(--status-amber);
     --danger: var(--status-rose);
+    --info: var(--status-sky);
     --private: var(--status-violet);
     --membership-free: var(--muted-foreground);
     --membership-basic: var(--tier-basic-ink);
@@ -244,7 +248,9 @@
       --success: var(--status-emerald-light);
       --warning: var(--status-amber-light);
       --danger: var(--status-rose-light);
+      --info: var(--status-sky-light);
       --private: var(--status-violet-light);
+      --shadow-sticky-x: 8px 0 16px -6px rgb(0 0 0 / 0.65);
       --membership-free: var(--tier-free-light);
       --membership-basic: var(--tier-basic-light);
       --membership-plus: var(--tier-plus-light);

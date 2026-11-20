@@ -21,7 +21,7 @@ import {
   generationRefreshInterval,
   generationWindow,
 } from './generation-overview'
-import type { DatePreset } from './search-params'
+import type { TaskDatePreset } from './search-params'
 import type {
   ClientErrorEventsResult,
   ClientErrorsResult,
@@ -37,6 +37,7 @@ import type {
   TaskDetail,
   UserDetailResult,
   UserKpis,
+  UserSegment,
   UserTasksResult,
 } from './types'
 
@@ -116,6 +117,8 @@ export function useTask(taskId: string | undefined) {
 }
 
 export interface UserListOptions {
+  segment?: UserSegment
+  segments?: boolean
   status?: 'active' | 'disabled'
   registeredFrom?: number
   registeredTo?: number
@@ -147,26 +150,29 @@ export function useUserKpis() {
   })
 }
 
-export function useUsers(search: string, options: UserListOptions = {}) {
+export function useUsers(search: string, { segments = false, ...filters }: UserListOptions = {}) {
   return useQuery({
-    queryKey: ['users', { search, ...options }],
+    queryKey: ['users', { search, segments, ...filters }],
+    placeholderData: segments ? (previous) => previous : undefined,
     queryFn: () => {
       const params = new URLSearchParams()
       if (search) params.set('q', search)
-      for (const [key, value] of Object.entries(options)) {
+      for (const [key, value] of Object.entries(filters)) {
         if (value !== undefined) params.set(key, String(value))
       }
+      if (segments) params.set('segments', '1')
       const query = params.toString()
       return apiClient.get<ListUsersResult>(`/api/users${query ? `?${query}` : ''}`)
     },
   })
 }
 
-// 档案（聚合 + 趋势）与任务列表分开取：切状态页签只重拉任务，不重算聚合与 30 天趋势。
+// 档案与任务列表分开取，切状态时只重新加载任务。
 export function useUserDetail(userId: string) {
   return useQuery({
     queryKey: ['user', userId],
-    queryFn: () => apiClient.get<UserDetailResult>(`/api/users/${encodeURIComponent(userId)}`),
+    queryFn: () =>
+      apiClient.get<UserDetailResult>(`/api/users/${encodeURIComponent(userId)}?volume=0`),
     enabled: userId.length > 0,
   })
 }
@@ -265,14 +271,23 @@ export function useGenerationOverview(selection: GenerationSelection) {
 
 /** The rolling window owns refreshes; changing it creates exactly one new task query. */
 export function useGenerationTasksClock(live: boolean) {
-  const activatedAt = useMemo(() => ({ live, now: Date.now() }), [live])
-  const [clock, setClock] = useState(activatedAt)
+  const [clock, setClock] = useState(() => ({ live, now: Date.now() }))
+  // 恢复实时刷新时立即推进到当前时刻，避免先用旧时间发一次请求；暂停时保留原时间戳不跳动。
+  const resumedAt = useMemo(
+    () => (live && !clock.live ? Math.max(Date.now(), clock.now + 1) : null),
+    [live, clock.live, clock.now],
+  )
   useEffect(() => {
-    setClock((previous) => (previous.live === live ? previous : activatedAt))
+    setClock((previous) => {
+      if (previous.live === live) return previous
+      return live
+        ? { live: true, now: resumedAt ?? Math.max(Date.now(), previous.now + 1) }
+        : { live: false, now: previous.now }
+    })
     if (!live) return
     let timer: number | undefined
     const advance = () =>
-      setClock((previous) => ({ live, now: Math.max(Date.now(), previous.now + 1) }))
+      setClock((previous) => ({ live: true, now: Math.max(Date.now(), previous.now + 1) }))
     const schedule = () => {
       if (timer !== undefined) window.clearInterval(timer)
       timer = undefined
@@ -294,15 +309,15 @@ export function useGenerationTasksClock(live: boolean) {
       document.removeEventListener('visibilitychange', visibilityChanged)
       window.removeEventListener(ADMIN_REFRESH_EVENT, refresh)
     }
-  }, [live, activatedAt])
-  return clock.live === live ? clock.now : activatedAt.now
+  }, [live, resumedAt])
+  return resumedAt ?? clock.now
 }
 export function useGenerationTasks(
   filters: GenerationTaskFilters,
-  rollingPreset?: Exclude<DatePreset, 'custom'>,
+  rollingPreset?: Exclude<TaskDatePreset, 'custom'>,
 ) {
   const { from, to, ...selection } = filters
-  // Today's results belong to one calendar day even while the end of its window rolls forward.
+  // 同一筛选下滚动时间窗刷新保留现有数据，避免表格重建与横向/纵向滚动位置丢失。
   const selectionKey = hashKey([selection, rollingPreset, rollingPreset === 'today' ? from : null])
   return useQuery({
     queryKey: ['generation-tasks', selectionKey, from, to] as const,
@@ -310,6 +325,7 @@ export function useGenerationTasks(
       const params = new URLSearchParams()
       for (const [key, value] of Object.entries(filters)) {
         if (value === undefined) continue
+        if (Array.isArray(value) && value.length === 0) continue
         params.set(key, Array.isArray(value) ? value.join(',') : String(value))
       }
       return apiClient.get<GenerationTasksResult>(`/api/tasks?${params}`)

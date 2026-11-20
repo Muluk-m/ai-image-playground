@@ -1,27 +1,26 @@
-import { useIsFetching, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, notFound, useNavigate } from '@tanstack/react-router'
-import { KeyRound, LogOut, RefreshCw, ShieldCheck, ShieldOff } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { KeyRound, LogOut, ShieldCheck, ShieldOff } from 'lucide-react'
+import { type ReactNode, useState } from 'react'
 
 import { DangerConfirmDialog } from '@/components/DangerConfirmDialog'
 import { FuzzyTime } from '@/components/FuzzyTime'
-import { Kpi } from '@/components/Kpi'
-import { LazyTaskVolumeChart } from '@/components/LazyTaskVolumeChart'
 import { LightboxDialog } from '@/components/LightboxDialog'
 import { EmptyState, ErrorState, Page, PendingState } from '@/components/Page'
-import { SegmentedControl } from '@/components/SegmentedControl'
+import { RecentUserTasks } from '@/components/RecentUserTasks'
+import { ShortId } from '@/components/ShortId'
 import { TaskDetailSheet } from '@/components/TaskDetailSheet'
-import { TaskTable } from '@/components/TaskTable'
 import { UserFormDialog } from '@/components/UserFormDialog'
 import { UserNoteDialog } from '@/components/UserNoteDialog'
+import { LoginMethods, RegistrationOrigin } from '@/components/UserTable'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { apiClient } from '@/lib/api-client'
 import { bytes } from '@/lib/format'
-import { PrivateAdminUserDetailPanel } from '@/lib/private-overlay'
-import { useUserDetail, useUserTasks } from '@/lib/queries'
-import { clearTaskView, parseUserDetailSearch, RANGE_LABEL } from '@/lib/search-params'
+import { PrivateAdminUserDetailPanel, usePrivateAdminUserSummaries } from '@/lib/private-overlay'
+import { useUserDetail } from '@/lib/queries'
+import { clearTaskView, parseUserDetailSearch } from '@/lib/search-params'
 import type { AdminUserRow, UserDetailResult } from '@/lib/types'
 
 export const Route = createFileRoute('/_authed/users/$userId')({
@@ -32,19 +31,9 @@ export const Route = createFileRoute('/_authed/users/$userId')({
   component: UserDetailPage,
 })
 
-const TASK_FILTERS = [
-  { value: 'all', label: '全部' },
-  { value: 'completed', label: '成功' },
-  { value: 'failed', label: '失败' },
-  { value: 'in_progress', label: '执行中' },
-  { value: 'reconciling', label: '待核查' },
-  { value: 'queued', label: '排队中' },
-] as const
-
 function UserOperations({ user }: { user: AdminUserRow }) {
   const queryClient = useQueryClient()
   const [resetting, setResetting] = useState(false)
-  const [editingNote, setEditingNote] = useState(false)
   const [confirming, setConfirming] = useState<'status' | 'sessions' | null>(null)
   const mutation = useMutation({
     mutationFn: ({ operation, reason }: { operation: 'status' | 'sessions'; reason: string }) => {
@@ -67,9 +56,6 @@ function UserOperations({ user }: { user: AdminUserRow }) {
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button variant="outline" size="sm" onClick={() => setEditingNote(true)}>
-        {user.note ? '编辑备注' : '添加备注'}
-      </Button>
       <Button variant="outline" size="sm" onClick={() => setResetting(true)}>
         <KeyRound /> 重置密码
       </Button>
@@ -125,7 +111,6 @@ function UserOperations({ user }: { user: AdminUserRow }) {
           mutation.mutate({ operation: confirming, reason })
         }}
       />
-      <UserNoteDialog user={user} open={editingNote} onOpenChange={setEditingNote} />
     </div>
   )
 }
@@ -143,10 +128,7 @@ function UserDetailPage() {
 
   return (
     <>
-      <Page
-        crumbs={[{ label: '用户', to: '/users' }, { label: user?.username ?? userId }]}
-        description="全部历史任务与账户操作"
-      >
+      <Page crumbs={[{ label: '用户', to: '/users' }, { label: user?.username ?? userId }]}>
         {query.isPending ? (
           <PendingState label="加载用户档案" />
         ) : query.isError ? (
@@ -155,6 +137,7 @@ function UserDetailPage() {
           <EmptyState label={`未找到用户 ${userId}`} />
         ) : (
           <UserDetailContent
+            key={userId}
             detail={query.data}
             user={user}
             status={search.status ?? 'all'}
@@ -191,16 +174,6 @@ function UserDetailContent({
   userId: string
 }) {
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
-  const refreshing = useIsFetching({ queryKey: ['user', userId] }) > 0
-  const syncEnabled = Route.useRouteContext({ select: (c) => c.adminSession.accounts_sync })
-  const tasksQuery = useUserTasks(userId, status)
-  const tasks = useMemo(
-    () => (tasksQuery.data?.pages ?? []).flatMap((page) => page.tasks),
-    [tasksQuery.data],
-  )
-  const createdAt = new Date(user.created_at)
-
   function updateStatus(nextStatus: string): void {
     void navigate({
       to: '.',
@@ -214,108 +187,94 @@ function UserDetailContent({
 
   return (
     <>
-      <Card>
-        <CardContent className="p-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h2 className="truncate text-lg font-semibold tracking-tight">{user.username}</h2>
-                <Badge variant={user.status === 'active' ? 'success' : 'secondary'}>
-                  {user.status === 'active' ? '正常' : '已停用'}
-                </Badge>
-              </div>
-              <p className="mt-1 truncate font-mono text-xs text-muted-foreground">{user.id}</p>
-              {user.note ? (
-                <p className="mt-3 whitespace-pre-wrap break-words text-sm text-muted-foreground">
-                  备注：{user.note}
-                </p>
-              ) : null}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <span
+            className="grid size-9 shrink-0 place-items-center rounded-md bg-muted font-mono text-sm font-semibold"
+            aria-hidden="true"
+          >
+            {user.username.slice(0, 1).toUpperCase()}
+          </span>
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-center gap-2">
+              <h2 className="truncate text-sm font-semibold">{user.username}</h2>
+              <Badge variant={user.status === 'active' ? 'success' : 'secondary'}>
+                {user.status === 'active' ? '正常' : '已停用'}
+              </Badge>
             </div>
-            <UserOperations user={user} />
+            <ShortId value={user.id} len={12} />
           </div>
-
-          <div className="mt-5 grid gap-4 border-t pt-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Kpi
-              variant="inline"
-              label="创建"
-              value={createdAt.toLocaleDateString()}
-              note={createdAt.toLocaleTimeString()}
-            />
-            <Kpi
-              variant="inline"
-              label="最近活动"
-              value={<FuzzyTime ts={user.last_activity_at} />}
-            />
-            <Kpi variant="inline" label="活跃会话" value={String(user.active_sessions)} />
-            <Kpi variant="inline" label="历史任务" value={String(user.task_count)} />
-          </div>
-
-          {syncEnabled ? (
-            <div className="mt-4 grid gap-4 border-t pt-4 sm:grid-cols-2 xl:grid-cols-4">
-              <Kpi variant="inline" label="模板" value={String(detail.template_count)} />
-              <Kpi variant="inline" label="素材" value={String(detail.asset_count)} />
-              <Kpi variant="inline" label="素材占用" value={bytes(detail.asset_bytes)} />
-            </div>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      <PrivateAdminUserDetailPanel userId={user.id} username={user.username}>
-        <Card className="min-w-0">
-          <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0 p-4">
-            <CardTitle className="text-sm">
-              任务
-              <span className="ml-2 text-xs font-normal text-muted-foreground">
-                已加载 {tasks.length} 条 · 从新到旧
-              </span>
-            </CardTitle>
-            <div className="flex flex-wrap items-center gap-2">
-              <SegmentedControl
-                options={TASK_FILTERS}
-                value={status}
-                onChange={updateStatus}
-                label="任务状态筛选"
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                aria-label="刷新任务记录"
-                aria-busy={refreshing}
-                disabled={refreshing}
-                onClick={() => {
-                  void queryClient.invalidateQueries({ queryKey: ['user', userId] })
-                }}
-              >
-                <RefreshCw className={refreshing ? 'animate-spin' : undefined} />
-                {refreshing ? '刷新中…' : '刷新'}
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3 p-4 pt-0">
-            <p className="text-[11px] text-muted-foreground">
-              任务趋势 · 近 {RANGE_LABEL[detail.volume_range]}
-            </p>
-            <LazyTaskVolumeChart
-              buckets={detail.volume}
-              bucketUnit={detail.volume_bucket}
-              label={`${user.username} 的任务量`}
-              className="h-32"
-            />
-            {tasksQuery.isPending ? (
-              <PendingState label="加载任务" />
-            ) : tasksQuery.isError ? (
-              <ErrorState label="加载任务失败" error={tasksQuery.error} />
-            ) : (
-              <TaskTable
-                tasks={tasks}
-                hasNextPage={tasksQuery.hasNextPage}
-                isFetchingNextPage={tasksQuery.isFetchingNextPage}
-                onLoadMore={() => void tasksQuery.fetchNextPage()}
-              />
-            )}
-          </CardContent>
-        </Card>
+        </div>
+        <UserOperations user={user} />
+      </div>
+      <PrivateAdminUserDetailPanel
+        userId={user.id}
+        username={user.username}
+        profile={<UserProfile detail={detail} user={user} />}
+      >
+        <RecentUserTasks userId={userId} status={status} onStatusChange={updateStatus} />
       </PrivateAdminUserDetailPanel>
     </>
+  )
+}
+
+function UserProfile({ detail, user }: { detail: UserDetailResult; user: AdminUserRow }) {
+  const [editingNote, setEditingNote] = useState(false)
+  const syncEnabled = Route.useRouteContext({
+    select: (context) => context.adminSession.accounts_sync,
+  })
+  const { summaries } = usePrivateAdminUserSummaries([user.id])
+  const summary = summaries[user.id]
+
+  return (
+    <Card className="min-w-0">
+      <CardHeader className="flex-row items-center justify-between gap-2 space-y-0 p-4">
+        <CardTitle>用户画像</CardTitle>
+        <Button variant="ghost" onClick={() => setEditingNote(true)}>
+          {user.note ? '编辑备注' : '添加备注'}
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-3 p-4 pt-0">
+        <p className="whitespace-pre-wrap break-words rounded-md bg-muted/50 px-3 py-2 text-sm">
+          {user.note || '暂无备注'}
+        </p>
+        <dl className="divide-y">
+          <ProfileFact label="注册时间">
+            {new Date(user.created_at).toLocaleDateString('zh-CN')}
+          </ProfileFact>
+          {summary?.registrationSource ? (
+            <ProfileFact label="注册来源">
+              <RegistrationOrigin summary={summary} align="end" />
+            </ProfileFact>
+          ) : null}
+          <ProfileFact label="登录方式">
+            <LoginMethods methods={user.login_methods} align="end" />
+          </ProfileFact>
+          <ProfileFact label="最近登录">
+            {user.last_login_at ? <FuzzyTime ts={user.last_login_at} /> : '从未登录'}
+          </ProfileFact>
+          <ProfileFact label="活跃会话">{user.active_sessions}</ProfileFact>
+          <ProfileFact label="历史生成任务">{user.task_count}</ProfileFact>
+          {syncEnabled ? (
+            <>
+              <ProfileFact label="云端模板">{detail.template_count}</ProfileFact>
+              <ProfileFact label="云端素材">
+                {detail.asset_count} · {bytes(detail.asset_bytes)}
+              </ProfileFact>
+            </>
+          ) : null}
+        </dl>
+      </CardContent>
+      <UserNoteDialog user={user} open={editingNote} onOpenChange={setEditingNote} />
+    </Card>
+  )
+}
+
+function ProfileFact({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-2 text-xs">
+      <dt className="shrink-0 text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 text-right tabular-nums">{children}</dd>
+    </div>
   )
 }

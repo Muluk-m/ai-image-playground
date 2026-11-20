@@ -364,6 +364,7 @@ services:
     labels:
       ai.image-playground.log-ingest-host: ${LOG_INGEST_HOST:-bff-logs}
       ai.image-playground.log-format: multiline-v1
+      ai.image-playground.log-copy-match: ${OBS_LOG_MATCH:-__observability_off__}
     restart: unless-stopped
     command: ["-c", "/etc/fluent-bit/collector.yaml"]
     environment:
@@ -386,6 +387,138 @@ services:
     mem_limit: 128m
     networks:
       - application
+
+  # ---- Observability (ADR 0033, P2). Off unless OBSERVABILITY_ENABLED=true in app.env: these
+  # services sit behind the `observability` profile and scripts/app-compose.sh turns the profile and
+  # the log collector's second output on together. Fluent Bit keeps feeding server_logs; this is a
+  # second copy, so turning it off again loses nothing.
+
+  # Logs, traces and their indexes, stored as Parquet in the R2 bucket named below; the local
+  # volume only holds the write-ahead log and a bounded query cache. The open-source edition has no
+  # read-only role, so nothing outside this network talks to it directly: queries go through
+  # obs-proxy. Named variables instead of app.env, like pg-backup.
+  openobserve:
+    image: public.ecr.aws/zinclabs/openobserve:v1.1.2
+    profiles: [observability]
+    init: true
+    restart: unless-stopped
+    # Its own output stays with Docker: every ingest request it logs would travel back to it through
+    # the log copy below, a loop that never settles (and fills server_logs on the way).
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      ZO_ROOT_USER_EMAIL: ${OBS_ROOT_EMAIL:-}
+      ZO_ROOT_USER_PASSWORD: ${OBS_ROOT_PASSWORD:-}
+      ZO_LOCAL_MODE: "true"
+      ZO_LOCAL_MODE_STORAGE: s3
+      ZO_S3_PROVIDER: s3
+      ZO_S3_SERVER_URL: ${OBS_S3_ENDPOINT:-}
+      ZO_S3_REGION_NAME: auto
+      ZO_S3_BUCKET_NAME: ${OBS_S3_BUCKET:-}
+      ZO_S3_BUCKET_PREFIX: ${OBS_S3_PREFIX:-}
+      ZO_S3_ACCESS_KEY: ${OBS_S3_ACCESS_KEY_ID:-}
+      ZO_S3_SECRET_KEY: ${OBS_S3_SECRET_ACCESS_KEY:-}
+      ZO_DATA_DIR: /data
+      ZO_COMPACT_DATA_RETENTION_DAYS: ${OBS_RETENTION_DAYS:-30}
+      # The host has 3.6 GB of memory and ~19 GB of free disk for everything; caches are capped
+      # instead of sized from it (1 GB of data cache, 128 MB of result cache in openobserve-data).
+      ZO_DISK_CACHE_MAX_SIZE: "1024"
+      ZO_DISK_RESULT_CACHE_MAX_SIZE: "128"
+      ZO_MEMORY_CACHE_DATAFUSION_MAX_SIZE: "128"
+      # No calls out besides R2: no usage heartbeat, GeoIP database or model price list.
+      ZO_TELEMETRY: "false"
+      ZO_MMDB_DISABLE_DOWNLOAD: "true"
+      ZO_MODEL_PRICING_ENABLED: "false"
+    volumes:
+      - openobserve-data:/data
+    mem_limit: 512m
+    stop_grace_period: 30s
+    # The image is distroless (no shell, no curl), so there is no container healthcheck; the
+    # operations board sees it through obs-proxy, which answers 502 when OpenObserve is down.
+    # The web UI is on the host's loopback only, for an SSH tunnel; it logs in with the root
+    # account above. Each deployment on the host needs its own port.
+    ports:
+      - 127.0.0.1:${OBS_UI_HOST_PORT:-15080}:5080
+    networks:
+      - application
+
+  # One Collector per deployment. Receives OTLP spans from the BFF and worker
+  # (OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318 in app.env) and the container logs
+  # Fluent Bit forwards after its multiline merge; parses pino lines, maps levels, joins logs to
+  # traces and redacts before anything leaves. A sending queue on disk holds data while
+  # OpenObserve restarts.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.165.0
+    profiles: [observability]
+    restart: unless-stopped
+    labels:
+      ai.image-playground.collector-config: otel-v1
+    command: ["--config=/etc/otelcol/config.yaml"]
+    # The image runs as 10001 and a fresh named volume is root-owned, so the disk queue could not
+    # be written. No credentials beyond the OpenObserve account, no host mounts.
+    user: "0:0"
+    environment:
+      OBS_ROOT_EMAIL: ${OBS_ROOT_EMAIL:-}
+      OBS_ROOT_PASSWORD: ${OBS_ROOT_PASSWORD:-}
+      OBS_ORG: ${OBS_ORG:-default}
+      OBS_DEPLOYMENT: ${COMPOSE_PROJECT_NAME:-deployment}
+    configs:
+      - source: otel-collector
+        target: /etc/otelcol/config.yaml
+    volumes:
+      - otel-queue:/var/lib/otelcol
+    # Like log-collector: its own output stays with Docker, forwarding it would loop.
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_limit: 200m
+    networks:
+      application:
+        aliases:
+          - otel-collector
+
+  # The only way in to OpenObserve from outside: a Bearer token of its own, query paths only, and
+  # it fills in the OpenObserve account itself (apps/bff/src/ops/obs-proxy.ts). scripts/obs.ts
+  # talks to it. No database credential, like host-collector.
+  obs-proxy:
+    image: ${APP_IMAGE:-ai-image-playground:local}
+    profiles: [observability]
+    init: true
+    restart: unless-stopped
+    logging: *log-forward
+    environment:
+      APP_ROLE: obs-proxy
+      PORT: "5090"
+      OBS_UPSTREAM_URL: http://openobserve:5080
+      OBS_ORG: ${OBS_ORG:-default}
+      OBS_ROOT_EMAIL: ${OBS_ROOT_EMAIL:-}
+      OBS_ROOT_PASSWORD: ${OBS_ROOT_PASSWORD:-}
+      OBS_PROXY_TOKEN: ${OBS_PROXY_TOKEN:-}
+    command:
+      - bun
+      - run
+      - /app/apps/bff/src/obs-proxy-index.ts
+    # Loopback only: scripts/obs.ts reaches it through an SSH tunnel, nothing is published to the
+    # internet. Each deployment on the host needs its own port.
+    ports:
+      - 127.0.0.1:${OBS_PROXY_HOST_PORT:-15090}:5090
+    networks:
+      - application
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - "const response = await fetch('http://127.0.0.1:5090/healthz'); process.exit(response.ok ? 0 : 1)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
 configs:
   log-collector:
@@ -442,9 +575,152 @@ configs:
             header: Authorization Bearer $${INTERNAL_API_TOKEN}
             retry_limit: no_limits
             storage.total_limit_size: 256M
+          # Second copy to the observability Collector (ADR 0033 P2), after the multiline merge.
+          # scripts/app-compose.sh sets OBS_LOG_MATCH to * only when OBSERVABILITY_ENABLED=true;
+          # otherwise it matches no tag and this output never holds a chunk. Bounded on its own, so
+          # a Collector that is down cannot take the server_logs copy's disk.
+          - name: forward
+            match: "${OBS_LOG_MATCH:-__observability_off__}"
+            host: otel-collector
+            port: 8006
+            # Plain [time, record] entries: the Collector's fluent_forward receiver rejects
+            # Fluent Bit's [[time, metadata], record] form outright. Sub-second time comes back
+            # from pino's own `time` field in the Collector.
+            time_as_integer: true
+            retry_limit: no_limits
+            storage.total_limit_size: 128M
+
+  otel-collector:
+    # $$ leaves ${env:...} and regex group references for the Collector; credentials are read from
+    # its environment and never land in the rendered file.
+    content: |
+      extensions:
+        health_check:
+          endpoint: 0.0.0.0:13133
+        file_storage/queue:
+          directory: /var/lib/otelcol
+          create_directory: true
+        basicauth/openobserve:
+          client_auth:
+            username: $${env:OBS_ROOT_EMAIL}
+            password: $${env:OBS_ROOT_PASSWORD}
+      receivers:
+        otlp:
+          protocols:
+            http:
+              endpoint: 0.0.0.0:4318
+        fluent_forward:
+          endpoint: 0.0.0.0:8006
+      processors:
+        memory_limiter:
+          check_interval: 1s
+          limit_mib: 150
+          spike_limit_mib: 30
+        transform/logs:
+          error_mode: ignore
+          log_statements:
+            - context: log
+              statements:
+                # pino lines: every field becomes an attribute, the message becomes the body.
+                - merge_maps(attributes, ParseJSON(body), "upsert") where IsMatch(body, "^\\s*\\{")
+                - set(body, attributes["msg"]) where attributes["msg"] != nil
+                # pino keeps milliseconds; the forward protocol only carries whole seconds.
+                - set(time, Time(attributes["time"], "%Y-%m-%dT%H:%M:%S.%LZ")) where IsString(attributes["time"]) and IsMatch(attributes["time"], "^\\d{4}-\\d{2}-\\d{2}T")
+                - delete_key(attributes, "time")
+                - delete_key(attributes, "msg")
+                # Logs carry the span they were written in (pino mixin); link them to the trace.
+                - set(trace_id.string, attributes["trace_id"]) where attributes["trace_id"] != nil
+                - set(span_id.string, attributes["span_id"]) where attributes["span_id"] != nil
+                - delete_key(attributes, "trace_id")
+                - delete_key(attributes, "span_id")
+                # pino numeric levels, string levels (host-collector), cloudflared's INF/WRN/ERR.
+                - set(severity_number, SEVERITY_NUMBER_TRACE) where attributes["level"] == 10
+                - set(severity_number, SEVERITY_NUMBER_DEBUG) where attributes["level"] == 20
+                - set(severity_number, SEVERITY_NUMBER_INFO) where attributes["level"] == 30 or attributes["level"] == "info"
+                - set(severity_number, SEVERITY_NUMBER_WARN) where attributes["level"] == 40 or attributes["level"] == "warn"
+                - set(severity_number, SEVERITY_NUMBER_ERROR) where attributes["level"] == 50 or attributes["level"] == "error"
+                - set(severity_number, SEVERITY_NUMBER_FATAL) where attributes["level"] == 60 or attributes["level"] == "fatal"
+                - set(severity_number, SEVERITY_NUMBER_ERROR) where severity_number == SEVERITY_NUMBER_UNSPECIFIED and IsMatch(body, "^\\S+\\s+ERR\\s")
+                - set(severity_number, SEVERITY_NUMBER_WARN) where severity_number == SEVERITY_NUMBER_UNSPECIFIED and IsMatch(body, "^\\S+\\s+WRN\\s")
+                - set(severity_number, SEVERITY_NUMBER_INFO) where severity_number == SEVERITY_NUMBER_UNSPECIFIED and IsMatch(body, "^\\S+\\s+INF\\s")
+                - set(severity_number, SEVERITY_NUMBER_WARN) where severity_number == SEVERITY_NUMBER_UNSPECIFIED and attributes["source"] == "stderr"
+                - set(severity_number, SEVERITY_NUMBER_INFO) where severity_number == SEVERITY_NUMBER_UNSPECIFIED
+                - set(severity_text, "TRACE") where severity_number == SEVERITY_NUMBER_TRACE
+                - set(severity_text, "DEBUG") where severity_number == SEVERITY_NUMBER_DEBUG
+                - set(severity_text, "INFO") where severity_number == SEVERITY_NUMBER_INFO
+                - set(severity_text, "WARN") where severity_number == SEVERITY_NUMBER_WARN
+                - set(severity_text, "ERROR") where severity_number == SEVERITY_NUMBER_ERROR
+                - set(severity_text, "FATAL") where severity_number == SEVERITY_NUMBER_FATAL
+                - delete_key(attributes, "level")
+                # Service from the container name when the line did not say (cloudflared, backups).
+                - set(attributes["service"], attributes["container_name"]) where attributes["service"] == nil and attributes["container_name"] != nil
+                - replace_pattern(attributes["service"], "^/?.*-(bff|worker|admin|cloudflared|host-collector|pg-backup|release-router|migrate|obs-proxy|openobserve|dependency-check)(-[0-9]+)?$$", "$$1")
+                # Redaction, the same rules as server_logs (packages/shared/src/redact-log.ts):
+                # drop private fields at any depth, then scrub credential-shaped fragments.
+                - flatten(attributes)
+                - delete_matching_keys(attributes, "(?i)(^|\\.)(authorization|cookie|set-cookie|headers|[^.]*(password|secret|token|api[_-]?key)|body|payload|payloadpreview|responsebody|errorbody|request_payload|prompt|content|contents|parts|messages|image|images|data|input|output)(\\.|$$)")
+                - replace_pattern(body, "(?i)\\b(Bearer|Basic)\\s+[^\\s\"'<>]+", "$$1 [REDACTED]")
+                - replace_pattern(body, "(?i)\\b(sk-[a-z0-9_-]{8,}|AIza[a-z0-9_-]{15,})\\b", "[REDACTED]")
+                - replace_pattern(body, "(?i)((api[_-]?key|token|password|secret|signature|credential)[\"']?\\s*[:=]\\s*[\"']?)[^\\s&#\"',}]+", "$$1[REDACTED]")
+                - replace_pattern(body, "(?i)([a-z][a-z0-9+.-]*://)[^\\s/@]+:[^\\s/@]+@", "$$1[REDACTED]@")
+                - replace_pattern(body, "(?i)data:[^;\\s]+;base64,[a-z0-9+/=]+", "[BINARY REDACTED]")
+                - replace_all_patterns(attributes, "value", "(?i)\\b(Bearer|Basic)\\s+[^\\s\"'<>]+", "$$1 [REDACTED]")
+                - replace_all_patterns(attributes, "value", "(?i)\\b(sk-[a-z0-9_-]{8,}|AIza[a-z0-9_-]{15,})\\b", "[REDACTED]")
+                - replace_all_patterns(attributes, "value", "(?i)((api[_-]?key|token|password|secret|signature|credential)[\"']?\\s*[:=]\\s*[\"']?)[^\\s&#\"',}]+", "$$1[REDACTED]")
+                - replace_all_patterns(attributes, "value", "(?i)([a-z][a-z0-9+.-]*://)[^\\s/@]+:[^\\s/@]+@", "$$1[REDACTED]@")
+                - replace_all_patterns(attributes, "value", "(?i)data:[^;\\s]+;base64,[a-z0-9+/=]+", "[BINARY REDACTED]")
+                # A labelled private field inside text (error messages, stacks, JSON embedded in a
+                # string): everything from the label on goes, like redact-log.ts privateAssignment.
+                - replace_pattern(body, "(?is)\\b(prompt|contents?|messages|parts|payload|request_payload|responsebody|errorbody|body|input|output)([\"']?\\s*[:=]).*$$", "$$1$$2 [REDACTED PAYLOAD]")
+                - replace_all_patterns(attributes, "value", "(?is)\\b(prompt|contents?|messages|parts|payload|request_payload|responsebody|errorbody|body|input|output)([\"']?\\s*[:=]).*$$", "$$1$$2 [REDACTED PAYLOAD]")
+                - set(body, Substring(body, 0, 16000)) where Len(body) > 16000
+                - truncate_all(attributes, 4000)
+        resource:
+          attributes:
+            - key: deployment.environment.name
+              value: $${env:OBS_DEPLOYMENT}
+              action: upsert
+        batch:
+          send_batch_size: 2048
+          send_batch_max_size: 2048
+          timeout: 2s
+      exporters:
+        otlp_http/openobserve:
+          endpoint: http://openobserve:5080/api/$${env:OBS_ORG}
+          auth:
+            authenticator: basicauth/openobserve
+          headers:
+            stream-name: app
+          sending_queue:
+            enabled: true
+            storage: file_storage/queue
+            # Counted in bytes: at most 256 MB on disk (otel-queue) per pipeline, logs and traces
+            # each, while OpenObserve is away. Past that new data is refused rather than the disk
+            # filled.
+            sizer: bytes
+            queue_size: 268435456
+          retry_on_failure:
+            enabled: true
+            max_elapsed_time: 0
+      service:
+        extensions: [health_check, file_storage/queue, basicauth/openobserve]
+        telemetry:
+          logs:
+            level: warn
+        pipelines:
+          logs:
+            receivers: [fluent_forward]
+            processors: [memory_limiter, transform/logs, resource, batch]
+            exporters: [otlp_http/openobserve]
+          traces:
+            receivers: [otlp]
+            processors: [memory_limiter, resource, batch]
+            exporters: [otlp_http/openobserve]
 
 volumes:
   log-buffer:
+  openobserve-data:
+  otel-queue:
 
 networks:
   application:

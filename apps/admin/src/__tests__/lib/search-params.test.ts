@@ -198,3 +198,46 @@ it('keeps task source filters and exact prompt-task links in URL state', () => {
   expect(parseAgentPromptsSearch({ taskId: 'task-1' })).toEqual({ taskId: 'task-1' })
   expect(() => parseAgentPromptsSearch({ taskId: '' })).toThrow()
 })
+
+describe('generation task rich filters and sort params', () => {
+  it('parses multi-select filters, presets, ranges, and sorting from both strings and arrays', () => {
+    expect(
+      parseGenerationTasksSearch({
+        preset: '1h',
+        statuses: 'failed,reconciling',
+        sources: ['chat', 'cli'],
+        models: ['gpt-image-2.5-flare', 'gemini-2.5-flash-image'],
+        providers: 'openai-compat,gemini',
+        gptRoute: 'direct',
+        errorTypes: 'upstream_timeout,rate_limited',
+        httpBuckets: '429,5xx',
+        actorType: 'user',
+        minDurationSec: '15',
+        maxDurationSec: '120',
+        minQueueSec: '5',
+        retried: '1',
+        sort: 'run_ms',
+        dir: 'desc',
+      }),
+    ).toEqual({
+      preset: '1h',
+      statuses: ['failed', 'reconciling'],
+      sources: ['chat', 'cli'],
+      models: ['gpt-image-2.5-flare', 'gemini-2.5-flash-image'],
+      providers: ['openai-compat', 'gemini'],
+      gptRoute: 'direct',
+      errorTypes: ['upstream_timeout', 'rate_limited'],
+      httpBuckets: ['429', '5xx'],
+      actorType: 'user',
+      minDurationSec: 15,
+      maxDurationSec: 120,
+      minQueueSec: 5,
+      retried: '1',
+      sort: 'run_ms',
+      dir: 'desc',
+    })
+    expect(parseGenerationTasksSearch({ preset: '24h', sort: 'invalid', dir: 'sideways' })).toEqual(
+      { preset: '24h' },
+    )
+  })
+})

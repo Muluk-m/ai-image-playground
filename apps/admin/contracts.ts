@@ -186,8 +186,23 @@ export interface UserKpis {
   failure_rate_24h: number
 }
 
+export type UserSegment = 'active-7d' | 'members' | 'expiring' | 'out-of-credits' | 'disabled'
+
+export const USER_SEGMENTS: readonly UserSegment[] = [
+  'active-7d',
+  'members',
+  'expiring',
+  'out-of-credits',
+  'disabled',
+]
+
+export function parseUserSegment(value: unknown): UserSegment | undefined {
+  return USER_SEGMENTS.find((segment) => segment === value)
+}
+
 export interface ListUsersResult {
   users: AdminUserRow[]
+  segments?: Partial<Record<UserSegment | 'all', number>>
   truncated: boolean
   total: number
   page: number
@@ -601,21 +616,60 @@ export function parseTimeWindow(
 export const TASK_PAGE_SIZES = [50, 100] as const
 export type TaskPageSize = (typeof TASK_PAGE_SIZES)[number]
 
+export const TASK_SOURCES = ['chat', 'cli', 'manual'] as const
+
+export const TASK_SORT_FIELDS = [
+  'submitted_at',
+  'run_ms',
+  'queue_ms',
+  'total_ms',
+  'attempt_count',
+  'upstream_invocation_count',
+  'upstream_status',
+  'status',
+] as const
+export type TaskSortField = (typeof TASK_SORT_FIELDS)[number]
+
+export const SORT_DIRECTIONS = ['asc', 'desc'] as const
+export type SortDirection = (typeof SORT_DIRECTIONS)[number]
+
+export const TASK_GPT_ROUTES = ['direct', 'sub2api', 'none'] as const
+export type TaskGptRouteFilter = (typeof TASK_GPT_ROUTES)[number]
+
+export const TASK_HTTP_BUCKETS = ['2xx', '4xx', '429', '5xx', 'none'] as const
+export type TaskHttpBucket = (typeof TASK_HTTP_BUCKETS)[number]
+
+export const TASK_ACTOR_TYPES = ['user', 'device', 'unassigned'] as const
+export type TaskActorType = (typeof TASK_ACTOR_TYPES)[number]
+
 export interface GenerationTaskFilters {
   source?: TaskSource
+  sources?: TaskSource[]
   userId?: string
   deviceId?: string
   unassigned?: '1'
+  actorType?: TaskActorType
   status?: TaskStatus
+  statuses?: TaskStatus[]
   /** 单模型深链。与 models 同时出现时合并。 */
   model?: string
   models?: string[]
   providers?: string[]
+  gptRoute?: TaskGptRouteFilter
   errorTypes?: string[]
-  /** 执行耗时大于这么多秒。在提交时间窗内过滤，不单独建表达式索引。 */
+  httpBuckets?: TaskHttpBucket[]
+  /** 执行耗时下限（秒）。在提交时间窗内过滤，不单独建表达式索引。 */
   minDurationSec?: number
-  /** 任务 ID 精确匹配，或用户名 / 提示词在时间窗内的 ILIKE。 */
+  /** 执行耗时上限（秒）。 */
+  maxDurationSec?: number
+  /** 仅看尝试次数 > 1 的重试任务。 */
+  retried?: '1'
+  /** 排队等待时长下限（秒）。 */
+  minQueueSec?: number
+  /** 任务 ID、设备 ID、密钥指纹、模型、用户名或提示词在时间窗内的检索。 */
   q?: string
+  sort?: TaskSortField
+  dir?: SortDirection
   from?: number
   to?: number
   page?: number
@@ -623,16 +677,28 @@ export interface GenerationTaskFilters {
 }
 
 function parseTokenList(value: unknown, maxItems = 20): string[] | undefined {
-  if (typeof value !== 'string') return undefined
+  const rawParts =
+    typeof value === 'string'
+      ? value.split(',')
+      : Array.isArray(value)
+        ? value.filter((item): item is string => typeof item === 'string')
+        : null
+  if (!rawParts) return undefined
   const items = [
     ...new Set(
-      value
-        .split(',')
-        .map((part) => part.trim())
-        .filter((part) => part.length > 0 && part.length <= 128),
+      rawParts.map((part) => part.trim()).filter((part) => part.length > 0 && part.length <= 128),
     ),
   ]
   return items.length ? items.slice(0, maxItems) : undefined
+}
+
+function parseEnumList<T extends string>(value: unknown, allowed: readonly T[]): T[] | undefined {
+  const tokens = parseTokenList(value, allowed.length)
+  if (!tokens) return undefined
+  const filtered = tokens.filter((token): token is T =>
+    (allowed as readonly string[]).includes(token),
+  )
+  return filtered.length ? filtered : undefined
 }
 
 export function parseGenerationTaskFilters(input: Record<string, unknown>): GenerationTaskFilters {
@@ -649,8 +715,19 @@ export function parseGenerationTaskFilters(input: Record<string, unknown>): Gene
   if (errorTypes) out.errorTypes = errorTypes
   if (input.source === 'chat' || input.source === 'cli' || input.source === 'manual')
     out.source = input.source
+  const sources = parseEnumList(input.sources, TASK_SOURCES)
+  if (sources) out.sources = sources
   if (input.unassigned === '1') out.unassigned = '1'
+  if ((TASK_ACTOR_TYPES as readonly string[]).includes(input.actorType as string))
+    out.actorType = input.actorType as TaskActorType
   if (TASK_STATUSES.includes(input.status as TaskStatus)) out.status = input.status as TaskStatus
+  const statuses = parseEnumList(input.statuses, TASK_STATUSES)
+  if (statuses) out.statuses = statuses
+  if ((TASK_GPT_ROUTES as readonly string[]).includes(input.gptRoute as string))
+    out.gptRoute = input.gptRoute as TaskGptRouteFilter
+  const httpBuckets = parseEnumList(input.httpBuckets, TASK_HTTP_BUCKETS)
+  if (httpBuckets) out.httpBuckets = httpBuckets
+  if (input.retried === '1') out.retried = '1'
   if (typeof input.q === 'string') {
     const q = input.q.trim()
     if (q.length > 0 && q.length <= 200) out.q = q
@@ -659,6 +736,18 @@ export function parseGenerationTaskFilters(input: Record<string, unknown>): Gene
     const seconds = Number(input.minDurationSec)
     if (Number.isInteger(seconds) && seconds >= 1 && seconds <= 86_400) out.minDurationSec = seconds
   }
+  if (input.maxDurationSec !== undefined && input.maxDurationSec !== '') {
+    const seconds = Number(input.maxDurationSec)
+    if (Number.isInteger(seconds) && seconds >= 1 && seconds <= 86_400) out.maxDurationSec = seconds
+  }
+  if (input.minQueueSec !== undefined && input.minQueueSec !== '') {
+    const seconds = Number(input.minQueueSec)
+    if (Number.isInteger(seconds) && seconds >= 1 && seconds <= 86_400) out.minQueueSec = seconds
+  }
+  if ((TASK_SORT_FIELDS as readonly string[]).includes(input.sort as string))
+    out.sort = input.sort as TaskSortField
+  if ((SORT_DIRECTIONS as readonly string[]).includes(input.dir as string))
+    out.dir = input.dir as SortDirection
   if (input.page !== undefined && input.page !== '') {
     const page = Number(input.page)
     if (Number.isInteger(page) && page >= 1 && page <= 10_000) out.page = page
@@ -759,6 +848,31 @@ export interface GenerationOverviewResult extends GenerationUsersOverview {
   activity: OverviewActivityResult
 }
 
+export interface GenerationTasksSummary {
+  total: number
+  completed: number
+  failed: number
+  in_progress: number
+  queued: number
+  reconciling: number
+  cancelled: number
+  p50_run_ms: number | null
+  p95_run_ms: number | null
+}
+
+export interface GenerationTasksFacetOption {
+  value: string
+  count: number
+}
+
+export interface GenerationTasksFacets {
+  /** 忽略状态筛选、保留其余条件下的各状态条数，供状态快捷条显示实时计数。 */
+  statusCounts: Record<TaskStatus, number>
+  models: GenerationTasksFacetOption[]
+  providers: GenerationTasksFacetOption[]
+  errorTypes: GenerationTasksFacetOption[]
+}
+
 export interface GenerationTasksResult {
   window: TimeWindow
   tasks: GenerationTaskItem[]
@@ -766,6 +880,8 @@ export interface GenerationTasksResult {
   total?: number
   page?: number
   pageSize?: number
+  summary?: GenerationTasksSummary
+  facets?: GenerationTasksFacets
 }
 
 export type ErrorRecoveryState = 'unresolved' | 'recovered' | 'unknown'

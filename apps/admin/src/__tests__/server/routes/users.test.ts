@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb, OAUTH_ONLY_PASSWORD_HASH } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 
 const databaseUrl = await resetTestDatabase('admin_users_route')
 const forwarded: Array<{
@@ -278,6 +278,80 @@ describe('admin user routes', () => {
       users: Array<{ id: string }>
     }
     expect(noteMatch.users.map((user) => user.id)).toEqual(['user-existing'])
+  })
+
+  it('counts groups within the current search and paginates only the selected group', async () => {
+    const all = await call('/api/users?segment=disabled&segments=1')
+    expect(all.status).toBe(200)
+    expect(await all.json()).toMatchObject({
+      users: [{ id: 'user-idle' }],
+      total: 1,
+      segments: { all: 2, disabled: 1, 'active-7d': 1 },
+    })
+    const active = await call('/api/users?segment=active-7d&segments=1&q=existing&page=2')
+    expect(await active.json()).toMatchObject({
+      users: [],
+      total: 1,
+      segments: { all: 1, disabled: 0, 'active-7d': 1 },
+    })
+    const invalid = await call('/api/users?segment=unknown')
+    expect(invalid.status).toBe(400)
+  })
+
+  it('counts active plans and skips unmetered accounts when counting exhausted balances', async () => {
+    await writer.db.execute(sql`
+      CREATE TABLE billing_subscriptions (
+        user_id text, status text, starts_at timestamptz, ends_at timestamptz
+      )
+    `)
+    await writer.db.execute(sql`
+      CREATE TABLE billing_credit_accounts (
+        user_id text, recharge_balance int, subscription_balance int, subscription_expires_at timestamptz
+      )
+    `)
+    await writer.db.execute(
+      sql`CREATE TABLE billing_unmetered_entitlements (user_id text, enabled boolean)`,
+    )
+    await writer.db.execute(sql`
+      INSERT INTO billing_subscriptions VALUES
+        ('user-existing', 'active', now() - interval '1 day', now() + interval '1 day'),
+        ('user-idle', 'active', now() + interval '1 day', now() + interval '3 days')
+    `)
+    await writer.db.execute(sql`
+      INSERT INTO billing_credit_accounts VALUES
+        ('user-existing', 0, 100, now() - interval '1 hour'),
+        ('user-idle', 0, 0, NULL)
+    `)
+    await writer.db.execute(
+      sql`INSERT INTO billing_unmetered_entitlements VALUES ('user-idle', true)`,
+    )
+    try {
+      setAdminCapabilitiesForTesting({
+        accountsLogin: true,
+        accountsSync: true,
+        billingCredits: true,
+      })
+      for (const segment of ['members', 'expiring', 'out-of-credits']) {
+        const response = await call(`/api/users?segment=${segment}&segments=1`)
+        expect(response.status).toBe(200)
+        expect(await response.json()).toMatchObject({
+          users: [{ id: 'user-existing' }],
+          total: 1,
+          segments: { all: 2, members: 1, expiring: 1, 'out-of-credits': 1 },
+        })
+      }
+    } finally {
+      setAdminCapabilitiesForTesting({ accountsLogin: true, accountsSync: true })
+      await writer.db.execute(
+        sql`DROP TABLE billing_subscriptions, billing_credit_accounts, billing_unmetered_entitlements`,
+      )
+    }
+  })
+
+  it('can load the profile with the task trend disabled', async () => {
+    const response = await call('/api/users/user-existing?volume=0')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ user: { id: 'user-existing' }, volume: [] })
   })
 
   it('returns the profile with a fixed 30-day trend and no task page', async () => {
