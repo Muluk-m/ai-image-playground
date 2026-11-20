@@ -1,5 +1,7 @@
+import type { Span } from '@opentelemetry/api'
 import { config } from '../config'
 import { readCapped, SafeFetchError } from './safeFetch'
+import { SpanKind, withSpan } from './telemetry'
 
 /**
  * 一个已定位、但尚未取字节的对象。`size` 来自元信息请求，用来判定 Range 是否可满足；
@@ -89,7 +91,64 @@ export class S3ObjectStore implements ObjectStore {
     private readonly keyPrefix: string,
   ) {}
 
-  async write(
+  // 每次对象存储调用一个 CLIENT span，挂在当前链路下（任务执行、请求处理）。只记操作和字节数，
+  // 不记 key：key 里有用户和任务 id，签名地址更不能进 span。
+  write(key: string, bytes: Uint8Array, contentType: string, signal?: AbortSignal): Promise<void> {
+    return traced('write', { 'object_store.bytes': bytes.byteLength }, () =>
+      this.writeUntraced(key, bytes, contentType, signal),
+    )
+  }
+
+  writeStream(
+    key: string,
+    stream: ReadableStream<Uint8Array>,
+    contentType: string,
+    size: number,
+    signal: AbortSignal,
+  ): Promise<void> {
+    return traced('write', { 'object_store.bytes': size }, () =>
+      this.writeStreamUntraced(key, stream, contentType, size, signal),
+    )
+  }
+
+  read(key: string, signal?: AbortSignal): Promise<Uint8Array<ArrayBuffer>> {
+    return traced('read', {}, async (span) => {
+      const bytes = await this.readUntraced(key, signal)
+      span.setAttribute('object_store.bytes', bytes.byteLength)
+      return bytes
+    })
+  }
+
+  readUpTo(key: string, maxBytes: number): Promise<Uint8Array<ArrayBuffer>> {
+    return traced('read', {}, async (span) => {
+      const bytes = await this.readUpToUntraced(key, maxBytes)
+      span.setAttribute('object_store.bytes', bytes.byteLength)
+      return bytes
+    })
+  }
+
+  /** span 只覆盖取元信息；之后按区间拉流由调用方的 span 计时。 */
+  open(key: string, signal?: AbortSignal): Promise<ObjectRangeReader> {
+    return traced('stat', {}, async (span) => {
+      const reader = await this.openUntraced(key, signal)
+      span.setAttribute('object_store.bytes', reader.size)
+      return reader
+    })
+  }
+
+  listPrefix(prefix: string): Promise<string[]> {
+    return traced('list', {}, () => this.listPrefixUntraced(prefix))
+  }
+
+  listEntries(prefix: string): Promise<ObjectEntry[]> {
+    return traced('list', {}, () => this.listEntriesUntraced(prefix))
+  }
+
+  deletePrefix(prefix: string): Promise<void> {
+    return traced('delete', {}, () => this.deletePrefixUntraced(prefix))
+  }
+
+  private async writeUntraced(
     key: string,
     bytes: Uint8Array,
     contentType: string,
@@ -120,7 +179,7 @@ export class S3ObjectStore implements ObjectStore {
     await this.client.write(this.keyPrefix + key, bytes, { type: contentType })
   }
 
-  async writeStream(
+  private async writeStreamUntraced(
     key: string,
     stream: ReadableStream<Uint8Array>,
     contentType: string,
@@ -141,7 +200,7 @@ export class S3ObjectStore implements ObjectStore {
     if (!response.ok) throw new Error(`Object upload failed (${response.status})`)
   }
 
-  async read(key: string, signal?: AbortSignal): Promise<Uint8Array<ArrayBuffer>> {
+  private async readUntraced(key: string, signal?: AbortSignal): Promise<Uint8Array<ArrayBuffer>> {
     const file = this.client.file(this.keyPrefix + key)
     if (!signal) return new Uint8Array(await file.arrayBuffer())
     // Bun 的 S3File.arrayBuffer 没有超时也不收取消信号：对端接了连接却不回包时会一直挂着。
@@ -165,7 +224,7 @@ export class S3ObjectStore implements ObjectStore {
    * 一次 Range GET 读回对象开头至多 maxBytes 字节，不先发 HEAD 查大小。读多读少由调用方按返回长度判断：
    * 想核对「恰好 n 字节」就传 n + 1，内存上界仍是 n + 1。
    */
-  async readUpTo(key: string, maxBytes: number): Promise<Uint8Array<ArrayBuffer>> {
+  private async readUpToUntraced(key: string, maxBytes: number): Promise<Uint8Array<ArrayBuffer>> {
     const file = this.client.file(this.keyPrefix + key)
     try {
       // S3File.slice 的 end 是开区间，.stream() 翻译成上游的 Range 请求。
@@ -184,7 +243,7 @@ export class S3ObjectStore implements ObjectStore {
     }
   }
 
-  async open(key: string, signal?: AbortSignal): Promise<ObjectRangeReader> {
+  private async openUntraced(key: string, signal?: AbortSignal): Promise<ObjectRangeReader> {
     const file = this.client.file(this.keyPrefix + key)
     if (!signal) {
       const { size } = await file.stat()
@@ -206,17 +265,17 @@ export class S3ObjectStore implements ObjectStore {
     return { size, stream: (start, end) => signedRange(url, start, end, signal) }
   }
 
-  async listPrefix(prefix: string): Promise<string[]> {
+  private async listPrefixUntraced(prefix: string): Promise<string[]> {
     const entries = await this.listBucketEntries(prefix)
     return entries.map((entry) => entry.key.slice(this.keyPrefix.length))
   }
 
-  async listEntries(prefix: string): Promise<ObjectEntry[]> {
+  private async listEntriesUntraced(prefix: string): Promise<ObjectEntry[]> {
     const entries = await this.listBucketEntries(prefix)
     return entries.map((entry) => ({ ...entry, key: entry.key.slice(this.keyPrefix.length) }))
   }
 
-  async deletePrefix(prefix: string): Promise<void> {
+  private async deletePrefixUntraced(prefix: string): Promise<void> {
     for (const entry of await this.listBucketEntries(prefix)) {
       await this.client.delete(entry.key)
     }
@@ -242,6 +301,40 @@ export class S3ObjectStore implements ObjectStore {
     } while (continuationToken)
     return entries
   }
+}
+
+function traced<T>(
+  operation: 'write' | 'read' | 'stat' | 'list' | 'delete',
+  attributes: Record<string, number>,
+  work: (span: Span) => Promise<T>,
+): Promise<T> {
+  return withSpan(
+    `r2 ${operation}`,
+    {
+      kind: SpanKind.CLIENT,
+      attributes: { 'object_store.operation': operation, ...attributes },
+      expectedFailure: (error) => expectedObjectFailure(operation, error),
+    },
+    work,
+  )
+}
+
+/**
+ * 调用方取消，以及读和查大小时对象不存在（缓存未命中、资料没写过），是正常分支，不算存储故障。
+ * 写、列、删回 404 说明桶或配置错了，照常标错。
+ * 404 有三种样子：带期限读的 ObjectStoreHttpError、预签名 HEAD 的状态码消息、Bun S3 客户端的 NoSuchKey。
+ */
+function expectedObjectFailure(
+  operation: 'write' | 'read' | 'stat' | 'list' | 'delete',
+  error: unknown,
+): string | undefined {
+  if ((error as { name?: unknown } | null)?.name === 'AbortError') return 'aborted'
+  if (operation !== 'read' && operation !== 'stat') return undefined
+  if (error instanceof ObjectStoreHttpError) return error.status === 404 ? 'not_found' : undefined
+  const code = (error as { code?: unknown } | null)?.code
+  if (code === 'NoSuchKey') return 'not_found'
+  if (error instanceof Error && /\(404\)$/.test(error.message)) return 'not_found'
+  return undefined
 }
 
 /** 把流收进至多 maxBytes 的缓冲；上游多给也只留前 maxBytes 字节并停止读取。 */

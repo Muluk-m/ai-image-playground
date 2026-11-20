@@ -1,3 +1,4 @@
+import { trace } from '@opentelemetry/api'
 import type { HydratedSubmitRequest } from '../imageArchive'
 import { log } from '../logger'
 import { buildGeminiBody } from './gemini'
@@ -113,6 +114,11 @@ export async function withVertexRateLimitRetry<T>(
         },
         'vertex 429; backing off before retry',
       )
+      // 退避本身不是请求，记在当前执行 span 上：链路里能看到这段空等从哪来、等了多久。
+      trace.getActiveSpan()?.addEvent('upstream.rate_limit_backoff', {
+        'upstream.attempt': attempt + 1,
+        'upstream.delay_ms': Math.round(delay),
+      })
       try {
         await sleep(delay, signal)
       } catch (abort) {
