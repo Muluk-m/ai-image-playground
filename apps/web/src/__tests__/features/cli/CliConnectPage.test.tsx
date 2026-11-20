@@ -384,7 +384,7 @@ describe('CliConnectPage', () => {
       await click('复制消息')
       expect(host.textContent).not.toContain('正在等待智能体连接')
       expect(host.querySelector('.animate-spin')).toBeNull()
-      // 复制后先拉一次基线，不显示加载条。
+      // 复制后静默查询一次连接。
       expect(fetchMock).toHaveBeenCalledTimes(2)
       await act(async () => {
         await vi.advanceTimersByTimeAsync(4100)
@@ -429,7 +429,7 @@ describe('CliConnectPage', () => {
     }
   })
 
-  it('首次轮询暂时失败后仍能检测到新连接', async () => {
+  it('初始列表和首次监听请求都失败时，仍能检测到随后完成的授权', async () => {
     vi.useFakeTimers()
     try {
       const fetchMock = vi.fn(async () =>
@@ -445,7 +445,7 @@ describe('CliConnectPage', () => {
         }),
       )
       fetchMock
-        .mockResolvedValueOnce(Response.json({ connections: [] }))
+        .mockRejectedValueOnce(new TypeError('Network error'))
         .mockRejectedValueOnce(new TypeError('Network error'))
       vi.stubGlobal('fetch', fetchMock)
       await render()
@@ -456,6 +456,100 @@ describe('CliConnectPage', () => {
       })
       expect(host.textContent).toContain('已检测到智能体连接成功')
       expect(host.textContent).toContain('Muvloom CLI')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('连接列表刷新失败后，新一轮监听不会重复提示上一轮的连接', async () => {
+    vi.useFakeTimers()
+    try {
+      const connections: Array<{
+        id: string
+        client_name: string
+        created_at: number
+        last_used_at: null
+      }> = []
+      const fetchMock = vi.fn(async () => Response.json({ connections }))
+      vi.stubGlobal('fetch', fetchMock)
+      await render()
+      await click('复制消息')
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000)
+      })
+      connections.push({
+        id: 'first',
+        client_name: 'First CLI',
+        created_at: Date.now(),
+        last_used_at: null,
+      })
+      fetchMock
+        .mockResolvedValueOnce(Response.json({ connections }))
+        .mockRejectedValueOnce(new TypeError('Network error'))
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3100)
+      })
+      expect(host.textContent).toContain('已检测到智能体连接成功')
+      expect(host.textContent).not.toContain('First CLI')
+
+      await click('复制消息')
+      expect(host.textContent).not.toContain('已检测到智能体连接成功')
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000)
+      })
+      connections.push({
+        id: 'second',
+        client_name: 'Second CLI',
+        created_at: Date.now(),
+        last_used_at: null,
+      })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3100)
+      })
+      expect(host.textContent).toContain('已检测到智能体连接成功')
+      expect(host.textContent).toContain('Second CLI')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('重新监听时忽略超时后、这次复制前完成的连接', async () => {
+    vi.useFakeTimers()
+    try {
+      const fetchMock = vi.fn(async () => Response.json({ connections: [] }))
+      vi.stubGlobal('fetch', fetchMock)
+      await render()
+      await click('复制消息')
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10 * 60 * 1000 + 5000)
+      })
+      const lateConnection = {
+        id: 'late',
+        client_name: 'Late CLI',
+        created_at: Date.now() - 1000,
+        last_used_at: null,
+      }
+      fetchMock.mockResolvedValueOnce(Response.json({ connections: [lateConnection] }))
+      await click('复制消息')
+      expect(host.textContent).not.toContain('已检测到智能体连接成功')
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000)
+      })
+      const newConnection = {
+        id: 'new',
+        client_name: 'New CLI',
+        created_at: Date.now(),
+        last_used_at: null,
+      }
+      fetchMock.mockImplementation(async () =>
+        Response.json({ connections: [lateConnection, newConnection] }),
+      )
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3100)
+      })
+      expect(host.textContent).toContain('已检测到智能体连接成功')
+      expect(host.textContent).toContain('New CLI')
     } finally {
       vi.useRealTimers()
     }

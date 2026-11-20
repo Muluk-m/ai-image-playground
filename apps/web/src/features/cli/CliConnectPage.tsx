@@ -6,11 +6,7 @@ import SegmentedTabs from '../../components/patterns/SegmentedTabs'
 import { Button } from '../../components/ui/button'
 import { Icon } from '../../components/ui/icon'
 import { currentLocale, i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
-import {
-  AuthRequestError,
-  type CliConnectionSummary,
-  fetchCliConnections,
-} from '../../lib/authClient'
+import { AuthRequestError, fetchCliConnections } from '../../lib/authClient'
 import { copyTextToClipboard } from '../../lib/clipboardText'
 import { GUIDE_PATHS } from '../guide/paths'
 import CliConnectionsSection from './CliConnectionsSection'
@@ -27,6 +23,8 @@ import {
 } from './connectAgents'
 
 type CopyState = 'idle' | 'done' | 'failed'
+
+type ConnectionWatch = { userId: string; startedAt: number }
 
 const POLL_INTERVAL_MS = 4000
 const POLL_TIMEOUT_MS = 10 * 60 * 1000
@@ -156,28 +154,21 @@ export default function CliConnectPage() {
   const [platform, setPlatform] = useState<ConnectPlatform>(() =>
     detectPlatform(typeof navigator === 'undefined' ? '' : navigator.userAgent),
   )
-  const [watchingUserId, setWatchingUserId] = useState<string | null>(null)
+  const [watch, setWatch] = useState<ConnectionWatch | null>(null)
   const [connectedDetected, setConnectedDetected] = useState(false)
   const [cliAvailable, setCliAvailable] = useState(true)
   const [connectionsRefreshKey, setConnectionsRefreshKey] = useState(0)
-  const listedIdsRef = useRef<Set<string> | null>(null)
-  const watchDeadlineRef = useRef(0)
-  const isWatching = cliAvailable && watchingUserId !== null && watchingUserId === user?.id
-
-  const recordListedConnections = useCallback((connections: readonly CliConnectionSummary[]) => {
-    listedIdsRef.current = new Set(connections.map((connection) => connection.id))
-  }, [])
+  const activeWatch = cliAvailable && watch?.userId === user?.id ? watch : null
 
   const handleCliUnavailable = useCallback(() => {
     setCliAvailable(false)
-    setWatchingUserId(null)
+    setWatch(null)
   }, [])
 
   const startWatching = useCallback(() => {
     if (!user?.id || !cliAvailable) return
-    watchDeadlineRef.current = Date.now() + POLL_TIMEOUT_MS
     setConnectedDetected(false)
-    setWatchingUserId(user.id)
+    setWatch({ userId: user.id, startedAt: Date.now() })
   }, [user?.id, cliAvailable])
 
   useEffect(() => {
@@ -186,9 +177,7 @@ export default function CliConnectPage() {
   }, [])
 
   useEffect(() => {
-    listedIdsRef.current = null
-    watchDeadlineRef.current = 0
-    setWatchingUserId(null)
+    setWatch(null)
     setConnectedDetected(false)
     setCliAvailable(true)
   }, [user?.id])
@@ -196,12 +185,12 @@ export default function CliConnectPage() {
   // 仅在用户主动复制或下载后后台静默轮询新连接，不展示常驻加载态；
   // 后台标签页暂停轮询，超时、CLI 能力未启用或鉴权失效时自动停止。
   useEffect(() => {
-    if (!user?.id || !isWatching) return
-    let baselineIds = listedIdsRef.current
+    if (!activeWatch) return
+    const deadline = activeWatch.startedAt + POLL_TIMEOUT_MS
+    let initialIds: Set<string> | undefined
     let cancelled = false
     let stopped = false
     let timer: number | undefined
-    let expiryTimer: number | undefined
     let activeController: AbortController | null = null
 
     const stopWatching = () => {
@@ -209,17 +198,10 @@ export default function CliConnectPage() {
       window.clearTimeout(timer)
       window.clearTimeout(expiryTimer)
       activeController?.abort()
-      if (!cancelled) setWatchingUserId(null)
+      setWatch((current) => (current === activeWatch ? null : current))
     }
 
-    const checkExpiry = () => {
-      const remaining = watchDeadlineRef.current - Date.now()
-      if (remaining <= 0) {
-        stopWatching()
-        return
-      }
-      expiryTimer = window.setTimeout(checkExpiry, remaining)
-    }
+    const expiryTimer = window.setTimeout(stopWatching, Math.max(0, deadline - Date.now()))
 
     const schedule = () => {
       if (cancelled || stopped) return
@@ -229,7 +211,7 @@ export default function CliConnectPage() {
 
     const poll = async () => {
       if (cancelled || stopped) return
-      if (Date.now() >= watchDeadlineRef.current) {
+      if (Date.now() >= deadline) {
         stopWatching()
         return
       }
@@ -239,16 +221,19 @@ export default function CliConnectPage() {
       try {
         const list = await fetchCliConnections(controller.signal)
         if (cancelled || controller.signal.aborted) return
-        baselineIds ??= listedIdsRef.current
-        const baseline = baselineIds
-        if (baseline === null) {
-          baselineIds = new Set(list.map((item) => item.id))
-        } else if (list.some((item) => !baseline.has(item.id))) {
+        // 首次成功查询可能已经包含本轮授权，后续以该轮首次查询的 ID 为基线。
+        const knownIds = initialIds
+        if (
+          list.some((item) =>
+            knownIds ? !knownIds.has(item.id) : item.created_at > activeWatch.startedAt,
+          )
+        ) {
           setConnectedDetected(true)
           setConnectionsRefreshKey((k) => k + 1)
           stopWatching()
           return
         }
+        initialIds ??= new Set(list.map((item) => item.id))
       } catch (error) {
         if (cancelled || controller.signal.aborted) return
         if (error instanceof AuthRequestError && error.code === 'capability_unavailable') {
@@ -273,7 +258,6 @@ export default function CliConnectPage() {
     }
 
     document.addEventListener('visibilitychange', onVisibility)
-    checkExpiry()
     void poll()
     return () => {
       cancelled = true
@@ -283,7 +267,7 @@ export default function CliConnectPage() {
       activeController?.abort()
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [user?.id, isWatching])
+  }, [activeWatch])
 
   const setupUrl = useMemo(() => guideUrl(AGENT_SETUP_PATH, window.location.origin), [])
   const universalPrompt = t('cliConnect.universalPrompt', { setupUrl })
@@ -484,7 +468,6 @@ export default function CliConnectPage() {
               <CliConnectionsSection
                 key={`${user.id}:${connectionsRefreshKey}`}
                 standalone
-                onLoaded={recordListedConnections}
                 onUnavailable={handleCliUnavailable}
               />
             ) : null
