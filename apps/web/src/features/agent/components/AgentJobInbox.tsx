@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import { JobProgress } from '../../../components/assistant-ui/elements/job-progress'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
+import { useCompactWorkspaceHeader } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
 import { useCanvasProjectStore } from '../../canvas/projectStore'
 import { CARD_NOTE, INK, INK_3, LIST_ROW } from '../agentStyles'
@@ -206,6 +207,7 @@ function InboxGroup({
  */
 export default function AgentJobInbox() {
   const { t } = useTranslation('agent')
+  const compact = useCompactWorkspaceHeader()
   const messages = useAgentStore((state) => state.messages)
   const jobProgress = useAgentStore((state) => state.jobProgress)
   const conversationId = useAgentStore((state) => state.conversationId)
@@ -266,7 +268,7 @@ export default function AgentJobInbox() {
   return (
     <div
       ref={host}
-      className="studio-agent-job-inbox pointer-events-auto relative flex items-center"
+      className="studio-agent-job-inbox pointer-events-auto flex items-center md:relative md:self-start"
     >
       <Button
         type="button"
@@ -274,21 +276,22 @@ export default function AgentJobInbox() {
         size="sm"
         aria-expanded={open}
         aria-label={label}
+        title={compact ? t('job.inbox.title') : undefined}
         onClick={() => {
           setOpen((value) => !value)
           setTab(inbox.running.length > 0 ? 'running' : 'finished')
         }}
-        className={`w-auto gap-1.5 rounded-full bg-background px-2.5 text-label-sm font-normal leading-none shadow-none ${INK} hover:bg-muted`}
+        className="bg-background text-muted-foreground"
       >
         <Icon name="list" />
-        <span>{t('job.inbox.title')}</span>
+        {!compact && <span>{t('job.inbox.title')}</span>}
         {inbox.running.length > 0 && (
           <span
             className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-foreground"
             aria-hidden="true"
           />
         )}
-        <span className={`tabular-nums ${INK_3}`}>{count}</span>
+        <span className="text-label-sm tabular-nums">{count}</span>
       </Button>
       {open && (
         <div className="absolute right-0 top-full z-10 mt-1.5 w-80 max-w-[85vw] rounded-xl border border-border bg-sidebar p-2.5 shadow-xl">

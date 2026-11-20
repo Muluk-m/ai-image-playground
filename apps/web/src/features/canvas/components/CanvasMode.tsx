@@ -3,7 +3,7 @@ import ProjectNavigation from '../../../components/ProjectNavigation'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useHeldLoading } from '../../../hooks/useHeldLoading'
-import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
+import { useCompactWorkspaceHeader, useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
 import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
 import { lazyWithReload } from '../../../lib/chunkLoad'
@@ -159,6 +159,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const { t } = useTranslation('canvas')
   const { t: tShell } = useTranslation('shell')
   const mobile = useMobileWorkspace()
+  const compactHeader = useCompactWorkspaceHeader()
+  const headerIconSize = mobile ? 'icon-lg' : 'icon-sm'
   const panelWidth = useAgentStore((state) => state.panelWidth)
   const project = useCanvasProjectStore((state) =>
     state.projects.find((one) => one.id === state.activeId),
@@ -529,32 +531,29 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 </Button>
               )}
               {projectView === 'chat' && (
-                <>
+                <div className="ml-auto flex shrink-0 items-center gap-2 md:gap-3">
                   <Button
                     variant="ghost"
-                    size="icon"
+                    size={headerIconSize}
                     type="button"
-                    className="studio-assets-trigger studio-search-trigger"
+                    className="text-muted-foreground [&_svg]:size-4"
                     aria-label="搜索当前对话"
-                    autoTooltip={false}
                     onClick={() => setSearchOpen(true)}
                   >
                     <Icon name="search" />
                   </Button>
                   <Button
                     variant="ghost"
-                    size="icon"
+                    size={compactHeader ? headerIconSize : 'sm'}
                     type="button"
-                    className="studio-assets-trigger studio-assets-trigger--labeled"
+                    className="text-muted-foreground [&_svg]:size-4"
                     aria-label={t('workspace.assets')}
-                    autoTooltip={false}
                     onClick={() => setAssetDrawerOpen(true)}
                   >
                     <Icon name="folder" />
-                    {/* 只放图标时没人认得出这是看图的地方（BUG-18）。窄屏收回成图标，靠 aria-label。 */}
-                    <span className="studio-assets-trigger-label">{t('workspace.assets')}</span>
+                    {!compactHeader && <span>{t('workspace.assets')}</span>}
                   </Button>
-                </>
+                </div>
               )}
             </div>
           )}
