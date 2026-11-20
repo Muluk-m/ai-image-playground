@@ -43,6 +43,7 @@ import { accountScope, scopedStorageName } from '../../../lib/authScope'
 import { mediaIdentity, resolveMediaSource } from '../../../lib/cloudMedia'
 import { getDeviceId } from '../../../lib/deviceId'
 import { bffBaseUrl } from '../../../lib/runtimeConfig'
+import { tagTraceId, traceIdOf } from '../../../lib/traceContext'
 
 const CONTROL_REQUEST_TIMEOUT_MS = 15_000
 const STREAM_IDLE_TIMEOUT_MS = AGENT_SSE_HEARTBEAT_MS * 3
@@ -119,12 +120,15 @@ async function requestError(response: Response): Promise<AgentRequestError> {
     code?: unknown
     message?: unknown
   } | null
-  return new AgentRequestError(
-    response.status,
-    body?.error,
-    isAgentToolErrorCode(body?.code) ? body.code : undefined,
-    typeof body?.message === 'string' ? body.message.slice(0, 4000) : undefined,
-    response.headers.get('x-request-id') ?? undefined,
+  return tagTraceId(
+    new AgentRequestError(
+      response.status,
+      body?.error,
+      isAgentToolErrorCode(body?.code) ? body.code : undefined,
+      typeof body?.message === 'string' ? body.message.slice(0, 4000) : undefined,
+      response.headers.get('x-request-id') ?? undefined,
+    ),
+    traceIdOf(response),
   )
 }
 

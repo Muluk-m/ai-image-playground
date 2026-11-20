@@ -11,7 +11,7 @@ import { isCapabilityEnabled } from './lib/capabilities'
 import { assertCredentialedCors } from './lib/cors-policy'
 import { log } from './lib/logger'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
-import { REQUEST_ID_HEADER } from './lib/request-context'
+import { REQUEST_ID_HEADER, TRACE_ID_HEADER } from './lib/request-context'
 import { gzipBlob } from './lib/staticCompression'
 import { requestAuthUserId } from './lib/user-auth'
 import { createApiMetrics, isCountedPath } from './ops/api-metrics'
@@ -266,7 +266,13 @@ export const app = new Elysia()
     })
   }) as (context: object) => void)
   .use(apiErrorHandler())
-  .use(cors({ origin: corsOrigin, credentials: true, exposeHeaders: [REQUEST_ID_HEADER] }))
+  .use(
+    cors({
+      origin: corsOrigin,
+      credentials: true,
+      exposeHeaders: [REQUEST_ID_HEADER, TRACE_ID_HEADER],
+    }),
+  )
   // `ok` is what the healthchecks and rollout read; `version` lets the deploy workflow confirm the
   // commit that is serving.
   .get('/health', () => ({ ok: true, version: appVersion(), release: appRelease() }))

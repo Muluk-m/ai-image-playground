@@ -1,7 +1,11 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import { CLIENT_ERROR_RECOVERY_OPERATIONS, CLIENT_ERRORS_PATH } from '@image-playground/shared'
+import {
+  CLIENT_ERROR_LIMITS,
+  CLIENT_ERROR_RECOVERY_OPERATIONS,
+  CLIENT_ERRORS_PATH,
+} from '@image-playground/shared'
 
 const bffRoot = resolve(import.meta.dir, '../../..')
 process.env.PORT = '0'
@@ -88,6 +92,65 @@ describe('POST /api/client-errors', () => {
       user_agent: 'fixture-agent',
     })
     expect(rows.find((row) => row.kind === 'boot')?.context).toEqual({ rendered: false })
+  })
+
+  it('keeps a well-formed trace id in context for the ops page and drops anything else', async () => {
+    const traceId = '4bf92f3577b34da6a3ce929d0e0e4736'
+    const base = {
+      kind: 'error',
+      name: 'TypeError',
+      message: 'trace probe',
+      stack: stackAt('a.js', 1),
+    }
+    const response = await report({
+      errors: [
+        { ...base, traceId, context: { operation: 'canvas.scene.save' } },
+        { ...base, traceId },
+        { ...base, traceId: '0'.repeat(32) },
+        { ...base, traceId: traceId.toUpperCase() },
+        { ...base, traceId: `${traceId}; DROP` },
+      ],
+    })
+    expect(response.status).toBe(204)
+    const rows = await db.select().from(schema.client_errors)
+    const contexts = rows.map((row) => row.context)
+    expect(contexts).toHaveLength(5)
+    expect(contexts).toContainEqual({ operation: 'canvas.scene.save', traceId })
+    expect(contexts).toContainEqual({ traceId })
+    // 全零、大写、带尾巴的三条都不留链路。
+    expect(contexts.filter((context) => context === null)).toHaveLength(3)
+    // 链路不进指纹：同一个 bug 不因每次请求的 trace 不同而拆成多组。
+    expect(new Set(rows.map((row) => row.fingerprint)).size).toBe(1)
+
+    await db.delete(schema.client_errors)
+    // context 合并链路后照样受长度上限约束：超了保留原 context，丢掉链路。
+    const nearLimit = { note: 'x'.repeat(CLIENT_ERROR_LIMITS.context - 20) }
+    expect((await report({ errors: [{ ...base, traceId, context: nearLimit }] })).status).toBe(204)
+    const [bounded] = await db.select().from(schema.client_errors)
+    expect(bounded?.context).toEqual(nearLimit)
+  })
+
+  it('lets a cross-origin page send traceparent and read the trace id back', async () => {
+    const origin = 'https://app.example.com'
+    const preflight = await app.handle(
+      new Request('http://localhost/api/channels', {
+        method: 'OPTIONS',
+        headers: {
+          origin,
+          'access-control-request-method': 'POST',
+          'access-control-request-headers': 'content-type,traceparent',
+        },
+      }),
+    )
+    expect(preflight.headers.get('access-control-allow-headers')?.toLowerCase()).toContain(
+      'traceparent',
+    )
+    const response = await app.handle(
+      new Request('http://localhost/api/channels', { headers: { origin } }),
+    )
+    expect(response.headers.get('access-control-expose-headers')?.toLowerCase()).toContain(
+      'x-trace-id',
+    )
   })
 
   it('rejects unreadable bodies and oversize payloads', async () => {

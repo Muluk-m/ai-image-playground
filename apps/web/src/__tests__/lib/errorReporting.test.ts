@@ -10,6 +10,7 @@ import {
   reportDeliveryFailure,
   reportRecoverableClientError,
 } from '../../lib/errorReporting'
+import { _resetTraceContextForTesting, noteFailedTrace } from '../../lib/traceContext'
 
 /** jsdom's Blob has no `text()`. */
 function readBlob(blob: Blob): Promise<string> {
@@ -24,6 +25,7 @@ function readBlob(blob: Blob): Promise<string> {
 const sendBeacon = vi.fn((_url: string, _body: Blob) => true)
 beforeEach(() => {
   _resetErrorReportingForTesting()
+  _resetTraceContextForTesting()
   sendBeacon.mockClear()
   Object.defineProperty(navigator, 'sendBeacon', { configurable: true, value: sendBeacon })
   window.history.replaceState(null, '', '/workspace?code=secret#/projects')
@@ -447,4 +449,30 @@ it.each([
   flushClientErrors()
   const reports = (await sentBodies()).flatMap((sent) => sent.body.errors)
   expect(reports[0].context).toMatchObject({ status: 422, errorCode: code })
+})
+
+it('carries the trace id the error names, else the BFF request that just failed', async () => {
+  configureErrorReporting('')
+  const own = '4bf92f3577b34da6a3ce929d0e0e4736'
+  const failed = '0af7651916cd43dd8448eb211c80319c'
+  reportClientError('error', new Error('no trace yet'))
+  noteFailedTrace(failed)
+  reportClientError('error', new Error('after a failed request'))
+  reportClientError('error', Object.assign(new Error('names its own'), { traceId: own }))
+  reportClientError('error', Object.assign(new Error('names junk'), { traceId: 'junk' }))
+  reportClientError(
+    'error',
+    Object.assign(new Error('wraps one'), {
+      cause: Object.assign(new Error('inner'), { traceId: own }),
+    }),
+  )
+  flushClientErrors()
+  const reports = (await sentBodies()).flatMap((sent) => sent.body.errors)
+  expect(reports.map((report) => [report.message, report.traceId])).toEqual([
+    ['no trace yet', undefined],
+    ['after a failed request', failed],
+    ['names its own', own],
+    ['names junk', failed],
+    ['wraps one', own],
+  ])
 })

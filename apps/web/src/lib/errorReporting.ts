@@ -20,6 +20,7 @@ import {
 import { BUILD_META_NAME } from '../boot/constants'
 import { accountScope } from './authScope'
 import { getDeviceId } from './deviceId'
+import { isTraceId, recentFailedTraceId } from './traceContext'
 
 /** 一次页面会话最多报这么多条，出错循环的页面不该一直往外发。 */
 const MAX_REPORTS_PER_PAGE = 30
@@ -153,6 +154,22 @@ function boundedContext(
   return fits(essential) ? essential : undefined
 }
 
+/**
+ * 错误或它的 cause 链上带的 trace id 优先（构造错误时从响应挂上，见 traceContext.tagTraceId）；
+ * 都没有才取最近一次失败的 BFF 请求作兜底。
+ */
+function reportTraceId(error: unknown): string | undefined {
+  const seen = new Set<unknown>()
+  let current = error
+  for (let depth = 0; depth < 5 && current !== undefined && !seen.has(current); depth += 1) {
+    seen.add(current)
+    const own = errorField(current, 'traceId')
+    if (isTraceId(own)) return own
+    current = errorField(current, 'cause')
+  }
+  return recentFailedTraceId()
+}
+
 function currentRelease(): string | undefined {
   const meta = document.querySelector<HTMLMetaElement>(`meta[name="${BUILD_META_NAME}"]`)
   return meta?.content.slice(0, 12) || undefined
@@ -187,6 +204,7 @@ export function reportClientError(
     stack: clip(described.stack, CLIENT_ERROR_LIMITS.stack),
     url: clip(currentUrl(), CLIENT_ERROR_LIMITS.url),
     release: currentRelease(),
+    traceId: reportTraceId(error),
     context: diagnosticContext,
   })
   scheduleFlush()
