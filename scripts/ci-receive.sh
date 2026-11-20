@@ -13,6 +13,13 @@ set -eu
 # The archive is data only. Deployment code lives in the server-side runtime selected below; a
 # caller may not replace it by uploading a different shell script.
 #
+# paid runs the deployment code of the very commit it deploys: the receiver reads the public
+# commit from images.tsv, checks that it is on main of the public repository (merging into main
+# already needs Nain's sign-off), and unpacks that commit's deploy/ and scripts/ into
+# ~/deploy-runtimes/<sha>. So a merged change to the deployment scripts takes effect with its own
+# release instead of waiting for someone to copy files to the server. test, whose branch is pushed
+# without review, keeps the fixed ~/deploy-runtime and only gets a warning when that lags behind.
+#
 # The only accepted command is `deploy <release-id> <target> <run-id>`, with the release data as a
 # gzipped tar on stdin (`tar -C "$out" -czf - .`). It unpacks into `~/releases/<release-id>`,
 # which must not exist yet, and invokes the server-installed runtime.
@@ -91,15 +98,83 @@ created=
   exit 1
 }
 
-# Only release data is accepted. The deployment runtime is installed out of band at this path;
-# it is not read from the uploaded archive and therefore cannot be replaced by a caller.
-runtime_root=${AIP_DEPLOY_RUNTIME_ROOT:-$HOME/deploy-runtime}
+release_commit=$(awk -F '\t' -v target="$target" '$1 == target { print $4; exit }' "$release/images.tsv")
+
+# The public commit's deploy/ and scripts/, verified to be on main. Prints the runtime directory.
+# The mirror holds commits only (blob:none); file contents are fetched when a runtime is unpacked.
+paid_runtime() {
+  printf '%s\n' "$release_commit" | grep -Eqx '[0-9a-f]{40}' || {
+    echo "Release manifest names no public commit for $target; refusing to guess a runtime" >&2
+    return 1
+  }
+  runtimes=${AIP_DEPLOY_RUNTIMES_ROOT:-$HOME/deploy-runtimes}
+  mirror=$runtimes/.mirror.git
+  dir=$runtimes/$release_commit
+  url=${AIP_RUNTIME_GIT_URL:-https://github.com/Muluk-m/ai-image-playground.git}
+  mkdir -p "$runtimes"
+  if [ ! -d "$mirror" ]; then
+    git init -q --bare "$mirror"
+    git -C "$mirror" remote add origin "$url"
+  fi
+  git -C "$mirror" remote set-url origin "$url"
+  # Main is fetched on every deploy so the ancestry check always sees the current branch. A host
+  # that cannot reach GitHub may still redeploy a commit it verified before, never a new one.
+  if ! GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60 \
+    git -C "$mirror" fetch -q --filter=blob:none origin '+refs/heads/main:refs/heads/main' >&2; then
+    if [ -f "$dir/.verified" ]; then
+      echo "Warning: could not fetch main from $url; using runtime $release_commit verified on $(cat "$dir/.verified")" >&2
+      printf '%s\n' "$dir"
+      return 0
+    fi
+    echo "Cannot fetch main from $url to verify $release_commit; not deploying with an unverified runtime" >&2
+    return 1
+  fi
+  git -C "$mirror" merge-base --is-ancestor "$release_commit" refs/heads/main 2>/dev/null || {
+    echo "Refusing: $release_commit is not on main of $url" >&2
+    return 1
+  }
+  if [ ! -d "$dir" ]; then
+    incoming_runtime=$(mktemp -d "$runtimes/.incoming.XXXXXX")
+    if ! git -C "$mirror" archive "$release_commit" deploy scripts | tar -x -C "$incoming_runtime" ||
+      [ ! -x "$incoming_runtime/scripts/vps-deploy.sh" ]; then
+      rm -rf "$incoming_runtime"
+      echo "Could not unpack the deployment runtime of $release_commit" >&2
+      return 1
+    fi
+    printf '%s\n' "$release_commit" > "$incoming_runtime/.commit"
+    mv "$incoming_runtime" "$dir"
+  fi
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$dir/.verified"
+  # For hands-on work: the runtime the last paid deploy used.
+  ln -sfn "$dir" "$runtimes/current-paid"
+  # Keep the five most recent runtimes besides the one in use; a rollback to an older commit
+  # unpacks it again.
+  ls -1dt "$runtimes"/[0-9a-f]* 2>/dev/null | grep -v "/$release_commit\$" | tail -n +6 |
+    while IFS= read -r old; do rm -rf "$old"; done
+  printf '%s\n' "$dir"
+}
+
+if [ "$target" = paid ]; then
+  runtime_root=$(paid_runtime) || {
+    rm -rf "$release"
+    exit 1
+  }
+else
+  # Only release data is accepted. test's runtime is installed out of band at this path; it is not
+  # read from the uploaded archive and therefore cannot be replaced by a caller.
+  runtime_root=${AIP_DEPLOY_RUNTIME_ROOT:-$HOME/deploy-runtime}
+  installed=$(cat "$runtime_root/.commit" 2>/dev/null || echo unknown)
+  if [ -n "$release_commit" ] && [ "$installed" != "$release_commit" ]; then
+    echo "Warning: $runtime_root is at $installed, this release is $release_commit; deployment scripts changed since may not apply to $target" >&2
+  fi
+fi
 runtime="$runtime_root/scripts/vps-deploy.sh"
 [ -x "$runtime" ] || {
   echo "Deployment runtime is not installed: $runtime" >&2
   rm -rf "$release"
   exit 1
 }
+echo "Deployment runtime: $runtime_root ($(cat "$runtime_root/.commit" 2>/dev/null || echo unknown))" >&2
 DEPLOY_ACTOR=github-actions/run-$run_id
 export DEPLOY_ACTOR
 set +e
