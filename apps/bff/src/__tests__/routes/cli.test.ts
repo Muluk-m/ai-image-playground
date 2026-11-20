@@ -884,6 +884,7 @@ describe('CLI tokens', () => {
       headers: { cookie: user.cookie },
     })
     expect(listed.json.connections).toHaveLength(1)
+    expect(listed.json.observed_at).toBeGreaterThanOrEqual(listed.json.connections[0].created_at)
     const removed = await call(
       'DELETE',
       `/api/me/cli-connections/${listed.json.connections[0].id}`,

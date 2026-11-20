@@ -6,7 +6,7 @@ import SegmentedTabs from '../../components/patterns/SegmentedTabs'
 import { Button } from '../../components/ui/button'
 import { Icon } from '../../components/ui/icon'
 import { currentLocale, i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
-import { AuthRequestError, fetchCliConnections } from '../../lib/authClient'
+import { AuthRequestError, fetchCliConnectionSnapshot } from '../../lib/authClient'
 import { copyTextToClipboard } from '../../lib/clipboardText'
 import { GUIDE_PATHS } from '../guide/paths'
 import CliConnectionsSection from './CliConnectionsSection'
@@ -168,7 +168,7 @@ export default function CliConnectPage() {
   const startWatching = useCallback(() => {
     if (!user?.id || !cliAvailable) return
     setConnectedDetected(false)
-    setWatch({ userId: user.id, startedAt: Date.now() })
+    setWatch({ userId: user.id, startedAt: performance.now() })
   }, [user?.id, cliAvailable])
 
   useEffect(() => {
@@ -201,7 +201,7 @@ export default function CliConnectPage() {
       setWatch((current) => (current === activeWatch ? null : current))
     }
 
-    const expiryTimer = window.setTimeout(stopWatching, Math.max(0, deadline - Date.now()))
+    const expiryTimer = window.setTimeout(stopWatching, Math.max(0, deadline - performance.now()))
 
     const schedule = () => {
       if (cancelled || stopped) return
@@ -211,7 +211,8 @@ export default function CliConnectPage() {
 
     const poll = async () => {
       if (cancelled || stopped) return
-      if (Date.now() >= deadline) {
+      const requestedAt = performance.now()
+      if (requestedAt >= deadline) {
         stopWatching()
         return
       }
@@ -219,13 +220,21 @@ export default function CliConnectPage() {
       const controller = new AbortController()
       activeController = controller
       try {
-        const list = await fetchCliConnections(controller.signal)
+        const { connections, observedAt } = await fetchCliConnectionSnapshot(controller.signal)
         if (cancelled || controller.signal.aborted) return
-        // 首次成功查询可能已经包含本轮授权，后续以该轮首次查询的 ID 为基线。
+        if (performance.now() >= deadline) {
+          stopWatching()
+          return
+        }
+        // 把浏览器测得的监听时长映射到服务端时钟，避免用两个设备的墙上时间直接比较。
+        const serverStart =
+          observedAt === null ? null : observedAt - (requestedAt - activeWatch.startedAt)
         const knownIds = initialIds
         if (
-          list.some((item) =>
-            knownIds ? !knownIds.has(item.id) : item.created_at > activeWatch.startedAt,
+          connections.some((item) =>
+            knownIds
+              ? !knownIds.has(item.id)
+              : serverStart !== null && item.created_at > serverStart,
           )
         ) {
           setConnectedDetected(true)
@@ -233,7 +242,10 @@ export default function CliConnectPage() {
           stopWatching()
           return
         }
-        initialIds ??= new Set(list.map((item) => item.id))
+        if (!knownIds && observedAt === null && connections.length > 0) {
+          setConnectionsRefreshKey((k) => k + 1)
+        }
+        initialIds ??= new Set(connections.map((item) => item.id))
       } catch (error) {
         if (cancelled || controller.signal.aborted) return
         if (error instanceof AuthRequestError && error.code === 'capability_unavailable') {

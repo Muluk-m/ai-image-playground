@@ -429,8 +429,10 @@ describe('CliConnectPage', () => {
     }
   })
 
-  it('初始列表和首次监听请求都失败时，仍能检测到随后完成的授权', async () => {
-    vi.useFakeTimers()
+  it.each([
+    -60_000, 60_000,
+  ])('初始请求失败且客户端有时钟偏差时仍能报告新连接（%d ms）', async (offset) => {
+    vi.useFakeTimers({ toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout'] })
     try {
       const fetchMock = vi.fn(async () =>
         Response.json({
@@ -438,10 +440,11 @@ describe('CliConnectPage', () => {
             {
               id: 'conn-new',
               client_name: 'Muvloom CLI',
-              created_at: Date.now(),
+              created_at: Date.now() + offset - 1000,
               last_used_at: null,
             },
           ],
+          observed_at: Date.now() + offset,
         }),
       )
       fetchMock
@@ -470,7 +473,7 @@ describe('CliConnectPage', () => {
         created_at: number
         last_used_at: null
       }> = []
-      const fetchMock = vi.fn(async () => Response.json({ connections }))
+      const fetchMock = vi.fn(async () => Response.json({ connections, observed_at: Date.now() }))
       vi.stubGlobal('fetch', fetchMock)
       await render()
       await click('复制消息')
@@ -484,7 +487,7 @@ describe('CliConnectPage', () => {
         last_used_at: null,
       })
       fetchMock
-        .mockResolvedValueOnce(Response.json({ connections }))
+        .mockResolvedValueOnce(Response.json({ connections, observed_at: Date.now() + 3000 }))
         .mockRejectedValueOnce(new TypeError('Network error'))
       await act(async () => {
         await vi.advanceTimersByTimeAsync(3100)
@@ -529,7 +532,9 @@ describe('CliConnectPage', () => {
         created_at: Date.now() - 1000,
         last_used_at: null,
       }
-      fetchMock.mockResolvedValueOnce(Response.json({ connections: [lateConnection] }))
+      fetchMock.mockResolvedValueOnce(
+        Response.json({ connections: [lateConnection], observed_at: Date.now() }),
+      )
       await click('复制消息')
       expect(host.textContent).not.toContain('已检测到智能体连接成功')
 

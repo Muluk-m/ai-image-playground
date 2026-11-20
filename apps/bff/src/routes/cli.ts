@@ -256,7 +256,8 @@ export const cliAccountRoutes = new Elysia()
   .get('/api/me/cli-connections', async ({ authUser, status }) => {
     if (!cliApiEnabled()) return status(404, { error: 'capability_unavailable' })
     if (!authUser) return status(401, { error: 'unauthorized' })
-    return { connections: await listCliConnections(authUser.id) }
+    const observedAt = Date.now()
+    return { connections: await listCliConnections(authUser.id), observed_at: observedAt }
   })
   .delete(
     '/api/me/cli-connections/:id',
