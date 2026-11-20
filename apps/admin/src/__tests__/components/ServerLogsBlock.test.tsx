@@ -4,7 +4,7 @@ import { defaultParseSearch } from '@tanstack/react-router'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ServerLogsBlock } from '../../components/ops/ServerLogsBlock'
-import { apiClient } from '../../lib/api-client'
+import { ApiError, apiClient } from '../../lib/api-client'
 import { parseServerLogSearch, type ServerLogSearch } from '../../lib/server-log-search'
 
 const now = Date.now()
@@ -311,6 +311,66 @@ describe('server log exploration', () => {
     await waitFor(() => expect(get.mock.lastCall![0]).toContain('cursor=older-page'))
     expect(await screen.findByRole('button', { name: '开启自动刷新' })).toBeInTheDocument()
     expect(screen.queryByText(/累计丢弃 2/)).not.toBeInTheDocument()
+  })
+  it('explains a deployment without OpenObserve instead of calling it a failure', async () => {
+    get.mockRejectedValue(
+      new ApiError(503, {
+        error: '这个部署没有开 OpenObserve，日志查询不可用',
+        code: 'observability_off',
+      }),
+    )
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <ServerLogsBlock />
+      </QueryClientProvider>,
+    )
+    expect(await screen.findByRole('alert')).toHaveTextContent('这个部署没有开 OpenObserve')
+  })
+  it('shows the stack that OpenObserve stores flattened as err_stack', async () => {
+    get.mockResolvedValue({
+      ...result,
+      entries: [{ ...result.entries[0]!, fields: { err_stack: 'at flattened.ts:7' } }],
+    })
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <ServerLogsBlock />
+      </QueryClientProvider>,
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'ERROR worker upstream timeout' }))
+    expect(
+      within(await screen.findByRole('dialog', { name: '日志详情' })).getByText(/flattened.ts:7/),
+    ).toBeInTheDocument()
+  })
+  it('filters by trace and opens the span tree from a log line', async () => {
+    const traceId = '4bf92f3577b34da6a3ce929d0e0e4736'
+    get.mockImplementation(async (url) =>
+      url.startsWith('/api/ops/traces/')
+        ? { tree: '+      0ms    15844ms worker task.execute', spans: 1, truncated: false }
+        : {
+            ...result,
+            entries: [{ ...result.entries[0]!, fields: { trace_id: traceId } }],
+          },
+    )
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <ServerLogsBlock />
+      </QueryClientProvider>,
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'ERROR worker upstream timeout' }))
+    const detail = await screen.findByRole('dialog', { name: '日志详情' })
+    fireEvent.click(within(detail).getByRole('button', { name: '查看链路' }))
+    expect(await within(detail).findByText(/worker task.execute/)).toBeInTheDocument()
+    expect(get.mock.calls.some(([url]) => url === `/api/ops/traces/${traceId}?at=${now}`)).toBe(
+      true,
+    )
+    fireEvent.click(within(detail).getByRole('button', { name: `同链路 ${traceId}` }))
+    await waitFor(() => expect(get.mock.lastCall![0]).toContain(`traceId=${traceId}`))
   })
   it('makes read failures visible and keeps a retry control', async () => {
     get.mockRejectedValue(new Error('unavailable'))

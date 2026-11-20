@@ -8,10 +8,12 @@ interface Seen {
 }
 const seen: Seen[] = []
 let reply: (body: Seen['body']) => Response = () => Response.json({ hits: [] })
+let schemaReply: (url: URL) => Response = () => Response.json({ list: [] })
 
 const server = Bun.serve({
   port: 0,
   async fetch(request) {
+    if (request.method === 'GET') return schemaReply(new URL(request.url))
     const body = (await request.json()) as Seen['body']
     const url = new URL(request.url)
     seen.push({
@@ -77,6 +79,28 @@ describe('obs client', () => {
     )
     expect(capped.truncated).toBe(true)
     expect(capped.records).toHaveLength(4)
+  })
+
+  it('lists the fields a stream has, so callers never reference one OpenObserve would reject', async () => {
+    let asked: URL | undefined
+    schemaReply = (url) => {
+      asked = url
+      return Response.json({
+        list: [
+          { name: 'other', schema: [{ name: 'x' }] },
+          { name: 'app', schema: [{ name: 'body' }, { name: 'taskid' }, { type: 'Utf8' }] },
+        ],
+      })
+    }
+    const client = createObsClient(connection)
+    expect(await client.streamFields('app')).toEqual(new Set(['body', 'taskid']))
+    expect(asked?.pathname).toBe('/api/default/streams')
+    expect(asked?.searchParams.get('fetchSchema')).toBe('true')
+    expect(await client.streamFields('missing')).toEqual(new Set())
+    schemaReply = () => new Response('denied', { status: 401 })
+    await expect(client.streamFields('app')).rejects.toMatchObject({ failure: 'unauthorized' })
+    schemaReply = () => Response.json(null)
+    await expect(client.streamFields('app')).rejects.toMatchObject({ failure: 'failed' })
   })
 
   it('treats a stream that does not exist yet as no results', async () => {

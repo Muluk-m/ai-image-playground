@@ -29,7 +29,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-import { apiClient } from '@/lib/api-client'
+import { ApiError, apiClient } from '@/lib/api-client'
 import {
   formatLogExpression,
   LOG_RANGES,
@@ -51,10 +51,57 @@ function levelStyle(level: string) {
 
 function logStack(entry: ServerLogEntry): string | null {
   if (typeof entry.fields.stack === 'string') return entry.fields.stack
+  // OpenObserve 里嵌套字段被展平：pino 的 err.stack 存成 err_stack。
+  for (const key of ['err_stack', 'error_stack'])
+    if (typeof entry.fields[key] === 'string') return entry.fields[key] as string
   const err = entry.fields.err
   return err && typeof err === 'object' && 'stack' in err && typeof err.stack === 'string'
     ? err.stack
     : null
+}
+
+/** 一条链路的 span 树，和 `bun scripts/obs.ts trace` 的输出相同。 */
+function TraceTree({ traceId, at }: { traceId: string; at: number }) {
+  const trace = useQuery({
+    queryKey: ['log-trace', traceId, at],
+    // 围绕这条日志的时间查，七天前的日志也能看到它的链路。
+    queryFn: () =>
+      apiClient.get<{ tree: string; spans: number; truncated: boolean }>(
+        `/api/ops/traces/${traceId}?at=${at}`,
+      ),
+  })
+  if (trace.isPending)
+    return (
+      <p role="status" className="text-xs text-muted-foreground">
+        正在读取链路…
+      </p>
+    )
+  if (trace.isError)
+    return (
+      <p role="alert" className="text-xs text-danger">
+        {readableError(trace.error, '链路读取失败，请稍后重试。')}
+      </p>
+    )
+  return (
+    <div className="space-y-1">
+      {trace.data.truncated ? (
+        <p className="text-xs text-muted-foreground">
+          span 超过 {trace.data.spans} 个，只显示前 {trace.data.spans} 个。
+        </p>
+      ) : null}
+      <pre className="max-h-96 overflow-auto whitespace-pre font-mono text-xs">
+        {trace.data.tree}
+      </pre>
+    </div>
+  )
+}
+
+/** 没开 OpenObserve 等可预期的原因，服务端会给出可读的说明。 */
+function readableError(error: unknown, fallback: string): string {
+  const body = error instanceof ApiError ? error.body : null
+  return body && typeof body === 'object' && 'code' in body && body.code === 'observability_off'
+    ? String((body as { error?: unknown }).error ?? fallback)
+    : fallback
 }
 
 function LogDetailContent({
@@ -64,6 +111,8 @@ function LogDetailContent({
   entry: ServerLogEntry
   onFilter: (values: Partial<ServerLogFilters>) => void
 }) {
+  const traceId = typeof entry.fields.trace_id === 'string' ? entry.fields.trace_id : null
+  const [showTrace, setShowTrace] = useState(false)
   return (
     <div className="mt-3 space-y-2 rounded-md bg-muted/50 p-3">
       <p className="whitespace-pre-wrap break-all">{entry.message}</p>
@@ -119,7 +168,28 @@ function LogDetailContent({
             </Link>
           </>
         ) : null}
+        {traceId ? (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              className="max-w-full whitespace-normal break-all text-left"
+              onClick={() => onFilter({ traceId, group: undefined })}
+            >
+              同链路 {traceId}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              aria-expanded={showTrace}
+              onClick={() => setShowTrace(!showTrace)}
+            >
+              {showTrace ? '收起链路' : '查看链路'}
+            </Button>
+          </>
+        ) : null}
       </div>
+      {traceId && showTrace ? <TraceTree traceId={traceId} at={entry.at} /> : null}
       <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all font-mono">
         {JSON.stringify(entry.fields, null, 2)}
       </pre>
@@ -447,40 +517,48 @@ export function ServerLogsBlock({
             event.preventDefault()
             const form = new FormData(event.currentTarget)
             const located = Object.fromEntries(
-              ['requestId', 'taskId', 'userId', 'mediaId', 'instance', 'version', 'deployment'].map(
-                (key) => [
-                  key,
-                  key === 'deployment' && form.get(key) === 'all'
-                    ? undefined
-                    : String(form.get(key) || '') || undefined,
-                ],
-              ),
+              [
+                'requestId',
+                'taskId',
+                'traceId',
+                'userId',
+                'mediaId',
+                'instance',
+                'version',
+                'deployment',
+              ].map((key) => [
+                key,
+                key === 'deployment' && form.get(key) === 'all'
+                  ? undefined
+                  : String(form.get(key) || '') || undefined,
+              ]),
             )
             change({ ...state, ...located })
           }}
         >
-          {(['requestId', 'taskId', 'userId', 'mediaId', 'instance', 'version'] as const).map(
-            (key) => (
-              <Label key={key}>
+          {(
+            ['requestId', 'taskId', 'traceId', 'userId', 'mediaId', 'instance', 'version'] as const
+          ).map((key) => (
+            <Label key={key}>
+              {
                 {
-                  {
-                    requestId: '请求 ID',
-                    taskId: '任务 ID',
-                    userId: '用户 ID',
-                    mediaId: '图片 ID',
-                    instance: '容器',
-                    version: '版本',
-                  }[key]
-                }
-                <Input
-                  name={key}
-                  defaultValue={filters[key]}
-                  key={filters[key] ?? ''}
-                  maxLength={400}
-                />
-              </Label>
-            ),
-          )}
+                  requestId: '请求 ID',
+                  taskId: '任务 ID',
+                  traceId: '链路 ID',
+                  userId: '用户 ID',
+                  mediaId: '图片 ID',
+                  instance: '容器',
+                  version: '版本',
+                }[key]
+              }
+              <Input
+                name={key}
+                defaultValue={filters[key]}
+                key={filters[key] ?? ''}
+                maxLength={400}
+              />
+            </Label>
+          ))}
           <Label>
             部署
             <Select
@@ -546,9 +624,12 @@ export function ServerLogsBlock({
         ) : null}
         {query.isError ? (
           <p role="alert" className="text-sm text-danger">
-            {data
-              ? '日志刷新失败，下面保留上次成功读取的记录，请点击刷新重试。'
-              : '日志加载失败，请点击刷新重试。'}
+            {readableError(
+              query.error,
+              data
+                ? '日志刷新失败，下面保留上次成功读取的记录，请点击刷新重试。'
+                : '日志加载失败，请点击刷新重试。',
+            )}
           </p>
         ) : null}
         {data && query.isFetching ? (

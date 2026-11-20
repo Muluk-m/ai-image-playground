@@ -60,6 +60,11 @@ export interface ObsClientOptions {
 
 export interface ObsClient {
   search(query: ObsSearch): Promise<ObsRecord[]>
+  /**
+   * 流里现有的字段名。OpenObserve 遇到 schema 里没有的字段直接报错，拼 SQL 前要按它取舍；
+   * 流还不存在时为空集。
+   */
+  streamFields(stream: string, type?: 'logs' | 'traces'): Promise<Set<string>>
   /** 按页拉全：一页 `pageSize` 条，最多 `maxPages` 页；到顶时 `truncated` 为 true。 */
   searchAll(
     query: Omit<ObsSearch, 'from' | 'size'>,
@@ -164,5 +169,39 @@ export function createObsClient(
     return { records, truncated: true }
   }
 
-  return { search, searchAll }
+  async function streamFields(
+    stream: string,
+    type: 'logs' | 'traces' = 'logs',
+  ): Promise<Set<string>> {
+    let response: Response
+    try {
+      response = await fetcher(
+        `${connection.url}/api/${encodeURIComponent(connection.org)}/streams?type=${type}&fetchSchema=true`,
+        {
+          headers: { authorization: `Bearer ${connection.token}` },
+          signal: AbortSignal.timeout(timeoutMs),
+        },
+      )
+    } catch (error) {
+      throw new ObsQueryError(
+        error instanceof Error && error.name === 'TimeoutError' ? 'timeout' : 'unreachable',
+        `读不到流的字段：${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+    if (response.status === 401)
+      throw new ObsQueryError('unauthorized', '观测代理拒绝了令牌', response.status)
+    const payload = (await response.json().catch(() => null)) as {
+      list?: Array<{ name?: unknown; schema?: Array<{ name?: unknown }> }>
+    } | null
+    if (!response.ok || !payload || !Array.isArray(payload.list))
+      throw new ObsQueryError('failed', `读不到流的字段（${response.status}）`, response.status)
+    const found = payload.list.find((item) => item?.name === stream)
+    return new Set(
+      (found?.schema ?? [])
+        .map((field) => field?.name)
+        .filter((name): name is string => typeof name === 'string'),
+    )
+  }
+
+  return { search, searchAll, streamFields }
 }
