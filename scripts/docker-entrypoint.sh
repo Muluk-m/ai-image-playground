@@ -75,6 +75,11 @@ case "$role" in
     # database credential, whatever the environment it was started with contains.
     unset MIGRATOR_DATABASE_URL APP_DATABASE_URL ADMIN_DATABASE_URL DATABASE_URL
     ;;
+  obs-proxy)
+    # Fronts OpenObserve read-only. It holds the OpenObserve account and its own token, never a
+    # database credential.
+    unset MIGRATOR_DATABASE_URL APP_DATABASE_URL ADMIN_DATABASE_URL DATABASE_URL
+    ;;
   *)
     echo "[entrypoint] unknown APP_ROLE: $role" >&2
     exit 1
