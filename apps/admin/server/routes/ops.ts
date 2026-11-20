@@ -43,9 +43,9 @@ export const opsRoutes = new Elysia()
     }
   })
 
-  .get('/api/ops/traces/:traceId', async ({ params, status }) => {
+  .get('/api/ops/traces/:traceId', async ({ params, query, status }) => {
     try {
-      return await readTrace(params.traceId)
+      return await readTrace(params.traceId, query.at === undefined ? undefined : Number(query.at))
     } catch (error) {
       if (error instanceof LogQueryError) return status(400, { error: error.message })
       if (error instanceof LogsUnavailableError)

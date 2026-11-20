@@ -61,12 +61,13 @@ function logStack(entry: ServerLogEntry): string | null {
 }
 
 /** 一条链路的 span 树，和 `bun scripts/obs.ts trace` 的输出相同。 */
-function TraceTree({ traceId }: { traceId: string }) {
+function TraceTree({ traceId, at }: { traceId: string; at: number }) {
   const trace = useQuery({
-    queryKey: ['log-trace', traceId],
+    queryKey: ['log-trace', traceId, at],
+    // 围绕这条日志的时间查，七天前的日志也能看到它的链路。
     queryFn: () =>
       apiClient.get<{ tree: string; spans: number; truncated: boolean }>(
-        `/api/ops/traces/${traceId}`,
+        `/api/ops/traces/${traceId}?at=${at}`,
       ),
   })
   if (trace.isPending)
@@ -188,7 +189,7 @@ function LogDetailContent({
           </>
         ) : null}
       </div>
-      {traceId && showTrace ? <TraceTree traceId={traceId} /> : null}
+      {traceId && showTrace ? <TraceTree traceId={traceId} at={entry.at} /> : null}
       <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-all font-mono">
         {JSON.stringify(entry.fields, null, 2)}
       </pre>

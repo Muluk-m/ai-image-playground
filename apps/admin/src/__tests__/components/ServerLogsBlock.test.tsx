@@ -366,7 +366,9 @@ describe('server log exploration', () => {
     const detail = await screen.findByRole('dialog', { name: '日志详情' })
     fireEvent.click(within(detail).getByRole('button', { name: '查看链路' }))
     expect(await within(detail).findByText(/worker task.execute/)).toBeInTheDocument()
-    expect(get.mock.calls.some(([url]) => url === `/api/ops/traces/${traceId}`)).toBe(true)
+    expect(get.mock.calls.some(([url]) => url === `/api/ops/traces/${traceId}?at=${now}`)).toBe(
+      true,
+    )
     fireEvent.click(within(detail).getByRole('button', { name: `同链路 ${traceId}` }))
     await waitFor(() => expect(get.mock.lastCall![0]).toContain(`traceId=${traceId}`))
   })

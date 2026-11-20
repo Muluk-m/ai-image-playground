@@ -287,6 +287,7 @@ describe('observeApp', () => {
         return latest === undefined ? [] : [{ latest }]
       },
       searchAll: async () => ({ records: [], truncated: false }),
+      streamFields: async () => new Set<string>(),
     })
     expect(await read(now)).toBe(now - minute)
     expect(queries[0]).toEqual({
