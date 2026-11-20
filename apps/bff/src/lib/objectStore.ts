@@ -1,7 +1,7 @@
 import type { Span } from '@opentelemetry/api'
 import { config } from '../config'
-import { SpanKind, withSpan } from './telemetry'
 import { readCapped, SafeFetchError } from './safeFetch'
+import { SpanKind, withSpan } from './telemetry'
 
 /**
  * 一个已定位、但尚未取字节的对象。`size` 来自元信息请求，用来判定 Range 是否可满足；

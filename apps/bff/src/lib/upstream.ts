@@ -1,5 +1,4 @@
 import { Buffer } from 'node:buffer'
-import type { Span } from '@opentelemetry/api'
 import {
   degradeGptImage26ForSub2api,
   gptImage26RequiresDirect,
@@ -11,6 +10,7 @@ import {
   QUEUE_TIMEOUTS,
   type QueueProvider,
 } from '@image-playground/shared'
+import type { Span } from '@opentelemetry/api'
 import { FormData } from 'undici'
 import { config } from '../config'
 import { disabledModelChannel, getRoutableChannels, type InternalChannel } from './channels'

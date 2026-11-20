@@ -8,10 +8,10 @@ import {
   recordSpanError,
   recordTaskOutcome,
   runInLinkedSpan,
-  tracer,
-  withTraceHeaders,
   shutdownTelemetry,
   traceLogFields,
+  tracer,
+  withTraceHeaders,
 } from '../../lib/telemetry'
 
 delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT
