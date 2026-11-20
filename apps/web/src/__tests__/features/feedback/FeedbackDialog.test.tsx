@@ -57,7 +57,7 @@ afterEach(() => {
 
 describe('FeedbackDialog', () => {
   it('sends text and a screenshot from the empty conversation', async () => {
-    clientMock.fetchFeedbackThread.mockResolvedValue({ thread: null, messages: [] })
+    clientMock.fetchFeedbackThread.mockResolvedValue({ thread: null, messages: [], hasMore: false })
     clientMock.sendFeedbackMessage.mockResolvedValue({
       thread: { id: 't1', status: 'open', unreadReplyCount: 0, updatedAt: 1_795_000_000_000 },
       message: {
@@ -104,6 +104,7 @@ describe('FeedbackDialog', () => {
     })
 
     expect(document.body.textContent).toContain('shot.png')
+    expect(clientMock.fetchFeedbackAttachmentBlobUrl).not.toHaveBeenCalled()
 
     const sendButton = [...document.querySelectorAll('button')].find(
       (button) => button.textContent === '发送',
@@ -121,7 +122,7 @@ describe('FeedbackDialog', () => {
   })
 
   it('rejects unsupported file types before sending', async () => {
-    clientMock.fetchFeedbackThread.mockResolvedValue({ thread: null, messages: [] })
+    clientMock.fetchFeedbackThread.mockResolvedValue({ thread: null, messages: [], hasMore: false })
 
     await act(async () => {
       root.render(

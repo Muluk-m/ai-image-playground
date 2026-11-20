@@ -153,7 +153,7 @@ describe('feedback routes', () => {
 
     const empty = await request('/api/feedback', 'GET', undefined, { cookie: aliceCookie })
     expect(empty.status).toBe(200)
-    expect(await empty.json()).toEqual({ thread: null, messages: [] })
+    expect(await empty.json()).toEqual({ thread: null, messages: [], hasMore: false })
 
     const form = new FormData()
     form.set('body', '导出 PNG 时边缘有锯齿')
@@ -247,7 +247,7 @@ describe('feedback routes', () => {
       serviceHeaders,
     )
     expect(pendingReply.status).toBe(201)
-    const secondReply = (await pendingReply.json()).message
+    const { message: secondReply, thread: secondVersion } = await pendingReply.json()
     const readRes = await request(
       '/api/feedback/read',
       'POST',
@@ -267,15 +267,37 @@ describe('feedback routes', () => {
     expect(history.messages[1].senderLabel).toBeNull()
     expect(history.thread.unreadReplyCount).toBe(1)
 
+    const older = await request(`/api/feedback?before=${secondReply.createdAt}`, 'GET', undefined, {
+      cookie: aliceCookie,
+    })
+    expect((await older.json()).messages.map((message: { id: string }) => message.id)).toEqual([
+      createdBody.message.id,
+      firstReply.id,
+    ])
+    const delta = await request(`/api/feedback?after=${firstReply.createdAt}`, 'GET', undefined, {
+      cookie: aliceCookie,
+    })
+    expect((await delta.json()).messages.map((message: { id: string }) => message.id)).toEqual([
+      secondReply.id,
+    ])
+
     // Admin resolves thread; user follow-up reopens it.
     const resolved = await request(
       `/internal/admin/feedback/${createdBody.thread.id}/status`,
       'PATCH',
-      { status: 'resolved', lastMessageAt: secondReply.createdAt },
+      { status: 'resolved', updatedAt: secondVersion.updatedAt },
       serviceHeaders,
     )
     expect(resolved.status).toBe(200)
     expect((await resolved.json()).thread.status).toBe('resolved')
+
+    const staleStatus = await request(
+      `/internal/admin/feedback/${createdBody.thread.id}/status`,
+      'PATCH',
+      { status: 'open', updatedAt: secondVersion.updatedAt },
+      serviceHeaders,
+    )
+    expect(staleStatus.status).toBe(409)
 
     const followUp = await request(
       '/api/feedback/messages',
@@ -289,7 +311,7 @@ describe('feedback routes', () => {
     const staleResolve = await request(
       `/internal/admin/feedback/${createdBody.thread.id}/status`,
       'PATCH',
-      { status: 'resolved', lastMessageAt: secondReply.createdAt },
+      { status: 'resolved', updatedAt: secondVersion.updatedAt },
       serviceHeaders,
     )
     expect(staleResolve.status).toBe(409)

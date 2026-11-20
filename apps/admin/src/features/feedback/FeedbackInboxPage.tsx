@@ -23,8 +23,8 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   type FeedbackFilter,
   type FeedbackSearch,
-  feedbackAttachmentUrl,
   feedbackErrorMessage,
+  fetchFeedbackAttachment,
   formatFeedbackTime,
   useFeedbackMutations,
   useFeedbackThread,
@@ -68,10 +68,9 @@ function MessageBubble({
 }: {
   message: FeedbackMessage
   userName: string
-  onPreviewImage: (src: string, title: string) => void
+  onPreviewImage: (id: string, title: string) => void
 }) {
   const isAdmin = message.senderType === 'admin'
-  const attachmentSrc = message.attachment ? feedbackAttachmentUrl(message.id) : null
   const attachmentLabel = message.attachment?.filename || '反馈截图'
 
   return (
@@ -89,23 +88,19 @@ function MessageBubble({
         {message.body ? (
           <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">{message.body}</p>
         ) : null}
-        {attachmentSrc ? (
+        {message.attachment && (
           <Button
             type="button"
-            variant="ghost"
-            autoTooltip={false}
-            onClick={() => onPreviewImage(attachmentSrc, attachmentLabel)}
-            className="mt-2 block h-auto overflow-hidden p-0 rounded-lg border bg-background transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            aria-label={`查看大图：${attachmentLabel}`}
+            variant="outline"
+            size="sm"
+            className="mt-2 max-w-full"
+            onClick={() => onPreviewImage(message.id, attachmentLabel)}
           >
-            <img
-              src={attachmentSrc}
-              alt={attachmentLabel}
-              className="max-h-56 max-w-full object-cover"
-              loading="lazy"
-            />
+            <ImageIcon />
+            <span className="truncate">{attachmentLabel}</span>
+            <span>查看截图</span>
           </Button>
-        ) : null}
+        )}
       </div>
     </div>
   )
@@ -127,7 +122,11 @@ export function FeedbackInboxPage({
     if (activeThreadId && !search.thread) onSearchChange({ thread: activeThreadId })
   }, [activeThreadId, onSearchChange, search.thread])
 
-  const detailQuery = useFeedbackThread(activeThreadId)
+  const detailQuery = useFeedbackThread(
+    activeThreadId,
+    search.before,
+    items.find((item) => item.id === activeThreadId)?.updatedAt,
+  )
   const { reply, setStatus } = useFeedbackMutations()
 
   const [draftQuery, setDraftQuery] = useState(search.q ?? '')
@@ -159,9 +158,38 @@ export function FeedbackInboxPage({
     { value: 'resolved', label: counts ? `已解决 ${counts.resolved}` : '已解决' },
   ]
 
+  const previewRequest = useRef<AbortController | null>(null)
+  useEffect(() => () => previewRequest.current?.abort(), [])
+  const previewUrl = previewImage?.src
+  useEffect(
+    () => () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
+    },
+    [previewUrl],
+  )
+
+  async function openAttachment(id: string, title: string) {
+    setActionError('')
+    previewRequest.current?.abort()
+    const controller = new AbortController()
+    previewRequest.current = controller
+    try {
+      const attachment = await fetchFeedbackAttachment(id, controller.signal)
+      if (!controller.signal.aborted)
+        setPreviewImage({ src: URL.createObjectURL(attachment), title })
+    } catch (error) {
+      if (!controller.signal.aborted) setActionError(feedbackErrorMessage(error))
+    }
+  }
+
   function handleSearchSubmit(event: FormEvent) {
     event.preventDefault()
-    onSearchChange({ q: draftQuery.trim() || undefined, thread: undefined })
+    onSearchChange({
+      q: draftQuery.trim() || undefined,
+      thread: undefined,
+      before: undefined,
+      page: undefined,
+    })
   }
 
   async function handleSendReply() {
@@ -170,6 +198,7 @@ export function FeedbackInboxPage({
     try {
       await reply.mutateAsync({ threadId: activeThreadId, body: replyDraft.trim() })
       setReplyDrafts((drafts) => ({ ...drafts, [activeThreadId]: '' }))
+      if (search.before !== undefined) onSearchChange({ before: undefined })
     } catch (error) {
       setActionError(feedbackErrorMessage(error))
     }
@@ -189,7 +218,7 @@ export function FeedbackInboxPage({
       await setStatus.mutateAsync({
         threadId: thread.id,
         status: thread.status === 'resolved' ? 'open' : 'resolved',
-        lastMessageAt: thread.lastMessageAt,
+        updatedAt: thread.updatedAt,
       })
     } catch (error) {
       setActionError(feedbackErrorMessage(error))
@@ -207,7 +236,12 @@ export function FeedbackInboxPage({
           options={filterOptions}
           value={activeFilter}
           onChange={(next) =>
-            onSearchChange({ filter: next === 'all' ? undefined : next, thread: undefined })
+            onSearchChange({
+              filter: next === 'all' ? undefined : next,
+              thread: undefined,
+              before: undefined,
+              page: undefined,
+            })
           }
         />
 
@@ -232,7 +266,12 @@ export function FeedbackInboxPage({
               size="sm"
               onClick={() => {
                 setDraftQuery('')
-                onSearchChange({ q: undefined, thread: undefined })
+                onSearchChange({
+                  q: undefined,
+                  thread: undefined,
+                  before: undefined,
+                  page: undefined,
+                })
               }}
             >
               清空
@@ -245,7 +284,7 @@ export function FeedbackInboxPage({
         <PendingState label="正在加载反馈列表" />
       ) : listQuery.isError ? (
         <ErrorState label="反馈列表加载失败" error={listQuery.error} />
-      ) : items.length === 0 && !activeThreadId ? (
+      ) : items.length === 0 && !activeThreadId && !search.page ? (
         <EmptyState label={search.q || search.filter ? '当前筛选条件下没有反馈' : '暂无用户反馈'} />
       ) : (
         <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
@@ -263,7 +302,7 @@ export function FeedbackInboxPage({
                     type="button"
                     variant="ghost"
                     aria-pressed={selected}
-                    onClick={() => onSearchChange({ thread: item.id })}
+                    onClick={() => onSearchChange({ thread: item.id, before: undefined })}
                     className={cn(
                       'flex h-auto w-full flex-col items-stretch gap-1.5 whitespace-normal rounded-none p-4 text-left transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                       selected && 'bg-muted',
@@ -297,6 +336,38 @@ export function FeedbackInboxPage({
                 )
               })}
             </div>
+            {((search.page ?? 1) > 1 || listQuery.data?.hasMore) && (
+              <div className="flex justify-between gap-2 border-t p-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={(search.page ?? 1) === 1}
+                  onClick={() =>
+                    onSearchChange({
+                      page: (search.page ?? 1) - 1,
+                      thread: undefined,
+                      before: undefined,
+                    })
+                  }
+                >
+                  上一页
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!listQuery.data?.hasMore}
+                  onClick={() =>
+                    onSearchChange({
+                      page: (search.page ?? 1) + 1,
+                      thread: undefined,
+                      before: undefined,
+                    })
+                  }
+                >
+                  下一页
+                </Button>
+              </div>
+            )}
           </section>
 
           <section
@@ -359,13 +430,36 @@ export function FeedbackInboxPage({
                   </div>
                 </div>
 
+                {(search.before !== undefined || detailQuery.data?.hasMore) && (
+                  <div className="flex justify-end gap-2 border-b px-4 py-2">
+                    {search.before !== undefined && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => onSearchChange({ before: undefined })}
+                      >
+                        最新消息
+                      </Button>
+                    )}
+                    {detailQuery.data?.hasMore && activeMessages[0] && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => onSearchChange({ before: activeMessages[0]?.createdAt })}
+                      >
+                        更早消息
+                      </Button>
+                    )}
+                  </div>
+                )}
+
                 <div className="flex-1 space-y-4 overflow-y-auto p-4">
                   {activeMessages.map((message) => (
                     <MessageBubble
                       key={message.id}
                       message={message}
                       userName={threadDisplayName(activeThread)}
-                      onPreviewImage={(src, title) => setPreviewImage({ src, title })}
+                      onPreviewImage={(id, title) => void openAttachment(id, title)}
                     />
                   ))}
                   <div ref={messagesEndRef} />

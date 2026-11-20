@@ -37,6 +37,8 @@
       "loadFailed": "Could not load feedback history",
       "signInTitle": "Sign in to send feedback",
       "signInHint": "Send text and screenshots, and read replies here.",
+      "older": "Older messages",
+      "latest": "Latest messages",
       "unread": "Unread feedback replies",
       "errors": {
         "attachmentType": "Only PNG, JPEG, or WebP images are supported",

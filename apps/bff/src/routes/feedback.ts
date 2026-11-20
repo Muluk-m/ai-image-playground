@@ -32,6 +32,11 @@ function handleFeedbackError(error: unknown, status: (code: number, body: unknow
   throw error
 }
 
+const timestamp = t.Numeric({ minimum: 1, maximum: 8_640_000_000_000_000, multipleOf: 1 })
+const messageCursor = t.Object({
+  before: t.Optional(timestamp),
+  after: t.Optional(timestamp),
+})
 const idParams = t.Object({ id: t.String({ minLength: 1, maxLength: 128 }) })
 const messageIdParams = t.Object({ messageId: t.String({ minLength: 1, maxLength: 128 }) })
 
@@ -55,10 +60,14 @@ export const publicFeedbackRoutes = new Elysia({ prefix: '/api/feedback' })
     if (!authUser) return status(401, { error: 'unauthorized' })
     return getUserFeedbackSummary(authUser.id)
   })
-  .get('/', async ({ authUser, status }) => {
-    if (!authUser) return status(401, { error: 'unauthorized' })
-    return getUserFeedbackThread(authUser.id)
-  })
+  .get(
+    '/',
+    ({ authUser, query, status }) => {
+      if (!authUser) return status(401, { error: 'unauthorized' })
+      return getUserFeedbackThread(authUser.id, query)
+    },
+    { query: messageCursor },
+  )
   .post(
     '/read',
     ({ authUser, body, status }) => {
@@ -106,11 +115,13 @@ export const internalFeedbackRoutes = new Elysia({ prefix: '/internal/admin/feed
       listAdminFeedbackThreads({
         filter: query.filter,
         q: query.q,
+        page: query.page ?? 1,
       }),
     {
       query: t.Object({
         filter: t.Optional(t.String({ maxLength: 32 })),
         q: t.Optional(t.String({ maxLength: 128 })),
+        page: t.Optional(t.Numeric({ minimum: 1, maximum: 1_000_000, multipleOf: 1 })),
       }),
     },
   )
@@ -131,14 +142,14 @@ export const internalFeedbackRoutes = new Elysia({ prefix: '/internal/admin/feed
   )
   .get(
     '/:id',
-    async ({ params, status }) => {
+    async ({ params, query, status }) => {
       try {
-        return await getAdminFeedbackThread(params.id)
+        return await getAdminFeedbackThread(params.id, query)
       } catch (error) {
         return handleFeedbackError(error, status)
       }
     },
-    { params: idParams },
+    { params: idParams, query: messageCursor },
   )
   .post(
     '/:id/replies',
@@ -167,7 +178,7 @@ export const internalFeedbackRoutes = new Elysia({ prefix: '/internal/admin/feed
           threadId: params.id,
           nextStatus: body.status,
           operatorId: operatorId(request),
-          lastMessageAt: body.lastMessageAt,
+          updatedAt: body.updatedAt,
         })
       } catch (error) {
         return handleFeedbackError(error, status)
@@ -177,7 +188,7 @@ export const internalFeedbackRoutes = new Elysia({ prefix: '/internal/admin/feed
       params: idParams,
       body: t.Object({
         status: t.Union([t.Literal('open'), t.Literal('resolved')]),
-        lastMessageAt: t.Integer({ minimum: 1, maximum: 8_640_000_000_000_000 }),
+        updatedAt: t.Integer({ minimum: 1, maximum: 8_640_000_000_000_000, multipleOf: 1 }),
       }),
     },
   )

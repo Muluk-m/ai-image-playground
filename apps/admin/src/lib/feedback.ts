@@ -7,7 +7,6 @@ import type {
 } from '@image-playground/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, apiClient } from './api-client'
-import { adminApiUrl } from './runtime-config'
 
 export const FEEDBACK_KEY = ['feedback'] as const
 
@@ -19,6 +18,8 @@ export interface FeedbackSearch {
   filter?: FeedbackFilter
   q?: string
   thread?: string
+  page?: number
+  before?: number
 }
 
 export function parseFeedbackSearch(input: Record<string, unknown>): FeedbackSearch {
@@ -38,6 +39,20 @@ export function parseFeedbackSearch(input: Record<string, unknown>): FeedbackSea
     const thread = input.thread.trim().slice(0, 128)
     if (thread) out.thread = thread
   }
+  if (
+    typeof input.page === 'number' &&
+    Number.isInteger(input.page) &&
+    input.page > 1 &&
+    input.page <= 1_000_000
+  )
+    out.page = input.page
+  if (
+    typeof input.before === 'number' &&
+    Number.isSafeInteger(input.before) &&
+    input.before > 0 &&
+    input.before <= 8_640_000_000_000_000
+  )
+    out.before = input.before
   return out
 }
 
@@ -45,29 +60,41 @@ function listQuery(search: FeedbackSearch): string {
   const params = new URLSearchParams()
   if (search.filter && search.filter !== 'all') params.set('filter', search.filter)
   if (search.q) params.set('q', search.q)
+  if (search.page) params.set('page', String(search.page))
   const query = params.toString()
   return query ? `?${query}` : ''
 }
 
-export function feedbackAttachmentUrl(messageId: string): string {
-  return adminApiUrl(`/api/feedback/attachments/${encodeURIComponent(messageId)}`)
+export function fetchFeedbackAttachment(messageId: string, signal: AbortSignal): Promise<Blob> {
+  return apiClient.getBlob(`/api/feedback/attachments/${encodeURIComponent(messageId)}`, signal)
 }
 
 export function useFeedbackThreads(search: FeedbackSearch) {
   return useQuery({
-    queryKey: [...FEEDBACK_KEY, 'list', search.filter ?? 'all', search.q ?? ''],
+    queryKey: [...FEEDBACK_KEY, 'list', search.filter ?? 'all', search.q ?? '', search.page ?? 1],
     refetchInterval: 30_000,
     queryFn: () => apiClient.get<FeedbackAdminListResponse>(`/api/feedback${listQuery(search)}`),
   })
 }
 
-export function useFeedbackThread(threadId: string | undefined) {
+export function useFeedbackThread(
+  threadId: string | undefined,
+  before: number | undefined,
+  revision: number | undefined,
+) {
   return useQuery({
-    queryKey: [...FEEDBACK_KEY, 'detail', threadId],
+    queryKey: [
+      ...FEEDBACK_KEY,
+      'detail',
+      threadId,
+      before,
+      before === undefined ? revision : undefined,
+    ],
     enabled: Boolean(threadId),
-    refetchInterval: 30_000,
     queryFn: () =>
-      apiClient.get<FeedbackAdminDetailResponse>(`/api/feedback/${encodeURIComponent(threadId!)}`),
+      apiClient.get<FeedbackAdminDetailResponse>(
+        `/api/feedback/${encodeURIComponent(threadId ?? '')}${before === undefined ? '' : `?before=${before}`}`,
+      ),
   })
 }
 
@@ -89,10 +116,10 @@ export function useFeedbackMutations() {
       onSuccess: (_data, variables) => refresh(variables.threadId),
     }),
     setStatus: useMutation({
-      mutationFn: (input: { threadId: string; status: FeedbackStatus; lastMessageAt: number }) =>
+      mutationFn: (input: { threadId: string; status: FeedbackStatus; updatedAt: number }) =>
         apiClient.patch<{ thread: FeedbackAdminThreadSummary }>(
           `/api/feedback/${encodeURIComponent(input.threadId)}/status`,
-          { status: input.status, lastMessageAt: input.lastMessageAt },
+          { status: input.status, updatedAt: input.updatedAt },
         ),
       onSuccess: (_data, variables) => refresh(variables.threadId),
       onError: async (error, variables) => {
@@ -126,7 +153,7 @@ export function feedbackErrorMessage(error: unknown): string {
     if (code === 'empty_message') return '回复内容不能为空'
     if (code === 'body_too_long') return '回复内容不能超过 4000 字'
     if (code === 'not_found') return '该反馈会话不存在'
-    if (code === 'stale_thread') return '会话有新消息，请查看后再更新状态'
+    if (code === 'stale_thread') return '会话有更新，请查看后再更新状态'
     return `操作失败（HTTP ${error.status}）`
   }
   return '操作失败，请重试'

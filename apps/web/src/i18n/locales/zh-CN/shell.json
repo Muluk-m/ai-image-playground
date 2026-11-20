@@ -37,6 +37,8 @@
       "loadFailed": "反馈记录加载失败",
       "signInTitle": "登录后发送反馈",
       "signInHint": "支持文字与截图，我们会在这里回复你。",
+      "older": "更早消息",
+      "latest": "最新消息",
       "unread": "有未读反馈回复",
       "errors": {
         "attachmentType": "仅支持 PNG、JPEG 或 WebP 图片",
