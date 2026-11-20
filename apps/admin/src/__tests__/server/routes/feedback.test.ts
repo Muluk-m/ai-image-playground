@@ -75,7 +75,7 @@ describe('Admin feedback proxy routes', () => {
       new Request('http://localhost/api/feedback/thread-1/status', {
         method: 'PATCH',
         headers: { cookie, 'content-type': 'application/json' },
-        body: JSON.stringify({ status: 'resolved', lastMessageAt: 1_795_000_000_000 }),
+        body: JSON.stringify({ status: 'resolved', updatedAt: 1_795_000_000_000 }),
       }),
     )
     expect(statusPatch.status).toBe(200)

@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import {
   FEEDBACK_ATTACHMENT_MAX_BYTES,
+  FEEDBACK_INBOX_PAGE_SIZE,
   FEEDBACK_MESSAGE_MAX_CHARS,
+  FEEDBACK_MESSAGE_PAGE_SIZE,
   type FeedbackAdminCounts,
   type FeedbackAdminDetailResponse,
   type FeedbackAdminListResponse,
@@ -15,7 +17,7 @@ import {
   type FeedbackUserThread,
   isFeedbackAttachmentMimeType,
 } from '@image-playground/shared'
-import { and, asc, desc, eq, gt, inArray, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, exists, gt, ilike, lt, or, type SQL, sql } from 'drizzle-orm'
 import sharp from 'sharp'
 import { db, schema } from '../db/client'
 import { durableMediaStore } from './durableMediaStore'
@@ -237,27 +239,51 @@ export async function getUserFeedbackSummary(userId: string): Promise<FeedbackSu
   return { unreadReplyCount: await countUnreadReplies(thread) }
 }
 
-export async function getUserFeedbackThread(userId: string): Promise<FeedbackThreadResponse> {
+interface MessageCursor {
+  before?: number
+  after?: number
+}
+
+async function messagePage(threadId: string, cursor: MessageCursor, showOperator = false) {
+  const messages = schema.feedback_messages
+  const ascending = cursor.after !== undefined
+  const rows = await db
+    .select()
+    .from(messages)
+    .where(
+      and(
+        eq(messages.thread_id, threadId),
+        cursor.before === undefined ? undefined : lt(messages.created_at, cursor.before),
+        cursor.after === undefined ? undefined : gt(messages.created_at, cursor.after),
+      ),
+    )
+    .orderBy(ascending ? asc(messages.created_at) : desc(messages.created_at))
+    .limit(FEEDBACK_MESSAGE_PAGE_SIZE + 1)
+  const page = rows.slice(0, FEEDBACK_MESSAGE_PAGE_SIZE)
+  return {
+    messages: (ascending ? page : page.reverse()).map((message) =>
+      toFeedbackMessage(message, showOperator),
+    ),
+    hasMore: rows.length > FEEDBACK_MESSAGE_PAGE_SIZE,
+  }
+}
+
+export async function getUserFeedbackThread(
+  userId: string,
+  cursor: MessageCursor,
+): Promise<FeedbackThreadResponse> {
   const [thread] = await db
     .select()
     .from(schema.feedback_threads)
     .where(eq(schema.feedback_threads.user_id, userId))
     .limit(1)
-  if (!thread) return { thread: null, messages: [] }
+  if (!thread) return { thread: null, messages: [], hasMore: false }
 
-  const messages = await db
-    .select()
-    .from(schema.feedback_messages)
-    .where(eq(schema.feedback_messages.thread_id, thread.id))
-    .orderBy(asc(schema.feedback_messages.created_at), asc(schema.feedback_messages.id))
-  const unreadReplyCount = messages.filter(
-    (message) =>
-      message.sender_type === 'admin' && message.created_at > (thread.user_last_read_at ?? 0),
-  ).length
-  return {
-    thread: toUserThread(thread, unreadReplyCount),
-    messages: messages.map((message) => toFeedbackMessage(message)),
-  }
+  const [page, unreadReplyCount] = await Promise.all([
+    messagePage(thread.id, cursor),
+    countUnreadReplies(thread),
+  ])
+  return { thread: toUserThread(thread, unreadReplyCount), ...page }
 }
 
 export async function markUserFeedbackRead(
@@ -283,8 +309,8 @@ export async function markUserFeedbackRead(
 }
 
 // Updating the thread first serializes writers and gives every message a unique, ordered timestamp.
-function nextMessageAt(now: number) {
-  return sql`greatest(${new Date(now).toISOString()}::timestamptz, ${schema.feedback_threads.last_message_at} + interval '1 millisecond')`
+function nextFeedbackVersion(now: number) {
+  return sql`greatest(${new Date(now).toISOString()}::timestamptz, ${schema.feedback_threads.updated_at} + interval '1 millisecond', ${schema.feedback_threads.last_message_at} + interval '1 millisecond')`
 }
 
 export async function postUserFeedbackMessage(
@@ -330,9 +356,9 @@ export async function postUserFeedbackMessage(
           target: schema.feedback_threads.user_id,
           set: {
             status: 'open',
-            last_message_at: nextMessageAt(now),
-            last_user_message_at: nextMessageAt(now),
-            updated_at: nextMessageAt(now),
+            last_message_at: nextFeedbackVersion(now),
+            last_user_message_at: nextFeedbackVersion(now),
+            updated_at: nextFeedbackVersion(now),
           },
         })
         .returning()
@@ -415,10 +441,26 @@ function previewText(body: string, hasAttachment: boolean): string {
   return hasAttachment ? '[图片附件]' : ''
 }
 
+const { feedback_threads: threads, feedback_messages: messages, users } = schema
+const needsReply = and(
+  eq(threads.status, 'open'),
+  sql`${threads.last_user_message_at} > coalesce(${threads.last_admin_reply_at}, '-infinity'::timestamptz)`,
+)
+
 async function buildAdminSummaries(
-  threadIds?: readonly string[],
+  where?: SQL,
+  offset = 0,
+  limit = 1,
 ): Promise<FeedbackAdminThreadSummary[]> {
-  const { feedback_threads: threads, feedback_messages: messages, users } = schema
+  const selected = db
+    .select({ id: threads.id })
+    .from(threads)
+    .innerJoin(users, eq(users.id, threads.user_id))
+    .where(where)
+    .orderBy(desc(threads.last_message_at), desc(threads.id))
+    .limit(limit)
+    .offset(offset)
+    .as('selected_threads')
   const latestMessage = db
     .select({
       preview: sql<string>`left(${messages.body}, 160)`.as('preview'),
@@ -443,10 +485,10 @@ async function buildAdminSummaries(
       },
       messageCount: db.$count(messages, eq(messages.thread_id, threads.id)),
     })
-    .from(threads)
+    .from(selected)
+    .innerJoin(threads, eq(threads.id, selected.id))
     .innerJoin(users, eq(threads.user_id, users.id))
     .leftJoinLateral(latestMessage, sql`true`)
-    .where(threadIds ? inArray(threads.id, [...threadIds]) : undefined)
     .orderBy(desc(threads.last_message_at), desc(threads.id))
 
   return rows.map(({ thread, username, nickname, latestMessage: latest, messageCount }) => {
@@ -474,74 +516,65 @@ async function buildAdminSummaries(
 export async function listAdminFeedbackThreads(filters: {
   filter?: string
   q?: string
+  page: number
 }): Promise<FeedbackAdminListResponse> {
-  const allSummaries = await buildAdminSummaries()
+  const filter =
+    filters.filter === 'awaiting_reply'
+      ? needsReply
+      : filters.filter === 'open' || filters.filter === 'resolved'
+        ? eq(threads.status, filters.filter)
+        : undefined
+  const query = filters.q?.trim()
+  const pattern = query ? `%${query.replace(/[%_\\]/g, '\\$&')}%` : undefined
+  const search = pattern
+    ? or(
+        ilike(users.username, pattern),
+        ilike(users.nickname, pattern),
+        ilike(users.id, pattern),
+        exists(
+          db
+            .select({ id: messages.id })
+            .from(messages)
+            .where(and(eq(messages.thread_id, threads.id), ilike(messages.body, pattern))),
+        ),
+      )
+    : undefined
 
-  const counts: FeedbackAdminCounts = {
-    all: allSummaries.length,
-    awaitingReply: allSummaries.filter((item) => item.needsAdminReply).length,
-    open: allSummaries.filter((item) => item.status === 'open').length,
-    resolved: allSummaries.filter((item) => item.status === 'resolved').length,
+  const [page, countRows] = await Promise.all([
+    buildAdminSummaries(
+      and(filter, search),
+      (filters.page - 1) * FEEDBACK_INBOX_PAGE_SIZE,
+      FEEDBACK_INBOX_PAGE_SIZE + 1,
+    ),
+    db
+      .select({
+        all: sql<number>`count(*)::int`,
+        awaitingReply: sql<number>`(count(*) filter (where ${needsReply}))::int`,
+        open: sql<number>`(count(*) filter (where ${threads.status} = 'open'))::int`,
+        resolved: sql<number>`(count(*) filter (where ${threads.status} = 'resolved'))::int`,
+      })
+      .from(threads),
+  ])
+  const counts: FeedbackAdminCounts = countRows[0] ?? {
+    all: 0,
+    awaitingReply: 0,
+    open: 0,
+    resolved: 0,
   }
-
-  let items = allSummaries
-  if (filters.filter === 'awaiting_reply') {
-    items = items.filter((item) => item.needsAdminReply)
-  } else if (filters.filter === 'open') {
-    items = items.filter((item) => item.status === 'open')
-  } else if (filters.filter === 'resolved') {
-    items = items.filter((item) => item.status === 'resolved')
+  return {
+    items: page.slice(0, FEEDBACK_INBOX_PAGE_SIZE),
+    counts,
+    hasMore: page.length > FEEDBACK_INBOX_PAGE_SIZE,
   }
-
-  const query = filters.q?.trim().toLowerCase()
-  if (query) {
-    const matchedIds = new Set<string>()
-    for (const item of items) {
-      if (
-        item.username.toLowerCase().includes(query) ||
-        (item.nickname?.toLowerCase().includes(query) ?? false) ||
-        item.userId.toLowerCase().includes(query) ||
-        item.lastMessagePreview.toLowerCase().includes(query)
-      ) {
-        matchedIds.add(item.id)
-      }
-    }
-    const remainingIds = items.filter((item) => !matchedIds.has(item.id)).map((item) => item.id)
-    if (remainingIds.length > 0) {
-      const pattern = `%${query.replace(/[%_\\]/g, '\\$&')}%`
-      const messageMatches = await db
-        .selectDistinct({ thread_id: schema.feedback_messages.thread_id })
-        .from(schema.feedback_messages)
-        .where(
-          and(
-            inArray(schema.feedback_messages.thread_id, remainingIds),
-            sql`lower(${schema.feedback_messages.body}) LIKE ${pattern} ESCAPE '\\'`,
-          ),
-        )
-      for (const match of messageMatches) matchedIds.add(match.thread_id)
-    }
-    items = items.filter((item) => matchedIds.has(item.id))
-  }
-
-  return { items, counts }
 }
 
 export async function getAdminFeedbackThread(
   threadId: string,
+  cursor: MessageCursor,
 ): Promise<FeedbackAdminDetailResponse> {
-  const [summary] = await buildAdminSummaries([threadId])
+  const [summary] = await buildAdminSummaries(eq(threads.id, threadId))
   if (!summary) throw new FeedbackError('not_found', 404)
-
-  const messages = await db
-    .select()
-    .from(schema.feedback_messages)
-    .where(eq(schema.feedback_messages.thread_id, threadId))
-    .orderBy(asc(schema.feedback_messages.created_at), asc(schema.feedback_messages.id))
-
-  return {
-    thread: summary,
-    messages: messages.map((message) => toFeedbackMessage(message, true)),
-  }
+  return { thread: summary, ...(await messagePage(threadId, cursor, true)) }
 }
 
 export async function replyAdminFeedbackThread(
@@ -557,9 +590,9 @@ export async function replyAdminFeedbackThread(
     const [existing] = await tx
       .update(schema.feedback_threads)
       .set({
-        last_message_at: nextMessageAt(now),
-        last_admin_reply_at: nextMessageAt(now),
-        updated_at: nextMessageAt(now),
+        last_message_at: nextFeedbackVersion(now),
+        last_admin_reply_at: nextFeedbackVersion(now),
+        updated_at: nextFeedbackVersion(now),
       })
       .where(eq(schema.feedback_threads.id, threadId))
       .returning({ createdAt: schema.feedback_threads.last_message_at })
@@ -596,7 +629,7 @@ export async function replyAdminFeedbackThread(
     return inserted
   })
 
-  const [summary] = await buildAdminSummaries([threadId])
+  const [summary] = await buildAdminSummaries(eq(threads.id, threadId))
   if (!summary) throw new FeedbackError('not_found', 404)
   return {
     thread: summary,
@@ -608,20 +641,19 @@ export async function updateAdminFeedbackThreadStatus({
   threadId,
   nextStatus,
   operatorId,
-  lastMessageAt,
+  updatedAt,
 }: {
   threadId: string
   nextStatus: FeedbackStatus
   operatorId: string
-  lastMessageAt: number
+  updatedAt: number
 }): Promise<{ thread: FeedbackAdminThreadSummary }> {
   const now = Date.now()
-  const threads = schema.feedback_threads
   await db.transaction(async (tx) => {
     const [updated] = await tx
       .update(threads)
-      .set({ status: nextStatus, updated_at: now })
-      .where(and(eq(threads.id, threadId), eq(threads.last_message_at, lastMessageAt)))
+      .set({ status: nextStatus, updated_at: nextFeedbackVersion(now) })
+      .where(and(eq(threads.id, threadId), eq(threads.updated_at, updatedAt)))
       .returning({ id: threads.id })
     if (!updated) {
       const [current] = await tx
@@ -643,7 +675,7 @@ export async function updateAdminFeedbackThreadStatus({
     })
   })
 
-  const [summary] = await buildAdminSummaries([threadId])
+  const [summary] = await buildAdminSummaries(eq(threads.id, threadId))
   if (!summary) throw new FeedbackError('not_found', 404)
   return { thread: summary }
 }

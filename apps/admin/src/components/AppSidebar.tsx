@@ -85,7 +85,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     entries: [
       { to: '/overview', icon: Activity, label: '概览' },
       { to: '/users', icon: Users, label: '用户', gated: true },
-      { to: '/feedback', icon: Inbox, label: '用户反馈' },
+      { to: '/feedback', icon: Inbox, label: '用户反馈', gated: true },
       { to: '/tasks', icon: ClipboardList, label: '生成任务' },
       { to: '/prompts', icon: MessageSquareText, label: '提示词' },
       { to: '/devices', icon: MonitorSmartphone, label: '设备' },

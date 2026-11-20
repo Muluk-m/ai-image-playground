@@ -79,6 +79,7 @@ async function handleResponse<T>(
   options: RequestOptions | undefined,
   retry: () => Promise<T>,
   requestUrl: string,
+  parse: (response: Response) => Promise<T> = parseJsonResponse,
 ): Promise<T> {
   if (res.status === 401) {
     if (
@@ -102,6 +103,10 @@ async function handleResponse<T>(
     const body = await safeParseJson(res)
     throw new ApiError(res.status, body)
   }
+  return parse(res)
+}
+
+async function parseJsonResponse<T>(res: Response): Promise<T> {
   // 204 / 空 body 时返 undefined as T（调用方自管）
   const ct = res.headers.get('content-type') ?? ''
   if (!ct.includes('application/json')) return undefined as T
@@ -161,6 +166,18 @@ export const apiClient = {
       headers: { accept: 'application/json' },
     })
     return handleResponse<T>(res, options, request, url)
+  },
+  async getBlob(url: string, signal?: AbortSignal): Promise<Blob> {
+    const request = () =>
+      fetch(adminApiUrl(url), {
+        credentials: 'include',
+        headers: { accept: 'image/*' },
+        signal,
+      })
+    const parse = (response: Response) => response.blob()
+    const retry = async (): Promise<Blob> =>
+      handleResponse(await request(), { refreshOnUnauthorized: false }, retry, url, parse)
+    return handleResponse(await request(), undefined, retry, url, parse)
   },
   post<T>(url: string, body?: unknown, options?: RequestOptions): Promise<T> {
     return sendJson('POST', url, body, options)

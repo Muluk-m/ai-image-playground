@@ -34,17 +34,28 @@ export async function fetchFeedbackSummary(signal?: AbortSignal): Promise<Feedba
   return (await response.json()) as FeedbackSummaryResponse
 }
 
-export async function fetchFeedbackThread(signal?: AbortSignal): Promise<FeedbackThreadResponse> {
-  const response = await authenticatedBffFetch(`${bffBaseUrl()}/api/feedback`, { signal })
+export async function fetchFeedbackThread(
+  cursor: { before?: number; after?: number },
+  signal?: AbortSignal,
+): Promise<FeedbackThreadResponse> {
+  const params = new URLSearchParams()
+  if (cursor.before !== undefined) params.set('before', String(cursor.before))
+  if (cursor.after !== undefined) params.set('after', String(cursor.after))
+  const suffix = params.size ? `?${params}` : ''
+  const response = await authenticatedBffFetch(`${bffBaseUrl()}/api/feedback${suffix}`, { signal })
   if (!response.ok) throw await parseFeedbackError(response)
   return (await response.json()) as FeedbackThreadResponse
 }
 
-export async function markFeedbackRead(messageId: string): Promise<FeedbackSummaryResponse> {
+export async function markFeedbackRead(
+  messageId: string,
+  signal?: AbortSignal,
+): Promise<FeedbackSummaryResponse> {
   const response = await authenticatedBffFetch(`${bffBaseUrl()}/api/feedback/read`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ messageId }),
+    signal,
   })
   if (!response.ok) throw await parseFeedbackError(response)
   return response.json()

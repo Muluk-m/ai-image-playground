@@ -2,6 +2,7 @@ import {
   FEEDBACK_ATTACHMENT_ACCEPT,
   FEEDBACK_ATTACHMENT_MAX_BYTES,
   FEEDBACK_MESSAGE_MAX_CHARS,
+  FEEDBACK_MESSAGE_PAGE_SIZE,
   type FeedbackMessage,
   isFeedbackAttachmentMimeType,
 } from '@image-playground/shared'
@@ -53,68 +54,68 @@ function normalizeMime(type: string): string {
   return lower === 'image/jpg' ? 'image/jpeg' : lower
 }
 
-function AttachmentImage({
+function AttachmentPreview({
   messageId,
   filename,
-  onPreview,
 }: {
   messageId: string
   filename: string | null
-  onPreview: (url: string) => void
 }) {
   const { t } = useTranslation('shell')
   const [src, setSrc] = useState<string | null>(null)
+  const [pending, setPending] = useState(false)
   const [failed, setFailed] = useState(false)
+  const request = useRef<AbortController | null>(null)
 
-  useEffect(() => {
+  useEffect(() => () => request.current?.abort(), [])
+  useEffect(
+    () => () => {
+      if (src) URL.revokeObjectURL(src)
+    },
+    [src],
+  )
+
+  async function open() {
+    if (request.current) return
     const controller = new AbortController()
-    let objectUrl: string | null = null
-    setSrc(null)
+    request.current = controller
     setFailed(false)
-    void fetchFeedbackAttachmentBlobUrl(messageId, controller.signal)
-      .then((url) => {
-        if (controller.signal.aborted) {
-          URL.revokeObjectURL(url)
-          return
-        }
-        objectUrl = url
-        setSrc(url)
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) setFailed(true)
-      })
-    return () => {
-      controller.abort()
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    setPending(true)
+    try {
+      const url = await fetchFeedbackAttachmentBlobUrl(messageId, controller.signal)
+      if (controller.signal.aborted) URL.revokeObjectURL(url)
+      else setSrc(url)
+    } catch {
+      if (!controller.signal.aborted) setFailed(true)
+    } finally {
+      request.current = null
+      if (!controller.signal.aborted) setPending(false)
     }
-  }, [messageId])
+  }
 
   return (
-    <div className="mt-2 grid h-36 w-56 max-w-full place-items-center overflow-hidden rounded-lg border border-border bg-background text-muted-foreground">
-      {src && !failed ? (
-        <Button
-          type="button"
-          variant="ghost"
-          aria-label={t('header.feedback.previewAttachment')}
-          autoTooltip={false}
-          className="h-full w-full min-w-0 rounded-none p-0 hover:bg-transparent"
-          onClick={() => onPreview(src)}
-        >
-          <img
-            src={src}
-            alt={filename ?? t('header.feedback.attachmentAlt')}
-            className="size-full object-contain"
-            onError={() => setFailed(true)}
-          />
-        </Button>
-      ) : failed ? (
-        <div className="flex items-center gap-1.5 px-2 text-xs">
-          <Icon name="imageUnavailable" size="xs" />
-          <span>{t('header.feedback.attachmentLoadFailed')}</span>
-        </div>
-      ) : (
-        <Icon name="loading" className="animate-spin" />
+    <div className="mt-2">
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={pending}
+        className="max-w-full"
+        onClick={() => void open()}
+      >
+        <Icon
+          name={pending ? 'loading' : 'imageAdd'}
+          className={pending ? 'animate-spin' : undefined}
+        />
+        <span className="truncate">{filename ?? t('header.feedback.attachmentAlt')}</span>
+        <span>{t('header.feedback.previewAttachment')}</span>
+      </Button>
+      {failed && (
+        <p role="alert" className="mt-1 text-xs text-destructive">
+          {t('header.feedback.attachmentLoadFailed')}
+        </p>
       )}
+      {src && <ImagePreview src={src} tier="artifact" onClose={() => setSrc(null)} />}
     </div>
   )
 }
@@ -130,15 +131,19 @@ export default function FeedbackDialog({
   const auth = useAuth()
   const canUseInApp = Boolean(auth.user)
 
-  const [messages, setMessages] = useState<FeedbackMessage[]>([])
+  const [{ messages, hasOlder }, setHistory] = useState<{
+    messages: FeedbackMessage[]
+    hasOlder: boolean
+  }>({ messages: [], hasOlder: false })
+  const [before, setBefore] = useState<number>()
+  const [readAttempt, setReadAttempt] = useState(0)
+  const acknowledgedReply = useRef<string | undefined>(undefined)
   const [loading, setLoading] = useState(canUseInApp)
   const [loadError, setLoadError] = useState(false)
   const [draft, setDraft] = useState('')
   const [attachment, setAttachment] = useState<File | null>(null)
-  const [attachmentPreviewUrl, setAttachmentPreviewUrl] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [errorText, setErrorText] = useState<string | null>(null)
-  const [previewSrc, setPreviewSrc] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
   const [unread, setUnread] = useState(0)
 
@@ -146,36 +151,42 @@ export default function FeedbackDialog({
   const listEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (!attachment) {
-      setAttachmentPreviewUrl(null)
-      return
-    }
-    const url = URL.createObjectURL(attachment)
-    setAttachmentPreviewUrl(url)
-    return () => URL.revokeObjectURL(url)
-  }, [attachment])
-
-  useEffect(() => {
     if (!canUseInApp) return
     const controller = new AbortController()
     let refreshing = false
     let loaded = false
+    let after: number | undefined
     const refresh = async () => {
-      if (refreshing || document.hidden) return
+      if (refreshing || document.hidden || (before !== undefined && loaded)) return
       refreshing = true
       try {
-        const data = await fetchFeedbackThread(controller.signal)
+        const requestedAfter = after
+        const data = await fetchFeedbackThread({ before, after: requestedAfter }, controller.signal)
         if (controller.signal.aborted) return
         loaded = true
         setLoadError(false)
         setUnread(data.thread?.unreadReplyCount ?? 0)
-        setMessages((current) => {
-          const newestFetched = data.messages[data.messages.length - 1]?.createdAt ?? 0
-          return [
+        setReadAttempt((attempt) => attempt + 1)
+        setHistory((current) => {
+          if (before !== undefined) {
+            return { messages: data.messages, hasOlder: data.hasMore }
+          }
+          const fetchedIds = new Set(data.messages.map((message) => message.id))
+          const merged = [
+            ...current.messages.filter((message) => !fetchedIds.has(message.id)),
             ...data.messages,
-            ...current.filter((message) => message.createdAt > newestFetched),
-          ]
+          ].sort((a, b) => a.createdAt - b.createdAt)
+          return {
+            messages: merged.slice(-FEEDBACK_MESSAGE_PAGE_SIZE),
+            hasOlder:
+              current.hasOlder ||
+              merged.length > FEEDBACK_MESSAGE_PAGE_SIZE ||
+              (requestedAfter === undefined && data.hasMore),
+          }
         })
+        if (before === undefined) {
+          after = data.messages[data.messages.length - 1]?.createdAt ?? after
+        }
       } catch {
         if (!loaded && !controller.signal.aborted) setLoadError(true)
       } finally {
@@ -192,7 +203,7 @@ export default function FeedbackDialog({
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', resume)
     }
-  }, [canUseInApp, reload])
+  }, [before, canUseInApp, reload])
 
   let latestReplyId: string | undefined
   for (let index = messages.length - 1; index >= 0; index -= 1) {
@@ -205,29 +216,31 @@ export default function FeedbackDialog({
   useEffect(() => {
     if (!canUseInApp || loading || loadError) return
     onUnreadChange?.(unread)
-    if (!latestReplyId || unread === 0) return
-    let active = true
-    const acknowledge = () => {
-      if (document.hidden) return
-      void markFeedbackRead(latestReplyId)
-        .then(({ unreadReplyCount }) => {
-          if (active) onUnreadChange?.(unreadReplyCount)
-        })
-        .catch(() => {})
-    }
-    acknowledge()
-    document.addEventListener('visibilitychange', acknowledge)
-    return () => {
-      active = false
-      document.removeEventListener('visibilitychange', acknowledge)
-    }
-  }, [canUseInApp, latestReplyId, loadError, loading, onUnreadChange, unread])
+    if (
+      before !== undefined ||
+      !latestReplyId ||
+      unread === 0 ||
+      acknowledgedReply.current === latestReplyId ||
+      document.hidden
+    )
+      return
+    const controller = new AbortController()
+    void markFeedbackRead(latestReplyId, controller.signal)
+      .then(({ unreadReplyCount }) => {
+        if (controller.signal.aborted) return
+        acknowledgedReply.current = latestReplyId
+        setUnread(unreadReplyCount)
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [before, canUseInApp, latestReplyId, loadError, loading, onUnreadChange, readAttempt, unread])
 
+  const newestMessage = messages[messages.length - 1]
   useEffect(() => {
-    if (!loading && messages.length > 0) {
+    if (!loading && newestMessage) {
       listEndRef.current?.scrollIntoView?.({ block: 'end' })
     }
-  }, [loading, messages.length])
+  }, [loading, newestMessage?.id])
 
   const pickFile = (file: File | null | undefined) => {
     if (!file) return
@@ -288,11 +301,20 @@ export default function FeedbackDialog({
     setErrorText(null)
     try {
       const response = await sendFeedbackMessage({ body: trimmed, attachment })
-      setMessages((current) =>
-        current.some((message) => message.id === response.message.id)
-          ? current
-          : [...current, response.message].sort((a, b) => a.createdAt - b.createdAt),
-      )
+      if (before !== undefined) {
+        showPage(undefined)
+      } else {
+        setHistory((current) => {
+          if (current.messages.some((message) => message.id === response.message.id)) return current
+          const next = [...current.messages, response.message].sort(
+            (a, b) => a.createdAt - b.createdAt,
+          )
+          return {
+            messages: next.slice(-FEEDBACK_MESSAGE_PAGE_SIZE),
+            hasOlder: current.hasOlder || next.length > FEEDBACK_MESSAGE_PAGE_SIZE,
+          }
+        })
+      }
       setDraft('')
       setAttachment(null)
     } catch (error) {
@@ -300,6 +322,12 @@ export default function FeedbackDialog({
     } finally {
       setSubmitting(false)
     }
+  }
+
+  function showPage(cursor: number | undefined) {
+    setLoading(true)
+    setHistory({ messages: [], hasOlder: false })
+    setBefore(cursor)
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -345,6 +373,31 @@ export default function FeedbackDialog({
             </div>
           ) : (
             <>
+              {(before !== undefined || hasOlder) && (
+                <div className="flex justify-end gap-2">
+                  {before !== undefined && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => showPage(undefined)}
+                    >
+                      {t('header.feedback.latest')}
+                    </Button>
+                  )}
+                  {hasOlder && messages[0] && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={loading}
+                      onClick={() => showPage(messages[0]?.createdAt)}
+                    >
+                      {t('header.feedback.older')}
+                    </Button>
+                  )}
+                </div>
+              )}
               <div className="flex min-h-60 max-h-80 flex-col gap-3 overflow-y-auto rounded-2xl border border-border bg-background p-4">
                 {loading ? (
                   <div className="flex flex-1 items-center justify-center text-muted-foreground">
@@ -409,10 +462,9 @@ export default function FeedbackDialog({
                               </p>
                             ) : null}
                             {message.attachment ? (
-                              <AttachmentImage
+                              <AttachmentPreview
                                 messageId={message.id}
                                 filename={message.attachment.filename}
-                                onPreview={setPreviewSrc}
                               />
                             ) : null}
                           </div>
@@ -441,13 +493,9 @@ export default function FeedbackDialog({
                   className="resize-none border-0 bg-transparent p-1 shadow-none focus-visible:ring-0"
                 />
 
-                {attachment && attachmentPreviewUrl ? (
+                {attachment ? (
                   <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-2">
-                    <img
-                      src={attachmentPreviewUrl}
-                      alt={attachment.name}
-                      className="size-12 shrink-0 rounded-md object-cover"
-                    />
+                    <Icon name="imageAdd" className="shrink-0 text-muted-foreground" />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-xs font-medium text-foreground">
                         {attachment.name}
@@ -518,10 +566,6 @@ export default function FeedbackDialog({
           )}
         </div>
       </Dialog>
-
-      {previewSrc ? (
-        <ImagePreview src={previewSrc} tier="artifact" onClose={() => setPreviewSrc(null)} />
-      ) : null}
     </>
   )
 }

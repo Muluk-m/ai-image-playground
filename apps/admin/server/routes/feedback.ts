@@ -13,6 +13,7 @@ export const feedbackRoutes = new Elysia({ prefix: '/api/feedback' })
       const search = new URLSearchParams()
       if (query.filter) search.set('filter', query.filter)
       if (query.q) search.set('q', query.q)
+      if (query.page !== undefined) search.set('page', String(query.page))
       const suffix = search.size ? `?${search}` : ''
       return forwardInternalBff({ path: `/internal/admin/feedback${suffix}` })
     },
@@ -20,6 +21,7 @@ export const feedbackRoutes = new Elysia({ prefix: '/api/feedback' })
       query: t.Object({
         filter: t.Optional(t.String({ maxLength: 32 })),
         q: t.Optional(t.String({ maxLength: 128 })),
+        page: t.Optional(t.Numeric({ minimum: 1, maximum: 1_000_000, multipleOf: 1 })),
       }),
     },
   )
@@ -34,11 +36,18 @@ export const feedbackRoutes = new Elysia({ prefix: '/api/feedback' })
   )
   .get(
     '/:id',
-    ({ params }) =>
+    ({ params, query }) =>
       forwardInternalBff({
-        path: `/internal/admin/feedback/${encodeURIComponent(params.id)}`,
+        path: `/internal/admin/feedback/${encodeURIComponent(params.id)}${query.before === undefined ? '' : `?before=${query.before}`}`,
       }),
-    { params: idParams },
+    {
+      params: idParams,
+      query: t.Object({
+        before: t.Optional(
+          t.Numeric({ minimum: 1, maximum: 8_640_000_000_000_000, multipleOf: 1 }),
+        ),
+      }),
+    },
   )
   .post(
     '/:id/replies',

@@ -7,6 +7,9 @@ export type FeedbackSenderType = (typeof FEEDBACK_SENDER_TYPES)[number]
 export const FEEDBACK_ATTACHMENT_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const
 export type FeedbackAttachmentMimeType = (typeof FEEDBACK_ATTACHMENT_MIME_TYPES)[number]
 
+export const FEEDBACK_MESSAGE_PAGE_SIZE = 20
+export const FEEDBACK_INBOX_PAGE_SIZE = 40
+
 export const FEEDBACK_MESSAGE_MAX_CHARS = 4000
 export const FEEDBACK_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024
 export const FEEDBACK_ATTACHMENT_ACCEPT = FEEDBACK_ATTACHMENT_MIME_TYPES.join(',')
@@ -37,6 +40,7 @@ export interface FeedbackUserThread {
 export interface FeedbackThreadResponse {
   thread: FeedbackUserThread | null
   messages: FeedbackMessage[]
+  hasMore: boolean
 }
 
 export interface FeedbackSummaryResponse {
@@ -74,11 +78,13 @@ export interface FeedbackAdminCounts {
 export interface FeedbackAdminListResponse {
   items: FeedbackAdminThreadSummary[]
   counts: FeedbackAdminCounts
+  hasMore: boolean
 }
 
 export interface FeedbackAdminDetailResponse {
   thread: FeedbackAdminThreadSummary
   messages: FeedbackMessage[]
+  hasMore: boolean
 }
 
 export function isFeedbackAttachmentMimeType(value: unknown): value is FeedbackAttachmentMimeType {
