@@ -1,5 +1,6 @@
 import type { GptDirectAdminView } from '@image-playground/shared'
 import {
+  hashKey,
   type QueryClient,
   replaceEqualDeep,
   useInfiniteQuery,
@@ -20,6 +21,7 @@ import {
   generationRefreshInterval,
   generationWindow,
 } from './generation-overview'
+import type { TaskDatePreset } from './search-params'
 import type {
   ClientErrorEventsResult,
   ClientErrorsResult,
@@ -263,14 +265,23 @@ export function useGenerationOverview(selection: GenerationSelection) {
 
 /** The rolling window owns refreshes; changing it creates exactly one new task query. */
 export function useGenerationTasksClock(live: boolean) {
-  const activatedAt = useMemo(() => ({ live, now: Date.now() }), [live])
-  const [clock, setClock] = useState(activatedAt)
+  const [clock, setClock] = useState(() => ({ live, now: Date.now() }))
+  // 恢复实时刷新时立即推进到当前时刻，避免先用旧时间发一次请求；暂停时保留原时间戳不跳动。
+  const resumedAt = useMemo(
+    () => (live && !clock.live ? Math.max(Date.now(), clock.now + 1) : null),
+    [live, clock.live, clock.now],
+  )
   useEffect(() => {
-    setClock((previous) => (previous.live === live ? previous : activatedAt))
+    setClock((previous) => {
+      if (previous.live === live) return previous
+      return live
+        ? { live: true, now: resumedAt ?? Math.max(Date.now(), previous.now + 1) }
+        : { live: false, now: previous.now }
+    })
     if (!live) return
     let timer: number | undefined
     const advance = () =>
-      setClock((previous) => ({ live, now: Math.max(Date.now(), previous.now + 1) }))
+      setClock((previous) => ({ live: true, now: Math.max(Date.now(), previous.now + 1) }))
     const schedule = () => {
       if (timer !== undefined) window.clearInterval(timer)
       timer = undefined
@@ -292,20 +303,29 @@ export function useGenerationTasksClock(live: boolean) {
       document.removeEventListener('visibilitychange', visibilityChanged)
       window.removeEventListener(ADMIN_REFRESH_EVENT, refresh)
     }
-  }, [live, activatedAt])
-  return clock.live === live ? clock.now : activatedAt.now
+  }, [live, resumedAt])
+  return resumedAt ?? clock.now
 }
-export function useGenerationTasks(filters: GenerationTaskFilters) {
+export function useGenerationTasks(
+  filters: GenerationTaskFilters,
+  rollingPreset?: Exclude<TaskDatePreset, 'custom'>,
+) {
+  const { from, to, ...selection } = filters
+  // 同一筛选下滚动时间窗刷新保留现有数据，避免表格重建与横向/纵向滚动位置丢失。
+  const selectionKey = hashKey([selection, rollingPreset, rollingPreset === 'today' ? from : null])
   return useQuery({
-    queryKey: ['generation-tasks', filters],
+    queryKey: ['generation-tasks', selectionKey, from, to] as const,
     queryFn: () => {
       const params = new URLSearchParams()
       for (const [key, value] of Object.entries(filters)) {
         if (value === undefined) continue
+        if (Array.isArray(value) && value.length === 0) continue
         params.set(key, Array.isArray(value) ? value.join(',') : String(value))
       }
       return apiClient.get<GenerationTasksResult>(`/api/tasks?${params}`)
     },
+    placeholderData: (previous, previousQuery) =>
+      rollingPreset && previousQuery?.queryKey[1] === selectionKey ? previous : undefined,
     staleTime: 0,
     refetchInterval: false,
     refetchOnWindowFocus: false,

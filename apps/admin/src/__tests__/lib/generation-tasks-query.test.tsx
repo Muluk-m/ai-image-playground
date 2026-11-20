@@ -36,17 +36,26 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-function mount(initial: { preset: 'today' | '7d' | '30d'; from?: number; to?: number }) {
+function mount(initial: {
+  preset: 'today' | '7d' | '30d'
+  from?: number
+  to?: number
+  status?: 'failed'
+}) {
   return renderHook(
-    ({ preset, from, to }) => {
-      const clock = useGenerationTasksClock(from === undefined && to === undefined)
+    ({ preset, from, to, status }) => {
+      const rolling = from === undefined && to === undefined
+      const clock = useGenerationTasksClock(rolling)
       const window =
         from !== undefined && to !== undefined
           ? { from, to }
           : preset === 'today'
             ? todayWindow(clock)
             : presetWindow(preset, clock)
-      return useGenerationTasks({ ...window, page: 1, pageSize: 50 })
+      return useGenerationTasks(
+        { ...window, ...(status ? { status } : {}), page: 1, pageSize: 50 },
+        rolling ? preset : undefined,
+      )
     },
     {
       initialProps: initial,
@@ -161,5 +170,51 @@ describe('generation tasks refresh', () => {
     window.dispatchEvent(event)
     expect(event.defaultPrevented).toBe(false)
     expect(get).toHaveBeenCalledTimes(1)
+  })
+
+  it('retains previous data across rolling ticks for the same selection, and drops it on filter change', async () => {
+    let resolveNext!: (value: GenerationTasksResult) => void
+    const secondPending = new Promise<GenerationTasksResult>((resolve) => {
+      resolveNext = resolve
+    })
+    get
+      .mockResolvedValueOnce(response)
+      .mockImplementationOnce(() => secondPending)
+      .mockImplementationOnce(() => new Promise<GenerationTasksResult>(() => {}))
+    const { result, rerender } = mount({ preset: 'today' })
+    await advance()
+    expect(result.current.data).toBe(response)
+    await advance(30_000)
+    expect(result.current.data).toBe(response)
+    resolveNext({ ...response, total: 2 })
+    await advance()
+    expect(result.current.data?.total).toBe(2)
+    rerender({ preset: 'today', status: 'failed' })
+    await advance()
+    expect(result.current.data).toBeUndefined()
+  })
+
+  it('freezes the rolling clock when live refresh is paused without firing an extra fetch', async () => {
+    const { rerender } = renderHook(
+      ({ live }) => {
+        const clock = useGenerationTasksClock(live)
+        return useGenerationTasks({ ...todayWindow(clock), page: 1, pageSize: 50 }, 'today')
+      },
+      {
+        initialProps: { live: true },
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        ),
+      },
+    )
+    await advance()
+    expect(get).toHaveBeenCalledTimes(1)
+    await advance(10_000)
+    rerender({ live: false })
+    await advance(60_000)
+    expect(get).toHaveBeenCalledTimes(1)
+    rerender({ live: true })
+    await advance()
+    expect(get).toHaveBeenCalledTimes(2)
   })
 })

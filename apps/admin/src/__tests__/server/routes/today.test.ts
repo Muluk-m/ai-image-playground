@@ -494,7 +494,18 @@ describe('today generation overview', () => {
       'from=bad&to=1',
       `from=${from}&to=${from}`,
       'userId=a&deviceId=b',
+      'userId=a&actorType=device',
       'status=nope',
+      'statuses=failed,nope',
+      'sources=chat,nope',
+      'gptRoute=invalid',
+      'httpBuckets=9xx',
+      'actorType=bot',
+      'sort=evil',
+      'dir=sideways',
+      `from=${from}&to=${to}&sort=run_ms`,
+      `from=${from}&to=${to}&dir=asc`,
+      'minDurationSec=60&maxDurationSec=10',
       `from=${from}&to=${to}&cursor=bad`,
       'unassigned=2',
       `model=${'m'.repeat(129)}`,
@@ -505,6 +516,204 @@ describe('today generation overview', () => {
     ).toBe(200)
     expect((await request('/api/overview/today')).status).toBe(200)
     expect((await request('/api/overview/errors')).status).toBe(200)
+  })
+
+  it('supports rich multi-facet filtering, sorting, summary percentiles, and window facets', async () => {
+    const richFrom = from + 10 * 86400_000
+    const richTo = richFrom + 3600_000
+    await writer.db.insert(writer.schema.tasks).values([
+      {
+        ...task,
+        id: 'rich-fast-direct',
+        user_id: 'today-user',
+        model: 'gpt-image-2.5-flare',
+        provider: 'openai-compat',
+        status: 'completed',
+        gpt_route: 'direct',
+        gpt_key_fingerprint: '0cc5815e',
+        upstream_status: 200,
+        attempt_count: 1,
+        upstream_invocation_count: 1,
+        submitted_at: richFrom + 10_000,
+        started_at: richFrom + 11_000,
+        completed_at: richFrom + 21_000, // run 10s, queue 1s
+      },
+      {
+        ...task,
+        id: 'rich-slow-sub2api',
+        user_id: 'today-user',
+        model: 'gpt-image-1.5',
+        provider: 'openai-compat',
+        status: 'completed',
+        gpt_route: 'sub2api',
+        upstream_status: 200,
+        attempt_count: 2,
+        upstream_invocation_count: 3,
+        submitted_at: richFrom + 20_000,
+        started_at: richFrom + 32_000, // queue 12s
+        completed_at: richFrom + 82_000, // run 50s
+      },
+      {
+        ...task,
+        id: 'rich-fail-504',
+        user_id: null,
+        request_payload: { prompt: 'retry timeout', device_id: 'rich-dev-1' } as never,
+        model: 'gemini-2.5-flash-image',
+        provider: 'gemini',
+        status: 'failed',
+        error_type: 'upstream_timeout',
+        upstream_status: 504,
+        attempt_count: 3,
+        upstream_invocation_count: 4,
+        submitted_at: richFrom + 30_000,
+        started_at: richFrom + 31_000,
+        completed_at: richFrom + 95_000, // run 64s
+      },
+      {
+        ...task,
+        id: 'rich-reconciling',
+        user_id: 'today-user',
+        model: 'gpt-image-2.5-flare',
+        provider: 'openai-compat',
+        status: 'reconciling',
+        reconciliation_required: true,
+        gpt_route: 'direct',
+        gpt_key_fingerprint: 'a91f30c2',
+        upstream_status: 502,
+        error_type: null,
+        attempt_count: 2,
+        upstream_invocation_count: 2,
+        submitted_at: richFrom + 40_000,
+        started_at: richFrom + 41_000,
+        completed_at: null,
+      },
+    ])
+
+    const byRunDesc = await getGenerationTasks({
+      from: richFrom,
+      to: richTo,
+      page: 1,
+      pageSize: 50,
+      sort: 'run_ms',
+      dir: 'desc',
+    })
+    expect(byRunDesc.tasks.map((item) => item.id)).toEqual([
+      'rich-fail-504',
+      'rich-slow-sub2api',
+      'rich-fast-direct',
+      'rich-reconciling',
+    ])
+    expect(byRunDesc.summary).toMatchObject({
+      total: 4,
+      completed: 2,
+      failed: 1,
+      reconciling: 1,
+    })
+    expect(byRunDesc.summary?.p50_run_ms).toBe(30_000)
+    expect(byRunDesc.facets?.models.map((m) => m.value)).toEqual([
+      'gpt-image-2.5-flare',
+      'gemini-2.5-flash-image',
+      'gpt-image-1.5',
+    ])
+    expect(byRunDesc.facets?.errorTypes).toEqual([
+      { value: 'unknown', count: 1 },
+      { value: 'upstream_timeout', count: 1 },
+    ])
+
+    // Multi-status filter preserves statusCounts across all statuses in facets
+    const multiStatus = await getGenerationTasks({
+      from: richFrom,
+      to: richTo,
+      statuses: ['failed', 'reconciling'],
+      page: 1,
+      pageSize: 50,
+      sort: 'status',
+      dir: 'asc',
+    })
+    expect(multiStatus.tasks.map((item) => item.id)).toEqual(['rich-reconciling', 'rich-fail-504'])
+    expect(multiStatus.facets?.statusCounts).toMatchObject({
+      completed: 2,
+      failed: 1,
+      reconciling: 1,
+    })
+
+    // Route, HTTP 5xx, retried, queue, duration range, actorType, fingerprint/short-id search
+    expect(
+      (
+        await getGenerationTasks({
+          from: richFrom,
+          to: richTo,
+          gptRoute: 'direct',
+          page: 1,
+          pageSize: 50,
+        })
+      ).tasks.map((item) => item.id),
+    ).toEqual(['rich-reconciling', 'rich-fast-direct'])
+
+    expect(
+      (
+        await getGenerationTasks({
+          from: richFrom,
+          to: richTo,
+          httpBuckets: ['5xx'],
+          retried: '1',
+          page: 1,
+          pageSize: 50,
+          sort: 'attempt_count',
+          dir: 'desc',
+        })
+      ).tasks.map((item) => item.id),
+    ).toEqual(['rich-fail-504', 'rich-reconciling'])
+
+    expect(
+      (
+        await getGenerationTasks({
+          from: richFrom,
+          to: richTo,
+          minQueueSec: 5,
+          minDurationSec: 30,
+          maxDurationSec: 60,
+          page: 1,
+          pageSize: 50,
+        })
+      ).tasks.map((item) => item.id),
+    ).toEqual(['rich-slow-sub2api'])
+
+    expect(
+      (
+        await getGenerationTasks({
+          from: richFrom,
+          to: richTo,
+          actorType: 'device',
+          page: 1,
+          pageSize: 50,
+        })
+      ).tasks.map((item) => item.id),
+    ).toEqual(['rich-fail-504'])
+
+    expect(
+      (
+        await getGenerationTasks({
+          from: richFrom,
+          to: richTo,
+          q: '0cc5815e',
+          page: 1,
+          pageSize: 50,
+        })
+      ).tasks.map((item) => item.id),
+    ).toEqual(['rich-fast-direct'])
+
+    expect(
+      (
+        await getGenerationTasks({
+          from: richFrom,
+          to: richTo,
+          errorTypes: ['unknown'],
+          page: 1,
+          pageSize: 50,
+        })
+      ).tasks.map((item) => item.id),
+    ).toEqual(['rich-reconciling'])
   })
 })
 

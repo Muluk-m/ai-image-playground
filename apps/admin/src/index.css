@@ -12,3 +12,15 @@
     @apply bg-background text-foreground font-sans;
   }
 }
+
+.tasks-pinned-shadow {
+  box-shadow: var(--shadow-sticky-x);
+}
+
+.tasks-row-selected {
+  background-color: hsl(var(--card));
+  background-image: linear-gradient(
+    hsl(var(--brand-action) / 0.16),
+    hsl(var(--brand-action) / 0.16)
+  );
+}
