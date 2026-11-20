@@ -521,7 +521,7 @@ export function TasksLogTable({
                           key={col.id}
                           style={cellStyle}
                           className={cn(
-                            'whitespace-nowrap border-b border-border/60 px-3 align-middle transition-colors',
+                            'overflow-hidden whitespace-nowrap border-b border-border/60 px-3 align-middle transition-colors',
                             density === 'compact' ? 'h-10' : 'h-12',
                             col.align === 'right' ? 'text-right' : 'text-left',
                             selected ? 'tasks-row-selected' : 'bg-card group-hover:bg-muted',
@@ -689,7 +689,11 @@ function TaskCell({
     }
 
     case 'model':
-      return <span className="font-mono text-xs text-foreground">{task.model}</span>
+      return (
+        <span className="block truncate font-mono text-xs text-foreground" title={task.model}>
+          {task.model}
+        </span>
+      )
 
     case 'source':
       return (
@@ -699,16 +703,30 @@ function TaskCell({
       )
 
     case 'provider':
-      return <span className="font-mono text-xs text-muted-foreground">{task.provider}</span>
+      return (
+        <span
+          className="block truncate font-mono text-xs text-muted-foreground"
+          title={task.provider}
+        >
+          {task.provider}
+        </span>
+      )
 
     case 'route': {
       const route = gptRouteLabel(task.gpt_route)
       if (!route) return <span className="text-muted-foreground">—</span>
+      const fullRoute =
+        task.gpt_route === 'direct' && task.gpt_key_fingerprint
+          ? `${route} · ${task.gpt_key_fingerprint}`
+          : route
       return (
-        <span className="inline-flex items-center gap-1.5 font-mono text-xs">
-          <span className="text-foreground">{route}</span>
+        <span
+          className="flex min-w-0 items-center gap-1.5 overflow-hidden font-mono text-xs"
+          title={fullRoute}
+        >
+          <span className="truncate text-foreground">{route}</span>
           {task.gpt_route === 'direct' && task.gpt_key_fingerprint ? (
-            <span className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
+            <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground">
               {task.gpt_key_fingerprint}
             </span>
           ) : null}
@@ -794,10 +812,11 @@ function TaskCell({
 
     case 'error_type': {
       if (!task.error_type) return <span className="text-muted-foreground">—</span>
+      const label = ERROR_LABEL_MAP[task.error_type]
       return (
         <span
-          className="inline-flex rounded bg-danger/15 px-1.5 py-0.5 font-mono text-[11px] text-danger"
-          title={ERROR_LABEL_MAP[task.error_type] ?? task.error_type}
+          className="inline-block max-w-full truncate rounded bg-danger/15 px-1.5 py-0.5 font-mono text-[11px] text-danger"
+          title={label ? `${label} (${task.error_type})` : task.error_type}
         >
           {task.error_type}
         </span>

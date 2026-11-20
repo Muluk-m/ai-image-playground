@@ -179,7 +179,7 @@ export function TasksFilterPanel({
 
   function commitSearch(raw: string) {
     const trimmed = raw.trim()
-    const jump = /^tsk_[A-Za-z0-9_-]+$/.test(trimmed)
+    const jump = /^tsk_[A-Za-z0-9_-]+$/.test(trimmed) || /^[0-9a-f-]{16,}$/i.test(trimmed)
     onUpdate({ q: trimmed || undefined, ...(jump ? { task: trimmed } : {}) })
   }
 
@@ -395,8 +395,8 @@ export function TasksFilterPanel({
             ref={searchInputRef}
             value={queryDraft}
             onChange={(event) => setQueryDraft(event.target.value)}
-            placeholder="搜索任务 ID、提示词、用户名、设备 ID、指纹或模型…"
-            aria-label="搜索任务 ID、提示词、用户名、设备 ID、指纹或模型"
+            placeholder="搜索任务 ID、提示词、用户名、指纹或模型…"
+            aria-label="搜索任务 ID、提示词、用户名、指纹或模型"
             className="h-8 pl-8 pr-12 text-xs"
           />
           {queryDraft ? (

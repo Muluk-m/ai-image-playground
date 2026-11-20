@@ -503,6 +503,8 @@ describe('today generation overview', () => {
       'actorType=bot',
       'sort=evil',
       'dir=sideways',
+      `from=${from}&to=${to}&sort=run_ms`,
+      `from=${from}&to=${to}&dir=asc`,
       'minDurationSec=60&maxDurationSec=10',
       `from=${from}&to=${to}&cursor=bad`,
       'unassigned=2',

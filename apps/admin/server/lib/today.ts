@@ -504,65 +504,85 @@ function parsePercentilePair(value: unknown): [number | null, number | null] {
   return [null, null]
 }
 
-const TASK_FACETS_CACHE_MS = 10_000
+// 按 2 分钟时间桶复用窗口分面，覆盖多次 30 秒自动刷新并合并并发查询，避免轮询反复扫全窗。
+const TASK_FACETS_CACHE_MS = 120_000
+const TASK_FACETS_BUCKET_MS = 120_000
 type WindowFacetOptions = Pick<GenerationTasksFacets, 'models' | 'providers' | 'errorTypes'>
 const windowFacetsCache = new Map<
   string,
   { at: number; db: ReturnType<typeof getDbHandle>; value: WindowFacetOptions }
 >()
+const windowFacetsPending = new Map<
+  string,
+  { db: ReturnType<typeof getDbHandle>; promise: Promise<WindowFacetOptions> }
+>()
 
 async function getWindowFacetOptions(window: TimeWindow): Promise<WindowFacetOptions> {
   const handle = getDbHandle()
-  const key = `${window.from}:${window.to}`
+  const fromBucket = Math.floor(window.from / TASK_FACETS_BUCKET_MS)
+  const toBucket = Math.floor(window.to / TASK_FACETS_BUCKET_MS)
+  const key = `${fromBucket}:${toBucket}`
   const now = Date.now()
   const cached = windowFacetsCache.get(key)
   if (cached && cached.db === handle && now - cached.at < TASK_FACETS_CACHE_MS) {
     return cached.value
   }
-  const facetRows = (await handle.db.execute(sql`
-    SELECT
-      GROUPING(f.model) AS g_model,
-      GROUPING(f.provider) AS g_provider,
-      GROUPING(f.err_key) AS g_err,
-      f.model,
-      f.provider,
-      f.err_key,
-      COUNT(*)::int AS count
-    FROM (
+  const pending = windowFacetsPending.get(key)
+  if (pending && pending.db === handle) {
+    return pending.promise
+  }
+  const promise = (async () => {
+    const facetRows = (await handle.db.execute(sql`
       SELECT
-        model,
-        provider,
-        CASE
-          WHEN error_type IS NOT NULL THEN error_type
-          WHEN status IN ('failed', 'reconciling') THEN 'unknown'
-          ELSE NULL
-        END AS err_key
-      FROM queue_tasks
-      WHERE submitted_at >= ${new Date(window.from)} AND submitted_at <= ${new Date(window.to)}
-    ) f
-    GROUP BY GROUPING SETS ((f.model), (f.provider), (f.err_key))
-  `)) as unknown as Row[]
+        GROUPING(f.model) AS g_model,
+        GROUPING(f.provider) AS g_provider,
+        GROUPING(f.err_key) AS g_err,
+        f.model,
+        f.provider,
+        f.err_key,
+        COUNT(*)::int AS count
+      FROM (
+        SELECT
+          model,
+          provider,
+          CASE
+            WHEN error_type IS NOT NULL THEN error_type
+            WHEN status IN ('failed', 'reconciling') THEN 'unknown'
+            ELSE NULL
+          END AS err_key
+        FROM queue_tasks
+        WHERE submitted_at >= ${new Date(window.from)} AND submitted_at <= ${new Date(window.to)}
+      ) f
+      GROUP BY GROUPING SETS ((f.model), (f.provider), (f.err_key))
+    `)) as unknown as Row[]
 
-  const modelOptions: GenerationTasksFacetOption[] = []
-  const providerOptions: GenerationTasksFacetOption[] = []
-  const errorOptions: GenerationTasksFacetOption[] = []
-  for (const row of facetRows) {
-    const count = Number(row.count ?? 0)
-    if (Number(row.g_model) === 0 && row.model != null)
-      modelOptions.push({ value: String(row.model), count })
-    else if (Number(row.g_provider) === 0 && row.provider != null)
-      providerOptions.push({ value: String(row.provider), count })
-    else if (Number(row.g_err) === 0 && row.err_key != null)
-      errorOptions.push({ value: String(row.err_key), count })
+    const modelOptions: GenerationTasksFacetOption[] = []
+    const providerOptions: GenerationTasksFacetOption[] = []
+    const errorOptions: GenerationTasksFacetOption[] = []
+    for (const row of facetRows) {
+      const count = Number(row.count ?? 0)
+      if (Number(row.g_model) === 0 && row.model != null)
+        modelOptions.push({ value: String(row.model), count })
+      else if (Number(row.g_provider) === 0 && row.provider != null)
+        providerOptions.push({ value: String(row.provider), count })
+      else if (Number(row.g_err) === 0 && row.err_key != null)
+        errorOptions.push({ value: String(row.err_key), count })
+    }
+    const value: WindowFacetOptions = {
+      models: sortFacetOptions(modelOptions),
+      providers: sortFacetOptions(providerOptions),
+      errorTypes: sortFacetOptions(errorOptions),
+    }
+    if (windowFacetsCache.size > 32) windowFacetsCache.clear()
+    windowFacetsCache.set(key, { at: Date.now(), db: handle, value })
+    return value
+  })()
+  windowFacetsPending.set(key, { db: handle, promise })
+  try {
+    return await promise
+  } finally {
+    if (windowFacetsPending.get(key)?.promise === promise) windowFacetsPending.delete(key)
   }
-  const value: WindowFacetOptions = {
-    models: sortFacetOptions(modelOptions),
-    providers: sortFacetOptions(providerOptions),
-    errorTypes: sortFacetOptions(errorOptions),
-  }
-  if (windowFacetsCache.size > 32) windowFacetsCache.clear()
-  windowFacetsCache.set(key, { at: now, db: handle, value })
-  return value
 }
 
 const taskSelect = sql`
@@ -665,7 +685,7 @@ export async function getGenerationTasks(
   const customOrder = Boolean(
     (filters.sort && filters.sort !== 'submitted_at') || filters.dir === 'asc',
   )
-  if (!paged && cursor && customOrder) throw new TaskQueryError('游标分页仅支持按提交时间降序')
+  if (!paged && customOrder) throw new TaskQueryError('自定义排序仅支持页码分页，请传入 page 参数')
 
   const conditions = taskConditions(filters, window, { cursor: paged ? undefined : cursor })
   const where = sql.join(conditions, sql` AND `)
