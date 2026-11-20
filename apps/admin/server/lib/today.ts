@@ -23,6 +23,7 @@ import {
 import { getDbHandle } from './db'
 import { errorRecoveryJoins, tunnelRecoveryEvents } from './error-recovery'
 import { mapTaskListItem } from './queries'
+import { serverLogSource, serverLogsCte } from './server-log-source'
 import { effectiveLogLevel } from './server-logs'
 import { taskSourceSql } from './task-source'
 
@@ -188,8 +189,11 @@ export async function getTodayErrors(now = Date.now()): Promise<TodayErrorsResul
   const window = todayWindow(now)
   const recentWindow = { from: now - 15 * 60_000, to: now }
   const scanFrom = new Date(Math.min(window.from, recentWindow.from))
+  // 日志在 OpenObserve：取出分类要用的行，以 server_logs 之名交给下面的 SQL。前后各多取一分钟，
+  // 关联请求原因的 ±1 分钟窗口才完整。
+  const logs = await serverLogSource()(scanFrom.getTime() - 60_000, now + 60_000)
   const rows = (await getDbHandle().db.execute(sql`
-    WITH ${tunnelRecoveryEvents(scanFrom, now)}, errors AS (
+    WITH ${serverLogsCte(logs)}, ${tunnelRecoveryEvents(scanFrom, now)}, errors AS (
       SELECT 'server' AS source, id, at, service, instance, event, message, task_id, request_id, group_key AS "group",
         COALESCE(fields->>'stack', fields->'err'->>'stack') AS stack, fields, NULL::text AS device_id, NULL::text AS user_id
       FROM server_logs
@@ -677,6 +681,7 @@ export async function getOverviewActivity(window: TimeWindow): Promise<OverviewA
   const from = new Date(window.from)
   const to = new Date(window.to)
   const db = getDbHandle().db
+  const logs = await serverLogSource()(window.from, window.to)
   const [tasks, server, client] = await Promise.all([
     db.execute(sql`
       ${taskSelect}
@@ -684,6 +689,7 @@ export async function getOverviewActivity(window: TimeWindow): Promise<OverviewA
       ORDER BY t.submitted_at DESC, t.id DESC LIMIT 10
     `),
     db.execute(sql`
+      WITH ${serverLogsCte(logs)}
       SELECT id, at, service, message, task_id, request_id, instance,
         COALESCE(fields->>'stack', fields->'err'->>'stack') AS stack,
         COUNT(*) OVER() AS total

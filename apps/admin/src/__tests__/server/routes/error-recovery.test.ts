@@ -2,11 +2,13 @@ import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { sql } from 'drizzle-orm'
+import { useTableLogSource } from '../helpers/table-log-source'
 
 process.env.ADMIN_PASSWORD = 'test-pass-1234'
 process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
 process.env.DATABASE_URL = await resetTestDatabase('admin_error_recovery')
 const writer = createDb(process.env.DATABASE_URL)
+useTableLogSource(writer)
 const { getTodayErrors } = await import('../../../../server/lib/today')
 afterAll(() => writer.close())
 const now = Date.UTC(2026, 9, 15, 6)
