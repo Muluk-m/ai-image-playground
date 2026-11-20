@@ -529,32 +529,29 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 </Button>
               )}
               {projectView === 'chat' && (
-                <>
+                <div className="ml-auto flex shrink-0 items-center gap-2 md:gap-3">
                   <Button
                     variant="ghost"
-                    size="icon"
+                    size={mobile ? 'icon-lg' : 'icon-sm'}
                     type="button"
-                    className="studio-assets-trigger studio-search-trigger"
+                    className="text-muted-foreground [&_svg]:size-4"
                     aria-label="搜索当前对话"
-                    autoTooltip={false}
                     onClick={() => setSearchOpen(true)}
                   >
                     <Icon name="search" />
                   </Button>
                   <Button
                     variant="ghost"
-                    size="icon"
+                    size={mobile ? 'icon-lg' : 'sm'}
                     type="button"
-                    className="studio-assets-trigger studio-assets-trigger--labeled"
+                    className="text-muted-foreground [&_svg]:size-4"
                     aria-label={t('workspace.assets')}
-                    autoTooltip={false}
                     onClick={() => setAssetDrawerOpen(true)}
                   >
                     <Icon name="folder" />
-                    {/* 只放图标时没人认得出这是看图的地方（BUG-18）。窄屏收回成图标，靠 aria-label。 */}
-                    <span className="studio-assets-trigger-label">{t('workspace.assets')}</span>
+                    {!mobile && <span>{t('workspace.assets')}</span>}
                   </Button>
-                </>
+                </div>
               )}
             </div>
           )}
