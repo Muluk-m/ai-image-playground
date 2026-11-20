@@ -62,6 +62,7 @@ export default {
         success: 'hsl(var(--success))',
         warning: 'hsl(var(--warning))',
         danger: 'hsl(var(--danger))',
+        info: 'hsl(var(--info))',
         private: 'hsl(var(--private))',
         brand: {
           DEFAULT: 'hsl(var(--brand-action))',
