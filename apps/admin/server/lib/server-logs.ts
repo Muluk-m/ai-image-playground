@@ -54,13 +54,19 @@ export class LogsUnavailableError extends Error {}
 
 let obsClient: ObsClient | null | undefined
 let schemaCache: { fields: Set<string>; at: number } | undefined
-function defaultClient(): ObsClient {
+/** 这个部署的 OpenObserve 客户端；没开观测时为 null。 */
+export function obsClientOrNull(): ObsClient | null {
   if (obsClient === undefined) {
     const connection = obsConnectionFromEnv()
     obsClient = connection ? createObsClient(connection, { timeoutMs: 20_000 }) : null
   }
-  if (!obsClient) throw new LogsUnavailableError('这个部署没有开 OpenObserve，日志查询不可用')
   return obsClient
+}
+
+function defaultClient(): ObsClient {
+  const client = obsClientOrNull()
+  if (!client) throw new LogsUnavailableError('这个部署没有开 OpenObserve，日志查询不可用')
+  return client
 }
 
 /** 仅供测试。 */
@@ -69,7 +75,7 @@ export function _setObsClientForTesting(client: ObsClient | null | undefined): v
   schemaCache = undefined
 }
 
-async function logFields(client: ObsClient, now = Date.now()): Promise<Set<string>> {
+export async function logFields(client: ObsClient, now = Date.now()): Promise<Set<string>> {
   if (schemaCache && now - schemaCache.at < SCHEMA_TTL_MS) return schemaCache.fields
   const fields = await client.streamFields(OBS_STREAM, 'logs')
   // 流还没有数据时 schema 是空的：不缓存，数据一进来下一次请求就按真实字段拼。

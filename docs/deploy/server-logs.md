@@ -27,6 +27,8 @@ cloudflared 控制流关闭错误通过同一容器相邻的同原因警告确�
 其他错误（包括浏览器异常）没有可靠恢复证据时保持待确认；近期无错误或版本更新本身不证明恢复。
 分类只读现有任务和日志，不修改日志级别、不删除原始记录；计数为错误记录数，不是独立故障数。
 
+服务端日志从 OpenObserve 读（ADR 0033 P3-3，`apps/admin/server/lib/server-log-source.ts`）：每次取窗口内的 ERROR/FATAL、cloudflared 的注册、断开与 Serve tunnel error，以及与这些错误同一请求、带原因字段的行，转成 `server_logs` 的行形状，再交给原来的分类 SQL 和任务、前端错误、恢复记录一起关联，规则不变。一次最多取 5000 条错误，超出时截掉最旧的（总数偏小，较早的错误可能缺恢复证据而判成「待确认」，日志里会留一条警告）；原因只给最新 300 条错误所在的请求去查。OpenObserve 读不到时服务端错误按空处理，面板其余部分照常。没开 OpenObserve 的部署（测试环境）面板只有前端错误。
+
 API 错误展示接口、HTTP 状态、原始错误码和已记录的具体原因。通用请求失败日志可关联同一请求、服务、实例前后一分钟内的结构化错误，只有展示的 10 条记录参与关联，不改变日志条数。未知错误码保留原文；没有原因时明确提示查看相关日志，不推断故障已经恢复。原始消息、堆栈与相关日志入口继续保留。
 
 ## 图片上传诊断
@@ -43,7 +45,7 @@ API 错误展示接口、HTTP 状态、原始错误码和已记录的具体原�
 
 采集容器停止期间，运行中的容器在内存里暂存日志，恢复后补发（每容器驱动最多缓存 4096 条，超限会丢弃）；运行时间短于停机时间的一次性容器（例如迁移）会丢失这段输出。采集容器自身的输出只留在 `docker logs`，否则会形成回路。初次部署时 `scripts/app-compose.sh` 在其他服务之前启动它，启动失败只打警告，不影响发布。Compose BFF 和动态 BFF 都声明 `bff-logs` 别名。首个兼容 BFF 启动前，HTTP 连接失败由采集器缓冲重试，不向尚未支持接口的旧发布路由发送；后续新旧兼容实例可共同接收并去重。HTTP 400/401/404/413 等不可重试响应会丢弃该批次，不能用 Retry_Limit 声称所有错误都会补发。发布收尾用 Compose 更新 admin、采集和备份。已经在跑的 cloudflared 不重建，避免每次发布都把边缘连接拆掉。
 
-迁移 `0060_server_logs` 建表，`0061_server_logs_containers` 放宽服务名约束，`0062_server_logs_instance_at` 支持同容器上下文范围查询；只有 BFF 写入。P3 期间这张表照常写入，Admin 的日志页已改读 OpenObserve，概览错误面板还读它（#1937 P3-3 再切），停写和删表见 #1937。日志界面和接口都要求 Admin 会话。写入使用独立单连接池，连接超时 2 秒、语句超时 1.5 秒，避免挤占业务连接。
+迁移 `0060_server_logs` 建表，`0061_server_logs_containers` 放宽服务名约束，`0062_server_logs_instance_at` 支持同容器上下文范围查询；只有 BFF 写入。P3 期间这张表照常写入，Admin 的日志页和概览错误面板都已改读 OpenObserve，停写和删表见 #1937。日志界面和接口都要求 Admin 会话。写入使用独立单连接池，连接超时 2 秒、语句超时 1.5 秒，避免挤占业务连接。
 
 日志保留由持有 PostgreSQL session advisory lock 的单个维护执行者在启动时及每分钟清理，保留近 7 天、约 20 万条。保留原来的每分钟清理能力，同时避免所有 BFF／worker 重复删除同一共享数据。单次删除最多 5000 条，容量超限会逐步回落。领导连接关闭或失败后释放锁，其他实例下一周期尝试接管；每个维护 job 的领导者占用一个专用连接，跟随者不保留空闲连接。worker 的过期服务心跳与宿主机历史采样从 10 秒任务恢复循环移到独立的 5 分钟共享维护。接管或重启后可能在同一时间窗口再次清理，删除操作幂等；清理失败不阻塞业务，任务恢复、取消检测与租约续期保持原频率。
 
@@ -59,7 +61,7 @@ app.env 里 `OBSERVABILITY_ENABLED=true` 时，下一次发布由 `scripts/app-c
 - `openobserve`（v1.1.2，上限 512 MB）：日志和 span 都写进 `app` 流，以 Parquet 存在 `OBS_S3_BUCKET` 的 `OBS_S3_PREFIX` 下，保留 `OBS_RETENTION_DAYS` 天（默认 30）。本地卷 `openobserve-data` 只放预写日志和查询缓存（数据缓存 1 GB、结果缓存 128 MB 封顶；宿主机约有 19 GB 空闲）。关了遥测、GeoIP 下载和模型价格同步，除 R2 外不外连。镜像没有 shell，不配容器健康检查。它自己的输出只留在 `docker logs`：转发进来会自己喂自己。
 - `obs-proxy`：开源版 OpenObserve 没有只读角色，对外只开这个代理。它用自己的 `OBS_PROXY_TOKEN`（Bearer，至少 32 字符）鉴权，只放行 `POST /api/default/_search`、`GET /api/default/streams` 和 `GET /api/default/<流>/traces/latest`，OpenObserve 账号由代理代填（`apps/bff/src/ops/obs-proxy.ts`）。
 
-worker 的断流告警和 Admin 的日志页经这个代理读 OpenObserve（ADR 0033 P3，#1937）；Admin 概览的错误面板在 P3-3 切过来，目前仍读 `server_logs`。需要 app.env 设 `OBS_PROXY_URL=http://obs-proxy:5090`，令牌用同一个 `OBS_PROXY_TOKEN`。不设时视为这个部署没开观测，断流告警不观测、日志页说明不可用（测试环境就是这样）；`OBSERVABILITY_ENABLED=true` 却没设时，发布会打警告。查询客户端在 `packages/node-kit/src/obs-client.ts`，SQL 拼装在 `packages/shared/src/obs-query.ts`，CLI、Admin、BFF 共用。
+worker 的断流告警、Admin 的日志页和概览错误面板经这个代理读 OpenObserve（ADR 0033 P3，#1937）。需要 app.env 设 `OBS_PROXY_URL=http://obs-proxy:5090`，令牌用同一个 `OBS_PROXY_TOKEN`。不设时视为这个部署没开观测，断流告警不观测、日志页说明不可用（测试环境就是这样）；`OBSERVABILITY_ENABLED=true` 却没设时，发布会打警告。查询客户端在 `packages/node-kit/src/obs-client.ts`，SQL 拼装在 `packages/shared/src/obs-query.ts`，CLI、Admin、BFF 共用。
 
 查询用 `scripts/obs.ts`，不需要 Admin：
 

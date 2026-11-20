@@ -23,6 +23,7 @@ import {
 import { getDbHandle } from './db'
 import { errorRecoveryJoins, tunnelRecoveryEvents } from './error-recovery'
 import { mapTaskListItem } from './queries'
+import { type LegacyLogRow, mergeRows, serverLogSource, serverLogsCte } from './server-log-source'
 import { effectiveLogLevel } from './server-logs'
 import { taskSourceSql } from './task-source'
 
@@ -188,8 +189,15 @@ export async function getTodayErrors(now = Date.now()): Promise<TodayErrorsResul
   const window = todayWindow(now)
   const recentWindow = { from: now - 15 * 60_000, to: now }
   const scanFrom = new Date(Math.min(window.from, recentWindow.from))
-  const rows = (await getDbHandle().db.execute(sql`
-    WITH ${tunnelRecoveryEvents(scanFrom, now)}, errors AS (
+  // 日志在 OpenObserve：取出分类要用的行，以 server_logs 之名交给下面的 SQL。前后各多取一分钟，
+  // 关联请求原因的 ±1 分钟窗口才完整。
+  const source = serverLogSource()
+  const logFrom = scanFrom.getTime() - 60_000
+  const logTo = now + 60_000
+  const batch = await source.logs(logFrom, logTo)
+  const classify = async (logs: readonly LegacyLogRow[]) =>
+    (await getDbHandle().db.execute(sql`
+    WITH ${serverLogsCte(logs)}, ${tunnelRecoveryEvents(scanFrom, now)}, errors AS (
       SELECT 'server' AS source, id, at, service, instance, event, message, task_id, request_id, group_key AS "group",
         COALESCE(fields->>'stack', fields->'err'->>'stack') AS stack, fields, NULL::text AS device_id, NULL::text AS user_id
       FROM server_logs
@@ -252,6 +260,19 @@ export async function getTodayErrors(now = Date.now()): Promise<TodayErrorsResul
     ) cause ON true
     ORDER BY latest.at DESC, latest.source, latest.id DESC
   `)) as unknown as Row[]
+  // 先分类，定下各分组实际展示的条目，再只给这些条目的请求补查原因行，补上后重新算一遍。
+  let rows = await classify(batch.rows)
+  const shownRequests = [
+    ...new Set(
+      rows
+        .filter((row) => row.source === 'server' && row.request_id != null)
+        .map((row) => String(row.request_id)),
+    ),
+  ]
+  if (shownRequests.length > 0) {
+    const causes = await source.causes(shownRequests, logFrom, logTo)
+    if (causes.length > 0) rows = await classify(mergeRows(batch.rows, causes))
+  }
   const entries = rows.map((row): TodayErrorItem => {
     const fields = row.fields as Record<string, unknown> | null
     const status = Number(fields?.status)
@@ -298,7 +319,11 @@ export async function getTodayErrors(now = Date.now()): Promise<TodayErrorsResul
       },
     }
   }
-  return { ...resultWindow(window, false), recent: resultWindow(recentWindow, true) }
+  return {
+    ...resultWindow(window, false),
+    recent: resultWindow(recentWindow, true),
+    serverLogs: batch.availability,
+  }
 }
 
 export class TaskQueryError extends Error {}
@@ -677,13 +702,18 @@ export async function getOverviewActivity(window: TimeWindow): Promise<OverviewA
   const from = new Date(window.from)
   const to = new Date(window.to)
   const db = getDbHandle().db
-  const [tasks, server, client] = await Promise.all([
+  // 这里只列最新几条错误和总数，用不上隧道与原因行。日志和下面的数据库查询并行读。
+  const logRead = serverLogSource().logs(window.from, window.to, { errorsOnly: true })
+  const [tasks, { server, availability }, client] = await Promise.all([
     db.execute(sql`
       ${taskSelect}
       WHERE t.submitted_at >= ${from} AND t.submitted_at <= ${to}
       ORDER BY t.submitted_at DESC, t.id DESC LIMIT 10
     `),
-    db.execute(sql`
+    logRead.then(async ({ rows: logs, availability }) => ({
+      availability,
+      server: await db.execute(sql`
+      WITH ${serverLogsCte(logs)}
       SELECT id, at, service, message, task_id, request_id, instance,
         COALESCE(fields->>'stack', fields->'err'->>'stack') AS stack,
         COUNT(*) OVER() AS total
@@ -692,6 +722,7 @@ export async function getOverviewActivity(window: TimeWindow): Promise<OverviewA
         AND ${effectiveLogLevel} IN ('error', 'fatal')
       ORDER BY at DESC, id DESC LIMIT 5
     `),
+    })),
     db.execute(sql`
       SELECT e.id, e.received_at AS at, e.fingerprint, e.stack, e.user_id, e.device_id, u.username,
         CASE WHEN e.name IS NULL THEN e.message ELSE e.name || ': ' || e.message END AS message,
@@ -708,6 +739,7 @@ export async function getOverviewActivity(window: TimeWindow): Promise<OverviewA
     window,
     tasks: taskRows.map(mapGenerationTask),
     server: {
+      availability,
       total: Number(serverRows[0]?.total ?? 0),
       entries: serverRows.map((row) => ({
         id: String(row.id),

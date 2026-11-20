@@ -3,11 +3,13 @@ import { createDb } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { CLIENT_ERROR_RECOVERY_OPERATIONS } from '@image-playground/shared'
 import { todayWindow } from '../../../../contracts'
+import { useTableLogSource } from '../helpers/table-log-source'
 
 process.env.DATABASE_URL = await resetTestDatabase('admin_today')
 process.env.ADMIN_PASSWORD = 'test-pass-1234'
 process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
 const writer = createDb(process.env.DATABASE_URL)
+await useTableLogSource(writer)
 const from = Date.UTC(2026, 9, 1, 16)
 const to = from + 3600_000
 await writer.db.insert(writer.schema.users).values([

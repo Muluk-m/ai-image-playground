@@ -75,8 +75,22 @@ export function OverviewActivity({ data }: { data: OverviewActivityResult }) {
         </Card>
         <Card className="min-w-0">
           <CardHeader className="flex-row items-center justify-between space-y-0 p-4">
-            <CardTitle className="text-sm">后端错误日志 · {data.server.total}</CardTitle>
-            <span className="text-xs text-muted-foreground">最近 5 条 · 保留 7 天</span>
+            <CardTitle className="text-sm">
+              后端错误日志 ·{' '}
+              {data.server.availability === 'unavailable' || data.server.availability === 'off'
+                ? '—'
+                : `${data.server.total}${data.server.availability === 'truncated' ? '+' : ''}`}
+            </CardTitle>
+            <span className="text-xs text-muted-foreground">
+              {
+                {
+                  unavailable: '日志暂时读不到',
+                  off: '本部署未开 OpenObserve',
+                  truncated: '错误过多，仅统计最新部分',
+                  complete: '最近 5 条',
+                }[data.server.availability ?? 'complete']
+              }
+            </span>
           </CardHeader>
           <CardContent className="p-0">
             {data.server.entries.length ? (
