@@ -1,3 +1,4 @@
+// P3-5（#1937）起 BFF 不再接收容器日志，这里已没有生产调用方；P3-6 删除 server_logs 时一并删掉。
 import { createHash } from 'node:crypto'
 import {
   SERVER_LOG_SERVICES,
