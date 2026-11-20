@@ -20,7 +20,11 @@ export interface ParsedClientErrorBatch {
 
 const KINDS = new Set<string>(CLIENT_ERROR_KINDS)
 
+/** W3C trace id：32 位小写十六进制，全零无效。 */
+const TRACE_ID = /^(?!0{32}$)[0-9a-f]{32}$/
+
 // PostgreSQL 的 text 与 jsonb 都存不了 NUL；留着它，一条坏数据会让整批 INSERT 失败。
+
 function clip(value: unknown, max: number): string | undefined {
   if (typeof value !== 'string') return undefined
   const trimmed = value.replaceAll('\0', '').trim()
@@ -74,6 +78,12 @@ export function parseClientErrorBatch(raw: string): ParsedClientErrorBatch | nul
     const entry = item as Record<string, unknown>
     const message = clip(entry.message, CLIENT_ERROR_LIMITS.message)
     if (typeof entry.kind !== 'string' || !KINDS.has(entry.kind) || !message) continue
+    const context = clipContext(entry.context)
+    const traceId =
+      typeof entry.traceId === 'string' && TRACE_ID.test(entry.traceId) ? entry.traceId : undefined
+    // 不单开列，并进 context：运营后台原样展示它，排查时拿去 `obs trace` 查服务端链路。
+    // 合并后同样受 context 长度上限约束；超了宁可丢链路，保住原有诊断字段。
+    const traced = traceId ? clipContext({ ...context, traceId }) : undefined
     parsed.push({
       kind: entry.kind as ClientErrorKind,
       message,
@@ -81,7 +91,8 @@ export function parseClientErrorBatch(raw: string): ParsedClientErrorBatch | nul
       stack: clip(entry.stack, CLIENT_ERROR_LIMITS.stack),
       url: clip(entry.url, CLIENT_ERROR_LIMITS.url),
       release: clip(entry.release, CLIENT_ERROR_LIMITS.release),
-      context: clipContext(entry.context),
+      traceId: traced ? traceId : undefined,
+      context: traced ?? context,
     })
   }
   const recovered: ClientErrorRecovery[] = []

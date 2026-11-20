@@ -11,6 +11,8 @@ import {
 import { tracer } from './telemetry'
 
 export const REQUEST_ID_HEADER = 'x-request-id'
+/** 本次请求所在的 trace id。前端没带 traceparent 的请求靠它把错误上报和服务端链路对上。 */
+export const TRACE_ID_HEADER = 'x-trace-id'
 
 /** 调用方（网关、前端）带来的 id 只在长得像 id 时沿用，免得把任意内容写进日志和响应头。 */
 const ACCEPTED_ID = /^[A-Za-z0-9._-]{8,128}$/
@@ -75,7 +77,12 @@ export function withRequestContext<T extends Response | undefined>(
           if (response.status >= 500) span.setStatus({ code: SpanStatusCode.ERROR })
         }
         span.end()
-        return withRequestIdHeader(response, requestId)
+        const spanContext = span.spanContext()
+        return withRequestIdHeader(
+          response,
+          requestId,
+          trace.isSpanContextValid(spanContext) ? spanContext.traceId : undefined,
+        )
       }),
     )
   }
@@ -89,15 +96,20 @@ function isTracedPath(pathname: string): boolean {
 function withRequestIdHeader<T extends Response | undefined>(
   response: T,
   requestId: string,
+  traceId?: string,
 ): T | Response {
   if (!response) return response
+  const apply = (headers: Headers) => {
+    headers.set(REQUEST_ID_HEADER, requestId)
+    if (traceId) headers.set(TRACE_ID_HEADER, traceId)
+  }
   try {
-    response.headers.set(REQUEST_ID_HEADER, requestId)
+    apply(response.headers)
     return response
   } catch {
     // 不可变的响应头（例如直接透传的 fetch 响应）：复制一份再加。
     const headers = new Headers(response.headers)
-    headers.set(REQUEST_ID_HEADER, requestId)
+    apply(headers)
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
