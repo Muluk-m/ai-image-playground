@@ -591,16 +591,22 @@ describe('auth client', () => {
   })
 
   it('revokes exactly the selected connection without exposing credentials', async () => {
-    const fetcher = vi.fn(async () => Response.json({ ok: true }))
+    const fetcher = vi.fn(async (_input: string, _init?: RequestInit) =>
+      Response.json({ ok: true }),
+    )
     vi.stubGlobal('fetch', fetcher)
     await expect(revokeCliConnection('connection/one')).resolves.toBeUndefined()
     expect(fetcher).toHaveBeenCalledWith(
       'https://bff.example.com/api/me/cli-connections/connection%2Fone',
-      {
+      expect.objectContaining({
         credentials: 'include',
         method: 'DELETE',
         signal: undefined,
-      },
+      }),
+    )
+    // DELETE 本来就要预检，顺带的 traceparent 不多一次往返。
+    expect(new Headers(fetcher.mock.calls[0]?.[1]?.headers).get('traceparent')).toMatch(
+      /^00-[0-9a-f]{32}-/,
     )
   })
 
