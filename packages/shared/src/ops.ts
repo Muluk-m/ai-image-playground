@@ -45,7 +45,8 @@ export const OPS_THRESHOLDS = {
   SLOW_GENERATION_MIN_RATIO: 0.05,
   /**
    * 上游维度（ADR 0033 P4，#1938），从 OpenObserve 的上游 span 聚合：15 分钟内同一渠道、模型
-   * 至少 10 次请求且三成以上 5xx 或连接失败，或 429 至少 10 次。阈值先按 2026-11 的流量定，跑一段时间再调。
+   * 至少 10 次请求且三成以上失败（5xx、连接或读取失败），或至少 10 个任务碰到 429（Vertex 退避重试
+   * 同一任务会留下多条 429，按任务去重）。阈值先按 2026-11 的流量定，跑一段时间再调。
    */
   UPSTREAM_WINDOW_MS: 15 * 60 * 1000,
   UPSTREAM_MIN_REQUESTS: 10,

@@ -284,6 +284,7 @@ describe('observeApp', () => {
     const queries: Array<{ sql: string; type?: string; startMs: number }> = []
     let fields = new Set([
       'operation_name',
+      'span_id',
       'upstream_provider',
       'upstream_model',
       'upstream_outcome',
@@ -299,17 +300,38 @@ describe('observeApp', () => {
     expect(await read(now)).toEqual([
       { provider: 'gemini', model: 'veo', requests: 12, failures: 4, throttled: 1 },
     ])
-    // 没有状态码字段时，失败就是非 ok 的结果，429 一条也数不出来。
-    expect(queries[0]?.sql).toContain("upstream_outcome <> 'ok' AND (NULL IS NULL OR NULL >= 500)")
+    // 取消不算请求；连接、读取失败不论状态码都算失败；没有状态码字段时 5xx 与 429 数不出来。
+    expect(queries[0]?.sql).toContain("upstream_outcome <> 'aborted'")
+    expect(queries[0]?.sql).toContain("upstream_outcome IN ('read_error', 'transport_error')")
+    expect(queries[0]?.sql).toContain('COUNT(DISTINCT CASE WHEN NULL = 429 THEN span_id END)')
     expect(queries[0]).toMatchObject({ type: 'traces', startMs: now - 15 * minute })
-    fields = new Set([...fields, 'http_response_status_code'])
+    fields = new Set([...fields, 'http_response_status_code', 'task_id'])
     await read(now)
-    expect(queries[1]?.sql).toContain('CAST(http_response_status_code AS BIGINT) >= 500')
-    expect(queries[1]?.sql).toContain('CAST(http_response_status_code AS BIGINT) = 429')
-    // 新部署还没有上游 span：字段不在，不查。
-    fields = new Set(['operation_name'])
+    expect(queries[1]?.sql).toContain(
+      "upstream_outcome = 'http_error' AND CAST(http_response_status_code AS BIGINT) >= 500",
+    )
+    // 同一任务的退避重试只算一次限流。
+    expect(queries[1]?.sql).toContain(
+      'COUNT(DISTINCT CASE WHEN CAST(http_response_status_code AS BIGINT) = 429 THEN COALESCE(task_id, span_id) END)',
+    )
+    // 新部署还没有任何 span：不查。
+    fields = new Set()
     expect(await read(now)).toEqual([])
     expect(queries).toHaveLength(2)
+  })
+
+  it('warns once when spans exist but the upstream fields are gone', async () => {
+    const { log } = await import('../../lib/logger')
+    const warn = spyOn(log, 'warn').mockImplementation(() => {})
+    const read = upstreamStatsReader({
+      search: async () => [],
+      searchAll: async () => ({ records: [], truncated: false }),
+      streamFields: async () => new Set(['operation_name', 'span_id']),
+    })
+    expect(await read(now)).toEqual([])
+    expect(await read(now)).toEqual([])
+    expect(warn).toHaveBeenCalledTimes(1)
+    warn.mockRestore()
   })
 
   it('observes upstream only where observability is configured', async () => {

@@ -1016,7 +1016,8 @@ async function callUpstreamVia(
   >()
   /** 写耗时日志，同时收尾这条请求的 CLIENT span：两者同起同止，耗时口径一致。 */
   const logRequestFinished = (fields: {
-    outcome: 'ok' | 'http_error' | 'read_error' | 'transport_error'
+    /** `aborted`：用户取消或换路时掐掉（调用方的 signal），不是上游的问题，上游告警不计。 */
+    outcome: 'ok' | 'http_error' | 'read_error' | 'transport_error' | 'aborted'
     status: number | null
     headersMs: number | null
     sentAt: number
@@ -1029,7 +1030,9 @@ async function callUpstreamVia(
     if (fields.status !== null) span.setAttribute('http.response.status_code', fields.status)
     if (fields.headersMs !== null) span.setAttribute('upstream.headers_ms', fields.headersMs)
     span.setAttribute('upstream.outcome', fields.outcome)
-    if (fields.error !== undefined) recordSpanError(span, fields.error)
+    if (fields.outcome === 'aborted') {
+      // 取消是预期内的结束，不标错误，也不记异常。
+    } else if (fields.error !== undefined) recordSpanError(span, fields.error)
     else if (fields.outcome !== 'ok') span.setStatus({ code: SpanStatusCode.ERROR })
     span.end()
     log.info(
@@ -1173,7 +1176,8 @@ async function callUpstreamVia(
     } catch (err) {
       if (sentAt !== undefined && span)
         logRequestFinished({
-          outcome: 'transport_error',
+          // 硬截止也会掐断请求，但那是上游太慢，照常算连接失败；只有调用方叫停才算取消。
+          outcome: externalSignal?.aborted && !deadline.timedOut ? 'aborted' : 'transport_error',
           status: null,
           headersMs: null,
           sentAt,
@@ -1221,7 +1225,13 @@ async function callUpstreamVia(
       const timing = dispatchTimings.get(res)
       if (timing)
         logRequestFinished({
-          outcome: !read ? 'read_error' : res.ok ? 'ok' : 'http_error',
+          outcome: !read
+            ? externalSignal?.aborted && !deadline.timedOut
+              ? 'aborted'
+              : 'read_error'
+            : res.ok
+              ? 'ok'
+              : 'http_error',
           status: res.status,
           ...timing,
         })

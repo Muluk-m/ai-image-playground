@@ -192,6 +192,18 @@ describe('上游维度', () => {
     ).toEqual([['firing:upstream-errors'], [], ['resolved:upstream-errors']])
   })
 
+  it('报过的组熔断或停用后整组没了请求，不算恢复；重新有请求且回到线内才恢复', () => {
+    const other = { ...stat(30, 0), model: 'other' }
+    expect(
+      run([
+        [T0, { upstream: [stat(20, 10), other] }],
+        [T0 + minute, { upstream: [other] }],
+        [T0 + 2 * minute, { upstream: [other] }],
+        [T0 + 3 * minute, { upstream: [stat(20, 1), other] }],
+      ]),
+    ).toEqual([['firing:upstream-errors'], [], [], ['resolved:upstream-errors']])
+  })
+
   it('告警文本列出出事的渠道和模型', () => {
     const { messages } = evaluateAlerts(
       { upstream: [stat(10, 4), { ...stat(30, 0, 12), model: 'veo' }] },

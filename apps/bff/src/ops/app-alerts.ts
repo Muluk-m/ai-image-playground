@@ -64,25 +64,36 @@ type UpstreamReader = ((now: number) => Promise<UpstreamStat[]>) | null
 
 /**
  * 上游维度（ADR 0033 P4，#1938）：OpenObserve 里每次上游请求都有一个 `upstream POST` span，
- * 带渠道、模型、结果和 HTTP 状态码。按渠道和模型聚合最近 15 分钟，就是上游的请求量、故障率与限流。
- * 失败只算 5xx 与连接、读取失败（状态码为空）；4xx 是请求本身的问题（参数、内容审核），不算上游故障。
- * 流里还没有上游 span（新部署）时字段不存在，直接返回空。
+ * 带渠道、模型、结果和 HTTP 状态码。按渠道和模型聚合最近 15 分钟：
+ * - 请求数不含调用方取消（`aborted`：用户取消、换路掐断），那不是上游的问题；
+ * - 失败 = 连接失败、响应读到一半失败（不论状态码）、5xx；4xx 是请求本身的问题（参数、内容审核），不算；
+ * - 限流按任务去重：Vertex 退避重试同一任务会留下多条 429。
+ * 流里还没有上游 span（新部署）时字段不存在，返回空；有 span 却缺上游字段（属性改名）时记一条警告，
+ * 免得告警静默失效没人知道。
  */
 export function upstreamStatsReader(client: ObsClient): (now: number) => Promise<UpstreamStat[]> {
+  let warned = false
   return async (now) => {
     const fields = await client.streamFields(OBS_STREAM, 'traces')
-    for (const required of [
-      'operation_name',
-      'upstream_provider',
-      'upstream_model',
-      'upstream_outcome',
-    ])
-      if (!fields.has(required)) return []
+    if (!fields.has('operation_name')) return []
+    const missing = ['upstream_provider', 'upstream_model', 'upstream_outcome'].filter(
+      (name) => !fields.has(name),
+    )
+    if (missing.length > 0) {
+      if (!warned && fields.size > 0)
+        log.warn(
+          { event: 'ops.upstream_fields_missing', missing },
+          'upstream spans lack the fields the upstream alerts read; those alerts are not observed',
+        )
+      warned = true
+      return []
+    }
     const status = fields.has('http_response_status_code')
       ? 'CAST(http_response_status_code AS BIGINT)'
       : 'NULL'
+    const taskKey = fields.has('task_id') ? 'COALESCE(task_id, span_id)' : 'span_id'
     const rows = await client.search({
-      sql: `SELECT upstream_provider AS provider, upstream_model AS model, COUNT(*) AS requests, SUM(CASE WHEN upstream_outcome <> 'ok' AND (${status} IS NULL OR ${status} >= 500) THEN 1 ELSE 0 END) AS failures, SUM(CASE WHEN ${status} = 429 THEN 1 ELSE 0 END) AS throttled FROM "${OBS_STREAM}" WHERE operation_name = 'upstream POST' GROUP BY upstream_provider, upstream_model`,
+      sql: `SELECT upstream_provider AS provider, upstream_model AS model, COUNT(*) AS requests, SUM(CASE WHEN upstream_outcome IN ('read_error', 'transport_error') OR (upstream_outcome = 'http_error' AND ${status} >= 500) THEN 1 ELSE 0 END) AS failures, COUNT(DISTINCT CASE WHEN ${status} = 429 THEN ${taskKey} END) AS throttled FROM "${OBS_STREAM}" WHERE operation_name = 'upstream POST' AND upstream_outcome <> 'aborted' GROUP BY upstream_provider, upstream_model`,
       type: 'traces',
       startMs: now - OPS_THRESHOLDS.UPSTREAM_WINDOW_MS,
       endMs: now + 60_000,
