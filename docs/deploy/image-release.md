@@ -82,7 +82,7 @@ command="/home/ubuntu/bin/aip-ci-receive release",restrict ssh-ed25519 AAAA… a
 command="/home/ubuntu/bin/aip-ci-receive test",restrict ssh-ed25519 AAAA… aip-ci-deploy-test@github-actions
 ```
 
-生产 key（secret `VPS_SSH_KEY`）范围 `release`，只接受 `deploy <aip-12位hex-12位hex> paid <run_id>`；测试 key（secret `VPS_SSH_KEY_TEST`，仅 `deploy-test.yml` 使用）范围 `test`，只接受目标 `test`。没有范围参数或范围不认识时拒绝一切；其余一律拒绝（退出码 2）。发布包是**数据包**，只允许 `SHA256SUMS`、`images.tsv` 和可选 `images.tar.gz`，上传 shell 脚本或 `scripts/` 目录直接拒绝。receiver 只执行 VPS 固定的 `~/deploy-runtime/scripts/vps-deploy.sh`，不执行发布包代码。stdin 的 tar 上限 64 MiB，解到 `~/releases/<release-id>`；同一提交重发时保留原目录，改解到 `<release-id>.run-<run_id>`，解包失败会清理。然后以 `DEPLOY_ACTOR=github-actions/run-<id>` 运行固定 runtime 并透传退出码；发布失败时目录改名为 `….failed-run-<run_id>` 留作排查。receiver 与固定 runtime 的安装更新是仓库外前提，见上文。
+生产 key（secret `VPS_SSH_KEY`）范围 `release`，只接受 `deploy <aip-12位hex-12位hex> paid <run_id>`；测试 key（secret `VPS_SSH_KEY_TEST`，仅 `deploy-test.yml` 使用）范围 `test`，只接受目标 `test`。没有范围参数或范围不认识时拒绝一切；其余一律拒绝（退出码 2）。发布包是**数据包**，只允许 `SHA256SUMS`、`images.tsv` 和可选 `images.tar.gz`，上传 shell 脚本或 `scripts/` 目录直接拒绝。receiver 不执行发布包代码。`paid` 执行的是**所发提交自己的部署代码**：从 `images.tsv` 读出公开提交，在 VPS 的只含提交的镜像仓库（`~/deploy-runtimes/.mirror.git`，`blob:none`）里拉取公开仓库的 main，确认该提交在 main 上（合并 main 本身就要 Nain 确认），再把它的 `deploy/` 与 `scripts/` 解到 `~/deploy-runtimes/<提交>/` 执行，`~/deploy-runtimes/current-paid` 指向最近一次使用的那份；只保留最近 5 份，回滚到更早的提交会重新解出。拉不到 GitHub 时只允许重发之前验证过的提交，新提交拒绝发布，不会退回旧脚本。提交不在 main 上、清单里没有提交，一律拒绝。`test` 的分支免审批即可推送，仍执行 VPS 固定的 `~/deploy-runtime/scripts/vps-deploy.sh`；固定 runtime 的 `.commit` 与所发提交不一致时只在发布日志里告警。stdin 的 tar 上限 64 MiB，解到 `~/releases/<release-id>`；同一提交重发时保留原目录，改解到 `<release-id>.run-<run_id>`，解包失败会清理。然后以 `DEPLOY_ACTOR=github-actions/run-<id>` 运行选定的 runtime（日志首行 `Deployment runtime: <目录> (<提交>)`）并透传退出码；发布失败时目录改名为 `….failed-run-<run_id>` 留作排查。receiver 本身与 test 的固定 runtime 的安装更新仍是仓库外前提，见上文；`paid` 的部署脚本随发布自动生效，不必再手工同步。
 
 ## 前端：一个 Pages 项目、多个域名（手动应急）
 
@@ -200,15 +200,15 @@ export PATH=/opt/homebrew/bin:$PATH   # 仅 macmini2
 
 构建输入固定为 Git 提交，不含未提交文件或凭据。使用 `aip-release` builder（4 核、6 GiB、无额外 Swap、阶段并发 1）生成 `linux/amd64` 镜像；保留现有构建锁，并与其他重型任务错峰。发布目录只包含 `images.tsv`、`SHA256SUMS`，archive transport 另含 `images.tar.gz`；部署代码使用 VPS 固定 runtime。生产构建 `paid-<公开12位>-<私有12位>`（muvloom 镜像）、`backup-<公开12位>` 与 `segmenter-<版本>-<公开12位>`；测试构建 `test-<公开12位>-<私有12位>` 与 backup，不携带 segmenter。每个镜像构建后立即推送，本地标签不变。首次推送上传全部层，之后只传变更层。
 
-3. 工作站中转发布数据包，或由 CI 通过受限 SSH 入口上传；不要再从历史发布目录执行 `scripts/vps-deploy.sh`。手工发布必须使用固定 runtime：
+3. 工作站中转发布数据包，或由 CI 通过受限 SSH 入口上传；不要再从历史发布目录执行 `scripts/vps-deploy.sh`。手工发布 `paid` 使用最近一次 CI 发布验证过的 runtime（`~/deploy-runtimes/current-paid`），`test` 使用固定 runtime：
 
 ```sh
 scp -r macmini2:/Users/mac/releases/aip-<release-id> /tmp/
 scp -r /tmp/aip-<release-id> tx-vps:/home/ubuntu/releases/
-ssh tx-vps '/home/ubuntu/deploy-runtime/scripts/vps-deploy.sh paid /home/ubuntu/releases/aip-<release-id>'
+ssh tx-vps '/home/ubuntu/deploy-runtimes/current-paid/scripts/vps-deploy.sh paid /home/ubuntu/releases/aip-<release-id>'
 ```
 
-接收脚本持有发布锁，校验 `SHA256SUMS`（须覆盖目录内全部数据文件，多出脚本或目录即拒绝），按 digest `docker pull` 并打回本地标签，再校验本地镜像确实带着该 digest、架构、`APP_VERSION` 和原生依赖，最后执行固定 runtime 的兼容迁移与启动；保留 VPS 原有运行配置。任一镜像拉取或校验失败都不改动服务。CI 部署失败时，入口把该发布目录改名为 `<id>.failed-run-<run_id>` 留作排查，同一提交可直接重跑。
+接收脚本持有发布锁，校验 `SHA256SUMS`（须覆盖目录内全部数据文件，多出脚本或目录即拒绝），按 digest `docker pull` 并打回本地标签，再校验本地镜像确实带着该 digest、架构、`APP_VERSION` 和原生依赖，最后执行所选 runtime（`paid` 为所发提交自己的，`test` 为固定的）的兼容迁移与启动；保留 VPS 原有运行配置。任一镜像拉取或校验失败都不改动服务。CI 部署失败时，入口把该发布目录改名为 `<id>.failed-run-<run_id>` 留作排查，同一提交可直接重跑。
 
 ### `images.tsv`
 
@@ -284,4 +284,4 @@ scripts/app-compose.sh rollback <project> <旧镜像>
 
 运行中镜像不得删除。回滚优先使用 VPS 本地保留的镜像。本地镜像缺失时，由当前安全发布工具按已验证 digest 重新拉取，再执行回滚。GHCR 镜像清理不属于本流程。
 
-固定 runtime 位于 `~/deploy-runtime`，更新时先保留带时间戳的备份目录。手工入口须明确传 `paid` 或 `test` 及数据发布目录，不执行 VPS 旧检出或历史发布包内的脚本。备份、恢复及历史备用记录见[灾备手册](cold-recovery.md)。
+`paid` 的 runtime 按提交放在 `~/deploy-runtimes/<提交>/`，随每次发布自动解出；`test` 的固定 runtime 位于 `~/deploy-runtime`，更新时先保留带时间戳的备份目录，并写入 `.commit`（同步到的公开提交）供漂移告警比对。手工入口须明确传 `paid` 或 `test` 及数据发布目录，不执行 VPS 旧检出或历史发布包内的脚本。备份、恢复及历史备用记录见[灾备手册](cold-recovery.md)。
