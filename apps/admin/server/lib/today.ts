@@ -23,7 +23,7 @@ import {
 import { getDbHandle } from './db'
 import { errorRecoveryJoins, tunnelRecoveryEvents } from './error-recovery'
 import { mapTaskListItem } from './queries'
-import { type LegacyLogRow, serverLogSource, serverLogsCte } from './server-log-source'
+import { type LegacyLogRow, mergeRows, serverLogSource, serverLogsCte } from './server-log-source'
 import { effectiveLogLevel } from './server-logs'
 import { taskSourceSql } from './task-source'
 
@@ -271,7 +271,7 @@ export async function getTodayErrors(now = Date.now()): Promise<TodayErrorsResul
   ]
   if (shownRequests.length > 0) {
     const causes = await source.causes(shownRequests, logFrom, logTo)
-    if (causes.length > 0) rows = await classify([...batch.rows, ...causes])
+    if (causes.length > 0) rows = await classify(mergeRows(batch.rows, causes))
   }
   const entries = rows.map((row): TodayErrorItem => {
     const fields = row.fields as Record<string, unknown> | null

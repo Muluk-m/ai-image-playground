@@ -182,9 +182,11 @@ export function obsServerLogSource(client: ObsClient): ServerLogSource {
           .join(' OR ')
         return `${exprs.service} = 'cloudflared' AND (${lines})`
       })
-      if (tunnels.truncated)
-        console.warn(`[overview] tunnel lines truncated at ${tunnels.records.length} rows`)
-      return { rows: unique([...errors.records, ...tunnels.records]), availability }
+      // 隧道行截断同样让结果不完整：较早的错误缺了重连证据，会从「已恢复」掉成「待确认」。
+      return {
+        rows: unique([...errors.records, ...tunnels.records]),
+        availability: availability === 'truncated' || tunnels.truncated ? 'truncated' : 'complete',
+      }
     },
     async causes(requestIds, from, to) {
       const exprs = logSql(await logFields(client))
@@ -211,6 +213,13 @@ export function obsServerLogSource(client: ObsClient): ServerLogSource {
   }
 }
 
+/** 同一条日志可能被两次查询都取到（错误本身带原因字段时，原因查询也会返回它）：按 id 只留一份。 */
+export function mergeRows(...batches: ReadonlyArray<readonly LegacyLogRow[]>): LegacyLogRow[] {
+  const rows = new Map<string, LegacyLogRow>()
+  for (const batch of batches) for (const row of batch) rows.set(row.id, row)
+  return [...rows.values()]
+}
+
 function unique(records: readonly ObsRecord[]): LegacyLogRow[] {
   const rows = new Map<string, LegacyLogRow>()
   for (const record of records) {
@@ -220,10 +229,14 @@ function unique(records: readonly ObsRecord[]): LegacyLogRow[] {
   return [...rows.values()]
 }
 
-/** 把来源的行做成名为 `server_logs` 的 CTE，放在原 SQL 的 WITH 里，遮住同名的表。 */
+/**
+ * 把来源的行做成名为 `server_logs` 的 CTE，放在原 SQL 的 WITH 里，遮住同名的表。
+ * Bun 的驱动会把字符串参数当成 jsonb 字符串标量送进去：`#>> '{}'` 先取出文本再解析，
+ * 驱动按数组还是按字符串传都一样。
+ */
 export function serverLogsCte(rows: readonly LegacyLogRow[]): SQL {
   return sql`server_logs AS (
-    SELECT * FROM jsonb_to_recordset(${JSON.stringify(rows)}::jsonb) AS rows(
+    SELECT * FROM jsonb_to_recordset((${JSON.stringify(rows)}::jsonb #>> '{}')::jsonb) AS rows(
       id text, at timestamptz, service text, instance text, version text, level text, event text,
       group_key text, message text, request_id text, task_id text, fields jsonb
     )

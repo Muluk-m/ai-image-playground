@@ -15,6 +15,7 @@ afterAll(() => writer.close())
 const {
   _setServerLogSourceForTesting,
   legacyRow,
+  mergeRows,
   obsServerLogSource,
   serverLogSource,
   serverLogsCte,
@@ -146,6 +147,29 @@ describe('server log source for the overview errors', () => {
     expect(queries).toHaveLength(1)
   })
 
+  it('marks the result incomplete when only the tunnel lines were truncated', async () => {
+    let call = 0
+    const fake: ObsClient = {
+      async search() {
+        return []
+      },
+      async searchAll() {
+        call++
+        return { records: [record({ log_key: String(call).repeat(32) })], truncated: call === 2 }
+      },
+      async streamFields() {
+        return SCHEMA
+      },
+    }
+    expect((await obsServerLogSource(fake).logs(0, now)).availability).toBe('truncated')
+  })
+
+  it('keeps one copy of a row that both the error and the cause lookups returned', () => {
+    const error = legacyRow(record({ requestid: 'req-1', errorcode: 'x' }))
+    const other = legacyRow(record({ log_key: 'b'.repeat(32) }))
+    expect(mergeRows([error, other], [error])).toEqual([error, other])
+  })
+
   it('looks up causes for the given requests only, by fields the stream has', async () => {
     const { fake, queries } = client(() => [
       record({ requestid: 'req-1', severity_number: 13, errorcode: 'quota_exceeded' }),
@@ -228,6 +252,25 @@ describe('server log source for the overview errors', () => {
         service: 'cloudflared',
         recovery: { state: 'recovered', recoveredAt: at + 1_500 },
       })
+    } finally {
+      _setServerLogSourceForTesting(undefined)
+    }
+  })
+
+  it('does not count an error twice when the cause lookup returns it again', async () => {
+    const error = legacyRow(record({ requestid: 'req-dup', errorcode: 'upstream_timeout' }))
+    _setServerLogSourceForTesting({
+      async logs() {
+        return { rows: [error], availability: 'complete' }
+      },
+      async causes() {
+        return [error]
+      },
+    })
+    try {
+      const data = await getTodayErrors(now)
+      expect(data.total).toBe(1)
+      expect(data.entries.filter((entry) => entry.id === error.id)).toHaveLength(1)
     } finally {
       _setServerLogSourceForTesting(undefined)
     }
