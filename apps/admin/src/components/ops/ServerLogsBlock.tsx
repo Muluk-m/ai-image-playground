@@ -51,6 +51,9 @@ function levelStyle(level: string) {
 
 function logStack(entry: ServerLogEntry): string | null {
   if (typeof entry.fields.stack === 'string') return entry.fields.stack
+  // OpenObserve 里嵌套字段被展平：pino 的 err.stack 存成 err_stack。
+  for (const key of ['err_stack', 'error_stack'])
+    if (typeof entry.fields[key] === 'string') return entry.fields[key] as string
   const err = entry.fields.err
   return err && typeof err === 'object' && 'stack' in err && typeof err.stack === 'string'
     ? err.stack

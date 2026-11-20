@@ -328,6 +328,23 @@ describe('server log exploration', () => {
     )
     expect(await screen.findByRole('alert')).toHaveTextContent('这个部署没有开 OpenObserve')
   })
+  it('shows the stack that OpenObserve stores flattened as err_stack', async () => {
+    get.mockResolvedValue({
+      ...result,
+      entries: [{ ...result.entries[0]!, fields: { err_stack: 'at flattened.ts:7' } }],
+    })
+    render(
+      <QueryClientProvider
+        client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+      >
+        <ServerLogsBlock />
+      </QueryClientProvider>,
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'ERROR worker upstream timeout' }))
+    expect(
+      within(await screen.findByRole('dialog', { name: '日志详情' })).getByText(/flattened.ts:7/),
+    ).toBeInTheDocument()
+  })
   it('filters by trace and opens the span tree from a log line', async () => {
     const traceId = '4bf92f3577b34da6a3ce929d0e0e4736'
     get.mockImplementation(async (url) =>

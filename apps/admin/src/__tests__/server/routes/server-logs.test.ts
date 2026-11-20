@@ -177,9 +177,9 @@ describe('server log explorer on OpenObserve', () => {
       task_id: 'task-1',
       fields: { userId: 'user-a', trace_id: '4bf92f3577b34da6a3ce929d0e0e4736' },
     })
-    // OpenObserve 与 Collector 的元数据不进 fields。
-    expect(result.entries[0]!.fields).not.toHaveProperty('container_name')
+    // OpenObserve 与 Collector 的元数据不进 fields；容器名留着，纯文本行靠它认出是哪个容器。
     expect(result.entries[0]!.fields).not.toHaveProperty('fluent_tag')
+    expect(result.entries[0]!.fields).toHaveProperty('container_name')
     // 查询范围就是页面选的时间段。
     expect(searches.every((s) => s.startMs === now - 3600_000 && s.endMs === now)).toBe(true)
   })
@@ -193,9 +193,9 @@ describe('server log explorer on OpenObserve', () => {
     expect(new Set(ids).size).toBe(105)
     expect(second.nextCursor).toBeNull()
     expect(second).not.toHaveProperty('summary')
-    const page = searches.filter((s) => s.sql.startsWith('SELECT * FROM'))
+    const page = searches.filter((s) => s.sql.startsWith('SELECT *,'))
     expect(page.at(-1)).toMatchObject({ from: 100, size: 101 })
-    expect(page.at(-1)?.sql).toContain('ORDER BY _timestamp DESC, instance, body')
+    expect(page.at(-1)?.sql).toContain('ORDER BY _timestamp DESC, log_instance, body')
   })
 
   it('turns every filter into an exact OpenObserve condition and keeps quotes literal', () => {
@@ -225,9 +225,9 @@ describe('server log explorer on OpenObserve', () => {
       "trace_id = 'tr'",
       "userid = 'u'",
       "mediaid = 'm'",
-      "instance = 'i'",
+      "COALESCE(instance, container_name) = 'i'",
       "version = 'v'",
-      "COALESCE(event, substr(body, 1, 120)) = 'g'",
+      expect.stringMatching(/^COALESCE\(event, substr\(regexp_replace\(.*\) = 'g'$/),
       "(str_match_ignore_case(body, ''' OR 1=1--') OR str_match_ignore_case(event, ''' OR 1=1--') OR requestid = ''' OR 1=1--' OR taskid = ''' OR 1=1--' OR trace_id = ''' OR 1=1--')",
     ])
     expect(level).toBe('COALESCE(severity_number, 9) >= 13 AND COALESCE(severity_number, 9) < 17')
@@ -239,7 +239,7 @@ describe('server log explorer on OpenObserve', () => {
     const facet = searches.find((s) => s.sql.startsWith('SELECT CASE'))!
     expect(facet.sql).toContain("taskid = 'task-1'")
     expect(facet.sql).not.toContain('< 21')
-    const page = searches.find((s) => s.sql.startsWith('SELECT * FROM'))!
+    const page = searches.find((s) => s.sql.startsWith('SELECT *,'))!
     expect(page.sql).toContain('COALESCE(severity_number, 9) >= 17')
   })
 
@@ -266,7 +266,9 @@ describe('server log explorer on OpenObserve', () => {
     expect(result.entries[50]?.id).toBe(entry.id)
     // 前面的按时间正序排回来。
     expect(result.entries[0]?.at).toBeLessThan(result.entries[49]!.at)
-    expect(searches.every((s) => s.sql.includes("instance = 'bb272d8bb3c5'"))).toBe(true)
+    expect(
+      searches.every((s) => s.sql.includes("COALESCE(instance, container_name) = 'bb272d8bb3c5'")),
+    ).toBe(true)
     expect(searches.every((s) => s.size === 50)).toBe(true)
     expect((await request("/api/ops/logs/context?id=bad'id")).status).toBe(400)
   })
@@ -297,5 +299,26 @@ describe('server log explorer on OpenObserve', () => {
     expect(trace.tree).toContain('  worker upstream POST')
     expect(searches.at(-1)).toMatchObject({ type: 'traces' })
     expect((await request('/api/ops/traces/not-a-trace')).status).toBe(400)
+    expect((await request(`/api/ops/traces/${'0'.repeat(32)}`)).status).toBe(400)
+  })
+
+  it('treats plain-text container lines and empty trace ids sensibly', () => {
+    const plain = toEntry({
+      _timestamp: us(now),
+      body: '2026-11-20T10:00:00Z INF Registered tunnel connection connIndex=0',
+      service: 'cloudflared',
+      container_name: '/image-playground-paid-cloudflared-1',
+      log_instance: '/image-playground-paid-cloudflared-1',
+      log_group: 'INF Registered tunnel connection connIndex=<n>',
+      trace_id: '0'.repeat(32),
+      span_id: '0'.repeat(16),
+    })
+    expect(plain).toMatchObject({
+      instance: '/image-playground-paid-cloudflared-1',
+      group_key: 'INF Registered tunnel connection connIndex=<n>',
+      level: 'info',
+    })
+    expect(plain.fields).not.toHaveProperty('trace_id')
+    expect(plain.fields).not.toHaveProperty('log_group')
   })
 })

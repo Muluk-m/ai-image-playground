@@ -75,7 +75,16 @@ const SEVERITY_FLOOR: Record<ServerLogLevel, number> = {
 /** 纯文本行可能没有级别：按 info 算，和 Collector 的默认一致。 */
 const SEVERITY = 'COALESCE(severity_number, 9)'
 const LEVEL = `CASE WHEN ${SEVERITY} >= 21 THEN 'fatal' WHEN ${SEVERITY} >= 17 THEN 'error' WHEN ${SEVERITY} >= 13 THEN 'warn' WHEN ${SEVERITY} >= 9 THEN 'info' WHEN ${SEVERITY} >= 5 THEN 'debug' ELSE 'trace' END`
-const GROUP = 'COALESCE(event, substr(body, 1, 120))'
+/**
+ * 分组键：有 event 用 event；没有的（cloudflared、备份脚本这类纯文本行）去掉行首时间戳，把 UUID、
+ * 长十六进制和数字换成占位符再取前 120 字，同一类消息才落进同一组。规则对照旧的
+ * `container-logs.ts`；DataFusion 的正则不支持后行断言，数字前不再排除字母。
+ */
+const GROUP = String.raw`COALESCE(event, substr(regexp_replace(regexp_replace(regexp_replace(regexp_replace(body, '^\S*\d{4}-\d{2}-\d{2}[T ][\d:.]+Z?\s*', ''), '(?i)[0-9a-f]{8}-[0-9a-f-]{27,}', '<id>', 'g'), '(?i)[0-9a-f]{12,}', '<hex>', 'g'), '\d+(\.\d+)*', '<n>', 'g'), 1, 120))`
+/** pino 行带 instance；纯文本行只有容器名，用它代替，「同实例」和上下文才查得到。 */
+const INSTANCE = 'COALESCE(instance, container_name)'
+/** 记录查询顺带取出分组键和实例，和筛选用的表达式完全一致。 */
+const RECORD = `SELECT *, ${GROUP} AS log_group, ${INSTANCE} AS log_instance FROM "${OBS_STREAM}"`
 const KNOWN_SERVICES = SERVER_LOG_SERVICES.filter((service) => service !== 'other')
 
 function levelOf(severity: unknown): ServerLogLevel {
@@ -164,7 +173,7 @@ export function logWhere(filters: ServerLogFilters): { base: string[]; level: st
   equals('trace_id', filters.traceId)
   equals('userid', filters.userId)
   equals('mediaid', filters.mediaId)
-  equals('instance', filters.instance)
+  equals(INSTANCE, filters.instance)
   equals('version', filters.version)
   if (filters.group) base.push(`${GROUP} = ${sqlString(filters.group)}`)
   if (filters.q) {
@@ -206,8 +215,9 @@ const OMITTED = new Set([
   'taskid',
   'severity',
   'severity_number',
+  'log_group',
+  'log_instance',
   'container_id',
-  'container_name',
   'fluent_tag',
   'dropped_attributes_count',
   'deployment_environment_name',
@@ -219,7 +229,7 @@ const FIELD_NAMES: Record<string, string> = { userid: 'userId', mediaid: 'mediaI
 
 export function toEntry(hit: ObsRecord): ServerLogEntry {
   const timestampUs = Number(hit._timestamp)
-  const instance = String(hit.instance ?? '')
+  const instance = String(hit.log_instance ?? hit.instance ?? hit.container_name ?? '')
   const message = String(hit.body ?? '')
   const event = typeof hit.event === 'string' && hit.event ? hit.event : null
   const service = SERVER_LOG_SERVICES.includes(hit.service as never)
@@ -231,6 +241,11 @@ export function toEntry(hit: ObsRecord): ServerLogEntry {
       // 页面按 pino 原名找用户和图片；OpenObserve 把字段名转成了小写。
       .map(([key, value]) => [FIELD_NAMES[key] ?? key, value]),
   )
+  // 没有链路的行，OTel 可能写全零的 trace id：当作没有，页面不给「同链路」。
+  if (typeof fields.trace_id === 'string' && !/^(?!0+$)[0-9a-f]{32}$/.test(fields.trace_id)) {
+    delete fields.trace_id
+    delete fields.span_id
+  }
   // `other` 归不进固定的服务名单：原名留在 fields 里，排查时看得到是哪个容器。
   if (service === 'other' && hit.service) fields.service = hit.service
   return {
@@ -241,7 +256,7 @@ export function toEntry(hit: ObsRecord): ServerLogEntry {
     version: String(hit.version ?? ''),
     level: levelOf(hit.severity_number),
     event,
-    group_key: event ?? message.slice(0, 120),
+    group_key: typeof hit.log_group === 'string' ? hit.log_group : (event ?? message.slice(0, 120)),
     message,
     request_id: typeof hit.requestid === 'string' ? hit.requestid : null,
     task_id: typeof hit.taskid === 'string' ? hit.taskid : null,
@@ -264,7 +279,7 @@ export async function readServerLogs(
     // 同一微秒的多行按实例和正文排开，偏移分页不重不漏。
     const hits = await client.search({
       ...range,
-      sql: `SELECT * FROM "${OBS_STREAM}"${where(all)} ORDER BY _timestamp DESC, instance, body`,
+      sql: `${RECORD}${where(all)} ORDER BY _timestamp DESC, log_instance, body`,
       from: offset,
       size: PAGE_SIZE + 1,
     })
@@ -384,21 +399,21 @@ export async function readLogContext(
   const at = timestampUs / 1_000
   // 一天的窗口足够取到前后 50 行，又不让查询扫太多分区。
   const range = { type: 'logs' as const, startMs: at - 86_400_000, endMs: at + 86_400_000 }
-  const scope = `instance = ${sqlString(instance)}`
+  const scope = `${INSTANCE} = ${sqlString(instance)}`
   const [before, same, after] = await Promise.all([
     client.search({
       ...range,
-      sql: `SELECT * FROM "${OBS_STREAM}" WHERE ${scope} AND _timestamp < ${timestampUs} ORDER BY _timestamp DESC, body`,
+      sql: `${RECORD} WHERE ${scope} AND _timestamp < ${timestampUs} ORDER BY _timestamp DESC, body`,
       size: CONTEXT_LINES,
     }),
     client.search({
       ...range,
-      sql: `SELECT * FROM "${OBS_STREAM}" WHERE ${scope} AND _timestamp = ${timestampUs} ORDER BY body`,
+      sql: `${RECORD} WHERE ${scope} AND _timestamp = ${timestampUs} ORDER BY body`,
       size: CONTEXT_LINES,
     }),
     client.search({
       ...range,
-      sql: `SELECT * FROM "${OBS_STREAM}" WHERE ${scope} AND _timestamp > ${timestampUs} ORDER BY _timestamp, body`,
+      sql: `${RECORD} WHERE ${scope} AND _timestamp > ${timestampUs} ORDER BY _timestamp, body`,
       size: CONTEXT_LINES,
     }),
   ])
@@ -418,7 +433,7 @@ export async function readTrace(
   client: ObsClient = defaultClient(),
   now = Date.now(),
 ): Promise<TraceView> {
-  if (!/^[0-9a-f]{32}$/.test(traceId)) throw new LogQueryError('无效的 trace id')
+  if (!/^(?!0+$)[0-9a-f]{32}$/.test(traceId)) throw new LogQueryError('无效的 trace id')
   const { records, truncated } = await client.searchAll({
     sql: traceSql(traceId),
     type: 'traces',
