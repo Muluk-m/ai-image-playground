@@ -118,6 +118,7 @@ describe('callUpstream Vertex AI direct channel', () => {
       generationConfig: {
         responseModalities: ['IMAGE'],
         imageConfig: { aspectRatio: '16:9', imageSize: '2K' },
+        thinkingConfig: { thinkingLevel: 'high' },
       },
     })
   })

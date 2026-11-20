@@ -1016,6 +1016,12 @@
         "references": {
           "max": 14
         },
+        "thinking": {
+          "levels": [
+            "minimal",
+            "high"
+          ]
+        },
         "etaSeconds": {
           "1K": 25,
           "2K": 22,
@@ -1180,6 +1186,12 @@
         "references": {
           "max": 14
         },
+        "thinking": {
+          "levels": [
+            "minimal",
+            "high"
+          ]
+        },
         "etaSeconds": {
           "1K": 25,
           "2K": 45,
@@ -1311,6 +1323,12 @@
         },
         "references": {
           "max": 14
+        },
+        "thinking": {
+          "levels": [
+            "minimal",
+            "high"
+          ]
         },
         "etaSeconds": {
           "1K": 3

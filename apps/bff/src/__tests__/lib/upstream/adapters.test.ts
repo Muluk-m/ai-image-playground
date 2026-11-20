@@ -129,6 +129,32 @@ describe('image adapters plan platform requests into upstream calls', () => {
     expect(plan.dropped).toEqual([])
   })
 
+  it('gemini defaults to the highest thinking level the model declares', () => {
+    const plan = geminiAdapter.plan(
+      { prompt: 'a cup', resolution: '1K', ratio: '1:1', count: 1 },
+      'gemini-nano-banana-2.1',
+      { ...guest, vertex: true, imageSizes: ['1K', '2K'] },
+    )
+    expect(plan.calls[0]!.body).toMatchObject({
+      generationConfig: { thinkingConfig: { thinkingLevel: 'high' } },
+    })
+    expect(plan.applied).toMatchObject({ thinking_level: 'high' })
+  })
+
+  it('gemini keeps an explicit thinking level and skips models without one', () => {
+    const minimal = geminiAdapter.plan(
+      { prompt: 'a cup', count: 1, thinking: 'minimal' },
+      'gemini-3-pro-image',
+      { ...guest, vertex: true },
+    )
+    expect(minimal.calls[0]!.body).toMatchObject({
+      generationConfig: { thinkingConfig: { thinkingLevel: 'minimal' } },
+    })
+    const unknown = geminiAdapter.plan({ prompt: 'a cup', count: 1 }, 'imagen-4.0-generate', guest)
+    expect(JSON.stringify(unknown.calls[0]!.body)).not.toContain('thinkingConfig')
+    expect(unknown.applied).not.toHaveProperty('thinking_level')
+  })
+
   it('gemini 4K is downgraded when that tier is not open', () => {
     const plan = geminiAdapter.plan(
       { prompt: 'a cup', resolution: '4K', ratio: '16:9', count: 1 },

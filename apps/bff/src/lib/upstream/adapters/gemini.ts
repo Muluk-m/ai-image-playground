@@ -1,3 +1,4 @@
+import { findCatalogModel } from '@image-playground/shared/model-catalog'
 import { isObject } from '../../type-guards'
 import { buildGeminiBody, mergeGeminiCandidateResults } from '../gemini'
 import type { UpstreamCallResult } from '../shared'
@@ -16,6 +17,17 @@ function openTiers(model: string): ResolutionTier[] {
     promptGuard: 'none',
     nativeCount: { generate: false, edit: false },
   }).tiers.filter((tier) => tier !== '4K')
+}
+
+/**
+ * 请求没指定思考级别时用最高一档：画面构图、图中文字更稳，代价是更慢、上游多耗推理 token
+ * （平台按张计费，不改用户扣费）。只对目录里声明了 `high` 的模型补；显式给了值（智能体计划、
+ * extra.generationConfig）照旧以调用方为准。
+ */
+function withDefaultThinking<T extends { thinking_level?: string }>(request: T, model: string): T {
+  if (request.thinking_level) return request
+  const levels = findCatalogModel(model)?.image?.thinking?.levels
+  return levels?.includes('high') ? { ...request, thinking_level: 'high' } : request
 }
 
 function imageConfigOf(body: Record<string, unknown>): {
@@ -44,7 +56,7 @@ export const geminiAdapter: ImageAdapter = {
     return { ...base, tiers: openTiers(model) }
   },
   plan: (req, model, ctx) => {
-    const request = workingRequest(req, model, ctx)
+    const request = withDefaultThinking(workingRequest(req, model, ctx), model)
     const body = ctx.vertex
       ? buildVertexBody(request, ctx.imageSizes)
       : buildGeminiBody(request, ctx.imageSizes)
