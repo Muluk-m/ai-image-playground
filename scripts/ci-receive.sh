@@ -100,57 +100,96 @@ created=
 
 release_commit=$(awk -F '\t' -v target="$target" '$1 == target { print $4; exit }' "$release/images.tsv")
 
+# Overrides for the test suite only. Over SSH (SSH_CONNECTION set) they are ignored, so a key
+# holder can never point the runtime at another repository or directory, even if sshd were one
+# day configured to pass environment variables through.
+if [ -z "${SSH_CONNECTION:-}" ]; then
+  fixed_runtime=${AIP_DEPLOY_RUNTIME_ROOT:-$HOME/deploy-runtime}
+  runtimes=${AIP_DEPLOY_RUNTIMES_ROOT:-$HOME/deploy-runtimes}
+  runtime_url=${AIP_RUNTIME_GIT_URL:-https://github.com/Muluk-m/ai-image-playground.git}
+else
+  fixed_runtime=$HOME/deploy-runtime
+  runtimes=$HOME/deploy-runtimes
+  runtime_url=https://github.com/Muluk-m/ai-image-playground.git
+fi
+
+# Files a runtime cannot work without; an unpack that lost any of them is refused.
+runtime_files='scripts/vps-deploy.sh scripts/rollout-runtime.sh scripts/app-compose.sh scripts/lib/deploy-common.sh deploy/compose.app.yaml'
+
 # The public commit's deploy/ and scripts/, verified to be on main. Prints the runtime directory.
 # The mirror holds commits only (blob:none); file contents are fetched when a runtime is unpacked.
+# Runs in a command substitution, so it keeps its own trap for the half-unpacked directory.
 paid_runtime() {
   printf '%s\n' "$release_commit" | grep -Eqx '[0-9a-f]{40}' || {
     echo "Release manifest names no public commit for $target; refusing to guess a runtime" >&2
     return 1
   }
-  runtimes=${AIP_DEPLOY_RUNTIMES_ROOT:-$HOME/deploy-runtimes}
   mirror=$runtimes/.mirror.git
   dir=$runtimes/$release_commit
-  url=${AIP_RUNTIME_GIT_URL:-https://github.com/Muluk-m/ai-image-playground.git}
   mkdir -p "$runtimes"
-  if [ ! -d "$mirror" ]; then
-    git init -q --bare "$mirror"
-    git -C "$mirror" remote add origin "$url"
-  fi
-  git -C "$mirror" remote set-url origin "$url"
+  # Left over by an unpack that was killed; nothing else writes these.
+  rm -rf "$runtimes"/.incoming.* 2>/dev/null || true
+  [ -d "$mirror" ] || git init -q --bare "$mirror"
+  # Re-aligned on every deploy, so a mirror created halfway (killed between init and remote add)
+  # heals instead of failing every later deploy.
+  git -C "$mirror" remote add origin "$runtime_url" 2>/dev/null ||
+    git -C "$mirror" remote set-url origin "$runtime_url"
   # Main is fetched on every deploy so the ancestry check always sees the current branch. A host
   # that cannot reach GitHub may still redeploy a commit it verified before, never a new one.
   if ! GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60 \
     git -C "$mirror" fetch -q --filter=blob:none origin '+refs/heads/main:refs/heads/main' >&2; then
     if [ -f "$dir/.verified" ]; then
-      echo "Warning: could not fetch main from $url; using runtime $release_commit verified on $(cat "$dir/.verified")" >&2
+      echo "Warning: could not fetch main from $runtime_url; using runtime $release_commit verified on $(cat "$dir/.verified")" >&2
       printf '%s\n' "$dir"
       return 0
     fi
-    echo "Cannot fetch main from $url to verify $release_commit; not deploying with an unverified runtime" >&2
+    echo "Cannot fetch main from $runtime_url to verify $release_commit; not deploying with an unverified runtime" >&2
     return 1
   fi
   git -C "$mirror" merge-base --is-ancestor "$release_commit" refs/heads/main 2>/dev/null || {
-    echo "Refusing: $release_commit is not on main of $url" >&2
+    echo "Refusing: $release_commit is not on main of $runtime_url" >&2
     return 1
   }
   if [ ! -d "$dir" ]; then
     incoming_runtime=$(mktemp -d "$runtimes/.incoming.XXXXXX")
-    if ! git -C "$mirror" archive "$release_commit" deploy scripts | tar -x -C "$incoming_runtime" ||
-      [ ! -x "$incoming_runtime/scripts/vps-deploy.sh" ]; then
-      rm -rf "$incoming_runtime"
+    trap 'rm -rf "$incoming_runtime"' EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    # git's own exit status, not the tail of a pipe: a lazy blob fetch that dies halfway must not
+    # leave a truncated runtime that still happens to contain vps-deploy.sh.
+    if ! git -C "$mirror" archive -o "$incoming_runtime.tar" "$release_commit" deploy scripts ||
+      ! tar -xf "$incoming_runtime.tar" -C "$incoming_runtime"; then
+      rm -f "$incoming_runtime.tar"
       echo "Could not unpack the deployment runtime of $release_commit" >&2
+      return 1
+    fi
+    rm -f "$incoming_runtime.tar"
+    for file in $runtime_files; do
+      [ -f "$incoming_runtime/$file" ] || {
+        echo "Deployment runtime of $release_commit lacks $file; refusing it" >&2
+        return 1
+      }
+    done
+    [ -x "$incoming_runtime/scripts/vps-deploy.sh" ] || {
+      echo "Deployment runtime of $release_commit has no executable scripts/vps-deploy.sh" >&2
+      return 1
+    }
+    # A symlink could make a checked path execute something outside the runtime.
+    if [ -n "$(find "$incoming_runtime" -type l | head -n 1)" ]; then
+      echo "Deployment runtime of $release_commit contains a symlink; refusing it" >&2
       return 1
     fi
     printf '%s\n' "$release_commit" > "$incoming_runtime/.commit"
     mv "$incoming_runtime" "$dir"
   fi
   date -u +%Y-%m-%dT%H:%M:%SZ > "$dir/.verified"
-  # For hands-on work: the runtime the last paid deploy used.
-  ln -sfn "$dir" "$runtimes/current-paid"
-  # Keep the five most recent runtimes besides the one in use; a rollback to an older commit
-  # unpacks it again.
-  ls -1dt "$runtimes"/[0-9a-f]* 2>/dev/null | grep -v "/$release_commit\$" | tail -n +6 |
-    while IFS= read -r old; do rm -rf "$old"; done
+  # Keep the five most recent runtimes besides this one. Housekeeping never decides whether a
+  # release ships, so a directory that cannot be removed is left for later.
+  {
+    ls -1dt "$runtimes"/* 2>/dev/null | grep -Ex '.*/[0-9a-f]{40}' | grep -v "/$release_commit\$" |
+      tail -n +6 | while IFS= read -r old; do rm -rf "$old" || true; done
+  } 2>/dev/null || true
   printf '%s\n' "$dir"
 }
 
@@ -162,7 +201,7 @@ if [ "$target" = paid ]; then
 else
   # Only release data is accepted. test's runtime is installed out of band at this path; it is not
   # read from the uploaded archive and therefore cannot be replaced by a caller.
-  runtime_root=${AIP_DEPLOY_RUNTIME_ROOT:-$HOME/deploy-runtime}
+  runtime_root=$fixed_runtime
   installed=$(cat "$runtime_root/.commit" 2>/dev/null || echo unknown)
   if [ -n "$release_commit" ] && [ "$installed" != "$release_commit" ]; then
     echo "Warning: $runtime_root is at $installed, this release is $release_commit; deployment scripts changed since may not apply to $target" >&2
@@ -186,6 +225,9 @@ if [ "$status" -eq 75 ]; then
   # busy host, not a failed release: drop the unpacked directory so the same run can be retried.
   rm -rf "$release"
   echo "Deploy lock busy; release $release_id was not applied. Retry once the running deploy finishes." >&2
+elif [ "$status" -eq 0 ] && [ "$target" = paid ]; then
+  # Only a runtime that just deployed successfully becomes the one to use by hand.
+  ln -sfn "$runtime_root" "$runtimes/current-paid" || true
 elif [ "$status" -ne 0 ]; then
   # Keep the failed release for inspection, out of the way of a retry of the same commit.
   failed=$release.failed-run-$run_id

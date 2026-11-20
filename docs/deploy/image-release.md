@@ -25,7 +25,8 @@ Pages 发布入口为 `muvloom|test|admin`；后端生产目标只有 `paid`，�
 这些步骤须由获准的运维人员执行；本次仓库清理没有修改线上配置或验证线上状态：
 
 - 在 GitHub `PAGES_ENV` 及每台发布机的仓库外 `pages.env` 中，将企业映射键改为 `ENTERPRISE_PUBLIC_ORIGIN` / `ENTERPRISE_BFF_BASE_URL`，保留原域名与 API 值。读取代码没有旧键 fallback；必须与本次代码一起准备。`PAID_*` 继续保留。
-- 在 VPS 备份并更新固定 `/home/ubuntu/bin/aip-ci-receive` 与完整 `~/deploy-runtime`，生产受限 key 仍绑定 `release` 范围，测试 key 仍绑定 `test` 范围；新 receiver/runtime 只允许对应的 `paid` / `test`。安装后由维护者完成语法、作用域隔离及恶意包拒绝验收，不能只更新仓库副本。
+- VPS 需装 git、能经 HTTPS 访问 github.com（拉公开仓库的 main），`~/deploy-runtimes` 可写：`paid` 的部署脚本随发布从这里解出，拉不到 GitHub 时新提交一律拒绝发布。
+- 在 VPS 备份并更新固定 `/home/ubuntu/bin/aip-ci-receive` 与 test 用的完整 `~/deploy-runtime`（同步后写入 `.commit`），生产受限 key 仍绑定 `release` 范围，测试 key 仍绑定 `test` 范围；新 receiver/runtime 只允许对应的 `paid` / `test`。安装后由维护者完成语法、作用域隔离及恶意包拒绝验收，不能只更新仓库副本。
 - 同步仓库外 `deploy.env`，删除旧部署 project/image 配置；`SEGMENTER_EDITIONS` 仅使用 `paid` / `test`。不改现存 `PAID_PROJECT`、`PAID_IMAGE`、数据库、卷或对象前缀。
 
 
@@ -82,7 +83,7 @@ command="/home/ubuntu/bin/aip-ci-receive release",restrict ssh-ed25519 AAAA… a
 command="/home/ubuntu/bin/aip-ci-receive test",restrict ssh-ed25519 AAAA… aip-ci-deploy-test@github-actions
 ```
 
-生产 key（secret `VPS_SSH_KEY`）范围 `release`，只接受 `deploy <aip-12位hex-12位hex> paid <run_id>`；测试 key（secret `VPS_SSH_KEY_TEST`，仅 `deploy-test.yml` 使用）范围 `test`，只接受目标 `test`。没有范围参数或范围不认识时拒绝一切；其余一律拒绝（退出码 2）。发布包是**数据包**，只允许 `SHA256SUMS`、`images.tsv` 和可选 `images.tar.gz`，上传 shell 脚本或 `scripts/` 目录直接拒绝。receiver 不执行发布包代码。`paid` 执行的是**所发提交自己的部署代码**：从 `images.tsv` 读出公开提交，在 VPS 的只含提交的镜像仓库（`~/deploy-runtimes/.mirror.git`，`blob:none`）里拉取公开仓库的 main，确认该提交在 main 上（合并 main 本身就要 Nain 确认），再把它的 `deploy/` 与 `scripts/` 解到 `~/deploy-runtimes/<提交>/` 执行，`~/deploy-runtimes/current-paid` 指向最近一次使用的那份；只保留最近 5 份，回滚到更早的提交会重新解出。拉不到 GitHub 时只允许重发之前验证过的提交，新提交拒绝发布，不会退回旧脚本。提交不在 main 上、清单里没有提交，一律拒绝。`test` 的分支免审批即可推送，仍执行 VPS 固定的 `~/deploy-runtime/scripts/vps-deploy.sh`；固定 runtime 的 `.commit` 与所发提交不一致时只在发布日志里告警。stdin 的 tar 上限 64 MiB，解到 `~/releases/<release-id>`；同一提交重发时保留原目录，改解到 `<release-id>.run-<run_id>`，解包失败会清理。然后以 `DEPLOY_ACTOR=github-actions/run-<id>` 运行选定的 runtime（日志首行 `Deployment runtime: <目录> (<提交>)`）并透传退出码；发布失败时目录改名为 `….failed-run-<run_id>` 留作排查。receiver 本身与 test 的固定 runtime 的安装更新仍是仓库外前提，见上文；`paid` 的部署脚本随发布自动生效，不必再手工同步。
+生产 key（secret `VPS_SSH_KEY`）范围 `release`，只接受 `deploy <aip-12位hex-12位hex> paid <run_id>`；测试 key（secret `VPS_SSH_KEY_TEST`，仅 `deploy-test.yml` 使用）范围 `test`，只接受目标 `test`。没有范围参数或范围不认识时拒绝一切；其余一律拒绝（退出码 2）。发布包是**数据包**，只允许 `SHA256SUMS`、`images.tsv` 和可选 `images.tar.gz`，上传 shell 脚本或 `scripts/` 目录直接拒绝。receiver 不执行发布包代码。`paid` 执行的是**所发提交自己的部署代码**：从 `images.tsv` 读出公开提交，在 VPS 的只含提交的镜像仓库（`~/deploy-runtimes/.mirror.git`，`blob:none`）里拉取公开仓库的 main，确认该提交在 main 上（合并 main 本身就要 Nain 确认），再把它的 `deploy/` 与 `scripts/` 解到 `~/deploy-runtimes/<提交>/` 执行，发布成功后 `~/deploy-runtimes/current-paid` 才指向它；除正在用的一份外再保留最近 5 份，回滚到更早的提交会重新解出。解出的 runtime 缺少关键文件、带符号链接或解包中断，一律拒绝发布。**回滚到旧提交会连同部署脚本一起回退**（排空、容器命名、compose 文件都是旧提交的）：跨越部署脚本改动的回滚先人工确认旧脚本能处理新脚本留下的运行态。拉不到 GitHub 时只允许重发之前验证过的提交，新提交拒绝发布，不会退回旧脚本。提交不在 main 上、清单里没有提交，一律拒绝。`test` 的分支免审批即可推送，仍执行 VPS 固定的 `~/deploy-runtime/scripts/vps-deploy.sh`；固定 runtime 的 `.commit` 与所发提交不一致时只在发布日志里告警。stdin 的 tar 上限 64 MiB，解到 `~/releases/<release-id>`；同一提交重发时保留原目录，改解到 `<release-id>.run-<run_id>`，解包失败会清理。然后以 `DEPLOY_ACTOR=github-actions/run-<id>` 运行选定的 runtime（日志首行 `Deployment runtime: <目录> (<提交>)`）并透传退出码；发布失败时目录改名为 `….failed-run-<run_id>` 留作排查。receiver 本身与 test 的固定 runtime 的安装更新仍是仓库外前提，见上文；`paid` 的部署脚本随发布自动生效，不必再手工同步。
 
 ## 前端：一个 Pages 项目、多个域名（手动应急）
 
@@ -200,12 +201,13 @@ export PATH=/opt/homebrew/bin:$PATH   # 仅 macmini2
 
 构建输入固定为 Git 提交，不含未提交文件或凭据。使用 `aip-release` builder（4 核、6 GiB、无额外 Swap、阶段并发 1）生成 `linux/amd64` 镜像；保留现有构建锁，并与其他重型任务错峰。发布目录只包含 `images.tsv`、`SHA256SUMS`，archive transport 另含 `images.tar.gz`；部署代码使用 VPS 固定 runtime。生产构建 `paid-<公开12位>-<私有12位>`（muvloom 镜像）、`backup-<公开12位>` 与 `segmenter-<版本>-<公开12位>`；测试构建 `test-<公开12位>-<私有12位>` 与 backup，不携带 segmenter。每个镜像构建后立即推送，本地标签不变。首次推送上传全部层，之后只传变更层。
 
-3. 工作站中转发布数据包，或由 CI 通过受限 SSH 入口上传；不要再从历史发布目录执行 `scripts/vps-deploy.sh`。手工发布 `paid` 使用最近一次 CI 发布验证过的 runtime（`~/deploy-runtimes/current-paid`），`test` 使用固定 runtime：
+3. 工作站中转发布数据包，或由 CI 通过受限 SSH 入口上传；不要再从历史发布目录执行 `scripts/vps-deploy.sh`。手工发布 `paid` 使用**所发提交自己的** runtime（`~/deploy-runtimes/<提交>`，最近一次成功的是 `current-paid`），`test` 使用固定 runtime：
 
 ```sh
 scp -r macmini2:/Users/mac/releases/aip-<release-id> /tmp/
 scp -r /tmp/aip-<release-id> tx-vps:/home/ubuntu/releases/
-ssh tx-vps '/home/ubuntu/deploy-runtimes/current-paid/scripts/vps-deploy.sh paid /home/ubuntu/releases/aip-<release-id>'
+# <提交> 取 images.tsv 第 4 列；runtime 不在时先经 CI 发一次该提交，首次 CI 发布前用 ~/deploy-runtime
+ssh tx-vps '/home/ubuntu/deploy-runtimes/<提交>/scripts/vps-deploy.sh paid /home/ubuntu/releases/aip-<release-id>'
 ```
 
 接收脚本持有发布锁，校验 `SHA256SUMS`（须覆盖目录内全部数据文件，多出脚本或目录即拒绝），按 digest `docker pull` 并打回本地标签，再校验本地镜像确实带着该 digest、架构、`APP_VERSION` 和原生依赖，最后执行所选 runtime（`paid` 为所发提交自己的，`test` 为固定的）的兼容迁移与启动；保留 VPS 原有运行配置。任一镜像拉取或校验失败都不改动服务。CI 部署失败时，入口把该发布目录改名为 `<id>.failed-run-<run_id>` 留作排查，同一提交可直接重跑。

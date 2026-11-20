@@ -49,6 +49,9 @@ function commitRuntime(label: string): string {
   mkdirSync(join(origin, 'scripts'), { recursive: true })
   mkdirSync(join(origin, 'deploy'), { recursive: true })
   writeFileSync(join(origin, 'deploy', 'compose.app.yaml'), `# ${label}\n`)
+  mkdirSync(join(origin, 'scripts', 'lib'), { recursive: true })
+  for (const helper of ['rollout-runtime.sh', 'app-compose.sh', 'lib/deploy-common.sh'])
+    writeFileSync(join(origin, 'scripts', helper), `# ${label}\n`)
   writeFileSync(
     deploy,
     `#!/bin/sh\nprintf "%s actor=%s runtime=${label}\\n" "$*" "$DEPLOY_ACTOR" >> "$CALL_LOG"\nexit "\${TEST_DEPLOY_EXIT:-0}"\n`,
@@ -97,6 +100,9 @@ beforeEach(() => {
   origin = join(root, 'origin')
   mkdirSync(origin)
   git(origin, 'init', '-q', '-b', 'main')
+  // Like GitHub: honour --filter=blob:none, so file contents are fetched lazily at unpack time.
+  git(origin, 'config', 'uploadpack.allowFilter', 'true')
+  git(origin, 'config', 'uploadpack.allowAnySHA1InWant', 'true')
   mainCommit = commitRuntime('main')
   git(origin, 'checkout', '-q', '-b', 'side')
   sideCommit = commitRuntime('side')
@@ -113,7 +119,7 @@ function receive(
     ...process.env,
     HOME: home,
     AIP_DEPLOY_RUNTIME_ROOT: join(home, 'deploy-runtime'),
-    AIP_RUNTIME_GIT_URL: origin,
+    AIP_RUNTIME_GIT_URL: `file://${origin}`,
     CALL_LOG: log,
     ...extra,
   }
@@ -352,7 +358,7 @@ describe('ci-receive.sh', () => {
 
     it('redeploys a commit it verified before when the repository cannot be reached, never a new one', () => {
       expect(receive(`deploy ${id} paid 1`).status).toBe(0)
-      const offline = { AIP_RUNTIME_GIT_URL: join(root, 'unreachable') }
+      const offline = { AIP_RUNTIME_GIT_URL: `file://${join(root, 'unreachable')}` }
       const again = receive(`deploy ${id} paid 2`, releaseTar(), offline)
       expect(again.status, again.stderr).toBe(0)
       expect(again.stderr).toContain('could not fetch main')
@@ -383,8 +389,63 @@ describe('ci-receive.sh', () => {
         ).toBe(0)
       }
       const kept = readdirSync(runtimes()).filter((name) => /^[0-9a-f]{40}$/.test(name))
-      expect(kept.length).toBeLessThanOrEqual(6)
+      expect(kept).toHaveLength(6)
       expect(kept).toContain(git(origin, 'rev-parse', 'HEAD'))
+      expect(existsSync(join(runtimes(), '.mirror.git'))).toBe(true)
+      expect(readlinkSync(join(runtimes(), 'current-paid'))).toBe(
+        join(runtimes(), git(origin, 'rev-parse', 'HEAD')),
+      )
+    })
+  })
+
+  describe('paid runtime safeguards', () => {
+    const runtimes = () => join(home, 'deploy-runtimes')
+
+    it('fetches commits only, so file contents come from the repository at unpack time', () => {
+      expect(receive(`deploy ${id} paid 1`).status).toBe(0)
+      expect(git(join(runtimes(), '.mirror.git'), 'config', 'remote.origin.promisor')).toBe('true')
+    })
+
+    it('moves current-paid only after a successful deploy', () => {
+      expect(receive(`deploy ${id} paid 1`).status).toBe(0)
+      const next = commitRuntime('next')
+      const later = `aip-${'f'.repeat(12)}-${'b'.repeat(12)}`
+      const failed = receive(`deploy ${later} paid 2`, releaseTar(manifest('paid', next)), {
+        TEST_DEPLOY_EXIT: '1',
+      })
+      expect(failed.status).toBe(1)
+      expect(readlinkSync(join(runtimes(), 'current-paid'))).toBe(join(runtimes(), mainCommit))
+    })
+
+    it('refuses a commit whose runtime lacks a file it needs, leaving nothing behind', () => {
+      git(origin, 'rm', '-q', 'scripts/rollout-runtime.sh')
+      git(origin, 'commit', '-q', '-m', 'broken')
+      const broken = git(origin, 'rev-parse', 'HEAD')
+      const result = receive(`deploy ${id} paid 1`, releaseTar(manifest('paid', broken)))
+      expect(result.status).toBe(1)
+      expect(result.stderr).toContain('lacks scripts/rollout-runtime.sh')
+      expect(existsSync(log)).toBe(false)
+      expect(readdirSync(releases)).toEqual([])
+      expect(readdirSync(runtimes()).filter((name) => !name.startsWith('.'))).toEqual([])
+    })
+
+    it('heals a mirror that was created without its remote', () => {
+      mkdirSync(runtimes(), { recursive: true })
+      git(runtimes(), 'init', '-q', '--bare', '.mirror.git')
+      expect(receive(`deploy ${id} paid 1`).status).toBe(0)
+    })
+
+    it('ignores the test overrides when called over SSH', () => {
+      const result = receive(`deploy ${id} paid 1`, releaseTar(), {
+        SSH_CONNECTION: '203.0.113.1 50000 198.51.100.1 22',
+        AIP_DEPLOY_RUNTIMES_ROOT: join(root, 'elsewhere'),
+        // No network in tests: git refuses https outright, so the fixed URL fails to fetch.
+        GIT_ALLOW_PROTOCOL: 'file',
+      })
+      expect(result.status).toBe(1)
+      expect(result.stderr).toContain('github.com/Muluk-m/ai-image-playground')
+      expect(existsSync(join(root, 'elsewhere'))).toBe(false)
+      expect(existsSync(log)).toBe(false)
     })
   })
 
