@@ -18,6 +18,8 @@ export type AlertRule =
   | 'api'
   | 'generation'
   | 'generation-latency'
+  | 'upstream-errors'
+  | 'upstream-throttle'
   | 'agent'
   | 'agent-pattern'
   | 'blind'
@@ -64,6 +66,11 @@ export interface AlertObservation {
   }
   /** 近 1 小时有任务执行超过 SLOW_GENERATION_MS 的模型；没有就是空数组。 */
   slowGenerations?: readonly SlowGenerationModel[]
+  /**
+   * 近 UPSTREAM_WINDOW_MS 每个上游渠道和模型的请求结果，从 OpenObserve 里的上游 span 聚合
+   * （ADR 0033 P4，#1938）。没开观测的部署不给这一块。
+   */
+  upstream?: readonly UpstreamStat[]
   /**
    * 近 6 小时每一类 Agent 轮次失败（模型、错误码、上游状态码各算一类）。
    * 没有失败时为 null 或空数组。整块没取到就不要给这个字段。
@@ -254,6 +261,20 @@ function heartbeatReading(label: string, lastSeenAt: number, now: number): Readi
   }
 }
 
+export interface UpstreamStat {
+  provider: string
+  model: string
+  requests: number
+  /** 上游 5xx、连接或读取失败。4xx（参数、内容审核）是请求本身的问题，不算上游故障；429 另计。 */
+  failures: number
+  /** 上游 429。 */
+  throttled: number
+}
+
+function upstreamLine(one: UpstreamStat, count: number): string {
+  return `· ${one.provider} / ${one.model}：${count}/${one.requests} 次`
+}
+
 function readings(
   observation: AlertObservation,
   state: AlertState,
@@ -314,6 +335,33 @@ function readings(
         )
         .join('\n')}`,
       resolvedText: '已恢复：各模型出图耗时回到告警线内',
+    }
+  }
+
+  if (observation.upstream) {
+    const failing = observation.upstream.filter(
+      (one) =>
+        one.requests >= OPS_THRESHOLDS.UPSTREAM_MIN_REQUESTS &&
+        one.failures / one.requests >= OPS_THRESHOLDS.UPSTREAM_FAILURE_RATIO,
+    )
+    out['upstream-errors'] = {
+      breached: failing.length > 0,
+      sustainMs: 0,
+      firingText: `近 ${span(OPS_THRESHOLDS.UPSTREAM_WINDOW_MS)}有上游渠道大量失败（5xx、连接或读取失败，告警线 ${percent(OPS_THRESHOLDS.UPSTREAM_FAILURE_RATIO)}、至少 ${OPS_THRESHOLDS.UPSTREAM_MIN_REQUESTS} 次请求）：\n${failing
+        .map((one) => upstreamLine(one, one.failures))
+        .join('\n')}`,
+      resolvedText: '已恢复：各上游渠道的失败率回到告警线内',
+    }
+    const throttled = observation.upstream.filter(
+      (one) => one.throttled >= OPS_THRESHOLDS.UPSTREAM_THROTTLED,
+    )
+    out['upstream-throttle'] = {
+      breached: throttled.length > 0,
+      sustainMs: 0,
+      firingText: `近 ${span(OPS_THRESHOLDS.UPSTREAM_WINDOW_MS)}有上游渠道频繁限流（429，告警线 ${OPS_THRESHOLDS.UPSTREAM_THROTTLED} 次）：\n${throttled
+        .map((one) => upstreamLine(one, one.throttled))
+        .join('\n')}`,
+      resolvedText: '已恢复：上游限流回到告警线内',
     }
   }
 

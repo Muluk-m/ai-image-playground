@@ -8,6 +8,7 @@ import {
   OPS_THRESHOLDS,
   type OpsBackups,
   type OpsRestoreDrill,
+  type UpstreamStat,
 } from '@image-playground/shared'
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { config } from '../config'
@@ -59,6 +60,49 @@ export function latestObsLogReader(client: ObsClient): (now: number) => Promise<
   }
 }
 
+type UpstreamReader = ((now: number) => Promise<UpstreamStat[]>) | null
+
+/**
+ * 上游维度（ADR 0033 P4，#1938）：OpenObserve 里每次上游请求都有一个 `upstream POST` span，
+ * 带渠道、模型、结果和 HTTP 状态码。按渠道和模型聚合最近 15 分钟，就是上游的请求量、故障率与限流。
+ * 失败只算 5xx 与连接、读取失败（状态码为空）；4xx 是请求本身的问题（参数、内容审核），不算上游故障。
+ * 流里还没有上游 span（新部署）时字段不存在，直接返回空。
+ */
+export function upstreamStatsReader(client: ObsClient): (now: number) => Promise<UpstreamStat[]> {
+  return async (now) => {
+    const fields = await client.streamFields(OBS_STREAM, 'traces')
+    for (const required of [
+      'operation_name',
+      'upstream_provider',
+      'upstream_model',
+      'upstream_outcome',
+    ])
+      if (!fields.has(required)) return []
+    const status = fields.has('http_response_status_code')
+      ? 'CAST(http_response_status_code AS BIGINT)'
+      : 'NULL'
+    const rows = await client.search({
+      sql: `SELECT upstream_provider AS provider, upstream_model AS model, COUNT(*) AS requests, SUM(CASE WHEN upstream_outcome <> 'ok' AND (${status} IS NULL OR ${status} >= 500) THEN 1 ELSE 0 END) AS failures, SUM(CASE WHEN ${status} = 429 THEN 1 ELSE 0 END) AS throttled FROM "${OBS_STREAM}" WHERE operation_name = 'upstream POST' GROUP BY upstream_provider, upstream_model`,
+      type: 'traces',
+      startMs: now - OPS_THRESHOLDS.UPSTREAM_WINDOW_MS,
+      endMs: now + 60_000,
+      size: 500,
+    })
+    return rows.map((row) => ({
+      provider: String(row.provider ?? 'unknown'),
+      model: String(row.model ?? 'unknown'),
+      requests: Number(row.requests ?? 0),
+      failures: Number(row.failures ?? 0),
+      throttled: Number(row.throttled ?? 0),
+    }))
+  }
+}
+
+function upstreamReaderFromEnv(): UpstreamReader {
+  const connection = obsConnectionFromEnv()
+  return connection ? upstreamStatsReader(createObsClient(connection, { timeoutMs: 15_000 })) : null
+}
+
 function latestLogReaderFromEnv(): LatestLogReader {
   const connection = obsConnectionFromEnv()
   return connection ? latestObsLogReader(createObsClient(connection, { timeoutMs: 15_000 })) : null
@@ -68,6 +112,8 @@ interface ObserveOptions {
   now: number
   /** 默认按 `OBS_PROXY_URL`/`OBS_PROXY_TOKEN` 读 OpenObserve，没配为 null（不观测）。测试注入。 */
   readLatestLogAt?: LatestLogReader
+  /** 同上：上游请求统计。 */
+  readUpstream?: UpstreamReader
   /** 这一轮取不到读数的块；调用方据此累计“失明”轮数。 */
   onMissed?: (block: string) => void
   /** 这一轮真正尝试读取了的块（成功或失败都算；被节流跳过的不算）。 */
@@ -116,6 +162,8 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
   const readRestoreDrill = options.readRestoreDrill ?? readRestoreDrillFromStore
   const readLatestLogAt =
     options.readLatestLogAt === undefined ? latestLogReaderFromEnv() : options.readLatestLogAt
+  const readUpstream =
+    options.readUpstream === undefined ? upstreamReaderFromEnv() : options.readUpstream
   const missed = options.onMissed
   const attempted = options.onAttempted
   const [
@@ -128,6 +176,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
     agentFailurePatterns,
     serverLogs,
     slowGenerations,
+    upstream,
   ] = await Promise.all([
     attempt(
       'queue',
@@ -333,6 +382,9 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
         )
       : undefined,
     attempt('slowGenerations', readSlowGenerations, missed, attempted),
+    readUpstream
+      ? attempt('upstream', () => readUpstream(options.now), missed, attempted)
+      : undefined,
   ])
   // 没开直连就不给这一块：没有预算可言，缺失也不会被当成已恢复。
   const gptDirectBudget = config.gptDirect.enabled
@@ -364,6 +416,7 @@ export async function observeApp(options: ObserveOptions): Promise<AlertObservat
     agentFailurePatterns,
     serverLogs,
     slowGenerations,
+    ...(upstream ? { upstream } : {}),
     ...(gptDirectBudget ? { gptDirectBudget } : {}),
     ...(gptDirectKeys ? { gptDirectKeys } : {}),
   }
@@ -446,6 +499,7 @@ interface AppAlertingOptions {
   /** 备份和演练列出的最短间隔；默认 5 分钟。测试可改短。 */
   backupWatchIntervalMs?: number
   readLatestLogAt?: LatestLogReader
+  readUpstream?: UpstreamReader
 }
 
 /**
@@ -463,6 +517,12 @@ export function createAppAlerting(options: AppAlertingOptions): (now?: number) =
   // 年龄仍按当前时间算。
   const readLatestLogAt = latestLogReader
     ? createThrottledRead(latestLogReader, LATEST_LOG_INTERVAL_MS)
+    : null
+  const upstreamReader =
+    options.readUpstream === undefined ? upstreamReaderFromEnv() : options.readUpstream
+  // 和断流观测一样，每分钟最多真正查一次。
+  const readUpstream = upstreamReader
+    ? createThrottledRead(upstreamReader, LATEST_LOG_INTERVAL_MS)
     : null
   const backupWatch = createBackupWatch({
     intervalMs: options.backupWatchIntervalMs ?? OPS_THRESHOLDS.BACKUP_WATCH_INTERVAL_MS,
@@ -488,6 +548,7 @@ export function createAppAlerting(options: AppAlertingOptions): (now?: number) =
           readRestoreDrill: () => backupWatch.readRestoreDrill(roundNow),
           watchingModels: Object.keys(state.generationWatch ?? {}),
           readLatestLogAt,
+          readUpstream,
           onMissed: (block) => missed.add(block),
           onAttempted: (block) => attempted.add(block),
         })

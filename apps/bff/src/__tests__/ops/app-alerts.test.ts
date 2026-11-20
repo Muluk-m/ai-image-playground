@@ -9,7 +9,9 @@ const databaseUrl = await resetTestDatabase('bff_app_alerts')
 process.env.DATABASE_URL = databaseUrl
 
 const writer = createDb(databaseUrl)
-const { createAppAlerting, latestObsLogReader, observeApp } = await import('../../ops/app-alerts')
+const { createAppAlerting, latestObsLogReader, observeApp, upstreamStatsReader } = await import(
+  '../../ops/app-alerts'
+)
 const { close } = await import('../../db/client')
 
 afterAll(async () => {
@@ -276,6 +278,46 @@ describe('observeApp', () => {
     })
     expect(failing.serverLogs).toBeUndefined()
     expect(missed).toContain('serverLogs')
+  })
+
+  it('aggregates upstream spans per provider and model, counting only upstream-side failures', async () => {
+    const queries: Array<{ sql: string; type?: string; startMs: number }> = []
+    let fields = new Set([
+      'operation_name',
+      'upstream_provider',
+      'upstream_model',
+      'upstream_outcome',
+    ])
+    const read = upstreamStatsReader({
+      search: async (query) => {
+        queries.push(query)
+        return [{ provider: 'gemini', model: 'veo', requests: 12, failures: '4', throttled: 1 }]
+      },
+      searchAll: async () => ({ records: [], truncated: false }),
+      streamFields: async () => fields,
+    })
+    expect(await read(now)).toEqual([
+      { provider: 'gemini', model: 'veo', requests: 12, failures: 4, throttled: 1 },
+    ])
+    // 没有状态码字段时，失败就是非 ok 的结果，429 一条也数不出来。
+    expect(queries[0]?.sql).toContain("upstream_outcome <> 'ok' AND (NULL IS NULL OR NULL >= 500)")
+    expect(queries[0]).toMatchObject({ type: 'traces', startMs: now - 15 * minute })
+    fields = new Set([...fields, 'http_response_status_code'])
+    await read(now)
+    expect(queries[1]?.sql).toContain('CAST(http_response_status_code AS BIGINT) >= 500')
+    expect(queries[1]?.sql).toContain('CAST(http_response_status_code AS BIGINT) = 429')
+    // 新部署还没有上游 span：字段不在，不查。
+    fields = new Set(['operation_name'])
+    expect(await read(now)).toEqual([])
+    expect(queries).toHaveLength(2)
+  })
+
+  it('observes upstream only where observability is configured', async () => {
+    expect((await observeApp({ now })).upstream).toBeUndefined()
+    const upstream = [{ provider: 'p', model: 'm', requests: 1, failures: 0, throttled: 0 }]
+    expect((await observeApp({ now, readUpstream: async () => upstream })).upstream).toEqual(
+      upstream,
+    )
   })
 
   it('asks OpenObserve for the newest log in the last hour and converts microseconds', async () => {

@@ -44,6 +44,14 @@ export const OPS_THRESHOLDS = {
   SLOW_GENERATION_COUNT: 3,
   SLOW_GENERATION_MIN_RATIO: 0.05,
   /**
+   * 上游维度（ADR 0033 P4，#1938），从 OpenObserve 的上游 span 聚合：15 分钟内同一渠道、模型
+   * 至少 10 次请求且三成以上 5xx 或连接失败，或 429 至少 10 次。阈值先按 2026-11 的流量定，跑一段时间再调。
+   */
+  UPSTREAM_WINDOW_MS: 15 * 60 * 1000,
+  UPSTREAM_MIN_REQUESTS: 10,
+  UPSTREAM_FAILURE_RATIO: 0.3,
+  UPSTREAM_THROTTLED: 10,
+  /**
    * 同一模型、同一错误码与上游状态码在 6 小时内出现在这么多个不同轮次，就是系统性故障：
    * 低流量时失败分散，15 分钟计数永远到不了线（2026-10-16 luna 拒绝 reasoning off 持续约 16 小时）。
    */

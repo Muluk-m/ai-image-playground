@@ -162,6 +162,48 @@ describe('模型出图变慢', () => {
   })
 })
 
+describe('上游维度', () => {
+  const stat = (requests: number, failures: number, throttled = 0) => ({
+    provider: 'gemini',
+    model: 'gemini-nano-banana-2.1',
+    requests,
+    failures,
+    throttled,
+  })
+
+  it('失败率到三成、且至少 10 次请求才报；量太小不报', () => {
+    expect(run([[T0, { upstream: [stat(10, 2)] }]])).toEqual([[]])
+    expect(run([[T0, { upstream: [stat(9, 9)] }]])).toEqual([[]])
+    expect(run([[T0, { upstream: [stat(10, 3)] }]])).toEqual([['firing:upstream-errors']])
+  })
+
+  it('429 到 10 次就报限流，和失败率各报各的', () => {
+    expect(run([[T0, { upstream: [stat(40, 0, 9)] }]])).toEqual([[]])
+    expect(run([[T0, { upstream: [stat(40, 0, 10)] }]])).toEqual([['firing:upstream-throttle']])
+  })
+
+  it('回到线内发恢复，读数缺失不算恢复', () => {
+    expect(
+      run([
+        [T0, { upstream: [stat(20, 10)] }],
+        [T0 + minute, {}],
+        [T0 + 2 * minute, { upstream: [stat(20, 1)] }],
+      ]),
+    ).toEqual([['firing:upstream-errors'], [], ['resolved:upstream-errors']])
+  })
+
+  it('告警文本列出出事的渠道和模型', () => {
+    const { messages } = evaluateAlerts(
+      { upstream: [stat(10, 4), { ...stat(30, 0, 12), model: 'veo' }] },
+      {},
+      T0,
+    )
+    const text = messages.map((message) => message.text).join('\n')
+    expect(text).toContain('gemini / gemini-nano-banana-2.1：4/10 次')
+    expect(text).toContain('gemini / veo：12/30 次')
+  })
+})
+
 describe('用户错误告警', () => {
   const api = (requests: number, errors: number, success: number | null = null, bucket = T0) => ({
     api: {
