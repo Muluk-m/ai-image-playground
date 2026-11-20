@@ -34,4 +34,13 @@ P0 中发现、实施时必须处理的问题：
 - OTel 各包的大版本不一致（api 1.x、sdk-trace-base 2.x、core 3.x），接入时按同一个发布批次统一锁定版本。
 - 生产镜像用的是 `oven/bun:1-slim`（CI 是 Bun 1.4.3）；P1 要在生产 Bun 版本上重跑一遍 P0 检查。
 
+P2 实施（2026-11-20，macmini2 端到端：Docker fluentd 驱动 → Fluent Bit 5.1.3 → otelcol-contrib 0.165.0 → OpenObserve v1.1.2 → MinIO；另发 OTLP span；经只读代理用 `scripts/obs.ts` 查回）：
+
+- **日志双发不换采集入口**：Docker 驱动仍只连 Fluent Bit，Fluent Bit 多一路 `forward` 输出到 Collector，多行合并在 Fluent Bit 里已经做完。P3 再决定是否让 Collector 直接接 Docker 驱动。
+- **Fluent Bit 5 的 forward 默认发 `[[时间, 元数据], 记录]`，Collector 的 `fluent_forward` 直接拒收整批**（`unknown type of value ... at Time`，只在 debug 日志里看得到）。输出设 `time_as_integer: true` 改发旧格式；丢掉的毫秒由 Collector 用 pino 自己的 `time` 字段补回。`fluentd_compat: true` 不解决这个问题。
+- **OpenObserve 每个部署一套**（paid、test 各一个，同一个桶用不同前缀），跟着各自的发布走，测试数据不进生产实例。实测常驻：OpenObserve 约 180 MB，Collector 约 50 MB。
+- OpenObserve 镜像是 distroless，没有 shell 和 curl，不配容器健康检查；默认还会外连下载 GeoIP 库、同步模型价格，均已关闭。
+- 0.165 起组件名 `otlphttp`、`fluentforward` 已弃用，改用 `otlp_http`、`fluent_forward`。
+- 字段名小写、点换下划线：span 属性 `task.id` 存成 `task_id`，日志字段 `taskId` 存成 `taskid`。
+
 代价：观测后端和生产服务在同一台 VPS 上，要占内存；宿主机挂掉时日志 UI 也不可用，但数据在 R2 里，可以在别处起一个 OpenObserve 读取。多了 Collector 和 OpenObserve 两个组件要升级和监控。Bun 上需要手动埋点，新增上游或存储出口时要记得建 span，靠评审保证。

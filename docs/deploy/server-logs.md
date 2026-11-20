@@ -49,7 +49,27 @@ API 错误展示接口、HTTP 状态、原始错误码和已记录的具体原�
 
 数据库日志隐藏常见密钥字段、认证头、Cookie、原始请求体、响应预览和序列化 JSON 中的用户内容，消息里的 Bearer、常见 API key、URL 密钥参数与 URL 密码也会脱敏。单行消息最多 4000 字符；多行终端记录整体脱敏后最多保留 16000 字符，结构化字段超限会标记截断。应用日志仍应遵守不输出秘密和用户原文的约定。
 
-BFF 的 `/api/*` 与 `/v1/*` 请求用 OpenTelemetry 建链路（ADR 0033）：接着调用方的 W3C `traceparent`，在请求里打的 pino 日志自动带 `trace_id`、`span_id`，在本页用关键词搜 `trace_id` 就能查到同一请求的日志。健康检查、`/internal/*` 与静态资源不建链路。生成任务提交时把当前链路的 `traceparent` 写进 `tasks.traceparent`；worker 每次认领执行都开一个新的 `task.execute` 链路，用 span link 指回提交链路，执行期间（含中断收尾）的 worker 日志带这条新链路的 `trace_id`；提交请求的 span 带 `task.id` 属性。从任务找提交链路看 `tasks.traceparent`，从执行链路找提交链路看 span link。认领本身（含弹性名额判定）发生在执行链路之前，相关日志只带任务 ID。上游请求与 R2 读写的 span 按 ADR 0033 的 P1 后续接入（#1917）。配置 `OTEL_EXPORTER_OTLP_ENDPOINT`（Collector 的 OTLP/HTTP 地址，不含 `/v1/traces`）时才导出 span，默认不导出；`OTEL_TRACES_SAMPLE_RATIO`（0–1，默认 1）按比例采样；`OTEL_DEPLOYMENT_ENVIRONMENT` 可选，写进 span 的 `deployment.environment.name`。
+BFF 的 `/api/*` 与 `/v1/*` 请求用 OpenTelemetry 建链路（ADR 0033）：接着调用方的 W3C `traceparent`，在请求里打的 pino 日志自动带 `trace_id`、`span_id`，在本页用关键词搜 `trace_id` 就能查到同一请求的日志。健康检查、`/internal/*` 与静态资源不建链路。生成任务提交时把当前链路的 `traceparent` 写进 `tasks.traceparent`；worker 每次认领执行都开一个新的 `task.execute` 链路，用 span link 指回提交链路，执行期间（含中断收尾）的 worker 日志带这条新链路的 `trace_id`；提交请求的 span 带 `task.id` 属性。从任务找提交链路看 `tasks.traceparent`，从执行链路找提交链路看 span link。认领本身（含弹性名额判定）发生在执行链路之前，相关日志只带任务 ID。上游请求（CLIENT span，并把 `traceparent` 带给上游）、Vertex 限流退避（执行 span 上的事件）与 R2 读写（CLIENT span，只记操作和字节数）也各有 span（#1927）。配置 `OTEL_EXPORTER_OTLP_ENDPOINT`（Collector 的 OTLP/HTTP 地址，不含 `/v1/traces`）时才导出 span，默认不导出；`OTEL_TRACES_SAMPLE_RATIO`（0–1，默认 1）按比例采样；`OTEL_DEPLOYMENT_ENVIRONMENT` 可选，写进 span 的 `deployment.environment.name`。
+
+## OpenTelemetry 与 OpenObserve（ADR 0033 P2）
+
+app.env 里 `OBSERVABILITY_ENABLED=true` 时，下一次发布由 `scripts/app-compose.sh` 拉起 `observability` profile 的三个服务。Fluent Bit 多一路输出，把多行合并之后的同一份日志发给 Collector；`server_logs` 照常接收，P3 之前两份并存，关掉开关就回到只有 `server_logs`。
+
+- `otel-collector`（otelcol-contrib 0.165.0，上限 200 MB）：`fluent_forward` 收容器日志，OTLP/HTTP `:4318` 收 BFF 和 worker 的 span（app.env 设 `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318`）。处理规则写在 `deploy/compose.app.yaml` 的 `configs.otel-collector`：pino 行拆成字段，消息作正文，用 pino 的毫秒时间，日志挂到 `trace_id`/`span_id`，级别映射成 OTel severity（cloudflared 的 `INF/WRN/ERR` 也认），没写 service 的按容器名推断；脱敏规则与 `server_logs` 相同（`packages/shared/src/redact-log.ts`）：任意层级的私密字段整项删掉，正文和字段值里的 Bearer、API key、`token=`、URL 账号密码、base64 图片替换掉。发送队列放在 `otel-queue` 卷，OpenObserve 重启期间不丢。
+- `openobserve`（v1.1.2，上限 512 MB）：日志和 span 都写进 `app` 流，以 Parquet 存在 `OBS_S3_BUCKET` 的 `OBS_S3_PREFIX` 下，保留 `OBS_RETENTION_DAYS` 天（默认 30）。本地卷只放预写日志和查询缓存（磁盘缓存上限 2 GB）。关了遥测、GeoIP 下载和模型价格同步，除 R2 外不外连。镜像没有 shell，不配容器健康检查。
+- `obs-proxy`：开源版 OpenObserve 没有只读角色，对外只开这个代理。它用自己的 `OBS_PROXY_TOKEN`（Bearer，至少 32 字符）鉴权，只放行 `POST /api/default/_search`、`GET /api/default/streams` 和 `GET /api/default/<流>/traces/latest`，OpenObserve 账号由代理代填（`apps/bff/src/ops/obs-proxy.ts`）。
+
+查询用 `scripts/obs.ts`，不需要 Admin：
+
+```sh
+bun scripts/obs.ts task <任务ID>                 # 任务的日志 + 每次执行的 span 树
+bun scripts/obs.ts trace <trace_id>              # 一条链路的 span 树和日志
+bun scripts/obs.ts logs --service worker --level error --since 2h
+bun scripts/obs.ts logs --grep timeout --env test
+bun scripts/obs.ts sql 'SELECT upstream_model, COUNT(*) FROM "app" WHERE span_status = '"'"'ERROR'"'"' GROUP BY 1' --type traces
+```
+
+代理只在部署网络里可达（网络别名 `<部署>-obs:5090`）。从本机查询要在该部署的 cloudflared 配置里加一个主机名指向 `http://<部署>-obs:5090`（仓库外的 `cloudflared/config.yml`，再 `cloudflared tunnel route dns`），属于改 Cloudflare，按发布手册要 Nain 批准。地址和令牌放在 `$XDG_CONFIG_HOME/ai-image-playground/obs.env`（`OBS_PAID_URL`、`OBS_PAID_TOKEN`、`OBS_TEST_URL`、`OBS_TEST_TOKEN`），或用环境变量 `OBS_URL`/`OBS_TOKEN` 覆盖。OpenObserve 里字段名全是小写、点换成下划线：日志 `taskid`、`service`、`event`、`severity`、`body`、`trace_id`；span `trace_id`、`span_id`、`reference_parent_span_id`、`operation_name`、`duration`（微秒）、`span_status`、`task_id`、`upstream_model`、`http_response_status_code`。
 
 `LOG_LEVEL` 控制 BFF 与 worker 的输出级别，默认 info。PostgreSQL 属于共享的基础设施栈，暂不转发，用 `docker logs` 查看。数据库不可用时界面报告读取失败，日志在采集容器里排队等待，现场排障仍可用 `docker logs`。
 
