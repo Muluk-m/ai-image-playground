@@ -91,6 +91,7 @@ export function useFeedbackThread(
       before === undefined ? revision : undefined,
     ],
     enabled: Boolean(threadId),
+    refetchInterval: before === undefined && revision === undefined ? 30_000 : false,
     queryFn: () =>
       apiClient.get<FeedbackAdminDetailResponse>(
         `/api/feedback/${encodeURIComponent(threadId ?? '')}${before === undefined ? '' : `?before=${before}`}`,
