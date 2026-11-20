@@ -223,7 +223,7 @@ describe('server log explorer on OpenObserve', () => {
     const page = searches.filter((s) => s.sql.startsWith('SELECT *,')).at(-1)!
     const ts = us(now - 60_000)
     expect(page.sql).toContain(
-      `(_timestamp < ${ts} OR (_timestamp = ${ts} AND (COALESCE(instance, container_name) > 'bb272d8bb3c5' OR (COALESCE(instance, container_name) = 'bb272d8bb3c5' AND ${exprs.key} > '${keyOf(99)}'))))`,
+      `(_timestamp < ${ts} OR (_timestamp = ${ts} AND (COALESCE(instance, container_name, '') > 'bb272d8bb3c5' OR (COALESCE(instance, container_name, '') = 'bb272d8bb3c5' AND ${exprs.key} > '${keyOf(99)}'))))`,
     )
     expect(page.sql).toContain('ORDER BY _timestamp DESC, log_instance, log_key')
   })
@@ -260,7 +260,7 @@ describe('server log explorer on OpenObserve', () => {
       "trace_id = 'tr'",
       "userid = 'u'",
       "mediaid = 'm'",
-      "COALESCE(instance, container_name) = 'i'",
+      "COALESCE(instance, container_name, '') = 'i'",
       "version = 'v'",
       `${exprs.group} = 'g'`,
     ])
@@ -281,6 +281,16 @@ describe('server log explorer on OpenObserve', () => {
     const entry = toEntry(hit(1, { log_key: uuid, log_id: uuid }))
     expect(entry.id.endsWith(`-${uuid}`)).toBe(true)
     expect(entry.fields).not.toHaveProperty('log_id')
+  })
+
+  it('pages and finds context for lines without an instance, keyed on an empty instance', async () => {
+    const bare = toEntry(hit(3, { instance: null, log_instance: '', container_name: null }))
+    expect(bare.instance).toBe('')
+    expect(logSql(SCHEMA).instance).toBe("COALESCE(instance, container_name, '')")
+    await request(`/api/ops/logs/context?id=${bare.id}`)
+    expect(
+      searches.every((s) => s.sql.includes("COALESCE(instance, container_name, '') = ''")),
+    ).toBe(true)
   })
 
   it('never references a field the stream does not have', () => {
@@ -333,9 +343,11 @@ describe('server log explorer on OpenObserve', () => {
     expect(result.entries[0]?.at).toBeLessThan(result.entries[49]!.at)
     expect(result.entries[51]?.at).toBe(now - 59_000)
     const self = searches.find((s) => s.size === 1)!
-    expect(self.sql).toContain(`md5(concat(body, '|', requestid, '|', taskid)) = '${keyOf(7)}'`)
+    expect(self.sql).toContain(`${exprs.key} = '${keyOf(7)}'`)
     expect(
-      searches.every((s) => s.sql.includes("COALESCE(instance, container_name) = 'bb272d8bb3c5'")),
+      searches.every((s) =>
+        s.sql.includes("COALESCE(instance, container_name, '') = 'bb272d8bb3c5'"),
+      ),
     ).toBe(true)
     expect((await request("/api/ops/logs/context?id=bad'id")).status).toBe(400)
   })

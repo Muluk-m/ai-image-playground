@@ -72,7 +72,8 @@ export function _setObsClientForTesting(client: ObsClient | null | undefined): v
 async function logFields(client: ObsClient, now = Date.now()): Promise<Set<string>> {
   if (schemaCache && now - schemaCache.at < SCHEMA_TTL_MS) return schemaCache.fields
   const fields = await client.streamFields(OBS_STREAM, 'logs')
-  schemaCache = { fields, at: now }
+  // 流还没有数据时 schema 是空的：不缓存，数据一进来下一次请求就按真实字段拼。
+  if (fields.size > 0) schemaCache = { fields, at: now }
   return fields
 }
 
@@ -93,7 +94,7 @@ export function logSql(fields: ReadonlySet<string>) {
    */
   const group = String.raw`COALESCE(${col('event')}, substr(regexp_replace(regexp_replace(regexp_replace(regexp_replace(${col('body')}, '^\S*\d{4}-\d{2}-\d{2}[T ][\d:.]+Z?\s*', ''), '(?i)\b[0-9a-f]{8}-[0-9a-f-]{27,}\b', '<id>', 'g'), '(?i)\b[0-9a-f]{12,}\b', '<hex>', 'g'), '\d+(\.\d+)*', '<n>', 'g'), 1, 120))`
   /** pino 行带 instance；纯文本行只有容器名，用它代替，「同实例」和上下文才查得到。 */
-  const instance = `COALESCE(${col('instance')}, ${col('container_name')})`
+  const instance = `COALESCE(${col('instance')}, ${col('container_name')}, '')`
   /**
    * 同一实例同一时刻的行靠它排开。Collector 给每条日志写了随机的 `log_id`（UUID），有它就用它；
    * 之前进来的旧日志没有，退回正文、请求、任务、事件、级别、span、输出流的 md5，只有这些全一样的行才会重。
