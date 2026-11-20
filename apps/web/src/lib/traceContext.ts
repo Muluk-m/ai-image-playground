@@ -106,9 +106,41 @@ export function attachTraceparent(
   return { init: { ...init, headers }, traceId }
 }
 
+const responseTraces = new WeakMap<Response, string>()
+
+/** 记下这个响应属于哪条链路，之后据它构造的错误用 `traceIdOf` 取回，不依赖全局「最近失败」。 */
+export function rememberResponseTrace(response: Response, traceId: string | null): void {
+  if (isTraceId(traceId)) responseTraces.set(response, traceId)
+}
+
+export function traceIdOf(response: Response): string | undefined {
+  const remembered = responseTraces.get(response)
+  if (remembered) return remembered
+  const header = response.headers.get(TRACE_ID_RESPONSE_HEADER)
+  return isTraceId(header) ? header : undefined
+}
+
+/**
+ * 把链路挂到错误上（不可枚举，不影响序列化与相等比较）。错误已经带了就不覆盖：
+ * 最早挂上的那条才是出错的请求。
+ */
+export function tagTraceId<T>(error: T, traceId: string | null | undefined): T {
+  if (!isTraceId(traceId) || !error || typeof error !== 'object') return error
+  try {
+    if (isTraceId(Reflect.get(error, 'traceId'))) return error
+    Object.defineProperty(error, 'traceId', { value: traceId, configurable: true })
+  } catch {
+    // 冻结或带访问器的对象挂不上，退回全局兜底。
+  }
+  return error
+}
+
 let recentFailure: { traceId: string; at: number } | null = null
 
-/** BFF 请求失败（非 2xx 或网络错误）时记下所在链路，紧接着的错误上报会带上它。 */
+/**
+ * BFF 请求失败（非 2xx 或网络错误）时记下所在链路。只是兜底：错误自己带了 `traceId` 时以它为准；
+ * 多个请求交错失败时这里只剩最后一条，可能对不上。
+ */
 export function noteFailedTrace(traceId: string | null, now = Date.now()): void {
   if (isTraceId(traceId)) recentFailure = { traceId, at: now }
 }

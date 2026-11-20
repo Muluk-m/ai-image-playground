@@ -45,15 +45,17 @@ function bffUrl(path: string): string {
 }
 
 async function parseError(res: Response): Promise<AuthRequestError> {
+  let error: AuthRequestError
   try {
     const body = (await res.json()) as { error?: unknown }
-    return new AuthRequestError(
+    error = new AuthRequestError(
       res.status,
       typeof body.error === 'string' ? body.error : `http_${res.status}`,
     )
   } catch {
-    return new AuthRequestError(res.status, `http_${res.status}`)
+    error = new AuthRequestError(res.status, `http_${res.status}`)
   }
+  return tagTraceId(error, traceIdOf(res))
 }
 
 async function authJson<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -502,13 +504,14 @@ export async function authenticatedBffFetch(
     const traced = attachTraceparent(input, { ...init, credentials: 'include' }, traceId)
     try {
       const response = await fetch(input, traced.init)
+      const responseTrace = responseTraceId(response, traced.traceId)
+      rememberResponseTrace(response, responseTrace)
       // 401 走刷新会话，不算服务端故障，不让它顶掉更有用的失败链路。
-      if (!response.ok && response.status !== 401)
-        noteFailedTrace(responseTraceId(response, traced.traceId))
+      if (!response.ok && response.status !== 401) noteFailedTrace(responseTrace)
       return response
     } catch (error) {
       noteFailedTrace(traced.traceId)
-      throw error
+      throw tagTraceId(error, traced.traceId)
     }
   }
   const res = await send()

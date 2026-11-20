@@ -154,10 +154,20 @@ function boundedContext(
   return fits(essential) ? essential : undefined
 }
 
-/** 错误自己带的 trace id 优先；否则取最近一次失败的 BFF 请求，见 traceContext。 */
+/**
+ * 错误或它的 cause 链上带的 trace id 优先（构造错误时从响应挂上，见 traceContext.tagTraceId）；
+ * 都没有才取最近一次失败的 BFF 请求作兜底。
+ */
 function reportTraceId(error: unknown): string | undefined {
-  const own = errorField(error, 'traceId')
-  return isTraceId(own) ? own : recentFailedTraceId()
+  const seen = new Set<unknown>()
+  let current = error
+  for (let depth = 0; depth < 5 && current !== undefined && !seen.has(current); depth += 1) {
+    seen.add(current)
+    const own = errorField(current, 'traceId')
+    if (isTraceId(own)) return own
+    current = errorField(current, 'cause')
+  }
+  return recentFailedTraceId()
 }
 
 function currentRelease(): string | undefined {

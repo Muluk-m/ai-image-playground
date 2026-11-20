@@ -460,6 +460,10 @@ it('carries the trace id the error names, else the BFF request that just failed'
   reportClientError('error', new Error('after a failed request'))
   reportClientError('error', Object.assign(new Error('names its own'), { traceId: own }))
   reportClientError('error', Object.assign(new Error('names junk'), { traceId: 'junk' }))
+  reportClientError(
+    'error',
+    new Error('wraps one', { cause: Object.assign(new Error('inner'), { traceId: own }) }),
+  )
   flushClientErrors()
   const reports = (await sentBodies()).flatMap((sent) => sent.body.errors)
   expect(reports.map((report) => [report.message, report.traceId])).toEqual([
@@ -467,5 +471,6 @@ it('carries the trace id the error names, else the BFF request that just failed'
     ['after a failed request', failed],
     ['names its own', own],
     ['names junk', failed],
+    ['wraps one', own],
   ])
 })

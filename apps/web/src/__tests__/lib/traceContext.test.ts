@@ -6,8 +6,11 @@ import {
   newTraceId,
   noteFailedTrace,
   recentFailedTraceId,
+  rememberResponseTrace,
   requiresPreflight,
   responseTraceId,
+  tagTraceId,
+  traceIdOf,
   traceparentFor,
 } from '../../lib/traceContext'
 
@@ -103,5 +106,21 @@ describe('trace context', () => {
     noteFailedTrace(null, 20_000)
     noteFailedTrace('nope', 20_000)
     expect(recentFailedTraceId(20_000)).toBeUndefined()
+  })
+
+  it('ties a trace to its response and error without overwriting an earlier one', () => {
+    const response = new Response(null, { status: 500 })
+    expect(traceIdOf(response)).toBeUndefined()
+    rememberResponseTrace(response, TRACE)
+    expect(traceIdOf(response)).toBe(TRACE)
+    expect(traceIdOf(new Response(null, { headers: { 'x-trace-id': TRACE } }))).toBe(TRACE)
+
+    const later = '0af7651916cd43dd8448eb211c80319c'
+    const error = tagTraceId(new Error('x'), TRACE)
+    expect(tagTraceId(error, later)).toBe(error)
+    expect(Reflect.get(error, 'traceId')).toBe(TRACE)
+    expect(Object.keys(error)).toEqual([])
+    expect(tagTraceId(Object.freeze(new Error('frozen')), TRACE)).toBeInstanceOf(Error)
+    expect(tagTraceId('text', TRACE)).toBe('text')
   })
 })

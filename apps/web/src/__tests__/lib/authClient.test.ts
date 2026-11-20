@@ -143,6 +143,45 @@ describe('auth client', () => {
     expect(recentFailedTraceId()).toBe(first?.[1])
   })
 
+  it("binds each failed request's trace to its own error even when failures interleave", async () => {
+    _resetTraceContextForTesting()
+    const traces = {
+      a: '4bf92f3577b34da6a3ce929d0e0e4736',
+      b: '0af7651916cd43dd8448eb211c80319c',
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string) => {
+        const which = String(input).endsWith('/a') ? 'a' : 'b'
+        // A 的正文晚到：A 的错误构造完之前 B 已经失败，全局「最近失败」指向 B。
+        if (which === 'a') await new Promise((resolve) => setTimeout(resolve, 20))
+        return Response.json(
+          { error: 'unavailable' },
+          { status: 503, headers: { 'x-trace-id': traces[which] } },
+        )
+      }),
+    )
+    const [a, b] = await Promise.allSettled([revokeCliConnection('a'), revokeCliConnection('b')])
+    expect(a.status === 'rejected' && Reflect.get(a.reason, 'traceId')).toBe(traces.a)
+    expect(b.status === 'rejected' && Reflect.get(b.reason, 'traceId')).toBe(traces.b)
+    // 挂在错误上的 trace 不可枚举，不改变错误的序列化。
+    expect(a.status === 'rejected' && Object.keys(a.reason)).not.toContain('traceId')
+  })
+
+  it('tags network failures with the trace they were sent on', async () => {
+    _resetTraceContextForTesting()
+    vi.stubGlobal('location', new URL('https://app.example.com/'))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new TypeError('Failed to fetch')
+      }),
+    )
+    const error = await authenticatedBffFetch('/api/projects').catch((reason: unknown) => reason)
+    expect(Reflect.get(error as object, 'traceId')).toMatch(/^[0-9a-f]{32}$/)
+    expect(Reflect.get(error as object, 'traceId')).toBe(recentFailedTraceId())
+  })
+
   it('leaves simple cross-origin requests without traceparent and does not note 401s', async () => {
     _resetTraceContextForTesting()
     vi.stubGlobal('location', new URL('https://app.example.com/'))
