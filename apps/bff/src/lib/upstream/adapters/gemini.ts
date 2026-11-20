@@ -1,7 +1,7 @@
 import { isObject } from '../../type-guards'
 import { buildGeminiBody, mergeGeminiCandidateResults } from '../gemini'
 import type { UpstreamCallResult } from '../shared'
-import { buildVertexBody } from '../vertex'
+import { buildVertexBody, withDefaultThinking } from '../vertex'
 import { catalogCapabilities, isResolutionTier } from './catalog'
 import { parsePayload, workingRequest } from './platform'
 import type { DroppedParam, ImageAdapter, ResolutionTier } from './types'
@@ -44,7 +44,8 @@ export const geminiAdapter: ImageAdapter = {
     return { ...base, tiers: openTiers(model) }
   },
   plan: (req, model, ctx) => {
-    const request = workingRequest(req, model, ctx)
+    const working = workingRequest(req, model, ctx)
+    const request = ctx.vertex ? withDefaultThinking(working, model) : working
     const body = ctx.vertex
       ? buildVertexBody(request, ctx.imageSizes)
       : buildGeminiBody(request, ctx.imageSizes)
