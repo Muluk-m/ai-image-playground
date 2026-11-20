@@ -271,7 +271,7 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	var refreshFailures []map[string]string
 	for _, item := range failed {
 		a.progress("Could not update the muvloom Skill at %s to %s (%s). To retry: muvloom skill install --host %s --scope %s",
-			item.Path, skill.BundleVersion, skillFailure(item.Err), item.Host, item.Scope)
+			item.Path, skill.SkillVersion, skillFailure(item.Err), item.Host, item.Scope)
 		refreshFailures = append(refreshFailures, map[string]string{"path": item.Path, "reason": skillFailure(item.Err)})
 	}
 	store := a.Store.Describe()

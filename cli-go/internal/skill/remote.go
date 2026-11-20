@@ -38,15 +38,44 @@ const (
 )
 
 var (
+	// Sentinel errors for stable CLI error classification (never leaking raw OS/network strings).
+	ErrUnsupportedService = errors.New("unsupported service for remote skill updates")
+	ErrRemoteUnavailable  = errors.New("remote skill manifest or archive unavailable")
+	ErrInvalidManifest    = errors.New("invalid remote skill manifest or archive")
+	ErrUpdateBusy         = errors.New("another skill update is in progress")
+
 	sha256HexRe    = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	archiveNameRe  = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*\.zip$`)
 	dottedVerRe    = regexp.MustCompile(`^[0-9]+(\.[0-9]+){1,4}$`)
 	officialWebMap = map[string]string{
-		"https://api.muvloom.online":      "https://muvloom.online",
-		"https://test-api.muvloom.online": "https://test.muvloom.online",
+		"https://api.muvloom.online":       "https://muvloom.online",
+		"https://test-api.muvloom.online":  "https://test.muvloom.online",
 		"https://image-api.qiliangjia.one": "https://image-playground.qiliangjia.one",
 	}
 )
+
+// RemoteErrorReason maps an internal Skill hot-update error to a short, stable reason
+// without exposing local filesystem paths or raw transport text.
+func RemoteErrorReason(err error) string {
+	switch {
+	case err == nil:
+		return ""
+	case errors.Is(err, ErrUnsupportedService):
+		return "unsupported service"
+	case errors.Is(err, ErrUpdateBusy), errors.Is(err, auth.ErrLockTimeout):
+		return "another muvloom process is updating"
+	case errors.Is(err, ErrRemoteUnavailable):
+		return "network or service error"
+	case errors.Is(err, ErrInvalidManifest):
+		return "verification failed"
+	case errors.Is(err, os.ErrPermission):
+		return "permission denied"
+	case strings.Contains(err.Error(), "symlink"):
+		return "symlink refused"
+	default:
+		return "storage error"
+	}
+}
 
 // ManifestOriginForAPI maps an official Muvloom API URL to the matching static web
 // origin that serves /cli/skill-manifest.json and skill archives. Unknown or custom
@@ -104,13 +133,22 @@ type RemoteUpdatedCopy struct {
 	FileHash    string `json:"file_hash"`
 }
 
+// RemoteUpdateFailure records one installed Skill copy that could not be updated.
+type RemoteUpdateFailure struct {
+	Host   string `json:"host"`
+	Scope  string `json:"scope"`
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
 // RemoteUpdateResult summarizes a remote Skill check or hot-update run.
 type RemoteUpdateResult struct {
-	Status        string              `json:"status"` // up_to_date, update_available, updated, skipped, disabled, unavailable
-	AutoUpdate    bool                `json:"auto_update"`
-	RemoteVersion string              `json:"remote_version,omitempty"`
-	Updated       []RemoteUpdatedCopy `json:"updated,omitempty"`
-	Reason        string              `json:"reason,omitempty"`
+	Status        string                `json:"status"` // up_to_date, update_available, updated, partial, skipped, disabled, unavailable
+	AutoUpdate    bool                  `json:"auto_update"`
+	RemoteVersion string                `json:"remote_version,omitempty"`
+	Updated       []RemoteUpdatedCopy   `json:"updated,omitempty"`
+	Failed        []RemoteUpdateFailure `json:"failed,omitempty"`
+	Reason        string                `json:"reason,omitempty"`
 }
 
 type remoteUpdateState struct {
@@ -132,15 +170,21 @@ func readRemoteState(stateDir string) remoteUpdateState {
 	if stateDir == "" {
 		return remoteUpdateState{}
 	}
-	data, err := os.ReadFile(remoteStatePath(stateDir))
-	if err != nil || len(bytes.TrimSpace(data)) == 0 {
-		return remoteUpdateState{}
+	path := remoteStatePath(stateDir)
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(20 * time.Millisecond)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil || len(bytes.TrimSpace(data)) == 0 {
+			return remoteUpdateState{}
+		}
+		var state remoteUpdateState
+		if err := json.Unmarshal(data, &state); err == nil {
+			return state
+		}
 	}
-	var state remoteUpdateState
-	if err := json.Unmarshal(data, &state); err != nil {
-		return remoteUpdateState{}
-	}
-	return state
+	return remoteUpdateState{}
 }
 
 func writeRemoteState(stateDir string, state remoteUpdateState) error {
@@ -238,16 +282,21 @@ func MaybeAutoUpdate(ctx context.Context, opts RemoteUpdateOptions) RemoteUpdate
 }
 
 // CheckOrUpdateRemote explicitly checks or updates installed Skills from the official
-// Muvloom web origin, bypassing the 24h throttle and auto_update toggle.
+// Muvloom web origin, bypassing the 24h throttle and auto_update toggle. When checkOnly
+// is true, it performs a strictly read-only check without creating directories, taking
+// locks, or writing local state files.
 func CheckOrUpdateRemote(ctx context.Context, opts RemoteUpdateOptions, checkOnly bool) (RemoteUpdateResult, error) {
 	origin, ok := resolveManifestOrigin(opts)
 	if !ok {
-		return RemoteUpdateResult{}, errors.New("automatic Skill updates are only available for official Muvloom services")
+		return RemoteUpdateResult{}, ErrUnsupportedService
 	}
-	autoEnabled := AutoUpdateEnabled(opts.StateDir)
 	now := time.Now()
 	if opts.Now != nil {
 		now = opts.Now()
+	}
+	if checkOnly {
+		autoEnabled := AutoUpdateEnabled(opts.StateDir)
+		return runRemoteUpdate(ctx, opts, origin, true, autoEnabled, nil, now)
 	}
 	var release func()
 	var state remoteUpdateState
@@ -257,7 +306,10 @@ func CheckOrUpdateRemote(ctx context.Context, opts RemoteUpdateOptions, checkOnl
 		}
 		unlock, err := auth.LockFile(remoteLockPath(opts.StateDir), 2*time.Second)
 		if err != nil {
-			return RemoteUpdateResult{}, fmt.Errorf("another muvloom skill update is running: %w", err)
+			if errors.Is(err, auth.ErrLockTimeout) {
+				return RemoteUpdateResult{}, fmt.Errorf("%w: %w", ErrUpdateBusy, err)
+			}
+			return RemoteUpdateResult{}, err
 		}
 		release = unlock
 		state = readRemoteState(opts.StateDir)
@@ -265,10 +317,9 @@ func CheckOrUpdateRemote(ctx context.Context, opts RemoteUpdateOptions, checkOnl
 	if release != nil {
 		defer release()
 	}
-	if !checkOnly {
-		state.LastCheckedAt = now
-	}
-	return runRemoteUpdate(ctx, opts, origin, checkOnly, autoEnabled, &state, now)
+	autoEnabled := state.AutoUpdate == nil || *state.AutoUpdate
+	state.LastCheckedAt = now
+	return runRemoteUpdate(ctx, opts, origin, false, autoEnabled, &state, now)
 }
 
 func runRemoteUpdate(
@@ -285,9 +336,11 @@ func runRemoteUpdate(
 	if err != nil {
 		return RemoteUpdateResult{}, err
 	}
-	state.LastRemoteVersion = manifest.Version
-	if opts.StateDir != "" {
-		_ = writeRemoteState(opts.StateDir, *state)
+	if state != nil {
+		state.LastRemoteVersion = manifest.Version
+		if opts.StateDir != "" {
+			_ = writeRemoteState(opts.StateDir, *state)
+		}
 	}
 
 	installed, err := Installed(opts.Home, opts.CWD)
@@ -318,33 +371,60 @@ func runRemoteUpdate(
 		}, nil
 	}
 
-	// Cache verified extracted files by archive name so claude-code and codex (or user +
-	// project copies) share a single download.
-	verifiedCache := map[string][]bundleFile{}
+	// Cache raw downloaded archive bytes by archive name so shared archives download once,
+	// while still verifying archive_sha256, per-file SHA-256, and file_hash independently
+	// against each host's manifest package.
+	archiveCache := map[string][]byte{}
 	var updated []RemoteUpdatedCopy
+	var failed []RemoteUpdateFailure
 	var firstErr error
 	for _, item := range outdated {
 		pkg, ok := manifest.Packages[item.foundHost]
 		if !ok {
 			continue
 		}
-		files, cached := verifiedCache[pkg.Archive]
+		zipBytes, cached := archiveCache[pkg.Archive]
 		if !cached {
-			downloaded, dlErr := downloadAndVerifyPackage(ctx, httpClient, origin, pkg)
+			downloaded, dlErr := downloadArchiveBytes(ctx, httpClient, origin, pkg.Archive)
 			if dlErr != nil {
 				if firstErr == nil {
 					firstErr = dlErr
 				}
+				failed = append(failed, RemoteUpdateFailure{
+					Host:   item.foundHost,
+					Scope:  item.foundScope,
+					Path:   item.Path,
+					Reason: RemoteErrorReason(dlErr),
+				})
 				continue
 			}
-			verifiedCache[pkg.Archive] = downloaded
-			files = downloaded
+			archiveCache[pkg.Archive] = downloaded
+			zipBytes = downloaded
+		}
+		files, verifyErr := verifyPackageArchive(zipBytes, pkg)
+		if verifyErr != nil {
+			if firstErr == nil {
+				firstErr = verifyErr
+			}
+			failed = append(failed, RemoteUpdateFailure{
+				Host:   item.foundHost,
+				Scope:  item.foundScope,
+				Path:   item.Path,
+				Reason: RemoteErrorReason(verifyErr),
+			})
+			continue
 		}
 		applied, applyErr := applyInPlaceUpdate(item, opts.Home, opts.CWD, manifest.Version, pkg.FileHash, files)
 		if applyErr != nil {
 			if firstErr == nil {
 				firstErr = applyErr
 			}
+			failed = append(failed, RemoteUpdateFailure{
+				Host:   item.foundHost,
+				Scope:  item.foundScope,
+				Path:   item.Path,
+				Reason: RemoteErrorReason(applyErr),
+			})
 			continue
 		}
 		if applied {
@@ -359,19 +439,31 @@ func runRemoteUpdate(
 		}
 	}
 	if len(updated) > 0 {
-		state.LastUpdatedAt = now
-		if opts.StateDir != "" {
-			_ = writeRemoteState(opts.StateDir, *state)
+		if state != nil {
+			state.LastUpdatedAt = now
+			if opts.StateDir != "" {
+				_ = writeRemoteState(opts.StateDir, *state)
+			}
+		}
+		status := "updated"
+		if len(failed) > 0 {
+			status = "partial"
 		}
 		return RemoteUpdateResult{
-			Status:        "updated",
+			Status:        status,
 			AutoUpdate:    autoEnabled,
 			RemoteVersion: manifest.Version,
 			Updated:       updated,
+			Failed:        failed,
 		}, nil
 	}
 	if firstErr != nil {
-		return RemoteUpdateResult{}, firstErr
+		return RemoteUpdateResult{
+			Status:        "unavailable",
+			AutoUpdate:    autoEnabled,
+			RemoteVersion: manifest.Version,
+			Failed:        failed,
+		}, firstErr
 	}
 	return RemoteUpdateResult{
 		Status:        "up_to_date",
@@ -448,14 +540,14 @@ func httpGetBytes(ctx context.Context, httpClient *http.Client, targetURL string
 func fetchManifest(ctx context.Context, httpClient *http.Client, origin string) (RemoteManifest, error) {
 	body, err := httpGetBytes(ctx, httpClient, origin+"/cli/skill-manifest.json", remoteManifestTimeout, maxManifestBytes)
 	if err != nil {
-		return RemoteManifest{}, fmt.Errorf("fetch skill manifest: %w", err)
+		return RemoteManifest{}, fmt.Errorf("%w: fetch skill manifest: %w", ErrRemoteUnavailable, err)
 	}
 	var manifest RemoteManifest
 	if err := json.Unmarshal(body, &manifest); err != nil {
-		return RemoteManifest{}, fmt.Errorf("parse skill manifest: %w", err)
+		return RemoteManifest{}, fmt.Errorf("%w: parse skill manifest: %w", ErrInvalidManifest, err)
 	}
 	if err := validateManifest(manifest); err != nil {
-		return RemoteManifest{}, err
+		return RemoteManifest{}, fmt.Errorf("%w: %w", ErrInvalidManifest, err)
 	}
 	return manifest, nil
 }
@@ -519,7 +611,7 @@ func validateManifestBundle(pkg RemoteManifestBundle) error {
 }
 
 func isSafeRelativeSkillPath(rel string) bool {
-	if rel == "" || rel == ".muvloom-skill.json" || strings.HasPrefix(rel, "/") || strings.ContainsAny(rel, "\\\x00") {
+	if rel == "" || strings.EqualFold(rel, ".muvloom-skill.json") || strings.HasPrefix(rel, "/") || strings.ContainsAny(rel, "\\\x00") {
 		return false
 	}
 	if path.Clean(rel) != rel {
@@ -533,21 +625,25 @@ func isSafeRelativeSkillPath(rel string) bool {
 	return true
 }
 
-func downloadAndVerifyPackage(ctx context.Context, httpClient *http.Client, origin string, pkg RemoteManifestBundle) ([]bundleFile, error) {
-	zipBytes, err := httpGetBytes(ctx, httpClient, origin+"/cli/"+pkg.Archive, remoteArchiveTimeout, maxArchiveBytes)
+func downloadArchiveBytes(ctx context.Context, httpClient *http.Client, origin, archive string) ([]byte, error) {
+	zipBytes, err := httpGetBytes(ctx, httpClient, origin+"/cli/"+archive, remoteArchiveTimeout, maxArchiveBytes)
 	if err != nil {
-		return nil, fmt.Errorf("download skill archive: %w", err)
+		return nil, fmt.Errorf("%w: download skill archive: %w", ErrRemoteUnavailable, err)
 	}
+	return zipBytes, nil
+}
+
+func verifyPackageArchive(zipBytes []byte, pkg RemoteManifestBundle) ([]bundleFile, error) {
 	archiveSum := sha256.Sum256(zipBytes)
 	if hex.EncodeToString(archiveSum[:]) != pkg.ArchiveSHA256 {
-		return nil, errors.New("skill archive checksum mismatch")
+		return nil, fmt.Errorf("%w: skill archive checksum mismatch", ErrInvalidManifest)
 	}
 	reader, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
 	if err != nil {
-		return nil, fmt.Errorf("open skill archive: %w", err)
+		return nil, fmt.Errorf("%w: open skill archive: %w", ErrInvalidManifest, err)
 	}
 	if len(reader.File) > maxArchiveFiles*2 {
-		return nil, errors.New("skill archive has too many entries")
+		return nil, fmt.Errorf("%w: skill archive has too many entries", ErrInvalidManifest)
 	}
 	expected := make(map[string]RemoteManifestFile, len(pkg.Files))
 	for _, f := range pkg.Files {
@@ -558,61 +654,61 @@ func downloadAndVerifyPackage(ctx context.Context, httpClient *http.Client, orig
 	var totalBytes int
 	for _, entry := range reader.File {
 		if entry.Flags&0x1 != 0 {
-			return nil, errors.New("encrypted entry in skill archive")
+			return nil, fmt.Errorf("%w: encrypted entry in skill archive", ErrInvalidManifest)
 		}
 		if entry.Mode()&fs.ModeSymlink != 0 {
-			return nil, errors.New("symlink entry in skill archive")
+			return nil, fmt.Errorf("%w: symlink entry in skill archive", ErrInvalidManifest)
 		}
 		if entry.FileInfo().IsDir() {
 			continue
 		}
 		if !entry.Mode().IsRegular() && entry.Mode() != 0 {
-			return nil, fmt.Errorf("non-regular file %q in skill archive", entry.Name)
+			return nil, fmt.Errorf("%w: non-regular file %q in skill archive", ErrInvalidManifest, entry.Name)
 		}
 		if !strings.HasPrefix(entry.Name, "muvloom/") {
-			return nil, fmt.Errorf("unexpected archive path %q", entry.Name)
+			return nil, fmt.Errorf("%w: unexpected archive path %q", ErrInvalidManifest, entry.Name)
 		}
 		rel := strings.TrimPrefix(entry.Name, "muvloom/")
-		if rel == ".muvloom-skill.json" {
+		if strings.EqualFold(rel, ".muvloom-skill.json") {
 			// WorkBuddy ZIPs carry install metadata for direct manual unpack; the updater
 			// writes its own verified metadata after replacing files.
 			continue
 		}
 		want, ok := expected[rel]
 		if !ok {
-			return nil, fmt.Errorf("unlisted file %q in skill archive", rel)
+			return nil, fmt.Errorf("%w: unlisted file %q in skill archive", ErrInvalidManifest, rel)
 		}
 		if _, dup := seen[rel]; dup {
-			return nil, fmt.Errorf("duplicate file %q in skill archive", rel)
+			return nil, fmt.Errorf("%w: duplicate file %q in skill archive", ErrInvalidManifest, rel)
 		}
 		rc, err := entry.Open()
 		if err != nil {
-			return nil, fmt.Errorf("read %q from skill archive: %w", rel, err)
+			return nil, fmt.Errorf("%w: read %q from skill archive: %w", ErrInvalidManifest, rel, err)
 		}
 		data, readErr := io.ReadAll(io.LimitReader(rc, maxSingleFileBytes+1))
 		_ = rc.Close()
 		if readErr != nil {
-			return nil, fmt.Errorf("read %q from skill archive: %w", rel, readErr)
+			return nil, fmt.Errorf("%w: read %q from skill archive: %w", ErrInvalidManifest, rel, readErr)
 		}
 		if len(data) != want.Bytes {
-			return nil, fmt.Errorf("file size mismatch for %q", rel)
+			return nil, fmt.Errorf("%w: file size mismatch for %q", ErrInvalidManifest, rel)
 		}
 		totalBytes += len(data)
 		if totalBytes > maxTotalExtractedBytes {
-			return nil, errors.New("extracted archive exceeds size limit")
+			return nil, fmt.Errorf("%w: extracted archive exceeds size limit", ErrInvalidManifest)
 		}
 		fileSum := sha256.Sum256(data)
 		if hex.EncodeToString(fileSum[:]) != want.SHA256 {
-			return nil, fmt.Errorf("file checksum mismatch for %q", rel)
+			return nil, fmt.Errorf("%w: file checksum mismatch for %q", ErrInvalidManifest, rel)
 		}
 		seen[rel] = struct{}{}
 		extracted = append(extracted, bundleFile{path: rel, data: data})
 	}
 	if len(seen) != len(expected) {
-		return nil, errors.New("skill archive is missing manifest files")
+		return nil, fmt.Errorf("%w: skill archive is missing manifest files", ErrInvalidManifest)
 	}
 	if hashFiles(extracted) != pkg.FileHash {
-		return nil, errors.New("extracted skill tree hash mismatch")
+		return nil, fmt.Errorf("%w: extracted skill tree hash mismatch", ErrInvalidManifest)
 	}
 	return extracted, nil
 }
@@ -671,8 +767,10 @@ func applyInPlaceUpdate(
 
 	// Verify no symlinks sit on any target path before writing anything.
 	newMap := make(map[string][]byte, len(newFiles))
+	newFolded := make(map[string]string, len(newFiles))
 	for _, f := range newFiles {
 		newMap[f.path] = f.data
+		newFolded[strings.ToLower(f.path)] = f.path
 		target := filepath.Join(destination, filepath.FromSlash(f.path))
 		if err := refuseSymlinks(destination, target); err != nil {
 			return false, err
@@ -695,7 +793,27 @@ func applyInPlaceUpdate(
 		}
 	}
 
-	// Write new and updated files in place (no rename, no delete).
+	// On case-insensitive filesystems (macOS APFS, Windows NTFS), remove files whose
+	// path changed only in letter casing BEFORE writing the new casing, so the new entry
+	// takes the exact manifest casing and is never deleted by obsolete-file cleanup below.
+	caseRenamed := map[string]bool{}
+	for oldRel := range snapshot {
+		if strings.EqualFold(oldRel, ".muvloom-skill.json") {
+			continue
+		}
+		if _, exact := newMap[oldRel]; exact {
+			continue
+		}
+		if newRel, foldedMatch := newFolded[strings.ToLower(oldRel)]; foldedMatch && newRel != oldRel {
+			if err := os.Remove(filepath.Join(destination, filepath.FromSlash(oldRel))); err != nil && !errors.Is(err, os.ErrNotExist) {
+				rollback()
+				return false, fmt.Errorf("replace case-renamed %s: %w", oldRel, err)
+			}
+			caseRenamed[oldRel] = true
+		}
+	}
+
+	// Write new and updated files in place (no rename, no delete for unchanged paths).
 	for _, f := range newFiles {
 		if _, existed := snapshot[f.path]; !existed {
 			created = append(created, f.path)
@@ -709,7 +827,7 @@ func applyInPlaceUpdate(
 	// Remove files from the previous verified snapshot that no longer exist in the new manifest.
 	var obsoleteDirs []string
 	for rel := range snapshot {
-		if rel == ".muvloom-skill.json" {
+		if strings.EqualFold(rel, ".muvloom-skill.json") || caseRenamed[rel] {
 			continue
 		}
 		if _, keep := newMap[rel]; keep {

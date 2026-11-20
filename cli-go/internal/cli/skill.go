@@ -35,5 +35,5 @@ func cmdSkillStatus(_ context.Context, a *App, args []string) (any, error) {
 	if err != nil {
 		return nil, fail("INTERNAL_ERROR", "%v", err)
 	}
-	return map[string]any{"bundled_version": skill.BundleVersion, "installed": installed}, nil
+	return map[string]any{"bundled_version": skill.SkillVersion, "installed": installed}, nil
 }

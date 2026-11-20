@@ -171,3 +171,29 @@ func TestUpdateSkillCommandFlagsCheckUpdateAndAuthStatusAutoHotUpdate(t *testing
 		t.Fatalf("WorkBuddy SKILL.md was not hot-updated: %q", data)
 	}
 }
+
+func TestUpdateSkillRespectsExplicitAPIURLAndClassifiesUnsupportedService(t *testing.T) {
+	stateDir := t.TempDir()
+	store := auth.Store{Dir: stateDir}
+	// Persist an official production service in connection.json.
+	if err := store.Save(auth.Credentials{AccessToken: "a", RefreshToken: "r", BaseURL: DefaultAPIURL}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	// Explicit MUVLOOM_API_URL pointing at a custom/self-hosted service must NOT fall back to connection.json!
+	a := &App{
+		APIURL: "https://self-hosted.example.com",
+		Store:  store,
+		Home:   t.TempDir(),
+		CWD:    t.TempDir(),
+		Out:    &out,
+		Err:    io.Discard,
+	}
+	code := a.Run([]string{"--json", "update", "skill", "--check"})
+	if code != ExitRejected {
+		t.Fatalf("expected ExitRejected (CAPABILITY_UNAVAILABLE), got %d: %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"code":"CAPABILITY_UNAVAILABLE"`) {
+		t.Fatalf("unexpected error envelope: %s", out.String())
+	}
+}

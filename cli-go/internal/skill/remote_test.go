@@ -411,3 +411,142 @@ func TestMaybeAutoUpdateSkipsNetworkWhenNoSkillsInstalled(t *testing.T) {
 		t.Fatalf("expected zero network hits with no skills: %+v hits=%d", res, hits.Load())
 	}
 }
+
+func TestRemoteUpdateCheckOnlyIsStrictlyReadOnly(t *testing.T) {
+	home, cwd := t.TempDir(), t.TempDir()
+	if _, err := Install(InstallOptions{Host: "workbuddy", Scope: "user", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	stateDir := filepath.Join(t.TempDir(), "nonexistent-state")
+	srv := makeRemoteFixtureServer(
+		t,
+		SkillVersion+".1",
+		map[string][]byte{"SKILL.md": []byte("# new\n")},
+		map[string][]byte{"SKILL.md": []byte("# new\n")},
+		nil,
+		nil,
+	)
+	defer srv.Close()
+
+	res, err := CheckOrUpdateRemote(context.Background(), RemoteUpdateOptions{
+		Home: home, CWD: cwd, StateDir: stateDir, BaseURL: srv.URL, HTTP: srv.Client(),
+	}, true)
+	if err != nil || res.Status != "update_available" {
+		t.Fatalf("checkOnly failed: %+v %v", res, err)
+	}
+	if _, statErr := os.Stat(stateDir); !os.IsNotExist(statErr) {
+		t.Fatalf("checkOnly created local state directory: %v", statErr)
+	}
+}
+
+func TestRemoteUpdateHandlesCaseOnlyFileRename(t *testing.T) {
+	home, cwd, stateDir := t.TempDir(), t.TempDir(), t.TempDir()
+	res, err := Install(InstallOptions{Host: "workbuddy", Scope: "user", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Replace references/cli.md with references/CLI.md (case-only change on macOS/Windows).
+	nextVer := SkillVersion + ".1"
+	srv := makeRemoteFixtureServer(
+		t,
+		nextVer,
+		map[string][]byte{
+			"SKILL.md":          []byte("---\nname: muvloom\ndescription: Case test\n---\n# Case\n"),
+			"references/CLI.md": []byte("# Uppercase CLI\n"),
+		},
+		map[string][]byte{"SKILL.md": []byte("# cli\n")},
+		nil,
+		nil,
+	)
+	defer srv.Close()
+
+	upd, err := CheckOrUpdateRemote(context.Background(), RemoteUpdateOptions{
+		Home: home, CWD: cwd, StateDir: stateDir, BaseURL: srv.URL, HTTP: srv.Client(),
+	}, false)
+	if err != nil || upd.Status != "updated" {
+		t.Fatalf("case-only rename update failed: %+v %v", upd, err)
+	}
+	installed, err := Installed(home, cwd)
+	if err != nil || len(installed) != 1 || !installed[0].Intact || !installed[0].Current || installed[0].Version != nextVer {
+		t.Fatalf("after case-only rename Installed = %+v, %v", installed, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(res.Path, "references", "CLI.md")); err != nil || string(data) != "# Uppercase CLI\n" {
+		t.Fatalf("case-renamed file missing or wrong: %q %v", data, err)
+	}
+}
+
+func TestRemoteUpdateVerifiesSharedArchivePerHostAndReportsPartialFailures(t *testing.T) {
+	home, cwd, stateDir := t.TempDir(), t.TempDir(), t.TempDir()
+	if _, err := Install(InstallOptions{Host: "claude-code", Scope: "user", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(InstallOptions{Host: "codex", Scope: "user", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	cliZip, cliHash, cliFiles := buildTestSkillZip(t, map[string][]byte{
+		"SKILL.md": []byte("---\nname: muvloom\ndescription: Shared\n---\n# Shared\n"),
+	})
+	cliSum := sha256.Sum256(cliZip)
+	manifest := RemoteManifest{
+		SchemaVersion: 1, Skill: "muvloom", Version: SkillVersion + ".1", BundleVersion: BundleVersion,
+		Packages: map[string]RemoteManifestBundle{
+			"claude-code": {
+				Archive:       "muvloom-cli-skill.zip",
+				ArchiveSHA256: hex.EncodeToString(cliSum[:]),
+				FileHash:      cliHash,
+				Files:         cliFiles,
+			},
+			// Intentionally wrong file_hash for codex sharing the same archive name.
+			"codex": {
+				Archive:       "muvloom-cli-skill.zip",
+				ArchiveSHA256: hex.EncodeToString(cliSum[:]),
+				FileHash:      strings.Repeat("0", 64),
+				Files:         cliFiles,
+			},
+		},
+	}
+	mBytes, _ := json.Marshal(manifest)
+	var archiveHits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/cli/skill-manifest.json":
+			_, _ = w.Write(mBytes)
+		case "/cli/muvloom-cli-skill.zip":
+			archiveHits.Add(1)
+			_, _ = w.Write(cliZip)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	res, err := CheckOrUpdateRemote(context.Background(), RemoteUpdateOptions{
+		Home: home, CWD: cwd, StateDir: stateDir, BaseURL: srv.URL, HTTP: srv.Client(),
+	}, false)
+	if err != nil {
+		t.Fatalf("partial update returned fatal err: %v", err)
+	}
+	if archiveHits.Load() != 1 {
+		t.Fatalf("shared archive downloaded %d times, want 1", archiveHits.Load())
+	}
+	if res.Status != "partial" || len(res.Updated) != 1 || res.Updated[0].Host != "claude-code" || len(res.Failed) != 1 || res.Failed[0].Host != "codex" {
+		t.Fatalf("expected partial result with claude-code updated and codex failed: %+v", res)
+	}
+}
+
+func TestValidateManifestRejectsCaseVariantMetadataFile(t *testing.T) {
+	bad := RemoteManifest{
+		SchemaVersion: 1, Skill: "muvloom", Version: "9.9.9", BundleVersion: "0.2.6",
+		Packages: map[string]RemoteManifestBundle{
+			"claude-code": {
+				Archive:       "muvloom-cli-skill.zip",
+				ArchiveSHA256: strings.Repeat("a", 64),
+				FileHash:      strings.Repeat("b", 64),
+				Files:         []RemoteManifestFile{{Path: ".MUVLOOM-SKILL.JSON", Bytes: 2, SHA256: strings.Repeat("c", 64)}},
+			},
+		},
+	}
+	if err := validateManifest(bad); err == nil {
+		t.Fatal("accepted case-variant .MUVLOOM-SKILL.JSON in manifest")
+	}
+}

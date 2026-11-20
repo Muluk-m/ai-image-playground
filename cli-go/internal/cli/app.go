@@ -329,6 +329,8 @@ func (a *App) Run(args []string) int {
 	if skipsService[strings.Fields(cmd.name)[0]] {
 		if a.APIURL == "" {
 			a.APIURL, a.apiURLSource = DefaultAPIURL, sourceDefault
+		} else {
+			a.apiURLSource = sourceEnvironment
 		}
 	} else {
 		a.resolveAPIURL(cmd.name == "auth login")

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -59,7 +60,8 @@ func cmdUpdateSkill(ctx context.Context, a *App, args []string) (any, error) {
 	}
 
 	apiURL := a.APIURL
-	if a.apiURLSource == sourceDefault || a.apiURLSource == "" {
+	// Only inherit connection.json when no explicit MUVLOOM_API_URL was provided.
+	if a.apiURLSource == sourceDefault {
 		if svc, err := a.Store.LoadService(); err == nil && svc != "" {
 			apiURL = svc
 		}
@@ -73,7 +75,27 @@ func cmdUpdateSkill(ctx context.Context, a *App, args []string) (any, error) {
 		HTTP:     a.HTTP,
 	}, *checkOnly)
 	if err != nil {
-		return nil, fail("TEMPORARILY_UNAVAILABLE", "Could not update Muvloom Skills: %s", err.Error())
+		return nil, classifyRemoteSkillError(err)
+	}
+	for _, failed := range res.Failed {
+		a.progress("Could not update the muvloom Skill at %s (%s).", failed.Path, failed.Reason)
 	}
 	return res, nil
+}
+
+func classifyRemoteSkillError(err error) *Failure {
+	switch {
+	case errors.Is(err, skill.ErrUnsupportedService):
+		return fail("CAPABILITY_UNAVAILABLE", "Automatic Skill updates are only available for official Muvloom services")
+	case errors.Is(err, skill.ErrUpdateBusy):
+		return fail("TEMPORARILY_UNAVAILABLE", "Another muvloom process is updating Skills; retry shortly")
+	case errors.Is(err, skill.ErrRemoteUnavailable):
+		return fail("NETWORK_ERROR", "Could not reach Muvloom to check for Skill updates; retry shortly")
+	case errors.Is(err, skill.ErrInvalidManifest):
+		return fail("INTERNAL_ERROR", "Could not verify the Muvloom Skill update package")
+	case errors.Is(err, os.ErrPermission):
+		return fail("INTERNAL_ERROR", "Could not update Muvloom Skills (permission denied)")
+	default:
+		return fail("INTERNAL_ERROR", "Could not update Muvloom Skills (%s)", skill.RemoteErrorReason(err))
+	}
 }
