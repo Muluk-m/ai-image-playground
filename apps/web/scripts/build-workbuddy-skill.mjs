@@ -8,10 +8,22 @@ const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const sourceRoot = resolve(webRoot, '../../cli-go/internal/skill/assets')
 const installRoot = resolve(webRoot, '../../cli-go/install')
 
-function cliBundleVersion() {
+function readInstallGoConst(name, fallback) {
   const src = readFileSync(resolve(webRoot, '../../cli-go/internal/skill/install.go'), 'utf8')
-  const match = src.match(/const BundleVersion = "([^"]+)"/)
-  return match?.[1] ?? '0.2.5'
+  const match = src.match(new RegExp(`const ${name} = "([^"]+)"`))
+  return match?.[1] ?? fallback
+}
+
+function cliBundleVersion() {
+  return readInstallGoConst('BundleVersion', '0.2.6')
+}
+
+function cliSkillVersion() {
+  return readInstallGoConst('SkillVersion', cliBundleVersion())
+}
+
+function sha256Hex(bytes) {
+  return createHash('sha256').update(bytes).digest('hex')
 }
 
 function hashSkillFiles(files) {
@@ -27,14 +39,15 @@ function hashSkillFiles(files) {
   return h.digest('hex')
 }
 
-function collectSkillFiles(sourceDirectory) {
+function collectSkillFiles(sourceDirectory, { includeAgents = false } = {}) {
   const files = {}
   function collect(directory, prefix = '') {
     for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) =>
       a.name.localeCompare(b.name, 'en'),
     )) {
       const relative = prefix ? `${prefix}/${entry.name}` : entry.name
-      if (relative === 'agents' || relative === 'references/workbuddy.md') continue
+      if (relative === 'references/workbuddy.md') continue
+      if (!includeAgents && relative === 'agents') continue
       if (entry.isSymbolicLink()) throw new Error(`Skill source contains a symlink: ${relative}`)
       if (entry.isDirectory()) collect(join(directory, entry.name), relative)
       else if (entry.isFile())
@@ -91,7 +104,7 @@ function zipFiles(files) {
   )
 }
 
-export function createWorkBuddySkillZip({ sourceDirectory = sourceRoot } = {}) {
+function buildWorkBuddySkillFiles({ sourceDirectory = sourceRoot } = {}) {
   const files = collectSkillFiles(sourceDirectory)
   const source = files['muvloom/SKILL.md'].toString('utf8')
   files['muvloom/SKILL.md'] = withHostSection(
@@ -104,13 +117,42 @@ export function createWorkBuddySkillZip({ sourceDirectory = sourceRoot } = {}) {
   )
   const meta = {
     skill: 'muvloom',
-    version: cliBundleVersion(),
+    version: cliSkillVersion(),
     host: 'workbuddy',
     scope: 'user',
     file_hash: hashSkillFiles(files),
   }
   files['muvloom/.muvloom-skill.json'] = Buffer.from(`${JSON.stringify(meta, null, 2)}\n`)
-  return zipFiles(files)
+  return files
+}
+
+function buildCliSkillFiles({ sourceDirectory = sourceRoot } = {}) {
+  const files = collectSkillFiles(sourceDirectory, { includeAgents: true })
+  const source = files['muvloom/SKILL.md'].toString('utf8')
+  assertFrontmatter(source)
+  return files
+}
+
+function buildManifestPackage(archive, zipBytes, files) {
+  const listed = Object.entries(files)
+    .filter(([name]) => name !== 'muvloom/.muvloom-skill.json')
+    .map(([name, bytes]) => [name.replace(/^muvloom\//, ''), bytes])
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([path, bytes]) => ({
+      path,
+      bytes: bytes.length,
+      sha256: sha256Hex(bytes),
+    }))
+  return {
+    archive,
+    archive_sha256: sha256Hex(zipBytes),
+    file_hash: hashSkillFiles(files),
+    files: listed,
+  }
+}
+
+export function createWorkBuddySkillZip({ sourceDirectory = sourceRoot } = {}) {
+  return zipFiles(buildWorkBuddySkillFiles({ sourceDirectory }))
 }
 
 export function createDoubaoSkillZip({ sourceDirectory = sourceRoot } = {}) {
@@ -132,6 +174,30 @@ export function createGenericSkillZip({ sourceDirectory = sourceRoot } = {}) {
   return zipFiles(files)
 }
 
+export function createCliSkillZip({ sourceDirectory = sourceRoot } = {}) {
+  return zipFiles(buildCliSkillFiles({ sourceDirectory }))
+}
+
+export function createSkillManifest({ sourceDirectory = sourceRoot } = {}) {
+  const cliFiles = buildCliSkillFiles({ sourceDirectory })
+  const cliZip = zipFiles(cliFiles)
+  const workbuddyFiles = buildWorkBuddySkillFiles({ sourceDirectory })
+  const workbuddyZip = zipFiles(workbuddyFiles)
+  const cliPkg = buildManifestPackage('muvloom-cli-skill.zip', cliZip, cliFiles)
+  const workbuddyPkg = buildManifestPackage('muvloom-workbuddy.zip', workbuddyZip, workbuddyFiles)
+  return {
+    schema_version: 1,
+    skill: 'muvloom',
+    version: cliSkillVersion(),
+    bundle_version: cliBundleVersion(),
+    packages: {
+      'claude-code': cliPkg,
+      codex: cliPkg,
+      workbuddy: workbuddyPkg,
+    },
+  }
+}
+
 export function writeWorkBuddySkillZip() {
   writeCliSkillAssets()
 }
@@ -139,9 +205,28 @@ export function writeWorkBuddySkillZip() {
 export function writeCliSkillAssets() {
   const outDir = resolve(webRoot, 'public/cli')
   mkdirSync(outDir, { recursive: true })
-  writeFileSync(resolve(outDir, 'muvloom-workbuddy.zip'), createWorkBuddySkillZip())
+  const workbuddyFiles = buildWorkBuddySkillFiles()
+  const workbuddyZip = zipFiles(workbuddyFiles)
+  const cliFiles = buildCliSkillFiles()
+  const cliZip = zipFiles(cliFiles)
+  const cliPkg = buildManifestPackage('muvloom-cli-skill.zip', cliZip, cliFiles)
+  const workbuddyPkg = buildManifestPackage('muvloom-workbuddy.zip', workbuddyZip, workbuddyFiles)
+  const manifest = {
+    schema_version: 1,
+    skill: 'muvloom',
+    version: cliSkillVersion(),
+    bundle_version: cliBundleVersion(),
+    packages: {
+      'claude-code': cliPkg,
+      codex: cliPkg,
+      workbuddy: workbuddyPkg,
+    },
+  }
+  writeFileSync(resolve(outDir, 'muvloom-workbuddy.zip'), workbuddyZip)
   writeFileSync(resolve(outDir, 'muvloom-doubao.zip'), createDoubaoSkillZip())
   writeFileSync(resolve(outDir, 'muvloom-skill.zip'), createGenericSkillZip())
+  writeFileSync(resolve(outDir, 'muvloom-cli-skill.zip'), cliZip)
+  writeFileSync(resolve(outDir, 'skill-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`)
   copyFileSync(resolve(installRoot, 'install.sh'), resolve(outDir, 'install.sh'))
   copyFileSync(resolve(installRoot, 'install.ps1'), resolve(outDir, 'install.ps1'))
 }
