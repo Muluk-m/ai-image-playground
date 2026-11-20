@@ -310,9 +310,26 @@ function traced<T>(
 ): Promise<T> {
   return withSpan(
     `r2 ${operation}`,
-    { kind: SpanKind.CLIENT, attributes: { 'object_store.operation': operation, ...attributes } },
+    {
+      kind: SpanKind.CLIENT,
+      attributes: { 'object_store.operation': operation, ...attributes },
+      expectedFailure: expectedObjectFailure,
+    },
     work,
   )
+}
+
+/**
+ * 对象不存在（缓存未命中、资料没写过）和调用方取消是正常分支，不算存储故障。
+ * 404 有三种样子：带期限读的 ObjectStoreHttpError、预签名 HEAD 的状态码消息、Bun S3 客户端的 NoSuchKey。
+ */
+function expectedObjectFailure(error: unknown): string | undefined {
+  if ((error as { name?: unknown } | null)?.name === 'AbortError') return 'aborted'
+  if (error instanceof ObjectStoreHttpError) return error.status === 404 ? 'not_found' : undefined
+  const code = (error as { code?: unknown } | null)?.code
+  if (code === 'NoSuchKey') return 'not_found'
+  if (error instanceof Error && /\(404\)$/.test(error.message)) return 'not_found'
+  return undefined
 }
 
 /** 把流收进至多 maxBytes 的缓冲；上游多给也只留前 maxBytes 字节并停止读取。 */

@@ -10,6 +10,7 @@ process.env.UPSTREAM_API_KEY = 'test-key'
 process.env.DATABASE_URL = await resetTestDatabase('bff_task_runner_trace')
 installRecordingTaskHooks()
 process.env.PORT = '0'
+delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT
 
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { runTask } = await import('../../workers/task-runner')

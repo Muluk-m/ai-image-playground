@@ -137,17 +137,34 @@ export async function runInLinkedSpan<T>(
  */
 export function withSpan<T>(
   name: string,
-  options: { kind?: SpanKind; attributes?: Attributes },
+  options: {
+    kind?: SpanKind
+    attributes?: Attributes
+    /**
+     * 调用方当正常分支处理的失败（缓存未命中的 404、用户取消）：返回一个结果标签写进
+     * `outcome` 属性，不标错，免得把错误率基线顶高。返回 undefined 的照常算错误。
+     */
+    expectedFailure?: (error: unknown) => string | undefined
+  },
   work: (span: Span) => Promise<T>,
 ): Promise<T> {
-  return tracer.startActiveSpan(name, options, (span) => runRecorded(span, () => work(span)))
+  const { expectedFailure, ...spanOptions } = options
+  return tracer.startActiveSpan(name, spanOptions, (span) =>
+    runRecorded(span, () => work(span), expectedFailure),
+  )
 }
 
-async function runRecorded<T>(span: Span, work: () => Promise<T>): Promise<T> {
+async function runRecorded<T>(
+  span: Span,
+  work: () => Promise<T>,
+  expectedFailure?: (error: unknown) => string | undefined,
+): Promise<T> {
   try {
     return await work()
   } catch (error) {
-    recordSpanError(span, error)
+    const outcome = expectedFailure?.(error)
+    if (outcome) span.setAttribute('outcome', outcome)
+    else recordSpanError(span, error)
     throw error
   } finally {
     span.end()
@@ -155,14 +172,14 @@ async function runRecorded<T>(span: Span, work: () => Promise<T>): Promise<T> {
 }
 
 /**
- * 把异常写进 span：只留名字和脱敏后的消息，不带堆栈。传输层错误的消息里常带完整地址，
- * 查询串可能是 R2 预签名或 `?key=`，一律去掉，只留到路径。
+ * 把异常写进 span：只留名字和脱敏后的消息，不带堆栈。传输层错误的消息里常带完整地址：
+ * 查询串可能是 R2 预签名或 `?key=`，路径里是带用户、任务 id 的对象 key，一律只留主机名。
  */
 export function recordSpanError(span: Span, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error)
   span.recordException({
     name: error instanceof Error ? error.name : 'Error',
-    message: redactLogText(message.replace(/(https?:\/\/[^\s?#"']+)\?[^\s"']*/gi, '$1?<redacted>')),
+    message: redactLogText(message.replace(/(https?:\/\/[^\s/?#"']+)[^\s"']*/gi, '$1/<redacted>')),
   })
   span.setStatus({ code: SpanStatusCode.ERROR })
 }

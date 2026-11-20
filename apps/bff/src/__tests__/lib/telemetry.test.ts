@@ -5,12 +5,16 @@ import { withRequestContext } from '../../lib/request-context'
 import {
   currentTraceparent,
   initTelemetry,
+  recordSpanError,
   recordTaskOutcome,
   runInLinkedSpan,
+  tracer,
+  withTraceHeaders,
   shutdownTelemetry,
   traceLogFields,
 } from '../../lib/telemetry'
 
+delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT
 const exporter = new InMemorySpanExporter()
 initTelemetry('bff', [new SimpleSpanProcessor({ exporter })])
 
@@ -184,5 +188,40 @@ describe('执行结果', () => {
       ['reconciling', SpanStatusCode.ERROR],
     ])
     expect(() => recordTaskOutcome('failed', 'x')).not.toThrow()
+  })
+})
+
+describe('出口 span 工具', () => {
+  it('异常写进 span 时地址只留主机名：查询串里的签名、key 和路径里的对象 key 都去掉', () => {
+    const span = tracer.startSpan('r2 write')
+    recordSpanError(
+      span,
+      new TypeError(
+        'fetch failed: https://r2.example.test/paid/user-1/task-9/0.png?X-Amz-Signature=s1 and https://g.example/v1/m:generate?key=k1',
+      ),
+    )
+    span.end()
+    const [finished] = exporter.getFinishedSpans()
+    const message = String(finished?.events[0]?.attributes?.['exception.message'])
+    expect(message).toBe(
+      'fetch failed: https://r2.example.test/<redacted> and https://g.example/<redacted>',
+    )
+    expect(finished?.events[0]?.attributes?.['exception.type']).toBe('TypeError')
+    expect(finished?.status.code).toBe(SpanStatusCode.ERROR)
+  })
+
+  it('traceparent 注入不改调用方的 headers，三种 headers 写法都认', () => {
+    const span = tracer.startSpan('upstream POST')
+    const expected = `00-${span.spanContext().traceId}-${span.spanContext().spanId}-01`
+    const record = { authorization: 'Bearer x' }
+    expect(withTraceHeaders(record, span)).toEqual({ ...record, traceparent: expected })
+    expect(record).toEqual({ authorization: 'Bearer x' })
+    const headers = new Headers({ authorization: 'Bearer x' })
+    expect((withTraceHeaders(headers, span) as Headers).get('traceparent')).toBe(expected)
+    expect(headers.has('traceparent')).toBe(false)
+    const pairs: [string, string][] = [['authorization', 'Bearer x']]
+    expect((withTraceHeaders(pairs, span) as Headers).get('traceparent')).toBe(expected)
+    expect(withTraceHeaders(undefined, span)).toEqual({ traceparent: expected })
+    span.end()
   })
 })
