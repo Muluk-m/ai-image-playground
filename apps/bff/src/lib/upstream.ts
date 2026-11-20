@@ -99,6 +99,7 @@ import {
   isRateLimited,
   modelFallbackRecord,
   VertexTimeCapError,
+  withDefaultThinking,
   withVertexRateLimitRetry,
 } from './upstream/vertex'
 import { VIDEO_MIME, VIDEO_STYLE_SPECS } from './upstream/video'
@@ -1639,7 +1640,9 @@ function resolveVertexFallback(
   return {
     model: fallbackModel,
     url: `${base}/models/${encodeURIComponent(fallbackModel)}:generateContent`,
-    body: JSON.stringify(buildVertexBody(request, route.imageSizes)),
+    body: JSON.stringify(
+      buildVertexBody(withDefaultThinking(request, fallbackModel), route.imageSizes),
+    ),
     concurrency: route.concurrency,
   }
 }
