@@ -69,7 +69,7 @@ bun scripts/obs.ts logs --grep timeout --env test
 bun scripts/obs.ts sql 'SELECT upstream_model, COUNT(*) FROM "app" WHERE span_status = '"'"'ERROR'"'"' GROUP BY 1' --type traces
 ```
 
-代理只在部署网络里可达（网络别名 `<部署>-obs:5090`）。从本机查询要在该部署的 cloudflared 配置里加一个主机名指向 `http://<部署>-obs:5090`（仓库外的 `cloudflared/config.yml`，再 `cloudflared tunnel route dns`），属于改 Cloudflare，按发布手册要 Nain 批准。地址和令牌放在 `$XDG_CONFIG_HOME/ai-image-playground/obs.env`（`OBS_PAID_URL`、`OBS_PAID_TOKEN`、`OBS_TEST_URL`、`OBS_TEST_TOKEN`），或用环境变量 `OBS_URL`/`OBS_TOKEN` 覆盖。OpenObserve 里字段名全是小写、点换成下划线：日志 `taskid`、`service`、`event`、`severity`、`body`、`trace_id`；span `trace_id`、`span_id`、`reference_parent_span_id`、`operation_name`、`duration`（微秒）、`span_status`、`task_id`、`upstream_model`、`http_response_status_code`。
+代理和 OpenObserve 界面只绑在宿主机回环地址上（`OBS_PROXY_HOST_PORT`，生产 15090、测试 15091；`OBS_UI_HOST_PORT`，生产 15080、测试 15081），不经 Cloudflare 暴露。本机查询先开 SSH 隧道，例如 `ssh -N -L 15090:127.0.0.1:15090 tx-vps`，再把 `OBS_PAID_URL` 设成 `http://127.0.0.1:15090`；看界面同理转发 15080，用 `OBS_ROOT_EMAIL` 登录。地址和令牌放在 `$XDG_CONFIG_HOME/ai-image-playground/obs.env`（`OBS_PAID_URL`、`OBS_PAID_TOKEN`、`OBS_TEST_URL`、`OBS_TEST_TOKEN`），或用环境变量 `OBS_URL`/`OBS_TOKEN` 覆盖。OpenObserve 里字段名全是小写、点换成下划线：日志 `taskid`、`service`、`event`、`severity`、`body`、`trace_id`；span `trace_id`、`span_id`、`reference_parent_span_id`、`operation_name`、`duration`（微秒）、`span_status`、`task_id`、`upstream_model`、`http_response_status_code`。
 
 `LOG_LEVEL` 控制 BFF 与 worker 的输出级别，默认 info。PostgreSQL 属于共享的基础设施栈，暂不转发，用 `docker logs` 查看。数据库不可用时界面报告读取失败，日志在采集容器里排队等待，现场排障仍可用 `docker logs`。
 

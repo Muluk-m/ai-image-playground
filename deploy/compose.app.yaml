@@ -431,6 +431,10 @@ services:
     stop_grace_period: 30s
     # The image is distroless (no shell, no curl), so there is no container healthcheck; the
     # operations board sees it through obs-proxy, which answers 502 when OpenObserve is down.
+    # The web UI is on the host's loopback only, for an SSH tunnel; it logs in with the root
+    # account above. Each deployment on the host needs its own port.
+    ports:
+      - 127.0.0.1:${OBS_UI_HOST_PORT:-15080}:5080
     networks:
       - application
 
@@ -492,10 +496,12 @@ services:
       - bun
       - run
       - /app/apps/bff/src/obs-proxy-index.ts
+    # Loopback only: scripts/obs.ts reaches it through an SSH tunnel, nothing is published to the
+    # internet. Each deployment on the host needs its own port.
+    ports:
+      - 127.0.0.1:${OBS_PROXY_HOST_PORT:-15090}:5090
     networks:
-      application:
-        aliases:
-          - ${COMPOSE_PROJECT_NAME}-obs
+      - application
     healthcheck:
       test:
         - CMD
