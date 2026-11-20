@@ -6,7 +6,6 @@ import SegmentedTabs from '../../components/patterns/SegmentedTabs'
 import { Button } from '../../components/ui/button'
 import { Icon } from '../../components/ui/icon'
 import { currentLocale, i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
-import { AuthRequestError, fetchCliConnectionSnapshot } from '../../lib/authClient'
 import { copyTextToClipboard } from '../../lib/clipboardText'
 import { GUIDE_PATHS } from '../guide/paths'
 import CliConnectionsSection from './CliConnectionsSection'
@@ -24,9 +23,8 @@ import {
 
 type CopyState = 'idle' | 'done' | 'failed'
 
-type ConnectionWatch = { userId: string; startedAt: number }
+type ConnectionWatch = { userId: string; until: number }
 
-const POLL_INTERVAL_MS = 4000
 const POLL_TIMEOUT_MS = 10 * 60 * 1000
 
 const AGENT_LABEL = {
@@ -143,7 +141,7 @@ function CommandBlock({ lines }: { lines: string[] }) {
 
 /**
  * 智能体接入页：全宿主共用一条极简消息，由智能体自动识别宿主与系统；
- * 用户复制提示词、复制命令或下载技能包后再后台静默监听新连接，连上后提示并刷新列表；
+ * 用户复制接入内容或下载技能包后，静默刷新连接列表；
  * 手动命令与技能包下载收进底部折叠区。
  */
 export default function CliConnectPage() {
@@ -155,10 +153,7 @@ export default function CliConnectPage() {
     detectPlatform(typeof navigator === 'undefined' ? '' : navigator.userAgent),
   )
   const [watch, setWatch] = useState<ConnectionWatch | null>(null)
-  const [connectedDetected, setConnectedDetected] = useState(false)
   const [cliAvailable, setCliAvailable] = useState(true)
-  const [connectionsRefreshKey, setConnectionsRefreshKey] = useState(0)
-  const activeWatch = cliAvailable && watch?.userId === user?.id ? watch : null
 
   const handleCliUnavailable = useCallback(() => {
     setCliAvailable(false)
@@ -167,8 +162,7 @@ export default function CliConnectPage() {
 
   const startWatching = useCallback(() => {
     if (!user?.id || !cliAvailable) return
-    setConnectedDetected(false)
-    setWatch({ userId: user.id, startedAt: performance.now() })
+    setWatch({ userId: user.id, until: performance.now() + POLL_TIMEOUT_MS })
   }, [user?.id, cliAvailable])
 
   useEffect(() => {
@@ -178,108 +172,8 @@ export default function CliConnectPage() {
 
   useEffect(() => {
     setWatch(null)
-    setConnectedDetected(false)
     setCliAvailable(true)
   }, [user?.id])
-
-  // 仅在用户主动复制或下载后后台静默轮询新连接，不展示常驻加载态；
-  // 后台标签页暂停轮询，超时、CLI 能力未启用或鉴权失效时自动停止。
-  useEffect(() => {
-    if (!activeWatch) return
-    const deadline = activeWatch.startedAt + POLL_TIMEOUT_MS
-    let initialIds: Set<string> | undefined
-    let cancelled = false
-    let stopped = false
-    let timer: number | undefined
-    let activeController: AbortController | null = null
-
-    const stopWatching = () => {
-      stopped = true
-      window.clearTimeout(timer)
-      window.clearTimeout(expiryTimer)
-      activeController?.abort()
-      setWatch((current) => (current === activeWatch ? null : current))
-    }
-
-    const expiryTimer = window.setTimeout(stopWatching, Math.max(0, deadline - performance.now()))
-
-    const schedule = () => {
-      if (cancelled || stopped) return
-      if (document.visibilityState === 'hidden') return
-      timer = window.setTimeout(() => void poll(), POLL_INTERVAL_MS)
-    }
-
-    const poll = async () => {
-      if (cancelled || stopped) return
-      const requestedAt = performance.now()
-      if (requestedAt >= deadline) {
-        stopWatching()
-        return
-      }
-      activeController?.abort()
-      const controller = new AbortController()
-      activeController = controller
-      try {
-        const { connections, observedAt } = await fetchCliConnectionSnapshot(controller.signal)
-        if (cancelled || controller.signal.aborted) return
-        if (performance.now() >= deadline) {
-          stopWatching()
-          return
-        }
-        // 把浏览器测得的监听时长映射到服务端时钟，避免用两个设备的墙上时间直接比较。
-        const serverStart =
-          observedAt === null ? null : observedAt - (requestedAt - activeWatch.startedAt)
-        const knownIds = initialIds
-        if (
-          connections.some((item) =>
-            knownIds
-              ? !knownIds.has(item.id)
-              : serverStart !== null && item.created_at > serverStart,
-          )
-        ) {
-          setConnectedDetected(true)
-          setConnectionsRefreshKey((k) => k + 1)
-          stopWatching()
-          return
-        }
-        if (!knownIds && observedAt === null && connections.length > 0) {
-          setConnectionsRefreshKey((k) => k + 1)
-        }
-        initialIds ??= new Set(connections.map((item) => item.id))
-      } catch (error) {
-        if (cancelled || controller.signal.aborted) return
-        if (error instanceof AuthRequestError && error.code === 'capability_unavailable') {
-          setCliAvailable(false)
-          stopWatching()
-          return
-        }
-        if (error instanceof AuthRequestError && (error.status === 401 || error.status === 403)) {
-          stopWatching()
-          return
-        }
-      }
-      schedule()
-    }
-
-    const onVisibility = () => {
-      if (cancelled || stopped) return
-      window.clearTimeout(timer)
-      if (document.visibilityState === 'visible') {
-        void poll()
-      }
-    }
-
-    document.addEventListener('visibilitychange', onVisibility)
-    void poll()
-    return () => {
-      cancelled = true
-      stopped = true
-      window.clearTimeout(timer)
-      window.clearTimeout(expiryTimer)
-      activeController?.abort()
-      document.removeEventListener('visibilitychange', onVisibility)
-    }
-  }, [activeWatch])
 
   const setupUrl = useMemo(() => guideUrl(AGENT_SETUP_PATH, window.location.origin), [])
   const universalPrompt = t('cliConnect.universalPrompt', { setupUrl })
@@ -358,16 +252,6 @@ export default function CliConnectPage() {
                   <Icon name="arrowRight" size="xs" />
                 </a>
               </div>
-
-              {user && cliAvailable && connectedDetected ? (
-                <div
-                  role="status"
-                  className="flex items-center gap-2.5 rounded-xl bg-primary/15 px-3.5 py-2.5 text-body-sm font-medium text-primary"
-                >
-                  <Icon name="success" size="sm" className="text-success" />
-                  <span>{t('cliConnect.connectedStatus')}</span>
-                </div>
-              ) : null}
 
               <div className="pt-1">
                 <Button
@@ -478,8 +362,9 @@ export default function CliConnectPage() {
           {user ? (
             cliAvailable ? (
               <CliConnectionsSection
-                key={`${user.id}:${connectionsRefreshKey}`}
+                key={user.id}
                 standalone
+                watchUntil={watch?.userId === user.id ? watch.until : undefined}
                 onUnavailable={handleCliUnavailable}
               />
             ) : null
