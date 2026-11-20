@@ -907,6 +907,45 @@ describe('app-compose.sh up', () => {
     expect(readFileSync(releases('route.json'), 'utf8')).toBe(routeFor(bff, worker))
   })
 
+  function upWithAppEnv(appEnv: string): string[] {
+    config = join(xdg, 'ai-image-playground/apps/fixture')
+    write(join(config, 'app.env'), appEnv)
+    write(join(config, 'migrate.env'), '')
+    write(join(config, 'cloudflared/credentials.json'), '{}')
+    currentGeneration()
+    const result = spawnSync('sh', [composeScript, 'up', 'fixture'], {
+      encoding: 'utf8',
+      timeout: 20_000,
+      env: {
+        ...process.env,
+        PATH: `${join(root, 'bin')}:${process.env.PATH}`,
+        MOCK_ROOT: root,
+        XDG_CONFIG_HOME: xdg,
+        APP_IMAGE: 'fixture:new',
+        APP_CONFIG_DIR: '',
+        DEPLOY_DRAIN_DEADLINE_SECONDS: '0',
+      },
+    })
+    expect(result.status, result.stderr).toBe(0)
+    return logLines()
+  }
+  const observability = /^compose .* up --detach --no-deps openobserve otel-collector obs-proxy$/
+
+  it('leaves the observability services alone while app.env has them off', () => {
+    expect(
+      indexOf(upWithAppEnv('APP_IMAGE=fixture:new\nOBSERVABILITY_ENABLED=false\n'), observability),
+    ).toBe(-1)
+  })
+
+  it('starts the observability services beside the log collector, before the executors, when app.env turns them on (ADR 0033 P2)', () => {
+    const log = upWithAppEnv('APP_IMAGE=fixture:new\nOBSERVABILITY_ENABLED="true"\n')
+    const started = indexOf(log, observability)
+    expect(started).toBeGreaterThan(
+      indexOf(log, /^compose .* up --detach --no-deps log-collector$/),
+    )
+    expect(started).toBeLessThan(indexOf(log, /^create /))
+  })
+
   it('repairs stale current from the route and re-enters the same image without creating executors', () => {
     currentGeneration({ image: newImage }, { image: newImage, draining: true, restart: 'no' })
     write(releases('current'), 'fixture-r99-1-bff fixture-r99-1-worker\n')

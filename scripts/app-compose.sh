@@ -104,6 +104,23 @@ LOG_FORWARD_DIR=$ops_root/log-forward/$project
 mkdir -p "$LOG_FORWARD_DIR"
 export LOG_FORWARD_DIR
 
+# Observability (ADR 0033, P2): one switch in app.env turns on the `observability` profile
+# (OpenObserve, the OTel Collector, the read-only proxy) and the log collector's second output to
+# it. Off, the profile stays inactive and that output matches no tag. Read here rather than through
+# --env-file because profiles and this match are decided before compose interpolates anything.
+observability_enabled() {
+  value=$(sed -n 's/^[[:space:]]*OBSERVABILITY_ENABLED=//p' "$env_file" | tail -n 1 | tr -d "\"' ")
+  [ "$value" = true ]
+}
+if observability_enabled; then
+  COMPOSE_PROFILES=observability
+  OBS_LOG_MATCH='*'
+else
+  COMPOSE_PROFILES=
+  OBS_LOG_MATCH=__observability_off__
+fi
+export COMPOSE_PROFILES OBS_LOG_MATCH
+
 write_container_names() {
   names=$OPS_BOARD_DIR/container-names.tsv
   if docker ps --all --no-trunc --format '{{.ID}}	{{.Names}}' >"$names.next"; then
@@ -143,6 +160,15 @@ require_tunnel_credentials() {
 start_log_collector() {
   compose up --detach --no-deps log-collector ||
     echo "Warning: the log collector did not start; containers keep running and logs stay in docker logs." >&2
+  start_observability
+}
+
+# Same footing as the log collector: watches the deployment, is not part of it. A failure here is a
+# warning; server_logs keeps the logs and the BFF drops spans it cannot export.
+start_observability() {
+  observability_enabled || return 0
+  compose up --detach --no-deps openobserve otel-collector obs-proxy ||
+    echo "Warning: the observability services did not start; server_logs still has the logs." >&2
 }
 
 # up and rollback move production, and the log collector and first install below touch containers
