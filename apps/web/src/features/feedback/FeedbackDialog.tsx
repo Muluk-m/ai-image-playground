@@ -89,38 +89,33 @@ function AttachmentImage({
     }
   }, [messageId])
 
-  if (failed) {
-    return (
-      <div className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs text-muted-foreground">
-        <Icon name="imageUnavailable" size="xs" />
-        <span>{t('header.feedback.attachmentLoadFailed')}</span>
-      </div>
-    )
-  }
-
-  if (!src) {
-    return (
-      <div className="mt-2 flex h-24 w-36 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground">
-        <Icon name="loading" className="animate-spin" />
-      </div>
-    )
-  }
-
   return (
-    <Button
-      type="button"
-      variant="ghost"
-      aria-label={t('header.feedback.previewAttachment')}
-      autoTooltip={false}
-      className="mt-2 block h-auto overflow-hidden rounded-lg border border-border p-0 hover:bg-transparent"
-      onClick={() => onPreview(src)}
-    >
-      <img
-        src={src}
-        alt={filename ?? t('header.feedback.attachmentAlt')}
-        className="max-h-48 max-w-full object-cover"
-      />
-    </Button>
+    <div className="mt-2 grid h-36 w-56 max-w-full place-items-center overflow-hidden rounded-lg border border-border bg-background text-muted-foreground">
+      {src && !failed ? (
+        <Button
+          type="button"
+          variant="ghost"
+          aria-label={t('header.feedback.previewAttachment')}
+          autoTooltip={false}
+          className="h-full w-full min-w-0 rounded-none p-0 hover:bg-transparent"
+          onClick={() => onPreview(src)}
+        >
+          <img
+            src={src}
+            alt={filename ?? t('header.feedback.attachmentAlt')}
+            className="size-full object-contain"
+            onError={() => setFailed(true)}
+          />
+        </Button>
+      ) : failed ? (
+        <div className="flex items-center gap-1.5 px-2 text-xs">
+          <Icon name="imageUnavailable" size="xs" />
+          <span>{t('header.feedback.attachmentLoadFailed')}</span>
+        </div>
+      ) : (
+        <Icon name="loading" className="animate-spin" />
+      )}
+    </div>
   )
 }
 
