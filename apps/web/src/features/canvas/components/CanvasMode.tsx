@@ -3,7 +3,7 @@ import ProjectNavigation from '../../../components/ProjectNavigation'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useHeldLoading } from '../../../hooks/useHeldLoading'
-import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
+import { useCompactWorkspaceHeader, useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
 import { safeLocalStorage, scopedStorageName } from '../../../lib/authScope'
 import { lazyWithReload } from '../../../lib/chunkLoad'
@@ -159,6 +159,8 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
   const { t } = useTranslation('canvas')
   const { t: tShell } = useTranslation('shell')
   const mobile = useMobileWorkspace()
+  const compactHeader = useCompactWorkspaceHeader()
+  const headerIconSize = mobile ? 'icon-lg' : 'icon-sm'
   const panelWidth = useAgentStore((state) => state.panelWidth)
   const project = useCanvasProjectStore((state) =>
     state.projects.find((one) => one.id === state.activeId),
@@ -532,7 +534,7 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                 <div className="ml-auto flex shrink-0 items-center gap-2 md:gap-3">
                   <Button
                     variant="ghost"
-                    size={mobile ? 'icon-lg' : 'icon-sm'}
+                    size={headerIconSize}
                     type="button"
                     className="text-muted-foreground [&_svg]:size-4"
                     aria-label="搜索当前对话"
@@ -542,14 +544,14 @@ function CanvasWorkspaceView({ workspace }: { workspace: CanvasWorkspace }) {
                   </Button>
                   <Button
                     variant="ghost"
-                    size={mobile ? 'icon-lg' : 'sm'}
+                    size={compactHeader ? headerIconSize : 'sm'}
                     type="button"
                     className="text-muted-foreground [&_svg]:size-4"
                     aria-label={t('workspace.assets')}
                     onClick={() => setAssetDrawerOpen(true)}
                   >
                     <Icon name="folder" />
-                    {!mobile && <span>{t('workspace.assets')}</span>}
+                    {!compactHeader && <span>{t('workspace.assets')}</span>}
                   </Button>
                 </div>
               )}

@@ -1,19 +1,27 @@
-import { useEffect, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useSyncExternalStore } from 'react'
 
-const query = '(max-width: 767px)'
-const subscribe = (notify: () => void) => {
-  if (!window.matchMedia) return () => {}
-  const media = window.matchMedia(query)
-  media.addEventListener('change', notify)
-  return () => media.removeEventListener('change', notify)
-}
-
-export function useMobileWorkspace() {
+function useWorkspaceMediaQuery(query: string) {
+  const subscribe = useCallback(
+    (notify: () => void) => {
+      const media = window.matchMedia?.(query)
+      media?.addEventListener('change', notify)
+      return () => media?.removeEventListener('change', notify)
+    },
+    [query],
+  )
   return useSyncExternalStore(
     subscribe,
     () => window.matchMedia?.(query).matches ?? false,
     () => false,
   )
+}
+
+export function useMobileWorkspace() {
+  return useWorkspaceMediaQuery('(max-width: 767px)')
+}
+
+export function useCompactWorkspaceHeader() {
+  return useWorkspaceMediaQuery('(max-width: 1023px)')
 }
 
 /** Keep fixed workspace controls above the software keyboard and Safari chrome. */

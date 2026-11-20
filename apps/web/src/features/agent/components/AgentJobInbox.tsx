@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import { JobProgress } from '../../../components/assistant-ui/elements/job-progress'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
-import { useMobileWorkspace } from '../../../hooks/useMobileWorkspace'
+import { useCompactWorkspaceHeader } from '../../../hooks/useMobileWorkspace'
 import { useTranslation } from '../../../i18n'
 import { useCanvasProjectStore } from '../../canvas/projectStore'
 import { CARD_NOTE, INK, INK_3, LIST_ROW } from '../agentStyles'
@@ -207,7 +207,7 @@ function InboxGroup({
  */
 export default function AgentJobInbox() {
   const { t } = useTranslation('agent')
-  const mobile = useMobileWorkspace()
+  const compact = useCompactWorkspaceHeader()
   const messages = useAgentStore((state) => state.messages)
   const jobProgress = useAgentStore((state) => state.jobProgress)
   const conversationId = useAgentStore((state) => state.conversationId)
@@ -276,7 +276,7 @@ export default function AgentJobInbox() {
         size="sm"
         aria-expanded={open}
         aria-label={label}
-        title={mobile ? t('job.inbox.title') : undefined}
+        title={compact ? t('job.inbox.title') : undefined}
         onClick={() => {
           setOpen((value) => !value)
           setTab(inbox.running.length > 0 ? 'running' : 'finished')
@@ -284,7 +284,7 @@ export default function AgentJobInbox() {
         className="bg-background text-muted-foreground"
       >
         <Icon name="list" />
-        {!mobile && <span>{t('job.inbox.title')}</span>}
+        {!compact && <span>{t('job.inbox.title')}</span>}
         {inbox.running.length > 0 && (
           <span
             className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-foreground"
