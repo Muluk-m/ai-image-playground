@@ -36,7 +36,10 @@ const LOGIN_METHOD_LABELS: Readonly<Record<string, string>> = {
 
 function UserIdentity({ user }: { user: AdminUserRow }) {
   return (
-    <span className="block min-w-0 truncate text-sm font-semibold group-hover:text-primary">
+    <span
+      className="block min-w-0 truncate text-sm font-semibold group-hover:text-primary"
+      title={user.username}
+    >
       {user.username}
     </span>
   )
@@ -178,7 +181,7 @@ export function UserTable({
   const { enabled: privateAdminOverlayEnabled, summaries } = usePrivateAdminUserSummaries(
     users.map((user) => user.id),
   )
-  const tableWidth = privateAdminOverlayEnabled ? 'min-w-[1020px]' : 'min-w-[860px]'
+  const tableWidth = privateAdminOverlayEnabled ? 'min-w-[940px]' : 'min-w-[800px]'
   if (!users.length) return <EmptyState label="没有匹配的用户" />
 
   return (
@@ -264,10 +267,10 @@ export function UserTable({
           <TableHeader className="bg-muted/40">
             <TableRow className="hover:bg-transparent">
               <TableHead className="pl-4">用户</TableHead>
-              <TableHead className="w-[72px]">状态</TableHead>
-              <TableHead className="w-[112px]">备注</TableHead>
-              <TableHead className="w-[108px] text-right">任务 / 会话</TableHead>
-              <TableHead className="w-[100px] text-right">
+              <TableHead className="w-[64px]">状态</TableHead>
+              <TableHead className="w-[100px]">备注</TableHead>
+              <TableHead className="w-[100px] text-right">任务 / 会话</TableHead>
+              <TableHead className="w-[92px] text-right">
                 <SortHeader
                   label="最近活动"
                   active={sort === 'activity'}
@@ -275,7 +278,7 @@ export function UserTable({
                   onClick={() => onSort?.('activity')}
                 />
               </TableHead>
-              <TableHead className="w-[130px] text-right">
+              <TableHead className="w-[120px] text-right">
                 <SortHeader
                   label="注册时间"
                   active={sort === 'created'}
@@ -284,11 +287,11 @@ export function UserTable({
                 />
               </TableHead>
               {privateAdminOverlayEnabled ? (
-                <TableHead className="w-[160px] text-right">
+                <TableHead className="w-[146px] text-right">
                   {privateUserSummaryColumnTitle}
                 </TableHead>
               ) : null}
-              <TableHead className="sticky right-0 z-10 w-[148px] border-l bg-card">
+              <TableHead className="sticky right-0 z-10 w-[120px] border-l bg-card">
                 <span className="sr-only">操作</span>
               </TableHead>
             </TableRow>
@@ -339,11 +342,10 @@ export function UserTable({
                   )}
                 </TableCell>
                 <TableCell>
-                  <div className="flex items-baseline justify-end gap-2 whitespace-nowrap">
-                    <span className="font-mono text-sm tabular-nums">{user.task_count}</span>
-                    <span className="text-[11px] text-muted-foreground">任务</span>
-                    <span className="font-mono text-sm tabular-nums">{user.active_sessions}</span>
-                    <span className="text-[11px] text-muted-foreground">会话</span>
+                  <div className="whitespace-nowrap text-right font-mono text-xs tabular-nums">
+                    {user.task_count}
+                    <span className="mx-1.5 text-muted-foreground">/</span>
+                    {user.active_sessions}
                   </div>
                 </TableCell>
                 <TableCell className="text-right text-xs">
@@ -362,7 +364,7 @@ export function UserTable({
                   </TableCell>
                 ) : null}
                 <TableCell className="sticky right-0 z-10 whitespace-nowrap border-l bg-card pr-3 text-right group-hover:bg-muted">
-                  <Button variant="ghost" asChild>
+                  <Button variant="ghost" className="px-2.5 text-xs" asChild>
                     <Link
                       to="/tasks"
                       search={{ userId: user.id, preset: '30d' }}
@@ -371,7 +373,7 @@ export function UserTable({
                       看任务
                     </Link>
                   </Button>
-                  <Button variant="ghost" asChild>
+                  <Button variant="ghost" className="px-2.5 text-xs" asChild>
                     <Link
                       to="/users/$userId"
                       params={{ userId: user.id }}
