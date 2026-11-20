@@ -37,6 +37,7 @@ import type {
   TaskDetail,
   UserDetailResult,
   UserKpis,
+  UserSegment,
   UserTasksResult,
 } from './types'
 
@@ -116,6 +117,8 @@ export function useTask(taskId: string | undefined) {
 }
 
 export interface UserListOptions {
+  segment?: UserSegment
+  segments?: boolean
   status?: 'active' | 'disabled'
   registeredFrom?: number
   registeredTo?: number
@@ -150,11 +153,12 @@ export function useUserKpis() {
 export function useUsers(search: string, options: UserListOptions = {}) {
   return useQuery({
     queryKey: ['users', { search, ...options }],
+    placeholderData: options.segments ? (previous) => previous : undefined,
     queryFn: () => {
       const params = new URLSearchParams()
       if (search) params.set('q', search)
       for (const [key, value] of Object.entries(options)) {
-        if (value !== undefined) params.set(key, String(value))
+        if (value !== undefined) params.set(key, value === true ? '1' : String(value))
       }
       const query = params.toString()
       return apiClient.get<ListUsersResult>(`/api/users${query ? `?${query}` : ''}`)
@@ -162,11 +166,12 @@ export function useUsers(search: string, options: UserListOptions = {}) {
   })
 }
 
-// 档案（聚合 + 趋势）与任务列表分开取：切状态页签只重拉任务，不重算聚合与 30 天趋势。
+// 档案与任务列表分开取，切状态时只重新加载任务。
 export function useUserDetail(userId: string) {
   return useQuery({
     queryKey: ['user', userId],
-    queryFn: () => apiClient.get<UserDetailResult>(`/api/users/${encodeURIComponent(userId)}`),
+    queryFn: () =>
+      apiClient.get<UserDetailResult>(`/api/users/${encodeURIComponent(userId)}?volume=0`),
     enabled: userId.length > 0,
   })
 }

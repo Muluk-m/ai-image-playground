@@ -5,6 +5,7 @@ import {
   USERNAME_MAX_LENGTH,
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
+import { parseUserSegment } from '../../contracts'
 import { requireAuth } from '../lib/middleware'
 import { getUserDetail, getUserKpis, getUserTasks, listUsers } from '../lib/queries'
 import { forwardUserOperation } from '../lib/users'
@@ -18,6 +19,8 @@ export const usersRoutes = new Elysia({ prefix: '/api/users' })
     ({ query, status }) => {
       if (query.status !== undefined && query.status !== 'active' && query.status !== 'disabled')
         return status(400, { error: '无效的用户状态' })
+      const segment = parseUserSegment(query.segment)
+      if (query.segment !== undefined && !segment) return status(400, { error: '无效的用户分群' })
       const page = query.page === undefined ? undefined : Number(query.page)
       const pageSize = query.pageSize === undefined ? undefined : Number(query.pageSize)
       if (
@@ -42,6 +45,8 @@ export const usersRoutes = new Elysia({ prefix: '/api/users' })
       if (query.sort !== undefined && !sort) return status(400, { error: '无效的排序' })
       return listUsers(query.q ?? '', {
         status: query.status,
+        segment,
+        segments: query.segments === '1',
         registeredFrom,
         registeredTo,
         activeFrom,
@@ -56,6 +61,8 @@ export const usersRoutes = new Elysia({ prefix: '/api/users' })
       query: t.Object({
         q: t.Optional(t.String({ maxLength: 128 })),
         status: t.Optional(t.String()),
+        segment: t.Optional(t.String()),
+        segments: t.Optional(t.Literal('1')),
         registeredFrom: t.Optional(t.String()),
         registeredTo: t.Optional(t.String()),
         activeFrom: t.Optional(t.String()),
@@ -72,12 +79,15 @@ export const usersRoutes = new Elysia({ prefix: '/api/users' })
   })
   .get(
     '/:id',
-    async ({ params, status }) => {
-      const detail = await getUserDetail(params.id)
+    async ({ params, query, status }) => {
+      const detail = await getUserDetail(params.id, query.volume !== '0')
       if (!detail) return status(404, { error: 'user_not_found' })
       return detail
     },
-    { params: t.Object({ id: t.String({ minLength: 1 }) }) },
+    {
+      params: t.Object({ id: t.String({ minLength: 1 }) }),
+      query: t.Object({ volume: t.Optional(t.Literal('0')) }),
+    },
   )
   .get(
     '/:id/tasks',

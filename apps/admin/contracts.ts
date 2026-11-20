@@ -186,8 +186,23 @@ export interface UserKpis {
   failure_rate_24h: number
 }
 
+export type UserSegment = 'active-7d' | 'members' | 'expiring' | 'out-of-credits' | 'disabled'
+
+export const USER_SEGMENTS: readonly UserSegment[] = [
+  'active-7d',
+  'members',
+  'expiring',
+  'out-of-credits',
+  'disabled',
+]
+
+export function parseUserSegment(value: unknown): UserSegment | undefined {
+  return USER_SEGMENTS.find((segment) => segment === value)
+}
+
 export interface ListUsersResult {
   users: AdminUserRow[]
+  segments?: Partial<Record<UserSegment | 'all', number>>
   truncated: boolean
   total: number
   page: number

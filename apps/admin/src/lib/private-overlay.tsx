@@ -31,7 +31,13 @@ export interface PrivateAdminOverlay {
   OrdersPanel?: ComponentType
   /** 「模型」页每一行的单价编辑；上下架归公开侧，这里只管价格。缺席即不收费。 */
   ModelPricing?: ComponentType<{ model: string; kind: ManagedModelKind }>
-  UserDetailPanel: ComponentType<{ userId: string; username: string; children?: ReactNode }>
+  userDetailProfile?: true
+  UserDetailPanel: ComponentType<{
+    userId: string
+    username: string
+    children?: ReactNode
+    profile?: ReactNode
+  }>
 }
 
 const EmptyComponent = () => null
@@ -95,7 +101,7 @@ function useAdminExtensionManifest() {
   })
 }
 
-function usePrivateAdminOverlayEnabled(): boolean {
+export function usePrivateAdminOverlayEnabled(): boolean {
   const query = useAdminExtensionManifest()
   return (
     overlay.present &&
@@ -146,11 +152,23 @@ export function PrivateAdminUserDetailPanel(props: {
   userId: string
   username: string
   children?: ReactNode
+  profile?: ReactNode
 }) {
   const enabled = usePrivateAdminOverlayEnabled()
   const Component = overlay.UserDetailPanel
-  if (!enabled) return props.children
-  return <Component {...props} />
+  if (enabled && overlay.userDetailProfile) return <Component {...props} />
+
+  const content = enabled ? <Component {...props} /> : props.children
+  return (
+    <div
+      className={
+        enabled ? 'space-y-4' : 'grid items-start gap-4 xl:grid-cols-[280px_minmax(0,1fr)]'
+      }
+    >
+      {props.profile}
+      {content}
+    </div>
+  )
 }
 
 export function usePrivateAdminUserSummaries(userIds: readonly string[]): {
