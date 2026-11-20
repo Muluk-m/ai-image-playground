@@ -204,6 +204,26 @@ describe('上游维度', () => {
     ).toEqual([['firing:upstream-errors'], [], [], ['resolved:upstream-errors']])
   })
 
+  it('报过的组请求跌破最低量但失败率仍高，不算恢复', () => {
+    expect(
+      run([
+        [T0, { upstream: [stat(10, 10)] }],
+        [T0 + minute, { upstream: [stat(9, 9)] }],
+        [T0 + 2 * minute, { upstream: [stat(9, 1)] }],
+      ]),
+    ).toEqual([['firing:upstream-errors'], [], ['resolved:upstream-errors']])
+  })
+
+  it('限流报过之后整组没了请求，不算恢复', () => {
+    expect(
+      run([
+        [T0, { upstream: [stat(40, 0, 10)] }],
+        [T0 + minute, { upstream: [] }],
+        [T0 + 2 * minute, { upstream: [stat(40, 0, 1)] }],
+      ]),
+    ).toEqual([['firing:upstream-throttle'], [], ['resolved:upstream-throttle']])
+  })
+
   it('告警文本列出出事的渠道和模型', () => {
     const { messages } = evaluateAlerts(
       { upstream: [stat(10, 4), { ...stat(30, 0, 12), model: 'veo' }] },

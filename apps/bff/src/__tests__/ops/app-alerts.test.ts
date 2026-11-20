@@ -300,13 +300,17 @@ describe('observeApp', () => {
     expect(await read(now)).toEqual([
       { provider: 'gemini', model: 'veo', requests: 12, failures: 4, throttled: 1 },
     ])
+    // 没有 server_address 字段时不按主机分组。
+    expect(queries[0]?.sql).toContain("GROUP BY upstream_provider, '', upstream_model")
     // 取消不算请求；连接、读取失败不论状态码都算失败；没有状态码字段时 5xx 与 429 数不出来。
     expect(queries[0]?.sql).toContain("upstream_outcome <> 'aborted'")
     expect(queries[0]?.sql).toContain("upstream_outcome IN ('read_error', 'transport_error')")
     expect(queries[0]?.sql).toContain('COUNT(DISTINCT CASE WHEN NULL = 429 THEN span_id END)')
     expect(queries[0]).toMatchObject({ type: 'traces', startMs: now - 15 * minute })
-    fields = new Set([...fields, 'http_response_status_code', 'task_id'])
+    fields = new Set([...fields, 'http_response_status_code', 'task_id', 'server_address'])
     await read(now)
+    // 直连与网关按实际访问的主机分开统计。
+    expect(queries[1]?.sql).toContain('GROUP BY upstream_provider, server_address, upstream_model')
     expect(queries[1]?.sql).toContain(
       "upstream_outcome = 'http_error' AND CAST(http_response_status_code AS BIGINT) >= 500",
     )
@@ -328,8 +332,9 @@ describe('observeApp', () => {
       searchAll: async () => ({ records: [], truncated: false }),
       streamFields: async () => new Set(['operation_name', 'span_id']),
     })
-    expect(await read(now)).toEqual([])
-    expect(await read(now)).toEqual([])
+    // 读不到不是零请求：抛出去，这一块算失明。
+    await expect(read(now)).rejects.toThrow('upstream spans lack')
+    await expect(read(now)).rejects.toThrow('upstream spans lack')
     expect(warn).toHaveBeenCalledTimes(1)
     warn.mockRestore()
   })

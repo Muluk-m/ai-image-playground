@@ -75,32 +75,39 @@ export function upstreamStatsReader(client: ObsClient): (now: number) => Promise
   let warned = false
   return async (now) => {
     const fields = await client.streamFields(OBS_STREAM, 'traces')
+    // 新部署还没有任何 span：确实没有请求，读数为空。
     if (!fields.has('operation_name')) return []
     const missing = ['upstream_provider', 'upstream_model', 'upstream_outcome'].filter(
       (name) => !fields.has(name),
     )
+    // 有 span 却缺上游字段（属性改名、schema 丢字段）：这是读不到，不是零请求。抛出去让这一块算失明，
+    // 既不触发，也不把正在报的告警当成恢复。
     if (missing.length > 0) {
-      if (!warned && fields.size > 0)
+      if (!warned)
         log.warn(
           { event: 'ops.upstream_fields_missing', missing },
           'upstream spans lack the fields the upstream alerts read; those alerts are not observed',
         )
       warned = true
-      return []
+      throw new Error(`upstream spans lack ${missing.join(', ')}`)
     }
     const status = fields.has('http_response_status_code')
       ? 'CAST(http_response_status_code AS BIGINT)'
       : 'NULL'
     const taskKey = fields.has('task_id') ? 'COALESCE(task_id, span_id)' : 'span_id'
+    // 同一协议（openai-compat）下直连与网关是两条路：按实际访问的主机分开，免得一条路的故障被另一条稀释。
+    const host = fields.has('server_address') ? 'server_address' : "''"
     const rows = await client.search({
-      sql: `SELECT upstream_provider AS provider, upstream_model AS model, COUNT(*) AS requests, SUM(CASE WHEN upstream_outcome IN ('read_error', 'transport_error') OR (upstream_outcome = 'http_error' AND ${status} >= 500) THEN 1 ELSE 0 END) AS failures, COUNT(DISTINCT CASE WHEN ${status} = 429 THEN ${taskKey} END) AS throttled FROM "${OBS_STREAM}" WHERE operation_name = 'upstream POST' AND upstream_outcome <> 'aborted' GROUP BY upstream_provider, upstream_model`,
+      sql: `SELECT upstream_provider AS provider, ${host} AS host, upstream_model AS model, COUNT(*) AS requests, SUM(CASE WHEN upstream_outcome IN ('read_error', 'transport_error') OR (upstream_outcome = 'http_error' AND ${status} >= 500) THEN 1 ELSE 0 END) AS failures, COUNT(DISTINCT CASE WHEN ${status} = 429 THEN ${taskKey} END) AS throttled FROM "${OBS_STREAM}" WHERE operation_name = 'upstream POST' AND upstream_outcome <> 'aborted' GROUP BY upstream_provider, ${host}, upstream_model`,
       type: 'traces',
       startMs: now - OPS_THRESHOLDS.UPSTREAM_WINDOW_MS,
       endMs: now + 60_000,
       size: 500,
     })
     return rows.map((row) => ({
-      provider: String(row.provider ?? 'unknown'),
+      provider: row.host
+        ? `${row.provider ?? 'unknown'} @ ${row.host}`
+        : String(row.provider ?? 'unknown'),
       model: String(row.model ?? 'unknown'),
       requests: Number(row.requests ?? 0),
       failures: Number(row.failures ?? 0),
@@ -110,6 +117,15 @@ export function upstreamStatsReader(client: ObsClient): (now: number) => Promise
 }
 
 function upstreamReaderFromEnv(): UpstreamReader {
+  // 降采样时 span 数远少于真实请求，按绝对次数的告警线会系统性漏报：这种部署不观测，明说出来。
+  const ratio = Number(process.env.OTEL_TRACES_SAMPLE_RATIO?.trim() || 1)
+  if (ratio < 1) {
+    log.warn(
+      { event: 'ops.upstream_alerts_disabled', sampleRatio: ratio },
+      'upstream alerts need every upstream span; OTEL_TRACES_SAMPLE_RATIO is below 1',
+    )
+    return null
+  }
   const connection = obsConnectionFromEnv()
   return connection ? upstreamStatsReader(createObsClient(connection, { timeoutMs: 15_000 })) : null
 }

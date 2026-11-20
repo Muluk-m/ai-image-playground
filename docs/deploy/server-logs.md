@@ -85,9 +85,9 @@ worker 的应用告警每分钟经只读代理读一次 OpenObserve 最近 1 小
 
 ## 上游告警
 
-ADR 0033 P4（#1938）：worker 每分钟从 OpenObserve 里的 `upstream POST` span 聚合最近 15 分钟，按上游渠道和模型统计请求数、失败数和 429 数。
+ADR 0033 P4（#1938）：worker 每分钟从 OpenObserve 里的 `upstream POST` span 聚合最近 15 分钟，按上游渠道、实际访问的主机（`server.address`：同为 openai-compat 的 OpenAI 直连和网关分开算）和模型，统计请求数、失败数和 429 数。这要求每个上游 span 都被采集：`OTEL_TRACES_SAMPLE_RATIO` 小于 1 时上游告警不观测，worker 启动时记一条 `ops.upstream_alerts_disabled`。
 
 - `upstream-errors`：同一渠道和模型至少 10 次请求，且三成以上失败。失败 = 连接失败、响应读到一半失败（不论状态码）、5xx；4xx 是请求本身的问题（参数、内容审核），不算上游故障。用户取消、换路时掐掉的请求（span 的 `upstream_outcome = aborted`）不算请求，也不算失败。
 - `upstream-throttle`：同一渠道和模型 15 分钟内至少 10 个任务碰到 429。Vertex 退避重试同一任务会留下多条 429，按任务只算一次。
 
-告警文本列出出事的渠道和模型；回到线内发已恢复。报过的渠道和模型如果之后整组没了请求（熔断或停用），不算恢复，要等它重新有请求且回到线内。读数缺失既不触发，也不算恢复。流里有 span 却缺上游字段（属性改名）时，worker 会记一条 `ops.upstream_fields_missing` 警告。阈值在 `packages/shared/src/ops.ts` 的 `UPSTREAM_*`，先按 2026-11 的流量定，跑一段时间再调。API 5xx 比例、生成失败、出图变慢这三项早就有规则（`api`、`generation`、`generation-latency`，读 PostgreSQL），P4 没有重复建设。
+告警文本列出出事的渠道和模型；回到线内发已恢复。报过的组如果之后整组没了请求（熔断或停用），或请求跌破 10 次但失败率仍在线上，都不算恢复，要等它重新有请求且回到线内；限流同理。读数缺失既不触发，也不算恢复。流里有 span 却缺上游字段（属性改名）时，这一块算读不到（计入失明轮数，连续读不到另有告警），worker 记一条 `ops.upstream_fields_missing` 警告。阈值在 `packages/shared/src/ops.ts` 的 `UPSTREAM_*`，先按 2026-11 的流量定，跑一段时间再调。API 5xx 比例、生成失败、出图变慢这三项早就有规则（`api`、`generation`、`generation-latency`，读 PostgreSQL），P4 没有重复建设。

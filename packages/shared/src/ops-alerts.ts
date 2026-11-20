@@ -205,10 +205,12 @@ export type AlertState = Partial<Record<Exclude<AlertRule, 'api'>, RuleState>> &
   /** 每把直连密钥各自的停用告警，不能共用一条 gpt-key。 */
   gptKeys?: Record<string, GptKeyAlertState>
   /**
-   * upstream-errors 在报时出事的「渠道 / 模型」。熔断或停用之后这一组不再有请求，统计里整组消失：
-   * 那不是好了，要等它重新有请求且失败率回到线内才算恢复。
+   * upstream-errors / upstream-throttle 在报时出事的「渠道 / 模型」。熔断或停用之后这一组不再有请求，
+   * 统计里整组消失；或者请求少了、跌破触发所需的最低请求量：都不是好了。
+   * 要等它重新有请求、且回到线内才算恢复。
    */
   upstreamFailing?: string[]
+  upstreamThrottled?: string[]
 }
 
 export interface AlertMessage {
@@ -286,21 +288,36 @@ function upstreamLine(one: UpstreamStat, count: number): string {
 const upstreamKey = (one: Pick<UpstreamStat, 'provider' | 'model'>) =>
   `${one.provider} / ${one.model}`
 
-/** 这一轮越线的组，以及报过、但这一轮整组没有请求的组。 */
+/**
+ * 这一轮越线的组，以及报过、还没证明恢复的组：整组没有请求（`vanished`），或请求跌破最低量
+ * 但失败率仍在线上。最低请求量只管首次触发，不管恢复。
+ */
 function upstreamFailing(
   upstream: readonly UpstreamStat[],
   state: AlertState,
 ): { failing: UpstreamStat[]; vanished: string[] } {
-  const failing = upstream.filter(
-    (one) =>
-      one.requests >= OPS_THRESHOLDS.UPSTREAM_MIN_REQUESTS &&
-      one.failures / one.requests >= OPS_THRESHOLDS.UPSTREAM_FAILURE_RATIO,
-  )
+  const watched = new Set(state['upstream-errors']?.firing ? (state.upstreamFailing ?? []) : [])
+  const failing = upstream.filter((one) => {
+    const over =
+      one.requests > 0 && one.failures / one.requests >= OPS_THRESHOLDS.UPSTREAM_FAILURE_RATIO
+    return (
+      over &&
+      (one.requests >= OPS_THRESHOLDS.UPSTREAM_MIN_REQUESTS || watched.has(upstreamKey(one)))
+    )
+  })
   const present = new Set(upstream.map(upstreamKey))
-  const vanished = state['upstream-errors']?.firing
-    ? (state.upstreamFailing ?? []).filter((key) => !present.has(key))
-    : []
-  return { failing, vanished }
+  return { failing, vanished: [...watched].filter((key) => !present.has(key)) }
+}
+
+/** 限流同理：报过的组整组没了请求，不算恢复。 */
+function upstreamThrottled(
+  upstream: readonly UpstreamStat[],
+  state: AlertState,
+): { throttled: UpstreamStat[]; vanished: string[] } {
+  const watched = new Set(state['upstream-throttle']?.firing ? (state.upstreamThrottled ?? []) : [])
+  const throttled = upstream.filter((one) => one.throttled >= OPS_THRESHOLDS.UPSTREAM_THROTTLED)
+  const present = new Set(upstream.map(upstreamKey))
+  return { throttled, vanished: [...watched].filter((key) => !present.has(key)) }
 }
 
 function readings(
@@ -377,14 +394,13 @@ function readings(
       ].join('\n')}`,
       resolvedText: '已恢复：各上游渠道的失败率回到告警线内',
     }
-    const throttled = observation.upstream.filter(
-      (one) => one.throttled >= OPS_THRESHOLDS.UPSTREAM_THROTTLED,
-    )
+    const { throttled, vanished: quiet } = upstreamThrottled(observation.upstream, state)
     out['upstream-throttle'] = {
-      breached: throttled.length > 0,
+      breached: throttled.length > 0 || quiet.length > 0,
       sustainMs: 0,
       firingText: `近 ${span(OPS_THRESHOLDS.UPSTREAM_WINDOW_MS)}有上游渠道频繁限流（429，同一任务的退避重试只算一次，告警线 ${OPS_THRESHOLDS.UPSTREAM_THROTTLED} 个任务）：\n${throttled
         .map((one) => upstreamLine(one, one.throttled))
+        .concat(quiet.map((key) => `· ${key}：报过之后已没有请求（熔断或停用），暂不算恢复`))
         .join('\n')}`,
       resolvedText: '已恢复：上游限流回到告警线内',
     }
@@ -876,6 +892,11 @@ export function evaluateAlerts(
     const keys = [...failing.map(upstreamKey), ...vanished]
     if (next['upstream-errors']?.firing && keys.length > 0) next.upstreamFailing = keys
     else delete next.upstreamFailing
+    const throttle = upstreamThrottled(observation.upstream, state)
+    const throttleKeys = [...throttle.throttled.map(upstreamKey), ...throttle.vanished]
+    if (next['upstream-throttle']?.firing && throttleKeys.length > 0)
+      next.upstreamThrottled = throttleKeys
+    else delete next.upstreamThrottled
   }
 
   return { messages, state: next }
