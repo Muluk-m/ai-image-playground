@@ -11,6 +11,7 @@ import { auditRoutes } from './routes/audit'
 import { authRoutes } from './routes/auth'
 import { clientErrorsRoutes } from './routes/client-errors'
 import { devicesRoutes } from './routes/devices'
+import { feedbackRoutes } from './routes/feedback'
 import { googleAuthRoutes } from './routes/google-auth'
 import { gptDirectRoutes } from './routes/gpt-direct'
 import { imagesRoutes } from './routes/images'
@@ -56,6 +57,7 @@ const apiApp = new Elysia()
   .use(imagesRoutes)
   .use(inspirationsRoutes)
   .use(announcementsRoutes)
+  .use(feedbackRoutes)
   .use(skillsRoutes)
   .use(extensionRoutes)
   .use(privateRoutes)

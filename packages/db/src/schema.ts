@@ -27,6 +27,9 @@ import type {
   AnalysisInputSnapshot,
   ChannelMedia,
   ClientErrorKind,
+  FeedbackAttachmentMimeType,
+  FeedbackSenderType,
+  FeedbackStatus,
   GenerationParameters,
   GenerationSource,
   GenerationSummary,
@@ -2200,5 +2203,69 @@ export const agent_stage_authorizations = pgTable(
       foreignColumns: [canvas_projects.user_id, canvas_projects.id],
       name: 'agent_stage_authorizations_owner_project_fk',
     }).onDelete('cascade'),
+  ],
+)
+
+/** 用户反馈会话：每个账号一条会话，管理员回复与用户追问按时间线展示。 */
+export const feedback_threads = pgTable(
+  'feedback_threads',
+  {
+    id: text('id').primaryKey(),
+    user_id: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: text('status').$type<FeedbackStatus>().notNull().default('open'),
+    last_message_at: epochMs('last_message_at').notNull(),
+    last_user_message_at: epochMs('last_user_message_at'),
+    last_admin_reply_at: epochMs('last_admin_reply_at'),
+    user_last_read_at: epochMs('user_last_read_at'),
+    created_at: epochMs('created_at').notNull(),
+    updated_at: epochMs('updated_at').notNull(),
+  },
+  (t) => [
+    unique('feedback_threads_user_id_key').on(t.user_id),
+    index('idx_feedback_threads_status_last_message').on(t.status, t.last_message_at),
+    check('feedback_threads_status_check', sql`${t.status} IN ('open', 'resolved')`),
+  ],
+)
+
+/** 用户反馈消息（文字与单张图片附件）。 */
+export const feedback_messages = pgTable(
+  'feedback_messages',
+  {
+    id: text('id').primaryKey(),
+    thread_id: text('thread_id')
+      .notNull()
+      .references(() => feedback_threads.id, { onDelete: 'cascade' }),
+    sender_type: text('sender_type').$type<FeedbackSenderType>().notNull(),
+    sender_user_id: text('sender_user_id').references(() => users.id, { onDelete: 'set null' }),
+    operator_id: text('operator_id'),
+    body: text('body').notNull().default(''),
+    attachment_key: text('attachment_key'),
+    attachment_mime: text('attachment_mime').$type<FeedbackAttachmentMimeType>(),
+    attachment_bytes: integer('attachment_bytes'),
+    attachment_filename: text('attachment_filename'),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [
+    index('idx_feedback_messages_thread_created').on(t.thread_id, t.created_at),
+    check('feedback_messages_sender_type_check', sql`${t.sender_type} IN ('user', 'admin')`),
+    check('feedback_messages_body_check', sql`char_length(${t.body}) <= 4000`),
+    check(
+      'feedback_messages_content_check',
+      sql`char_length(btrim(${t.body})) > 0 OR ${t.attachment_key} IS NOT NULL`,
+    ),
+    check(
+      'feedback_messages_attachment_mime_check',
+      sql`${t.attachment_mime} IS NULL OR ${t.attachment_mime} IN ('image/png', 'image/jpeg', 'image/webp')`,
+    ),
+    check(
+      'feedback_messages_attachment_bytes_check',
+      sql`${t.attachment_bytes} IS NULL OR (${t.attachment_bytes} > 0 AND ${t.attachment_bytes} <= 10485760)`,
+    ),
+    check(
+      'feedback_messages_attachment_check',
+      sql`(${t.attachment_key} IS NULL AND ${t.attachment_mime} IS NULL AND ${t.attachment_bytes} IS NULL) OR (${t.attachment_key} IS NOT NULL AND ${t.attachment_mime} IS NOT NULL AND ${t.attachment_bytes} IS NOT NULL)`,
+    ),
   ],
 )

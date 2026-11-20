@@ -217,6 +217,7 @@ async function removeAccountObjects(userId: string, taskIds: readonly string[]):
   try {
     const durable = durableMediaStore()
     jobs.push(durable.deletePrefix(`objects/${userId}/`))
+    jobs.push(durable.deletePrefix(`feedback/${userId}/`))
     for (const taskId of taskIds) jobs.push(durable.deletePrefix(`${taskId}/`))
   } catch (error) {
     log.warn(
