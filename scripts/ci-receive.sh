@@ -127,15 +127,8 @@ paid_runtime() {
   mirror=$runtimes/.mirror.git
   dir=$runtimes/$release_commit
   mkdir -p "$runtimes"
-  # The host deploy lock is only taken later, inside vps-deploy.sh. Mirror, unpack and cleanup are
-  # shared between receivers, so they get a lock of their own, held until this function's
-  # subshell exits.
-  exec 9>"$runtimes/.lock"
-  flock -w 600 9 || {
-    echo "Another receiver held $runtimes/.lock for 10 minutes; not deploying" >&2
-    return 1
-  }
-  # Left over by an unpack that was killed. Holding the lock, no other receiver is mid-unpack.
+  # Left over by an unpack that was killed. The caller holds the runtimes lock, so no other
+  # receiver is mid-unpack.
   rm -rf "$runtimes"/.incoming.* 2>/dev/null || true
   [ -d "$mirror" ] || git init -q --bare "$mirror"
   # Re-aligned on every deploy, so a mirror created halfway (killed between init and remote add)
@@ -200,8 +193,6 @@ paid_runtime() {
 # After a successful paid deploy: keep the runtime current-paid points at and the five most
 # recently used others. Housekeeping never decides whether a release ships.
 prune_runtimes() {
-  exec 9>"$runtimes/.lock"
-  flock -w 60 9 || return 0
   keep=$(readlink "$runtimes/current-paid" 2>/dev/null || true)
   for candidate in "$runtimes"/*; do
     name=${candidate##*/}
@@ -213,6 +204,16 @@ prune_runtimes() {
 }
 
 if [ "$target" = paid ]; then
+  # One paid receiver at a time, from preparing the runtime through the deploy, the current-paid
+  # pointer and pruning: the host deploy lock is only taken inside vps-deploy.sh and released before
+  # those last two steps. Busy means the same as a busy host lock (75): nothing changed, retry.
+  mkdir -p "$runtimes"
+  exec 9>"$runtimes/.lock"
+  flock -n 9 || {
+    rm -rf "$release"
+    echo "Deploy lock busy: another paid receiver holds $runtimes/.lock; release $release_id was not applied. Retry once it finishes." >&2
+    exit 75
+  }
   runtime_root=$(paid_runtime) || {
     rm -rf "$release"
     exit 1
@@ -236,7 +237,8 @@ echo "Deployment runtime: $runtime_root ($(cat "$runtime_root/.commit" 2>/dev/nu
 DEPLOY_ACTOR=github-actions/run-$run_id
 export DEPLOY_ACTOR
 set +e
-sh "$runtime" "$target" "$release"
+# fd 9 (the runtimes lock) stays with this receiver; a long-lived child must not keep it held.
+sh "$runtime" "$target" "$release" 9>&-
 status=$?
 set -e
 if [ "$status" -eq 75 ]; then

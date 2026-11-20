@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import {
   chmodSync,
   existsSync,
@@ -445,6 +445,26 @@ describe('ci-receive.sh', () => {
       expect(existsSync(log)).toBe(false)
       expect(readdirSync(releases)).toEqual([])
       expect(readdirSync(runtimes()).filter((name) => !name.startsWith('.'))).toEqual([])
+    })
+
+    it('answers busy (75) and keeps nothing while another paid receiver holds the runtimes lock', async () => {
+      mkdirSync(runtimes(), { recursive: true })
+      const lock = join(runtimes(), '.lock')
+      const holder = spawn('flock', [lock, 'sleep', '30'], { stdio: 'ignore' })
+      try {
+        // Wait until the holder has the lock.
+        for (let tries = 0; tries < 50; tries++) {
+          if (spawnSync('flock', ['-n', lock, 'true']).status !== 0) break
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        const busy = receive(`deploy ${id} paid 1`)
+        expect(busy.status).toBe(75)
+        expect(busy.stderr).toContain('Deploy lock busy')
+        expect(readdirSync(releases)).toEqual([])
+        expect(existsSync(log)).toBe(false)
+      } finally {
+        holder.kill()
+      }
     })
 
     it('heals a mirror that was created without its remote', () => {
