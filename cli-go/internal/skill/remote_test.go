@@ -550,3 +550,222 @@ func TestValidateManifestRejectsCaseVariantMetadataFile(t *testing.T) {
 		t.Fatal("accepted case-variant .MUVLOOM-SKILL.JSON in manifest")
 	}
 }
+
+func TestRemoteUpdateHandlesDirectoryCaseRenameAndFileDirTransitions(t *testing.T) {
+	home, cwd, stateDir := t.TempDir(), t.TempDir(), t.TempDir()
+	res, err := Install(InstallOptions{Host: "workbuddy", Scope: "user", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Step 1: Directory-level case rename (references/ -> References/) + file -> dir transition (references/cli.md -> References/topic/guide.md)
+	v1 := SkillVersion + ".1"
+	srv1 := makeRemoteFixtureServer(
+		t,
+		v1,
+		map[string][]byte{
+			"SKILL.md":              []byte("# v1\n"),
+			"References/topic.md":   []byte("# file form\n"),
+		},
+		map[string][]byte{"SKILL.md": []byte("# cli\n")},
+		nil, nil,
+	)
+	defer srv1.Close()
+	if upd, err := CheckOrUpdateRemote(context.Background(), RemoteUpdateOptions{
+		Home: home, CWD: cwd, StateDir: stateDir, BaseURL: srv1.URL, HTTP: srv1.Client(),
+	}, false); err != nil || upd.Status != "updated" {
+		t.Fatalf("directory case rename failed: %+v %v", upd, err)
+	}
+	if installed, err := Installed(home, cwd); err != nil || len(installed) != 1 || !installed[0].Intact || installed[0].Version != v1 {
+		t.Fatalf("after dir case rename Installed = %+v, %v", installed, err)
+	}
+
+	// Step 2: File -> Directory transition: References/topic.md (file) becomes References/topic.md/guide.md (dir + file).
+	v2 := SkillVersion + ".2"
+	srv2 := makeRemoteFixtureServer(
+		t,
+		v2,
+		map[string][]byte{
+			"SKILL.md":                    []byte("# v2\n"),
+			"References/topic.md/guide.md": []byte("# dir form\n"),
+		},
+		map[string][]byte{"SKILL.md": []byte("# cli\n")},
+		nil, nil,
+	)
+	defer srv2.Close()
+	if upd, err := CheckOrUpdateRemote(context.Background(), RemoteUpdateOptions{
+		Home: home, CWD: cwd, StateDir: stateDir, BaseURL: srv2.URL, HTTP: srv2.Client(),
+	}, false); err != nil || upd.Status != "updated" {
+		t.Fatalf("file->dir transition failed: %+v %v", upd, err)
+	}
+	if installed, err := Installed(home, cwd); err != nil || len(installed) != 1 || !installed[0].Intact || installed[0].Version != v2 {
+		t.Fatalf("after file->dir transition Installed = %+v, %v", installed, err)
+	}
+
+	// Step 3: Directory -> File transition: References/topic.md/guide.md reverts back to References/topic.md (file).
+	v3 := SkillVersion + ".3"
+	srv3 := makeRemoteFixtureServer(
+		t,
+		v3,
+		map[string][]byte{
+			"SKILL.md":            []byte("# v3\n"),
+			"References/topic.md": []byte("# back to file\n"),
+		},
+		map[string][]byte{"SKILL.md": []byte("# cli\n")},
+		nil, nil,
+	)
+	defer srv3.Close()
+	if upd, err := CheckOrUpdateRemote(context.Background(), RemoteUpdateOptions{
+		Home: home, CWD: cwd, StateDir: stateDir, BaseURL: srv3.URL, HTTP: srv3.Client(),
+	}, false); err != nil || upd.Status != "updated" {
+		t.Fatalf("dir->file transition failed: %+v %v", upd, err)
+	}
+	if installed, err := Installed(home, cwd); err != nil || len(installed) != 1 || !installed[0].Intact || installed[0].Version != v3 {
+		t.Fatalf("after dir->file transition Installed = %+v, %v", installed, err)
+	}
+	if data, err := os.ReadFile(filepath.Join(res.Path, "References", "topic.md")); err != nil || string(data) != "# back to file\n" {
+		t.Fatalf("final file content mismatch: %q %v", data, err)
+	}
+}
+
+func TestRecoverInterruptedUpdateJournalHealsCrashedUpdate(t *testing.T) {
+	home, cwd, stateDir := t.TempDir(), t.TempDir(), t.TempDir()
+	res, err := Install(InstallOptions{Host: "workbuddy", Scope: "user", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := snapshotSkillDir(res.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a crash mid-update: persisted journal exists, SKILL.md was truncated/corrupted,
+	// and a stray new file was written before SIGKILL.
+	journal := updateJournal{
+		Destination: res.Path,
+		Host:        "workbuddy",
+		Scope:       "user",
+		Snapshot:    snap,
+		Planned:     []string{"SKILL.md", "references/half-written.md"},
+	}
+	if err := os.MkdirAll(filepath.Join(stateDir, "updates"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	jBytes, _ := json.Marshal(journal)
+	jPath := journalPathForDest(stateDir, res.Path)
+	if err := os.WriteFile(jPath, jBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(res.Path, "SKILL.md"), []byte("corrupted mid-write"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(res.Path, "references", "half-written.md"), []byte("stray"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Next MaybeAutoUpdate recovers the crashed tree back to Intact=true, clears the journal,
+	// and then applies the remote hot-update cleanly!
+	nextVer := SkillVersion + ".1"
+	srv := makeRemoteFixtureServer(
+		t,
+		nextVer,
+		map[string][]byte{"SKILL.md": []byte("# recovered and updated\n")},
+		map[string][]byte{"SKILL.md": []byte("# cli\n")},
+		nil, nil,
+	)
+	defer srv.Close()
+
+	upd := MaybeAutoUpdate(context.Background(), RemoteUpdateOptions{
+		Home: home, CWD: cwd, StateDir: stateDir, BaseURL: srv.URL, HTTP: srv.Client(),
+	})
+	if upd.Status != "updated" || upd.RemoteVersion != nextVer {
+		t.Fatalf("recovery + auto-update failed: %+v", upd)
+	}
+	if data, _ := os.ReadFile(jPath); len(bytes.TrimSpace(data)) != 0 {
+		t.Fatalf("journal was not cleared after recovery: %q", data)
+	}
+	if installed, err := Installed(home, cwd); err != nil || len(installed) != 1 || !installed[0].Intact || installed[0].Version != nextVer {
+		t.Fatalf("after recovery Installed = %+v, %v", installed, err)
+	}
+}
+
+func TestMaybeAutoUpdateThrottlesPerInstalledProjectPath(t *testing.T) {
+	home, stateDir := t.TempDir(), t.TempDir()
+	projA := filepath.Join(t.TempDir(), "projA")
+	projB := filepath.Join(t.TempDir(), "projB")
+	for _, p := range []string{projA, projB} {
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(p, "go.mod"), []byte("module example\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Install(InstallOptions{Host: "codex", Scope: "project", Home: home, CWD: p}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	nextVer := SkillVersion + ".1"
+	srv := makeRemoteFixtureServer(
+		t,
+		nextVer,
+		map[string][]byte{"SKILL.md": []byte("# wb\n")},
+		map[string][]byte{"SKILL.md": []byte("# updated project skill\n")},
+		nil, nil,
+	)
+	defer srv.Close()
+
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	resA := MaybeAutoUpdate(context.Background(), RemoteUpdateOptions{
+		Home: home, CWD: projA, StateDir: stateDir, BaseURL: srv.URL, HTTP: srv.Client(), Now: func() time.Time { return now },
+	})
+	if resA.Status != "updated" || len(resA.Updated) != 1 {
+		t.Fatalf("project A update failed: %+v", resA)
+	}
+	// Switching to Project B 1 minute later must NOT be blocked by Project A's 24h throttle!
+	now = now.Add(time.Minute)
+	resB := MaybeAutoUpdate(context.Background(), RemoteUpdateOptions{
+		Home: home, CWD: projB, StateDir: stateDir, BaseURL: srv.URL, HTTP: srv.Client(), Now: func() time.Time { return now },
+	})
+	if resB.Status != "updated" || len(resB.Updated) != 1 {
+		t.Fatalf("project B was starved by project A throttle: %+v", resB)
+	}
+}
+
+func TestMaybeAutoUpdateRespectsBudgetAndCachesArchiveDownloadFailures(t *testing.T) {
+	home, cwd, stateDir := t.TempDir(), t.TempDir(), t.TempDir()
+	if _, err := Install(InstallOptions{Host: "claude-code", Scope: "user", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(InstallOptions{Host: "codex", Scope: "user", Home: home}); err != nil {
+		t.Fatal(err)
+	}
+	var archiveAttempts atomic.Int32
+	manifest := RemoteManifest{
+		SchemaVersion: 1, Skill: "muvloom", Version: SkillVersion + ".1", BundleVersion: BundleVersion,
+		Packages: map[string]RemoteManifestBundle{
+			"claude-code": {Archive: "muvloom-cli-skill.zip", ArchiveSHA256: strings.Repeat("a", 64), FileHash: strings.Repeat("b", 64), Files: []RemoteManifestFile{{Path: "SKILL.md", Bytes: 2, SHA256: strings.Repeat("c", 64)}}},
+			"codex":       {Archive: "muvloom-cli-skill.zip", ArchiveSHA256: strings.Repeat("a", 64), FileHash: strings.Repeat("b", 64), Files: []RemoteManifestFile{{Path: "SKILL.md", Bytes: 2, SHA256: strings.Repeat("c", 64)}}},
+		},
+	}
+	mBytes, _ := json.Marshal(manifest)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/cli/skill-manifest.json" {
+			_, _ = w.Write(mBytes)
+			return
+		}
+		archiveAttempts.Add(1)
+		http.Error(w, "upstream down", http.StatusBadGateway)
+	}))
+	defer srv.Close()
+
+	res := MaybeAutoUpdate(context.Background(), RemoteUpdateOptions{
+		Home: home, CWD: cwd, StateDir: stateDir, BaseURL: srv.URL, HTTP: srv.Client(),
+	})
+	if res.Status != "unavailable" {
+		t.Fatalf("expected unavailable, got %+v", res)
+	}
+	// Shared archive failed once -> must NOT be re-requested for codex.
+	if archiveAttempts.Load() != 1 {
+		t.Fatalf("archive download retried %d times across shared hosts, want 1", archiveAttempts.Load())
+	}
+}

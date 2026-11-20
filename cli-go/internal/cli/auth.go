@@ -242,9 +242,11 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	if refreshErr != nil {
 		a.progress("Could not check the installed muvloom Skills (%s).", skillFailure(refreshErr))
 	} else {
-		// Best-effort silent hot-update from Muvloom's official web manifest (24h throttled,
-		// 3s timeout, never blocks auth status or overrides user-edited copies).
-		remoteRes := skill.MaybeAutoUpdate(ctx, skill.RemoteUpdateOptions{
+		// Best-effort silent hot-update from Muvloom's official web manifest (24h throttled
+		// per installed copy, strict overall 6s budget so auth status never stalls, SHA-256
+		// verified, never overrides user-edited copies).
+		autoCtx, cancelAuto := context.WithTimeout(ctx, skill.AutoUpdateBudget)
+		remoteRes := skill.MaybeAutoUpdate(autoCtx, skill.RemoteUpdateOptions{
 			Home:     a.Home,
 			CWD:      a.CWD,
 			StateDir: a.Store.Dir,
@@ -252,6 +254,7 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 			BaseURL:  a.ManifestBaseURL,
 			HTTP:     a.HTTP,
 		})
+		cancelAuto()
 		if len(remoteRes.Updated) > 0 {
 			if refreshed, err := skill.Installed(a.Home, a.CWD); err == nil {
 				skills = refreshed

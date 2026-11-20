@@ -27,7 +27,13 @@ import (
 )
 
 const (
+	// AutoUpdateBudget bounds the total wall-clock time MaybeAutoUpdate may spend inside
+	// auth status (manifest + archive downloads + in-place writes) so normal commands
+	// never stall when downloads are slow.
+	AutoUpdateBudget       = 6 * time.Second
+	autoLockWait           = 500 * time.Millisecond
 	remoteCheckInterval    = 24 * time.Hour
+	staleCheckedPathAge    = 30 * 24 * time.Hour
 	remoteManifestTimeout  = 3 * time.Second
 	remoteArchiveTimeout   = 15 * time.Second
 	maxManifestBytes       = 256 * 1024
@@ -152,10 +158,21 @@ type RemoteUpdateResult struct {
 }
 
 type remoteUpdateState struct {
-	AutoUpdate        *bool     `json:"auto_update,omitempty"`
-	LastCheckedAt     time.Time `json:"last_checked_at,omitempty"`
-	LastRemoteVersion string    `json:"last_remote_version,omitempty"`
-	LastUpdatedAt     time.Time `json:"last_updated_at,omitempty"`
+	AutoUpdate        *bool                `json:"auto_update,omitempty"`
+	LastCheckedAt     time.Time            `json:"last_checked_at,omitempty"`
+	CheckedPaths      map[string]time.Time `json:"checked_paths,omitempty"`
+	LastRemoteVersion string               `json:"last_remote_version,omitempty"`
+	LastUpdatedAt     time.Time            `json:"last_updated_at,omitempty"`
+}
+
+// updateJournal persists a pre-update snapshot in <StateDir>/updates/ so an interrupted
+// process (SIGKILL, crash, or failed rollback) automatically heals on the next run.
+type updateJournal struct {
+	Destination string            `json:"destination"`
+	Host        string            `json:"host"`
+	Scope       string            `json:"scope"`
+	Snapshot    map[string][]byte `json:"snapshot"`
+	Planned     []string          `json:"planned,omitempty"`
 }
 
 func remoteStatePath(stateDir string) string {
@@ -164,6 +181,14 @@ func remoteStatePath(stateDir string) string {
 
 func remoteLockPath(stateDir string) string {
 	return filepath.Join(stateDir, "updates", "skill-update.lock")
+}
+
+func journalPathForDest(stateDir, destination string) string {
+	if stateDir == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(destination))
+	return filepath.Join(stateDir, "updates", "tx-"+hex.EncodeToString(sum[:8])+".json")
 }
 
 func readRemoteState(stateDir string) remoteUpdateState {
@@ -222,13 +247,14 @@ func SetAutoUpdate(stateDir string, enabled bool) error {
 		// Re-enabling auto-update lets the next auth status check immediately instead
 		// of waiting out an earlier throttle window.
 		state.LastCheckedAt = time.Time{}
+		state.CheckedPaths = nil
 	}
 	return writeRemoteState(stateDir, state)
 }
 
-// MaybeAutoUpdate performs a best-effort, 24h-throttled silent hot-update of intact
-// installed Skill copies from the official Muvloom web origin. It never returns an error
-// and never blocks the caller's command on network or verification failures.
+// MaybeAutoUpdate performs a best-effort, per-copy 24h-throttled silent hot-update of
+// intact installed Skill copies from the official Muvloom web origin within a strict
+// overall time budget. It never returns an error and never blocks the caller's command.
 func MaybeAutoUpdate(ctx context.Context, opts RemoteUpdateOptions) RemoteUpdateResult {
 	if opts.StateDir == "" {
 		return RemoteUpdateResult{Status: "skipped", AutoUpdate: true, Reason: "no_state_dir"}
@@ -240,18 +266,36 @@ func MaybeAutoUpdate(ctx context.Context, opts RemoteUpdateOptions) RemoteUpdate
 	if !ok {
 		return RemoteUpdateResult{Status: "skipped", AutoUpdate: true, Reason: "unrecognized_origin"}
 	}
-	installed, err := Installed(opts.Home, opts.CWD)
-	if err != nil || !hasRemoteCandidate(installed) {
-		return RemoteUpdateResult{Status: "skipped", AutoUpdate: true, Reason: "no_refreshable_skills"}
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, AutoUpdateBudget)
+		defer cancel()
 	}
 	if err := os.MkdirAll(filepath.Join(opts.StateDir, "updates"), 0o700); err != nil {
 		return RemoteUpdateResult{Status: "unavailable", AutoUpdate: true, Reason: "storage_unavailable"}
 	}
-	release, err := auth.LockFile(remoteLockPath(opts.StateDir), time.Second)
+	release, err := auth.LockFile(remoteLockPath(opts.StateDir), autoLockWait)
 	if err != nil {
 		return RemoteUpdateResult{Status: "skipped", AutoUpdate: true, Reason: "check_in_progress"}
 	}
 	defer release()
+
+	// Heal any interrupted update from an earlier crashed process before inspecting installs.
+	recoverInterruptedUpdates(opts.StateDir, autoLockWait)
+
+	installed, err := Installed(opts.Home, opts.CWD)
+	if err != nil {
+		return RemoteUpdateResult{Status: "skipped", AutoUpdate: true, Reason: "no_refreshable_skills"}
+	}
+	var candidates []Installation
+	for _, item := range installed {
+		if item.Intact && item.Host == item.foundHost && item.Scope == item.foundScope {
+			candidates = append(candidates, item)
+		}
+	}
+	if len(candidates) == 0 {
+		return RemoteUpdateResult{Status: "skipped", AutoUpdate: true, Reason: "no_refreshable_skills"}
+	}
 
 	now := time.Now()
 	if opts.Now != nil {
@@ -261,7 +305,18 @@ func MaybeAutoUpdate(ctx context.Context, opts RemoteUpdateOptions) RemoteUpdate
 	if state.AutoUpdate != nil && !*state.AutoUpdate {
 		return RemoteUpdateResult{Status: "disabled", AutoUpdate: false}
 	}
-	if !state.LastCheckedAt.IsZero() && !now.Before(state.LastCheckedAt) && now.Sub(state.LastCheckedAt) < remoteCheckInterval {
+	needsCheck := false
+	for _, item := range candidates {
+		checkedAt := state.CheckedPaths[item.Path]
+		if checkedAt.IsZero() && len(state.CheckedPaths) == 0 {
+			checkedAt = state.LastCheckedAt
+		}
+		if checkedAt.IsZero() || now.Before(checkedAt) || now.Sub(checkedAt) >= remoteCheckInterval {
+			needsCheck = true
+			break
+		}
+	}
+	if !needsCheck {
 		return RemoteUpdateResult{
 			Status:        "skipped",
 			AutoUpdate:    true,
@@ -269,12 +324,24 @@ func MaybeAutoUpdate(ctx context.Context, opts RemoteUpdateOptions) RemoteUpdate
 			Reason:        "throttled",
 		}
 	}
-	// Persist the check timestamp before hitting the network so an offline machine
-	// does not pay the 3-second manifest timeout on every command.
+	// Persist per-path check timestamps before hitting the network so an offline machine
+	// does not pay the manifest timeout on every command, while newly encountered projects
+	// still get checked independently.
+	if state.CheckedPaths == nil {
+		state.CheckedPaths = map[string]time.Time{}
+	}
+	for p, ts := range state.CheckedPaths {
+		if now.Sub(ts) > staleCheckedPathAge {
+			delete(state.CheckedPaths, p)
+		}
+	}
+	for _, item := range candidates {
+		state.CheckedPaths[item.Path] = now
+	}
 	state.LastCheckedAt = now
 	_ = writeRemoteState(opts.StateDir, state)
 
-	res, err := runRemoteUpdate(ctx, opts, origin, false, true, &state, now)
+	res, err := runRemoteUpdate(ctx, opts, origin, false, true, &state, now, autoLockWait)
 	if err != nil {
 		return RemoteUpdateResult{Status: "unavailable", AutoUpdate: true, Reason: "check_or_update_failed"}
 	}
@@ -296,7 +363,7 @@ func CheckOrUpdateRemote(ctx context.Context, opts RemoteUpdateOptions, checkOnl
 	}
 	if checkOnly {
 		autoEnabled := AutoUpdateEnabled(opts.StateDir)
-		return runRemoteUpdate(ctx, opts, origin, true, autoEnabled, nil, now)
+		return runRemoteUpdate(ctx, opts, origin, true, autoEnabled, nil, now, installLockWait)
 	}
 	var release func()
 	var state remoteUpdateState
@@ -312,6 +379,7 @@ func CheckOrUpdateRemote(ctx context.Context, opts RemoteUpdateOptions, checkOnl
 			return RemoteUpdateResult{}, err
 		}
 		release = unlock
+		recoverInterruptedUpdates(opts.StateDir, installLockWait)
 		state = readRemoteState(opts.StateDir)
 	}
 	if release != nil {
@@ -319,7 +387,7 @@ func CheckOrUpdateRemote(ctx context.Context, opts RemoteUpdateOptions, checkOnl
 	}
 	autoEnabled := state.AutoUpdate == nil || *state.AutoUpdate
 	state.LastCheckedAt = now
-	return runRemoteUpdate(ctx, opts, origin, false, autoEnabled, &state, now)
+	return runRemoteUpdate(ctx, opts, origin, false, autoEnabled, &state, now, installLockWait)
 }
 
 func runRemoteUpdate(
@@ -330,6 +398,7 @@ func runRemoteUpdate(
 	autoEnabled bool,
 	state *remoteUpdateState,
 	now time.Time,
+	lockWait time.Duration,
 ) (RemoteUpdateResult, error) {
 	httpClient := safeHTTPClient(opts.HTTP)
 	manifest, err := fetchManifest(ctx, httpClient, origin)
@@ -371,22 +440,47 @@ func runRemoteUpdate(
 		}, nil
 	}
 
-	// Cache raw downloaded archive bytes by archive name so shared archives download once,
-	// while still verifying archive_sha256, per-file SHA-256, and file_hash independently
-	// against each host's manifest package.
+	// Cache both raw downloaded archive bytes and failed archive downloads so shared
+	// archives are fetched at most once, while still verifying hashes independently per host.
 	archiveCache := map[string][]byte{}
+	archiveErrCache := map[string]error{}
 	var updated []RemoteUpdatedCopy
 	var failed []RemoteUpdateFailure
 	var firstErr error
 	for _, item := range outdated {
+		if ctx.Err() != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("%w: %w", ErrRemoteUnavailable, ctx.Err())
+			}
+			failed = append(failed, RemoteUpdateFailure{
+				Host:   item.foundHost,
+				Scope:  item.foundScope,
+				Path:   item.Path,
+				Reason: RemoteErrorReason(firstErr),
+			})
+			break
+		}
 		pkg, ok := manifest.Packages[item.foundHost]
 		if !ok {
+			continue
+		}
+		if prevErr, failedBefore := archiveErrCache[pkg.Archive]; failedBefore {
+			if firstErr == nil {
+				firstErr = prevErr
+			}
+			failed = append(failed, RemoteUpdateFailure{
+				Host:   item.foundHost,
+				Scope:  item.foundScope,
+				Path:   item.Path,
+				Reason: RemoteErrorReason(prevErr),
+			})
 			continue
 		}
 		zipBytes, cached := archiveCache[pkg.Archive]
 		if !cached {
 			downloaded, dlErr := downloadArchiveBytes(ctx, httpClient, origin, pkg.Archive)
 			if dlErr != nil {
+				archiveErrCache[pkg.Archive] = dlErr
 				if firstErr == nil {
 					firstErr = dlErr
 				}
@@ -414,7 +508,7 @@ func runRemoteUpdate(
 			})
 			continue
 		}
-		applied, applyErr := applyInPlaceUpdate(item, opts.Home, opts.CWD, manifest.Version, pkg.FileHash, files)
+		applied, applyErr := applyInPlaceUpdate(item, opts.Home, opts.CWD, opts.StateDir, manifest.Version, pkg.FileHash, files, lockWait)
 		if applyErr != nil {
 			if firstErr == nil {
 				firstErr = applyErr
@@ -486,15 +580,6 @@ func resolveManifestOrigin(opts RemoteUpdateOptions) (string, bool) {
 		return strings.TrimRight(opts.BaseURL, "/"), true
 	}
 	return ManifestOriginForAPI(opts.APIURL)
-}
-
-func hasRemoteCandidate(installed []Installation) bool {
-	for _, item := range installed {
-		if item.Intact && item.Host == item.foundHost && item.Scope == item.foundScope {
-			return true
-		}
-	}
-	return false
 }
 
 func remoteRefreshable(item Installation, remoteVersion string) bool {
@@ -714,15 +799,22 @@ func verifyPackageArchive(zipBytes []byte, pkg RemoteManifestBundle) ([]bundleFi
 }
 
 // applyInPlaceUpdate replaces an intact, older Skill installation in place under the
-// per-directory install lock. Writing existing files in place (without renaming or
-// deleting the directory) avoids triggering desktop sandbox file-replacement prompts,
-// while rolling back from an in-memory snapshot if any write fails.
+// per-directory install lock. A persistent rollback journal is written under StateDir
+// before mutating destination so even an interrupted process heals automatically on the
+// next run. Existing unchanged paths are overwritten in place (avoiding rename/delete
+// prompts in desktop sandboxes), while file<->directory transitions and directory/file
+// case-only renames are cleaned up cleanly before writing and verified against targetHash
+// before updating .muvloom-skill.json.
 func applyInPlaceUpdate(
 	item Installation,
-	home, cwd string,
+	home, cwd, stateDir string,
 	targetVersion, targetHash string,
 	newFiles []bundleFile,
+	lockWait time.Duration,
 ) (bool, error) {
+	if lockWait <= 0 {
+		lockWait = installLockWait
+	}
 	root, destination, err := resolveSkillRootAndDest(item.foundHost, item.foundScope, home, cwd)
 	if err != nil {
 		return false, err
@@ -733,8 +825,11 @@ func applyInPlaceUpdate(
 	if err := checkDestination(item.foundScope, root, destination); err != nil {
 		return false, err
 	}
-	release, err := auth.LockFile(filepath.Join(filepath.Dir(destination), ".muvloom-install.lock"), installLockWait)
+	release, err := auth.LockFile(filepath.Join(filepath.Dir(destination), ".muvloom-install.lock"), lockWait)
 	if err != nil {
+		if errors.Is(err, auth.ErrLockTimeout) {
+			return false, fmt.Errorf("%w: %w", ErrUpdateBusy, err)
+		}
 		return false, fmt.Errorf("another muvloom is updating %s: %w", destination, err)
 	}
 	defer release()
@@ -758,76 +853,115 @@ func applyInPlaceUpdate(
 		return false, nil
 	}
 
-	// Snapshot every regular file (including .muvloom-skill.json) so any mid-update failure
-	// rolls back cleanly.
+	// Snapshot every regular file (including .muvloom-skill.json) and persist the crash-recovery
+	// journal under StateDir BEFORE touching any file inside destination.
 	snapshot, err := snapshotSkillDir(destination)
 	if err != nil {
 		return false, err
 	}
-
-	// Verify no symlinks sit on any target path before writing anything.
+	planned := make([]string, 0, len(newFiles))
 	newMap := make(map[string][]byte, len(newFiles))
 	newFolded := make(map[string]string, len(newFiles))
+	newDirFolded := map[string]string{}
 	for _, f := range newFiles {
+		planned = append(planned, f.path)
 		newMap[f.path] = f.data
 		newFolded[strings.ToLower(f.path)] = f.path
-		target := filepath.Join(destination, filepath.FromSlash(f.path))
-		if err := refuseSymlinks(destination, target); err != nil {
-			return false, err
+		for _, dir := range parentDirs(f.path) {
+			newDirFolded[strings.ToLower(dir)] = dir
 		}
 	}
 	if err := refuseSymlinks(destination, filepath.Join(destination, ".muvloom-skill.json")); err != nil {
 		return false, err
 	}
 
-	var created []string
-	rollback := func() {
-		for _, rel := range created {
-			_ = os.Remove(filepath.Join(destination, filepath.FromSlash(rel)))
-			if dir := path.Dir(rel); dir != "." {
-				_ = os.Remove(filepath.Join(destination, filepath.FromSlash(dir)))
-			}
+	journal := updateJournal{
+		Destination: destination,
+		Host:        item.foundHost,
+		Scope:       item.foundScope,
+		Snapshot:    snapshot,
+		Planned:     planned,
+	}
+	journalPath := journalPathForDest(stateDir, destination)
+	if journalPath != "" {
+		jBytes, err := json.Marshal(journal)
+		if err != nil {
+			return false, err
 		}
-		for rel, data := range snapshot {
-			_ = writeSkillFileInPlace(filepath.Join(destination, filepath.FromSlash(rel)), data)
+		if err := auth.WriteFileInPlace(journalPath, jBytes); err != nil {
+			return false, fmt.Errorf("persist update journal: %w", err)
 		}
 	}
 
-	// On case-insensitive filesystems (macOS APFS, Windows NTFS), remove files whose
-	// path changed only in letter casing BEFORE writing the new casing, so the new entry
-	// takes the exact manifest casing and is never deleted by obsolete-file cleanup below.
-	caseRenamed := map[string]bool{}
+	clearJournal := func() {
+		if journalPath != "" {
+			_ = os.Truncate(journalPath, 0)
+		}
+	}
+	rollback := func() {
+		if restoreFromJournal(journal) == nil {
+			clearJournal()
+		}
+		// If rollback itself fails, keep journalPath on disk so the next startup recovers it.
+	}
+
+	// Pre-cleanup: remove any existing files (and emptied directories) that conflict with
+	// file<->directory transitions or file/directory case-only renames before writing newFiles.
+	preRemoved := map[string]bool{}
+	var preDirs []string
 	for oldRel := range snapshot {
 		if strings.EqualFold(oldRel, ".muvloom-skill.json") {
 			continue
 		}
-		if _, exact := newMap[oldRel]; exact {
-			continue
+		oldParents := parentDirs(oldRel)
+		needsPreRemove := false
+		// 1. File -> Directory transition (exact or case-folded).
+		if _, isNewDir := newDirFolded[strings.ToLower(oldRel)]; isNewDir {
+			needsPreRemove = true
 		}
-		if newRel, foldedMatch := newFolded[strings.ToLower(oldRel)]; foldedMatch && newRel != oldRel {
+		// 2. Directory -> File transition or directory-level case-only rename.
+		for _, d := range oldParents {
+			if _, fileReplacesDir := newFolded[strings.ToLower(d)]; fileReplacesDir {
+				needsPreRemove = true
+			}
+			if newDir, foldedMatch := newDirFolded[strings.ToLower(d)]; foldedMatch && newDir != d {
+				needsPreRemove = true
+			}
+		}
+		// 3. File-level case-only rename.
+		if _, exact := newMap[oldRel]; !exact {
+			if newRel, foldedMatch := newFolded[strings.ToLower(oldRel)]; foldedMatch && newRel != oldRel {
+				needsPreRemove = true
+			}
+		}
+		if needsPreRemove {
 			if err := os.Remove(filepath.Join(destination, filepath.FromSlash(oldRel))); err != nil && !errors.Is(err, os.ErrNotExist) {
 				rollback()
-				return false, fmt.Errorf("replace case-renamed %s: %w", oldRel, err)
+				return false, fmt.Errorf("prepare layout transition for %s: %w", oldRel, err)
 			}
-			caseRenamed[oldRel] = true
+			preRemoved[oldRel] = true
+			preDirs = append(preDirs, oldParents...)
 		}
 	}
+	pruneDirsDeepestFirst(destination, preDirs)
 
-	// Write new and updated files in place (no rename, no delete for unchanged paths).
+	// Write new and updated files in place (zero rename/delete for unchanged paths).
 	for _, f := range newFiles {
-		if _, existed := snapshot[f.path]; !existed {
-			created = append(created, f.path)
+		target := filepath.Join(destination, filepath.FromSlash(f.path))
+		if err := refuseSymlinks(destination, target); err != nil {
+			rollback()
+			return false, err
 		}
-		if err := writeSkillFileInPlace(filepath.Join(destination, filepath.FromSlash(f.path)), f.data); err != nil {
+		if err := writeSkillFileInPlace(target, f.data); err != nil {
 			rollback()
 			return false, fmt.Errorf("write %s: %w", f.path, err)
 		}
 	}
 
-	// Remove files from the previous verified snapshot that no longer exist in the new manifest.
+	// Remove remaining obsolete files from the previous verified snapshot.
 	var obsoleteDirs []string
 	for rel := range snapshot {
-		if strings.EqualFold(rel, ".muvloom-skill.json") || caseRenamed[rel] {
+		if strings.EqualFold(rel, ".muvloom-skill.json") || preRemoved[rel] {
 			continue
 		}
 		if _, keep := newMap[rel]; keep {
@@ -838,17 +972,22 @@ func applyInPlaceUpdate(
 			rollback()
 			return false, fmt.Errorf("remove obsolete %s: %w", rel, err)
 		}
-		if dir := path.Dir(rel); dir != "." {
-			obsoleteDirs = append(obsoleteDirs, dir)
-		}
+		obsoleteDirs = append(obsoleteDirs, parentDirs(rel)...)
 	}
-	// Prune any emptied subdirectories deepest-first (best effort).
-	sort.Slice(obsoleteDirs, func(i, j int) bool { return len(obsoleteDirs[i]) > len(obsoleteDirs[j]) })
-	for _, dir := range obsoleteDirs {
-		_ = os.Remove(filepath.Join(destination, filepath.FromSlash(dir)))
+	pruneDirsDeepestFirst(destination, obsoleteDirs)
+
+	// Verify actual on-disk tree hash BEFORE committing .muvloom-skill.json so a filesystem
+	// mismatch (e.g. unexpected casing) can never leave a broken Intact=false install.
+	actualHash, err := treeHash(destination)
+	if err != nil || actualHash != targetHash {
+		rollback()
+		if err != nil {
+			return false, fmt.Errorf("verify updated Skill tree: %w", err)
+		}
+		return false, fmt.Errorf("%w: on-disk Skill tree hash did not match manifest", ErrInvalidManifest)
 	}
 
-	// Write .muvloom-skill.json LAST so a crash before this point never marks a half-written tree intact.
+	// Write .muvloom-skill.json LAST, then clear the recovery journal.
 	meta := metadata{
 		Skill:    "muvloom",
 		Version:  targetVersion,
@@ -866,7 +1005,140 @@ func applyInPlaceUpdate(
 		rollback()
 		return false, fmt.Errorf("write Skill metadata: %w", err)
 	}
+	clearJournal()
 	return true, nil
+}
+
+// recoverInterruptedUpdates heals any Skill directory whose earlier hot-update was
+// interrupted by a crash or failed rollback, using the persisted journal in StateDir.
+func recoverInterruptedUpdates(stateDir string, lockWait time.Duration) {
+	if stateDir == "" {
+		return
+	}
+	updatesDir := filepath.Join(stateDir, "updates")
+	entries, err := os.ReadDir(updatesDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if !entry.Type().IsRegular() || !strings.HasPrefix(name, "tx-") || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		jPath := filepath.Join(updatesDir, name)
+		data, err := os.ReadFile(jPath)
+		if err != nil || len(bytes.TrimSpace(data)) == 0 {
+			continue
+		}
+		var journal updateJournal
+		if err := json.Unmarshal(data, &journal); err != nil || journal.Destination == "" || len(journal.Snapshot) == 0 {
+			continue
+		}
+		release, err := auth.LockFile(filepath.Join(filepath.Dir(journal.Destination), ".muvloom-install.lock"), lockWait)
+		if err != nil {
+			continue
+		}
+		if info, statErr := os.Lstat(journal.Destination); statErr == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
+			if restoreFromJournal(journal) == nil {
+				_ = os.Truncate(jPath, 0)
+			}
+		}
+		release()
+	}
+}
+
+func restoreFromJournal(journal updateJournal) error {
+	dest := journal.Destination
+	var cleanupDirs []string
+	// Remove any newly planned files not present in the original snapshot (or conflicting
+	// with original snapshot paths/casing).
+	snapFolded := map[string]string{}
+	snapDirFolded := map[string]string{}
+	for rel := range journal.Snapshot {
+		snapFolded[strings.ToLower(rel)] = rel
+		for _, d := range parentDirs(rel) {
+			snapDirFolded[strings.ToLower(d)] = d
+		}
+	}
+	for _, plannedRel := range journal.Planned {
+		if _, inSnap := journal.Snapshot[plannedRel]; !inSnap {
+			_ = os.Remove(filepath.Join(dest, filepath.FromSlash(plannedRel)))
+			cleanupDirs = append(cleanupDirs, parentDirs(plannedRel)...)
+		}
+	}
+	// Also remove any on-disk files/dirs inside dest that conflict with snapshot layout.
+	_ = filepath.WalkDir(dest, func(p string, entry fs.DirEntry, err error) error {
+		if err != nil || p == dest {
+			return nil
+		}
+		rel, relErr := filepath.Rel(dest, p)
+		if relErr != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		if entry.IsDir() {
+			if _, fileWantsPath := snapFolded[strings.ToLower(rel)]; fileWantsPath {
+				cleanupDirs = append(cleanupDirs, rel)
+			}
+			if snapDir, ok := snapDirFolded[strings.ToLower(rel)]; ok && snapDir != rel {
+				cleanupDirs = append(cleanupDirs, rel)
+			}
+			return nil
+		}
+		if _, inSnap := journal.Snapshot[rel]; !inSnap {
+			_ = os.Remove(p)
+			cleanupDirs = append(cleanupDirs, parentDirs(rel)...)
+		}
+		return nil
+	})
+	pruneDirsDeepestFirst(dest, cleanupDirs)
+
+	for rel, data := range journal.Snapshot {
+		if err := writeSkillFileInPlace(filepath.Join(dest, filepath.FromSlash(rel)), data); err != nil {
+			return err
+		}
+	}
+	if metaBytes, ok := journal.Snapshot[".muvloom-skill.json"]; ok {
+		var meta metadata
+		if json.Unmarshal(metaBytes, &meta) == nil && meta.FileHash != "" {
+			if got, err := treeHash(dest); err != nil || got != meta.FileHash {
+				return errors.New("restored Skill tree did not match snapshot hash")
+			}
+		}
+	}
+	return nil
+}
+
+func parentDirs(rel string) []string {
+	var dirs []string
+	cur := path.Dir(rel)
+	for cur != "." && cur != "/" && cur != "" {
+		dirs = append(dirs, cur)
+		cur = path.Dir(cur)
+	}
+	return dirs
+}
+
+func pruneDirsDeepestFirst(root string, dirs []string) {
+	if len(dirs) == 0 {
+		return
+	}
+	seen := map[string]struct{}{}
+	unique := make([]string, 0, len(dirs))
+	for _, d := range dirs {
+		if d == "" || d == "." || d == "/" {
+			continue
+		}
+		if _, dup := seen[d]; dup {
+			continue
+		}
+		seen[d] = struct{}{}
+		unique = append(unique, d)
+	}
+	sort.Slice(unique, func(i, j int) bool { return len(unique[i]) > len(unique[j]) })
+	for _, d := range unique {
+		_ = os.Remove(filepath.Join(root, filepath.FromSlash(d)))
+	}
 }
 
 func resolveSkillRootAndDest(host, scope, home, cwd string) (string, string, error) {
