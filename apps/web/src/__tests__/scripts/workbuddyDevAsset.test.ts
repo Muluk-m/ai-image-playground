@@ -47,6 +47,21 @@ it('serves the generated WorkBuddy ZIP from the actual development configuration
     const install = await fetch(`${origin}/cli/install.sh`)
     expect(install.status).toBe(200)
     expect(await install.text()).toContain('MUVLOOM_MIN_VERSION')
+    const manifestRes = await fetch(`${origin}/cli/skill-manifest.json`)
+    expect(manifestRes.status).toBe(200)
+    const manifest = (await manifestRes.json()) as {
+      schema_version: number
+      skill: string
+      packages: Record<string, { archive: string; archive_sha256: string; file_hash: string }>
+    }
+    expect(manifest.schema_version).toBe(1)
+    expect(manifest.skill).toBe('muvloom')
+    expect(manifest.packages['claude-code'].archive).toBe('muvloom-cli-skill.zip')
+    expect(manifest.packages.workbuddy.archive).toBe('muvloom-workbuddy.zip')
+    const cliZipRes = await fetch(`${origin}/cli/muvloom-cli-skill.zip`)
+    expect(cliZipRes.status).toBe(200)
+    const cliZipFiles = unzipSync(new Uint8Array(await cliZipRes.arrayBuffer()))
+    expect(cliZipFiles['muvloom/agents/openai.yaml']).toBeDefined()
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()))
     await vite.close()

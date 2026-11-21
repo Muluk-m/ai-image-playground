@@ -111,7 +111,9 @@ func Installed(home, cwd string) ([]Installation, error) {
 				item.Unverifiable = true
 			}
 			if _, bundledHash, bundleErr := bundleFilesForHost(host.name); bundleErr == nil {
-				item.Current = item.Intact && item.FileHash == bundledHash
+				// A copy hot-updated from /cli/skill-manifest.json to a newer SkillVersion
+				// is also current and must never be downgraded back to the bundled copy.
+				item.Current = item.Intact && (item.FileHash == bundledHash || VersionLess(SkillVersion, item.Version))
 			}
 			if item.Host == "" {
 				item.Host = host.name
@@ -166,7 +168,7 @@ type Refresh struct {
 // refreshable is a copy this CLI should replace: unedited, of an older release, and found
 // where its metadata says it was installed.
 func refreshable(item Installation) bool {
-	return item.Intact && VersionLess(item.Version, BundleVersion) &&
+	return item.Intact && VersionLess(item.Version, SkillVersion) &&
 		item.Host == item.foundHost && item.Scope == item.foundScope
 }
 

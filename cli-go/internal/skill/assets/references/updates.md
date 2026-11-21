@@ -22,5 +22,18 @@ After approval:
 3. Resume the original task. Report an installation failure without falling back
    to another source or requesting the user's password or token.
 
+## Automatic Skill hot-updates
+
+Installed Skills (Claude Code, Codex, and WorkBuddy copies with `.muvloom-skill.json`)
+automatically check Muvloom's official `/cli/skill-manifest.json` at most once every
+24 hours during `muvloom auth status` (3-second timeout, SHA-256 verified, updated in
+place without touching user-edited copies or blocking generation).
+
+To manage Skill updates manually:
+
+- `muvloom update skill` — check and apply a newer Skill immediately.
+- `muvloom update skill --check` — check without modifying local files.
+- `muvloom update skill --auto off` / `--auto on` — disable or re-enable automatic Skill hot-updates.
+
 An already-running generation continues on the server during an upgrade. Resume
 that same job using its saved ID or idempotency key instead of submitting again.
