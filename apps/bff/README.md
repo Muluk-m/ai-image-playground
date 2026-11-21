@@ -268,7 +268,7 @@ OAuth start、callback 和后续 API 请求应保持同一 API 主机；不同�
 企业域名与 muvloom 共用 Pages 项目和后端，由 CI 通过 `pages-release.sh muvloom` 发布同一份
 overlay-enabled 构建产物；企业域名使用按 host 生效的 noindex 响应头。
 仓库外 `PAGES_ENV` 的 `PAID_*` 配置共享项目，`ENTERPRISE_PUBLIC_ORIGIN` /
-`ENTERPRISE_BFF_BASE_URL` 配置企业域名的第一方 API 映射；切换配置键与固定 runtime 的要求见
+`ENTERPRISE_BFF_BASE_URL` 配置企业域名的第一方 API 映射；切换配置键与 VPS 受限入口的要求见
 [部署手册](../../docs/deploy/image-release.md#仓库外更新前提)。后端配置见
 `deploy/app.muvloom.env.example`。域名路由与历史账号、会话、任务、资产的数据迁移分别验收，
 不能通过替换数据库 URL 或存储凭据来迁移业务数据。

@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process'
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -15,7 +16,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-/** GitHub Actions uploads data only; deployment code comes from the server-installed runtime. */
+/** GitHub Actions uploads data only; deployment code comes from main in ~/deploy-runtimes. */
 const script = resolve(__dirname, '../../../../../scripts/ci-receive.sh')
 const id = `aip-${'a'.repeat(12)}-${'b'.repeat(12)}`
 let root: string
@@ -54,7 +55,7 @@ function commitRuntime(label: string): string {
     writeFileSync(join(origin, 'scripts', helper), `# ${label}\n`)
   writeFileSync(
     deploy,
-    `#!/bin/sh\nprintf "%s actor=%s runtime=${label}\\n" "$*" "$DEPLOY_ACTOR" >> "$CALL_LOG"\nexit "\${TEST_DEPLOY_EXIT:-0}"\n`,
+    `#!/bin/sh\n\${TEST_DEPLOY_HOOK:-:}\nprintf "%s actor=%s runtime=${label}\\n" "$*" "$DEPLOY_ACTOR" >> "$CALL_LOG"\nexit "\${TEST_DEPLOY_EXIT:-0}"\n`,
   )
   chmodSync(deploy, 0o755)
   git(origin, 'add', '-A')
@@ -85,18 +86,13 @@ function releaseTar(images = manifest()): Buffer {
   writeFileSync(join(dir, 'SHA256SUMS'), checksum.stdout)
   return tarOf(['-C', dir, '.'])
 }
+
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'aip-ci-receive-'))
   home = join(root, 'home')
   releases = join(home, 'releases')
   log = join(root, 'calls')
   mkdirSync(releases, { recursive: true })
-  mkdirSync(join(home, 'deploy-runtime', 'scripts'), { recursive: true })
-  writeFileSync(
-    join(home, 'deploy-runtime', 'scripts', 'vps-deploy.sh'),
-    '#!/bin/sh\nprintf "%s actor=%s\\n" "$*" "$DEPLOY_ACTOR" >> "$CALL_LOG"\nexit "${TEST_DEPLOY_EXIT:-0}"\n',
-  )
-  chmodSync(join(home, 'deploy-runtime', 'scripts', 'vps-deploy.sh'), 0o755)
   origin = join(root, 'origin')
   mkdirSync(origin)
   git(origin, 'init', '-q', '-b', 'main')
@@ -118,7 +114,6 @@ function receive(
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     HOME: home,
-    AIP_DEPLOY_RUNTIME_ROOT: join(home, 'deploy-runtime'),
     AIP_RUNTIME_GIT_URL: `file://${origin}`,
     CALL_LOG: log,
     ...extra,
@@ -159,15 +154,20 @@ describe('ci-receive.sh', () => {
   })
 
   it('drops the release when the host deploy lock was busy, so the same run can be retried', () => {
-    const busy = receive(`deploy ${id} test 7`, releaseTar(), { TEST_DEPLOY_EXIT: '75' }, 'test')
+    const busy = receive(
+      `deploy ${id} test 7`,
+      releaseTar(manifest('test')),
+      { TEST_DEPLOY_EXIT: '75' },
+      'test',
+    )
     expect(busy.status).toBe(75)
     expect(busy.stderr).toContain('Deploy lock busy')
     expect(readdirSync(releases)).toEqual([])
-    expect(receive(`deploy ${id} test 7`, releaseTar(), {}, 'test').status).toBe(0)
+    expect(receive(`deploy ${id} test 7`, releaseTar(manifest('test')), {}, 'test').status).toBe(0)
     expect(readdirSync(releases)).toEqual([id])
   })
 
-  it('cleans up incomplete data before invoking the fixed runtime', () => {
+  it('cleans up incomplete data before invoking the runtime', () => {
     const dir = join(root, 'incomplete')
     mkdirSync(dir)
     writeFileSync(join(dir, 'images.tsv'), 'manifest\n')
@@ -178,14 +178,19 @@ describe('ci-receive.sh', () => {
     expect(existsSync(log)).toBe(false)
   })
 
-  it('cleans up the data package when the fixed test runtime is absent', () => {
-    rmSync(join(home, 'deploy-runtime'), { recursive: true })
-    const result = receive(`deploy ${id} test 8`, releaseTar(manifest('test')), {}, 'test')
+  it('cleans up the data package when test cannot prepare a verified runtime', () => {
+    const result = receive(
+      `deploy ${id} test 8`,
+      releaseTar(manifest('test')),
+      { AIP_RUNTIME_GIT_URL: `file://${join(root, 'unreachable')}` },
+      'test',
+    )
     expect(result.status).toBe(1)
-    expect(result.stderr).toContain('Deployment runtime is not installed')
+    expect(result.stderr).toContain('not deploying with an unverified runtime')
     expect(existsSync(join(releases, id))).toBe(false)
     expect(existsSync(log)).toBe(false)
   })
+
   it('rejects an archive containing deployment code before invoking the trusted runtime', () => {
     const dir = join(root, 'evil')
     mkdirSync(join(dir, 'scripts'), { recursive: true })
@@ -196,6 +201,7 @@ describe('ci-receive.sh', () => {
     expect(result.stderr).toContain('only SHA256SUMS, images.tsv')
     expect(existsSync(log)).toBe(false)
   })
+
   it.each([
     undefined,
     '',
@@ -224,11 +230,15 @@ describe('ci-receive.sh', () => {
       const refused = receive(`deploy ${id} ${target} 1`, releaseTar(), {}, 'test')
       expect(refused.status).toBe(2)
     }
-    expect(receive(`deploy ${id} test 1`, releaseTar(), {}, 'release').status).toBe(2)
+    expect(receive(`deploy ${id} test 1`, releaseTar(manifest('test')), {}, 'release').status).toBe(
+      2,
+    )
     expect(readdirSync(releases)).toEqual([])
     expect(existsSync(log)).toBe(false)
-    expect(receive(`deploy ${id} test 1`, releaseTar(), {}, 'test').status).toBe(0)
-    expect(readFileSync(log, 'utf8')).toBe(`test ${releases}/${id} actor=github-actions/run-1\n`)
+    expect(receive(`deploy ${id} test 1`, releaseTar(manifest('test')), {}, 'test').status).toBe(0)
+    expect(readFileSync(log, 'utf8')).toBe(
+      `test ${releases}/${id} actor=github-actions/run-1 runtime=main\n`,
+    )
   })
 
   it.each(['internal', 'all'])('refuses retired target %s even with the release key', (target) => {
@@ -348,7 +358,7 @@ describe('ci-receive.sh', () => {
       expect(existsSync(join(runtimes(), sideCommit))).toBe(false)
     })
 
-    it('refuses a manifest that names no commit instead of falling back to the fixed runtime', () => {
+    it('refuses a manifest that names no commit instead of falling back to an unverified runtime', () => {
       const result = receive(`deploy ${id} paid 1`, releaseTar('manifest\n'))
       expect(result.status).toBe(1)
       expect(result.stderr).toContain('names no public commit')
@@ -398,7 +408,88 @@ describe('ci-receive.sh', () => {
     })
   })
 
-  describe('paid runtime safeguards', () => {
+  describe('test runs main deployment runtime without a hand-maintained copy', () => {
+    const runtimes = () => join(home, 'deploy-runtimes')
+
+    it('follows main automatically and never executes unmerged scripts from the test branch', () => {
+      const nextMain = commitRuntime('main-v2')
+      // Deploy sideCommit (whose own scripts would log runtime=side) to test: must run main-v2.
+      const result = receive(
+        `deploy ${id} test 1`,
+        releaseTar(manifest('test', sideCommit)),
+        {},
+        'test',
+      )
+      expect(result.status, result.stderr).toBe(0)
+      expect(readFileSync(log, 'utf8')).toBe(
+        `test ${releases}/${id} actor=github-actions/run-1 runtime=main-v2\n`,
+      )
+      expect(readlinkSync(join(runtimes(), 'current-test'))).toBe(join(runtimes(), nextMain))
+      expect(existsSync(join(runtimes(), sideCommit))).toBe(false)
+      expect(result.stderr).toContain(
+        `deploy/ or scripts/ changes in ${sideCommit} do not apply until merged to main`,
+      )
+    })
+
+    it('stays quiet when a test branch commit only changes application files', () => {
+      git(origin, 'checkout', '-q', '-b', 'test', mainCommit)
+      mkdirSync(join(origin, 'apps/web'), { recursive: true })
+      writeFileSync(join(origin, 'apps/web/index.ts'), 'export const x = 1\n')
+      git(origin, 'add', 'apps/web/index.ts')
+      git(origin, 'commit', '-q', '-m', 'app change only')
+      const appOnlyCommit = git(origin, 'rev-parse', 'HEAD')
+      git(origin, 'checkout', '-q', 'main')
+
+      const result = receive(
+        `deploy ${id} test 1`,
+        releaseTar(manifest('test', appOnlyCommit)),
+        {},
+        'test',
+      )
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.stderr).not.toContain('Warning:')
+      expect(readFileSync(log, 'utf8')).toBe(
+        `test ${releases}/${id} actor=github-actions/run-1 runtime=main\n`,
+      )
+    })
+
+    it('falls back to a previously verified main runtime when the repository cannot be reached', () => {
+      expect(receive(`deploy ${id} paid 1`).status).toBe(0)
+      const later = `aip-${'f'.repeat(12)}-${'b'.repeat(12)}`
+      const offline = { AIP_RUNTIME_GIT_URL: `file://${join(root, 'unreachable')}` }
+      const result = receive(
+        `deploy ${later} test 2`,
+        releaseTar(manifest('test', sideCommit)),
+        offline,
+        'test',
+      )
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.stderr).toContain(`could not fetch main`)
+      expect(result.stderr).toContain(`using runtime ${mainCommit} verified on`)
+      expect(readFileSync(log, 'utf8')).toContain(
+        `test ${releases}/${later} actor=github-actions/run-2 runtime=main`,
+      )
+    })
+
+    it('preserves both current-paid and current-test across runtime pruning', () => {
+      expect(receive(`deploy ${id} paid 1`).status).toBe(0)
+      for (let n = 0; n < 8; n++) {
+        commitRuntime(`m${n}`)
+        const release = `aip-${n.toString(16).repeat(12)}-${'c'.repeat(12)}`
+        expect(
+          receive(`deploy ${release} test ${n + 10}`, releaseTar(manifest('test')), {}, 'test')
+            .status,
+        ).toBe(0)
+      }
+      const head = git(origin, 'rev-parse', 'HEAD')
+      expect(readlinkSync(join(runtimes(), 'current-paid'))).toBe(join(runtimes(), mainCommit))
+      expect(readlinkSync(join(runtimes(), 'current-test'))).toBe(join(runtimes(), head))
+      expect(existsSync(join(runtimes(), mainCommit, 'scripts', 'vps-deploy.sh'))).toBe(true)
+      expect(existsSync(join(runtimes(), head, 'scripts', 'vps-deploy.sh'))).toBe(true)
+    })
+  })
+
+  describe('runtime safeguards', () => {
     const runtimes = () => join(home, 'deploy-runtimes')
 
     it('fetches commits only, so file contents come from the repository at unpack time', () => {
@@ -447,7 +538,7 @@ describe('ci-receive.sh', () => {
       expect(readdirSync(runtimes()).filter((name) => !name.startsWith('.'))).toEqual([])
     })
 
-    it('answers busy (75) and keeps nothing while another paid receiver holds the runtimes lock', async () => {
+    it('answers busy (75) and keeps nothing while another receiver holds the runtimes lock', async () => {
       mkdirSync(runtimes(), { recursive: true })
       const lock = join(runtimes(), '.lock')
       const holder = spawn('flock', [lock, 'sleep', '30'], { stdio: 'ignore' })
@@ -464,6 +555,35 @@ describe('ci-receive.sh', () => {
         expect(existsSync(log)).toBe(false)
       } finally {
         holder.kill()
+      }
+    })
+
+    it('reports the holding receiver target on lock contention so ci-ship-release can wait across environments', async () => {
+      const marker = join(root, 'inside-deploy')
+      const paidHolder = spawn('sh', [script, 'release'], {
+        env: {
+          ...process.env,
+          HOME: home,
+          AIP_RUNTIME_GIT_URL: `file://${origin}`,
+          CALL_LOG: log,
+          SSH_ORIGINAL_COMMAND: `deploy ${id} paid 1`,
+          TEST_DEPLOY_HOOK: `touch "${marker}"; sleep 30`,
+        },
+        stdio: ['pipe', 'ignore', 'pipe'],
+      })
+      paidHolder.stdin.end(releaseTar())
+      try {
+        for (let tries = 0; tries < 100 && !existsSync(marker); tries++) {
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
+        expect(existsSync(marker)).toBe(true)
+        const otherId = `aip-${'f'.repeat(12)}-${'b'.repeat(12)}`
+        const busy = receive(`deploy ${otherId} test 2`, releaseTar(manifest('test')), {}, 'test')
+        expect(busy.status).toBe(75)
+        expect(busy.stderr).toMatch(/^ {2}what=receive paid /m)
+        expect(existsSync(join(releases, otherId))).toBe(false)
+      } finally {
+        paidHolder.kill()
       }
     })
 
@@ -485,13 +605,49 @@ describe('ci-receive.sh', () => {
       expect(existsSync(join(root, 'elsewhere'))).toBe(false)
       expect(existsSync(log)).toBe(false)
     })
-  })
 
-  it('warns when the fixed test runtime lags behind the release it deploys', () => {
-    writeFileSync(join(home, 'deploy-runtime', '.commit'), `${'0'.repeat(40)}\n`)
-    const result = receive(`deploy ${id} test 1`, releaseTar(manifest('test')), {}, 'test')
-    expect(result.status).toBe(0)
-    expect(result.stderr).toContain(`is at ${'0'.repeat(40)}, this release is ${mainCommit}`)
-    expect(readFileSync(log, 'utf8')).toBe(`test ${releases}/${id} actor=github-actions/run-1\n`)
+    it('warns when the installed receiver lags behind main scripts/ci-receive.sh, without failing or warning on rollback', () => {
+      copyFileSync(script, join(origin, 'scripts', 'ci-receive.sh'))
+      git(origin, 'add', 'scripts/ci-receive.sh')
+      git(origin, 'commit', '-q', '-m', 'matching receiver')
+      const matching = git(origin, 'rev-parse', 'HEAD')
+
+      const ok = receive(`deploy ${id} paid 1`, releaseTar(manifest('paid', matching)))
+      expect(ok.status, ok.stderr).toBe(0)
+      expect(ok.stderr).not.toContain('installed receiver')
+
+      writeFileSync(
+        join(origin, 'scripts', 'ci-receive.sh'),
+        `${readFileSync(script, 'utf8')}\n# newer receiver on main\n`,
+      )
+      git(origin, 'add', 'scripts/ci-receive.sh')
+      git(origin, 'commit', '-q', '-m', 'updated receiver')
+      const updated = git(origin, 'rev-parse', 'HEAD')
+
+      const nextId = `aip-${'e'.repeat(12)}-${'b'.repeat(12)}`
+      const lagged = receive(`deploy ${nextId} paid 2`, releaseTar(manifest('paid', updated)))
+      expect(lagged.status, lagged.stderr).toBe(0)
+      expect(lagged.stderr).toContain(
+        `Warning: installed receiver ${script} differs from main (${updated}) scripts/ci-receive.sh`,
+      )
+
+      // Redeploying an earlier commit on main does not falsely claim the installed receiver lags.
+      copyFileSync(join(origin, 'scripts', 'ci-receive.sh'), join(root, 'installed-receiver.sh'))
+      chmodSync(join(root, 'installed-receiver.sh'), 0o755)
+      const rollback = spawnSync('sh', [join(root, 'installed-receiver.sh'), 'release'], {
+        env: {
+          ...process.env,
+          HOME: home,
+          AIP_RUNTIME_GIT_URL: `file://${origin}`,
+          CALL_LOG: log,
+          SSH_ORIGINAL_COMMAND: `deploy ${id} paid 3`,
+        },
+        input: releaseTar(manifest('paid', matching)),
+        encoding: 'utf8',
+        timeout: 20000,
+      })
+      expect(rollback.status, rollback.stderr).toBe(0)
+      expect(rollback.stderr).not.toContain('installed receiver')
+    })
   })
 })
