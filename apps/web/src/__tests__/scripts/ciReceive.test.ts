@@ -55,7 +55,7 @@ function commitRuntime(label: string): string {
     writeFileSync(join(origin, 'scripts', helper), `# ${label}\n`)
   writeFileSync(
     deploy,
-    `#!/bin/sh\n\${TEST_DEPLOY_HOOK:-:}\nprintf "%s actor=%s runtime=${label}\\n" "$*" "$DEPLOY_ACTOR" >> "$CALL_LOG"\nexit "\${TEST_DEPLOY_EXIT:-0}"\n`,
+    `#!/bin/sh\neval "\${TEST_DEPLOY_HOOK:-:}"\nprintf "%s actor=%s runtime=${label}\\n" "$*" "$DEPLOY_ACTOR" >> "$CALL_LOG"\nexit "\${TEST_DEPLOY_EXIT:-0}"\n`,
   )
   chmodSync(deploy, 0o755)
   git(origin, 'add', '-A')
@@ -561,13 +561,15 @@ describe('ci-receive.sh', () => {
     it('reports the holding receiver target on lock contention so ci-ship-release can wait across environments', async () => {
       const marker = join(root, 'inside-deploy')
       const paidHolder = spawn('sh', [script, 'release'], {
+        detached: true,
         env: {
           ...process.env,
           HOME: home,
           AIP_RUNTIME_GIT_URL: `file://${origin}`,
           CALL_LOG: log,
+          MARKER: marker,
           SSH_ORIGINAL_COMMAND: `deploy ${id} paid 1`,
-          TEST_DEPLOY_HOOK: `touch "${marker}"; sleep 30`,
+          TEST_DEPLOY_HOOK: 'touch "$MARKER" && exec sleep 30',
         },
         stdio: ['pipe', 'ignore', 'pipe'],
       })
@@ -583,7 +585,13 @@ describe('ci-receive.sh', () => {
         expect(busy.stderr).toMatch(/^ {2}what=receive paid /m)
         expect(existsSync(join(releases, otherId))).toBe(false)
       } finally {
-        paidHolder.kill()
+        if (paidHolder.pid) {
+          try {
+            process.kill(-paidHolder.pid, 'SIGKILL')
+          } catch {
+            paidHolder.kill('SIGKILL')
+          }
+        }
       }
     })
 
