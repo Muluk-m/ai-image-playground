@@ -1,6 +1,38 @@
 // Exclude raw user content and credentials, including nested error/request objects.
-const PRIVATE_FIELD =
-  /^(?:authorization|cookie|set-cookie|headers|.*(?:password|secret|token|api[_-]?key)|body|payload|payloadPreview|responseBody|errorBody|request_payload|prompt|content|contents|parts|messages|image|images|data|input|output)$/i
+// Matched on the key with case, `_` and `-` folded away, so `requestBody`, `response_body` and
+// `ERROR-BODY` all count. Keep deploy/compose.app.yaml (Collector `delete_matching_keys`) in step;
+// packages/shared/src/__tests__/redact-log.test.ts checks the two agree.
+const PRIVATE_EXACT = new Set(['headers', 'parts', 'messages', 'image', 'images', 'data'])
+const PRIVATE_SUFFIX =
+  /(?:authorization|cookie|password|secret|token|apikey|body|payload|payloadpreview|prompt|input|output|content|contents)$/
+const PRIVATE_TEXT = /^(?:input|output|prompt|content|message)s?text$/
+
+export function isPrivateLogField(key: string): boolean {
+  const folded = key.toLowerCase().replace(/[_-]/g, '')
+  return PRIVATE_EXACT.has(folded) || PRIVATE_SUFFIX.test(folded) || PRIVATE_TEXT.test(folded)
+}
+
+const OBJECT_KEY = /[a-z0-9_$][\w$.-]*\s*:/iy
+const ARRAY_LITERAL = /(?:true|false|null|undefined|NaN|[+-]?Infinity)(?=[\s,\]])/iy
+
+/** Sticky match at `index` without copying the rest of the string (keeps the scan linear). */
+function matchesAt(pattern: RegExp, value: string, index: number): boolean {
+  pattern.lastIndex = index
+  return pattern.test(value)
+}
+
+/**
+ * A JS-style object with bare keys and bare scalar values, such as `{status: timeout}` from
+ * util.inspect or a hand-written diagnostic. With no quotes or nested brackets its end is certain,
+ * so it can stay when none of its keys is private instead of hiding the rest of the line.
+ */
+const BARE_OBJECT = /^\{\s*(?:[a-z_$][\w$-]*\s*:\s*[^{}[\]"'`,:]*?\s*(?:,\s*|(?=\})))*\}$/i
+const BARE_KEY = /([a-z_$][\w$-]*)\s*:/gi
+function harmlessBareObject(fragment: string): boolean {
+  if (fragment.length > 2000 || !BARE_OBJECT.test(fragment)) return false
+  for (const match of fragment.matchAll(BARE_KEY)) if (isPrivateLogField(match[1]!)) return false
+  return true
+}
 
 function looksStructured(value: string, cursor: number, arrayPayload: Uint8Array): boolean {
   const opener = value[cursor]
@@ -9,7 +41,7 @@ function looksStructured(value: string, cursor: number, arrayPayload: Uint8Array
   const char = value[next]
   if (char === '"' || char === "'") return true
   if (opener === '{') {
-    return char === '}' || /^[a-z0-9_$][\w$.-]*\s*:/i.test(value.slice(next))
+    return char === '}' || matchesAt(OBJECT_KEY, value, next)
   }
   return (
     arrayPayload[cursor + 1] === 1 ||
@@ -17,7 +49,7 @@ function looksStructured(value: string, cursor: number, arrayPayload: Uint8Array
     char === '{' ||
     char === '[' ||
     (char !== undefined && /[0-9-]/.test(char)) ||
-    /^(?:true|false|null|undefined|NaN|[+-]?Infinity)(?=[\s,\]])/i.test(value.slice(next))
+    matchesAt(ARRAY_LITERAL, value, next)
   )
 }
 
@@ -25,7 +57,7 @@ function looksStructured(value: string, cursor: number, arrayPayload: Uint8Array
 function privateAssignment(value: string): number | null {
   const keys = /\b([a-z_$][\w$-]*)["']?\s*[:=]/gi
   for (const match of value.matchAll(keys)) {
-    if (PRIVATE_FIELD.test(match[1]!)) return match.index
+    if (isPrivateLogField(match[1]!)) return match.index
   }
   return null
 }
@@ -97,8 +129,12 @@ function redactStructuredText(value: string, depth: number): string {
           JSON.stringify(sanitizeLogValue(JSON.parse(value.slice(start, cursor)), depth + 1)),
         )
       } catch {
-        chunks.push('[REDACTED PAYLOAD]')
-        cursor = value.length
+        const fragment = value.slice(start, cursor)
+        if (harmlessBareObject(fragment)) chunks.push(fragment)
+        else {
+          chunks.push('[REDACTED PAYLOAD]')
+          cursor = value.length
+        }
       }
     }
     plainStart = cursor
@@ -130,7 +166,7 @@ export function sanitizeLogValue(value: unknown, depth = 0): unknown {
           const cleanedKey = key.replace(/\u0000/g, '')
           return [
             cleanedKey.slice(0, 200),
-            PRIVATE_FIELD.test(cleanedKey) ? '[REDACTED]' : sanitizeLogValue(one, depth + 1),
+            isPrivateLogField(cleanedKey) ? '[REDACTED]' : sanitizeLogValue(one, depth + 1),
           ]
         }),
     )
