@@ -26,12 +26,12 @@ function matchesAt(pattern: RegExp, value: string, index: number): boolean {
  * util.inspect or a hand-written diagnostic. With no quotes or nested brackets its end is certain,
  * so it can stay when none of its keys is private instead of hiding the rest of the line.
  */
-const BARE_OBJECT = /^\{\s*(?:[a-z_$][\w$-]*\s*:\s*[^{}[\]"'`,:]*?\s*(?:,\s*|(?=\})))*\}$/i
-const BARE_KEY = /([a-z_$][\w$-]*)\s*:/gi
+// Each value runs greedily up to the next `,` or `}`, so there is exactly one way to split the
+// pairs and a failed match cannot backtrack across them.
+const BARE_OBJECT = /^\{\s*(?:[a-z_$][\w$-]*\s*:[^{}[\]"'`,:]*(?:,|(?=\}))\s*)*\}$/i
 function harmlessBareObject(fragment: string): boolean {
-  if (fragment.length > 2000 || !BARE_OBJECT.test(fragment)) return false
-  for (const match of fragment.matchAll(BARE_KEY)) if (isPrivateLogField(match[1]!)) return false
-  return true
+  // privateAssignment sees both `key:` and `key=`, so `{err: prompt=...}` stays hidden.
+  return BARE_OBJECT.test(fragment) && privateAssignment(fragment) === null
 }
 
 function looksStructured(value: string, cursor: number, arrayPayload: Uint8Array): boolean {

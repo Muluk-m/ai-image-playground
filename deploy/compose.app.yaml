@@ -648,7 +648,7 @@ configs:
                 - flatten(attributes)
                 # Key rule mirrors isPrivateLogField: a few exact names, private suffixes at any
                 # case or separator (requestBody, response_body, userPrompt), and *_text variants.
-                - delete_matching_keys(attributes, "(?i)(^|\\.)(headers|parts|messages|images?|data|[^.]*(authorization|cookie|password|secret|token|api[_-]?key|body|payload|payload[_-]?preview|prompt|input|output|contents?)|(input|output|prompt|content|message)s?[_-]?text)(\\.|$$)")
+                - delete_matching_keys(attributes, "(?i)(^|\\.)[_-]*(headers|parts|messages|images?|data|[^.]*(authorization|cookie|password|secret|token|api[_-]?key|body|payload|payload[_-]?preview|prompt|input|output|contents?)|(input|output|prompt|content|message)s?[_-]?text)[_-]*(\\.|$$)")
                 - replace_pattern(body, "(?i)\\b(Bearer|Basic)\\s+[^\\s\"'<>]+", "$$1 [REDACTED]")
                 - replace_pattern(body, "(?i)\\b(sk-[a-z0-9_-]{8,}|AIza[a-z0-9_-]{15,})\\b", "[REDACTED]")
                 - replace_pattern(body, "(?i)((api[_-]?key|token|password|secret|signature|credential)[\"']?\\s*[:=]\\s*[\"']?)[^\\s&#\"',}]+", "$$1[REDACTED]")
@@ -661,8 +661,8 @@ configs:
                 - replace_all_patterns(attributes, "value", "(?i)data:[^;\\s]+;base64,[a-z0-9+/=]+", "[BINARY REDACTED]")
                 # A labelled private field inside text (error messages, stacks, JSON embedded in a
                 # string): everything from the label on goes, like redact-log.ts privateAssignment.
-                - replace_pattern(body, "(?is)\\b(headers|parts|messages|images?|data|[\\w$$-]*?(?:authorization|cookie|password|secret|token|api[_-]?key|body|payload|payload[_-]?preview|prompt|input|output|contents?)|(?:input|output|prompt|content|message)s?[_-]?text)([\"']?\\s*[:=]).*$$", "$$1$$2 [REDACTED PAYLOAD]")
-                - replace_all_patterns(attributes, "value", "(?is)\\b(headers|parts|messages|images?|data|[\\w$$-]*?(?:authorization|cookie|password|secret|token|api[_-]?key|body|payload|payload[_-]?preview|prompt|input|output|contents?)|(?:input|output|prompt|content|message)s?[_-]?text)([\"']?\\s*[:=]).*$$", "$$1$$2 [REDACTED PAYLOAD]")
+                - replace_pattern(body, "(?is)\\b([_-]*(?:headers|parts|messages|images?|data|[\\w$$-]*?(?:authorization|cookie|password|secret|token|api[_-]?key|body|payload|payload[_-]?preview|prompt|input|output|contents?)|(?:input|output|prompt|content|message)s?[_-]?text)[_-]*)([\"']?\\s*[:=]).*$$", "$$1$$2 [REDACTED PAYLOAD]")
+                - replace_all_patterns(attributes, "value", "(?is)\\b([_-]*(?:headers|parts|messages|images?|data|[\\w$$-]*?(?:authorization|cookie|password|secret|token|api[_-]?key|body|payload|payload[_-]?preview|prompt|input|output|contents?)|(?:input|output|prompt|content|message)s?[_-]?text)[_-]*)([\"']?\\s*[:=]).*$$", "$$1$$2 [REDACTED PAYLOAD]")
                 - set(body, Substring(body, 0, 16000)) where Len(body) > 16000
                 - truncate_all(attributes, 4000)
                 # OpenObserve has no row id; Admin pages, cursors and context lookups key on this.

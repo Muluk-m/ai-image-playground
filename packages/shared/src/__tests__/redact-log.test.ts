@@ -41,6 +41,12 @@ const PRIVATE_KEYS = [
   'access_token',
   'apiKey',
   'api_key',
+  '_data',
+  '-headers',
+  '__messages',
+  '_input_text',
+  'requestBody_',
+  'data_',
 ]
 
 const PUBLIC_KEYS = [
@@ -59,6 +65,8 @@ const PUBLIC_KEYS = [
   'throughput',
   'message',
   'elapsed_ms',
+  '_status',
+  'my_metadata',
 ]
 
 describe('private log fields', () => {
@@ -101,10 +109,24 @@ describe('malformed fragments', () => {
       "{status: 'private value'}",
       '{status: {inner: private}}',
       '{status: [private]}',
+      '{err: prompt=what is my balance}',
+      '{x: a=1&input=hello world}',
     ])
       expect(redactLogText(`upstream ${fragment} private remainder`)).toBe(
         'upstream [REDACTED PAYLOAD]',
       )
+  })
+
+  it('rejects a long bare object that does not match without backtracking', () => {
+    const pairs = Array.from({ length: 150 }, (_, i) => `f${i}:    v${i}   `).join(',')
+    for (const value of [
+      `upstream {${pairs}, note: 'x'} retrying`,
+      `{${'a:      ,'.repeat(40)}1}`,
+    ]) {
+      const started = performance.now()
+      redactLogText(value)
+      expect(performance.now() - started).toBeLessThan(200)
+    }
   })
 
   it('scans a long line of openers without copying the rest of the line', () => {
@@ -115,7 +137,11 @@ describe('malformed fragments', () => {
   })
 })
 
-/** The Collector repeats these rules in OTTL (RE2); this keeps the two from drifting apart. */
+/**
+ * The Collector repeats these rules in OTTL (Go RE2); this keeps the two from drifting apart.
+ * It runs the patterns on the JS engine, which only answers whether they match: it cannot see a
+ * construct RE2 rejects at load time (hence the syntax check below) or how RE2 picks captures.
+ */
 describe('Collector redaction rules', () => {
   const compose = readFileSync(
     new URL('../../../../deploy/compose.app.yaml', import.meta.url),
@@ -130,6 +156,10 @@ describe('Collector redaction rules', () => {
   }
   const keyRule = yamlRegex(/delete_matching_keys\(attributes, "((?:[^"\\]|\\.)*)"\)/)
   const labelRule = yamlRegex(/replace_pattern\(body, "(\(\?is\)(?:[^"\\]|\\.)*)", "\$\$1/)
+
+  it('uses only syntax RE2 accepts', () => {
+    for (const rule of [keyRule, labelRule]) expect(rule.source).not.toMatch(/\(\?[=!<]|\\[1-9]/)
+  })
 
   it('deletes exactly the attribute keys isPrivateLogField marks', () => {
     for (const key of [...PRIVATE_KEYS, ...PUBLIC_KEYS]) {
