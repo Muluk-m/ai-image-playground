@@ -448,3 +448,81 @@ it('rejects an unknown Pages release target with usage', async () => {
   expect(run.status).toBe(2)
   expect(run.stderr).toContain('Usage: scripts/pages-release.sh <muvloom|test|admin>')
 })
+
+it('builds static CLI binaries before build:static-host when cli-go is present', async () => {
+  const checkout = join(dist, 'cli-checkout')
+  await mkdir(join(checkout, 'scripts'), { recursive: true })
+  await mkdir(join(checkout, 'cli-go'), { recursive: true })
+  await mkdir(join(checkout, 'bin'), { recursive: true })
+  await writeFile(
+    join(checkout, 'scripts/pages-deploy.sh'),
+    await readFile(join(root, 'scripts/pages-deploy.sh')),
+    { mode: 0o755 },
+  )
+  const orderFile = join(checkout, 'order')
+  await writeFile(join(checkout, 'cli-go/go.mod'), 'module example.com/cli\n')
+  await writeFile(join(checkout, 'bin/go'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+  await writeFile(
+    join(checkout, 'scripts/build-cli-web-bins.sh'),
+    '#!/bin/sh\nprintf "cli-bins\\n" >> "$ORDER_FILE"\n',
+    { mode: 0o755 },
+  )
+  await writeFile(
+    join(checkout, 'bin/pnpm'),
+    '#!/bin/sh\nprintf "pnpm:%s\\n" "$*" >> "$ORDER_FILE"\nexit 27\n',
+    { mode: 0o755 },
+  )
+  const run = spawnSync(
+    'sh',
+    [join(checkout, 'scripts/pages-deploy.sh'), 'web', 'public', 'fixture-project', 'main'],
+    {
+      cwd: checkout,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${join(checkout, 'bin')}:/usr/bin:/bin`,
+        ORDER_FILE: orderFile,
+        BFF_ENABLED: 'false',
+        EXTRA_ASSETS_DIR: '',
+      },
+    },
+  )
+  expect(run.status).toBe(27)
+  expect(await readFile(orderFile, 'utf8')).toBe(
+    'cli-bins\npnpm:--filter @image-playground/web build:static-host\n',
+  )
+})
+
+it('fails web Pages deploy before building when cli-go is present without go on PATH', async () => {
+  const checkout = join(dist, 'no-go-checkout')
+  await mkdir(join(checkout, 'scripts'), { recursive: true })
+  await mkdir(join(checkout, 'cli-go'), { recursive: true })
+  await mkdir(join(checkout, 'bin'), { recursive: true })
+  await writeFile(
+    join(checkout, 'scripts/pages-deploy.sh'),
+    await readFile(join(root, 'scripts/pages-deploy.sh')),
+    { mode: 0o755 },
+  )
+  await writeFile(join(checkout, 'cli-go/go.mod'), 'module example.com/cli\n')
+  await writeFile(
+    join(checkout, 'bin/dirname'),
+    '#!/bin/sh\n[ "$1" = "--" ] && shift\nprintf "%s\\n" "${1%/*}"\n',
+    { mode: 0o755 },
+  )
+  const run = spawnSync(
+    '/bin/sh',
+    [join(checkout, 'scripts/pages-deploy.sh'), 'web', 'public', 'fixture-project', 'main'],
+    {
+      cwd: checkout,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: join(checkout, 'bin'),
+        BFF_ENABLED: 'false',
+        EXTRA_ASSETS_DIR: '',
+      },
+    },
+  )
+  expect(run.status).toBe(1)
+  expect(run.stderr).toContain('go is required to build /cli/bin static CLI binaries')
+})

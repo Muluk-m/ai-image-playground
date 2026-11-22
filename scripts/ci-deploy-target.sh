@@ -59,7 +59,7 @@ lock_changed() {
 # admin.muvloom.online is the Pages build of apps/admin; the API image only serves admin-api.
 # shellcheck disable=SC2329 # called through decide
 web_bundle_changed() {
-  printf '%s\n' "$1" | grep -Eq '^(apps/web/|apps/website/|cli-go/internal/skill/assets/|packages/shared/|pnpm-workspace\.yaml$)' ||
+  printf '%s\n' "$1" | grep -Eq '^(apps/web/|apps/website/|cli-go/|scripts/build-cli-web-bins\.sh$|packages/shared/|pnpm-workspace\.yaml$)' ||
     lock_changed "$1" . apps/web apps/website packages/shared
 }
 # shellcheck disable=SC2329 # called through decide

@@ -35,11 +35,32 @@ RUN case "$TARGETARCH" in amd64) cpu=x64 ;; arm64) cpu=arm64 ;; *) exit 1 ;; esa
   && printf '\nsupportedArchitectures:\n  os: [linux]\n  cpu: [current, %s]\n  libc: [glibc]\n' "$cpu" >> pnpm-workspace.yaml \
   && pnpm install --frozen-lockfile
 
+FROM --platform=$BUILDPLATFORM golang:1.23-bookworm AS cli-dist
+WORKDIR /src/cli-go
+COPY cli-go/go.mod cli-go/go.sum ./
+RUN go mod download
+COPY cli-go ./
+RUN set -eu; \
+  ver="$(sed -n 's/^const BundleVersion = "\([^"]*\)".*/\1/p' internal/skill/install.go)"; \
+  test -n "$ver"; \
+  mkdir -p "/out/v$ver"; \
+  for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64; do \
+    goos="${target%/*}"; goarch="${target#*/}"; ext=""; \
+    [ "$goos" = windows ] && ext=".exe"; \
+    tmp="/out/v$ver/.tmp_${goos}_${goarch}"; \
+    CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build -trimpath \
+      -ldflags "-s -w -X github.com/Muluk-m/ai-image-playground/cli-go/internal/cli.Version=$ver" \
+      -o "$tmp" ./cmd/muvloom; \
+    h="$(sha256sum "$tmp" | cut -c1-12)"; \
+    mv "$tmp" "/out/v$ver/muvloom_${goos}_${goarch}-${h}${ext}"; \
+  done; \
+  test "$(find "/out/v$ver" -maxdepth 1 -type f -name 'muvloom_*' | wc -l | tr -d ' ')" = "5"
 FROM deps AS web-build
 WORKDIR /app
 COPY . .
 COPY --from=deps /app/pnpm-workspace.yaml ./
 RUN pnpm install --offline --frozen-lockfile
+COPY --from=cli-dist /out /app/apps/web/public/cli/bin
 # Product release baked into Settings. Empty falls back to the root package.json version.
 ARG APP_RELEASE=
 ENV APP_RELEASE=$APP_RELEASE

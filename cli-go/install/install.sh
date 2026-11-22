@@ -8,6 +8,7 @@
 #                                writable without sudo, else ~/.local/bin. For a system-wide install
 #                                that needs administrator rights: sudo MUVLOOM_INSTALL_DIR=/usr/local/bin sh
 #   MUVLOOM_NO_MODIFY_PATH=1     leave the user shell profile unchanged
+#   MUVLOOM_ORIGIN=https://...   official web origin for fast CDN binary bootstrap
 #   MUVLOOM_DISTRIBUTION_URL=http://127.0.0.1:PORT/PATH local CI distribution only
 set -eu
 
@@ -124,57 +125,160 @@ $found"
   printf '%s\n' "$version"
 }
 
+pinned_target=""
 if [ -n "${MUVLOOM_VERSION:-}" ]; then
-  target="${MUVLOOM_VERSION#v}"
-  printf '%s\n' "$target" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' ||
+  pinned_target="${MUVLOOM_VERSION#v}"
+  printf '%s\n' "$pinned_target" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' ||
     fail "MUVLOOM_VERSION must be an exact X.Y.Z version"
-else
-  target="$(list_latest_version)"
 fi
 
+min_ver=""
 if [ -n "${MUVLOOM_MIN_VERSION:-}" ]; then
-  min="${MUVLOOM_MIN_VERSION#v}"
-  printf '%s\n' "$min" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' ||
+  min_ver="${MUVLOOM_MIN_VERSION#v}"
+  printf '%s\n' "$min_ver" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' ||
     fail "MUVLOOM_MIN_VERSION must be an exact X.Y.Z version"
-  if version_less "$target" "$min"; then
-    fail "latest or pinned release $target is older than MUVLOOM_MIN_VERSION $min"
-  fi
 fi
 
-current="$(installed_version "$BIN")"
-skip_download=""
-if [ -n "$current" ]; then
-  if version_less "$target" "$current"; then
-    echo "muvloom $current is already installed at $BIN; not downgrading to $target" >&2
-    skip_download=1
-  elif [ "$current" = "$target" ] && { [ -z "${MUVLOOM_VERSION:-}" ] || [ -n "${MUVLOOM_MIN_VERSION:-}" ]; }; then
-    # Already at the latest (or meets MUVLOOM_MIN_VERSION and matches target).
-    echo "muvloom $current is already installed at $BIN" >&2
-    skip_download=1
+m_origin=""
+resolve_manifest_origin() {
+  if [ -n "${MUVLOOM_ORIGIN:-}" ]; then
+    orig="${MUVLOOM_ORIGIN%/}"
+    case "$orig" in
+      https://muvloom.online | https://image.nainma.online | https://image-playground.qiliangjia.one | https://test.muvloom.online)
+        m_origin="$orig"
+        return
+        ;;
+    esac
+    printf '%s\n' "$orig" | grep -Eq '^http://(127\.0\.0\.1|localhost):[0-9]+$' ||
+      fail "MUVLOOM_ORIGIN must be an official Muvloom origin (or loopback http for tests)"
+    m_origin="$orig"
+    return
   fi
+  case "${MUVLOOM_API_URL:-}" in
+    https://test-api.muvloom.online*) m_origin="https://test.muvloom.online" ;;
+    https://image-api.qiliangjia.one*) m_origin="https://image-playground.qiliangjia.one" ;;
+    *) m_origin="https://muvloom.online" ;;
+  esac
+}
+
+if [ -z "${MUVLOOM_DISTRIBUTION_URL:-}" ]; then
+  resolve_manifest_origin
 fi
 
-if [ -z "$skip_download" ]; then
-  tag="cli-v$target"
+fetch_manifest_origin() {
+  case "$1" in
+    http://127.0.0.1:* | http://localhost:*)
+      curl -q -fsSL --max-redirs 0 --noproxy '*' --connect-timeout 4 --max-time 25 "$@"
+      ;;
+    *)
+      curl -q -fsSL --proto '=https' --max-redirs 0 --connect-timeout 4 --max-time 30 "$@"
+      ;;
+  esac
+}
+
+manifest_stage=""
+try_manifest_install() {
+  [ -z "${MUVLOOM_DISTRIBUTION_URL:-}" ] && [ -n "$m_origin" ] || return 1
+  manifest="$(fetch_manifest_origin "$m_origin/cli/skill-manifest.json" 2>/dev/null)" || return 1
+  [ -n "$manifest" ] || return 1
+  compact="$(printf '%s' "$manifest" | tr -d '\r\n\t ')"
+  cli_sec="$(printf '%s' "$compact" | sed -n 's/.*"cli":{\(.*\)/\1/p')"
+  m_ver="$(printf '%s' "$cli_sec" | sed -n 's/.*"version":"\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p')"
+  plat_key="${os}\\/${arch}"
+  entry="$(printf '%s' "$cli_sec" | sed -n "s/.*\"${plat_key}\":{\([^}]*\)}.*/\1/p")"
+  rel_path="$(printf '%s' "$entry" | sed -n 's/.*"path":"\([^"]*\)".*/\1/p')"
+  m_sha="$(printf '%s' "$entry" | sed -n 's/.*"sha256":"\([0-9a-f]\{64\}\)".*/\1/p')"
+  [ -n "$m_ver" ] && [ -n "$m_sha" ] || return 1
+  printf '%s\n' "$rel_path" | grep -Eq '^bin/v[0-9]+\.[0-9]+\.[0-9]+/[A-Za-z0-9._-]+$' || return 1
+  if [ -n "$pinned_target" ] && [ "$pinned_target" != "$m_ver" ]; then
+    return 1
+  fi
+  if [ -n "$min_ver" ] && version_less "$m_ver" "$min_ver"; then
+    return 1
+  fi
+
+  current="$(installed_version "$BIN")"
+  if [ -n "$current" ]; then
+    if version_less "$m_ver" "$current"; then
+      echo "muvloom $current is already installed at $BIN; not downgrading to $m_ver" >&2
+      return 0
+    elif [ "$current" = "$m_ver" ] && { [ -z "$pinned_target" ] || [ -n "$min_ver" ]; }; then
+      echo "muvloom $current is already installed at $BIN" >&2
+      return 0
+    fi
+  fi
+
   asset="muvloom_${os}_${arch}"
-  base="$download/$tag"
-  tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT
+  m_tmp="$(mktemp -d)"
+  echo "Downloading $asset (cli-v$m_ver)" >&2
+  if ! fetch_manifest_origin "$m_origin/cli/$rel_path" -o "$m_tmp/$asset" 2>/dev/null; then
+    rm -rf "$m_tmp"
+    return 1
+  fi
+  actual="$(sha256 "$m_tmp/$asset")"
+  if [ "$m_sha" != "$actual" ]; then
+    rm -rf "$m_tmp"
+    fail "checksum mismatch for $asset (expected $m_sha, got $actual)"
+  fi
+  manifest_stage="$m_tmp"
+  return 0
+}
 
-  echo "Downloading $asset ($tag)" >&2
-  fetch -o "$tmp/$asset" "$base/$asset" || fail "download failed: $base/$asset"
-  fetch -o "$tmp/checksums.txt" "$base/checksums.txt" || fail "download failed: $base/checksums.txt"
+if try_manifest_install; then
+  if [ -n "$manifest_stage" ]; then
+    trap 'rm -rf "$manifest_stage"' EXIT
+    mkdir -p "$INSTALL_DIR"
+    chmod 0755 "$manifest_stage/muvloom_${os}_${arch}"
+    mv "$manifest_stage/muvloom_${os}_${arch}" "$BIN"
+    rm -rf "$manifest_stage"
+    trap - EXIT
+  fi
+else
+  if [ -n "$pinned_target" ]; then
+    target="$pinned_target"
+  else
+    target="$(list_latest_version)"
+  fi
 
-  expected="$(grep " $asset\$" "$tmp/checksums.txt" | cut -d' ' -f1)"
-  [ -n "$expected" ] || fail "no checksum published for $asset"
-  actual="$(sha256 "$tmp/$asset")"
-  [ "$expected" = "$actual" ] || fail "checksum mismatch for $asset (expected $expected, got $actual)"
+  if [ -n "$min_ver" ] && version_less "$target" "$min_ver"; then
+    fail "latest or pinned release $target is older than MUVLOOM_MIN_VERSION $min_ver"
+  fi
 
-  mkdir -p "$INSTALL_DIR"
-  chmod 0755 "$tmp/$asset"
-  mv "$tmp/$asset" "$BIN"
-  trap - EXIT
-  rm -rf "$tmp"
+  current="$(installed_version "$BIN")"
+  skip_download=""
+  if [ -n "$current" ]; then
+    if version_less "$target" "$current"; then
+      echo "muvloom $current is already installed at $BIN; not downgrading to $target" >&2
+      skip_download=1
+    elif [ "$current" = "$target" ] && { [ -z "$pinned_target" ] || [ -n "$min_ver" ]; }; then
+      # Already at the latest (or meets MUVLOOM_MIN_VERSION and matches target).
+      echo "muvloom $current is already installed at $BIN" >&2
+      skip_download=1
+    fi
+  fi
+
+  if [ -z "$skip_download" ]; then
+    tag="cli-v$target"
+    asset="muvloom_${os}_${arch}"
+    base="$download/$tag"
+    tmp="$(mktemp -d)"
+    trap 'rm -rf "$tmp"' EXIT
+
+    echo "Downloading $asset ($tag)" >&2
+    fetch -o "$tmp/$asset" "$base/$asset" || fail "download failed: $base/$asset"
+    fetch -o "$tmp/checksums.txt" "$base/checksums.txt" || fail "download failed: $base/checksums.txt"
+
+    expected="$(grep " $asset\$" "$tmp/checksums.txt" | cut -d' ' -f1)"
+    [ -n "$expected" ] || fail "no checksum published for $asset"
+    actual="$(sha256 "$tmp/$asset")"
+    [ "$expected" = "$actual" ] || fail "checksum mismatch for $asset (expected $expected, got $actual)"
+
+    mkdir -p "$INSTALL_DIR"
+    chmod 0755 "$tmp/$asset"
+    mv "$tmp/$asset" "$BIN"
+    trap - EXIT
+    rm -rf "$tmp"
+  fi
 fi
 
 echo "muvloom installed at $BIN" >&2

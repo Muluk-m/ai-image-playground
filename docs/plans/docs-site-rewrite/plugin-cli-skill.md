@@ -37,23 +37,23 @@
 
 接入页给出的命令（`connectAgents.ts`）从本站同域下载 `install.sh` / `install.ps1`，先校验页面公布的 SHA-256，再直接执行安装器，始终安装或原地升级到最新稳定版（已是最新会自动跳过下载，永不降级）。不要把脚本管道进 `sh` 或 `iex`，也不要用 `MUVLOOM_VERSION` 钉死精确版本（可能把已装的更新版本降级）。接入页的复制命令还带内容哈希 `?v=`，避免缓存到旧脚本。
 
-macOS / Linux（SHA-256 of `install.sh`：`ea1a3648b77b210dc0a21715b4c4287841c243aeea83bd6c5e147a105580c533`）：
+macOS / Linux（SHA-256 of `install.sh`：`2d814705e65cc9e2dc25046b6e3eb9d106ee5c1632d8e2189fc5c13f02a30161`）：
 
 ```sh
 tmp="$(mktemp)"
 curl -fsSL "https://muvloom.online/cli/install.sh" -o "$tmp"
 actual="$(command -v sha256sum >/dev/null && sha256sum "$tmp" | awk '{print $1}' || shasum -a 256 "$tmp" | awk '{print $1}')"
-[ "$actual" = "ea1a3648b77b210dc0a21715b4c4287841c243aeea83bd6c5e147a105580c533" ] || { echo "checksum mismatch"; exit 1; }
+[ "$actual" = "2d814705e65cc9e2dc25046b6e3eb9d106ee5c1632d8e2189fc5c13f02a30161" ] || { echo "checksum mismatch"; exit 1; }
 sh "$tmp"
 export PATH="${MUVLOOM_INSTALL_DIR:-$HOME/.local/bin}:$PATH"
 ```
 
-Windows（PowerShell；SHA-256 of `install.ps1`：`341890bcfe3d97a30b45354f6bc9e74d7d1a8d1cb58dedeb49ef9823d7af0a40`）：
+Windows（PowerShell；SHA-256 of `install.ps1`：`d3d160e3781b10af36f2fda5c9763b902c42b44e7e2762d19589a7441645a646`）：
 
 ```powershell
 $script = Join-Path $env:TEMP "muvloom-install.ps1"
 Invoke-WebRequest "https://muvloom.online/cli/install.ps1" -OutFile $script
-if ((Get-FileHash $script -Algorithm SHA256).Hash.ToLower() -ne "341890bcfe3d97a30b45354f6bc9e74d7d1a8d1cb58dedeb49ef9823d7af0a40") { throw "checksum mismatch" }
+if ((Get-FileHash $script -Algorithm SHA256).Hash.ToLower() -ne "d3d160e3781b10af36f2fda5c9763b902c42b44e7e2762d19589a7441645a646") { throw "checksum mismatch" }
 powershell -NoProfile -ExecutionPolicy Bypass -File $script; if ($LASTEXITCODE -ne 0) { throw "muvloom installer failed with exit code $LASTEXITCODE" }
 $env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")
 ```

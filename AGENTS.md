@@ -72,7 +72,9 @@ This codebase is yours: what it's for and how it's built are your call, and you'
 
 CI（`.github/workflows/web.yml`，PR 以及 push 到 main 和 test 都跑）把 `pnpm lint`、`pnpm typecheck`（含 Admin 构建）、`apps/web` 构建 + 浏览器冒烟拆成并行 job；
 完整 `pnpm test` 也并行分片：web 的 vitest 分 3 片，bff 的 Bun 数据库测试（含计费套件）按文件分 3 片（`--shard=i/n`），其余包一个 job，都带 PostgreSQL（Bun 数据库测试 4 路并发）。
-本地可选 `pnpm hooks:install` 启用 `.githooks/pre-push`：推送前只对改动文件跑 biome 和受影响包的 typecheck（`AIP_PRE_PUSH=lint` 只跑 lint，`skip` 跳过）。
+`pnpm install` 自动启用 `.githooks/pre-push`（已有自定义 `core.hooksPath` 时不覆盖）：推送前只对改动文件跑 biome、边界与迁移检查，以及受影响包的 typecheck；有 test-guard constrained 标记的机器默认只跑 lint（`AIP_PRE_PUSH=full` 强制 typecheck，`skip` 跳过）。
+
+`main` 由 ruleset 保护：只能经 PR squash 合并，上述 Web checks job 为必需检查。`scripts/check-migrations.mjs`（在 `pnpm lint` 里）要求 `packages/db/drizzle` 相对 main 只追加，且新迁移的 `when` 晚于 main 上时间戳最大的一条（`migrate.ts` 中审计过的 supersession `original` 除外）。
 
 **默认把改动做成可以上生产的 PR。** 代码修改通过检查后，继续创建 PR、等 CI，并处理评审；**不要自行合并 `main`**。合并（含 squash merge）必须等 Nain 明确说可以合，即使用户只说「按最优方案来」或检查已经全绿也不行。Nain 确认后由部署 workflow 自动发布，会话不手动发布，只跟进该 workflow 结果并核验线上版本和行为。用户明确要求仅本地修改或暂不合并时照办。
 

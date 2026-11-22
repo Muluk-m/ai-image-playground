@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, posix, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -162,31 +162,93 @@ describe('CLI Skill package and hot-update manifest', () => {
     const cliZip = createCliSkillZip()
     const cliFiles = unzipSync(cliZip)
     expect(cliFiles['muvloom/SKILL.md']).toBeDefined()
+    expect(cliFiles['muvloom/scripts/muvloom']).toBeDefined()
+    expect(cliFiles['muvloom/scripts/muvloom.ps1']).toBeDefined()
+    expect(cliFiles['muvloom/scripts/muvloom.cmd']).toBeDefined()
     expect(cliFiles['muvloom/agents/openai.yaml']).toBeDefined()
     expect(cliFiles['muvloom/references/workbuddy.md']).toBeUndefined()
     expect(cliFiles['muvloom/.muvloom-skill.json']).toBeUndefined()
 
-    const manifest = createSkillManifest()
-    expect(manifest.schema_version).toBe(1)
-    expect(manifest.skill).toBe('muvloom')
-    expect(manifest.version).toMatch(/^\d+\.\d+\.\d+(\.\d+)?$/)
-    expect(manifest.bundle_version).toMatch(/^\d+\.\d+\.\d+$/)
-    for (const host of ['claude-code', 'codex', 'workbuddy'] as const) {
-      const pkg = manifest.packages[host]
-      expect(pkg.archive).toMatch(/^muvloom-[a-z-]+\.zip$/)
-      expect(pkg.archive_sha256).toMatch(/^[a-f0-9]{64}$/)
-      expect(pkg.file_hash).toMatch(/^[a-f0-9]{64}$/)
-      expect(pkg.files.length).toBeGreaterThan(0)
-      expect(pkg.files.some((item) => item.path === 'SKILL.md')).toBe(true)
-      expect(pkg.files.some((item) => item.path === '.muvloom-skill.json')).toBe(false)
+    const binRoot = mkdtempSync(join(tmpdir(), 'muvloom-bin-test-'))
+    try {
+      const manifestWithoutBins = createSkillManifest({ binRoot })
+      expect(manifestWithoutBins.cli).toBeUndefined()
+      const verDir = join(binRoot, `v${manifestWithoutBins.bundle_version}`)
+      mkdirSync(verDir, { recursive: true })
+      for (const [stem, ext] of [
+        ['muvloom_darwin_arm64', ''],
+        ['muvloom_darwin_amd64', ''],
+        ['muvloom_linux_amd64', ''],
+        ['muvloom_linux_arm64', ''],
+        ['muvloom_windows_amd64', '.exe'],
+      ] as const) {
+        writeFileSync(join(verDir, `${stem}-a1b2c3d4e5f6${ext}`), `stub-${stem}`)
+      }
+      const manifest = createSkillManifest({ binRoot })
+      expect(manifest.schema_version).toBe(1)
+      expect(manifest.skill).toBe('muvloom')
+      expect(manifest.version).toMatch(/^\d+\.\d+\.\d+(\.\d+)?$/)
+      expect(manifest.bundle_version).toMatch(/^\d+\.\d+\.\d+$/)
+      expect(manifest.cli?.version).toBe(manifest.bundle_version)
+      expect(manifest.cli?.binaries['darwin/arm64'].path).toBe(
+        `bin/v${manifest.bundle_version}/muvloom_darwin_arm64-a1b2c3d4e5f6`,
+      )
+      expect(Object.keys(manifest.cli?.binaries ?? {}).sort()).toEqual([
+        'darwin/amd64',
+        'darwin/arm64',
+        'linux/amd64',
+        'linux/arm64',
+        'windows/amd64',
+      ])
+      // Keep `packages` restricted to the 3 legacy 0.2.6 hosts so installed CLI 0.2.6 validates
+      // `/cli/skill-manifest.json` cleanly, while 0.2.7+ merges `extra_packages`.
+      expect(Object.keys(manifest.packages).sort()).toEqual(['claude-code', 'codex', 'workbuddy'])
+      expect(Object.keys(manifest.extra_packages).sort()).toEqual([
+        'cline',
+        'cursor',
+        'openclaw',
+        'windsurf',
+      ])
+      const allPackages = { ...manifest.packages, ...manifest.extra_packages }
+      for (const host of [
+        'claude-code',
+        'codex',
+        'workbuddy',
+        'cursor',
+        'windsurf',
+        'cline',
+        'openclaw',
+      ] as const) {
+        const pkg = allPackages[host]
+        expect(pkg.archive).toMatch(/^muvloom-[a-z-]+\.zip$/)
+        expect(pkg.archive_sha256).toMatch(/^[a-f0-9]{64}$/)
+        expect(pkg.file_hash).toMatch(/^[a-f0-9]{64}$/)
+        expect(pkg.files.length).toBeGreaterThan(0)
+        expect(pkg.files.some((item) => item.path === 'SKILL.md')).toBe(true)
+        expect(pkg.files.some((item) => item.path === 'scripts/muvloom')).toBe(true)
+        expect(pkg.files.some((item) => item.path === '.muvloom-skill.json')).toBe(false)
+      }
+      expect(manifest.packages['claude-code'].file_hash).toBe(manifest.packages.codex.file_hash)
+      expect(manifest.packages['claude-code'].file_hash).toBe(
+        manifest.extra_packages.cursor.file_hash,
+      )
+      expect(
+        manifest.packages.workbuddy.files.some((item) => item.path === 'references/workbuddy.md'),
+      ).toBe(true)
+      expect(
+        manifest.packages['claude-code'].files.some((item) => item.path === 'agents/openai.yaml'),
+      ).toBe(true)
+    } finally {
+      rmSync(binRoot, { recursive: true, force: true })
     }
-    expect(manifest.packages['claude-code'].file_hash).toBe(manifest.packages.codex.file_hash)
-    expect(
-      manifest.packages.workbuddy.files.some((item) => item.path === 'references/workbuddy.md'),
-    ).toBe(true)
-    expect(
-      manifest.packages['claude-code'].files.some((item) => item.path === 'agents/openai.yaml'),
-    ).toBe(true)
+
+    const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../../')
+    expect(readFileSync(resolve(repoRoot, 'apps/web/workbuddy-skill/workbuddy.md'), 'utf8')).toBe(
+      readFileSync(
+        resolve(repoRoot, 'cli-go/internal/skill/assets/references/workbuddy.md'),
+        'utf8',
+      ),
+    )
   })
 })
 

@@ -68,6 +68,7 @@
 # ── 上面 `!` 放行的目录里仍有 gitignored 兄弟，重新排除 ────────────
 # operator 的部署配置：vite 会把 public/** 原样复制进 dist，绝不能从宿主机带进来
 apps/web/public/runtime-config.json
+apps/web/public/cli/bin
 # 构建期自己生成（apps/web/src/generated/heroSeed.json）
 **/generated
 **/node_modules
@@ -75,12 +76,18 @@ apps/web/public/runtime-config.json
 # 技能效果验证的测试输入与评分记录只给仓库里的验证流程用，不进镜像。
 apps/bff/skills/*/*/verification
 
-# Web builds package only the public Skill documents, never native credential code.
+# CLI static binaries are cross-compiled in the `cli-dist` builder stage and copied into
+# `apps/web/public/cli/bin`; Go source and module cache never enter the runtime image.
 !cli-go/
+!cli-go/go.mod
+!cli-go/go.sum
+!cli-go/cmd/
+!cli-go/cmd/**
 !cli-go/internal/
-!cli-go/internal/skill/
-!cli-go/internal/skill/assets/
-!cli-go/internal/skill/assets/**
+!cli-go/internal/**
+cli-go/dist
+cli-go/muvloom
+cli-go/muvloom.exe
 !apps/web/workbuddy-skill/
 !apps/web/workbuddy-skill/**
 !apps/web/doubao-skill/
