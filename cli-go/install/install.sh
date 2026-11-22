@@ -141,8 +141,14 @@ fi
 resolve_manifest_origin() {
   if [ -n "${MUVLOOM_ORIGIN:-}" ]; then
     orig="${MUVLOOM_ORIGIN%/}"
-    printf '%s\n' "$orig" | grep -Eq '^(https://[A-Za-z0-9.-]+(:[0-9]+)?|http://127\.0\.0\.1:[0-9]+|http://localhost:[0-9]+)$' ||
-      fail "MUVLOOM_ORIGIN must be an https origin (or loopback http for tests)"
+    case "$orig" in
+      https://muvloom.online | https://image.nainma.online | https://image-playground.qiliangjia.one | https://test.muvloom.online)
+        printf '%s\n' "$orig"
+        return
+        ;;
+    esac
+    printf '%s\n' "$orig" | grep -Eq '^http://(127\.0\.0\.1|localhost):[0-9]+$' ||
+      fail "MUVLOOM_ORIGIN must be an official Muvloom origin (or loopback http for tests)"
     printf '%s\n' "$orig"
     return
   fi

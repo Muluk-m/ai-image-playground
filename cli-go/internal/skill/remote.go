@@ -370,6 +370,9 @@ func MaybeAutoUpdate(ctx context.Context, opts RemoteUpdateOptions) RemoteUpdate
 			Reason:        "throttled",
 		}
 	}
+	if ctx.Err() != nil {
+		return RemoteUpdateResult{Status: "unavailable", AutoUpdate: true, Reason: "check_or_update_failed"}
+	}
 	// Persist per-path check timestamps before hitting the network so an offline machine
 	// does not pay the manifest timeout on every command, while newly encountered projects
 	// still get checked independently.

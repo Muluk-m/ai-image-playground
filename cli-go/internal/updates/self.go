@@ -235,6 +235,9 @@ func MaybeAutoUpdateSelf(ctx context.Context, opts SelfUpdateOptions) SelfUpdate
 			Reason:         "throttled",
 		}
 	}
+	if ctx.Err() != nil {
+		return SelfUpdateResult{Status: "unavailable", AutoUpdate: true, CurrentVersion: curVer, Reason: "check_or_update_failed"}
+	}
 	state.LastCheckedAt = now
 	_ = writeSelfState(opts.StateDir, state)
 

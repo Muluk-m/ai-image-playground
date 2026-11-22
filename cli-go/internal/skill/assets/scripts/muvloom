@@ -67,11 +67,17 @@ fi
 resolve_origin() {
   if [ -n "${MUVLOOM_ORIGIN:-}" ]; then
     orig="${MUVLOOM_ORIGIN%/}"
-    if printf '%s\n' "$orig" | grep -Eq '^(https://[A-Za-z0-9.-]+(:[0-9]+)?|http://127\.0\.0\.1:[0-9]+|http://localhost:[0-9]+)$'; then
+    case "$orig" in
+      https://muvloom.online | https://image.nainma.online | https://image-playground.qiliangjia.one | https://test.muvloom.online)
+        printf '%s\n' "$orig"
+        return
+        ;;
+    esac
+    if printf '%s\n' "$orig" | grep -Eq '^http://(127\.0\.0\.1|localhost):[0-9]+$'; then
       printf '%s\n' "$orig"
       return
     fi
-    fail "MUVLOOM_ORIGIN must be an https origin (or loopback http for tests)"
+    fail "MUVLOOM_ORIGIN must be an official Muvloom origin (or loopback http for tests)"
   fi
   case "${MUVLOOM_API_URL:-}" in
     https://test-api.muvloom.online*) printf '%s\n' "https://test.muvloom.online" ;;

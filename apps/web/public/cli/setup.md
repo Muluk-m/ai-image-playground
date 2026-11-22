@@ -51,13 +51,13 @@ file, verify the SHA-256 published here, then execute. Fetch `install.sh` or
 ### macOS / Linux
 
 SHA-256 of `install.sh`:
-`80d167964985b83ff0090d5c10f8ee625ccd08a01457b7dc2a165d8c5ac8ea97`
+`c49933d26587b3b4235278f6d8c4e8bd426948e16d958cc0e39d2532e614a056`
 
 ```sh
 tmp="$(mktemp)"
 curl -fsSL "<this-guide-origin>/cli/install.sh?v=<this-page-v>" -o "$tmp"
 actual="$(command -v sha256sum >/dev/null && sha256sum "$tmp" | awk '{print $1}' || shasum -a 256 "$tmp" | awk '{print $1}')"
-[ "$actual" = "80d167964985b83ff0090d5c10f8ee625ccd08a01457b7dc2a165d8c5ac8ea97" ] || { echo "checksum mismatch"; exit 1; }
+[ "$actual" = "c49933d26587b3b4235278f6d8c4e8bd426948e16d958cc0e39d2532e614a056" ] || { echo "checksum mismatch"; exit 1; }
 MUVLOOM_MIN_VERSION=0.2.5 sh "$tmp"
 export PATH="${MUVLOOM_INSTALL_DIR:-$HOME/.local/bin}:$PATH"
 ```
@@ -72,12 +72,12 @@ and a profile change is only picked up by later sessions. Do not write
 ### Windows (PowerShell)
 
 SHA-256 of `install.ps1`:
-`8f9b45e7b5977f90edead575dda7a543e3cd496dedc5faa708c56fcdde17e663`
+`20914e272efb65e7973df26ca5a344589fb0f954dede967e2c96e3afae421192`
 
 ```powershell
 $script = Join-Path $env:TEMP "muvloom-install.ps1"
 Invoke-WebRequest "<this-guide-origin>/cli/install.ps1?v=<this-page-v>" -UseBasicParsing -TimeoutSec 20 -OutFile $script
-if ((Get-FileHash $script -Algorithm SHA256).Hash.ToLower() -ne "8f9b45e7b5977f90edead575dda7a543e3cd496dedc5faa708c56fcdde17e663") { throw "checksum mismatch" }
+if ((Get-FileHash $script -Algorithm SHA256).Hash.ToLower() -ne "20914e272efb65e7973df26ca5a344589fb0f954dede967e2c96e3afae421192") { throw "checksum mismatch" }
 $env:MUVLOOM_MIN_VERSION = "0.2.5"; powershell -NoProfile -ExecutionPolicy Bypass -File $script; if ($LASTEXITCODE -ne 0) { throw "muvloom installer failed with exit code $LASTEXITCODE" }
 $env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")
 ```
@@ -146,12 +146,12 @@ skills through its UI, upload that zip or the `muvloom/` folder with the host's
 add/upload-skill action. After setup, tell the user to type `/muv` (or the
 host's equivalent slash) to find 幕芽.
 
-CLI 0.2.5's `skill install --host` only accepts `claude-code` and `codex`. Do
-not invent `--host workbuddy` or `--host doubao`, and do not write into an
-unverified host configuration directory as the default method. A later CLI
-release may add `muvloom skill install --host generic` as an escape hatch that
-writes a local `muvloom/` directory (or `--output`) for you to upload; until
-that release is installed, use the official zip above.
+There is no `--host doubao` in `skill install`: never invent `--host doubao` and
+do not write into an unverified host configuration directory as the default
+method. WorkBuddy uses the official `muvloom-workbuddy.zip` package above (which
+also writes `.muvloom-skill.json` for automatic updates), while CLI 0.2.6+ adds
+`--host auto`, `cursor`, `windsurf`, `cline`, `openclaw`, and `--host generic`
+(exporting a local `muvloom/` directory or `--output` to upload).
 
 ## 4. Connect the account
 

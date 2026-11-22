@@ -65,6 +65,13 @@ func (a *App) loadCredentials(ctx context.Context) (auth.Credentials, error) {
 		return auth.Credentials{}, fail("AUTH_REQUIRED", "Stored credentials are unreadable (%s); run `muvloom auth login`", auth.Reason(err))
 	}
 	if creds.BaseURL != "" && !sameService(creds.BaseURL, a.APIURL) {
+		// An unexpired pending login explicitly initiated for a.APIURL (e.g. via --switch-service)
+		// may already have been approved in the browser: collect it before reporting a mismatch.
+		if collected, ok, collectErr := a.tryCollectPendingLogin(ctx); collectErr != nil {
+			return auth.Credentials{}, collectErr
+		} else if ok {
+			return collected, nil
+		}
 		return auth.Credentials{}, a.serviceMismatch(creds.BaseURL)
 	}
 	return creds, nil
@@ -292,9 +299,10 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	// verified, was edited, or could not be replaced is reported, naming its path, since any
 	// host may be the one calling.
 	// Best-effort silent self-update of both the CLI binary and installed Skills from
-	// Muvloom's official web manifest (24h throttled, strict bounded budget, SHA-256 verified).
-	autoCtx, cancelAuto := context.WithTimeout(ctx, updates.SelfAutoUpdateBudget)
-	selfRes := updates.MaybeAutoUpdateSelf(autoCtx, updates.SelfUpdateOptions{
+	// Muvloom's official web manifest (24h throttled, independent bounded budgets so a slow
+	// binary download never starves or prematurely throttles Skill hot-updates).
+	selfCtx, cancelSelf := context.WithTimeout(ctx, updates.SelfAutoUpdateBudget)
+	selfRes := updates.MaybeAutoUpdateSelf(selfCtx, updates.SelfUpdateOptions{
 		StateDir:       a.Store.Dir,
 		CurrentVersion: Version,
 		ExecutablePath: a.ExecutablePath,
@@ -302,11 +310,13 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 		BaseURL:        a.ManifestBaseURL,
 		HTTP:           a.HTTP,
 	})
+	cancelSelf()
 	skills, failed, refreshErr := skill.RefreshOutdated(a.Home, a.CWD)
 	if refreshErr != nil {
 		a.progress("Could not check the installed muvloom Skills (%s).", skillFailure(refreshErr))
 	} else {
-		remoteRes := skill.MaybeAutoUpdate(autoCtx, skill.RemoteUpdateOptions{
+		skillCtx, cancelSkill := context.WithTimeout(ctx, skill.AutoUpdateBudget)
+		remoteRes := skill.MaybeAutoUpdate(skillCtx, skill.RemoteUpdateOptions{
 			Home:     a.Home,
 			CWD:      a.CWD,
 			StateDir: a.Store.Dir,
@@ -314,13 +324,13 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 			BaseURL:  a.ManifestBaseURL,
 			HTTP:     a.HTTP,
 		})
+		cancelSkill()
 		if len(remoteRes.Updated) > 0 {
 			if refreshed, err := skill.Installed(a.Home, a.CWD); err == nil {
 				skills = refreshed
 			}
 		}
 	}
-	cancelAuto()
 	for _, installed := range skills {
 		switch {
 		case installed.Unverifiable:
@@ -592,6 +602,29 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 		deadline = time.Now().Add(seconds(*timeout, 0, 3600))
 	}
 	interval := seconds(pending.IntervalSeconds, 1, 60)
+	if pending.AuthorizationCode == "" && a.lastDevicePollCode == pending.DeviceCode && !a.lastDevicePollAt.IsZero() {
+		if waitRem := interval - time.Since(a.lastDevicePollAt); waitRem > 0 {
+			if time.Now().Add(waitRem).After(deadline) {
+				return nil, &Failure{
+					Code:    "AUTH_PENDING",
+					Message: "Still waiting for browser approval; run `muvloom auth login` again to resume",
+					Details: prompt,
+				}
+			}
+			if visit, ok, err := a.waitForCallback(ctx, waitRem, callbacks); err != nil {
+				return nil, err
+			} else if ok {
+				waiting.answer(false)
+				waiting = &visit
+				if result, err := a.completeCallback(ctx, &pending, waiting); err == nil {
+					waiting = nil
+					return result, nil
+				} else if exitByCode[asFailure(err).Code] == ExitRejected {
+					return nil, err
+				}
+			}
+		}
+	}
 	for {
 		tokens, err := a.redeem(ctx, pending)
 		if err == nil {
@@ -610,6 +643,8 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 			case "authorization_pending":
 			case "slow_down":
 				interval = min(interval+5*time.Second, time.Minute)
+				pending.IntervalSeconds = int(interval / time.Second)
+				_ = a.Store.SavePending(pending)
 			case "access_denied":
 				_ = a.Store.ClearPending()
 				return nil, fail("AUTH_DENIED", "The connection was denied in the browser")
@@ -699,6 +734,8 @@ func approvalURL(pending auth.PendingLogin) string {
 }
 
 func (a *App) redeemDeviceCode(ctx context.Context, pending auth.PendingLogin) (tokenResponse, error) {
+	a.lastDevicePollCode = pending.DeviceCode
+	a.lastDevicePollAt = time.Now()
 	var tokens tokenResponse
 	err := a.anonymousClient().PostForm(ctx, "/v1/oauth/token", url.Values{
 		"client_id":   {oauthClientID},
@@ -742,7 +779,7 @@ func cmdAuthLogout(ctx context.Context, a *App, args []string) (any, error) {
 	if _, err := parse(newFlags("auth logout"), args, 0); err != nil {
 		return nil, err
 	}
-	creds, err := a.Store.Load()
+	creds, err := a.Store.LoadForLogout()
 	revoked := false
 	if err == nil && creds.RefreshToken != "" && validateAPIURL(creds.BaseURL) == nil {
 		// Revoke on the server that issued the token, never on whatever MUVLOOM_API_URL says

@@ -175,14 +175,14 @@ describe('CLI Skill package and hot-update manifest', () => {
       expect(manifestWithoutBins.cli).toBeUndefined()
       const verDir = join(binRoot, `v${manifestWithoutBins.bundle_version}`)
       mkdirSync(verDir, { recursive: true })
-      for (const name of [
-        'muvloom_darwin_arm64',
-        'muvloom_darwin_amd64',
-        'muvloom_linux_amd64',
-        'muvloom_linux_arm64',
-        'muvloom_windows_amd64.exe',
-      ]) {
-        writeFileSync(join(verDir, name), `stub-${name}`)
+      for (const [stem, ext] of [
+        ['muvloom_darwin_arm64', ''],
+        ['muvloom_darwin_amd64', ''],
+        ['muvloom_linux_amd64', ''],
+        ['muvloom_linux_arm64', ''],
+        ['muvloom_windows_amd64', '.exe'],
+      ] as const) {
+        writeFileSync(join(verDir, `${stem}-a1b2c3d4e5f6${ext}`), `stub-${stem}`)
       }
       const manifest = createSkillManifest({ binRoot })
       expect(manifest.schema_version).toBe(1)
@@ -190,6 +190,9 @@ describe('CLI Skill package and hot-update manifest', () => {
       expect(manifest.version).toMatch(/^\d+\.\d+\.\d+(\.\d+)?$/)
       expect(manifest.bundle_version).toMatch(/^\d+\.\d+\.\d+$/)
       expect(manifest.cli?.version).toBe(manifest.bundle_version)
+      expect(manifest.cli?.binaries['darwin/arm64'].path).toBe(
+        `bin/v${manifest.bundle_version}/muvloom_darwin_arm64-a1b2c3d4e5f6`,
+      )
       expect(Object.keys(manifest.cli?.binaries ?? {}).sort()).toEqual([
         'darwin/amd64',
         'darwin/arm64',

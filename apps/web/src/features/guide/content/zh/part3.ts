@@ -613,7 +613,7 @@ export const plugins: GuidePage = {
         ),
         list(
           '**切换服务**：连接成功后服务地址会保存在本地，日常命令不需要每次带环境变量。如果当前环境变量与已保存的连接不一致，`muvloom auth status` 退出码仍为 `0` 并在结果中返回 `state: "service_mismatch"`（需读取 `state` 字段判断），而其他需要鉴权的命令会报错 `SERVICE_MISMATCH`（退出码 `4`）。清掉环境变量即可沿用原连接；确认要换站点时运行 `muvloom auth login --switch-service`。',
-          '**SSH / 云端无浏览器环境**：豆包工作云端环境、远程服务器或容器里打不开本地浏览器时，设置 `MUVLOOM_NO_BROWSER=1` 并运行 `muvloom auth login --no-wait`，把打印出来的完整链接复制到你电脑的默认浏览器里打开并点 [[授权]]，再回到终端运行 `muvloom auth login --timeout 30` 完成连接。',
+          '**SSH / 云端无浏览器环境**：豆包工作云端环境、远程服务器或容器里打不开本地浏览器时，设置 `MUVLOOM_NO_BROWSER=1` 并运行 `muvloom auth login --no-wait`，把打印出来的完整链接复制到你电脑的默认浏览器里打开并点 [[允许]]，再回到终端运行 `muvloom auth login --timeout 30` 完成连接。',
           '**配置与凭据存储**：默认将凭据保存在权限为 `0700` 的配置目录下的 `0600` 文件 `credentials.json` 中（`auth status` 显示 `credential_store: file`），避免二进制静默自升级后触发系统钥匙串弹窗；可用 `MUVLOOM_CONFIG_DIR` 指定独立配置目录，或设 `MUVLOOM_CREDENTIALS_STORE=keychain` 显式改用系统钥匙串。',
         ),
       ],

@@ -1352,7 +1352,7 @@ const plugins: GuidePage = {
         ),
         list(
           '**Switching services**: The saved connection remembers its API URL. If `MUVLOOM_API_URL` disagrees with the saved connection, `muvloom auth status` exits with `0` and reports `state: "service_mismatch"` (inspect the `state` field), whereas other authenticated commands fail with `SERVICE_MISMATCH` (exit 4). Unset the variable to keep the current connection, or run `muvloom auth login --switch-service` when you intend to switch.',
-          '**SSH and cloud hosts without a local browser**: On remote servers, containers or cloud agents (such as Doubao Work cloud tasks), set `MUVLOOM_NO_BROWSER=1` and run `muvloom auth login --no-wait`. Open the printed link in your computer’s default browser to click [[Authorize]], then run `muvloom auth login --timeout 30` to finish.',
+          '**SSH and cloud hosts without a local browser**: On remote servers, containers or cloud agents (such as Doubao Work cloud tasks), set `MUVLOOM_NO_BROWSER=1` and run `muvloom auth login --no-wait`. Open the printed link in your computer’s default browser to click [[Allow]], then run `muvloom auth login --timeout 30` to finish.',
           '**Config and credential store**: Credentials are stored by default in a `0600` `credentials.json` file inside the `0700` config directory (`credential_store: file` in `auth status`) so silent CLI self-updates never trigger OS keychain password prompts. Set `MUVLOOM_CONFIG_DIR` to isolate a directory or `MUVLOOM_CREDENTIALS_STORE=keychain` to explicitly use the system keychain.',
         ),
       ],

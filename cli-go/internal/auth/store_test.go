@@ -615,21 +615,21 @@ func TestAConfigDirectoryNeverTouchesTheKeychain(t *testing.T) {
 	t.Setenv("SANDBOX_CENTER_IPC_ADDRESS", "")
 	t.Setenv("CODEBUDDY_SANDBOX_CENTER_START_MODE", "")
 	t.Setenv("WORKBUDDY_SANDBOX", "")
-	if def := Default(); def.UseKeyring || def.ClearKeyring || def.ForceKeyring {
-		t.Fatalf("the default store should use 0600 file mode across all hosts: %+v", def)
+	if def := Default(); def.UseKeyring || def.ForceKeyring || !def.MigrateKeyring || !def.ClearKeyring {
+		t.Fatalf("the default store should write 0600 files while migrating/clearing legacy keyring: %+v", def)
 	}
 	t.Setenv("MUVLOOM_CREDENTIALS_STORE", "file")
-	if filePref := Default(); filePref.UseKeyring || filePref.ClearKeyring || filePref.ForceKeyring {
-		t.Fatalf("file store preference unexpectedly enabled keyring: %+v", filePref)
+	if filePref := Default(); filePref.UseKeyring || filePref.ForceKeyring || filePref.MigrateKeyring || !filePref.ClearKeyring {
+		t.Fatalf("file store preference mismatch: %+v", filePref)
 	}
 	t.Setenv("MUVLOOM_CREDENTIALS_STORE", "")
 	t.Setenv("WORKBUDDY_SANDBOX", "0")
-	if notSandboxed := Default(); notSandboxed.UseKeyring || notSandboxed.ClearKeyring {
-		t.Fatalf("default store unexpectedly enabled keyring: %+v", notSandboxed)
+	if notSandboxed := Default(); notSandboxed.UseKeyring || !notSandboxed.MigrateKeyring || !notSandboxed.ClearKeyring {
+		t.Fatalf("non-sandboxed default store mismatch: %+v", notSandboxed)
 	}
 	t.Setenv("WORKBUDDY_SANDBOX", "")
 	t.Setenv("SANDBOX_CENTER_IPC_ADDRESS", "/tmp/workbuddy-sandbox-center.sock")
-	if sandboxed := Default(); sandboxed.UseKeyring || sandboxed.ClearKeyring {
+	if sandboxed := Default(); sandboxed.UseKeyring || sandboxed.MigrateKeyring || sandboxed.ClearKeyring {
 		t.Fatalf("sandboxed desktop host touched the keychain: %+v", sandboxed)
 	}
 	// Even with MUVLOOM_CONFIG_DIR in a sandbox, DefaultLoginElsewhere must not probe keychain.
@@ -811,5 +811,53 @@ func TestSwitchingBackToKeychainAbortsWhenModeMarkerCannotBeCleared(t *testing.T
 	// Existing credentials.json must still be intact and readable (not wiped to ErrNotFound).
 	if got, err := sandbox.Load(); err != nil || got.RefreshToken != "b-ref" {
 		t.Fatalf("credentials.json was wiped despite failed mode switch: %+v, %v", got, err)
+	}
+}
+
+func TestLegacyKeychainUpgradeMigratesOnceAndLogoutRevokesAndClearsKeychain(t *testing.T) {
+	dir := t.TempDir()
+	kc := &userKeychain{entries: map[string]string{}}
+
+	// 1. Simulate a 0.2.5 install: credentials in OS keychain + connection.json on disk, no store-mode.json.
+	legacy := Store{Dir: dir, UseKeyring: true, ClearKeyring: true, Keychain: kc}
+	if err := legacy.Save(Credentials{AccessToken: "old-a", RefreshToken: "old-r", BaseURL: "https://api.muvloom.online"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Upgrade to 0.2.6 default store: first Load() migrates to 0600 credentials.json and deletes keychain entry.
+	upgraded := Store{Dir: dir, MigrateKeyring: true, ClearKeyring: true, Keychain: kc}
+	got, err := upgraded.Load()
+	if err != nil || got.RefreshToken != "old-r" {
+		t.Fatalf("upgraded Load lost 0.2.5 session: %+v, %v", got, err)
+	}
+	if _, stillInKC := kc.entries[keyringUser]; stillInKC {
+		t.Fatal("migrated session was not removed from OS keychain")
+	}
+	// Subsequent Load() and Save() never touch the keychain even if keychain errors out!
+	kc.err = errors.New("keychain dialog blocked")
+	if got2, err := upgraded.Load(); err != nil || got2.RefreshToken != "old-r" {
+		t.Fatalf("post-migration Load touched broken keychain: %+v, %v", got2, err)
+	}
+	if err := upgraded.Save(Credentials{AccessToken: "new-a", RefreshToken: "new-r", BaseURL: "https://api.muvloom.online"}); err != nil {
+		t.Fatalf("post-migration Save touched broken keychain: %v", err)
+	}
+
+	// 3. Explicit `MUVLOOM_CREDENTIALS_STORE=keychain` login followed by default-env logout still revokes & deletes keychain.
+	dir2 := t.TempDir()
+	kc2 := &userKeychain{entries: map[string]string{}}
+	forced := Store{Dir: dir2, UseKeyring: true, ClearKeyring: true, ForceKeyring: true, Keychain: kc2}
+	if err := forced.Save(Credentials{AccessToken: "kc-a", RefreshToken: "kc-r", BaseURL: "https://api.muvloom.online"}); err != nil {
+		t.Fatal(err)
+	}
+	plainLogout := Store{Dir: dir2, MigrateKeyring: false, ClearKeyring: true, Keychain: kc2}
+	forRevoke, err := plainLogout.LoadForLogout()
+	if err != nil || forRevoke.RefreshToken != "kc-r" {
+		t.Fatalf("LoadForLogout missed keychain token: %+v, %v", forRevoke, err)
+	}
+	if err := plainLogout.Clear(); err != nil {
+		t.Fatal(err)
+	}
+	if len(kc2.entries) != 0 {
+		t.Fatalf("plain logout left credentials in keychain: %v", kc2.entries)
 	}
 }

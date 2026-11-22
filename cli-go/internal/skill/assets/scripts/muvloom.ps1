@@ -38,8 +38,9 @@ foreach ($c in $candidates) {
 
 $origin = if ($env:MUVLOOM_ORIGIN) {
   $trimmed = $env:MUVLOOM_ORIGIN.TrimEnd("/")
-  if ($trimmed -cnotmatch '^(https://[A-Za-z0-9.-]+(:[0-9]+)?|http://127\.0\.0\.1:[0-9]+|http://localhost:[0-9]+)$') {
-    throw "muvloom launcher: MUVLOOM_ORIGIN must be an https origin"
+  $official = @("https://muvloom.online", "https://image.nainma.online", "https://image-playground.qiliangjia.one", "https://test.muvloom.online")
+  if (($official -notcontains $trimmed) -and ($trimmed -cnotmatch '^http://(127\.0\.0\.1|localhost):[0-9]+$')) {
+    throw "muvloom launcher: MUVLOOM_ORIGIN must be an official Muvloom origin"
   }
   $trimmed
 } elseif ($env:MUVLOOM_API_URL -like "https://test-api.muvloom.online*") {

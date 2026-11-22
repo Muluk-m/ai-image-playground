@@ -529,6 +529,18 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(envelope["data"]["version"], VERSION)
         self.assertTrue(self.binary.is_file())
 
+        # 3. Untrusted third-party MUVLOOM_ORIGIN is rejected before making any network request.
+        self.binary.unlink()
+        self.server.requests.clear()
+        self.env["MUVLOOM_ORIGIN"] = "https://attacker.example"
+        bad_install = subprocess.run(command, cwd=self.project, env=self.env, text=True, capture_output=True, timeout=30)
+        self.assertNotEqual(bad_install.returncode, 0)
+        self.assertIn("official muvloom origin", (bad_install.stdout + bad_install.stderr).lower())
+        bad_launch = subprocess.run(launcher_cmd, cwd=self.project, env=self.env, text=True, capture_output=True, timeout=30)
+        self.assertNotEqual(bad_launch.returncode, 0)
+        self.assertIn("official muvloom origin", (bad_launch.stdout + bad_launch.stderr).lower())
+        self.assertEqual(self.server.requests, [])
+
     @unittest.skipIf(platform.system() == "Windows", "Windows supports only the separately tested x64 platform")
     def test_unsupported_shell_architecture_fails_before_download(self):
 

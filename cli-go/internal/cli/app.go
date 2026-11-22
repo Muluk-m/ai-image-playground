@@ -137,6 +137,10 @@ type App struct {
 	// OpenBrowser and Listen replace the system browser and the loopback listener in tests.
 	OpenBrowser func(url string) error
 	Listen      func(network, addr string) (net.Listener, error)
+	// lastDevicePollCode and lastDevicePollAt prevent back-to-back device_code token polls
+	// within the same invocation (e.g. setup -> auth status -> auth login) from tripping slow_down.
+	lastDevicePollCode string
+	lastDevicePollAt   time.Time
 }
 
 func New(out, errOut io.Writer) *App {

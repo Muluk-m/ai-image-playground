@@ -96,8 +96,13 @@ type Store struct {
 	// UseKeyring stores credentials in the platform credential store when explicitly opted in
 	// via MUVLOOM_CREDENTIALS_STORE=keychain.
 	UseKeyring bool
-	// ClearKeyring makes Clear remove the keychain entry when keychain mode is active. Tests
-	// that build a Store directly leave it off and never touch the real keychain.
+	// MigrateKeyring allows a one-time read-and-migrate from the OS keyring into 0600
+	// credentials.json when connection.json exists from an earlier <= 0.2.5 login and no
+	// file-mode marker has been written yet. Fresh 0.2.6+ installs and already-migrated files
+	// never touch the OS keyring.
+	MigrateKeyring bool
+	// ClearKeyring makes Clear remove any keychain entry on explicit sign-out in non-sandboxed
+	// hosts. Tests that build a Store directly leave it off and never touch the real keychain.
 	ClearKeyring bool
 	// ForceKeyring is set when the caller explicitly requested MUVLOOM_CREDENTIALS_STORE=keychain,
 	// overriding an existing file-mode marker left by default file mode or a sandboxed host.
@@ -148,7 +153,14 @@ func Default() Store {
 			ForceKeyring: true,
 		}
 	}
-	return Store{Dir: ConfigDir()}
+	if inKeychainSandboxedHost() {
+		return Store{Dir: ConfigDir()}
+	}
+	return Store{
+		Dir:            ConfigDir(),
+		MigrateKeyring: storePref == "",
+		ClearKeyring:   true,
+	}
 }
 
 // inKeychainSandboxedHost detects desktop agent sandboxes (such as WorkBuddy on macOS) whose
@@ -289,7 +301,51 @@ func (s Store) Load() (Credentials, error) {
 	}
 	var creds Credentials
 	err := readRecord(s.credentialsFile(), &creds)
+	if err == nil {
+		return creds, nil
+	}
+	// One-time seamless migration for <= 0.2.5 users upgrading from keychain to 0600 file mode:
+	// only runs when connection.json exists on disk and store-mode.json has not yet switched to
+	// file mode, so fresh 0.2.6+ installs and already-migrated sessions never call Keychain.
+	if errors.Is(err, ErrNotFound) && s.MigrateKeyring && !s.preferFileOverKeychain() && fileHasContent(s.serviceFile()) {
+		if secret, kErr := s.keychain().Get(keyringService, keyringUser); kErr == nil {
+			var migrated Credentials
+			if jsonErr := json.Unmarshal([]byte(secret), &migrated); jsonErr != nil {
+				return Credentials{}, fmt.Errorf("stored credentials are unreadable: %w", jsonErr)
+			}
+			_ = s.locked(func() error {
+				if !fileHasContent(s.credentialsFile()) && !s.preferFileOverKeychain() {
+					if wErr := writeRecord(s.credentialsFile(), migrated); wErr == nil {
+						if mErr := writeRecord(s.storeModeFile(), storeMode{Source: "file", Reason: "migrated"}); mErr == nil {
+							_ = s.keychain().Delete(keyringService, keyringUser)
+						}
+					}
+				}
+				return nil
+			})
+			return migrated, nil
+		}
+	}
 	return creds, err
+}
+
+// LoadForLogout reads credentials for server-side token revocation during `auth logout`,
+// falling back to the OS keyring when ClearKeyring is enabled and file mode is not active
+// (even if connection.json was removed or MUVLOOM_CREDENTIALS_STORE=file was set).
+func (s Store) LoadForLogout() (Credentials, error) {
+	creds, err := s.Load()
+	if err == nil {
+		return creds, nil
+	}
+	if errors.Is(err, ErrNotFound) && s.ClearKeyring && !s.preferFileOverKeychain() {
+		if secret, kErr := s.keychain().Get(keyringService, keyringUser); kErr == nil {
+			var kCreds Credentials
+			if json.Unmarshal([]byte(secret), &kCreds) == nil {
+				return kCreds, nil
+			}
+		}
+	}
+	return Credentials{}, err
 }
 
 // Save stores the credentials and, beside them, which service they belong to. The service
@@ -329,6 +385,25 @@ func (s Store) saveSecret(creds Credentials) error {
 	// credentials must still be somewhere.
 	if err := writeRecord(s.credentialsFile(), creds); err != nil {
 		return err
+	}
+	if !s.UseKeyring {
+		// Default 0600 file mode (or sandboxed host): keep store-mode.json set to "file" so
+		// normal refreshes and binary self-updates never invoke OS keyring syscalls. Only
+		// clean up a retired <= 0.2.5 keychain entry once when transitioning an existing
+		// connection.json directory into file mode for the first time.
+		if !stayFileMode {
+			reason := "sandbox"
+			if s.ClearKeyring {
+				reason = "file_default"
+				if fileHasContent(s.serviceFile()) {
+					_ = s.keychain().Delete(keyringService, keyringUser)
+				}
+			}
+			if err := writeRecord(s.storeModeFile(), storeMode{Source: "file", Reason: reason}); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	if stayFileMode {
 		// Keep file mode authoritative so sandboxed hosts (e.g. WorkBuddy) continue reading

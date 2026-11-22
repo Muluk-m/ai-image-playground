@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/skill"
 )
@@ -106,8 +107,17 @@ func cmdSetup(ctx context.Context, a *App, args []string) (any, error) {
 		}
 		return nil, fail("TEMPORARILY_UNAVAILABLE", "Could not reach %s; retry shortly", a.APIURL)
 	case "service_mismatch":
-		if !*switchService {
+		pending, pErr := a.Store.LoadPending()
+		freshPending := pErr == nil && sameService(pending.BaseURL, a.APIURL) && time.Now().Before(pending.ExpiresAt)
+		if !*switchService && !freshPending {
 			connURL, _ := statusMap["connection_api_url"].(string)
+			if rawOrigin != "" {
+				return nil, &Failure{
+					Code:    "SERVICE_MISMATCH",
+					Message: "Requested origin points at " + a.APIURL + ", but this machine is signed in to " + connURL + ". Omit --origin to keep the existing connection, or run `muvloom setup --origin " + rawOrigin + " --switch-service` to sign in to " + a.APIURL + " instead",
+					Details: map[string]string{"api_url": a.APIURL, "connection_api_url": connURL},
+				}
+			}
 			return nil, a.serviceMismatch(connURL)
 		}
 		fallthrough

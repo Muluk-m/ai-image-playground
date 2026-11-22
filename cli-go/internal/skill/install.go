@@ -124,7 +124,8 @@ func DetectAutoHosts(scope, home, cwd string, getenv func(string) string) ([]str
 	}
 	hasAny := func(keys ...string) bool {
 		for _, k := range keys {
-			if strings.TrimSpace(getenv(k)) != "" {
+			val := strings.ToLower(strings.TrimSpace(getenv(k)))
+			if val != "" && val != "0" && val != "false" && val != "no" && val != "off" {
 				return true
 			}
 		}

@@ -76,14 +76,19 @@ func TestInstallAutoPrefersCallingAgentEnvOrExistingHostDirs(t *testing.T) {
 		t.Fatal("sandboxed auto install touched another host's directory")
 	}
 
-	// 2. Plain terminal (no agent env): installs into existing host config directories.
+	// 2. Plain terminal (no agent env, or explicit 0/false): installs into existing host config directories.
 	home2 := t.TempDir()
 	for _, d := range []string{".cursor", ".codeium/windsurf"} {
 		if err := os.MkdirAll(filepath.Join(home2, filepath.FromSlash(d)), 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	res2, err := InstallAuto(InstallOptions{Scope: "user", Home: home2}, func(string) string { return "" })
+	res2, err := InstallAuto(InstallOptions{Scope: "user", Home: home2}, func(k string) string {
+		if k == "WORKBUDDY_SANDBOX" {
+			return "0"
+		}
+		return ""
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

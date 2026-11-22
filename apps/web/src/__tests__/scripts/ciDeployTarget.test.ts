@@ -178,6 +178,15 @@ describe('ci-deploy-target.sh', () => {
     expect(decide(tip).decision).toBe(result(false, true, false))
   })
 
+  it('ships the web bundle when CLI Go source or binary builder script changes', () => {
+    for (const path of ['cli-go/internal/cli/setup.go', 'scripts/build-cli-web-bins.sh']) {
+      const previous = git('rev-parse', 'HEAD')
+      const tip = commitOnTip(path, '// updated\n')
+      serveSides({ api: previous, web: previous, admin: previous })
+      expect(decide(tip).decision).toBe(result(false, true, false))
+    }
+  })
+
   it('ships the API when the VPS deployment protocol changes', () => {
     const previous = commits[2]
     const tip = commitOnTip('scripts/vps-deploy.sh', '#!/bin/sh\n')

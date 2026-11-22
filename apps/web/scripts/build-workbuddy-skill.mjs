@@ -197,23 +197,26 @@ export function createCliSkillZip({ sourceDirectory = sourceRoot } = {}) {
 }
 
 const CLI_BINARY_TARGETS = [
-  ['darwin/arm64', 'muvloom_darwin_arm64'],
-  ['darwin/amd64', 'muvloom_darwin_amd64'],
-  ['linux/amd64', 'muvloom_linux_amd64'],
-  ['linux/arm64', 'muvloom_linux_arm64'],
-  ['windows/amd64', 'muvloom_windows_amd64.exe'],
+  ['darwin/arm64', 'muvloom_darwin_arm64', ''],
+  ['darwin/amd64', 'muvloom_darwin_amd64', ''],
+  ['linux/amd64', 'muvloom_linux_amd64', ''],
+  ['linux/arm64', 'muvloom_linux_arm64', ''],
+  ['windows/amd64', 'muvloom_windows_amd64', '.exe'],
 ]
 
 function buildManifestCliMetadata(bundleVersion, binRoot) {
   const verDir = resolve(binRoot, `v${bundleVersion}`)
   if (!existsSync(verDir)) return undefined
+  const entries = readdirSync(verDir).sort()
   const binaries = {}
-  for (const [platform, assetName] of CLI_BINARY_TARGETS) {
-    const filePath = resolve(verDir, assetName)
-    if (!existsSync(filePath)) return undefined
-    const bytes = readFileSync(filePath)
+  for (const [platform, stem, ext] of CLI_BINARY_TARGETS) {
+    const escapedExt = ext.replace('.', '\\.')
+    const pattern = new RegExp(`^${stem}(?:-[0-9a-f]{12})?${escapedExt}$`)
+    const matched = entries.find((name) => pattern.test(name))
+    if (!matched) return undefined
+    const bytes = readFileSync(resolve(verDir, matched))
     binaries[platform] = {
-      path: `bin/v${bundleVersion}/${assetName}`,
+      path: `bin/v${bundleVersion}/${matched}`,
       bytes: bytes.length,
       sha256: sha256Hex(bytes),
     }

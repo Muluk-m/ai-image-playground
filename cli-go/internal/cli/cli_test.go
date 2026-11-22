@@ -2139,4 +2139,23 @@ func TestSetupCommandInstallsSkillLogsInAndValidatesInOneStep(t *testing.T) {
 	if data["state"] != "ready" || data["default_model"] == nil || data["models"] == nil || data["smoke_validate"] == nil {
 		t.Fatalf("incomplete setup readiness summary: %s", readyRes.stdout)
 	}
+
+	// 4. Switching to a second service via `setup --origin <other> --switch-service --no-wait`
+	// and resuming via `setup` completes without falsely reporting SERVICE_MISMATCH.
+	f2 := newFakeServer(t)
+	f2.approveAfter = 1
+	app.HTTP = f2.server.Client()
+	mismatch := execute(t, app, "setup", "--origin", f2.server.URL)
+	if mismatch.code != ExitRejected || !strings.Contains(mismatch.stdout, "--switch-service") {
+		t.Fatalf("expected SERVICE_MISMATCH naming --switch-service, got %d: %s", mismatch.code, mismatch.stdout)
+	}
+	switchPending := execute(t, app, "setup", "--origin", f2.server.URL, "--switch-service", "--no-wait")
+	if switchPending.code != ExitOK {
+		t.Fatalf("setup --switch-service --no-wait failed: %d %s", switchPending.code, switchPending.stdout)
+	}
+	app.APIURL = ""
+	switched := execute(t, app, "setup")
+	if switched.code != ExitOK || switched.out["data"].(map[string]any)["api_url"] != f2.server.URL {
+		t.Fatalf("setup --switch-service resume failed: %d %s %s", switched.code, switched.stdout, switched.stderr)
+	}
 }
