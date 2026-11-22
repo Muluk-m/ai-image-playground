@@ -84,11 +84,11 @@ GitLab 的迁移规范要求破坏性变更拆成 expand → migrate → contrac
 现状：PR 模板的风险等级、关键流程证据、成本说明、界面截图都靠作者自觉填写；`cost-impact.yml`
 是唯一自动化的一项。
 
-参考：Danger JS 在 CI 里读取 diff 与 PR 元数据，按 `dangerfile.ts` 规则发评论或判失败，
+参考：Danger JS 在 CI 里读取 diff 与 PR 元数据，按 dangerfile 规则发评论或判失败，
 是大量开源项目的标准做法；Grafana 一类项目用「棘轮基线」处理存量问题（本仓库
 `check-arch-boundaries` 已采用同样做法）。
 
-提案：一个 `dangerfile.ts` 替换 `cost-impact.yml` 并扩展为：
+提案（已落地：`dangerfile.js` + `scripts/pr-rules.mjs`，workflow `PR rules`，替换 `cost-impact.yml`；squawk 未做，迁移只检查回滚 SQL 是否存在并给警告）：
 
 - 改动命中 `apps/web` / `apps/admin` 界面文件但 PR 描述没有 test.muvloom.online 截图 → 失败；
 - 命中注册登录、计费、生成路径但「关键流程证据」未勾选 → 失败；

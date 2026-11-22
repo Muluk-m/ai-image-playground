@@ -31,7 +31,7 @@ Agent 负责开 PR、跑检查、处理评审并准备好合并说明，**合并
 2. 按 AGENTS.md「完成任务的硬性检查清单」跑格式化、lint、typecheck 与测试；重任务交给云端或 CI。
 3. 开 PR，按 [PR 模板](../../.github/pull_request_template.md) 填写。改到关键流程要附证据（AGENTS.md「关键流程证据」）；涉及成本要在「成本与影响」写清改了什么、对成本的影响（AGENTS.md「成本与影响说明」）。
 4. 合并前三项缺一不可：
-   - **CI 全绿**：`Web checks` 等 PR 上的检查都通过（`Cost impact` 只打标签提示，不拦合并）。`main` 由 ruleset 保护，仅允许 PR squash 合并且必需 `Web checks` 通过，紧急修复也要等 CI 全绿。
+   - **CI 全绿**：`Web checks` 等 PR 上的检查都通过。main ruleset 要求经 PR squash 合并且 `Web checks` 为必需检查（2026-11-22 起）。`PR rules` 不是必需检查，红了要补齐或在 PR 里说明理由交 Nain 决定。
    - **`/review`**：在 PR 评论 `/review` 触发 AI Code Review（`.github/workflows/ai-review.yml`，不阻断合并），处理其中的有效意见。
    - **`@codex review`**：在 PR 评论 `@codex review`，处理有效意见。评论后 30 分钟仍没有回复就继续，并在 PR 里注明「Codex 30 分钟未回复」。
 5. 用 squash merge 合并，合并说明用中文。**检查齐了仍要等 Nain 明确确认后再合并**（见上表）；合并后跟进部署并冒烟。
@@ -60,7 +60,7 @@ git push origin HEAD:test
 
 合并 `main` 后在下一个发布窗口上生产，不需要也不应该再手动发布：
 
-1. `.github/workflows/deploy.yml`（Deploy production）按窗口 `schedule` 自动开始：北京时间 12:30、18:30、23:30。只发当时 `origin/main` 的 tip，且该提交在 main 上的 `Web checks` 必须已成功（未完成或失败则跳过本窗口）；同一时间只跑一单（并发组 `production-deploy`）。
+1. `.github/workflows/deploy.yml`（Deploy production）按窗口自动开始：北京时间 12:30、18:30、23:30。由 macmini2 的 launchd 按点触发（`scripts/deploy-window-tick.sh` 以 `window=true` 调用 `workflow_dispatch`，日志在 `~/Library/Logs/ai-image-playground/deploy-window.log`）；GitHub `schedule` 留作兜底：它常晚 2–7 小时，本窗口时点后已有手动触发就跳过；没有才发布，并在运行摘要里告警「macmini2 timer did not fire」，看到它就去查 macmini2 的日志、token 是否过期、launchd 是否加载（`launchctl print gui/$(id -u)/com.muvloom.deploy-window`）。只发当时 `origin/main` 的 tip，且该提交在 main 上的 `Web checks` 必须已成功（未完成或失败则跳过本窗口）；同一时间只跑一单（并发组 `production-deploy`）。
 2. `target` 判定哪些部分要发（共享 muvloom API、muvloom Pages 项目、Admin）；产品前端扫描 `PAID_PUBLIC_ORIGIN`，同一项目的全部产品域名随之更新。已在跑后代提交的部分不回退；`release` 打 `vMAJOR.MINOR.PATCH` 标签。
 3. **后端只构建和发布 muvloom runtime。** `backend` 在 Actions 用 `build-vps-release.sh paid` 构建单仓发布镜像，以及 backup、segmenter 配套镜像，经 SSH 受限命令执行 `deploy <id> paid <run>`；`rollout-runtime.sh` 先跑兼容迁移，再做新旧两代排空切换。生产目标只有 `paid`，隔离测试目标为 `test`。
 4. `pages-muvloom`（显示名 `Pages (muvloom project, every product domain)`）只发布一个 muvloom Pages 项目：一个项目、多个域名（`muvloom.online`、`image.nainma.online`、企业域名 `image-playground.qiliangjia.one`）。`pages-release.sh muvloom` 把 `ENTERPRISE_PUBLIC_ORIGIN → ENTERPRISE_BFF_BASE_URL` 并入 `baseUrlsByOrigin`，并给企业域名加 host 级 `X-Robots-Tag: noindex`。API 本次发布时，先等共享 muvloom API 与企业 API hostname `/health` 报出新版本，再发布并跑 Chromium 验收；企业域名在 muvloom 项目的 Cloudflare 自定义域名列表中时同样验收且失败即失败，未绑定只告警，不能据此宣称企业站已交付。`admin-pages` 保留对 `pages-muvloom` 的成功 / 跳过依赖。

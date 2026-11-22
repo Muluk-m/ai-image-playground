@@ -412,7 +412,7 @@ export function reduceAgentPanelEvent(
         ...(event.failure ? { failure: event.failure } : {}),
         ...(event.cost ? { cost: event.cost } : {}),
       })
-      // 失败的轮不留半截内容；轮状态与错误文案由 store 收口。
+      // 失败的轮不留半截内容；轮状态与错误文案由 `lib/turnEvents` 收口。
       if (event.stopReason === 'failed')
         return { turns, messages: dropUnsettledMessages(state.messages) }
       return {
