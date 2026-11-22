@@ -30,8 +30,12 @@ async function run() {
     markdown(`### 可能影响成本\n\n${result.costFiles.map((f) => `- \`${f}\``).join('\n')}`)
 
   // 跑的期间 PR 又推了新提交：标签留给新提交那次运行，避免旧结果后写覆盖新结果。
+  // 现取最新 head，Danger 初始化时的 PR 快照看不到之后的推送。
   const eventHead = process.env.EVENT_HEAD_SHA
-  if (eventHead && danger.github.pr.head.sha !== eventHead) return
+  if (eventHead) {
+    const { data: latest } = await api.pulls.get({ owner, repo, pull_number: number })
+    if (latest.head.sha !== eventHead) return
+  }
   await syncCostLabel(api, { owner, repo, issue_number: number }, result.costFiles.length > 0)
 }
 

@@ -137,12 +137,13 @@ export function evaluatePr({ files, body }) {
       .trim()
     const waived = /-\s*\[[xX]\]\s*本 PR 不涉及/.test(evidence) && explained(reason)
     // 证据要写明环境、账号类型与提交；模板复选框自带的文字不算。
-    // 链接不算：附件 URL 里的 UUID 会被当成提交 SHA。
-    const written = withoutCheckboxes(evidence).replace(/\bhttps?:\/\/\S+/g, ' ')
+    const written = withoutCheckboxes(evidence)
+    // 只在找提交 SHA 时去掉链接：附件 URL 里的 UUID 会被当成 SHA，环境却常写成完整链接。
+    const withoutUrls = written.replace(/\bhttps?:\/\/\S+/g, ' ')
     const missing = [
       !written.includes('test.muvloom.online') && '环境（test.muvloom.online）',
       !/账号/.test(written) && '账号类型',
-      !/\b[0-9a-f]{7,40}\b/i.test(written) && '提交 SHA',
+      !/\b[0-9a-f]{7,40}\b/i.test(withoutUrls) && '提交 SHA',
     ].filter(Boolean)
     if (checked && hasMedia(evidence) && !missing.length) {
       // 证据齐全
