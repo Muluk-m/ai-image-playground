@@ -3,7 +3,7 @@
 日期：2026-11-22
 
 状态：提案，待 Nain 逐项裁决。服务端模块化（限界上下文、`schema.ts` 拆分、`private/` 并入）已由
-ADR 0034（PR #1950）覆盖，本文不重复。
+[ADR 0034](../adr/0034-modular-monolith-and-single-repo.md)（PR #1950）覆盖，本文不重复。
 
 ## 一、依据
 
