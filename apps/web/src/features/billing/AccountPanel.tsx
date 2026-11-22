@@ -1,7 +1,14 @@
 import type { LedgerEntry, LedgerPage } from '@image-playground/shared'
 import type { CSSProperties } from 'react'
 import { useEffect, useMemo, useState } from 'react'
-import { Button, cn, Icon, type IconName, Overlay } from '../../lib/privateHost'
+import {
+  Button,
+  cn,
+  Icon,
+  type IconName,
+  isClientCapabilityEnabled,
+  Overlay,
+} from '../../lib/privateHost'
 import { AccountAvatar } from './AccountAvatar'
 import { AccountSettings } from './AccountSettings'
 import { ActivitySection } from './ActivityHeatGraph'
@@ -101,12 +108,22 @@ export function AccountPanel({
     [billingEntries],
   )
   const total = availableCredits(account)
+  const billingEnabled = isClientCapabilityEnabled('billing:credits')
   const billingVisible =
-    account?.access_state !== 'access_denied' && account?.unmetered?.enabled !== true
+    billingEnabled &&
+    account?.access_state !== 'access_denied' &&
+    account?.unmetered?.enabled !== true
+  const overviewVisible = billingVisible || (billingEnabled && account?.unmetered?.enabled === true)
+  const activeView: AccountView =
+    (view === 'billing' || view === 'referrals') && !billingVisible
+      ? 'settings'
+      : view === 'overview' && !overviewVisible
+        ? 'settings'
+        : view
   const availableImages =
     account && total !== null ? approximateImages(total, account.model_prices) : null
   const planName = account?.subscription?.plan.name ?? noActiveSubscriptionLabel()
-  const mobileSettings = mobile && view === 'settings'
+  const mobileSettings = mobile && activeView === 'settings'
 
   useEffect(() => {
     if (!account) return
@@ -152,13 +169,20 @@ export function AccountPanel({
             </div>
             <div className="min-w-0">
               <div className="truncate text-sm font-semibold text-foreground">{displayName}</div>
-              <div className="mt-0.5 text-xs text-muted-foreground">{planName}</div>
+              {billingVisible ? (
+                <div className="mt-0.5 text-xs text-muted-foreground">{planName}</div>
+              ) : null}
             </div>
           </div>
 
           <nav className="mt-6 space-y-1" aria-label={tBilling('account.navAria')}>
             {accountNavItems
-              .filter(([value]) => billingVisible || (value !== 'billing' && value !== 'referrals'))
+              .filter(
+                ([value]) =>
+                  value === 'settings' ||
+                  (value === 'overview' && overviewVisible) ||
+                  billingVisible,
+              )
               .map(([value, labelKey, icon]) => (
                 <Button
                   variant="ghost"
@@ -166,20 +190,20 @@ export function AccountPanel({
                   key={value}
                   type="button"
                   onClick={() => setView(value)}
-                  aria-current={view === value ? 'page' : undefined}
+                  aria-current={activeView === value ? 'page' : undefined}
                   className={`w-full justify-start gap-3 text-left ${
-                    view === value
+                    activeView === value
                       ? 'bg-accent text-foreground'
                       : 'text-muted-foreground hover:text-foreground'
                   }`}
                 >
                   <span
                     className={`grid h-6 w-6 place-items-center rounded-md ${
-                      view === value ? 'bg-primary/10 text-primary' : 'bg-muted'
+                      activeView === value ? 'bg-primary/10 text-primary' : 'bg-muted'
                     }`}
                     aria-hidden="true"
                   >
-                    <Icon name={icon} filled={view === value} />
+                    <Icon name={icon} filled={activeView === value} />
                   </span>
                   <span className="text-sm font-medium">{tBilling(labelKey)}</span>
                 </Button>
@@ -212,7 +236,10 @@ export function AccountPanel({
                 size="icon-sm"
                 type="button"
                 aria-label={tBilling('settings.back')}
-                onClick={() => setView('overview')}
+                onClick={() => {
+                  if (overviewVisible) setView('overview')
+                  else onClose()
+                }}
               >
                 <Icon name="back" />
               </Button>
@@ -230,7 +257,7 @@ export function AccountPanel({
                   id="account-panel-title"
                   className="mt-1 text-xl font-semibold tracking-tight text-foreground"
                 >
-                  {tBilling(viewTitle(view))}
+                  {tBilling(viewTitle(activeView))}
                 </h2>
               </div>
               <div className="flex items-center gap-2">
@@ -239,9 +266,11 @@ export function AccountPanel({
                   size="sm"
                   type="button"
                   onClick={() => {
-                    void loadBilling()
+                    if (billingEnabled) {
+                      void loadBilling()
+                      setReferralRefresh((value) => value + 1)
+                    }
                     void loadAccountProfile()
-                    setReferralRefresh((value) => value + 1)
                   }}
                   className="text-muted-foreground hover:text-foreground"
                 >
@@ -266,7 +295,7 @@ export function AccountPanel({
               <div className="flex gap-2 overflow-x-auto px-4 py-3">
                 {(
                   [
-                    ['overview', 'nav.overview'],
+                    ...(overviewVisible ? ([['overview', 'nav.overview']] as const) : []),
                     ['settings', 'nav.settings'],
                     ...(billingVisible
                       ? ([
@@ -282,9 +311,9 @@ export function AccountPanel({
                     size="sm"
                     type="button"
                     onClick={() => setView(value)}
-                    aria-pressed={view === value}
+                    aria-pressed={activeView === value}
                     className={`min-w-0 flex-1 px-2 ${
-                      view === value ? 'bg-accent text-foreground' : 'text-muted-foreground'
+                      activeView === value ? 'bg-accent text-foreground' : 'text-muted-foreground'
                     }`}
                   >
                     {tBilling(labelKey)}
@@ -316,21 +345,21 @@ export function AccountPanel({
           )}
 
           <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-            {view === 'settings' ? (
+            {activeView === 'settings' ? (
               <AccountSettings username={username} onAccountDeleted={onAccountDeleted} />
             ) : null}
-            {view !== 'settings' && status === 'loading' && !account ? (
+            {activeView !== 'settings' && status === 'loading' && !account ? (
               <div className="py-12 text-center text-sm text-muted-foreground">
                 {tBilling('account.loading')}
               </div>
             ) : null}
-            {view !== 'settings' && status === 'error' && !account ? (
+            {activeView !== 'settings' && status === 'error' && !account ? (
               <div className="rounded-2xl border border-destructive/60 bg-destructive/30 p-4 text-sm text-destructive">
                 {tBilling('account.loadFailed', { reason: error })}
               </div>
             ) : null}
 
-            {account && view === 'overview' ? (
+            {overviewVisible && account && activeView === 'overview' ? (
               <div className="space-y-4">
                 {billingVisible ? (
                   <>
@@ -431,7 +460,7 @@ export function AccountPanel({
               </div>
             ) : null}
 
-            {billingVisible && account && view === 'billing' ? (
+            {billingVisible && account && activeView === 'billing' ? (
               <section>
                 <div className="mb-4">
                   <h3 className="text-base font-semibold text-foreground">
@@ -511,7 +540,7 @@ export function AccountPanel({
                 ) : null}
               </section>
             ) : null}
-            {billingVisible && view === 'referrals' ? (
+            {billingVisible && activeView === 'referrals' ? (
               <ReferralPanel refreshKey={referralRefresh} />
             ) : null}
           </div>

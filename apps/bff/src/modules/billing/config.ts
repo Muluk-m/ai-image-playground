@@ -36,12 +36,16 @@ export function parseDeploymentTimezone(raw: string | undefined): string {
 
 export const deploymentTimezone = parseDeploymentTimezone(process.env.DEPLOYMENT_TIMEZONE)
 
+const MAX_RECHARGE_CREDITS_PER_YUAN = Math.floor(MAX_CREDIT_BALANCE / 10)
+
 export function parseRechargeCreditsPerYuan(raw: string | undefined): number {
   const trimmed = raw?.trim()
   if (!trimmed) return DEFAULT_RECHARGE_CREDITS_PER_YUAN
   const value = Number(trimmed)
-  if (!Number.isSafeInteger(value) || value <= 0) {
-    throw new Error('BILLING_RECHARGE_CREDITS_PER_YUAN must be a positive integer')
+  if (!Number.isSafeInteger(value) || value <= 0 || value > MAX_RECHARGE_CREDITS_PER_YUAN) {
+    throw new Error(
+      'BILLING_RECHARGE_CREDITS_PER_YUAN must be a positive integer within credit limits',
+    )
   }
   return value
 }
@@ -51,12 +55,11 @@ export function parseRechargeAmountsYuan(
   creditsPerYuan: number = DEFAULT_RECHARGE_CREDITS_PER_YUAN,
 ): readonly number[] {
   const trimmed = raw?.trim()
-  if (!trimmed) return DEFAULT_RECHARGE_AMOUNTS_YUAN
-  const parts = trimmed.split(',').map((part) => part.trim())
-  const amounts = parts.map((part) => Number(part))
+  const parts = trimmed ? trimmed.split(',').map((part) => part.trim()) : null
+  const amounts = parts ? parts.map((part) => Number(part)) : [...DEFAULT_RECHARGE_AMOUNTS_YUAN]
   if (
     amounts.length === 0 ||
-    parts.some((part) => !part) ||
+    parts?.some((part) => !part) ||
     amounts.some(
       (yuan) =>
         !Number.isSafeInteger(yuan) || yuan < 10 || yuan * creditsPerYuan > MAX_CREDIT_BALANCE,

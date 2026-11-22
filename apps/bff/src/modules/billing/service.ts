@@ -686,10 +686,11 @@ async function hasActiveSubscription(
 }
 export const privateTaskHooks: PrivateTaskHooks = {
   async canUnlinkOAuthIdentity({ provider }) {
+    if (!isCapabilityEnabled('billing:credits')) return { allowed: true }
     return { allowed: provider !== 'feishu' }
   },
   async accountSummary({ userId, now }) {
-    if (!isCapabilityEnabled('billing:credits')) return { credits: 0, isMember: false }
+    if (!isCapabilityEnabled('billing:credits')) return null
     const snapshot = await getAccountSnapshot(userId, now)
     return {
       credits: snapshot.account

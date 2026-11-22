@@ -66,6 +66,15 @@ describe('built-in billing & identity BFF overlay', () => {
       ).toEqual({ kind: 'reserved', credits: 0 })
       expect(await overlay.taskHooks.chatPricing('gpt-image-2')).toBeNull()
       expect(await overlay.taskHooks.taskCredits({ taskIds: ['t1'] })).toEqual({})
+      expect(await overlay.taskHooks.accountSummary?.({ userId: 'u1', now: Date.now() })).toBeNull()
+      expect(
+        await overlay.taskHooks.canUnlinkOAuthIdentity?.({
+          tx: {} as never,
+          userId: 'u1',
+          provider: 'feishu',
+          subject: 's1',
+        }),
+      ).toEqual({ allowed: true })
     } finally {
       if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL
       else process.env.DATABASE_URL = previousDatabaseUrl

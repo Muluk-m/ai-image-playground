@@ -142,7 +142,7 @@ export interface PrivateTaskHooks {
   accountSummary?(input: {
     userId: string
     now: number
-  }): Promise<{ credits: number; isMember: boolean; unmetered?: boolean }>
+  }): Promise<{ credits: number; isMember: boolean; unmetered?: boolean } | null>
   /** Decide direct image/video/analysis metering before any wallet quote or hold. */
   meteringDecision?(input: MeteringDecisionInput): Promise<MeteringDecision>
   /** Atomically consume the unmetered account quota after the decision is known. */

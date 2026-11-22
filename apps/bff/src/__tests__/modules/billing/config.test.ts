@@ -57,10 +57,10 @@ describe('parseRechargeCreditsPerYuan', () => {
     expect(parseRechargeCreditsPerYuan('500')).toBe(500)
   })
 
-  it('rejects invalid numbers', () => {
-    for (const raw of ['0', '-10', '1.5', 'abc']) {
+  it('rejects invalid or overflowing numbers', () => {
+    for (const raw of ['0', '-10', '1.5', 'abc', '300000000']) {
       expect(() => parseRechargeCreditsPerYuan(raw)).toThrow(
-        'BILLING_RECHARGE_CREDITS_PER_YUAN must be a positive integer',
+        'BILLING_RECHARGE_CREDITS_PER_YUAN must be a positive integer within credit limits',
       )
     }
   })
@@ -80,5 +80,8 @@ describe('parseRechargeAmountsYuan', () => {
     for (const raw of ['5,10', '10,10', '10,,20', '10.5', '10000000']) {
       expect(() => parseRechargeAmountsYuan(raw, 400)).toThrow('BILLING_RECHARGE_AMOUNTS_YUAN')
     }
+    expect(() => parseRechargeAmountsYuan(undefined, 30_000_000)).toThrow(
+      'BILLING_RECHARGE_AMOUNTS_YUAN',
+    )
   })
 })

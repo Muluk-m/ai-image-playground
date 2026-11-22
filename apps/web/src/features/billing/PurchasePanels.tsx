@@ -330,7 +330,8 @@ export function RechargePanel({ onClose }: { onClose: () => void }) {
   const { order, setOrder, busy } = purchase
   const [history, setHistory] = useState(false)
   const pricing = catalog?.recharge_pricing
-  const yuan = amount
+  const yuan =
+    pricing && pricing.amounts_yuan.includes(amount) ? amount : (pricing?.amounts_yuan[0] ?? amount)
   const valid = !!pricing?.amounts_yuan.includes(yuan)
   const available = !!catalog?.settings?.payments_enabled && !!pricing
   const buy = async () => {

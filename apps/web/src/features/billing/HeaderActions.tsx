@@ -220,6 +220,12 @@ export function HeaderActions({
     setPricingOpen(false)
     setRechargeOpen(true)
   }
+  const settingsRow = {
+    id: 'settings',
+    label: tBilling('nav.settings'),
+    icon: 'security' as IconName,
+    onClick: () => openAccount('settings'),
+  }
   const rows: Array<{
     id: string
     label: string
@@ -233,12 +239,7 @@ export function HeaderActions({
           icon: 'user',
           onClick: () => openAccount('overview'),
         },
-        {
-          id: 'settings',
-          label: tBilling('nav.settings'),
-          icon: 'security',
-          onClick: () => openAccount('settings'),
-        },
+        settingsRow,
         {
           id: 'billing',
           label: tBilling('nav.billing'),
@@ -252,7 +253,9 @@ export function HeaderActions({
           onClick: () => openAccount('referrals'),
         },
       ]
-    : []
+    : username
+      ? [settingsRow]
+      : []
 
   return (
     <>

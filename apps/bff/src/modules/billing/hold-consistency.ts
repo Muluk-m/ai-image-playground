@@ -21,7 +21,7 @@ type BillingDb = ReturnType<typeof createDb>['db']
  * 只做 SELECT，且整个检查放在一个 REPEATABLE READ 的只读事务里，几条查询看到的是同一份快照。
  *
  * 运行：HOLD_CHECK_DATABASE_URL（缺省依次用 ADMIN_DATABASE_URL、APP_DATABASE_URL）
- *   bun run apps/bff/billing/hold-consistency.ts [--json] [--limit=N] [--stale-hours=N]
+ *   bun run apps/bff/src/modules/billing/hold-consistency.ts [--json] [--limit=N] [--stale-hours=N]
  * 退出码：0 对得上，1 有违规，2 参数错误，3 检查本身失败（连不上库、没有权限等）。
  * 对生产库执行属于「跑脚本」，按 docs/agents/prod-readonly.md 须 Nain 批准。
  */

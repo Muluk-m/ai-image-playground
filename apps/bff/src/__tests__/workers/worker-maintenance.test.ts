@@ -37,7 +37,8 @@ let finishMaintenance;
 const maintenance = new Promise(resolve => { finishMaintenance = resolve; });
 mock.module(path('lib/private-overlay.ts'), () => ({
   assertPrivateBffOverlayPresent: noop,
-  loadPrivateBffOverlay: async () => ({ taskHooks: { runWorkerMaintenance: () => maintenance } })
+  loadPrivateBffOverlay: async () => ({ taskHooks: { runWorkerMaintenance: () => maintenance } }),
+  registerBuiltInBffOverlayLoader: noop,
 }));
 class TaskScheduler {
   draining = false;

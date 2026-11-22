@@ -9,12 +9,16 @@ import {
 } from '../../../features/billing/orders-client'
 import { RechargePanel } from '../../../features/billing/PurchasePanels'
 
+const { rechargeConfig } = vi.hoisted(() => ({
+  rechargeConfig: { credits_per_yuan: 400, amounts_yuan: [10, 50, 100] as number[] },
+}))
+
 vi.mock('../../../features/billing/billing-store', async (original) => ({
   ...(await original<typeof import('../../../features/billing/billing-store')>()),
   useBilling: () => ({
     status: 'ready',
     catalog: {
-      recharge_pricing: { credits_per_yuan: 400, amounts_yuan: [10, 50, 100] },
+      recharge_pricing: rechargeConfig,
       settings: { payments_enabled: true },
     },
   }),
@@ -39,6 +43,8 @@ async function mount() {
 afterEach(() => {
   act(() => root?.unmount())
   host.remove()
+  rechargeConfig.credits_per_yuan = 400
+  rechargeConfig.amounts_yuan = [10, 50, 100]
   vi.resetAllMocks()
 })
 it('quotes 20000 credits for 50 yuan and sends cents rather than client credit grants', async () => {
@@ -142,4 +148,12 @@ it('refreshes a claimed order instead of cancelling or buying again', async () =
   expect(beginRecharge).toHaveBeenCalledTimes(1)
   expect(document.body.textContent).toContain('正在核款')
   expect(document.body.textContent).not.toContain('取消原订单并继续')
+})
+it('falls back to the first configured recharge tier when 50 yuan is absent', async () => {
+  rechargeConfig.amounts_yuan = [20, 100, 200]
+  vi.mocked(beginRecharge).mockResolvedValue({ id: 'twenty-yuan' } as typeof membership)
+  await mount()
+  expect(document.body.textContent).toContain('8,000')
+  await click('去付款')
+  expect(beginRecharge).toHaveBeenCalledWith(2000, expect.any(String))
 })
