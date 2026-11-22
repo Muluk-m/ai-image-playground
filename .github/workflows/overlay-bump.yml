@@ -3,7 +3,7 @@
 # 为什么是公开仓来拉而不是 overlay 仓来推：推需要一枚能写公开仓的 PAT 存在私有仓里；拉只用
 # 现有的只读 deploy key。main 受 ruleset 保护，lock 提交用 MAIN_PUSH_SSH_KEY（唯一豁免的写 deploy key）推送，
 # 推送后照常触发 `Web checks`；推送前仍先把「候选公开树 + 新 overlay」lint / typecheck / build 一遍。不再立即触发
-# 生产部署：lock 进 main 后由下一个窗口（deploy.yml 的 schedule）发布；紧急时手动
+# 生产部署：lock 进 main 后由下一个发布窗口（macmini2 launchd 触发，schedule 兜底）发布；紧急时手动
 # `workflow_dispatch` deploy.yml 并填 reason。
 #
 # 只认 `verified`：那个指针只在 overlay CI 全绿后才前移（见 overlay 仓 `check.yml`），
