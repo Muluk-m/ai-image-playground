@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { Slider } from '../../components/ui/slider'
 import { Button, Icon, Overlay } from '../../lib/privateHost'
 import {
   type CropImageSize,
