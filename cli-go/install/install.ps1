@@ -1,6 +1,7 @@
-# Installs the native muvloom CLI for Windows x64 from GitHub releases, verifying its SHA-256 checksum.
+# Installs or upgrades the native muvloom CLI for Windows x64 to the latest stable GitHub release,
+# verifying its SHA-256 checksum (skips download if already up to date, never downgrades).
 #   $env:MUVLOOM_VERSION = "0.1.0"        pin an exact release (never downgrades a newer install)
-#   $env:MUVLOOM_MIN_VERSION = "0.2.5"    install the latest release that is at least this version
+#   $env:MUVLOOM_MIN_VERSION = "0.2.5"    require the resolved release to be at least this version
 #   $env:MUVLOOM_INSTALL_DIR = "..."      install directory. Default: where muvloom.exe already is (one
 #                                          copy, and it is the one that runs), else the per-user
 #                                          %LOCALAPPDATA%\Programs\muvloom, which needs no administrator
@@ -94,7 +95,7 @@ if ($current -and (Test-StableVersion $current)) {
   if ([version]$current -gt [version]$target) {
     Write-Host "muvloom $current is already installed at $exe; not downgrading to $target"
     $skipDownload = $true
-  } elseif ($env:MUVLOOM_MIN_VERSION -and [version]$current -ge [version]$env:MUVLOOM_MIN_VERSION.TrimStart("v") -and $current -eq $target) {
+  } elseif ($current -eq $target -and (-not $env:MUVLOOM_VERSION -or $env:MUVLOOM_MIN_VERSION)) {
     Write-Host "muvloom $current is already installed at $exe"
     $skipDownload = $true
   }

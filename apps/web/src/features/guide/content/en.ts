@@ -1,10 +1,5 @@
 import { SUPPORT_CONTACT, SUPPORT_MAILTO } from '@image-playground/shared/support-contact'
-import {
-  CLI_MIN_VERSION,
-  CLI_VERSION,
-  installScriptCommands,
-  SESSION_PATH,
-} from '../../cli/connectAgents'
+import { installScriptCommands, SESSION_PATH } from '../../cli/connectAgents'
 import {
   faq,
   type GuideContent,
@@ -1237,12 +1232,13 @@ const plugins: GuidePage = {
     'Connect Muvloom to WorkBuddy, Doubao Work, Claude Code, Codex and other agents, or run the muvloom CLI directly in your terminal.',
   meta: {
     title: 'Plugins and CLI: WorkBuddy, Doubao Work, Claude Code & Codex | Muvloom Guide',
-    description: `Use Muvloom in WorkBuddy, Doubao Work, Claude Code, Codex and your terminal: WorkBuddy video tutorial, client setup, muvloom CLI ${CLI_VERSION} commands, job waiting and exit codes.`,
+    description:
+      'Use Muvloom in WorkBuddy, Doubao Work, Claude Code, Codex and your terminal: WorkBuddy video tutorial, client setup, muvloom CLI commands, job waiting and exit codes.',
   },
-  updated: '2026-11-19',
+  updated: '2026-11-22',
   intro: [
     p(
-      `The Muvloom plugin pairs the native \`muvloom\` CLI (current release ${CLI_VERSION}) with official skills for **WorkBuddy**, **Doubao Work**, **Claude Code**, **Codex** and other agent clients on [Plugin integrations](/connect). Generate images with natural language or \`/muv\` in your agent, or run \`muvloom\` directly in a terminal—every result syncs to [Assets](/assets) on your Muvloom account.`,
+      'The Muvloom plugin pairs the native `muvloom` CLI with official skills for **WorkBuddy**, **Doubao Work**, **Claude Code**, **Codex** and other agent clients on [Plugin integrations](/connect). Generate images with natural language or `/muv` in your agent, or run `muvloom` directly in a terminal—every result syncs to [Assets](/assets) on your Muvloom account.',
     ),
     workbuddyFilm(
       'Complete WorkBuddy and Muvloom tutorial',
@@ -1261,8 +1257,8 @@ const plugins: GuidePage = {
           ['Client', 'Let the Agent install', 'Manual skill setup', 'How to invoke in chat'],
           [
             'WorkBuddy',
-            'Copy the prompt to WorkBuddy (follows `/cli/workbuddy.md` and installs into `~/.workbuddy/skills/muvloom/`)',
-            'Download `muvloom-workbuddy.zip` on `/connect`, then use Add Skill → Upload Skill',
+            'Copy the prompt to WorkBuddy (installs CLI and runs `muvloom skill install --host workbuddy` into `~/.workbuddy/skills/muvloom/`)',
+            'Run `muvloom skill install --host workbuddy` (or download `muvloom-workbuddy.zip` on `/connect` and use Add Skill → Upload Skill)',
             'Start a new task, type `/muv` and select `muvloom`',
           ],
           [
@@ -1291,7 +1287,7 @@ const plugins: GuidePage = {
           ],
         ),
         note(
-          '`muvloom skill install --host` accepts only `claude-code`, `codex` (with optional `--scope user|project`, default `user`) and `generic` (with optional `--output <dir>` to export a generic skill folder). WorkBuddy and Doubao Work import their own dedicated skill packages—do not pass `--host workbuddy` or `--host doubao`.',
+          '`muvloom skill install --host` accepts `claude-code`, `codex`, `workbuddy` (with optional `--scope user|project`, default `user`) and `generic` (with optional `--output <dir>` to export a generic skill folder). Doubao Work imports its dedicated skill package—do not pass `--host doubao`.',
         ),
       ],
     },
@@ -1319,20 +1315,20 @@ const plugins: GuidePage = {
     },
     {
       id: 'not-npm',
-      title: `Install the CLI manually (${CLI_MIN_VERSION} or newer)`,
+      title: 'Install or update the CLI manually (latest release)',
       blocks: [
         p(
-          `To install the CLI yourself in a terminal, switch to [[I'll do it myself]] on [Plugin integrations](/connect) or run the command for your operating system below. \`muvloom\` is a single native binary for macOS (arm64/x64), Linux (x64/arm64) and Windows (x64). It requires no Node, npm or Python, and there is no \`@muvloom/cli\` npm package.`,
+          'To install or update the CLI yourself in a terminal, switch to [[I’ll do it myself]] on [Plugin integrations](/connect) or run the command for your operating system below. `muvloom` is a single native binary for macOS (arm64/x64), Linux (x64/arm64) and Windows (x64). It requires no Node, npm or Python, and there is no `@muvloom/cli` npm package.',
         ),
         p(
-          `The command downloads \`install.sh\` or \`install.ps1\` from the current site, verifies the published SHA-256 checksum, and runs it with \`MUVLOOM_MIN_VERSION=${CLI_MIN_VERSION}\`. Never pipe an installer into \`sh\` or \`iex\`, and do not pin an older \`MUVLOOM_VERSION\`. Upgrading in place keeps your existing sign-in.`,
+          'The command downloads `install.sh` or `install.ps1` from the current site, verifies the published SHA-256 checksum, and installs or upgrades in place to the latest stable release (skipping the download if already up to date, and never downgrading). Never pipe an installer into `sh` or `iex`, and do not pin an older `MUVLOOM_VERSION`. Upgrading in place keeps your existing sign-in.',
         ),
         prompt('macOS / Linux', unixInstall),
         prompt('Windows PowerShell', windowsInstall),
         list(
           `**Install location**: On macOS and Linux the installer replaces an existing writable \`muvloom\` on PATH, or uses \`/usr/local/bin\` if writable without sudo, or falls back to \`~/.local/bin\` (Windows uses \`%LOCALAPPDATA%\\Programs\\muvloom\`). Override with \`MUVLOOM_INSTALL_DIR\`.`,
           `**Update PATH in the current shell**: If \`muvloom\` is not found right after a first install, run \`${SESSION_PATH.unix}\` on macOS/Linux (or \`${SESSION_PATH.windows}\` in PowerShell), or open a new terminal window.`,
-          '**Install the skill and sign in**: For Claude Code or Codex, run `muvloom skill install --host claude-code` (or `codex`), then run `muvloom auth login` to approve in your browser.',
+          '**Install the skill and sign in**: For Claude Code, Codex or WorkBuddy, run `muvloom skill install --host claude-code` (or `codex` / `workbuddy`), then run `muvloom auth login` to approve in your browser.',
         ),
       ],
     },
@@ -1394,7 +1390,7 @@ const plugins: GuidePage = {
           ['muvloom media upload | list | get | download', 'Upload or manage reference images'],
           [
             'muvloom skill install | status',
-            'Install the skill for Claude Code / Codex, export a generic skill folder (`--host generic`), or check skill status',
+            'Install the skill for Claude Code / Codex / WorkBuddy, export a generic skill folder (`--host generic`), or check skill status',
           ],
           ['muvloom update check / version', 'Check for a newer release or print the CLI version'],
         ),

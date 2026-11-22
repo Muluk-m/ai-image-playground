@@ -14,8 +14,6 @@ import CliConnectionsDialog from '../../../features/cli/CliConnectionsDialog'
 import CliConnectPage from '../../../features/cli/CliConnectPage'
 import {
   AGENT_SETUP_PATH,
-  CLI_MIN_VERSION,
-  CLI_VERSION,
   CONNECT_AGENTS,
   DOUBAO_SETUP_PATH,
   DOUBAO_SKILL_PATH,
@@ -211,7 +209,8 @@ describe('CliConnectPage', () => {
     const shown = host.querySelector('pre')?.textContent ?? ''
     expect(shown).toContain('Invoke-WebRequest')
     expect(shown).toContain(INSTALL_PS1_SHA256)
-    expect(shown).toContain(`MUVLOOM_MIN_VERSION`)
+    expect(shown).not.toContain('MUVLOOM_VERSION')
+    expect(shown).not.toContain('MUVLOOM_MIN_VERSION')
     expect(shown).not.toContain('mktemp')
     await click('复制命令')
     expect(copyText).toHaveBeenCalledExactlyOnceWith(
@@ -237,15 +236,17 @@ describe('CliConnectPage', () => {
     expect(copyText).toHaveBeenCalledExactlyOnceWith(shown.join('\n'))
   })
 
-  it('安装命令先校验脚本校验和，再用最低版本安装，不会钉死可降级的精确版本', () => {
+  it('安装命令先校验脚本校验和，并始终安装最新稳定版，不钉死版本', () => {
     const origin = 'https://muvloom.online'
     const unix = installScriptCommands('unix', origin).join('\n')
     const windows = installScriptCommands('windows', origin).join('\n')
     expect(unix).toContain(INSTALL_SH_SHA256)
     expect(windows).toContain(INSTALL_PS1_SHA256)
-    expect(unix).toContain(`MUVLOOM_MIN_VERSION=${CLI_MIN_VERSION}`)
-    expect(windows).toContain(`MUVLOOM_MIN_VERSION = "${CLI_MIN_VERSION}"`)
+    expect(unix).toContain('sh "$tmp"')
     expect(unix).not.toContain('MUVLOOM_VERSION=')
+    expect(unix).not.toContain('MUVLOOM_MIN_VERSION=')
+    expect(windows).not.toContain('MUVLOOM_VERSION')
+    expect(windows).not.toContain('MUVLOOM_MIN_VERSION')
     expect(unix).not.toMatch(/curl .*\| sh/)
     expect(windows).not.toMatch(/irm .*\| iex/)
     expect(windows).toContain('powershell -NoProfile -ExecutionPolicy Bypass -File $script')
@@ -253,7 +254,6 @@ describe('CliConnectPage', () => {
     expect(windows).not.toContain('& $script')
     expect(unix).toContain('/cli/install.sh')
     expect(windows).toContain('/cli/install.ps1')
-    expect(CLI_VERSION).toBe(CLI_MIN_VERSION)
   })
 
   it('安装之后先补本次会话的 PATH，再调用 muvloom（首次安装时安装目录不在 PATH 里）', async () => {
@@ -262,7 +262,7 @@ describe('CliConnectPage', () => {
       const lines = manualCommands('claude-code', platform, window.location.origin)
       const pathIndex = lines.indexOf(SESSION_PATH[platform])
       expect(pathIndex).toBeGreaterThan(0)
-      expect(lines[pathIndex - 1]).toContain('MUVLOOM_MIN_VERSION')
+      expect(lines[pathIndex - 1]).toMatch(/sh "\$tmp"|powershell -NoProfile/)
       expect(lines.findIndex((line) => line.startsWith('muvloom '))).toBeGreaterThan(pathIndex)
     }
   })
@@ -271,16 +271,17 @@ describe('CliConnectPage', () => {
     const guide = setupGuide()
     expect(guide).toContain(INSTALL_SH_SHA256)
     expect(guide).toContain(INSTALL_PS1_SHA256)
-    expect(guide).toContain(`MUVLOOM_MIN_VERSION=${CLI_MIN_VERSION}`)
+    expect(guide).toContain('sh "$tmp"')
+    expect(guide).not.toContain('MUVLOOM_MIN_VERSION=')
+    expect(guide).not.toContain('MUVLOOM_VERSION=')
     expect(guide).toContain(SESSION_PATH.unix)
     expect(guide).toContain(SESSION_PATH.windows)
-    for (const agent of ['claude-code', 'codex'] as const) {
+    for (const agent of ['claude-code', 'codex', 'workbuddy'] as const) {
       expect(guide).toContain(skillInstallCommand(agent))
     }
     expect(guide).toContain('muvloom auth login --no-wait')
     expect(guide).toContain('muvloom auth status')
     expect(guide).toContain('service_mismatch')
-    expect(guide.replace(/\s+/g, ' ')).toContain(`lower than ${CLI_MIN_VERSION}`)
     expect(guide).toContain('--switch-service')
     expect(guide).toContain('muvloom capabilities')
     expect(guide).toContain('images validate')
@@ -291,15 +292,14 @@ describe('CliConnectPage', () => {
     expect(guide).not.toContain('& $script')
     expect(guide).not.toContain('only around the first `muvloom auth login`')
     expect(guide).toContain('system default browser')
-    expect(guide).not.toMatch(/muvloom skill install --host (workbuddy|doubao)/)
+    expect(guide).not.toContain('muvloom skill install --host doubao')
     expect(guide.replace(/\s+/g, ' ')).toContain('do not write it into a profile')
     expect(guide).toContain('credential_store_issue')
-    expect(guide).not.toContain('MUVLOOM_VERSION=0.2.4')
   })
 
-  it('WorkBuddy 和豆包的手动命令只有安装、补 PATH 和登录，没有虚构的 --host', () => {
+  it('WorkBuddy 与 Claude Code / Codex 使用 --host，豆包与其他宿主不虚构 --host', () => {
     const origin = 'https://muvloom.online'
-    for (const agent of ['workbuddy', 'doubao'] as const) {
+    for (const agent of ['doubao', 'other'] as const) {
       expect(skillInstallCommand(agent)).toBeNull()
       for (const platform of ['unix', 'windows'] as const) {
         expect(manualCommands(agent, platform, origin)).toEqual([
@@ -309,9 +309,17 @@ describe('CliConnectPage', () => {
         ])
       }
     }
-    expect(skillInstallCommand('claude-code')).toBe('muvloom skill install --host claude-code')
-    expect(skillInstallCommand('codex')).toBe('muvloom skill install --host codex')
-    expect(skillInstallCommand('other')).toBeNull()
+    for (const agent of ['claude-code', 'codex', 'workbuddy'] as const) {
+      expect(skillInstallCommand(agent)).toBe(`muvloom skill install --host ${agent}`)
+      for (const platform of ['unix', 'windows'] as const) {
+        expect(manualCommands(agent, platform, origin)).toEqual([
+          ...installScriptCommands(platform, origin),
+          SESSION_PATH[platform],
+          `muvloom skill install --host ${agent}`,
+          'muvloom auth login',
+        ])
+      }
+    }
   })
 
   it('setup.md 公布的安装脚本校验和与仓库里的脚本一致', () => {

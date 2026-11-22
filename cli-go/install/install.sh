@@ -1,7 +1,8 @@
 #!/bin/sh
-# Installs the native muvloom CLI from GitHub releases, verifying its SHA-256 checksum.
+# Installs or upgrades the native muvloom CLI to the latest stable GitHub release,
+# verifying its SHA-256 checksum (skips download if already up to date, never downgrades).
 #   MUVLOOM_VERSION=0.1.0        pin an exact release (never downgrades a newer install)
-#   MUVLOOM_MIN_VERSION=0.2.5    install the latest release that is at least this version
+#   MUVLOOM_MIN_VERSION=0.2.5    require the resolved release to be at least this version
 #   MUVLOOM_INSTALL_DIR=...      install directory. Default: where muvloom already is (one copy, and
 #                                it is the one that runs), else /usr/local/bin when that is on PATH and
 #                                writable without sudo, else ~/.local/bin. For a system-wide install
@@ -146,9 +147,8 @@ if [ -n "$current" ]; then
   if version_less "$target" "$current"; then
     echo "muvloom $current is already installed at $BIN; not downgrading to $target" >&2
     skip_download=1
-  elif [ -n "${MUVLOOM_MIN_VERSION:-}" ] && ! version_less "$current" "${MUVLOOM_MIN_VERSION#v}" &&
-    ! version_less "$current" "$target" && [ "$current" = "$target" ]; then
-    # Already meets the minimum and matches the resolved target.
+  elif [ "$current" = "$target" ] && { [ -z "${MUVLOOM_VERSION:-}" ] || [ -n "${MUVLOOM_MIN_VERSION:-}" ]; }; then
+    # Already at the latest (or meets MUVLOOM_MIN_VERSION and matches target).
     echo "muvloom $current is already installed at $BIN" >&2
     skip_download=1
   fi
