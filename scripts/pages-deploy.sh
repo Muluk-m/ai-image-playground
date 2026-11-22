@@ -109,7 +109,7 @@ if [ -n "${EXTRA_ASSETS_DIR:-}" ] && [ ! -d "$EXTRA_ASSETS_DIR" ]; then
 fi
 
 cd "$repo_root"
-if [ "$app" = web ]; then
+if [ "$app" = web ] && [ -f "$repo_root/cli-go/go.mod" ]; then
   command -v go >/dev/null 2>&1 || {
     echo "go is required to build /cli/bin static CLI binaries for web Pages releases." >&2
     exit 1
