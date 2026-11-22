@@ -71,7 +71,7 @@ Admin（`apps/admin`）同样带顶层 `404.html`，`_redirects` 由 `apps/admin
 | `PAGES_ENV` | 完整 `pages.env`；API 地址也从中读取 |
 | `PAID_CLOUDFLARE_API_TOKEN` | muvloom Pages 账号的上传令牌，写成 `$RUNNER_TEMP` 下 0600 文件，覆盖 `PAID_CLOUDFLARE_TOKEN_FILE`。Admin 同样使用它。 |
 
-单仓收口后不再随仓库分发收款/客服二维码资源，收款码与联系二维码统一存放在对象存储并通过后台 `billing_settings` 配置外链 URL；`PAGES_ENV` 若配置了 `PAID_EXTRA_ASSETS_DIR` 仍按原逻辑复制到 `dist/op/`，CI 不再强行覆盖该字段。所有 `EXTRA_ASSETS_DIR` 内容都会公开发布，不可放密钥。GHCR 推送用 workflow 的 `GITHUB_TOKEN`（`packages: write`）；包须允许本仓库 Actions 写入。任一必需 secret 为空，对应 job 首步报错退出。
+单仓收口后不再随仓库分发收款/客服二维码资源，收款码与联系二维码统一存放在对象存储并通过后台 `billing_settings` 配置外链 URL；CI 生成 pages.env 时把 `PAID_EXTRA_ASSETS_DIR` 置空（`PAGES_ENV` 是工作站配置，里面是本机路径，runner 上不存在会让 Pages 发布失败）；本机用 `pages-release.sh` 应急发布时仍按该字段复制到 `dist/op/`。所有 `EXTRA_ASSETS_DIR` 内容都会公开发布，不可放密钥。GHCR 推送用 workflow 的 `GITHUB_TOKEN`（`packages: write`）；包须允许本仓库 Actions 写入。任一必需 secret 为空，对应 job 首步报错退出。
 
 ### VPS 受限入口
 
