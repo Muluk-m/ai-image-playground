@@ -107,8 +107,7 @@ while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_
   fi
   [ "$(docker image inspect "$image" --format '{{.Os}}/{{.Architecture}}')" = linux/amd64 ] || { echo "Wrong image platform: $image" >&2; exit 1; }
   version=$public_sha
-  if [ "$edition" = paid ] || [ "$edition" = test ]; then
-    [ "$private_sha" != - ] || exit 1
+  if { [ "$edition" = paid ] || [ "$edition" = test ]; } && [ "$private_sha" != - ]; then
     version=$public_sha+$private_sha
   fi
   actual=$(docker image inspect "$image" --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^APP_VERSION=//p')

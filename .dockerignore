@@ -48,15 +48,13 @@
 !apps/bff/skills
 
 
-# ── Optional private overlay ──────────────────────────────────────
-# Deliberately excluded here. Private-overlay builds pass the nested repository through
-# Docker's explicit `private-overlay` named context; see `scripts/app-compose.sh build-private`.
 # ── packages 构建输入 ─────────────────────────────────────────────
 !packages/*/package.json
 !packages/*/tsconfig*.json
 !packages/*/src
-!packages/*/drizzle.config.ts
+!packages/*/drizzle*.config.ts
 !packages/*/drizzle
+!packages/db/drizzle-billing
 
 # ── Runtime configuration and entrypoints ─────────────────────────
 !deploy/nginx.conf
@@ -64,7 +62,6 @@
 !deploy/nginx.proxy.conf
 !scripts/docker-entrypoint.sh
 !scripts/check-dependencies.ts
-!scripts/check-shared-bff-modules.ts
 !scripts/release-router.ts
 !scripts/test-guard.ts
 

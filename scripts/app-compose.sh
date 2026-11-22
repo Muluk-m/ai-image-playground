@@ -33,19 +33,7 @@ shift
 if [ "$command" = build ] || [ "$command" = build-private ]; then
   [ "$(uname -s)" = Darwin ] || { echo "Build on macmini2; VPS accepts prebuilt releases only." >&2; exit 1; }
   image=${1:-ai-image-playground:local}
-  if [ "$command" = build-private ]; then
-    # A public build caches these two stages with an empty overlay; reusing that
-    # cache leaves the overlay dependencies out of the pnpm store.
-    docker build \
-      --no-cache-filter private-manifests,deps \
-      --build-context private-overlay="$repo_root/private" \
-      --build-arg PRIVATE_OVERLAY_PRESENT=true \
-      --build-arg APP_VERSION="${APP_VERSION:-unknown}" \
-      --tag "$image" \
-      "$repo_root"
-  else
-    docker build --build-arg APP_VERSION="${APP_VERSION:-unknown}" --tag "$image" "$repo_root"
-  fi
+  docker build --build-arg APP_VERSION="${APP_VERSION:-unknown}" --tag "$image" "$repo_root"
   exit 0
 fi
 

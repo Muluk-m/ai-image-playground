@@ -21,8 +21,9 @@ case "$output" in /*) ;; *) exit 2 ;; esac
 [ ! -e "$output" ] || { echo "Output already exists: $output" >&2; exit 1; }
 [ -z "$(git -C "$repo_root" status --porcelain --untracked-files=no)" ] || { echo "Commit tracked source changes before building." >&2; exit 1; }
 public_sha=$(git -C "$repo_root" rev-parse HEAD)
-[ -z "$(git -C "$repo_root/private" status --porcelain --untracked-files=no)" ] || { echo "Commit private source changes before building." >&2; exit 1; }
-private_sha=$(git -C "$repo_root/private" rev-parse HEAD)
+# Single-repo transition: the installed VPS receiver (aip-ci-receive) and fixed runtime
+# (vps-deploy.sh) expect a 40-char column 5 and APP_VERSION=<sha>+<sha> for paid/test.
+private_sha=$public_sha
 build_lock=$config_root/image-build.lock
 snapshot=
 cleanup() {
@@ -33,7 +34,7 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
-acquire_deploy_lock "$build_lock" "images $target $public_sha $private_sha"
+acquire_deploy_lock "$build_lock" "images $target $public_sha"
 # Fail on missing tools or registry credentials now rather than after the first image is pushed.
 if [ "$transport" = registry ] && ! command -v jq >/dev/null 2>&1; then
   echo "jq is required to read the pushed image digests (brew install jq / apt-get install jq)." >&2
@@ -41,11 +42,9 @@ if [ "$transport" = registry ] && ! command -v jq >/dev/null 2>&1; then
 fi
 [ "$transport" = archive ] || ghcr_login "${GHCR_PUSH_TOKEN_FILE:-$config_root/ghcr-push-token}"
 snapshot=$(mktemp -d)
-mkdir "$snapshot/public" "$snapshot/private"
+mkdir "$snapshot/public"
 git -C "$repo_root" archive "$public_sha" > "$snapshot/public.tar"
 tar -xf "$snapshot/public.tar" -C "$snapshot/public"
-git -C "$repo_root/private" archive "$private_sha" > "$snapshot/private.tar"
-tar -xf "$snapshot/private.tar" -C "$snapshot/private"
 # A dedicated builder limits both the whole compiler budget and concurrent Dockerfile stages.
 builder=aip-release
 if ! docker buildx inspect "$builder" >/dev/null 2>&1; then
@@ -110,7 +109,6 @@ registry_tag=$target-$(printf %.12s "$public_sha")-$(printf %.12s "$private_sha"
 export_build_cache=1
 [ "$target" != test ] || export_build_cache=0
 build_image "$image" "$registry_tag" "$snapshot/public" \
-  --build-context "private-overlay=$snapshot/private" --build-arg PRIVATE_OVERLAY_PRESENT=true \
   --build-arg "APP_VERSION=$version" --build-arg "APP_RELEASE=${APP_RELEASE:-}"
 printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$target" "$image" "$image_id" "$public_sha" "$private_sha" \
   "$repo_digest" >> "$output/images.tsv"

@@ -1,10 +1,5 @@
 # syntax=docker/dockerfile:1.6
 
-# Public builds use the default false marker and scrub any cached private context.
-# Private-overlay builds must pass both `--build-context private-overlay=./private` and
-# `--build-arg PRIVATE_OVERLAY_PRESENT=true`.
-FROM scratch AS private-overlay
-
 # One release image runs every application role. Compose selects nginx, BFF,
 # worker, or Admin with APP_ROLE and command; both deployment projects reuse the
 # same immutable image and the web role writes its runtime config at startup.
@@ -22,9 +17,8 @@ RUN --mount=type=bind,source=package.json,target=/tmp/root-package.json \
   npm install --global \
   "pnpm@$(sed -n 's/.*"packageManager": *"pnpm@\([^"]*\)".*/\1/p' /tmp/root-package.json)"
 
-# Public workspace install. No overlay files and no PRIVATE_OVERLAY_PRESENT, so
-# the three environments reuse this layer. The overlay install is a later stage.
-FROM pnpm-base AS public-deps
+# Workspace install. All modules (including capability-gated billing and OAuth) live in this tree.
+FROM pnpm-base AS deps
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/web/package.json ./apps/web/
 COPY apps/website/package.json ./apps/website/
@@ -41,33 +35,10 @@ RUN case "$TARGETARCH" in amd64) cpu=x64 ;; arm64) cpu=arm64 ;; *) exit 1 ;; esa
   && printf '\nsupportedArchitectures:\n  os: [linux]\n  cpu: [current, %s]\n  libc: [glibc]\n' "$cpu" >> pnpm-workspace.yaml \
   && pnpm install --frozen-lockfile
 
-# The public lockfile carries the private/apps/* importers, so pnpm fetches their
-# dependencies only when the overlay manifests are present at install time.
-FROM pnpm-base AS private-manifests
-COPY --from=private-overlay / /overlay/private
-RUN mkdir -p /overlay/private \
-  && find /overlay/private ! -type d ! -name package.json -delete \
-  && find /overlay/private -mindepth 1 -type d -empty -delete
-
-FROM public-deps AS deps
-COPY --from=private-manifests /overlay/private ./private
-ARG PRIVATE_OVERLAY_PRESENT=false
-# Online on purpose: the public install above did not see these manifests, so
-# their tarballs are not in the store yet. Everything else stays cached.
-RUN if [ "$PRIVATE_OVERLAY_PRESENT" = "true" ]; then \
-      pnpm install --frozen-lockfile; \
-    else \
-      rm -rf /app/private; \
-    fi
-
 FROM deps AS web-build
 WORKDIR /app
 COPY . .
 COPY --from=deps /app/pnpm-workspace.yaml ./
-COPY --from=private-overlay / /app/private
-ARG PRIVATE_OVERLAY_PRESENT=false
-RUN if [ "$PRIVATE_OVERLAY_PRESENT" != "true" ]; then rm -rf /app/private && mkdir /app/private; fi
-ENV PRIVATE_WEB_OVERLAY_ENTRY=/app/private/apps/web/index.tsx
 RUN pnpm install --offline --frozen-lockfile
 # Product release baked into Settings. Empty falls back to the root package.json version.
 ARG APP_RELEASE=
@@ -78,19 +49,11 @@ FROM deps AS admin-build
 WORKDIR /app
 COPY . .
 COPY --from=deps /app/pnpm-workspace.yaml ./
-COPY --from=private-overlay / /app/private
-ENV PRIVATE_ADMIN_OVERLAY_ENTRY=/app/private/apps/admin/index.tsx
-ARG PRIVATE_OVERLAY_PRESENT=false
-RUN if [ "$PRIVATE_OVERLAY_PRESENT" != "true" ]; then rm -rf /app/private && mkdir /app/private; fi
 RUN pnpm install --offline --frozen-lockfile
 RUN pnpm --filter @image-playground/admin build
 
 # Production tree for the processes this image actually runs. Frontend packages
 # stay in the build stages above; pnpm deploy --prod does not copy them.
-# The private BFF is source-only here. Deploying it separately installs a second
-# physical copy of elysia, and apps/bff then exits on startup because
-# `instanceof Elysia` is false. Its runtime dependencies already live in the
-# public bff deploy; the runtime stage points private source at that one store.
 FROM deps AS runtime-deps
 WORKDIR /app
 COPY apps/bff ./apps/bff
@@ -99,7 +62,6 @@ COPY apps/admin/contracts.ts ./apps/admin/contracts.ts
 COPY packages/db ./packages/db
 COPY packages/node-kit ./packages/node-kit
 COPY packages/shared ./packages/shared
-COPY --from=private-overlay / /tmp/private-overlay
 # pnpm 10 refuses to deploy a workspace unless dependencies are injected, so the
 # output is a real copy instead of a symlink back into this stage. The setting
 # stays in this stage: the build installs above keep the normal workspace links.
@@ -107,14 +69,8 @@ COPY --from=private-overlay / /tmp/private-overlay
 # and optional. They are removed after deploy. sharp's optional native binaries
 # stay, so this is not a global --no-optional install.
 RUN printf '\ninjectWorkspacePackages: true\n' >> pnpm-workspace.yaml \
-  && mkdir -p /app/private /out/private-src \
-  && if [ -n "$(find /tmp/private-overlay -mindepth 1 -print -quit)" ]; then \
-       cp -a /tmp/private-overlay/. /app/private/; \
-     fi \
   && pnpm --filter @image-playground/bff --prod deploy /out/bff \
   && pnpm --filter @image-playground/admin --prod deploy /out/admin \
-  && if [ -d /app/private ]; then cp -a /app/private/. /out/private-src/; fi \
-  && find /out/private-src -type d -name node_modules -print0 | xargs -0r rm -rf \
   && find /out \( -type d -o -type l \) \( \
        -name typescript -o -name bun-types -o -path '*/node_modules/@types/bun' \
      \) -print0 | xargs -0r rm -rf \
@@ -124,6 +80,7 @@ RUN printf '\ninjectWorkspacePackages: true\n' >> pnpm-workspace.yaml \
        /out/bff/skills \
        /out/bff/node_modules/sharp \
        /out/bff/node_modules/@image-playground/db/drizzle/meta/_journal.json \
+       /out/bff/node_modules/@image-playground/db/drizzle-billing/meta/_journal.json \
        /out/admin/server/index.ts \
        /out/admin/contracts.ts; do \
        test -e "$path" || { echo "missing $path" >&2; exit 1; }; \
@@ -223,13 +180,6 @@ RUN ln -s libdav1d.so.7.0.0 /usr/local/lib/libdav1d.so.7 \
 
 COPY --from=runtime-deps /out/bff ./apps/bff
 COPY --from=runtime-deps /out/admin ./apps/admin
-COPY --from=runtime-deps /out/private-src ./private
-COPY scripts/check-shared-bff-modules.ts ./scripts/check-shared-bff-modules.ts
-# Private source is outside apps/bff, so its imports walk up to /app/node_modules.
-# That directory is the public deploy, not a second install. Admin resolves
-# /app/apps/admin/node_modules first and does not use this link.
-RUN ln -sfn apps/bff/node_modules /app/node_modules \
-  && bun run ./scripts/check-shared-bff-modules.ts
 
 COPY --from=admin-build /app/apps/admin/dist ./apps/admin/dist
 COPY --from=web-build /app/apps/web/dist /usr/share/nginx/html

@@ -25,7 +25,7 @@ prefix of the muvloom project), TEST_, or ADMIN_ (see deploy/pages.env.example).
 ENTERPRISE_PUBLIC_ORIGIN / ENTERPRISE_BFF_BASE_URL name the enterprise domain that the muvloom
 Pages project also serves.
 
-All targets need ./private. One muvloom project serves both production domains: the enterprise
+One muvloom project serves both production domains: the enterprise
 domain gets its own first-party API mapping and a host-scoped noindex header.
 EOF
   exit 2

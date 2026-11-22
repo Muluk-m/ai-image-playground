@@ -154,9 +154,9 @@ describe('ci-deploy-target.sh', () => {
     expect(decide(commits[2], 'workflow_dispatch').decision).toBe(everything)
   })
 
-  it('ships every side when only the pinned overlay lock changed', () => {
+  it('ships every side when pnpm-workspace.yaml changed', () => {
     const previous = commits[2]
-    const tip = commitOnTip('private.lock', `${'a'.repeat(40)}\n`)
+    const tip = commitOnTip('pnpm-workspace.yaml', 'packages:\n  - "apps/*"\n  - "packages/*"\n')
     serveSides({ api: previous, web: previous, admin: previous })
     expect(decide(tip).decision).toBe(everything)
   })

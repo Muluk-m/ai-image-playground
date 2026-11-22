@@ -43,13 +43,11 @@ PR 描述「做了什么」里要写根因。评审时核对：
 
 这些是生成物或数据，不逐行看：
 
-- `pnpm-lock.yaml`、`deploy/segmenter/package-lock.json`：只确认 `private/apps/*` 三个 importer 还在（重新生成时漏带 `private/` 会删掉它们，收费构建失败），不看具体版本行。
+- `pnpm-lock.yaml`、`deploy/segmenter/package-lock.json`：不逐行看具体版本行。
 - `*.gen.ts`（`apps/web/src/components/ui/icon/glyphs.gen.ts`、`apps/website/src/routeTree.gen.ts`）。
-- `packages/db/drizzle/meta/*.json`（drizzle 快照）。同目录的 `.sql` 迁移和 `rollback/` 下的回滚脚本要看。
+- `packages/db/drizzle/meta/*.json`、`packages/db/drizzle-billing/meta/*.json`（drizzle 快照）。同目录的 `.sql` 迁移和 `rollback/` 下的回滚脚本要看。
 - `scripts/design-baseline.json`（`pnpm design:baseline` 生成）。
 - `apps/web/public/` 下的图片素材（`inspiration-manifest.json` 是线上数据，要看）。
-
-`private.lock` 只有一行，但它决定生产跑哪个私有 overlay，不能跳过：确认指向的提交是预期的那个。
 
 ## 近期评审里反复出现的问题
 

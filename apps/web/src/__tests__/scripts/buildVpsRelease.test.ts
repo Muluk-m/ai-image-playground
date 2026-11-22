@@ -158,12 +158,8 @@ beforeEach(() => {
   git(checkout, 'init', '-q')
   git(checkout, 'add', '.')
   git(checkout, 'commit', '-qm', 'public')
-  write(join(checkout, 'private/overlay.txt'), 'overlay\n')
-  git(join(checkout, 'private'), 'init', '-q')
-  git(join(checkout, 'private'), 'add', '.')
-  git(join(checkout, 'private'), 'commit', '-qm', 'private')
   pub = git(checkout, 'rev-parse', 'HEAD')
-  priv = git(join(checkout, 'private'), 'rev-parse', 'HEAD')
+  priv = pub
   write(join(root, 'bin/docker'), FAKE_DOCKER, 0o755)
   write(join(root, 'bin/uname'), '#!/bin/sh\necho "${TEST_UNAME:-Darwin}"\n', 0o755)
   // The receiver runs Linux sha256sum; the shim keeps the round trip portable on macOS.
@@ -190,9 +186,6 @@ describe('build-vps-release.sh, registry transport (default)', () => {
   it('leaves fixture commits unsigned', () => {
     // %G? 对验不了的 SSH 签名也印 N。SHA-256 仓库的签名头是 gpgsig-sha256。
     expect(git(checkout, 'cat-file', '-p', 'HEAD')).not.toMatch(/^gpgsig(-sha256)? /m)
-    expect(git(join(checkout, 'private'), 'cat-file', '-p', 'HEAD')).not.toMatch(
-      /^gpgsig(-sha256)? /m,
-    )
   })
 
   it('does not run a signer when the environment turns signing on', () => {
@@ -250,7 +243,7 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     const builds = calls().filter((call) => call.startsWith('buildx build'))
     expect(builds).toHaveLength(3)
     const paid = builds.find((call) => call.includes(`name=${repoName}:paid-`))
-    expect(paid).toContain('--build-arg PRIVATE_OVERLAY_PRESENT=true')
+    expect(paid).not.toContain('PRIVATE_OVERLAY_PRESENT')
     expect(paid).toContain(`--build-arg APP_VERSION=${pub}+${priv}`)
     expect(paid).toContain(`--cache-to type=registry,ref=${repoName}:buildcache,mode=max`)
   })

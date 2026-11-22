@@ -49,7 +49,7 @@ def toolchain():
 
 def dependency_state(versions):
     paths = [ROOT / "package.json", ROOT / "pnpm-lock.yaml", ROOT / "pnpm-workspace.yaml"]
-    for pattern in ("apps/*/package.json", "packages/*/package.json", "private/apps/*/package.json"):
+    for pattern in ("apps/*/package.json", "packages/*/package.json"):
         paths.extend(sorted(ROOT.glob(pattern)))
     return {"tools": versions, "inputs": {str(p.relative_to(ROOT)): digest(p) for p in paths},
             "installed": digest(ROOT / "node_modules/.pnpm/lock.yaml")

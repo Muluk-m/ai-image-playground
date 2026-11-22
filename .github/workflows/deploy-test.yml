@@ -23,9 +23,6 @@ concurrency:
 defaults:
   run:
     shell: bash
-env:
-  # `actions/checkout` 的 `repository` 要 `owner/repo` 形式，不是 SSH URL。
-  PRIVATE_OVERLAY_REPO: Muluk-m/ai-image-playground-private
 jobs:
   # A newer push to `test` waits in the group above. While this run is still in its gates, stop it
   # so the newest push is checked next, but only when a run for the current tip is actually waiting
@@ -48,7 +45,7 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -u
-          gates='(Reuse Web checks|Checks|Tests \(|Web tests \(|Muvloom build checks|Muvloom overlay tests)'
+          gates='(Reuse Web checks|Checks|Tests \(|Web tests \()'
           while :; do
             sleep 10
             jobs=$(gh api "repos/$REPO/actions/runs/$RUN_ID/attempts/$ATTEMPT/jobs?per_page=100" \
@@ -72,8 +69,8 @@ jobs:
           done
 
   # Reuse instead of rerun: every push to `test` also triggers web.yml (Web checks) on the same
-  # commit, with the same lint, typecheck, build, browser startup, database and web tests, and
-  # the overlay pinned by private.lock. This job waits for that run and, only when it completed
+  # commit, with the same lint, typecheck, build, browser startup, database and web tests.
+  # This job waits for that run and, only when it completed
   # with every required job green (scripts/ci-reuse-web-checks.sh lists them), sets reused=true
   # and the gate jobs below are skipped. No run, a failed or missing job, or a timeout gives
   # reused=false and they run here exactly as before. It never fails: the answer is the output.
@@ -103,11 +100,10 @@ jobs:
           # (a later line wins, and nothing here ever writes `true` on failure).
           scripts/ci-reuse-web-checks.sh || echo "reused=false" >> "$GITHUB_OUTPUT"
 
-  # Fallback gates, only when `verify` could not reuse the Web checks run: five jobs side by side.
+  # Fallback gates, only when `verify` could not reuse the Web checks run: three jobs side by side.
   # web.yml shards bff and web vitest three ways; this workflow keeps a smaller split:
-  # public lint/build/startup (checks), the database-backed suites (tests, two runners), the web
-  # vitest (web-tests, two shards), the muvloom build with the pinned overlay (muvloom-checks) and the
-  # overlay's own tests (muvloom-tests). The rollout waits for all five (or for the reuse).
+  # lint/typecheck/build/startup (checks), the database-backed suites (tests, two runners), and the
+  # web vitest (web-tests, two shards). The rollout waits for all three (or for the reuse).
   # Local `pnpm test` keeps running one package at a time; only these CI commands are parallel.
   checks:
     name: Checks
@@ -203,97 +199,6 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm test --env-mode=loose --filter=@image-playground/web -- --shard=${{ matrix.shard }}/2
 
-  muvloom-checks:
-    name: Muvloom build checks
-    needs: verify
-    # Holds the overlay key; never spend it on a dispatch from another branch (checks fails those).
-    if: github.ref == 'refs/heads/test' && needs.verify.outputs.reused != 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    outputs:
-      private_sha: ${{ steps.overlay.outputs.commit }}
-    steps:
-      - name: Require the overlay key
-        env:
-          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-        run: |
-          [ -n "$PRIVATE_OVERLAY_SSH_KEY" ] || { echo "::error::Secrets empty or missing: PRIVATE_OVERLAY_SSH_KEY"; exit 1; }
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Read the pinned overlay commit
-        id: lock
-        run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
-      - name: Check out the private overlay at the pinned commit
-        id: overlay
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
-          ref: ${{ steps.lock.outputs.sha }}
-          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-          path: private
-          persist-credentials: false
-      - uses: ./.github/actions/setup
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm --dir apps/web build:static-host
-        env:
-          BFF_ENABLED: 'true'
-          BFF_BASE_URL: https://startup-api.invalid
-      - uses: ./.github/actions/pages-browser
-        with:
-          label: test-startup-muvloom
-
-  # The overlay's own tests (billing hooks and the rest of private/apps), the same command as
-  # web.yml's with-overlay job. That job runs in another workflow, so the rollout could not wait
-  # for it; this gate makes Deploy test wait for the same suites at the same pinned overlay.
-  muvloom-tests:
-    name: Muvloom overlay tests
-    needs: verify
-    if: github.ref == 'refs/heads/test' && needs.verify.outputs.reused != 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_HOST_AUTH_METHOD: trust
-          POSTGRES_DB: aip_test
-        ports: ["127.0.0.1:5432:5432"]
-        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
-    env:
-      TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
-      BUN_TEST_JOBS: 4
-    outputs:
-      private_sha: ${{ steps.overlay.outputs.commit }}
-    steps:
-      - name: Require the overlay key
-        env:
-          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-        run: |
-          [ -n "$PRIVATE_OVERLAY_SSH_KEY" ] || { echo "::error::Secrets empty or missing: PRIVATE_OVERLAY_SSH_KEY"; exit 1; }
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - name: Read the pinned overlay commit
-        id: lock
-        run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
-      - name: Check out the private overlay at the pinned commit
-        id: overlay
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
-          ref: ${{ steps.lock.outputs.sha }}
-          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-          path: private
-          persist-credentials: false
-      - uses: ./.github/actions/setup
-      # One package at a time; BUN_TEST_JOBS runs files in parallel inside each package.
-      - run: pnpm --filter './private/apps/*' --workspace-concurrency=1 test
-
   # Image build and push start with the run, in parallel with the gates: the images are only
   # data in the private registry until `rollout` ships them, and `rollout` waits for every gate.
   # A commit that then fails a gate leaves an unused test image tag behind and nothing else.
@@ -305,7 +210,6 @@ jobs:
       contents: read
       packages: write
     outputs:
-      private_sha: ${{ steps.overlay.outputs.commit }}
       release_id: ${{ steps.build.outputs.release_id }}
     steps:
       # `workflow_dispatch` can be started from any branch; only `test` may build or reach the test site.
@@ -315,11 +219,6 @@ jobs:
         run: |
           [ "$REF" = refs/heads/test ] ||
             { echo "::error::Deploy test only runs on refs/heads/test, not $REF."; exit 1; }
-      - name: Require secrets
-        env:
-          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-        run: |
-          [ -n "$PRIVATE_OVERLAY_SSH_KEY" ] || { echo "::error::Secrets empty or missing: PRIVATE_OVERLAY_SSH_KEY"; exit 1; }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
@@ -331,19 +230,6 @@ jobs:
       # up running something that exists nowhere else. Merge main into test and push again.
       # `rollout` needs this job, so a branch behind main is never shipped.
       - run: scripts/ci-check-test-branch.sh origin
-      # Pin the same overlay for image and Pages builds.
-      - name: Read the pinned overlay commit
-        id: lock
-        run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
-      - name: Check out the private overlay at the pinned commit
-        id: overlay
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
-          ref: ${{ steps.lock.outputs.sha }}
-          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-          path: private
-          persist-credentials: false
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
@@ -353,9 +239,8 @@ jobs:
         id: build
         env:
           PUBLIC_SHA: ${{ github.sha }}
-          PRIVATE_SHA: ${{ steps.overlay.outputs.commit }}
         run: |
-          release_id="aip-$(printf %.12s "$PUBLIC_SHA")-$(printf %.12s "$PRIVATE_SHA")"
+          release_id="aip-$(printf %.12s "$PUBLIC_SHA")-$(printf %.12s "$PUBLIC_SHA")"
           ./scripts/build-vps-release.sh test "$RUNNER_TEMP/$release_id"
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
       # The release directory is data only (image digests and checksums); the receiver
@@ -371,12 +256,12 @@ jobs:
           retention-days: 1
 
   # The rollout starts only when every gate passed: either `verify` reused the Web checks run of
-  # this commit, or all five fallback gates succeeded. `!cancelled()` lets it evaluate when the
+  # this commit, or all three fallback gates succeeded. `!cancelled()` lets it evaluate when the
   # fallback gates were skipped by the reuse; the explicit results keep every other case (a gate
   # that failed, `verify` skipped, `superseded` cancelled) from starting it.
   rollout:
     name: Backend VPS rollout
-    needs: [images, superseded, verify, checks, tests, web-tests, muvloom-checks, muvloom-tests]
+    needs: [images, superseded, verify, checks, tests, web-tests]
     if: >-
       ${{ !cancelled() &&
       needs.images.result == 'success' &&
@@ -385,15 +270,11 @@ jobs:
       (needs.verify.outputs.reused == 'true' ||
       (needs.checks.result == 'success' &&
       needs.tests.result == 'success' &&
-      needs.web-tests.result == 'success' &&
-      needs.muvloom-checks.result == 'success' &&
-      needs.muvloom-tests.result == 'success')) }}
+      needs.web-tests.result == 'success')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       contents: read
-    outputs:
-      private_sha: ${{ needs.images.outputs.private_sha }}
     steps:
       - name: Require secrets
         env:
@@ -411,21 +292,6 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      # Reused checks ran on this commit with the overlay private.lock pins, the same one the
-      # images were built from. Fallback gates report the overlay they checked; all must agree.
-      - name: Require the overlay the checks used
-        env:
-          REUSED: ${{ needs.verify.outputs.reused }}
-          CHECKED: ${{ needs.muvloom-checks.outputs.private_sha }}
-          TESTED: ${{ needs.muvloom-tests.outputs.private_sha }}
-          BUILT: ${{ needs.images.outputs.private_sha }}
-        run: |
-          PINNED=$(tr -d '[:space:]' < private.lock)
-          [ -n "$BUILT" ] && [ "$BUILT" = "$PINNED" ] ||
-            { echo "::error::Images were built from overlay $BUILT, not the pinned $PINNED."; exit 1; }
-          [ "$REUSED" = true ] && exit 0
-          [ "$CHECKED" = "$BUILT" ] && [ "$TESTED" = "$BUILT" ] ||
-            { echo "::error::Overlay $BUILT is not the commit muvloom-checks ($CHECKED) and muvloom-tests ($TESTED) verified."; exit 1; }
       - name: Download the release built for this run
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -464,10 +330,9 @@ jobs:
         env:
           PAGES_ENV: ${{ secrets.PAGES_ENV }}
           PAID_CLOUDFLARE_API_TOKEN: ${{ secrets.PAID_CLOUDFLARE_API_TOKEN }}
-          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
         run: |
           missing=
-          for name in PAGES_ENV PAID_CLOUDFLARE_API_TOKEN PRIVATE_OVERLAY_SSH_KEY; do
+          for name in PAGES_ENV PAID_CLOUDFLARE_API_TOKEN; do
             [ -n "$(printenv "$name")" ] || missing="$missing $name"
           done
           [ -z "$missing" ] || { echo "::error::Secrets empty or missing:$missing"; exit 1; }
@@ -498,36 +363,25 @@ jobs:
             echo "TEST_NOTIFY_UPDATE="
           } > "$RUNNER_TEMP/pages.env"
           echo "PAGES_ENV_FILE=$RUNNER_TEMP/pages.env" >> "$GITHUB_ENV"
-      # Match the backend overlay exactly; both builds use the same checked source pair.
-      #
-      # 与生产一样用 `actions/checkout`：它把 github.com 的 host key 硬编码在源码里，不像
-      # 手搓那版每次都去匿名调 `api.github.com/meta`（限额 60 次/小时且按发起 IP 计，runner
-      # 出口 IP 共享）。调研见 `docs/research/deploy-known-hosts-and-overlay-coupling.md`。
-      - name: Check out the private overlay at the backend commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
-          ref: ${{ needs.rollout.outputs.private_sha }}
-          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-          path: private
-          persist-credentials: false
-      # The overlay packages are workspace members; the install covers their dependencies too.
       - uses: ./.github/actions/setup
       - name: Require isolated test API and matching backend version
         env:
           PUBLIC_SHA: ${{ github.sha }}
-          PRIVATE_SHA: ${{ needs.rollout.outputs.private_sha }}
         run: |
           scripts/check-test-isolation.sh pages "$PAGES_ENV_FILE"
           # shellcheck source=/dev/null
           . "$PAGES_ENV_FILE"
-          expected="$PUBLIC_SHA+$PRIVATE_SHA"
           for _attempt in $(seq 1 30); do
             actual=$(curl -fsS --max-time 10 "$TEST_BFF_BASE_URL/health" | jq -r .version) || actual=
-            [ "$actual" != "$expected" ] || break
+            if [ "$actual" = "$PUBLIC_SHA+$PUBLIC_SHA" ] || [ "$actual" = "$PUBLIC_SHA" ]; then
+              break
+            fi
             sleep 10
           done
-          [ "$actual" = "$expected" ] || { echo "::error::Test API is not serving the checked release"; exit 1; }
+          if [ "$actual" != "$PUBLIC_SHA+$PUBLIC_SHA" ] && [ "$actual" != "$PUBLIC_SHA" ]; then
+            echo "::error::Test API is not serving the checked release (got '$actual')"
+            exit 1
+          fi
       - run: ./scripts/pages-release.sh test
       - uses: ./.github/actions/pages-browser
         with:

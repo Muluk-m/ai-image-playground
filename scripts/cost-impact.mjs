@@ -26,22 +26,24 @@ export const COST_PATHS = [
   /^apps\/bff\/src\/lib\/agent\/(chat-task|background-jobs|auto-submit|turn-preparation|turn-authorization|stage-authorizations)\.ts$/,
   // 批量分析与批量生成：模型解析、配额与任务派发
   /^apps\/bff\/src\/lib\/agent\/batch-[^/]*\.ts$/,
-  // 任务提交、状态流转与计费 hook 接缝
-  /^apps\/bff\/src\/lib\/(taskSubmission|private-overlay|private-host)\.ts$/,
+  // 任务提交、状态流转与计费模块
+  /^apps\/bff\/src\/lib\/(taskSubmission|private-overlay|billing-hooks)\.ts$/,
   /^apps\/bff\/src\/db\/task-transitions\.ts$/,
+  /^apps\/bff\/src\/modules\/billing\//,
   // 上游供应商调用
   /^apps\/bff\/src\/lib\/upstream(\.ts$|\/)/,
   /^apps\/bff\/src\/lib\/(chatCompletion|channels|model-availability|token-pricing|quota|account-concurrency|rate-limit|operator-config)\.ts$/,
   /^apps\/bff\/src\/routes\/(channels|internal-models|internal-agent-models)\.ts$/,
-  // 后台的模型与智能体模型设置
+  // 后台的模型、智能体模型与计费设置
   /^apps\/admin\/server\/routes\/(models|agent-models)\.ts$/,
-  // 前端的定价、积分与渠道
-  /^apps\/web\/src\/features\/pricing\//,
+  /^apps\/admin\/src\/features\/billing\//,
+  // 前端的定价、积分、计费与渠道
+  /^apps\/web\/src\/features\/(pricing|billing)\//,
   /^apps\/web\/src\/components\/(Credits|SubmissionBillingAction)\.tsx$/,
   /^apps\/web\/src\/lib\/channels\//,
-  /^packages\/shared\/src\/channel-discovery\.ts$/,
-  // 私有 overlay（收费、计费、套餐都在里面）
-  /^private\.lock$/,
+  // 跨包计费契约与计费迁移
+  /^packages\/shared\/src\/(channel-discovery|billing-contracts)\.ts$/,
+  /^packages\/db\/(drizzle-billing\/|src\/schemas\/billing\.ts$|src\/migrate-billing\.ts$)/,
 ]
 
 export function costFiles(files) {
