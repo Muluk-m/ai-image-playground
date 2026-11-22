@@ -43,11 +43,20 @@ type Result struct {
 
 type record struct {
 	CheckedAt     time.Time `json:"checked_at"`
+	Source        string    `json:"source,omitempty"`
 	LatestVersion string    `json:"latest_version,omitempty"`
 	Reason        string    `json:"reason,omitempty"`
 }
 
-// Check caches attempts, including failures, for the user's local calendar day.
+func normalizedCheckSource(origin string) string {
+	trimmed := strings.TrimRight(strings.ToLower(strings.TrimSpace(origin)), "/")
+	if trimmed == "" {
+		return "github"
+	}
+	return trimmed
+}
+
+// Check caches attempts, including failures, for the user's local calendar day per manifest source.
 // A recorded attempt survives crashes; the lock prevents concurrent checks/prompts.
 func (c Checker) Check(ctx context.Context) Result {
 	result := Result{Status: "unavailable", CurrentVersion: c.Version}
@@ -62,13 +71,15 @@ func (c Checker) Check(ctx context.Context) Result {
 	if c.Now != nil {
 		now = c.Now()
 	}
+	source := normalizedCheckSource(c.ManifestOrigin)
 	path := filepath.Join(dir, "check.json")
 	var saved record
 	if body, err := os.ReadFile(path); err == nil && json.Unmarshal(body, &saved) == nil &&
+		saved.Source == source &&
 		!now.Before(saved.CheckedAt) && saved.CheckedAt.In(now.Location()).Format("2006-01-02") == now.Format("2006-01-02") {
 		return resultFor(c.Version, saved, true)
 	}
-	saved = record{CheckedAt: now, Reason: "release_check_incomplete"}
+	saved = record{CheckedAt: now, Source: source, Reason: "release_check_incomplete"}
 	if err := save(path, saved); err != nil {
 		result.Reason = "storage_unavailable"
 		return result

@@ -2060,6 +2060,8 @@ func TestApprovedPendingLoginIsCollectedAutomaticallyBySubsequentCommands(t *tes
 		if _, err := app.Store.LoadPending(); err != nil {
 			t.Fatalf("pending login was dropped before approval: %v", err)
 		}
+		// Advance past NextPollAt so Poll 2 runs without sleeping or waiting.
+		_ = app.Store.UpdatePendingIfMatch(secretDeviceCode, func(p *auth.PendingLogin) { p.NextPollAt = time.Time{} })
 		// Poll 2: user has now clicked Allow -> capabilities redeems the token on its own and succeeds.
 		r := execute(t, app, "capabilities")
 		if r.code != ExitOK {
@@ -2086,6 +2088,7 @@ func TestApprovedPendingLoginIsCollectedAutomaticallyBySubsequentCommands(t *tes
 		if first.code != ExitOK || firstData["state"] != "unauthenticated" || firstData["pending_login"] == nil {
 			t.Fatalf("unapproved status = %d %s", first.code, first.stdout)
 		}
+		_ = app.Store.UpdatePendingIfMatch(secretDeviceCode, func(p *auth.PendingLogin) { p.NextPollAt = time.Time{} })
 		// Poll 2: approved -> status transitions directly to ready with no leftover pending_login.
 		second := execute(t, app, "auth", "status")
 		secondData := second.out["data"].(map[string]any)
@@ -2232,19 +2235,23 @@ func TestCollectPendingLoginRespectsNextPollAtAndSlowDown(t *testing.T) {
 		t.Fatalf("expected slow_down to persist IntervalSeconds=10 and future NextPollAt, got %+v err=%v", updatedPending, err)
 	}
 
-	// Second `auth status` waits out NextPollAt via Sleep (~10s), gets `slow_down` again -> IntervalSeconds=15 (>12s).
+	// Immediate second `auth status` returns instantly (0 sleeps, 0 network calls) while NextPollAt is in the future.
 	second := execute(t, app, "auth", "status")
-	if second.code != ExitOK || tokenCalls != 2 || len(slept) != 1 || slept[0] <= 0 {
-		t.Fatalf("expected second status to sleep for NextPollAt before polling, got calls=%d slept=%v", tokenCalls, slept)
-	}
-	backedOffPending, err := store.LoadPending()
-	if err != nil || backedOffPending.IntervalSeconds != 15 {
-		t.Fatalf("expected second slow_down to persist IntervalSeconds=15, got %+v err=%v", backedOffPending, err)
+	if second.code != ExitOK || tokenCalls != 1 || len(slept) != 0 {
+		t.Fatalf("expected NextPollAt to skip without sleeping on background status, got calls=%d slept=%v", tokenCalls, slept)
 	}
 
-	// Third immediate `auth status` sees waitRem > 12s and skips polling without stalling.
-	third := execute(t, app, "auth", "status")
-	if third.code != ExitOK || tokenCalls != 2 {
-		t.Fatalf("expected >12s NextPollAt to suppress immediate re-poll, got calls=%d", tokenCalls)
+	// CommitPendingLogin drops redemption if `auth logout` cleared pending-login.json concurrently.
+	_ = store.Clear()
+	committed, err := store.CommitPendingLogin("dev-slow", auth.Credentials{
+		AccessToken:  "stale-at",
+		RefreshToken: "stale-rt",
+		BaseURL:      srvURL,
+	})
+	if err != nil || committed {
+		t.Fatalf("expected CommitPendingLogin to abort after concurrent logout, got committed=%v err=%v", committed, err)
+	}
+	if _, loadErr := store.Load(); !errors.Is(loadErr, auth.ErrNotFound) {
+		t.Fatalf("concurrent logout was resurrected by stale CommitPendingLogin: %v", loadErr)
 	}
 }

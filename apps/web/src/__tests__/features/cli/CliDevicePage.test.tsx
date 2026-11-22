@@ -79,9 +79,7 @@ describe('CliDevicePage', () => {
     )
     vi.stubGlobal('fetch', fetcher)
     await render()
-    expect(host.textContent).toContain('Muvloom CLI')
-    // URL 已携带授权码时不向用户重复展示 8 位授权码噪音，但提交决定仍回传该授权码。
-    expect(host.textContent).not.toContain('BCDF-GHJK')
+    expect(host.textContent).toContain('Muvloom CLI · BCDF-GHJK')
     // 已登录用户直接进入授权确认，步骤条跳过「登录」。
     expect(host.querySelector('[aria-label="授权步骤"]')?.textContent).not.toContain('登录')
     // 按 scopes 动态展示能力胶囊（本用例不含 media:write，不展示「参考图编辑」），并默认显示消耗积分提示。
@@ -122,6 +120,8 @@ describe('CliDevicePage', () => {
       ),
     )
     await render()
+    expect(host.textContent).toContain('Muvloom CLI')
+    expect(host.textContent).not.toContain('BCDF-GHJK')
     await act(async () => button('允许').click())
     expect(vi.mocked(fetch)).toHaveBeenLastCalledWith(
       'https://api.example.com/api/cli/device',

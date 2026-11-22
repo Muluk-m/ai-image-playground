@@ -248,6 +248,8 @@ export function createSkillManifest({
       'claude-code': cliPkg,
       codex: cliPkg,
       workbuddy: workbuddyPkg,
+    },
+    extra_packages: {
       cursor: cliPkg,
       windsurf: cliPkg,
       cline: cliPkg,

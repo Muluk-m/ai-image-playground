@@ -200,6 +200,16 @@ describe('CLI Skill package and hot-update manifest', () => {
         'linux/arm64',
         'windows/amd64',
       ])
+      // Keep `packages` restricted to the 3 legacy 0.2.6 hosts so installed CLI 0.2.6 validates
+      // `/cli/skill-manifest.json` cleanly, while 0.2.7+ merges `extra_packages`.
+      expect(Object.keys(manifest.packages).sort()).toEqual(['claude-code', 'codex', 'workbuddy'])
+      expect(Object.keys(manifest.extra_packages).sort()).toEqual([
+        'cline',
+        'cursor',
+        'openclaw',
+        'windsurf',
+      ])
+      const allPackages = { ...manifest.packages, ...manifest.extra_packages }
       for (const host of [
         'claude-code',
         'codex',
@@ -209,7 +219,7 @@ describe('CLI Skill package and hot-update manifest', () => {
         'cline',
         'openclaw',
       ] as const) {
-        const pkg = manifest.packages[host]
+        const pkg = allPackages[host]
         expect(pkg.archive).toMatch(/^muvloom-[a-z-]+\.zip$/)
         expect(pkg.archive_sha256).toMatch(/^[a-f0-9]{64}$/)
         expect(pkg.file_hash).toMatch(/^[a-f0-9]{64}$/)
@@ -219,7 +229,9 @@ describe('CLI Skill package and hot-update manifest', () => {
         expect(pkg.files.some((item) => item.path === '.muvloom-skill.json')).toBe(false)
       }
       expect(manifest.packages['claude-code'].file_hash).toBe(manifest.packages.codex.file_hash)
-      expect(manifest.packages['claude-code'].file_hash).toBe(manifest.packages.cursor.file_hash)
+      expect(manifest.packages['claude-code'].file_hash).toBe(
+        manifest.extra_packages.cursor.file_hash,
+      )
       expect(
         manifest.packages.workbuddy.files.some((item) => item.path === 'references/workbuddy.md'),
       ).toBe(true)

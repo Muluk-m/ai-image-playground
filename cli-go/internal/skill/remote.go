@@ -134,6 +134,7 @@ type RemoteManifest struct {
 	Version       string                          `json:"version"`
 	BundleVersion string                          `json:"bundle_version"`
 	Packages      map[string]RemoteManifestBundle `json:"packages"`
+	ExtraPackages map[string]RemoteManifestBundle `json:"extra_packages,omitempty"`
 	CLI           *RemoteManifestCLI              `json:"cli,omitempty"`
 }
 
@@ -695,6 +696,11 @@ func fetchManifest(ctx context.Context, httpClient *http.Client, origin string) 
 	if err := validateManifest(manifest); err != nil {
 		return RemoteManifest{}, fmt.Errorf("%w: %w", ErrInvalidManifest, err)
 	}
+	for host, pkg := range manifest.ExtraPackages {
+		if _, exists := manifest.Packages[host]; !exists {
+			manifest.Packages[host] = pkg
+		}
+	}
 	return manifest, nil
 }
 
@@ -711,6 +717,14 @@ func validateManifest(m RemoteManifest) error {
 		}
 		if err := validateManifestBundle(pkg); err != nil {
 			return fmt.Errorf("invalid package %q: %w", host, err)
+		}
+	}
+	for host, pkg := range m.ExtraPackages {
+		if !hostSlugRe.MatchString(host) {
+			return fmt.Errorf("invalid extra host %q in skill manifest", host)
+		}
+		if err := validateManifestBundle(pkg); err != nil {
+			return fmt.Errorf("invalid extra package %q: %w", host, err)
 		}
 	}
 	if m.CLI != nil {
@@ -1350,7 +1364,7 @@ func pruneDirsDeepestFirst(root string, dirs []string) {
 }
 
 func resolveSkillRootAndDest(host, scope, home, cwd string) (string, string, error) {
-	dir, ok := hostDir(host)
+	dir, ok := hostDirForScope(host, scope)
 	if !ok {
 		return "", "", fmt.Errorf("unsupported host %q", host)
 	}

@@ -88,15 +88,16 @@ type metadata struct {
 	FileHash string `json:"file_hash"`
 }
 
-// hosts lists each supported agent host, in display order, with the directory holding its skills.
-var hosts = []struct{ name, dir string }{
-	{"claude-code", ".claude"},
-	{"codex", ".agents"},
-	{"workbuddy", ".workbuddy"},
-	{"cursor", ".cursor"},
-	{"windsurf", ".codeium/windsurf"},
-	{"cline", ".cline"},
-	{"openclaw", ".openclaw"},
+// hosts lists each supported agent host, in display order, with its user-scope and project-scope
+// config directories (Windsurf uses ~/.codeium/windsurf globally and <project>/.windsurf per workspace).
+var hosts = []struct{ name, userDir, projectDir string }{
+	{"claude-code", ".claude", ".claude"},
+	{"codex", ".agents", ".agents"},
+	{"workbuddy", ".workbuddy", ".workbuddy"},
+	{"cursor", ".cursor", ".cursor"},
+	{"windsurf", ".codeium/windsurf", ".windsurf"},
+	{"cline", ".cline", ".cline"},
+	{"openclaw", ".openclaw", ".openclaw"},
 }
 
 // SupportedHosts returns the canonical host names accepted by `skill install --host` (excluding "auto" and "generic").
@@ -108,9 +109,14 @@ func SupportedHosts() []string {
 	return names
 }
 
-// HostDir returns the relative config directory (slash-separated) for a supported host.
+// HostDir returns the user-scope relative config directory (slash-separated) for a supported host.
 func HostDir(name string) (string, bool) {
 	return hostDir(name)
+}
+
+// HostDirForScope returns the relative config directory (slash-separated) for name and scope ("user" or "project").
+func HostDirForScope(name, scope string) (string, bool) {
+	return hostDirForScope(name, scope)
 }
 
 // IsSupportedHost reports whether name is one of the canonical host names in SupportedHosts().
@@ -189,7 +195,11 @@ func DetectAutoHosts(scope, home, cwd string, getenv func(string) string) ([]str
 	}
 	var existing []string
 	for _, h := range hosts {
-		candidate := filepath.Join(root, filepath.FromSlash(h.dir))
+		relDir := h.userDir
+		if scope == "project" {
+			relDir = h.projectDir
+		}
+		candidate := filepath.Join(root, filepath.FromSlash(relDir))
 		var info os.FileInfo
 		var statErr error
 		if scope == "project" {
@@ -260,54 +270,54 @@ func InstallAuto(opts InstallOptions, getenv func(string) string) (AutoResult, e
 
 // EnsureInstalled installs the bundled Skill when missing or intact-and-older, while preserving
 // existing copies that were hot-updated to a newer SkillVersion or customized by the user.
+// It inspects ONLY the single target destination (never scanning unrelated host directories) and
+// refuses to overwrite when the destination exists in an unreadable or unverifiable state.
 func EnsureInstalled(opts InstallOptions) (Result, error) {
 	if opts.Host == "generic" {
 		return Install(opts)
 	}
-	existingList, err := Installed(opts.Home, opts.CWD)
-	if err == nil {
-		for _, item := range existingList {
-			if item.foundHost == opts.Host && item.foundScope == opts.Scope {
-				if item.Current || !item.Intact {
-					return Result{
-						Host:     opts.Host,
-						Scope:    opts.Scope,
-						Path:     item.Path,
-						Version:  item.Version,
-						FileHash: item.FileHash,
-					}, nil
-				}
-				break
-			}
-		}
+	if opts.Scope != "user" && opts.Scope != "project" {
+		return Result{}, fmt.Errorf("unsupported scope %q", opts.Scope)
+	}
+	_, destination, err := resolveSkillRootAndDest(opts.Host, opts.Scope, opts.Home, opts.CWD)
+	if err != nil {
+		return Result{}, err
+	}
+	exists, item, err := inspectAtPath(destination, opts.Host, opts.Scope)
+	if err != nil {
+		return Result{}, err
+	}
+	if exists && (item.Current || !item.Intact) {
+		return Result{
+			Host:     opts.Host,
+			Scope:    opts.Scope,
+			Path:     destination,
+			Version:  item.Version,
+			FileHash: item.FileHash,
+		}, nil
 	}
 	guarded := opts
-	guarded.onlyIf = func(destination string) (bool, error) {
-		current, cErr := Installed(opts.Home, opts.CWD)
-		if cErr != nil {
-			return true, nil
+	guarded.onlyIf = func(dest string) (bool, error) {
+		ex, current, iErr := inspectAtPath(dest, opts.Host, opts.Scope)
+		if iErr != nil {
+			return false, iErr
 		}
-		for _, item := range current {
-			if item.Path == destination {
-				return !item.Current && item.Intact, nil
-			}
+		if ex && (current.Current || !current.Intact) {
+			return false, nil
 		}
 		return true, nil
 	}
 	res, err := Install(guarded)
 	if errors.Is(err, errNotNeeded) {
-		if latest, lErr := Installed(opts.Home, opts.CWD); lErr == nil {
-			for _, item := range latest {
-				if item.foundHost == opts.Host && item.foundScope == opts.Scope {
-					return Result{
-						Host:     opts.Host,
-						Scope:    opts.Scope,
-						Path:     item.Path,
-						Version:  item.Version,
-						FileHash: item.FileHash,
-					}, nil
-				}
-			}
+		ex, latest, lErr := inspectAtPath(destination, opts.Host, opts.Scope)
+		if lErr == nil && ex {
+			return Result{
+				Host:     opts.Host,
+				Scope:    opts.Scope,
+				Path:     destination,
+				Version:  latest.Version,
+				FileHash: latest.FileHash,
+			}, nil
 		}
 	}
 	return res, err
@@ -326,9 +336,16 @@ func skillFilePerm(rel string) os.FileMode {
 }
 
 func hostDir(name string) (string, bool) {
+	return hostDirForScope(name, "user")
+}
+
+func hostDirForScope(name, scope string) (string, bool) {
 	for _, host := range hosts {
 		if host.name == name {
-			return host.dir, true
+			if scope == "project" {
+				return host.projectDir, true
+			}
+			return host.userDir, true
 		}
 	}
 	return "", false
@@ -338,12 +355,12 @@ func Install(opts InstallOptions) (Result, error) {
 	if opts.Host == "generic" {
 		return installGeneric(opts)
 	}
-	dir, ok := hostDir(opts.Host)
-	if !ok {
-		return Result{}, fmt.Errorf("unsupported host %q", opts.Host)
-	}
 	if opts.Scope != "user" && opts.Scope != "project" {
 		return Result{}, fmt.Errorf("unsupported scope %q", opts.Scope)
+	}
+	dir, ok := hostDirForScope(opts.Host, opts.Scope)
+	if !ok {
+		return Result{}, fmt.Errorf("unsupported host %q", opts.Host)
 	}
 	home := opts.Home
 	if home == "" {

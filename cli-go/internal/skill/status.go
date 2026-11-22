@@ -73,7 +73,11 @@ func Installed(home, cwd string) ([]Installation, error) {
 	result := make([]Installation, 0)
 	for _, location := range locations {
 		for _, host := range hosts {
-			path := filepath.Join(location.root, filepath.FromSlash(host.dir), "skills", "muvloom")
+			relDir := host.userDir
+			if location.scope == "project" {
+				relDir = host.projectDir
+			}
+			path := filepath.Join(location.root, filepath.FromSlash(relDir), "skills", "muvloom")
 			data, readErr := os.ReadFile(filepath.Join(path, ".muvloom-skill.json"))
 			if errors.Is(readErr, os.ErrNotExist) {
 				// Official ZIP installs in user-scoped WorkBuddy before .muvloom-skill.json
@@ -125,6 +129,69 @@ func Installed(home, cwd string) ([]Installation, error) {
 		}
 	}
 	return result, nil
+}
+
+// inspectAtPath inspects a single Skill directory without reading any sibling host directories.
+// If the directory exists and any file or metadata cannot be read or hashed, an error is returned
+// so callers such as EnsureInstalled never overwrite an unreadable or customized directory.
+func inspectAtPath(destination, hostName, scope string) (bool, Installation, error) {
+	stat, statErr := os.Lstat(destination)
+	if errors.Is(statErr, os.ErrNotExist) {
+		return false, Installation{}, nil
+	}
+	if statErr != nil {
+		return true, Installation{}, statErr
+	}
+	if !stat.IsDir() {
+		return true, Installation{}, fmt.Errorf("%s is not a directory", destination)
+	}
+	data, readErr := os.ReadFile(filepath.Join(destination, ".muvloom-skill.json"))
+	if errors.Is(readErr, os.ErrNotExist) {
+		return true, Installation{
+			Skill:      "muvloom",
+			Host:       hostName,
+			Scope:      scope,
+			Path:       destination,
+			Version:    "0.0.0",
+			Intact:     false,
+			Current:    false,
+			foundHost:  hostName,
+			foundScope: scope,
+		}, nil
+	}
+	if readErr != nil {
+		return true, Installation{}, readErr
+	}
+	var item Installation
+	if err := json.Unmarshal(data, &item); err != nil {
+		return true, Installation{
+			Skill:      "muvloom",
+			Host:       hostName,
+			Scope:      scope,
+			Path:       destination,
+			Intact:     false,
+			Current:    false,
+			foundHost:  hostName,
+			foundScope: scope,
+		}, nil
+	}
+	item.Path = destination
+	item.foundHost, item.foundScope = hostName, scope
+	onDisk, hashErr := treeHash(destination)
+	if hashErr != nil {
+		return true, Installation{}, hashErr
+	}
+	item.Intact = onDisk == item.FileHash
+	if _, bundledHash, bundleErr := bundleFilesForHost(hostName); bundleErr == nil {
+		item.Current = item.Intact && (item.FileHash == bundledHash || VersionLess(SkillVersion, item.Version))
+	}
+	if item.Host == "" {
+		item.Host = hostName
+	}
+	if item.Scope == "" {
+		item.Scope = scope
+	}
+	return true, item, nil
 }
 
 // treeHash hashes an installed Skill the same way bundleFiles hashes the bundle,

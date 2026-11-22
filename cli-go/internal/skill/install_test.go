@@ -622,3 +622,52 @@ func TestRefreshOutdatedNeverDowngradesMovesOrRacesACopy(t *testing.T) {
 		}
 	})
 }
+
+func TestWindsurfUserVsProjectDirectoriesAndTargetOnlyEnsureInstalled(t *testing.T) {
+	home := t.TempDir()
+	project := filepath.Join(home, "workspace")
+	if err := os.MkdirAll(filepath.Join(project, ".windsurf"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "package.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// User scope installs under ~/.codeium/windsurf/skills/muvloom; project scope under <project>/.windsurf/skills/muvloom.
+	uRes, err := EnsureInstalled(InstallOptions{Host: "windsurf", Scope: "user", Home: home, CWD: project})
+	if err != nil || uRes.Path != filepath.Join(home, ".codeium", "windsurf", "skills", "muvloom") {
+		t.Fatalf("unexpected windsurf user install: %+v %v", uRes, err)
+	}
+	detected, err := DetectAutoHosts("project", home, project, func(string) string { return "" })
+	if err != nil || len(detected) != 1 || detected[0] != "windsurf" {
+		t.Fatalf("expected project auto-detect to find .windsurf, got %v err=%v", detected, err)
+	}
+	pRes, err := EnsureInstalled(InstallOptions{Host: "windsurf", Scope: "project", Home: home, CWD: project})
+	if err != nil || !strings.HasSuffix(pRes.Path, filepath.Join(".windsurf", "skills", "muvloom")) {
+		t.Fatalf("unexpected windsurf project install: %+v %v", pRes, err)
+	}
+
+	// EnsureInstalled preserves a newer hot-updated copy even when an unrelated sibling host metadata is unreadable.
+	codexRes, err := Install(InstallOptions{Host: "codex", Scope: "user", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeRelease(t, codexRes.Path, "9.9.9", "codex", "user")
+	claudeDir := filepath.Join(home, ".claude", "skills", "muvloom")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	unreadableMeta := filepath.Join(claudeDir, ".muvloom-skill.json")
+	if err := os.WriteFile(unreadableMeta, []byte(`{"skill":"muvloom"}`), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(unreadableMeta, 0o600)
+
+	kept, err := EnsureInstalled(InstallOptions{Host: "codex", Scope: "user", Home: home})
+	if err != nil || kept.Version != "9.9.9" {
+		t.Fatalf("EnsureInstalled failed or downgraded codex when sibling was unreadable: %+v %v", kept, err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(codexRes.Path, "SKILL.md")); string(data) != "release 9.9.9" {
+		t.Fatal("EnsureInstalled overwrote newer hot-updated codex copy")
+	}
+}

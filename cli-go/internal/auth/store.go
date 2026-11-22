@@ -290,6 +290,36 @@ func (s Store) Describe() Info {
 	return info
 }
 
+func sameOriginURL(a, b string) bool {
+	na := strings.TrimRight(strings.ToLower(strings.TrimSpace(a)), "/")
+	nb := strings.TrimRight(strings.ToLower(strings.TrimSpace(b)), "/")
+	return na != "" && na == nb
+}
+
+func (s Store) ensureNoSymlinksForMigration() error {
+	if s.Dir == "" {
+		return errors.New("empty config directory")
+	}
+	if dirInfo, err := os.Lstat(s.Dir); err != nil {
+		return err
+	} else if dirInfo.Mode()&os.ModeSymlink != 0 || !dirInfo.IsDir() {
+		return errors.New("config directory is not a regular directory")
+	}
+	for _, target := range []string{s.serviceFile(), s.credentialsFile(), s.storeModeFile()} {
+		info, err := os.Lstat(target)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return fmt.Errorf("%s is not a regular file", filepath.Base(target))
+		}
+	}
+	return nil
+}
+
 func (s Store) Load() (Credentials, error) {
 	if s.shouldUseKeychainForRead() {
 		if secret, err := s.keychain().Get(keyringService, keyringUser); err == nil {
@@ -306,10 +336,10 @@ func (s Store) Load() (Credentials, error) {
 		return creds, nil
 	}
 	// One-time seamless migration for <= 0.2.6 users upgrading from keychain to 0600 file mode:
-	// only runs when connection.json exists on disk and store-mode.json has not yet switched to
-	// file mode, so fresh 0.2.7+ installs and already-migrated sessions never call Keychain.
-	// Reading, verifying connection.json, and writing run together under the credential lock so
-	// a concurrent logout or re-login can never be overwritten or overshadowed by stale data.
+	// only runs when a checksum-verified connection.json exists on disk, paths contain no
+	// symlinks, and store-mode.json has not yet switched to file mode. Write errors are
+	// propagated (truncating any partial file so Keychain remains retryable) instead of
+	// falsely reporting migration success.
 	if errors.Is(err, ErrNotFound) && s.MigrateKeyring && !s.preferFileOverKeychain() && fileHasContent(s.serviceFile()) {
 		var migrated Credentials
 		var migratedOK bool
@@ -320,7 +350,14 @@ func (s Store) Load() (Credentials, error) {
 			} else if !errors.Is(existingErr, ErrNotFound) {
 				return existingErr
 			}
-			if s.preferFileOverKeychain() || !fileHasContent(s.serviceFile()) {
+			if s.preferFileOverKeychain() {
+				return nil
+			}
+			if symErr := s.ensureNoSymlinksForMigration(); symErr != nil {
+				return nil
+			}
+			svcURL, svcErr := s.LoadService()
+			if svcErr != nil || svcURL == "" {
 				return nil
 			}
 			secret, kErr := s.keychain().Get(keyringService, keyringUser)
@@ -330,11 +367,18 @@ func (s Store) Load() (Credentials, error) {
 			if jsonErr := json.Unmarshal([]byte(secret), &migrated); jsonErr != nil {
 				return fmt.Errorf("stored credentials are unreadable: %w", jsonErr)
 			}
-			if wErr := writeRecord(s.credentialsFile(), migrated); wErr == nil {
-				if mErr := writeRecord(s.storeModeFile(), storeMode{Source: "file", Reason: "migrated"}); mErr == nil {
-					_ = s.keychain().Delete(keyringService, keyringUser)
-				}
+			if migrated.BaseURL != "" && !sameOriginURL(migrated.BaseURL, svcURL) {
+				return nil
 			}
+			if wErr := writeRecord(s.credentialsFile(), migrated); wErr != nil {
+				_ = truncateIfExists(s.credentialsFile())
+				return wErr
+			}
+			if mErr := writeRecord(s.storeModeFile(), storeMode{Source: "file", Reason: "migrated"}); mErr != nil {
+				_ = truncateIfExists(s.credentialsFile())
+				return mErr
+			}
+			_ = s.keychain().Delete(keyringService, keyringUser)
 			migratedOK = true
 			return nil
 		})
@@ -645,6 +689,56 @@ func (s Store) SavePending(pending PendingLogin) error {
 
 func (s Store) ClearPending() error {
 	return s.locked(func() error { return truncateIfExists(s.pendingFile()) })
+}
+
+// ClearPendingIfMatch clears pending-login.json under the credential lock only when it still
+// holds expectedDeviceCode, leaving any newer login started concurrently untouched.
+func (s Store) ClearPendingIfMatch(expectedDeviceCode string) error {
+	return s.locked(func() error {
+		var cur PendingLogin
+		if err := readRecord(s.pendingFile(), &cur); err != nil || cur.DeviceCode != expectedDeviceCode {
+			return nil
+		}
+		return truncateIfExists(s.pendingFile())
+	})
+}
+
+// UpdatePendingIfMatch mutates pending-login.json under the credential lock only when it still
+// holds expectedDeviceCode, preventing a stale background poll from overwriting a logout or a
+// newer login session.
+func (s Store) UpdatePendingIfMatch(expectedDeviceCode string, fn func(*PendingLogin)) error {
+	return s.locked(func() error {
+		var cur PendingLogin
+		if err := readRecord(s.pendingFile(), &cur); err != nil || cur.DeviceCode != expectedDeviceCode {
+			return nil
+		}
+		fn(&cur)
+		return writeRecord(s.pendingFile(), cur)
+	})
+}
+
+// CommitPendingLogin atomically verifies under the credential lock that pending-login.json
+// still holds expectedDeviceCode, saves creds + service, and clears pending-login.json.
+// If another process ran `auth logout` or started a different login while redemption was in
+// flight, it returns (false, nil) without writing credentials or touching pending-login.json.
+func (s Store) CommitPendingLogin(expectedDeviceCode string, creds Credentials) (bool, error) {
+	var committed bool
+	err := s.locked(func() error {
+		var cur PendingLogin
+		if rErr := readRecord(s.pendingFile(), &cur); rErr != nil || cur.DeviceCode != expectedDeviceCode {
+			return nil
+		}
+		if sErr := s.saveSecret(creds); sErr != nil {
+			cur.Redeemed = true
+			_ = writeRecord(s.pendingFile(), cur)
+			return sErr
+		}
+		s.saveService(creds.BaseURL)
+		_ = truncateIfExists(s.pendingFile())
+		committed = true
+		return nil
+	})
+	return committed, err
 }
 
 func fileHasContent(path string) bool {

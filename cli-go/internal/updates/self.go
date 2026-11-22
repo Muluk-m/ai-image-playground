@@ -170,12 +170,30 @@ func SetSelfAutoUpdate(stateDir string, enabled bool) error {
 	return writeSelfState(stateDir, state)
 }
 
-// CleanStaleOldBinary removes a leftover `<exe>.old` left by a previous Windows self-update.
+func windowsOldBackupPath(exePath string) string {
+	return filepath.Join(filepath.Dir(exePath), "."+filepath.Base(exePath)+".muvloom-old")
+}
+
+// CleanStaleOldBinary heals an interrupted Windows self-update (restoring `.<exe>.muvloom-old`
+// when `<exe>` is missing) or removes the updater's own leftover backup once `<exe>` is intact.
+// It is a no-op on non-Windows platforms and never touches user-named `<exe>.old` backups.
 func CleanStaleOldBinary(executablePath string) {
-	if executablePath == "" {
+	cleanOrHealWindowsOldBinary(executablePath, runtime.GOOS)
+}
+
+func cleanOrHealWindowsOldBinary(executablePath, goos string) {
+	if goos != "windows" || executablePath == "" {
 		return
 	}
-	_ = os.Remove(executablePath + ".old")
+	oldPath := windowsOldBackupPath(executablePath)
+	if _, exeErr := os.Stat(executablePath); errors.Is(exeErr, os.ErrNotExist) {
+		if _, oldErr := os.Stat(oldPath); oldErr == nil {
+			_ = os.Rename(oldPath, executablePath)
+		}
+		return
+	} else if exeErr == nil {
+		_ = os.Remove(oldPath)
+	}
 }
 
 func resolveTargetExecutable(explicit string, allowTestBinary bool) (string, bool) {
@@ -217,7 +235,11 @@ func MaybeAutoUpdateSelf(ctx context.Context, opts SelfUpdateOptions) SelfUpdate
 	if !ok {
 		return SelfUpdateResult{Status: "skipped", AutoUpdate: true, CurrentVersion: curVer, Reason: "non_updatable_binary"}
 	}
-	CleanStaleOldBinary(exe)
+	goos := opts.OS
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	cleanOrHealWindowsOldBinary(exe, goos)
 	origin, ok := skill.ResolveManifestOrigin(opts.APIURL, opts.BaseURL)
 	if !ok {
 		return SelfUpdateResult{Status: "skipped", AutoUpdate: true, CurrentVersion: curVer, Reason: "unrecognized_origin"}
@@ -292,7 +314,11 @@ func CheckOrUpdateSelf(ctx context.Context, opts SelfUpdateOptions, checkOnly bo
 	if !hasExe {
 		return SelfUpdateResult{}, errors.New("could not determine current executable path")
 	}
-	CleanStaleOldBinary(exe)
+	goos := opts.OS
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	cleanOrHealWindowsOldBinary(exe, goos)
 	var release func()
 	var statePtr *selfUpdateState
 	if opts.StateDir != "" {
@@ -473,7 +499,7 @@ func replaceExecutableAtomically(exePath string, data []byte, goos string) error
 		return err
 	}
 	if goos == "windows" {
-		oldPath := exePath + ".old"
+		oldPath := windowsOldBackupPath(exePath)
 		_ = os.Remove(oldPath)
 		if _, statErr := os.Stat(exePath); statErr == nil {
 			if err := os.Rename(exePath, oldPath); err != nil {

@@ -135,7 +135,7 @@ func TestCheckOrUpdateSelfChecksAndReplacesBinaryAtomically(t *testing.T) {
 		t.Fatalf("--check deleted .old file: %v", err)
 	}
 
-	// Full update replaces exe, verifies SHA-256, sets executable permission, and cleans stale .old.
+	// Full update on Unix replaces exe, verifies SHA-256, sets executable permission, and preserves user's manual .old file.
 	res, err := CheckOrUpdateSelf(context.Background(), opts, false)
 	if err != nil {
 		t.Fatalf("update failed: %v", err)
@@ -153,8 +153,8 @@ func TestCheckOrUpdateSelfChecksAndReplacesBinaryAtomically(t *testing.T) {
 			t.Fatalf("updated binary is not executable: %v %v", info, err)
 		}
 	}
-	if _, err := os.Stat(staleOld); !os.IsNotExist(err) {
-		t.Fatalf("stale .old file remained: %v", err)
+	if _, err := os.Stat(staleOld); err != nil {
+		t.Fatalf("Unix update deleted user's manual .old file: %v", err)
 	}
 
 	// Same or newer current version never downgrades.
@@ -217,6 +217,10 @@ func TestWindowsExecutableSwapPathAndThrottle(t *testing.T) {
 	if err := os.WriteFile(exe, []byte("win-0.2.5"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	staleWinOld := windowsOldBackupPath(exe)
+	if err := os.WriteFile(staleWinOld, []byte("leftover-win"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	newBin := []byte("win-0.2.6-pe")
 	srv, calls := buildTestSkillAndCLIServer(t, "0.2.6", "windows/amd64", newBin, "")
 
@@ -250,6 +254,9 @@ func TestWindowsExecutableSwapPathAndThrottle(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(exe); !bytes.Equal(got, newBin) {
 		t.Fatalf("windows binary not updated: %q", got)
+	}
+	if _, err := os.Stat(staleWinOld); !os.IsNotExist(err) {
+		t.Fatalf("stale .muvloom-old remained on windows: %v", err)
 	}
 	callsAfterFirst := calls.Load()
 	now = now.Add(time.Hour)
@@ -299,15 +306,54 @@ func TestWindowsExecutableSwapPathAndThrottle(t *testing.T) {
 }
 
 func TestCheckerPrefersManifestOriginAndFallsBackToGitHub(t *testing.T) {
-	srv, _ := buildTestSkillAndCLIServer(t, "0.2.6", "darwin/arm64", []byte("bin"), "")
-	c := Checker{
-		Dir:            t.TempDir(),
+	srv1, _ := buildTestSkillAndCLIServer(t, "0.2.6", "darwin/arm64", []byte("bin"), "")
+	srv2, _ := buildTestSkillAndCLIServer(t, "0.2.9", "darwin/arm64", []byte("bin2"), "")
+	stateDir := t.TempDir()
+	c1 := Checker{
+		Dir:            stateDir,
 		Version:        "0.2.5",
-		ManifestOrigin: srv.URL,
-		HTTP:           srv.Client(),
+		ManifestOrigin: srv1.URL,
+		HTTP:           srv1.Client(),
 	}
-	res := c.Check(context.Background())
-	if res.Status != "update_available" || res.LatestVersion != "0.2.6" {
-		t.Fatalf("expected manifest version 0.2.6, got %+v", res)
+	res1 := c1.Check(context.Background())
+	if res1.Status != "update_available" || res1.LatestVersion != "0.2.6" {
+		t.Fatalf("expected manifest version 0.2.6, got %+v", res1)
+	}
+
+	// Switching ManifestOrigin on the same day invalidates cache instead of returning srv1's version.
+	c2 := Checker{
+		Dir:            stateDir,
+		Version:        "0.2.5",
+		ManifestOrigin: srv2.URL,
+		HTTP:           srv2.Client(),
+	}
+	res2 := c2.Check(context.Background())
+	if res2.Cached || res2.LatestVersion != "0.2.9" {
+		t.Fatalf("expected fresh check for switched ManifestOrigin, got %+v", res2)
+	}
+
+	// Unix CleanStaleOldBinary never touches user's manual `<exe>.old`; Windows recovery restores `.<exe>.muvloom-old`.
+	binDir := t.TempDir()
+	unixExe := filepath.Join(binDir, "muvloom")
+	userBackup := unixExe + ".old"
+	if err := os.WriteFile(unixExe, []byte("cur"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(userBackup, []byte("manual-backup"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cleanOrHealWindowsOldBinary(unixExe, "linux")
+	if _, err := os.Stat(userBackup); err != nil {
+		t.Fatalf("non-Windows cleanup deleted user's manual .old backup: %v", err)
+	}
+
+	winExe := filepath.Join(binDir, "muvloom.exe")
+	winUpdaterBackup := windowsOldBackupPath(winExe)
+	if err := os.WriteFile(winUpdaterBackup, []byte("win-recovered"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cleanOrHealWindowsOldBinary(winExe, "windows")
+	if got, err := os.ReadFile(winExe); err != nil || string(got) != "win-recovered" {
+		t.Fatalf("interrupted Windows swap was not healed from .muvloom-old: %q %v", got, err)
 	}
 }

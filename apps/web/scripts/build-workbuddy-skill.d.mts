@@ -8,7 +8,16 @@ export function createSkillManifest(options?: { sourceDirectory?: string; binRoo
   version: string
   bundle_version: string
   packages: Record<
-    'claude-code' | 'codex' | 'workbuddy' | 'cursor' | 'windsurf' | 'cline' | 'openclaw',
+    'claude-code' | 'codex' | 'workbuddy',
+    {
+      archive: string
+      archive_sha256: string
+      file_hash: string
+      files: Array<{ path: string; bytes: number; sha256: string }>
+    }
+  >
+  extra_packages: Record<
+    'cursor' | 'windsurf' | 'cline' | 'openclaw',
     {
       archive: string
       archive_sha256: string

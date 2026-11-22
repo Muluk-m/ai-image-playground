@@ -87,12 +87,8 @@ func (a *App) tryCollectPendingLogin(ctx context.Context) (auth.Credentials, boo
 	if err != nil || pending.DeviceCode == "" || pending.Redeemed || !sameService(pending.BaseURL, a.APIURL) || !now.Before(pending.ExpiresAt) {
 		return auth.Credentials{}, false, nil
 	}
-	var waitRem time.Duration
 	if pending.AuthorizationCode == "" && !pending.NextPollAt.IsZero() && now.Before(pending.NextPollAt) {
-		waitRem = pending.NextPollAt.Sub(now)
-		if waitRem > 12*time.Second {
-			return auth.Credentials{}, false, nil
-		}
+		return auth.Credentials{}, false, nil
 	}
 	if err := a.Store.Preflight(); err != nil {
 		return auth.Credentials{}, false, nil
@@ -103,21 +99,17 @@ func (a *App) tryCollectPendingLogin(ctx context.Context) (auth.Credentials, boo
 			return auth.Credentials{}, false, nil
 		}
 		pending.RequestID = id
-		if err := a.Store.SavePending(pending); err != nil {
+		if err := a.Store.UpdatePendingIfMatch(pending.DeviceCode, func(cur *auth.PendingLogin) {
+			if cur.RequestID == "" {
+				cur.RequestID = id
+			}
+			pending = *cur
+		}); err != nil {
 			return auth.Credentials{}, false, nil
 		}
 	}
-	pollCtx, cancel := context.WithTimeout(ctx, waitRem+5*time.Second)
+	pollCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	if waitRem > 0 {
-		sleepFn := a.Sleep
-		if sleepFn == nil {
-			sleepFn = sleepContext
-		}
-		if err := sleepFn(pollCtx, waitRem); err != nil {
-			return auth.Credentials{}, false, nil
-		}
-	}
 	tokens, err := a.redeem(pollCtx, pending)
 	if err != nil {
 		interval := seconds(pending.IntervalSeconds, 1, 60)
@@ -125,25 +117,43 @@ func (a *App) tryCollectPendingLogin(ctx context.Context) (auth.Credentials, boo
 		if errors.As(err, &oauthErr) {
 			switch oauthErr.Code {
 			case "access_denied", "expired_token", "invalid_grant":
-				_ = a.Store.ClearPending()
+				_ = a.Store.ClearPendingIfMatch(pending.DeviceCode)
 				return auth.Credentials{}, false, nil
 			case "slow_down":
 				interval = min(interval+5*time.Second, time.Minute)
 				pending.IntervalSeconds = int(interval / time.Second)
 			}
 		}
-		pending.NextPollAt = time.Now().Add(interval)
-		_ = a.Store.SavePending(pending)
+		nextAt := time.Now().Add(interval)
+		newInterval := pending.IntervalSeconds
+		_ = a.Store.UpdatePendingIfMatch(pending.DeviceCode, func(cur *auth.PendingLogin) {
+			if newInterval > cur.IntervalSeconds {
+				cur.IntervalSeconds = newInterval
+			}
+			cur.NextPollAt = nextAt
+		})
 		return auth.Credentials{}, false, nil
 	}
 	creds := a.credentialsFrom(tokens)
 	creds.LoginDeviceCodeHash = deviceCodeHash(pending.DeviceCode)
-	if err := a.Store.Save(creds); err != nil {
-		pending.Redeemed = true
-		_ = a.Store.SavePending(pending)
-		return auth.Credentials{}, false, fail("CREDENTIAL_STORE_UNWRITABLE", "Signed in, but the credentials could not be stored (%s); make the muvloom config directory writable, then run `muvloom auth login` again", auth.Reason(err))
+	committed, saveErr := a.Store.CommitPendingLogin(pending.DeviceCode, creds)
+	if saveErr != nil {
+		return auth.Credentials{}, false, fail("CREDENTIAL_STORE_UNWRITABLE", "Signed in, but the credentials could not be stored (%s); make the muvloom config directory writable, then run `muvloom auth login` again", auth.Reason(saveErr))
 	}
-	_ = a.Store.ClearPending()
+	if !committed {
+		// Another process signed out or replaced pending-login.json while redemption was in flight:
+		// revoke the unused token family best-effort and leave the signed-out state untouched.
+		if tokens.RefreshToken != "" {
+			revokeCtx, rCancel := context.WithTimeout(ctx, 3*time.Second)
+			_ = a.anonymousClient().PostForm(revokeCtx, "/v1/oauth/revoke", url.Values{
+				"client_id":       {oauthClientID},
+				"token":           {tokens.RefreshToken},
+				"token_type_hint": {"refresh_token"},
+			}, nil)
+			rCancel()
+		}
+		return auth.Credentials{}, false, nil
+	}
 	return creds, true, nil
 }
 
@@ -604,16 +614,16 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 	}
 	if !pending.Redeemed {
 		if *noWait {
-			a.progress("Open %s in your browser and select Allow", pending.VerificationURIComplete)
+			a.progress("Open %s (code %s) in your browser and select Allow", pending.VerificationURIComplete, pending.UserCode)
 			return prompt, nil
 		}
 		// A resumed login does not open another page: the one already open still works.
 		if resuming {
-			a.progress("Waiting for browser approval at %s", pending.VerificationURIComplete)
+			a.progress("Waiting for browser approval at %s (code %s)", pending.VerificationURIComplete, pending.UserCode)
 		} else if err := a.openBrowser(approvalURL(pending)); err == nil {
 			a.progress("Opened your browser to approve this connection. Select Allow to continue…")
 		} else {
-			a.progress("Open %s in your browser and select Allow", pending.VerificationURIComplete)
+			a.progress("Open %s (code %s) in your browser and select Allow", pending.VerificationURIComplete, pending.UserCode)
 		}
 	}
 	done := make(chan struct{})
@@ -682,21 +692,31 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 		} else {
 			switch oauthErr.Code {
 			case "authorization_pending":
-				pending.NextPollAt = time.Now().Add(interval)
-				_ = a.Store.SavePending(pending)
+				nextAt := time.Now().Add(interval)
+				pending.NextPollAt = nextAt
+				_ = a.Store.UpdatePendingIfMatch(pending.DeviceCode, func(cur *auth.PendingLogin) {
+					cur.NextPollAt = nextAt
+				})
 			case "slow_down":
 				interval = min(interval+5*time.Second, time.Minute)
-				pending.IntervalSeconds = int(interval / time.Second)
-				pending.NextPollAt = time.Now().Add(interval)
-				_ = a.Store.SavePending(pending)
+				newInterval := int(interval / time.Second)
+				nextAt := time.Now().Add(interval)
+				pending.IntervalSeconds = newInterval
+				pending.NextPollAt = nextAt
+				_ = a.Store.UpdatePendingIfMatch(pending.DeviceCode, func(cur *auth.PendingLogin) {
+					if newInterval > cur.IntervalSeconds {
+						cur.IntervalSeconds = newInterval
+					}
+					cur.NextPollAt = nextAt
+				})
 			case "access_denied":
-				_ = a.Store.ClearPending()
+				_ = a.Store.ClearPendingIfMatch(pending.DeviceCode)
 				return nil, fail("AUTH_DENIED", "The connection was denied in the browser")
 			case "invalid_grant":
-				_ = a.Store.ClearPending()
+				_ = a.Store.ClearPendingIfMatch(pending.DeviceCode)
 				return nil, fail("AUTH_REQUIRED", "The login code is invalid or already used; check `muvloom auth status` before starting a new login")
 			case "expired_token":
-				_ = a.Store.ClearPending()
+				_ = a.Store.ClearPendingIfMatch(pending.DeviceCode)
 				return nil, fail("AUTH_EXPIRED", "The login code expired; run `muvloom auth login` again")
 			default:
 				// A busy or rate-limited service is not an answer: keep waiting.
@@ -800,7 +820,7 @@ func (a *App) finishLogin(ctx context.Context, pending auth.PendingLogin, tokens
 		_ = a.Store.SavePending(pending)
 		return nil, fail("CREDENTIAL_STORE_UNWRITABLE", "Signed in, but the credentials could not be stored (%s); make the muvloom config directory writable, then run `muvloom auth login` again: it finishes without a new approval when the service supports it, otherwise it asks for one", auth.Reason(err))
 	}
-	_ = a.Store.ClearPending()
+	_ = a.Store.ClearPendingIfMatch(pending.DeviceCode)
 	a.progress("Signed in.")
 	return cmdAuthStatus(ctx, a, nil)
 }
