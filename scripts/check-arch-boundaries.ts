@@ -1,11 +1,13 @@
 import { existsSync } from 'node:fs'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
+import ts from 'typescript'
 
 /**
  * 服务端架构边界棘轮（ADR 0034）：
- * 1. 锁死存量跨层反向依赖与运行时循环依赖白名单——只许减少、禁止新增。
- * 2. 对新建的模块化单体目录（modules/<bc>/、delivery/http/）从第一天起执行零容忍硬规则。
- * 3. 保证 packages/db/src/schemas/ 保持无环 DAG。
+ * 1. 锁死存量跨层反向依赖与运行时循环依赖边白名单——只许减少、禁止新增。
+ * 2. 边界与模块封装校验覆盖值导入与类型导入（import/export type）；循环依赖校验仅看运行时图。
+ * 3. 对新建的模块化单体目录（modules/<bc>/、delivery/http/）从第一天起执行零容忍硬规则。
+ * 4. 保证 packages/db/src（含聚合入口 schema.ts 与全部 schemas/*）保持无环 DAG。
  */
 
 const tsTranspiler = new Bun.Transpiler({ loader: 'ts' })
@@ -57,15 +59,22 @@ const ALLOWED_WORKERS_TO_AGENT = new Set([
   'workers/task-scheduler.ts -> lib/agent/batch-execution.ts',
 ])
 
-const ALLOWED_RUNTIME_CYCLES = new Set([
-  [
-    'lib/agent/batch-analysis-preparation.ts',
-    'lib/agent/batch-execution.ts',
-    'lib/agent/batch-phase-edit.ts',
-    'lib/agent/batch-plan-revision.ts',
-    'lib/agent/batch-plans.ts',
-  ].join(' <-> '),
-  ['lib/upstream/gpt-direct-admin.ts', 'lib/upstream/gpt-keys.ts'].join(' <-> '),
+/**
+ * 存量运行时强连通分量内的具体有向边白名单（边级棘轮）：
+ * 删边使分量缩小时自然通过；在原分量节点集合内新增任何成环边都会立即拦截。
+ */
+const ALLOWED_RUNTIME_CYCLE_EDGES = new Set([
+  'lib/agent/batch-analysis-preparation.ts -> lib/agent/batch-plans.ts',
+  'lib/agent/batch-execution.ts -> lib/agent/batch-plans.ts',
+  'lib/agent/batch-phase-edit.ts -> lib/agent/batch-analysis-preparation.ts',
+  'lib/agent/batch-phase-edit.ts -> lib/agent/batch-execution.ts',
+  'lib/agent/batch-phase-edit.ts -> lib/agent/batch-plan-revision.ts',
+  'lib/agent/batch-phase-edit.ts -> lib/agent/batch-plans.ts',
+  'lib/agent/batch-plan-revision.ts -> lib/agent/batch-plans.ts',
+  'lib/agent/batch-plans.ts -> lib/agent/batch-analysis-preparation.ts',
+  'lib/agent/batch-plans.ts -> lib/agent/batch-phase-edit.ts',
+  'lib/upstream/gpt-direct-admin.ts -> lib/upstream/gpt-keys.ts',
+  'lib/upstream/gpt-keys.ts -> lib/upstream/gpt-direct-admin.ts',
 ])
 
 const CORE_PLATFORM_MODULES = new Set(['identity', 'catalog', 'media', 'execution'])
@@ -111,13 +120,59 @@ function resolveInternalTarget(
   return null
 }
 
-async function buildImportGraph(rootDir: string): Promise<{
+function scanAllSpecifiers(file: string, text: string): string[] {
+  const sourceFile = ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.Latest,
+    false,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+  const specifiers = new Set<string>()
+
+  function visit(node: ts.Node): void {
+    if (
+      (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier &&
+      ts.isStringLiteral(node.moduleSpecifier)
+    ) {
+      specifiers.add(node.moduleSpecifier.text)
+    } else if (
+      ts.isCallExpression(node) &&
+      node.arguments.length === 1 &&
+      ts.isStringLiteral(node.arguments[0]!) &&
+      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
+    ) {
+      specifiers.add(node.arguments[0]!.text)
+    } else if (
+      ts.isImportTypeNode(node) &&
+      ts.isLiteralTypeNode(node.argument) &&
+      ts.isStringLiteral(node.argument.literal)
+    ) {
+      specifiers.add(node.argument.literal.text)
+    }
+    ts.forEachChild(node, visit)
+  }
+
+  visit(sourceFile)
+  return [...specifiers]
+}
+
+interface ImportGraphs {
   files: string[]
-  adjacency: Map<string, string[]>
-}> {
+  /** 仅运行时依赖（忽略纯类型导入），用于检测运行时循环依赖。 */
+  runtimeAdjacency: Map<string, string[]>
+  /** 完整依赖（含 import/export type 与动态导入），用于边界与封装门禁。 */
+  allAdjacency: Map<string, string[]>
+}
+
+async function buildImportGraphs(rootDir: string): Promise<ImportGraphs> {
   const normalizedRoot = resolve(rootDir)
   const files: string[] = []
-  if (!existsSync(normalizedRoot)) return { files, adjacency: new Map() }
+  if (!existsSync(normalizedRoot)) {
+    return { files, runtimeAdjacency: new Map(), allAdjacency: new Map() }
+  }
 
   for await (const file of sourceGlob.scan({ cwd: normalizedRoot, onlyFiles: true })) {
     const normalized = file.replaceAll('\\', '/')
@@ -126,11 +181,12 @@ async function buildImportGraph(rootDir: string): Promise<{
   }
   files.sort()
 
-  const adjacency = new Map<string, string[]>()
+  const runtimeAdjacency = new Map<string, string[]>()
+  const allAdjacency = new Map<string, string[]>()
   for (const file of files) {
     const text = await Bun.file(resolve(normalizedRoot, file)).text()
     const transpiler = file.endsWith('.tsx') ? tsxTranspiler : tsTranspiler
-    const targets = new Set<string>()
+    const runtimeTargets = new Set<string>()
     for (const imp of transpiler.scanImports(text)) {
       if (
         imp.kind !== 'import-statement' &&
@@ -140,11 +196,17 @@ async function buildImportGraph(rootDir: string): Promise<{
         continue
       }
       const target = resolveInternalTarget(normalizedRoot, file, imp.path)
-      if (target && target !== file) targets.add(target)
+      if (target && target !== file) runtimeTargets.add(target)
     }
-    adjacency.set(file, [...targets].sort())
+    const allTargets = new Set<string>(runtimeTargets)
+    for (const specifier of scanAllSpecifiers(file, text)) {
+      const target = resolveInternalTarget(normalizedRoot, file, specifier)
+      if (target && target !== file) allTargets.add(target)
+    }
+    runtimeAdjacency.set(file, [...runtimeTargets].sort())
+    allAdjacency.set(file, [...allTargets].sort())
   }
-  return { files, adjacency }
+  return { files, runtimeAdjacency, allAdjacency }
 }
 
 export function findStronglyConnectedCycles(
@@ -204,13 +266,13 @@ function agentLayerOf(rest: string): string | null {
 }
 
 export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
-  const { files, adjacency } = await buildImportGraph(bffRoot)
+  const { files, runtimeAdjacency, allAdjacency } = await buildImportGraphs(bffRoot)
   const violations: string[] = []
 
   for (const file of files) {
     const fromModule = moduleOf(file)
 
-    for (const target of adjacency.get(file) ?? []) {
+    for (const target of allAdjacency.get(file) ?? []) {
       const edge = `${file} -> ${target}`
       const toModule = moduleOf(target)
 
@@ -284,10 +346,17 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
     }
   }
 
-  for (const cycle of findStronglyConnectedCycles(files, adjacency)) {
-    const key = cycle.join(' <-> ')
-    if (!ALLOWED_RUNTIME_CYCLES.has(key)) {
-      violations.push(`[import-cycle] runtime cycle in apps/bff/src: ${key}`)
+  for (const cycle of findStronglyConnectedCycles(files, runtimeAdjacency)) {
+    const members = new Set(cycle)
+    const cycleLabel = cycle.join(' <-> ')
+    for (const node of cycle) {
+      for (const target of runtimeAdjacency.get(node) ?? []) {
+        if (!members.has(target)) continue
+        const edge = `${node} -> ${target}`
+        if (!ALLOWED_RUNTIME_CYCLE_EDGES.has(edge)) {
+          violations.push(`[import-cycle] new runtime cycle edge: ${edge} (in ${cycleLabel})`)
+        }
+      }
     }
   }
 
@@ -295,19 +364,19 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
 }
 
 export async function checkDirAcyclic(rootDir: string, label: string): Promise<string[]> {
-  const { files, adjacency } = await buildImportGraph(rootDir)
-  return findStronglyConnectedCycles(files, adjacency).map(
+  const { files, runtimeAdjacency } = await buildImportGraphs(rootDir)
+  return findStronglyConnectedCycles(files, runtimeAdjacency).map(
     (cycle) => `[import-cycle] runtime cycle in ${label}: ${cycle.join(' <-> ')}`,
   )
 }
 
 if (import.meta.main) {
   const repoRoot = resolve(import.meta.dir, '..')
-  const [bffViolations, dbSchemaViolations] = await Promise.all([
+  const [bffViolations, dbViolations] = await Promise.all([
     checkBffBoundaries(resolve(repoRoot, 'apps/bff/src')),
-    checkDirAcyclic(resolve(repoRoot, 'packages/db/src/schemas'), 'packages/db/src/schemas'),
+    checkDirAcyclic(resolve(repoRoot, 'packages/db/src'), 'packages/db/src'),
   ])
-  const allViolations = [...bffViolations, ...dbSchemaViolations]
+  const allViolations = [...bffViolations, ...dbViolations]
   if (allViolations.length > 0) {
     console.error(
       `Architecture boundary violations (${allViolations.length}):\n${allViolations.join('\n')}`,

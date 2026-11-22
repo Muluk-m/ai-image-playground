@@ -28,7 +28,7 @@ describe('check-arch-boundaries', () => {
   it('passes against the current repository baseline', async () => {
     const [bffViolations, dbViolations] = await Promise.all([
       checkBffBoundaries(resolve(repoRoot, 'apps/bff/src')),
-      checkDirAcyclic(resolve(repoRoot, 'packages/db/src/schemas'), 'packages/db/src/schemas'),
+      checkDirAcyclic(resolve(repoRoot, 'packages/db/src'), 'packages/db/src'),
     ])
     expect(bffViolations).toEqual([])
     expect(dbViolations).toEqual([])
@@ -64,26 +64,28 @@ describe('check-arch-boundaries', () => {
     ).toBe(true)
   })
 
-  it('enforces ADR 0034 module facade across all callers, core-to-app DAG, and agent sub-layer order', async () => {
+  it('enforces ADR 0034 module facade, core-to-app DAG, and agent sub-layer order for both runtime and type-only imports', async () => {
     const dir = createTempTree({
       'modules/media/index.ts': 'export const mediaFacade = 1\n',
-      'modules/media/internal.ts': 'export const mediaSecret = 2\n',
+      'modules/media/internal.ts':
+        'export interface MediaSecret { id: string }\nexport const mediaSecret = 2\n',
       'modules/execution/ok.ts':
         "import { mediaFacade } from '../media'\nexport const ok = mediaFacade\n",
       'modules/execution/bad-deep.ts':
         "import { mediaSecret } from '../media/internal'\nexport const bad = mediaSecret\n",
-      'modules/execution/bad-upward.ts':
-        "import { agentFacade } from '../agent'\nexport const up = agentFacade\n",
+      'modules/execution/bad-deep-type.ts':
+        "import type { MediaSecret } from '../media/internal'\nexport type BadType = MediaSecret\n",
+      'modules/execution/bad-upward-type.ts': "export type { AgentFacade } from '../agent'\n",
       'delivery/http/bad-deep.ts':
         "import { mediaSecret } from '../../modules/media/internal'\nexport const d = mediaSecret\n",
       'bootstrap/container.ts':
         "import { mediaSecret } from '../modules/media/internal'\nexport const c = mediaSecret\n",
-      'modules/agent/index.ts': 'export const agentFacade = 1\n',
+      'modules/agent/index.ts': 'export interface AgentFacade { ok: boolean }\n',
       'modules/agent/contracts/types.ts': 'export const tag = "a"\n',
       'modules/agent/conversation/bad.ts':
-        "import { rt } from '../runtime/exec'\nexport const c = rt\n",
+        "import type { RuntimeState } from '../runtime/exec'\nexport type C = RuntimeState\n",
       'modules/agent/runtime/exec.ts':
-        "import { tag } from '../contracts/types'\nexport const rt = tag\n",
+        "import { tag } from '../contracts/types'\nexport interface RuntimeState { tag: string }\nexport const rt = tag\n",
     })
 
     const violations = await checkBffBoundaries(dir)
@@ -96,13 +98,20 @@ describe('check-arch-boundaries', () => {
     ).toBe(true)
     expect(
       violations.some((v) =>
+        v.includes(
+          '[module-encapsulation] modules/execution/bad-deep-type.ts -> modules/media/internal.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
         v.includes('[module-encapsulation] delivery/http/bad-deep.ts -> modules/media/internal.ts'),
       ),
     ).toBe(true)
     expect(
       violations.some((v) =>
         v.includes(
-          '[core -> app-module] modules/execution/bad-upward.ts -> modules/agent/index.ts',
+          '[core -> app-module] modules/execution/bad-upward-type.ts -> modules/agent/index.ts',
         ),
       ),
     ).toBe(true)
@@ -113,24 +122,54 @@ describe('check-arch-boundaries', () => {
         ),
       ),
     ).toBe(true)
-    expect(violations).toHaveLength(4)
+    expect(violations).toHaveLength(5)
     expect(violations.some((v) => v.includes('modules/execution/ok.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('modules/agent/runtime/exec.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('bootstrap/container.ts ->'))).toBe(false)
   })
 
-  it('rejects new runtime cycles while ignoring type-only cycles and scanning TSX JSX files cleanly', async () => {
-    const dir = createTempTree({
-      'lib/a.ts': "import { b } from './b'\nexport const a = () => b()\n",
-      'lib/b.ts': "import { a } from './a'\nexport const b = () => a()\n",
+  it('ratchets runtime cycles at directed-edge granularity while ignoring type-only cycles and scanning TSX JSX cleanly', async () => {
+    // 1. Adding a new directed edge inside an existing SCC must fail even when member nodes stay identical.
+    const addedEdgeDir = createTempTree({
+      'lib/agent/batch-analysis-preparation.ts':
+        "import { p } from './batch-plans'\nimport { e } from './batch-execution'\nexport const prep = [p, e]\n",
+      'lib/agent/batch-execution.ts': "import { p } from './batch-plans'\nexport const e = p\n",
+      'lib/agent/batch-phase-edit.ts':
+        "import { prep } from './batch-analysis-preparation'\nimport { e } from './batch-execution'\nimport { r } from './batch-plan-revision'\nimport { p } from './batch-plans'\nexport const edit = [prep, e, r, p]\n",
+      'lib/agent/batch-plan-revision.ts': "import { p } from './batch-plans'\nexport const r = p\n",
+      'lib/agent/batch-plans.ts':
+        "import { prep } from './batch-analysis-preparation'\nimport { edit } from './batch-phase-edit'\nexport const p = [prep, edit]\n",
       'lib/t1.ts': "import type { T2 } from './t2'\nexport interface T1 { x?: T2 }\n",
       'lib/t2.ts': "import type { T1 } from './t1'\nexport interface T2 { y?: T1 }\n",
       'lib/view.tsx': 'export const View = () => <div />\n',
     })
 
-    const violations = await checkBffBoundaries(dir)
+    const addedEdgeViolations = await checkBffBoundaries(addedEdgeDir)
+    expect(addedEdgeViolations).toHaveLength(1)
+    expect(addedEdgeViolations[0]).toContain(
+      '[import-cycle] new runtime cycle edge: lib/agent/batch-analysis-preparation.ts -> lib/agent/batch-execution.ts',
+    )
+
+    // 2. Shrinking an existing SCC by removing edges must pass (incremental cycle breaking).
+    const shrunkDir = createTempTree({
+      'lib/agent/batch-analysis-preparation.ts':
+        "import { p } from './batch-plans'\nexport const prep = p\n",
+      'lib/agent/batch-plans.ts':
+        "import { prep } from './batch-analysis-preparation'\nexport const p = prep\n",
+    })
+    expect(await checkBffBoundaries(shrunkDir)).toEqual([])
+  })
+
+  it('catches DB schema cycles routed back through the barrel schema.ts', async () => {
+    const dir = createTempTree({
+      'schema.ts': "export * from './schemas/execution'\nexport * from './schemas/identity'\n",
+      'schemas/identity.ts': 'export const users = {}\n',
+      'schemas/execution.ts': "import { users } from '../schema'\nexport const tasks = { users }\n",
+    })
+
+    const violations = await checkDirAcyclic(dir, 'packages/db/src')
     expect(violations).toEqual([
-      '[import-cycle] runtime cycle in apps/bff/src: lib/a.ts <-> lib/b.ts',
+      '[import-cycle] runtime cycle in packages/db/src: schema.ts <-> schemas/execution.ts',
     ])
   })
 })
