@@ -490,8 +490,16 @@ function settledOf(
   })
 }
 
+async function hasBillingTaskHoldsTable(tx: Transaction): Promise<boolean> {
+  const [row] = await tx.execute(
+    sql`SELECT to_regclass('billing_task_holds') IS NOT NULL AS exists`,
+  )
+  return Boolean((row as { exists?: boolean } | undefined)?.exists)
+}
+
 async function finalizeTask(input: Parameters<PrivateTaskHooks['finalizeTask']>[0]): Promise<void> {
-  if (!isCapabilityEnabled('billing:credits')) return
+  // 即使运营临时关闭 billing:credits，也要把此前预扣中的在途单结清；但从未跑过计费迁移的自托管库没有表，不能让外层事务报 42P01。
+  if (!isCapabilityEnabled('billing:credits') && !(await hasBillingTaskHoldsTable(input.tx))) return
   const [hold] = await input.tx
     .select()
     .from(taskHolds)

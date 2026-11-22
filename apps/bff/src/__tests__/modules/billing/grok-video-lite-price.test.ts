@@ -8,7 +8,10 @@ const database = await resetTestDatabase('grok_video_lite_price')
 await ensureBillingMigrations(database)
 const sql = new SQL(database)
 const migration = readFileSync(
-  new URL('../migrations/0016_grok_video_lite_price.sql', import.meta.url),
+  new URL(
+    '../../../../../../packages/db/drizzle-billing/0016_grok_video_lite_price.sql',
+    import.meta.url,
+  ),
   'utf8',
 )
 afterAll(async () => {

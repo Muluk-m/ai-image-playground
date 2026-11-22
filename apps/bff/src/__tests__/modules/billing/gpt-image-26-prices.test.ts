@@ -8,7 +8,10 @@ const database = await resetTestDatabase('gpt_image_26_prices')
 await ensureBillingMigrations(database)
 const sql = new SQL(database)
 const migration = readFileSync(
-  new URL('../migrations/0025_gpt_image_26_prices.sql', import.meta.url),
+  new URL(
+    '../../../../../../packages/db/drizzle-billing/0025_gpt_image_26_prices.sql',
+    import.meta.url,
+  ),
   'utf8',
 )
 const MODELS = ['gpt-image-2.6-flare', 'gpt-image-2.6-sunburst']

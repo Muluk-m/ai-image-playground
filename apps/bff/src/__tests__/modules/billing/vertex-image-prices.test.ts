@@ -8,7 +8,10 @@ const database = await resetTestDatabase('vertex_image_prices')
 await ensureBillingMigrations(database)
 const sql = new SQL(database)
 const migration = readFileSync(
-  new URL('../migrations/0019_vertex_image_prices.sql', import.meta.url),
+  new URL(
+    '../../../../../../packages/db/drizzle-billing/0019_vertex_image_prices.sql',
+    import.meta.url,
+  ),
   'utf8',
 )
 const MODELS = ['gemini-3-pro-image', 'gemini-3.1-flash-lite-image', 'gemini-nano-banana-2.1']

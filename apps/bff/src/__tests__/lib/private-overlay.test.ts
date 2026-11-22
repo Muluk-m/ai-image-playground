@@ -46,23 +46,30 @@ describe('built-in billing & identity BFF overlay', () => {
   })
 
   it('loads the built-in billing and identity module and registers Feishu OAuth when reset', async () => {
-    _setPrivateBffOverlayForTesting()
-    const overlay = await loadPrivateBffOverlay()
-    expect(overlay.present).toBe(true)
-    expect(getOAuthProviderDefinition('feishu')?.id).toBe('feishu')
-    // When billing:credits capability is off (default), hooks short-circuit without touching DB tables.
-    expect(
-      await overlay.taskHooks.reserveTask({
-        tx: {} as never,
-        taskId: 't1',
-        userId: 'u1',
-        model: 'gpt-image-2',
-        quantity: 1,
-        unitMultiplier: 1,
-      }),
-    ).toEqual({ kind: 'reserved', credits: 0 })
-    expect(await overlay.taskHooks.chatPricing('gpt-image-2')).toBeNull()
-    expect(await overlay.taskHooks.taskCredits({ taskIds: ['t1'] })).toEqual({})
+    const previousDatabaseUrl = process.env.DATABASE_URL
+    process.env.DATABASE_URL ??= 'postgres://postgres:postgres@127.0.0.1:5432/private_overlay_test'
+    try {
+      _setPrivateBffOverlayForTesting()
+      const overlay = await loadPrivateBffOverlay()
+      expect(overlay.present).toBe(true)
+      expect(getOAuthProviderDefinition('feishu')?.id).toBe('feishu')
+      // When billing:credits capability is off (default), hooks short-circuit without touching DB tables.
+      expect(
+        await overlay.taskHooks.reserveTask({
+          tx: {} as never,
+          taskId: 't1',
+          userId: 'u1',
+          model: 'gpt-image-2',
+          quantity: 1,
+          unitMultiplier: 1,
+        }),
+      ).toEqual({ kind: 'reserved', credits: 0 })
+      expect(await overlay.taskHooks.chatPricing('gpt-image-2')).toBeNull()
+      expect(await overlay.taskHooks.taskCredits({ taskIds: ['t1'] })).toEqual({})
+    } finally {
+      if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL
+      else process.env.DATABASE_URL = previousDatabaseUrl
+    }
   })
 
   it('rejects a required billing module when absent', async () => {
