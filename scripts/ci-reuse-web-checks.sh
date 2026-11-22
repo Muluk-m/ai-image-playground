@@ -16,9 +16,8 @@
 # No run after WEB_RUN_GRACE seconds, or still running after WEB_WAIT_LIMIT seconds, is `false`.
 #
 # REQUIRED must follow the job names in web.yml. It covers what Deploy test's own gates cover:
-# public lint/typecheck/build and browser startup (lint, typecheck, build), the database-backed
-# and web tests (bff, web-test), and the overlay pinned by private.lock (with-overlay: lint and
-# private tests; with-overlay (build), with-overlay (typecheck)).
+# lint/typecheck/build and browser startup (lint, typecheck, build), and the database-backed
+# and web tests (bff, web-test).
 #
 # Environment: GH_TOKEN, REPO (owner/name), SHA, GITHUB_OUTPUT.
 # WEB_RUN_GRACE (default 240), WEB_WAIT_LIMIT (default 1500), WEB_POLL (default 10).
@@ -28,7 +27,6 @@ REQUIRED=(
   'lint' 'typecheck' 'build'
   'bff (bff 1/3)' 'bff (bff 2/3)' 'bff (bff 3/3)' 'bff (packages)'
   'web-test (1/3)' 'web-test (2/3)' 'web-test (3/3)'
-  'with-overlay' 'with-overlay (build)' 'with-overlay (typecheck)'
 )
 
 repo=${REPO:?REPO is required}

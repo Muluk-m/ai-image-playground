@@ -29,16 +29,15 @@ function shortSha(cwd) {
 }
 
 /**
- * 版本号只需要「每次构建都不同」，内容不构成协议。带上 sha 是为了从线上版本号能倒查
- * 到提交；私有 overlay 是独立检出，它自己动了也要换号。
+ * 版本号只需要「每次构建都不同」，内容不构成协议。带上 sha 是为了从线上版本号能倒查到提交。
  */
 export function buildVersionManifest(env, repoRoot, now = new Date()) {
   const stamp = now
     .toISOString()
     .replace(/[-:]/g, '')
     .replace(/\.\d+Z$/, 'Z')
-  const shas = [shortSha(repoRoot), shortSha(join(repoRoot, 'private'))].filter(Boolean)
-  const version = shas.length > 0 ? `${shas.join('+')}-${stamp}` : stamp
+  const sha = shortSha(repoRoot)
+  const version = sha ? `${sha}-${stamp}` : stamp
   return { version, notify: parseBoolean('NOTIFY_UPDATE', env.NOTIFY_UPDATE) }
 }
 

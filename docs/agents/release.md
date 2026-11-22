@@ -4,19 +4,18 @@ Agent 从 PR 到上线的完整链路，以及每一步谁能拍板。命令与�
 
 - [部署手册](../deploy/image-release.md)：生产 workflow、Pages、镜像、排空与回滚
 - [测试环境手册](../deploy/test-environment.md)：`test` 分支、独立数据库与 R2
-- [私有 overlay 与版本](private-overlay.md)：`private.lock`、`verified` 指针、合并顺序
+- [单仓与退役说明](private-overlay.md)：原双仓 overlay 收口为单仓后的能力开关与迁移背景
 - [智能体上线手册](../deploy/agent-rollout.md)：改 `app.env` / `operator-config.json`、单价、冒烟
 - [生产只读排查](prod-readonly.md)：Sentry、日志、配置名，以及禁止的写操作
 
 ## 谁拍板
 
-Agent 负责开 PR、跑检查、处理评审并准备好合并说明，**合并 main、合并私有 overlay、打 CLI 发布标签都要等 Nain 明确确认**（2026-11-11 起与现行做法对齐）。Nain 确认后跟进部署，**上线后必须冒烟**（见「四、上线核对」）；冒烟不过就开修复或回滚 PR，回滚同样要 Nain 确认，并在汇报里说明。绕过流水线、直接动生产服务器或生产数据的手工操作仍要 Nain 批准，因为它们没有检查、也没有自动回滚。
+Agent 负责开 PR、跑检查、处理评审并准备好合并说明，**合并 main、打 CLI 发布标签都要等 Nain 明确确认**（2026-11-11 起与现行做法对齐）。Nain 确认后跟进部署，**上线后必须冒烟**（见「四、上线核对」）；冒烟不过就开修复或回滚 PR，回滚同样要 Nain 确认，并在汇报里说明。绕过流水线、直接动生产服务器或生产数据的手工操作仍要 Nain 批准，因为它们没有检查、也没有自动回滚。
 
 | 步骤 | 谁拍板 | 说明 |
 | --- | --- | --- |
-| 修 bug、功能或行为变更的 PR 合并 main（下一个窗口发生产） | **需 Nain 确认** | 检查见「合并前检查」；Agent 不自行合并。涉及成本的要在描述和汇报里写清并标出成本影响 |
+| 修 bug、功能或行为变更的 PR 合并 main（下一个窗口发生产） | **需 Nain 确认** | 检查见「合并前检查」；Agent 不自行合并。涉及成本或结算的要在描述和汇报里写清并标出影响 |
 | 带数据库迁移的 PR 合并 main | **需 Nain 确认** | 迁移必须兼容新旧两代后端并带回滚 SQL；改编号前按 AGENTS.md 先查两个库已跑过的迁移 |
-| 私有 overlay 仓合并 | **需 Nain 确认** | 合并即发生产，并跑私有迁移 |
 | 发布 CLI（打 `cli-vX.Y.Z` 标签） | **需 Nain 确认** | 见 [CLI 发布](cli-release.md)；发布后先用官方安装脚本试装，再改接入页钉的版本 |
 | 生产回滚（revert PR、前端回滚） | **需 Nain 确认** | 冒烟不过或出事故时准备回滚，经 Nain 确认后再合；事后在汇报里写清现象、影响和回滚目标 |
 | 重跑失败的 Deploy production job | Agent | 只按失败 job 重跑，不重跑整单 |
@@ -32,7 +31,7 @@ Agent 负责开 PR、跑检查、处理评审并准备好合并说明，**合并
 2. 按 AGENTS.md「完成任务的硬性检查清单」跑格式化、lint、typecheck 与测试；重任务交给云端或 CI。
 3. 开 PR，按 [PR 模板](../../.github/pull_request_template.md) 填写。改到关键流程要附证据（AGENTS.md「关键流程证据」）；涉及成本要在「成本与影响」写清改了什么、对成本的影响（AGENTS.md「成本与影响说明」）。
 4. 合并前三项缺一不可：
-   - **CI 全绿**：`Web checks` 等 PR 上的检查都通过。main ruleset 要求经 PR squash 合并且 `Web checks` 为必需检查（2026-11-22 起；overlay-bump 用唯一豁免的写 deploy key 推 lock）。`PR rules` 不是必需检查，红了要补齐或在 PR 里说明理由交 Nain 决定。
+   - **CI 全绿**：`Web checks` 等 PR 上的检查都通过。main ruleset 要求经 PR squash 合并且 `Web checks` 为必需检查（2026-11-22 起）。`PR rules` 不是必需检查，红了要补齐或在 PR 里说明理由交 Nain 决定。
    - **`/review`**：在 PR 评论 `/review` 触发 AI Code Review（`.github/workflows/ai-review.yml`，不阻断合并），处理其中的有效意见。
    - **`@codex review`**：在 PR 评论 `@codex review`，处理有效意见。评论后 30 分钟仍没有回复就继续，并在 PR 里注明「Codex 30 分钟未回复」。
 5. 用 squash merge 合并，合并说明用中文。**检查齐了仍要等 Nain 明确确认后再合并**（见上表）；合并后跟进部署并冒烟。
@@ -63,7 +62,7 @@ git push origin HEAD:test
 
 1. `.github/workflows/deploy.yml`（Deploy production）按窗口自动开始：北京时间 12:30、18:30、23:30。由 macmini2 的 launchd 按点触发（`scripts/deploy-window-tick.sh` 以 `window=true` 调用 `workflow_dispatch`，日志在 `~/Library/Logs/ai-image-playground/deploy-window.log`）；GitHub `schedule` 留作兜底：它常晚 2–7 小时，本窗口时点后已有手动触发就跳过；没有才发布，并在运行摘要里告警「macmini2 timer did not fire」，看到它就去查 macmini2 的日志、token 是否过期、launchd 是否加载（`launchctl print gui/$(id -u)/com.muvloom.deploy-window`）。只发当时 `origin/main` 的 tip，且该提交在 main 上的 `Web checks` 必须已成功（未完成或失败则跳过本窗口）；同一时间只跑一单（并发组 `production-deploy`）。
 2. `target` 判定哪些部分要发（共享 muvloom API、muvloom Pages 项目、Admin）；产品前端扫描 `PAID_PUBLIC_ORIGIN`，同一项目的全部产品域名随之更新。已在跑后代提交的部分不回退；`release` 打 `vMAJOR.MINOR.PATCH` 标签。
-3. **后端只构建和发布 muvloom runtime。** `backend` 在 Actions 用 `build-vps-release.sh paid` 构建公开树加私有 overlay 的发布镜像，以及 backup、segmenter 配套镜像，经 SSH 受限命令执行 `deploy <id> paid <run>`；`rollout-runtime.sh` 先跑兼容迁移，再做新旧两代排空切换。生产目标只有 `paid`，隔离测试目标为 `test`。
+3. **后端只构建和发布 muvloom runtime。** `backend` 在 Actions 用 `build-vps-release.sh paid` 构建单仓发布镜像，以及 backup、segmenter 配套镜像，经 SSH 受限命令执行 `deploy <id> paid <run>`；`rollout-runtime.sh` 先跑兼容迁移，再做新旧两代排空切换。生产目标只有 `paid`，隔离测试目标为 `test`。
 4. `pages-muvloom`（显示名 `Pages (muvloom project, every product domain)`）只发布一个 muvloom Pages 项目：一个项目、多个域名（`muvloom.online`、`image.nainma.online`、企业域名 `image-playground.qiliangjia.one`）。`pages-release.sh muvloom` 把 `ENTERPRISE_PUBLIC_ORIGIN → ENTERPRISE_BFF_BASE_URL` 并入 `baseUrlsByOrigin`，并给企业域名加 host 级 `X-Robots-Tag: noindex`。API 本次发布时，先等共享 muvloom API 与企业 API hostname `/health` 报出新版本，再发布并跑 Chromium 验收；企业域名在 muvloom 项目的 Cloudflare 自定义域名列表中时同样验收且失败即失败，未绑定只告警，不能据此宣称企业站已交付。`admin-pages` 保留对 `pages-muvloom` 的成功 / 跳过依赖。
    - 企业站使用 `ENTERPRISE_BFF_BASE_URL` 的第一方 hostname，不能直接配置为跨站 muvloom API，否则 `SameSite=Lax` cookie 登录失效。登录方式由后端 `AUTH_LOGIN_METHODS_BY_ORIGIN` 按 origin 决定（企业域名只飞书，muvloom 邮箱 + Google），前端不按域名分支。
    - 只改前端时，`pages-muvloom` 允许 backend job 跳过；只改后端时，backend 直接发布共享 muvloom API。Pages 与 Admin 都使用 muvloom 令牌。GitHub `PAGES_ENV`、仓库外 `pages.env` 的企业键名，以及 VPS 固定 receiver 必须配套更新（`paid` 与 `test` 的部署脚本均随发布从 main 自动解出，不需手工同步），见[部署手册](../deploy/image-release.md#仓库外更新前提)。域名与 API 别名的维护及真实登录验收见[企业域名与 API 别名](../deploy/image-release.md#企业域名与-api-别名)。浏览器启动冒烟不替代真实登录与业务验收。
@@ -71,19 +70,16 @@ git push origin HEAD:test
 
 合并后 Agent 等下一个窗口的 workflow 跑完，冒烟在发布完成后做；失败就看日志处理（可按失败 job 重跑），不手动补发。**紧急修复**经 Nain 确认后手动 `workflow_dispatch` Deploy production，必填 `reason`（写入 job summary），该入口全量重发。走绕过流水线的应急手动发布要 Nain 批准。
 
-### 私有 overlay 发布
+### 计费与企业能力发布
 
-私有 overlay 仓合并后，overlay CI 全绿就把 `verified` 指针前移；`.github/workflows/overlay-bump.yml` 每 10 分钟检查一次，构建「公开 main + 新 overlay」通过后把 `private.lock` 提交到 `main`，由下一个发布窗口带上（不再立即触发 Deploy production；紧急时手动 `workflow_dispatch` 并填 `reason`）。所以：
-
-- **合并私有 overlay 会在下一个窗口发生产，并在发布里跑私有迁移。** 必须等 Nain 明确确认后再合并，发布完成后冒烟。
-- overlay 需要新的宿主面成员时，先把公开树的改动合进 `main`，再合 overlay，顺序反了 overlay CI 会红，`verified` 停在旧版。细节见[私有 overlay 与版本](private-overlay.md)。
+双仓私有 overlay 机制已收口为单仓（见 [private-overlay.md](private-overlay.md)），计费与飞书身份模块随主仓一同通过 PR 审核、CI 门禁并在下一个生产窗口发布，按 `operator-config.json` 的能力开关启用（`billing:credits` 等），不再维护独立的私有仓同步或 `overlay-bump.yml`。
 
 ## 四、上线核对
 
 发布 workflow 绿了还不算交付完成，要核对线上真的是这个提交：
 
 ```sh
-# API：共享 runtime 的 version 为 <公开sha>+<私有sha>，release 是产品版本
+# API：共享 runtime 的 version 为 <sha>+<sha>（兼容旧 receiver 协议），release 是产品版本
 curl -fsS https://api.muvloom.online/health
 curl -fsS https://image-api.qiliangjia.one/health
 curl -fsS https://test-api.muvloom.online/health

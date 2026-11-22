@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { costFiles } from '../cost-impact.mjs'
 
-test('模型、供应商、定价、额度、扣费入口和 overlay 的改动算成本相关', () => {
+test('模型、供应商、定价、额度、扣费入口和计费模块的改动算成本相关', () => {
   const files = [
     'apps/bff/channels.json',
     'apps/bff/src/lib/agent/models.config.json',
@@ -23,10 +23,14 @@ test('模型、供应商、定价、额度、扣费入口和 overlay 的改动�
     'apps/bff/src/lib/taskSubmission.ts',
     'apps/bff/src/db/task-transitions.ts',
     'apps/bff/src/lib/quota.ts',
+    'apps/bff/src/modules/billing/service.ts',
     'apps/admin/server/routes/agent-models.ts',
+    'apps/admin/src/features/billing/SettingsPanel.tsx',
     'apps/web/src/features/pricing/PricingPage.tsx',
+    'apps/web/src/features/billing/PurchasePanels.tsx',
     'apps/web/src/components/Credits.tsx',
-    'private.lock',
+    'packages/shared/src/billing-contracts.ts',
+    'packages/db/src/schemas/billing.ts',
   ]
   assert.deepEqual(costFiles(files), files)
 })

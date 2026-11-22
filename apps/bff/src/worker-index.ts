@@ -1,4 +1,5 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
+import './bootstrap/billing'
 import { config } from './config'
 import { close as closeDb } from './db/client'
 import { purgeOldHostSamples, recoverAbandonedTasks, recoverTasksByIds } from './db/maintenance'

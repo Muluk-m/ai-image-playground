@@ -38,7 +38,7 @@ done < <(git diff --name-only -z --diff-filter=ACMR "$base" "$head")
 
 echo "pre-push: biome 检查 ${#files[@]} 个改动文件（基于 ${base:0:9}）…" >&2
 pnpm exec biome check --no-errors-on-unmatched --files-ignore-unknown=true "${files[@]}"
-bun run scripts/check-private-boundary.ts
+bun run scripts/check-arch-boundaries.ts
 bun run scripts/check-adr-numbers.ts
 bun run scripts/check-i18n-keys.ts
 bun run scripts/check-design.ts

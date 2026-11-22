@@ -32,20 +32,7 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": false,
-      "style": {
-        "noRestrictedImports": {
-          "level": "error",
-          "options": {
-            "patterns": [
-              {
-                "group": ["private/**", "**/private/**"],
-                "message": "Private-tree imports are only allowed at the three audited overlay seams."
-              }
-            ]
-          }
-        }
-      }
+      "recommended": false
     }
   },
   "overrides": [
@@ -58,10 +45,6 @@
               "level": "error",
               "options": {
                 "patterns": [
-                  {
-                    "group": ["private/**", "**/private/**"],
-                    "message": "Private-tree imports are only allowed at the three audited overlay seams."
-                  },
                   {
                     "group": [
                       "react-icons",
@@ -93,10 +76,6 @@
               "level": "error",
               "options": {
                 "patterns": [
-                  {
-                    "group": ["private/**", "**/private/**"],
-                    "message": "Private-tree imports are only allowed at the three audited overlay seams."
-                  },
                   {
                     "group": [
                       "react-icons",

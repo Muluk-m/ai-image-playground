@@ -12,7 +12,7 @@ afterEach(() => {
   for (const directory of fixtures.splice(0)) rmSync(directory, { recursive: true, force: true })
 })
 
-function compileStyles(edition: 'public' | 'private' | 'explicit') {
+function compileStyles(withBillingComponent: boolean) {
   const root = mkdtempSync(join(tmpdir(), 'tailwind-overlay-'))
   fixtures.push(root)
   const web = join(root, 'apps/web')
@@ -25,22 +25,15 @@ function compileStyles(edition: 'public' | 'private' | 'explicit') {
     '<div class="bg-white bg-canvas-annotation border-on-media text-on-media"></div>',
   )
 
-  const entry = join(
-    root,
-    edition === 'explicit' ? 'custom/web/index.tsx' : 'private/apps/web/index.tsx',
-  )
-  if (edition !== 'public') {
-    mkdirSync(dirname(entry), { recursive: true })
-    writeFileSync(entry, 'export {}')
+  if (withBillingComponent) {
+    const billingDir = join(web, 'src/features/billing')
+    mkdirSync(billingDir, { recursive: true })
     writeFileSync(
-      join(dirname(entry), 'AccountPanel.tsx'),
+      join(billingDir, 'AccountPanel.tsx'),
       '<div className="bg-[#101012] text-gray-950 from-violet-500/15" />',
     )
   }
 
-  const env = { ...process.env }
-  delete env.PRIVATE_WEB_OVERLAY_ENTRY
-  if (edition === 'explicit') env.PRIVATE_WEB_OVERLAY_ENTRY = entry
   return execFileSync(
     process.execPath,
     [
@@ -55,29 +48,26 @@ function compileStyles(edition: 'public' | 'private' | 'explicit') {
     process.stdout.write(result.css);
   `,
     ],
-    { cwd: web, env, encoding: 'utf8', timeout: 15000 },
+    { cwd: web, encoding: 'utf8', timeout: 15000 },
   )
 }
 
-it.each([
-  'private',
-  'explicit',
-] as const)('generates account styles for the %s overlay', (edition) => {
-  const css = compileStyles(edition)
+it('generates billing account styles from src/features/billing', () => {
+  const css = compileStyles(true)
   expect(css).toContain('background-color: rgb(16 16 18 /')
   expect(css).toContain('.text-gray-950')
   expect(css).toContain('--tw-gradient-from: rgb(139 92 246 / 0.15)')
 })
 
-it('builds public styles when the overlay is absent', () => {
-  const css = compileStyles('public')
+it('builds base styles without extra feature classes when absent', () => {
+  const css = compileStyles(false)
   expect(css).toContain('.bg-white')
   expect(css).not.toContain('.text-gray-950')
   expect(css).not.toContain('background-color: rgb(16 16 18 /')
 })
 
 it('generates the contrasting canvas region label colors', () => {
-  const css = compileStyles('public')
+  const css = compileStyles(false)
   expect(css).toContain('.bg-canvas-annotation')
   expect(css).toMatch(/\.border-on-media\s*\{[^}]*border-color: hsl\(var\(--on-media\)/)
   expect(css).toMatch(/\.text-on-media\s*\{[^}]*color: hsl\(var\(--on-media\)/)

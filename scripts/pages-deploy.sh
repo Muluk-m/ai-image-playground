@@ -26,9 +26,9 @@ set -eu
 # silent release: the manifest still ships, but running tabs migrate on their next natural reload.
 # The manifest itself is written by build:static-host, not here.
 #
-# The edition is asserted against the working copy instead of inferred, because the overlay is
-# included by mere file presence (apps/web/src/lib/privateOverlay.tsx globs
-# ../../private/apps/web/index.tsx).
+# The single repository contains all web and admin modules; capability flags at runtime decide
+# which commercial features are shown. The second argument (`public|private`) is retained for
+# caller compatibility.
 
 usage() {
   echo "Usage: $0 <web|admin> <public|private> <pages-project> [branch]" >&2
@@ -44,10 +44,6 @@ case "$app" in web|admin) ;; *) usage ;; esac
 [ "$#" -le 4 ] || usage
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-case "$app" in
-  web) overlay_entry="$repo_root/private/apps/web/index.tsx" ;;
-  admin) overlay_entry="$repo_root/private/apps/admin/index.tsx" ;;
-esac
 
 # A forgotten third argument used to default to `main`, which published an unmerged branch to
 # production. The default now names a preview alias even when the checkout sits on main.
@@ -71,22 +67,9 @@ fi
 
 case "$edition" in
   public)
-    if [ -f "$overlay_entry" ]; then
-      echo "Refusing to build a public $app bundle: the private overlay is present at $overlay_entry." >&2
-      echo "Build the public bundle from a checkout without ./private, or move that tree aside." >&2
-      exit 1
-    fi
     [ "$app" = web ] || { echo "Admin has no public edition." >&2; exit 1; }
     ;;
   private)
-    if [ ! -f "$overlay_entry" ]; then
-      echo "Missing private overlay at $overlay_entry; a private $app bundle needs it." >&2
-      exit 1
-    fi
-    case "$app" in
-      web) PRIVATE_WEB_OVERLAY_ENTRY="$overlay_entry"; export PRIVATE_WEB_OVERLAY_ENTRY ;;
-      admin) PRIVATE_ADMIN_OVERLAY_ENTRY="$overlay_entry"; export PRIVATE_ADMIN_OVERLAY_ENTRY ;;
-    esac
     ;;
   *)
     usage

@@ -292,7 +292,6 @@ it('names the URL that keeps stalling', async () => {
 async function releaseCheckout(edition: string, pagesEnvLines: string[], stub = 'exit 27') {
   const checkout = join(dist, 'checkout')
   await mkdir(join(checkout, 'scripts/lib'), { recursive: true })
-  await mkdir(join(checkout, 'private/apps/web'), { recursive: true })
   await mkdir(join(checkout, 'bin'))
   for (const script of ['pages-release.sh', 'pages-deploy.sh', 'lib/deploy-common.sh']) {
     await writeFile(
@@ -310,13 +309,12 @@ async function releaseCheckout(edition: string, pagesEnvLines: string[], stub = 
     join(checkout, 'scripts/retain-pages-assets.mjs'),
     `import { writeFileSync } from 'node:fs'\nwriteFileSync(${JSON.stringify(join(checkout, 'retained'))}, process.argv.slice(2).join('\\n'))\n`,
   )
-  await writeFile(join(checkout, 'private/apps/web/index.tsx'), 'export {}\n')
   const captured = join(checkout, 'build-env')
   // Stop at the real build boundary: never build, upload, or call a live origin in this test.
   await writeFile(
     join(checkout, 'bin/pnpm'),
     `#!/bin/sh
-printf '%s\\n' "$*" "$PRIVATE_WEB_OVERLAY_ENTRY" "$BFF_BASE_URL" "$PUBLIC_ORIGIN" "$SEARCH_INDEXING" "$CLOUDFLARE_ACCOUNT_ID" "$CLOUDFLARE_API_TOKEN" "$EXTRA_ASSETS_DIR" "$BFF_BASE_URLS_BY_ORIGIN" "$NOINDEX_ORIGINS" > "$CAPTURED"
+printf '%s\\n' "$*" "$BFF_BASE_URL" "$PUBLIC_ORIGIN" "$SEARCH_INDEXING" "$CLOUDFLARE_ACCOUNT_ID" "$CLOUDFLARE_API_TOKEN" "$EXTRA_ASSETS_DIR" "$BFF_BASE_URLS_BY_ORIGIN" "$NOINDEX_ORIGINS" > "$CAPTURED"
 ${stub}
 `,
     { mode: 0o755 },
@@ -356,7 +354,7 @@ async function prepareSecrets(checkout: string) {
   await writeFile(join(checkout, 'token.env'), 'CLOUDFLARE_API_TOKEN=paid-token\n')
 }
 
-it('builds muvloom with the overlay and legacy external Pages config keys', async () => {
+it('builds muvloom with the legacy external Pages config keys', async () => {
   const checkout = join(dist, 'checkout')
   await mkdir(checkout, { recursive: true })
   await prepareSecrets(checkout)
@@ -367,7 +365,6 @@ it('builds muvloom with the overlay and legacy external Pages config keys', asyn
   expect(await readFile(captured, 'utf8')).toBe(
     [
       '--filter @image-playground/web build:static-host',
-      join(checkout, 'private/apps/web/index.tsx'),
       'https://api.paid.example.com',
       'https://paid.example.com',
       'true',
@@ -398,13 +395,13 @@ it('serves the enterprise domain from the muvloom project with its own API and n
   expect(run.status).toBe(28)
   expect(run.stdout).toContain('private web bundle to Pages project paid-project')
   const lines = (await readFile(captured, 'utf8')).split('\n')
-  expect(lines[3]).toBe('https://paid.example.com')
-  expect(lines[4]).toBe('true')
-  expect(JSON.parse(lines[8])).toEqual({
+  expect(lines[2]).toBe('https://paid.example.com')
+  expect(lines[3]).toBe('true')
+  expect(JSON.parse(lines[7])).toEqual({
     'https://old.example.com': 'https://old-api.example.com',
     'https://enterprise.example.net': 'https://enterprise-api.example.net',
   })
-  expect(lines[9]).toBe('https://enterprise.example.net')
+  expect(lines[8]).toBe('https://enterprise.example.net')
   expect((await readFile(join(checkout, 'retained'), 'utf8')).split('\n')).toEqual([
     join(checkout, 'apps/web/dist'),
     'https://paid.example.com',

@@ -20,7 +20,7 @@ concurrency:
   group: web-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 # 注意：deploy-test.yml 的 verify（scripts/ci-reuse-web-checks.sh）按下面这些 job 名复用 test 推送的结果，
-# 改名、删除或加 `if` 跳过 lint / typecheck / build / bff / web-test / with-overlay* 前，同步改那个脚本的 REQUIRED。
+# 改名、删除或加 `if` 跳过 lint / typecheck / build / bff / web-test 前，同步改那个脚本的 REQUIRED。
 jobs:
   # 合并到 main 的提交若与它的 PR 最后一次通过的 Web checks 是同一棵树，下面四个 job 已经在
   # 那次跑过，main 上不再重跑，直接交给部署。PR 落后于 main（合并后树不同）、来自 fork、或找不到
@@ -154,7 +154,7 @@ jobs:
           fi
       - name: Build Docker web stage
         if: steps.docker-web-context.outputs.required == 'true'
-        run: docker buildx build --progress=plain --target web-build --build-arg TARGETARCH=amd64 --build-arg PRIVATE_OVERLAY_PRESENT=false .
+        run: docker buildx build --progress=plain --target web-build --build-arg TARGETARCH=amd64 .
   typecheck:
     needs: prior
     if: needs.prior.outputs.verified != 'true'
@@ -252,132 +252,3 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
       - run: pnpm test --env-mode=loose --filter=@image-playground/web -- --shard=${{ matrix.shard }}/3
-  # muvloom 是公开 main 最重要的消费者，这一步给它投票权：候选公开树 + `private.lock` 钉住的
-  # overlay 一起 lint / typecheck / build，并跑 overlay 自己的测试。它执行的是「先扩后缩」——公开树只能删掉钉住的
-  # overlay 已经不再引用的宿主面成员；反向 boundary 检查则确保
-  # overlay 只经由 private-host / private-overlay 引公开树（scripts/check-private-boundary.ts）。
-  #
-  # 需要 PRIVATE_OVERLAY_SSH_KEY，fork 的 PR 拿不到 secrets，跳过；主仓 PR 与 main/test push 都跑。
-  with-overlay:
-    needs: prior
-    if: >-
-      needs.prior.outputs.verified != 'true' &&
-      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_HOST_AUTH_METHOD: trust
-          POSTGRES_DB: aip_test
-        ports:
-          - 127.0.0.1:5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      # `actions/checkout` 的 `repository` 要 `owner/repo` 形式，不是 SSH URL。
-      PRIVATE_OVERLAY_REPO: Muluk-m/ai-image-playground-private
-      TEST_DATABASE_URL: postgres://postgres@127.0.0.1:5432/aip_test
-      BUN_TEST_JOBS: 4
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      # 先自己报一句：`ssh-key` 为空时 checkout 会退回 token 认证，私有仓返回的是
-      # 「Repository not found」，看不出真因是密钥没配。
-      - name: Require the overlay key
-        env:
-          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-        run: |
-          [ -n "$PRIVATE_OVERLAY_SSH_KEY" ] || { echo "::error::PRIVATE_OVERLAY_SSH_KEY is missing."; exit 1; }
-      # 与 `deploy.yml` 同一条路子：`actions/checkout` 把 github.com 的 host key 硬编码在
-      # 源码里，这一步不碰任何网络接口。别改回手搓 `git clone` + 匿名调
-      # `api.github.com/meta` 取 known_hosts——那个接口限额 60 次/小时且按发起 IP 计，而
-      # runner 出口 IP 是共享的，2026-09-22 生产部署就是这么被一个 403 整条挂掉的。
-      # 调研见 `docs/research/deploy-known-hosts-and-overlay-coupling.md`。
-      - name: Read the pinned overlay commit
-        id: lock
-        run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
-      - name: Check out the private overlay at the pinned commit
-        id: overlay
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
-          ref: ${{ steps.lock.outputs.sha }}
-          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-          path: private
-          persist-credentials: false
-      - name: Record the overlay commit
-        run: echo "overlay=${{ steps.overlay.outputs.commit }}" >> "$GITHUB_STEP_SUMMARY"
-      - uses: ./.github/actions/setup
-      - run: pnpm lint
-      # 计费钩子的测试在 overlay 里。公开 PR 改了钩子而私有测试红，原本要等合并后 overlay CI
-      # 才发现（verified 指针停住）；这里在合并前就拦下。
-      # 逐包串行，每包内由 BUN_TEST_JOBS 并发，避免进程数叠乘。
-      - run: pnpm --filter './private/apps/*' --workspace-concurrency=1 test
-  # 不连数据库的 overlay 检查各占一台，与上面的 lint / 私有测试并行（原来串在一台上中位 242 秒）：
-  # build = muvloom web 构建 + 浏览器冒烟，typecheck = 全仓 typecheck + admin 构建。overlay 检出与上面同一套。
-  with-overlay-nodb:
-    name: with-overlay (${{ matrix.task }})
-    strategy:
-      fail-fast: false
-      matrix:
-        task: [build, typecheck]
-    needs: prior
-    if: >-
-      needs.prior.outputs.verified != 'true' &&
-      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false)
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    env:
-      # `actions/checkout` 的 `repository` 要 `owner/repo` 形式，不是 SSH URL。
-      PRIVATE_OVERLAY_REPO: Muluk-m/ai-image-playground-private
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      # 先自己报一句：`ssh-key` 为空时 checkout 会退回 token 认证，私有仓返回的是
-      # 「Repository not found」，看不出真因是密钥没配。
-      - name: Require the overlay key
-        env:
-          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-        run: |
-          [ -n "$PRIVATE_OVERLAY_SSH_KEY" ] || { echo "::error::PRIVATE_OVERLAY_SSH_KEY is missing."; exit 1; }
-      # 与 `deploy.yml` 同一条路子：`actions/checkout` 把 github.com 的 host key 硬编码在
-      # 源码里，这一步不碰任何网络接口。别改回手搓 `git clone` + 匿名调
-      # `api.github.com/meta` 取 known_hosts——那个接口限额 60 次/小时且按发起 IP 计，而
-      # runner 出口 IP 是共享的，2026-09-22 生产部署就是这么被一个 403 整条挂掉的。
-      # 调研见 `docs/research/deploy-known-hosts-and-overlay-coupling.md`。
-      - name: Read the pinned overlay commit
-        id: lock
-        run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
-      - name: Check out the private overlay at the pinned commit
-        id: overlay
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
-          ref: ${{ steps.lock.outputs.sha }}
-          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-          path: private
-          persist-credentials: false
-      - name: Record the overlay commit
-        run: echo "overlay=${{ steps.overlay.outputs.commit }}" >> "$GITHUB_STEP_SUMMARY"
-      - uses: ./.github/actions/setup
-      - if: matrix.task == 'typecheck'
-        run: pnpm typecheck
-      - if: matrix.task == 'typecheck'
-        run: pnpm --dir apps/admin build
-      - if: matrix.task == 'build'
-        run: pnpm --dir apps/web build:static-host
-        env:
-          BFF_ENABLED: 'true'
-          BFF_BASE_URL: https://startup-api.invalid
-      - if: matrix.task == 'build'
-        uses: ./.github/actions/pages-browser
-        with:
-          label: startup-muvloom

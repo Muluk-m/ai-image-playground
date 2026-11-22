@@ -22,6 +22,7 @@ vi.mock('../../lib/api-client', () => ({
   apiClient: {
     get: async (url: string) => {
       if (url === '/api/me') return { ok: true, accounts_login: true, accounts_sync: false }
+      if (url === '/api/extensions') return { navigation: navigation.entries, user_links: [] }
       throw new Error(`unexpected request: ${url}`)
     },
     post: async () => ({}),

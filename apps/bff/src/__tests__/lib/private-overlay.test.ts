@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { afterEach, describe, expect, it } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { getOAuthProviderDefinition } from '../../lib/oauth/registry'
+import '../../bootstrap/billing'
 import {
+  _setPrivateBffOverlayForTesting,
   assertPrivateBffOverlayPresent,
   EMPTY_PRIVATE_BFF_OVERLAY,
   loadPrivateBffOverlay,
@@ -11,33 +13,12 @@ import {
 
 const repositoryRoot = resolve(import.meta.dir, '../../../../..')
 
-async function lintBoundaryViolation(
-  source: string,
-): Promise<{ exitCode: number; output: string }> {
-  const fixtureDirectory = mkdtempSync(
-    join(repositoryRoot, 'apps/bff/src/__tests__/.private-boundary-'),
-  )
-  const fixture = join(fixtureDirectory, 'violation.ts')
-  writeFileSync(fixture, source)
-  try {
-    const child = Bun.spawn([join(repositoryRoot, 'node_modules/.bin/biome'), 'lint', fixture], {
-      cwd: repositoryRoot,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    const [exitCode, stdout, stderr] = await Promise.all([
-      child.exited,
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-    ])
-    return { exitCode, output: `${stdout}\n${stderr}` }
-  } finally {
-    rmSync(fixtureDirectory, { recursive: true, force: true })
-  }
-}
+afterEach(() => {
+  _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
+})
 
-describe('private overlay boundary', () => {
-  it('returns the useful empty overlay when the private entry is absent', async () => {
+describe('built-in billing & identity BFF overlay', () => {
+  it('bundles standalone and exposes a clean 404 empty overlay when absent', async () => {
     const outputDirectory = mkdtempSync(join(tmpdir(), 'image-playground-public-build-'))
     try {
       const build = await Bun.build({
@@ -50,38 +31,60 @@ describe('private overlay boundary', () => {
       rmSync(outputDirectory, { recursive: true, force: true })
     }
 
-    const overlay = await loadPrivateBffOverlay(
-      pathToFileURL(join(outputDirectory, 'missing-private-entry.ts')),
+    expect(EMPTY_PRIVATE_BFF_OVERLAY.present).toBe(false)
+    const response = await EMPTY_PRIVATE_BFF_OVERLAY.routes.handle(
+      new Request('http://localhost/private-route'),
     )
-    expect(overlay.present).toBe(false)
-    const response = await overlay.routes.handle(new Request('http://localhost/private-route'))
     expect(response.status).toBe(404)
   })
 
-  it('starts public test processes on the empty overlay even when private/ is checked out', async () => {
-    // 公开测试库没有私有迁移；真 overlay 的结算钩子会去查不存在的计费表。
+  it('starts public test processes on the empty overlay by preload default', async () => {
+    // 公开测试库只跑公开迁移；由 bunfig.toml 预加载钉成空实现，显式重置后才加载内置计费模块。
     expect(await loadPrivateBffOverlay()).toBe(EMPTY_PRIVATE_BFF_OVERLAY)
   })
 
-  it('rejects a required private overlay when its entry is absent', async () => {
-    const overlay = await loadPrivateBffOverlay(
-      pathToFileURL(join(tmpdir(), 'missing-private-entry.ts')),
-    )
-
-    expect(() => assertPrivateBffOverlayPresent(overlay, 'billing:credits')).toThrow(
-      'billing:credits requires the private BFF overlay',
-    )
+  it('loads the built-in billing and identity module and registers Feishu OAuth when reset', async () => {
+    const previousDatabaseUrl = process.env.DATABASE_URL
+    process.env.DATABASE_URL ??= 'postgres://postgres:postgres@127.0.0.1:5432/private_overlay_test'
+    try {
+      _setPrivateBffOverlayForTesting()
+      const overlay = await loadPrivateBffOverlay()
+      expect(overlay.present).toBe(true)
+      expect(getOAuthProviderDefinition('feishu')?.id).toBe('feishu')
+      // Reloading the same built-in loader is idempotent and keeps the same provider instance.
+      _setPrivateBffOverlayForTesting()
+      expect((await loadPrivateBffOverlay()).present).toBe(true)
+      // When billing:credits capability is off (default), hooks short-circuit without touching DB tables.
+      expect(
+        await overlay.taskHooks.reserveTask({
+          tx: {} as never,
+          taskId: 't1',
+          userId: 'u1',
+          model: 'gpt-image-2',
+          quantity: 1,
+          unitMultiplier: 1,
+        }),
+      ).toEqual({ kind: 'reserved', credits: 0 })
+      expect(await overlay.taskHooks.chatPricing('gpt-image-2')).toBeNull()
+      expect(await overlay.taskHooks.taskCredits({ taskIds: ['t1'] })).toEqual({})
+      expect(await overlay.taskHooks.accountSummary?.({ userId: 'u1', now: Date.now() })).toBeNull()
+      expect(
+        await overlay.taskHooks.canUnlinkOAuthIdentity?.({
+          tx: {} as never,
+          userId: 'u1',
+          provider: 'feishu',
+          subject: 's1',
+        }),
+      ).toEqual({ allowed: true })
+    } finally {
+      if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL
+      else process.env.DATABASE_URL = previousDatabaseUrl
+    }
   })
 
-  it('makes Biome reject static and dynamic private-tree imports', async () => {
-    const staticImport = await lintBoundaryViolation("import '../../../../private/example.ts'\n")
-    const dynamicImport = await lintBoundaryViolation(
-      "await import('../../../../private/example.ts')\n",
-    )
-
-    expect(staticImport.exitCode).not.toBe(0)
-    expect(staticImport.output).toContain('lint/style/noRestrictedImports')
-    expect(dynamicImport.exitCode).not.toBe(0)
-    expect(dynamicImport.output).toContain('lint/style/noRestrictedImports')
+  it('rejects a required billing module when absent', () => {
+    expect(() =>
+      assertPrivateBffOverlayPresent(EMPTY_PRIVATE_BFF_OVERLAY, 'billing:credits'),
+    ).toThrow('billing:credits requires the billing BFF module')
   })
 })

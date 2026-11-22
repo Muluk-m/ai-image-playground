@@ -33,9 +33,6 @@ concurrency:
 defaults:
   run:
     shell: bash
-env:
-  # `actions/checkout` 的 `repository` 要 `owner/repo` 形式，不是 SSH URL。
-  PRIVATE_OVERLAY_REPO: Muluk-m/ai-image-playground-private
 jobs:
   target:
     name: Pick the commit
@@ -131,8 +128,6 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
       # 窗口只发 `Web checks` 已在 main 上成功的 tip；没跑完或失败就跳过本窗口（不报错）。
-      # overlay-bump 的 lock 提交推送前已自己构建验证；它的 `Web checks` 没有记录或仍在跑时，
-      # 这种仅改 private.lock 的提交逐层越过，看最近一个有检查记录的祖先。已失败则照常跳过窗口。
       - id: gate
         env:
           GH_TOKEN: ${{ github.token }}
@@ -150,29 +145,15 @@ jobs:
             exit 0
           fi
           # success：有成功记录；running：无成功但有未完成；failure：只有失败；none：没有记录
-          checks_state() {
-            gh api "repos/$REPO/actions/workflows/web.yml/runs?head_sha=$1&event=push&branch=main&per_page=100" \
+          state=$(
+            gh api "repos/$REPO/actions/workflows/web.yml/runs?head_sha=$SHA&event=push&branch=main&per_page=100" \
               --jq 'if any(.workflow_runs[]?; .status == "completed" and .conclusion == "success") then "success" elif any(.workflow_runs[]?; .status != "completed") then "running" elif (.workflow_runs | length) == 0 then "none" else "failure" end'
-          }
-          check_sha=$SHA
-          state=
-          # 连续的 overlay-bump 提交没有（或还没跑完）Web checks，逐层往前找
-          while :; do
-            if ! state=$(checks_state "$check_sha"); then
-              state=unavailable
-              break
-            fi
-            case $state in none | running) ;; *) break ;; esac
-            [ "$(git log -1 --format=%an "$check_sha")" = 'github-actions[bot]' ] || break
-            git log -1 --format=%s "$check_sha" | grep -q '^chore(overlay): pin ' || break
-            [ "$(git diff --name-only "$check_sha^" "$check_sha")" = private.lock ] || break
-            check_sha=$(git rev-parse "$check_sha^")
-          done
+          ) || state=unavailable
           if [ "$state" != success ]; then
             # failure 会一直挡住后续窗口，直到 main 上有新提交；用 warning 让它出现在运行摘要里。
             level=notice
             [ "$state" = failure ] && level=warning
-            echo "::$level::Web checks for $check_sha on main is '$state'; skipping this window."
+            echo "::$level::Web checks for $SHA on main is '$state'; skipping this window."
             echo "ok=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -226,37 +207,23 @@ jobs:
       contents: read
       packages: write
     outputs:
-      private_sha: ${{ steps.overlay.outputs.commit }}
       release_id: ${{ steps.build.outputs.release_id }}
     steps:
       - name: Require secrets
         env:
-          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           VPS_SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
           VPS_SSH_HOST: ${{ secrets.VPS_SSH_HOST }}
           VPS_SSH_USER: ${{ secrets.VPS_SSH_USER }}
         run: |
           missing=
-          for name in PRIVATE_OVERLAY_SSH_KEY VPS_SSH_KEY VPS_SSH_KNOWN_HOSTS VPS_SSH_HOST VPS_SSH_USER; do
+          for name in VPS_SSH_KEY VPS_SSH_KNOWN_HOSTS VPS_SSH_HOST VPS_SSH_USER; do
             [ -n "$(printenv "$name")" ] || missing="$missing $name"
           done
           [ -z "$missing" ] || { echo "::error::Secrets empty or missing:$missing"; exit 1; }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.target.outputs.sha }}
-          persist-credentials: false
-      - name: Read the pinned overlay commit
-        id: lock
-        run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
-      - name: Check out the private overlay at the pinned commit
-        id: overlay
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
-          ref: ${{ steps.lock.outputs.sha }}
-          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-          path: private
           persist-credentials: false
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -267,10 +234,9 @@ jobs:
         id: build
         env:
           PUBLIC_SHA: ${{ needs.target.outputs.sha }}
-          PRIVATE_SHA: ${{ steps.overlay.outputs.commit }}
           APP_RELEASE: ${{ needs.release.outputs.version }}
         run: |
-          release_id="aip-$(printf %.12s "$PUBLIC_SHA")-$(printf %.12s "$PRIVATE_SHA")"
+          release_id="aip-$(printf %.12s "$PUBLIC_SHA")-$(printf %.12s "$PUBLIC_SHA")"
           # muvloom uses the installed VPS target name paid.
           ./scripts/build-vps-release.sh paid "$RUNNER_TEMP/$release_id"
           echo "release_id=$release_id" >> "$GITHUB_OUTPUT"
@@ -322,11 +288,10 @@ jobs:
       - name: Require secrets
         env:
           PAGES_ENV: ${{ secrets.PAGES_ENV }}
-          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
           PAGES_API_TOKEN: ${{ secrets.PAID_CLOUDFLARE_API_TOKEN }}
         run: |
           missing=
-          for name in PAGES_ENV PRIVATE_OVERLAY_SSH_KEY PAGES_API_TOKEN; do
+          for name in PAGES_ENV PAGES_API_TOKEN; do
             [ -n "$(printenv "$name")" ] || missing="$missing $name"
           done
           [ -z "$missing" ] || { echo "::error::Secrets empty or missing:$missing"; exit 1; }
@@ -346,14 +311,12 @@ jobs:
           {
             printf '%s\n' "$PAGES_ENV"
             echo "${PREFIX}_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/$PREFIX-cloudflare.env"
-            echo "PAID_EXTRA_ASSETS_DIR=$GITHUB_WORKSPACE/private/pages-assets"
           } > "$RUNNER_TEMP/pages.env"
           echo "PAGES_ENV_FILE=$RUNNER_TEMP/pages.env" >> "$GITHUB_ENV"
       - name: Wait for the shared muvloom API and the enterprise API hostname
         if: needs.target.outputs.deploy_api == 'true'
         env:
           PUBLIC_SHA: ${{ needs.target.outputs.sha }}
-          PRIVATE_SHA: ${{ needs.backend.outputs.private_sha }}
         run: |
           # shellcheck source=/dev/null
           . "$PAGES_ENV_FILE"
@@ -363,9 +326,11 @@ jobs:
             while :; do
               version=$(curl -fsS --max-time 10 "${api%/}/health" 2>/dev/null |
                 sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)
-              [ "$version" = "$PUBLIC_SHA+$PRIVATE_SHA" ] && break
+              if [ "$version" = "$PUBLIC_SHA+$PUBLIC_SHA" ] || [ "$version" = "$PUBLIC_SHA" ]; then
+                break
+              fi
               [ "$(date +%s)" -lt "$deadline" ] ||
-                { echo "::error::$api/health reports '$version', expected $PUBLIC_SHA+$PRIVATE_SHA"; exit 1; }
+                { echo "::error::$api/health reports '$version', expected $PUBLIC_SHA+$PUBLIC_SHA"; exit 1; }
               sleep 10
             done
           done
@@ -379,19 +344,6 @@ jobs:
         with:
           go-version-file: cli-go/go.mod
           cache-dependency-path: cli-go/go.sum
-      - name: Read the pinned overlay commit
-        id: lock
-        run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
-      - name: Check out the private overlay at the backend's commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
-          ref: ${{ needs.backend.outputs.private_sha || steps.lock.outputs.sha }}
-          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-          path: private
-          persist-credentials: false
-      - name: Require the muvloom site assets
-        run: test -d private/pages-assets
       - run: pnpm install --frozen-lockfile
       # pages-release.sh 里的启动冒烟会 `playwright install --with-deps`，从 Azure apt 镜像下 21 MB 字体包；
       # 镜像慢时（run 42160603842 是 43 kB/s）单这一步 8 分钟，占本作业的四分之三。这里用与 Checks 相同的
@@ -472,11 +424,10 @@ jobs:
       - name: Require secrets
         env:
           PAGES_ENV: ${{ secrets.PAGES_ENV }}
-          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
           PAID_CLOUDFLARE_API_TOKEN: ${{ secrets.PAID_CLOUDFLARE_API_TOKEN }}
         run: |
           missing=
-          for name in PAGES_ENV PRIVATE_OVERLAY_SSH_KEY PAID_CLOUDFLARE_API_TOKEN; do
+          for name in PAGES_ENV PAID_CLOUDFLARE_API_TOKEN; do
             [ -n "$(printenv "$name")" ] || missing="$missing $name"
           done
           [ -z "$missing" ] || { echo "::error::Secrets empty or missing:$missing"; exit 1; }
@@ -513,7 +464,6 @@ jobs:
         if: steps.cutover.outputs.enabled == 'true' && needs.target.outputs.deploy_api == 'true'
         env:
           PUBLIC_SHA: ${{ needs.target.outputs.sha }}
-          PRIVATE_SHA: ${{ needs.backend.outputs.private_sha }}
         run: |
           # shellcheck source=/dev/null
           . "$PAGES_ENV_FILE"
@@ -525,9 +475,11 @@ jobs:
           while :; do
             version=$(curl -fsS --max-time 10 "${ADMIN_BFF_BASE_URL%/}/health" 2>/dev/null |
               sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' || true)
-            [ "$version" = "$PUBLIC_SHA+$PRIVATE_SHA" ] && exit 0
+            if [ "$version" = "$PUBLIC_SHA+$PUBLIC_SHA" ] || [ "$version" = "$PUBLIC_SHA" ]; then
+              exit 0
+            fi
             [ "$(date +%s)" -lt "$deadline" ] ||
-              { echo "::error::$ADMIN_BFF_BASE_URL/health reports '${version}', expected $PUBLIC_SHA+$PRIVATE_SHA"; exit 1; }
+              { echo "::error::$ADMIN_BFF_BASE_URL/health reports '${version}', expected $PUBLIC_SHA+$PUBLIC_SHA"; exit 1; }
             sleep 10
           done
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -539,19 +491,6 @@ jobs:
           cache: pnpm
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         if: steps.cutover.outputs.enabled == 'true'
-      - name: Read the pinned overlay commit
-        if: steps.cutover.outputs.enabled == 'true'
-        id: lock
-        run: echo "sha=$(tr -d '[:space:]' < private.lock)" >> "$GITHUB_OUTPUT"
-      - name: Check out the private overlay at the backend's commit
-        if: steps.cutover.outputs.enabled == 'true'
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ env.PRIVATE_OVERLAY_REPO }}
-          ref: ${{ needs.backend.outputs.private_sha || steps.lock.outputs.sha }}
-          ssh-key: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-          path: private
-          persist-credentials: false
       - if: steps.cutover.outputs.enabled == 'true'
         run: pnpm install --frozen-lockfile
       - name: Release the muvloom Admin site

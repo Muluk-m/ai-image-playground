@@ -14,9 +14,9 @@ set -eu
 # - each side is compared with the commit it serves itself: the APIs from /health, the sites from
 #   /version.json. A side skipped by an earlier run keeps its older commit, so a later run still sees
 #   the changes it never shipped, and a side that already shipped them is not shipped again;
-# - a side ships when its own paths (or the pinned overlay, private.lock) changed since that commit, and nothing ships when every side
+# - a side ships when its own paths changed since that commit, and nothing ships when every side
 #   already serves <sha>. A scheduled window is incremental; a manual run (the emergency lane)
-#   redeploys everything, which is how an urgent private overlay change goes out.
+#   redeploys everything.
 # A side whose version cannot be read, or whose copies disagree, ships.
 
 target=${1:?target commit required}
@@ -59,21 +59,20 @@ lock_changed() {
 # admin.muvloom.online is the Pages build of apps/admin; the API image only serves admin-api.
 # shellcheck disable=SC2329 # called through decide
 web_bundle_changed() {
-  printf '%s\n' "$1" | grep -Eq '^(apps/web/|apps/website/|cli-go/|scripts/build-cli-web-bins\.sh$|packages/shared/|pnpm-workspace\.yaml$|private\.lock$)' ||
-    lock_changed "$1" . apps/web apps/website packages/shared private/apps/web
+  printf '%s\n' "$1" | grep -Eq '^(apps/web/|apps/website/|cli-go/|scripts/build-cli-web-bins\.sh$|packages/shared/|pnpm-workspace\.yaml$)' ||
+    lock_changed "$1" . apps/web apps/website packages/shared
 }
 # shellcheck disable=SC2329 # called through decide
 admin_bundle_changed() {
-  printf '%s\n' "$1" | grep -Eq '^(apps/admin/|packages/shared/|pnpm-workspace\.yaml$|private\.lock$)' ||
-    lock_changed "$1" . apps/admin packages/shared private/apps/admin
+  printf '%s\n' "$1" | grep -Eq '^(apps/admin/|packages/shared/|pnpm-workspace\.yaml$)' ||
+    lock_changed "$1" . apps/admin packages/shared
 }
 # shellcheck disable=SC2329 # called through decide
 api_tree_changed() {
   # Build and deployment protocol changes require a new release. Deployment code itself lives
   # in the fixed VPS runtime and must be installed separately from the data-only release.
-  printf '%s\n' "$1" | grep -Eq '^(private\.lock$|apps/bff/|apps/admin/|packages/|Dockerfile$|deploy/|pnpm-workspace\.yaml$|scripts/build-vps-release\.sh$|scripts/docker-entrypoint\.sh$|scripts/vps-deploy\.sh$|scripts/app-compose\.sh$|scripts/rollout-runtime\.sh$|scripts/check-test-isolation\.sh$|scripts/segmenter-deploy\.sh$|scripts/lib/deploy-common\.sh$)' ||
-    lock_changed "$1" . apps/bff apps/admin packages/db packages/node-kit packages/shared \
-      private/apps/bff private/apps/admin
+  printf '%s\n' "$1" | grep -Eq '^(apps/bff/|apps/admin/|packages/|Dockerfile$|deploy/|pnpm-workspace\.yaml$|scripts/build-vps-release\.sh$|scripts/docker-entrypoint\.sh$|scripts/vps-deploy\.sh$|scripts/app-compose\.sh$|scripts/rollout-runtime\.sh$|scripts/check-test-isolation\.sh$|scripts/segmenter-deploy\.sh$|scripts/lib/deploy-common\.sh$)' ||
+    lock_changed "$1" . apps/bff apps/admin packages/db packages/node-kit packages/shared
 }
 
 tip=$(git rev-parse origin/main)

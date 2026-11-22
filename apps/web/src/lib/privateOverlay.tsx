@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react'
 import { accountRequired } from '../auth/loginPrompt'
+import { privateWebOverlay } from '../features/billing'
 
 export interface PrivateSubmissionInput {
   model: string
@@ -74,59 +75,7 @@ export interface PrivateWebOverlay {
   onSubmissionSettled(): void
 }
 
-const EmptyComponent = () => null
-const EMPTY_OVERLAY: PrivateWebOverlay = Object.freeze({
-  HeaderCreditAction: EmptyComponent,
-  HeaderAccountActions: EmptyComponent,
-  replacesAuthActions: false,
-  supportsReferrals: false,
-  useSubmissionGuard: () => ({ blocked: false }),
-  getSubmissionGuard: () => ({ blocked: false }),
-  onSubmissionError: () => {},
-  onSubmissionAccepted: () => {},
-  onSubmissionSettled: () => {},
-})
-
-const privateModules = import.meta.glob('../../../../private/apps/web/index.tsx', { eager: true })
-
-function resolveOverlay(): PrivateWebOverlay {
-  const modules = Object.values(privateModules)
-  if (modules.length === 0) return EMPTY_OVERLAY
-  if (modules.length > 1) throw new Error('Only one private Web overlay entry is allowed')
-
-  const module = modules[0]
-  if (!module || typeof module !== 'object' || !('privateWebOverlay' in module)) {
-    throw new Error('private/apps/web/index.tsx must export privateWebOverlay')
-  }
-  const overlay = module.privateWebOverlay
-  if (
-    !overlay ||
-    typeof overlay !== 'object' ||
-    !('HeaderCreditAction' in overlay) ||
-    typeof overlay.HeaderCreditAction !== 'function' ||
-    !('HeaderAccountActions' in overlay) ||
-    typeof overlay.HeaderAccountActions !== 'function' ||
-    !('replacesAuthActions' in overlay) ||
-    typeof overlay.replacesAuthActions !== 'boolean' ||
-    !('supportsReferrals' in overlay) ||
-    typeof overlay.supportsReferrals !== 'boolean' ||
-    !('useSubmissionGuard' in overlay) ||
-    !('getSubmissionGuard' in overlay) ||
-    typeof overlay.getSubmissionGuard !== 'function' ||
-    typeof overlay.useSubmissionGuard !== 'function' ||
-    !('onSubmissionAccepted' in overlay) ||
-    typeof overlay.onSubmissionAccepted !== 'function' ||
-    !('onSubmissionSettled' in overlay) ||
-    typeof overlay.onSubmissionSettled !== 'function' ||
-    !('onSubmissionError' in overlay) ||
-    typeof overlay.onSubmissionError !== 'function'
-  ) {
-    throw new Error('privateWebOverlay does not implement the complete extension contract')
-  }
-  return overlay as PrivateWebOverlay
-}
-
-const overlay = resolveOverlay()
+const overlay: PrivateWebOverlay = privateWebOverlay
 
 export const PrivateWebHeaderCreditAction = overlay.HeaderCreditAction
 export const PrivateWebHeaderAccountActions = overlay.HeaderAccountActions
@@ -134,8 +83,8 @@ export const PrivateWebReplacesAuthActions = overlay.replacesAuthActions
 export const PrivateWebSupportsReferrals = overlay.supportsReferrals
 export const PrivateWebOAuthProviderMarks = overlay.oauthProviderMarks ?? {}
 export const PrivateWebMembership = overlay.membership ?? null
-/** 构建时带了收费 overlay；没有它，充值之类的信号没有人接。 */
-export const PrivateWebOverlayPresent = overlay !== EMPTY_OVERLAY
+/** 计费与账户面板模块已内置；具体展示仍按运行时 capabilities 控制。 */
+export const PrivateWebOverlayPresent = true
 
 /**
  * 未登录访客没有积分账户可读，overlay 只会报「读不到积分」并把生成按钮禁掉——那不是

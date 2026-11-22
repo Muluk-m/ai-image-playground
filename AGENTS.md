@@ -14,10 +14,10 @@ This codebase is yours: what it's for and how it's built are your call, and you'
 
 ## 部署与灾备
 
-- **生产：Pages + VPS，合并 main 后由 GitHub Actions（`.github/workflows/deploy.yml`）在下一个发布窗口（北京时间 12:30、18:30、23:30，由 macmini2 的 launchd 按点触发，GitHub schedule 兜底）部署，紧急修复手动 `workflow_dispatch` 并填 `reason`：镜像在 Actions 构建、经私有 GHCR 按 digest 拉到 VPS；只更新共享 muvloom 后端，再按需发布一个多域名 muvloom Pages 项目和 Admin（见[发布手册](docs/agents/release.md)「三」）。企业域名与 muvloom 共用前后端，登录方式按 origin 决定。会话只合并到 main，不手动发布；手动发布（macmini2 构建）仅作应急。** VPS 只接收镜像，不安装构建依赖或编译。公开提交通过 PR/main CI，私有 overlay 固定到已验证提交；使用独立检出、既有构建锁和发布锁。
+- **生产：Pages + VPS，合并 main 后由 GitHub Actions（`.github/workflows/deploy.yml`）在下一个发布窗口（北京时间 12:30、18:30、23:30，由 macmini2 的 launchd 按点触发，GitHub schedule 兜底）部署，紧急修复手动 `workflow_dispatch` 并填 `reason`：镜像在 Actions 构建、经私有 GHCR 按 digest 拉到 VPS；只更新共享 muvloom 后端，再按需发布一个多域名 muvloom Pages 项目和 Admin（见[发布手册](docs/agents/release.md)「三」）。企业域名与 muvloom 共用前后端，登录方式按 origin 决定。会话只合并到 main，不手动发布；手动发布（macmini2 构建）仅作应急。** VPS 只接收镜像，不安装构建依赖或编译。提交通过 PR/main CI，使用独立检出、既有构建锁和发布锁。
 - 前端单项目多域名、后端发布、排空、回滚与验收按[部署手册](docs/deploy/image-release.md)。不得强停在途执行器；迁移须兼容新旧版本。验收 API、登录和业务数据后才报告完成。
 - **改迁移编号前先查两个库已经跑过哪些迁移。** 重新编号、改名或调整 `packages/db/drizzle` 的顺序之前，先确认测试库和生产库的 `drizzle.__drizzle_migrations` 已应用到哪一条，与 `meta/_journal.json` 的 `when` 对照：drizzle 按时间戳判断哪些还没跑，已应用的迁移被改号或挪位，会被跳过或重复执行（2026-10-27 测试环境发布因此中断过）。生产库不能自己查（见[生产只读排查](docs/agents/prod-readonly.md)），请 Nain 查或看发布日志里的迁移输出；已在任一库应用过的迁移不改号，新加一条。带迁移的 PR 按时间戳先后合并：`runMigrations` 发现时间戳不晚于库中最新一条却没跑过的迁移会直接报错、中止发布，不再被 drizzle 静默跳过；真遇到时，核实后手工执行报出的迁移，再按它的 sha256 与 journal `when` 补一行 `drizzle.__drizzle_migrations`。
-- **测试环境**：推 `test` 分支由 `.github/workflows/deploy-test.yml` 先发布独立测试后端（`image-playground-test`，独立数据库与 R2 桶），再发布 https://test.muvloom.online；前端固定连 `https://test-api.muvloom.online`，不读写生产数据。前后端使用同一公开提交与 `private.lock` 钉住的 overlay。test 落后 main 会直接失败，把 main 合进 test 再推；别在 `test` 上直接改代码。细节见[测试环境手册](docs/deploy/test-environment.md)。
+- **测试环境**：推 `test` 分支由 `.github/workflows/deploy-test.yml` 先发布独立测试后端（`image-playground-test`，独立数据库与 R2 桶），再发布 https://test.muvloom.online；前端固定连 `https://test-api.muvloom.online`，不读写生产数据。前后端使用同一主仓提交。test 落后 main 会直接失败，把 main 合进 test 再推；别在 `test` 上直接改代码。细节见[测试环境手册](docs/deploy/test-environment.md)。
 - 前端发布只用 `scripts/pages-release.sh muvloom|test|admin`（企业域名与 muvloom 同属 muvloom 项目，一个项目、多个域名）；各目标的 Pages 项目与域名写在仓库外的 `pages.env`（默认 `$XDG_CONFIG_HOME/ai-image-playground/pages.env`，可用 `PAGES_ENV_FILE` 覆盖）。现存 `PAID_*` 配置键和 VPS `paid` 目标连接共享生产资源；企业域名使用 `ENTERPRISE_PUBLIC_ORIGIN` / `ENTERPRISE_BFF_BASE_URL`，配置切换与 VPS 受限入口更新见[部署手册](docs/deploy/image-release.md#产品与现存标识)。不要直接调底层 `scripts/pages-deploy.sh`——漏掉分支参数曾把未合并分支发到生产。
 - 灵感库（探索页素材流）批量下架、新增、回滚与验收按[灵感库维护手册](docs/deploy/inspiration-maintenance.md)；灵感图只传 `cms-r2.deepclick.com`。
 - **Agent 发布按[发布手册](docs/agents/release.md)**：合并前检查、`test` 只用 fetch 加快进推送、生产与私有 overlay 发布、上线核对和回滚。开 PR、跑检查、评论 `/review` 与 `@codex review` 之后，**合并 main、合并私有 overlay、打 CLI 发布标签都要等 Nain 明确确认**，不要自己 squash merge。Nain 确认后的部署由 workflow 在下一个窗口自动跑，会话跟进结果，发布完成后冒烟。绕过流水线、手工改生产服务器或生产数据同样要 Nain 批准，表格见该手册。查生产问题默认只读，能做和禁止的操作见[生产只读排查](docs/agents/prod-readonly.md)。
@@ -70,12 +70,11 @@ This codebase is yours: what it's for and how it's built are your call, and you'
 文件串行，并通过 `~/.cache/test-guard/run-owner` 保证整机同一时间只有一组测试（后来者排队）。全量测试交远端：
 `python3 scripts/cloud-test.py submit`（CI）或 `rmake -c "pnpm test"`（macmini2）；不要设置 `CI` 绕过守卫。
 
-CI（`.github/workflows/web.yml`，PR 以及 push 到 main 和 test 都跑）把 `pnpm lint`、`pnpm typecheck`、`apps/web` 构建 + 浏览器冒烟拆成并行 job；
-公开 workspace 的完整 `pnpm test` 也并行分片：web 的 vitest 分 3 片，bff 的 Bun 数据库测试按文件分 3 片（`--shard=i/n`），其余包一个 job，都带 PostgreSQL（Bun 数据库测试 4 路并发）；
-`with-overlay` / `with-overlay (typecheck)` / `with-overlay (build)` 再用 `private.lock` 钉住的 overlay 分别跑 lint + 私有包测试、typecheck + admin 构建、build + 冒烟。
+CI（`.github/workflows/web.yml`，PR 以及 push 到 main 和 test 都跑）把 `pnpm lint`、`pnpm typecheck`（含 Admin 构建）、`apps/web` 构建 + 浏览器冒烟拆成并行 job；
+完整 `pnpm test` 也并行分片：web 的 vitest 分 3 片，bff 的 Bun 数据库测试（含计费套件）按文件分 3 片（`--shard=i/n`），其余包一个 job，都带 PostgreSQL（Bun 数据库测试 4 路并发）。
 `pnpm install` 自动启用 `.githooks/pre-push`（已有自定义 `core.hooksPath` 时不覆盖）：推送前只对改动文件跑 biome、边界与迁移检查，以及受影响包的 typecheck；有 test-guard constrained 标记的机器默认只跑 lint（`AIP_PRE_PUSH=full` 强制 typecheck，`skip` 跳过）。
 
-`main` 由 ruleset 保护：只能经 PR squash 合并，上述 Web checks job 为必需检查；唯一可直推的是 overlay-bump 用的写 deploy key（`MAIN_PUSH_SSH_KEY`）。`scripts/check-migrations.mjs`（在 `pnpm lint` 里）要求 `packages/db/drizzle` 相对 main 只追加，且新迁移的 `when` 晚于 main 上时间戳最大的一条（`migrate.ts` 中审计过的 supersession `original` 除外）。
+`main` 由 ruleset 保护：只能经 PR squash 合并，上述 Web checks job 为必需检查。`scripts/check-migrations.mjs`（在 `pnpm lint` 里）要求 `packages/db/drizzle` 相对 main 只追加，且新迁移的 `when` 晚于 main 上时间戳最大的一条（`migrate.ts` 中审计过的 supersession `original` 除外）。
 
 **默认把改动做成可以上生产的 PR。** 代码修改通过检查后，继续创建 PR、等 CI，并处理评审；**不要自行合并 `main`**。合并（含 squash merge）必须等 Nain 明确说可以合，即使用户只说「按最优方案来」或检查已经全绿也不行。Nain 确认后由部署 workflow 自动发布，会话不手动发布，只跟进该 workflow 结果并核验线上版本和行为。用户明确要求仅本地修改或暂不合并时照办。
 
@@ -120,8 +119,7 @@ CI（`.github/workflows/web.yml`，PR 以及 push 到 main 和 test 都跑）把
   - 源 `apps/web/src/lib/api.ts` → 测 `apps/web/src/__tests__/lib/api.test.ts`
   - 源 `apps/bff/src/routes/submit.ts` → 测 `apps/bff/src/__tests__/routes/submit.test.ts`
 - 测试文件命名 `*.test.ts(x)`；Vitest 默认配置自动发现，不需要单独注册
-- 私有树包不强制使用 `src/` 目录；其测试放在相邻模块的 `__tests__/` 下（例如 `private/apps/bff/billing/__tests__/`）。
-- **数据库测试一个文件一个进程**：`apps/bff`、`apps/admin`、`packages/db` 与私有 BFF 的 `pnpm test`
+- **数据库测试一个文件一个进程**：`apps/bff`、`apps/admin` 与 `packages/db` 的 `pnpm test`
   都走 [`scripts/run-bun-tests-isolated.ts`](./scripts/run-bun-tests-isolated.ts)，逐文件 spawn 一个 bun 进程
   （`--filter` 收窄文件，`BUN_TEST_JOBS` 并发，默认 1；跑完全部文件后汇总失败）。每个 suite 从按迁移指纹
   建好的模板库克隆自己的库。
@@ -146,14 +144,11 @@ origin 精确选择映射中的 API；未匹配时沿用默认地址，以保留
 `/api/capabilities` 与 channel 列表，清单不可用时全部按关闭处理，禁止把能力写回 runtime
 配置。Docker entrypoint 从 env 生成 runtime 配置；裸跑或纯静态部署可自行生成。
 
-## 私有 overlay 与版本
+## 单仓版本模型（原私有 overlay 已并入主仓）
 
-- 服务端只有一套，能力由运营配置决定；muvloom 与公开版只差前端是否带 `private/` overlay 构建。`main` 是唯一长期分支。
-- overlay 版本由 `private.lock` 钉住，生产部署与 CI 都按它取；本地用 `scripts/sync-private-overlay.sh` 对齐。
-- 公开树与 overlay 只经三个接缝和宿主面互相引用，`pnpm lint` 强制；宿主面改动「先扩后缩」。
-- **任何** `pnpm-lock.yaml` 重新生成都要带着 `private/`，否则会删掉三个 private importer，muvloom 构建失败。
-
-改到 `private/`、接缝/宿主面、`private.lock`、lockfile、私有迁移或 muvloom 构建时，先读 [私有 overlay 与版本模型](docs/agents/private-overlay.md)。
+- 服务端与前端统一维护在单一公开仓库，`main` 是唯一长期分支；商业能力（计费、订阅、订单、邀请、飞书 OAuth 等）由运行时 `operator-config` 控制（`billing:credits` 默认关闭）。
+- 计费表结构与迁移位于 `packages/db/src/schemas/billing.ts` 与 `packages/db/drizzle-billing/`（沿用既有的 `private_billing.migrations` 历史表）；运营收款码与客服二维码保留在私有对象存储，不入仓。
+- 旧双仓 overlay 退役说明见 [私有 overlay 与版本模型（已退役）](docs/agents/private-overlay.md)，架构边界与重构蓝图见 [ADR 0034](docs/adr/0034-modular-monolith-and-single-repo.md)。
 
 ## 提交规范
 

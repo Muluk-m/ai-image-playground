@@ -80,12 +80,12 @@ test('ignores runs of another commit, event or branch', () => {
 
 test('falls back when a required job failed, was cancelled or was skipped', () => {
   for (const conclusion of ['failure', 'cancelled', 'skipped']) {
-    assert.equal(reuse({ runs: [run()], jobList: jobs({ 'with-overlay': conclusion }) }), 'reused=false')
+    assert.equal(reuse({ runs: [run()], jobList: jobs({ lint: conclusion }) }), 'reused=false')
   }
 })
 
 test('falls back when a required job is missing from the run (renamed or removed in web.yml)', () => {
-  assert.equal(reuse({ runs: [run()], jobList: jobs({}, ['with-overlay (build)']) }), 'reused=false')
+  assert.equal(reuse({ runs: [run()], jobList: jobs({}, ['build']) }), 'reused=false')
   assert.equal(reuse({ runs: [run()], jobList: [] }), 'reused=false')
 })
 
@@ -133,7 +133,7 @@ function webJobNames() {
 }
 
 test('every job name the script requires is one web.yml really produces', () => {
-  assert.equal(required.length, 13)
+  assert.equal(required.length, 10)
   const names = webJobNames()
   for (const name of required) assert.ok(names.includes(name), `web.yml has no job named "${name}"; update REQUIRED in scripts/ci-reuse-web-checks.sh`)
 })
