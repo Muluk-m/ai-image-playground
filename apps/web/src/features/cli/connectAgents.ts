@@ -3,11 +3,9 @@
  * `muvloom skill install`）；这里只放展示用的配置，不重复实现安装逻辑。
  * 安装细节放在 public/cli/setup.md，页面只展示可复制的短提示词。
  *
- * `muvloom skill install --host` 在当前发布里只接受 `claude-code` 与 `codex`
- * （`cli-go/internal/cli/skill.go`）。WorkBuddy 的技能目录是 `~/.workbuddy/skills/`，
- * 豆包工作在客户端「插件·技能·伙伴」里上传技能，都没有对应的 `--host`。
- * WorkBuddy 和豆包工作按专用指南在对话中安装官方技能；不生成未经当前已发布 CLI
- * 支持的 `skill install` 命令。其他宿主使用通用技能包。
+ * `muvloom skill install --host` 接受 `claude-code`、`codex` 与 `workbuddy`
+ * （`cli-go/internal/cli/skill.go`）。WorkBuddy 同时提供手动技能包兜底下载；
+ * 豆包工作在客户端「插件·技能·伙伴」里上传技能，没有对应的 `--host`。其他宿主使用通用技能包。
  */
 
 export const CONNECT_AGENTS = ['workbuddy', 'doubao', 'claude-code', 'codex', 'other'] as const
@@ -22,11 +20,11 @@ export const GENERIC_SKILL_PATH = '/cli/muvloom-skill.zip'
 export const INSTALL_SH_PATH = '/cli/install.sh'
 export const INSTALL_PS1_PATH = '/cli/install.ps1'
 
-const SKILL_HOSTS = new Set<ConnectAgentId>(['claude-code', 'codex'])
+const SKILL_HOSTS = new Set<ConnectAgentId>(['claude-code', 'codex', 'workbuddy'])
 
 export type SkillPackageId = 'workbuddy' | 'doubao' | 'other'
 
-/** 手动安装时需要下载技能包的宿主。Claude Code / Codex 用 CLI 的 skill install。 */
+/** 手动安装时提供技能包下载的宿主（WorkBuddy 同时支持 CLI 安装与 ZIP 手动导入）。 */
 export function skillPackage(agent: ConnectAgentId): SkillPackageId | null {
   if (agent === 'workbuddy' || agent === 'doubao' || agent === 'other') return agent
   return null
@@ -63,12 +61,9 @@ export function agentSetupPath(agent: ConnectAgentId): string {
 
 /**
  * 官网安装脚本随本站 `/cli/install.sh` 与 `/cli/install.ps1` 发布，并用页面里写明的 SHA-256 校验。
- * 脚本再从 GitHub releases 下载 CLI 二进制并校验其 SHA-256。发新版安装脚本时，setup.md 里的校验和
- * 必须一并更新。
+ * 脚本始终从 GitHub releases 安装或原地升级到最新稳定版 CLI（已为最新时自动跳过，永不降级），
+ * 并校验二进制 SHA-256。发新版安装脚本时，setup.md 里的校验和必须一并更新。
  */
-export const CLI_MIN_VERSION = '0.2.5'
-/** 当前已发布的 CLI；未打 tag 的后续版本在指南里只作为最低版本之上的升级，不在页面上提前钉死。 */
-export const CLI_VERSION = '0.2.5'
 export const INSTALL_SH_SHA256 =
   typeof __CLI_INSTALL_SH_SHA256__ === 'undefined' ? '' : __CLI_INSTALL_SH_SHA256__
 export const INSTALL_PS1_SHA256 =
@@ -92,7 +87,7 @@ export function installScriptCommands(platform: ConnectPlatform, origin: string)
       `curl -fsSL "${url}" -o "$tmp"`,
       `actual="$(command -v sha256sum >/dev/null && sha256sum "$tmp" | awk '{print $1}' || shasum -a 256 "$tmp" | awk '{print $1}')"`,
       `[ "$actual" = "${INSTALL_SH_SHA256}" ] || { echo "checksum mismatch"; exit 1; }`,
-      `MUVLOOM_MIN_VERSION=${CLI_MIN_VERSION} sh "$tmp"`,
+      'sh "$tmp"',
     ]
   }
   const url = guideUrl(INSTALL_PS1_PATH, origin)
@@ -100,7 +95,7 @@ export function installScriptCommands(platform: ConnectPlatform, origin: string)
     '$script = Join-Path $env:TEMP "muvloom-install.ps1"',
     `Invoke-WebRequest "${url}" -OutFile $script`,
     `if ((Get-FileHash $script -Algorithm SHA256).Hash.ToLower() -ne "${INSTALL_PS1_SHA256}") { throw "checksum mismatch" }`,
-    `$env:MUVLOOM_MIN_VERSION = "${CLI_MIN_VERSION}"; powershell -NoProfile -ExecutionPolicy Bypass -File $script; if ($LASTEXITCODE -ne 0) { throw "muvloom installer failed with exit code $LASTEXITCODE" }`,
+    'powershell -NoProfile -ExecutionPolicy Bypass -File $script; if ($LASTEXITCODE -ne 0) { throw "muvloom installer failed with exit code $LASTEXITCODE" }',
   ]
 }
 

@@ -8,9 +8,9 @@
 
 在 WorkBuddy「专家·技能·连接器 → 技能 → 已安装」中确认「幕芽 Muvloom」已启用；也可在输入框输入 `/mu` 检查候选技能。账号授权成功不代表技能安装成功。
 
-还未安装时，由 WorkBuddy 在对话中下载幕芽接入指南同源的 `muvloom-workbuddy.zip`，检查技能内容和包内路径后，将 `muvloom/` 安装到当前用户的 `~/.workbuddy/skills/muvloom/`（Windows 使用用户主目录）。读回 `SKILL.md` 和引用文件，重新加载技能后验证已发现并启用。若新任务输入 `/muv` 仍无候选，保留安装文件，请用户完整退出并重新打开客户端，再输入 `/muv` 并选择 `muvloom`；本机 WorkBuddy 5.9.3 已实测恢复，其他版本仍以实际结果为准。不要重复安装或预先宣称成功。不要把手动上传交给用户作为默认安装步骤，不要假装该包已在技能市场上架。必要权限和安全确认使用宿主正常提示，不修改全局保护。
+还未安装时，优先运行 `muvloom skill install --host workbuddy` 将官方技能安装到当前用户的 `~/.workbuddy/skills/muvloom/`（Windows 使用用户主目录），后续 `muvloom auth status` / `muvloom update skill` 会自动同步更新未修改的官方技能。若当前环境不便通过 CLI 安装，可改为在对话中下载幕芽接入指南同源的 `muvloom-workbuddy.zip`，检查技能内容和包内路径后解压到上述目录。安装后读回 `SKILL.md` 和引用文件，重新加载技能后验证已发现并启用。若新任务输入 `/muv` 仍无候选，保留安装文件，请用户完整退出并重新打开客户端，再输入 `/muv` 并选择 `muvloom`；本机 WorkBuddy 5.9.3 已实测恢复，其他版本仍以实际结果为准。不要重复安装或预先宣称成功。不要把手动上传交给用户作为默认安装步骤，不要假装该包已在技能市场上架。必要权限和安全确认使用宿主正常提示，不修改全局保护。
 
-用户要求连接账号时，按当前接入指南页面的域名，为本次会话选择该页面对应的 API；这一步也适用于已经安装 CLI 的情况。CLI 安装和服务地址选择按接入页面的安装指南执行。CLI 0.2.5 的 `skill install --host` 仅支持 Claude Code 和 Codex，WorkBuddy 通过下载 `muvloom-workbuddy.zip` 安装到本地技能目录；升级到支持 `workbuddy` 的新版本 CLI 后，可使用 `muvloom skill install --host workbuddy --scope user` 安装，后续 `muvloom auth status` 会自动同步更新未修改的官方技能。
+用户要求连接账号时，按当前接入指南页面的域名，为本次会话选择该页面对应的 API；这一步也适用于已经安装 CLI 的情况。CLI 安装和升级按接入页面的安装指南执行，安装器会自动安装或升级到最新稳定版。
 
 ## 连接账号
 

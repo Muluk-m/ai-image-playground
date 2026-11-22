@@ -471,6 +471,22 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.cli("version")["data"]["version"], VERSION)
 
+    def test_latest_skips_when_already_at_latest(self):
+        first = self.install(pin=False)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        self.server.requests.clear()
+        result = self.install(pin=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("already installed", (result.stdout + result.stderr).lower())
+        self.assertFalse(any(f"/cli-v{VERSION}/" in path for path, _ in self.server.requests))
+        self.assertEqual(self.cli("version")["data"]["version"], VERSION)
+
+    def test_latest_upgrades_an_older_install(self):
+        self.write_fake_cli("0.0.1")
+        result = self.install(pin=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.cli("version")["data"]["version"], VERSION)
+
     @unittest.skipIf(platform.system() == "Windows", "Windows supports only the separately tested x64 platform")
     def test_unsupported_shell_architecture_fails_before_download(self):
 

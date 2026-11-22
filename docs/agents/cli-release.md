@@ -15,10 +15,10 @@ python -m pip install 'skills-ref @ git+https://github.com/agentskills/agentskil
 cd cli-go
 go vet ./...
 go test ./...
-python install/build-dist.py --version 0.2.5 --output dist
-python install/test-install.py --dist dist --version 0.2.5
+python install/build-dist.py --version 0.2.6 --output dist
+python install/test-install.py --dist dist --version 0.2.6
 ```
 
 `MUVLOOM_DISTRIBUTION_URL` is a CI-only fixture seam: only `http://127.0.0.1:PORT/PATH` is accepted, and redirects are forbidden. Leave it unset for official GitHub downloads. The smoke suite sets `MUVLOOM_NO_MODIFY_PATH=1` on Windows so it never changes the runner's persistent user PATH. Neither installer sends CLI credentials; the CLI's authenticated HTTP requests retain their no-redirect policy.
 
-Passing PR checks produces Actions artifacts only. An agent may create the `cli-vX.Y.Z` tag once the release commit's PR checks pass (2026-11-08 decision; no separate approval). After the release workflow finishes, install the published version with the official installer into a temporary directory and check `muvloom version` before pinning the website to it. CI smoke does not prove a public release exists or exercise authenticated production APIs. If no published release exists, the public installer must fail rather than use an unverified substitute.
+Passing PR checks produces Actions artifacts only. Creating a `cli-vX.Y.Z` release tag requires Nain's explicit approval (see `docs/agents/release.md`). After the release workflow finishes, verify the published release by installing it into a temporary directory with the official installer and checking `muvloom version`. The website `/connect` page and setup guides always install the latest stable GitHub release without pinning a version; no separate website version bump is needed on routine CLI releases unless `install.sh` / `install.ps1` themselves change. CI smoke does not prove a public release exists or exercise authenticated production APIs. If no published release exists, the public installer must fail rather than use an unverified substitute.
