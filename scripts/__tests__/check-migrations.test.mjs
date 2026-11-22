@@ -11,7 +11,7 @@ const sql =
     tag in overrides ? overrides[tag] : `-- ${tag}`
 const files = (entries) => entries.map((e) => `${e.tag}.sql`)
 
-const run = (head, { against = base, headSql = sql(), superseded, newestWhen, sqlFiles = files(head) } = {}) =>
+const run = (head, { against = base, headSql = sql(), superseded, latestMain, sqlFiles = files(head) } = {}) =>
   checkMigrations({
     head,
     base: against ?? undefined,
@@ -19,7 +19,7 @@ const run = (head, { against = base, headSql = sql(), superseded, newestWhen, sq
     baseSql: sql(),
     sqlFiles,
     superseded,
-    newestWhen,
+    latestMain,
   }).join('\n')
 
 test('accepts the existing irregular history and an appended migration', () => {
@@ -33,8 +33,24 @@ test('rejects deleting migrations from the end together with their sql', () => {
 
 test('checks new stamps against a later main than the base', () => {
   const head = [...base, entry(3, '0004_d', 400)]
-  assert.equal(run(head, { newestWhen: 350 }), '')
-  assert.match(run(head, { newestWhen: 450 }), /not later than the newest migration on main \(450\)/)
+  assert.equal(run(head, { latestMain: [...base, entry(3, '0004_other', 350)] }), '')
+  assert.match(
+    run(head, { latestMain: [...base, entry(3, '0004_other', 450)] }),
+    /not later than the newest migration on main \(450\)/,
+  )
+})
+
+test('does not compare a new migration with itself once it is on main (main push)', () => {
+  const head = [...base, entry(3, '0004_d', 400)]
+  assert.equal(run(head, { latestMain: head }), '')
+  assert.equal(run(head, { latestMain: [...head, entry(4, '0005_later', 300)] }), '')
+})
+
+test('rejects a missing or non-integer when', () => {
+  const head = [...base, { idx: 3, tag: '0004_d', when: '400' }, { idx: 4, tag: '0005_e' }]
+  const problems = run(head)
+  assert.match(problems, /0004_d: when must be an integer, got "400"/)
+  assert.match(problems, /0005_e: when must be an integer, got undefined/)
 })
 
 test('rejects renumbering, retiming or editing a migration already on main', () => {

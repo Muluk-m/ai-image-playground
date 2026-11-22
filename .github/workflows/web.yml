@@ -114,7 +114,8 @@ jobs:
       - run: node --test scripts/__tests__/lock-closure-changed.test.mjs scripts/__tests__/test-guard.test.mjs scripts/__tests__/cost-impact.test.mjs scripts/__tests__/review-stats.test.mjs scripts/__tests__/test-shard.test.mjs scripts/__tests__/ci-reuse-web-checks.test.mjs scripts/__tests__/check-migrations.test.mjs
       # check-migrations: HEAD^1 is the main this PR merge commit (or main/test push) sits on, so a
       # deleted migration fails; origin/main supplies the newest stamp if main moved on since.
-      - run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
+      # depth 2: when main is HEAD (main push), depth 1 would make HEAD the shallow boundary and hide HEAD^1.
+      - run: git fetch --no-tags --depth=2 origin +refs/heads/main:refs/remotes/origin/main
       - run: pnpm lint
         env:
           MIGRATIONS_BASE_REF: HEAD^1

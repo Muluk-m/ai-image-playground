@@ -30,7 +30,7 @@ const tagNumber = (tag) => Number.parseInt(tag.slice(0, 4), 10)
 /**
  * @param {{ head: {idx:number, tag:string, when:number}[], base?: {idx:number, tag:string, when:number}[],
  *   headSql: (tag: string) => string | undefined, baseSql?: (tag: string) => string | undefined,
- *   sqlFiles: string[], superseded?: Set<string>, newestWhen?: number }} input
+ *   sqlFiles: string[], superseded?: Set<string>, latestMain?: {tag:string, when:number}[] }} input
  * @returns {string[]} problems, empty when the migrations are fine
  */
 export function checkMigrations({
@@ -40,11 +40,12 @@ export function checkMigrations({
   baseSql,
   sqlFiles,
   superseded = new Set(),
-  newestWhen,
+  latestMain = [],
 }) {
   const problems = []
   const tags = new Set()
   for (const entry of head) {
+    if (!Number.isSafeInteger(entry.when)) problems.push(`${entry.tag}: when must be an integer, got ${JSON.stringify(entry.when)}`)
     if (tags.has(entry.tag)) problems.push(`${entry.tag}: listed twice in the journal`)
     tags.add(entry.tag)
     if (headSql(entry.tag) === undefined) problems.push(`${entry.tag}: journal entry without ${entry.tag}.sql`)
@@ -69,10 +70,14 @@ export function checkMigrations({
     }
   }
 
-  // runMigrations compares against the newest applied stamp, not the journal's last entry.
-  const newestOnMain = Math.max(newestWhen ?? 0, ...base.map((e) => e.when))
+  // runMigrations compares against the newest applied stamp, not the journal's last entry. A later
+  // main counts too, except for this tree's own new migrations once they are on main (main push).
+  const added = head.slice(base.length)
+  const own = new Set(added.map((e) => `${e.tag}@${e.when}`))
+  const others = latestMain.filter((e) => !own.has(`${e.tag}@${e.when}`))
+  const newestOnMain = Math.max(...[...base, ...others].map((e) => e.when))
   let prev = base.at(-1)
-  for (const entry of head.slice(base.length)) {
+  for (const entry of added) {
     if (entry.when <= newestOnMain && !superseded.has(entry.tag)) {
       problems.push(
         `${entry.tag}: when ${entry.when} is not later than the newest migration on main (${newestOnMain}); ` +
@@ -109,7 +114,8 @@ function main() {
   }
   const sqlFiles = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql'))
 
-  let baseRef = process.argv[2] || process.env.MIGRATIONS_BASE_REF
+  const explicit = process.argv[2] || process.env.MIGRATIONS_BASE_REF
+  let baseRef = explicit
   if (!baseRef) {
     try {
       baseRef = git(['merge-base', 'HEAD', 'origin/main']).trim()
@@ -123,9 +129,12 @@ function main() {
       return undefined
     }
   }
+  if (!base && explicit) {
+    console.error(`check-migrations: base ${explicit} is not readable (shallow clone or typo); refusing to skip the check`)
+    process.exit(1)
+  }
   if (!base) console.warn(`check-migrations: no base (${baseRef ?? 'merge-base with origin/main'}), only checking the working tree`)
-  const latestMain = readRef('origin/main')
-  const newestWhen = latestMain ? Math.max(...latestMain.map((e) => e.when)) : undefined
+  const latestMain = readRef('origin/main') ?? []
 
   const superseded = supersededTags(readFileSync(MIGRATE_SOURCE, 'utf8'))
   const problems = checkMigrations({
@@ -135,7 +144,7 @@ function main() {
     baseSql: base ? baseSql : undefined,
     sqlFiles,
     superseded,
-    newestWhen,
+    latestMain,
   })
   if (problems.length) {
     console.error(`check-migrations: ${problems.length} problem(s) against ${baseRef}:`)
