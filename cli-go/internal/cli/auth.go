@@ -46,9 +46,18 @@ func (a *App) credentialsFrom(tokens tokenResponse) auth.Credentials {
 }
 
 // loadCredentials returns credentials for the current API URL or AUTH_REQUIRED.
-func (a *App) loadCredentials() (auth.Credentials, error) {
+// When no stored credentials exist yet, it checks once whether an unexpired pending device
+// login for this service has already been approved in the browser ("collect_later"), so any
+// subsequent command (auth status, capabilities, images create) seamlessly completes sign-in
+// without requiring another explicit `auth login` invocation.
+func (a *App) loadCredentials(ctx context.Context) (auth.Credentials, error) {
 	creds, err := a.Store.Load()
 	if errors.Is(err, auth.ErrNotFound) || (err == nil && creds.RefreshToken == "") {
+		if collected, ok, collectErr := a.tryCollectPendingLogin(ctx); collectErr != nil {
+			return auth.Credentials{}, collectErr
+		} else if ok {
+			return collected, nil
+		}
 		return auth.Credentials{}, fail("AUTH_REQUIRED", "Not signed in; run `muvloom auth login`")
 	}
 	if err != nil {
@@ -58,6 +67,49 @@ func (a *App) loadCredentials() (auth.Credentials, error) {
 		return auth.Credentials{}, a.serviceMismatch(creds.BaseURL)
 	}
 	return creds, nil
+}
+
+// tryCollectPendingLogin makes one bounded, non-blocking attempt to redeem an unexpired
+// pending device login for a.APIURL. If the user has not clicked Allow yet (or a transient
+// error occurs), pending-login.json is left untouched so auth status and later commands can
+// continue resuming it.
+func (a *App) tryCollectPendingLogin(ctx context.Context) (auth.Credentials, bool, error) {
+	pending, err := a.Store.LoadPending()
+	if err != nil || pending.DeviceCode == "" || pending.Redeemed || !sameService(pending.BaseURL, a.APIURL) || !time.Now().Before(pending.ExpiresAt) {
+		return auth.Credentials{}, false, nil
+	}
+	if err := a.Store.Preflight(); err != nil {
+		return auth.Credentials{}, false, nil
+	}
+	if pending.RequestID == "" {
+		id, err := newRequestID()
+		if err != nil {
+			return auth.Credentials{}, false, nil
+		}
+		pending.RequestID = id
+		if err := a.Store.SavePending(pending); err != nil {
+			return auth.Credentials{}, false, nil
+		}
+	}
+	pollCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	tokens, err := a.redeem(pollCtx, pending)
+	if err != nil {
+		var oauthErr *client.OAuthError
+		if errors.As(err, &oauthErr) && oauthErr.Code == "access_denied" {
+			_ = a.Store.ClearPending()
+		}
+		return auth.Credentials{}, false, nil
+	}
+	creds := a.credentialsFrom(tokens)
+	creds.LoginDeviceCodeHash = deviceCodeHash(pending.DeviceCode)
+	if err := a.Store.Save(creds); err != nil {
+		pending.Redeemed = true
+		_ = a.Store.SavePending(pending)
+		return auth.Credentials{}, false, fail("CREDENTIAL_STORE_UNWRITABLE", "Signed in, but the credentials could not be stored (%s); make the muvloom config directory writable, then run `muvloom auth login` again", auth.Reason(err))
+	}
+	_ = a.Store.ClearPending()
+	return creds, true, nil
 }
 
 // serviceMismatch is an explicit MUVLOOM_API_URL that disagrees with the service the stored
@@ -71,8 +123,8 @@ func (a *App) serviceMismatch(connectionURL string) *Failure {
 }
 
 // apiClient returns a client that refreshes the access token once on a 401.
-func (a *App) apiClient() (*client.HTTPClient, error) {
-	creds, err := a.loadCredentials()
+func (a *App) apiClient(ctx context.Context) (*client.HTTPClient, error) {
+	creds, err := a.loadCredentials(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +151,7 @@ func (a *App) refresh(ctx context.Context, rejected string) (string, error) {
 		return "", fail("INTERNAL_ERROR", "Could not lock the credential store; check that the muvloom config directory is writable")
 	}
 	defer unlock()
-	creds, err := a.loadCredentials()
+	creds, err := a.loadCredentials(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -297,15 +349,15 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	if leftovers := a.Store.Leftovers(); len(leftovers) > 0 {
 		status["leftover_temp_files"] = len(leftovers)
 	}
-	if pending, err := a.Store.LoadPending(); err == nil && (time.Now().Before(pending.ExpiresAt) || pending.Redeemed && recoverable(pending)) && !completedLogin(a, pending) {
-		status["pending_login"] = map[string]any{
-			"user_code":                 pending.UserCode,
-			"verification_uri_complete": pending.VerificationURIComplete,
-			"expires_at":                pending.ExpiresAt,
-		}
-	}
-	c, err := a.apiClient()
+	c, err := a.apiClient(ctx)
 	if err != nil {
+		if pending, pendErr := a.Store.LoadPending(); pendErr == nil && (time.Now().Before(pending.ExpiresAt) || pending.Redeemed && recoverable(pending)) && !completedLogin(a, pending) {
+			status["pending_login"] = map[string]any{
+				"user_code":                 pending.UserCode,
+				"verification_uri_complete": pending.VerificationURIComplete,
+				"expires_at":                pending.ExpiresAt,
+			}
+		}
 		if failure := asFailure(err); failure.Code == "SERVICE_MISMATCH" {
 			status["state"] = "service_mismatch"
 			details, _ := failure.Details.(map[string]string)
@@ -495,16 +547,16 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 	}
 	if !pending.Redeemed {
 		if *noWait {
-			a.progress("Open %s and confirm code %s", pending.VerificationURIComplete, pending.UserCode)
+			a.progress("Open %s in your browser and select Allow", pending.VerificationURIComplete)
 			return prompt, nil
 		}
 		// A resumed login does not open another page: the one already open still works.
 		if resuming {
-			a.progress("Waiting for approval of code %s at %s", pending.UserCode, pending.VerificationURIComplete)
+			a.progress("Waiting for browser approval at %s", pending.VerificationURIComplete)
 		} else if err := a.openBrowser(approvalURL(pending)); err == nil {
-			a.progress("Opened the browser to approve this connection (code %s). Waiting…", pending.UserCode)
+			a.progress("Opened your browser to approve this connection. Select Allow to continue…")
 		} else {
-			a.progress("Open %s and confirm code %s", pending.VerificationURIComplete, pending.UserCode)
+			a.progress("Open %s in your browser and select Allow", pending.VerificationURIComplete)
 		}
 	}
 	done := make(chan struct{})

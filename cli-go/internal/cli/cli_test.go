@@ -2044,3 +2044,56 @@ func TestQuotaExceededIsNotRetriedAndSaysWhenItResets(t *testing.T) {
 		}
 	}
 }
+
+func TestApprovedPendingLoginIsCollectedAutomaticallyBySubsequentCommands(t *testing.T) {
+	t.Run("business command collects approved login without re-running auth login", func(t *testing.T) {
+		f := newFakeServer(t)
+		f.approveAfter = 2
+		app := newApp(t, f, t.TempDir())
+		if r := execute(t, app, "auth", "login", "--no-wait"); r.code != ExitOK {
+			t.Fatalf("no-wait = %d %s", r.code, r.stdout)
+		}
+		// Poll 1: user has not approved yet -> capabilities reports AUTH_REQUIRED and preserves pending-login.json.
+		if r := execute(t, app, "capabilities"); r.code != ExitAuth || r.out["error"].(map[string]any)["code"] != "AUTH_REQUIRED" {
+			t.Fatalf("unapproved capabilities = %d %s", r.code, r.stdout)
+		}
+		if _, err := app.Store.LoadPending(); err != nil {
+			t.Fatalf("pending login was dropped before approval: %v", err)
+		}
+		// Poll 2: user has now clicked Allow -> capabilities redeems the token on its own and succeeds.
+		r := execute(t, app, "capabilities")
+		if r.code != ExitOK {
+			t.Fatalf("approved capabilities = %d %s %s", r.code, r.stdout, r.stderr)
+		}
+		if _, err := app.Store.LoadPending(); !errors.Is(err, auth.ErrNotFound) {
+			t.Fatalf("pending login not cleared after collection: %v", err)
+		}
+		if creds, err := app.Store.Load(); err != nil || creds.RefreshToken == "" {
+			t.Fatalf("credentials not persisted: %+v %v", creds, err)
+		}
+	})
+
+	t.Run("auth status collects approved login and omits stale pending_login", func(t *testing.T) {
+		f := newFakeServer(t)
+		f.approveAfter = 2
+		app := newApp(t, f, t.TempDir())
+		if r := execute(t, app, "auth", "login", "--no-wait"); r.code != ExitOK {
+			t.Fatalf("no-wait = %d %s", r.code, r.stdout)
+		}
+		// Poll 1: still pending -> status is unauthenticated and surfaces pending_login.
+		first := execute(t, app, "auth", "status")
+		firstData := first.out["data"].(map[string]any)
+		if first.code != ExitOK || firstData["state"] != "unauthenticated" || firstData["pending_login"] == nil {
+			t.Fatalf("unapproved status = %d %s", first.code, first.stdout)
+		}
+		// Poll 2: approved -> status transitions directly to ready with no leftover pending_login.
+		second := execute(t, app, "auth", "status")
+		secondData := second.out["data"].(map[string]any)
+		if second.code != ExitOK || secondData["state"] != "ready" {
+			t.Fatalf("approved status = %d %s", second.code, second.stdout)
+		}
+		if _, hasPending := secondData["pending_login"]; hasPending {
+			t.Fatalf("ready status still carries pending_login: %s", second.stdout)
+		}
+	})
+}

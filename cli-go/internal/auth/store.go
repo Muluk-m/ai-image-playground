@@ -1,6 +1,8 @@
-// Package auth persists CLI credentials. The platform credential store (macOS Keychain,
-// Windows Credential Manager, Linux Secret Service) is used when available; otherwise a
-// 0600 file under the user config directory. Credential values are never logged.
+// Package auth persists CLI credentials. By default credentials live in a user-private 0600
+// file under the user config directory (mode 0700) so binary self-updates and multi-host agent
+// sandboxes never trigger OS keychain prompts; setting MUVLOOM_CREDENTIALS_STORE=keychain opts
+// into the platform credential store (macOS Keychain, Windows Credential Manager, Linux Secret
+// Service). Credential values are never logged.
 //
 // Files are only ever created and written in place: never renamed over, never deleted during
 // a login, a refresh or a logout. An agent host that sandboxes the config directory asks the
@@ -91,14 +93,14 @@ type PendingLogin struct {
 
 type Store struct {
 	Dir string
-	// UseKeyring stores credentials in the platform credential store when it works.
+	// UseKeyring stores credentials in the platform credential store when explicitly opted in
+	// via MUVLOOM_CREDENTIALS_STORE=keychain.
 	UseKeyring bool
-	// ClearKeyring makes Clear remove the keychain entry even when this process stores to
-	// a file, so switching MUVLOOM_CREDENTIALS_STORE cannot leave a login behind. Tests that
-	// build a Store directly leave it off and never touch the real keychain.
+	// ClearKeyring makes Clear remove the keychain entry when keychain mode is active. Tests
+	// that build a Store directly leave it off and never touch the real keychain.
 	ClearKeyring bool
 	// ForceKeyring is set when the caller explicitly requested MUVLOOM_CREDENTIALS_STORE=keychain,
-	// overriding an existing file-mode marker left by a sandboxed host.
+	// overriding an existing file-mode marker left by default file mode or a sandboxed host.
 	ForceKeyring bool
 	// Keychain replaces the system credential store; nil means the system's.
 	Keychain Keychain
@@ -111,11 +113,7 @@ func (s Store) keychain() Keychain {
 	return systemKeychain{}
 }
 
-// ConfigDir is $MUVLOOM_CONFIG_DIR, or <user config dir>/muvloom.
-func ConfigDir() string {
-	if dir := os.Getenv("MUVLOOM_CONFIG_DIR"); dir != "" {
-		return dir
-	}
+func defaultConfigDir() string {
 	if dir, err := os.UserConfigDir(); err == nil {
 		return filepath.Join(dir, "muvloom")
 	}
@@ -125,29 +123,36 @@ func ConfigDir() string {
 	return ".muvloom"
 }
 
-// Default uses the keyring unless MUVLOOM_CREDENTIALS_STORE=file or the process runs inside
-// a sandboxed desktop host (e.g. WorkBuddy) where touching macOS Keychain triggers permission
-// prompts. A directory chosen with MUVLOOM_CONFIG_DIR keeps its credentials in files only and
-// never writes or deletes the keychain (auth status only reads it, see DefaultLoginElsewhere):
-// the keychain has one entry, which belongs to the default directory, so a login or sign-out
-// in another directory (a test service, a container) must not replace or remove it.
+// ConfigDir is $MUVLOOM_CONFIG_DIR, or <user config dir>/muvloom.
+func ConfigDir() string {
+	if dir := os.Getenv("MUVLOOM_CONFIG_DIR"); dir != "" {
+		return dir
+	}
+	return defaultConfigDir()
+}
+
+// Default stores credentials in a 0600 file under ConfigDir() across all hosts unless
+// MUVLOOM_CREDENTIALS_STORE=keychain explicitly opts into the OS keyring (and MUVLOOM_CONFIG_DIR
+// is unset). Avoiding the OS keyring by default prevents macOS Keychain ACL password dialogs
+// when unsigned binaries self-update or run inside headless/sandboxed agent shells.
 func Default() Store {
 	if os.Getenv("MUVLOOM_CONFIG_DIR") != "" {
 		return Store{Dir: ConfigDir()}
 	}
 	storePref := strings.ToLower(strings.TrimSpace(os.Getenv("MUVLOOM_CREDENTIALS_STORE")))
-	sandboxed := inKeychainSandboxedHost()
-	return Store{
-		Dir:          ConfigDir(),
-		UseKeyring:   storePref != "file" && !sandboxed,
-		ClearKeyring: !sandboxed,
-		ForceKeyring: storePref == "keychain",
+	if storePref == "keychain" {
+		return Store{
+			Dir:          ConfigDir(),
+			UseKeyring:   true,
+			ClearKeyring: true,
+			ForceKeyring: true,
+		}
 	}
+	return Store{Dir: ConfigDir()}
 }
 
 // inKeychainSandboxedHost detects desktop agent sandboxes (such as WorkBuddy on macOS) whose
-// file guards intercept writes to ~/Library/Keychains/. In those hosts the CLI prefers the 0600
-// credentials.json file unless the user explicitly requested MUVLOOM_CREDENTIALS_STORE=keychain.
+// file guards intercept writes to ~/Library/Keychains/.
 func inKeychainSandboxedHost() bool {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("MUVLOOM_CREDENTIALS_STORE")), "keychain") {
 		return false
@@ -165,17 +170,24 @@ func inKeychainSandboxedHost() bool {
 }
 
 // DefaultLoginElsewhere reports that this store is a MUVLOOM_CONFIG_DIR directory without a
-// login while the keychain holds the default directory's: before 0.2.1 such a directory
-// shared that entry, so its user must sign in here again.
+// login while the default config directory holds a file login (or, when keychain is injected in
+// tests, a keychain login). It never probes the real OS keychain in default file mode.
 func (s Store) DefaultLoginElsewhere() bool {
-	if s.UseKeyring || s.ClearKeyring || os.Getenv("MUVLOOM_CONFIG_DIR") == "" || inKeychainSandboxedHost() {
+	if s.UseKeyring || s.ClearKeyring || os.Getenv("MUVLOOM_CONFIG_DIR") == "" {
 		return false
 	}
 	if _, err := s.Load(); err == nil {
 		return false
 	}
-	_, err := s.keychain().Get(keyringService, keyringUser)
-	return err == nil
+	defDir := defaultConfigDir()
+	if filepath.Clean(defDir) != filepath.Clean(s.Dir) && fileHasContent(filepath.Join(defDir, "credentials.json")) {
+		return true
+	}
+	if s.Keychain != nil && !inKeychainSandboxedHost() {
+		_, err := s.Keychain.Get(keyringService, keyringUser)
+		return err == nil
+	}
+	return false
 }
 
 func (s Store) credentialsFile() string { return filepath.Join(s.Dir, "credentials.json") }

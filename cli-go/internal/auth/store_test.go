@@ -615,18 +615,17 @@ func TestAConfigDirectoryNeverTouchesTheKeychain(t *testing.T) {
 	t.Setenv("SANDBOX_CENTER_IPC_ADDRESS", "")
 	t.Setenv("CODEBUDDY_SANDBOX_CENTER_START_MODE", "")
 	t.Setenv("WORKBUDDY_SANDBOX", "")
-	if def := Default(); !def.UseKeyring || !def.ClearKeyring {
-		t.Fatalf("the default directory lost the keychain: %+v", def)
+	if def := Default(); def.UseKeyring || def.ClearKeyring || def.ForceKeyring {
+		t.Fatalf("the default store should use 0600 file mode across all hosts: %+v", def)
 	}
-	// Non-sandboxed MUVLOOM_CREDENTIALS_STORE=file must still clear stale keychain entries.
 	t.Setenv("MUVLOOM_CREDENTIALS_STORE", "file")
-	if filePref := Default(); filePref.UseKeyring || !filePref.ClearKeyring {
-		t.Fatalf("file store preference dropped ClearKeyring: %+v", filePref)
+	if filePref := Default(); filePref.UseKeyring || filePref.ClearKeyring || filePref.ForceKeyring {
+		t.Fatalf("file store preference unexpectedly enabled keyring: %+v", filePref)
 	}
 	t.Setenv("MUVLOOM_CREDENTIALS_STORE", "")
 	t.Setenv("WORKBUDDY_SANDBOX", "0")
-	if notSandboxed := Default(); !notSandboxed.UseKeyring || !notSandboxed.ClearKeyring {
-		t.Fatalf("WORKBUDDY_SANDBOX=0 misdetected as sandbox: %+v", notSandboxed)
+	if notSandboxed := Default(); notSandboxed.UseKeyring || notSandboxed.ClearKeyring {
+		t.Fatalf("default store unexpectedly enabled keyring: %+v", notSandboxed)
 	}
 	t.Setenv("WORKBUDDY_SANDBOX", "")
 	t.Setenv("SANDBOX_CENTER_IPC_ADDRESS", "/tmp/workbuddy-sandbox-center.sock")
@@ -642,7 +641,7 @@ func TestAConfigDirectoryNeverTouchesTheKeychain(t *testing.T) {
 	}
 	t.Setenv("MUVLOOM_CONFIG_DIR", "")
 	t.Setenv("MUVLOOM_CREDENTIALS_STORE", "keychain")
-	if forced := Default(); !forced.UseKeyring {
+	if forced := Default(); !forced.UseKeyring || !forced.ClearKeyring || !forced.ForceKeyring {
 		t.Fatalf("explicit keychain override did not apply: %+v", forced)
 	}
 }
