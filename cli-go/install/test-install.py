@@ -205,7 +205,12 @@ class InstallTests(unittest.TestCase):
                 data = self.cli("skill", "install", "--host", host, "--scope", scope)["data"]
                 expected = root / directory / "skills" / "muvloom"
                 self.assertEqual(Path(data["path"]).resolve(), expected.resolve())
-                subprocess.run([self.validator, "validate", str(expected)], check=True, timeout=30)
+                subprocess.run(
+                    [self.validator, "validate", str(expected)],
+                    env={**self.env, "PYTHONUTF8": "1"},
+                    check=True,
+                    timeout=30,
+                )
         installed = self.cli("skill", "status")["data"]["installed"]
         self.assertEqual(len(installed), 4)
         self.assertTrue(all(item["intact"] and item["current"] for item in installed))

@@ -47,4 +47,4 @@ disable the host's file or credential protection.
 - [install.md](references/install.md) — installing, bootstrapping or upgrading the CLI.
 - [updates.md](references/updates.md) — automatic silent updates and manual update controls.
 
-Every generated image also syncs automatically to the connected account's Muvloom Web workbench (**Assets → Works / 资产 → 作品**), where the user can open a work, click **Add to canvas / 放入画布**, and continue with region-based **Smart edit / 智能改图**, **Erase / 擦除**, **Cut out / 抠图**, **Expand / 扩图**, or **Crop / 裁剪**.
+Every generated image also syncs automatically to the connected account's Muvloom Web workbench (**Assets → Works**), where the user can open a work, click **Add to canvas**, and continue with region-based **Smart edit**, **Erase**, **Cut out**, **Expand**, or **Crop** (localized UI labels in [image-sets.md](references/image-sets.md)).
