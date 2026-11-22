@@ -1,6 +1,5 @@
 import type { BillingSettings, LedgerEntry, ModelPrice, PlanPrice } from '@image-playground/shared'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { i18next } from '../../../features/billing/../../lib/privateHost'
 import {
   contactChannels,
   contactDisplay,
@@ -15,6 +14,7 @@ import {
   normalizeAccountSnapshot,
   submissionGuard,
 } from '../../../features/billing/billing-store'
+import { i18next } from '../../../lib/privateHost'
 import { bootstrapCapabilities } from './capabilities'
 
 function ledgerEntry(overrides: Partial<LedgerEntry>): LedgerEntry {

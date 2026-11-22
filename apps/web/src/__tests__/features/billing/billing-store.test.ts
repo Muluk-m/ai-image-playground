@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { setSignedIn } from '../../../auth/loginPrompt'
 import {
   getSubmissionGuard,
   loadBilling,
@@ -7,7 +8,14 @@ import {
 } from '../../../features/billing/billing-store'
 import { bootstrapCapabilities } from './capabilities'
 
-beforeAll(() => bootstrapCapabilities({ 'accounts:login': true, 'billing:credits': true }))
+beforeAll(async () => {
+  await bootstrapCapabilities({ 'accounts:login': true, 'billing:credits': true })
+  setSignedIn(true)
+})
+
+afterAll(() => {
+  setSignedIn(false)
+})
 
 function stubFetch(handler: (url: string) => Response): () => void {
   const original = globalThis.fetch

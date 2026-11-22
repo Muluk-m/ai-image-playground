@@ -3,12 +3,10 @@
 import type { ScheduledPlanChange } from '@image-playground/shared'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, expect, it } from 'vitest'
-import { i18next } from '../../../features/billing/../../lib/privateHost'
+import { afterEach, expect, it, vi } from 'vitest'
 import { beginRenewal } from '../../../features/billing/orders-client'
 import { PricingPanel } from '../../../features/billing/PurchasePanels'
-
-declare const vi: typeof import('vitest').vi
+import { i18next } from '../../../lib/privateHost'
 
 const { billing } = vi.hoisted(() => ({
   billing: {

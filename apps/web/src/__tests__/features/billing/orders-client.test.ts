@@ -1,11 +1,9 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it } from 'vitest'
-import { authenticatedBffFetch } from '../../../features/billing/../../lib/privateHost'
+import { afterEach, expect, it, vi } from 'vitest'
 import { beginRecharge, beginRenewal } from '../../../features/billing/orders-client'
+import { authenticatedBffFetch } from '../../../lib/privateHost'
 
-declare const vi: typeof import('vitest').vi
-
-vi.mock('../../../features/billing/../../lib/privateHost', () => ({
+vi.mock('../../../lib/privateHost', () => ({
   authenticatedBffFetch: vi.fn(),
   getRuntimeConfig: () => ({ bff: { baseUrl: 'https://api.example.test' } }),
 }))

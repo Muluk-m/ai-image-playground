@@ -1,10 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { i18next } from '../../../features/billing/../../lib/privateHost'
 import { accountNavItems } from '../../../features/billing/AccountPanel'
 import { AccountSettings } from '../../../features/billing/AccountSettings'
 import { AvatarCropFrame } from '../../../features/billing/AvatarCropDialog'
 import { clampCropOffset, coverScale } from '../../../features/billing/avatar-crop'
+import { i18next } from '../../../lib/privateHost'
 import '../../../features/billing/i18n'
 import {
   bioIssue,

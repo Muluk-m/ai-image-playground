@@ -1,15 +1,12 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import {
   beginRecharge,
   OrderRequestError,
   orderRequest,
 } from '../../../features/billing/orders-client'
-
-declare const vi: typeof import('vitest').vi
-
 import { RechargePanel } from '../../../features/billing/PurchasePanels'
 
 vi.mock('../../../features/billing/billing-store', async (original) => ({

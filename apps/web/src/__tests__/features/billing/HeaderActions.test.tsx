@@ -1,10 +1,8 @@
 // @vitest-environment jsdom
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { HeaderActions } from '../../../features/billing/HeaderActions'
-
-declare const vi: typeof import('vitest').vi
 
 vi.mock('../../../features/billing/billing-store', async (original) => ({
   ...(await original<typeof import('../../../features/billing/billing-store')>()),

@@ -1,4 +1,4 @@
-import { bootstrapClientCapabilities } from '../../../features/billing/../../lib/privateHost'
+import { bootstrapClientCapabilities } from '../../../lib/privateHost'
 
 // 少一个 client-exposed key，parseManifest 就整份作废、静默关掉所有能力，所以这里必须列全。
 const ALL_DISABLED = {
