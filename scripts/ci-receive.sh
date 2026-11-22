@@ -142,19 +142,19 @@ prepare_mirror() {
     git -C "$mirror" remote set-url origin "$runtime_url" >&2
 }
 
-fetch_main() {
-  GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60 \
-    git -C "$mirror" fetch -q --filter=blob:none origin '+refs/heads/main:refs/heads/main' >&2
-}
-
 with_timeout() {
   seconds=$1
   shift
   if command -v timeout >/dev/null 2>&1; then
-    timeout "$seconds" "$@"
+    timeout -k 5 "$seconds" "$@"
   else
     "$@"
   fi
+}
+
+fetch_main() {
+  with_timeout 60 env GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=30 \
+    git -C "$mirror" fetch -q --filter=blob:none origin '+refs/heads/main:refs/heads/main' >&2
 }
 
 # Unpacks <commit>'s deploy/ and scripts/ into ~/deploy-runtimes/<commit> if not already present,
@@ -171,7 +171,8 @@ unpack_runtime() {
       trap 'exit 143' TERM
       # git's own exit status, not the tail of a pipe: a lazy blob fetch that dies halfway must not
       # leave a truncated runtime that still happens to contain vps-deploy.sh.
-      if ! git -C "$mirror" archive -o "$incoming_runtime.tar" "$commit" deploy scripts >&2 ||
+      if ! with_timeout 60 env GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=30 \
+        git -C "$mirror" archive -o "$incoming_runtime.tar" "$commit" deploy scripts >&2 ||
         ! tar -xf "$incoming_runtime.tar" -C "$incoming_runtime" >&2; then
         echo "Could not unpack the deployment runtime of $commit" >&2
         exit 1

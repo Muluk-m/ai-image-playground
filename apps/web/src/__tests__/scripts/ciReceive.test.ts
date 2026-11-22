@@ -125,7 +125,7 @@ function receive(
 
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 
-describe('ci-receive.sh', () => {
+describe('ci-receive.sh', { timeout: 20_000 }, () => {
   it('unpacks the release and runs its receiver as the GitHub Actions run', () => {
     const result = receive(`deploy ${id} paid 12345`)
     expect(result.status).toBe(0)
@@ -474,11 +474,15 @@ describe('ci-receive.sh', () => {
     it('preserves both current-paid and current-test across runtime pruning', () => {
       expect(receive(`deploy ${id} paid 1`).status).toBe(0)
       for (let n = 0; n < 8; n++) {
-        commitRuntime(`m${n}`)
+        const mCommit = commitRuntime(`m${n}`)
         const release = `aip-${n.toString(16).repeat(12)}-${'c'.repeat(12)}`
         expect(
-          receive(`deploy ${release} test ${n + 10}`, releaseTar(manifest('test')), {}, 'test')
-            .status,
+          receive(
+            `deploy ${release} test ${n + 10}`,
+            releaseTar(manifest('test', mCommit)),
+            {},
+            'test',
+          ).status,
         ).toBe(0)
       }
       const head = git(origin, 'rev-parse', 'HEAD')
@@ -699,13 +703,13 @@ describe('ci-receive.sh', () => {
       }
     })
 
-    it('caps the optional test drift probe with timeout so a stalled fetch never blocks deployment', () => {
+    it('caps runtime and drift fetches with timeout so a stalled remote never blocks deployment', () => {
       const binDir = join(root, 'bin')
       const timeoutLog = join(root, 'timeout-calls')
       mkdirSync(binDir, { recursive: true })
       writeFileSync(
         join(binDir, 'timeout'),
-        `#!/bin/sh\nprintf '%s\\n' "$*" >> "${timeoutLog}"\nexit 124\n`,
+        `#!/bin/sh\nprintf '%s\\n' "$*" >> "${timeoutLog}"\n[ "$1" = -k ] && shift 2\nif [ "$1" = 10 ]; then exit 124; fi\nshift\nexec "$@"\n`,
       )
       chmodSync(join(binDir, 'timeout'), 0o755)
 
@@ -716,7 +720,10 @@ describe('ci-receive.sh', () => {
         'test',
       )
       expect(result.status, result.stderr).toBe(0)
-      expect(readFileSync(timeoutLog, 'utf8')).toMatch(/^10 env .* fetch .* /m)
+      const recorded = readFileSync(timeoutLog, 'utf8')
+      expect(recorded).toMatch(/^-k 5 60 env .* fetch .* \+refs\/heads\/main:refs\/heads\/main$/m)
+      expect(recorded).toMatch(/^-k 5 60 env .* archive /m)
+      expect(recorded).toMatch(/^-k 5 10 env .* fetch .* /m)
       expect(result.stderr).toContain(`could not inspect ${sideCommit}`)
       expect(readFileSync(log, 'utf8')).toBe(
         `test ${releases}/${id} actor=github-actions/run-1 runtime=main\n`,
