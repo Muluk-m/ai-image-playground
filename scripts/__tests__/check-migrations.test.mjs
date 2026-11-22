@@ -11,16 +11,30 @@ const sql =
     tag in overrides ? overrides[tag] : `-- ${tag}`
 const files = (entries) => entries.map((e) => `${e.tag}.sql`)
 
-const run = (head, { against = base, headSql = sql(), superseded, sqlFiles = files(head) } = {}) =>
-  checkMigrations({ head, base: against ?? undefined, headSql, baseSql: sql(), sqlFiles, superseded }).join('\n')
+const run = (head, { against = base, headSql = sql(), superseded, newestWhen, sqlFiles = files(head) } = {}) =>
+  checkMigrations({
+    head,
+    base: against ?? undefined,
+    headSql,
+    baseSql: sql(),
+    sqlFiles,
+    superseded,
+    newestWhen,
+  }).join('\n')
 
 test('accepts the existing irregular history and an appended migration', () => {
   assert.equal(run([...base, entry(3, '0004_d', 400)]), '')
 })
 
-test('accepts a tree that is behind main', () => {
-  assert.equal(run(base.slice(0, 2)), '')
-  assert.equal(run(base, { against: [...base, entry(3, '0004_main', 400)] }), '')
+test('rejects deleting migrations from the end together with their sql', () => {
+  const head = base.slice(0, 2)
+  assert.match(run(head), /0003_c: removed/)
+})
+
+test('checks new stamps against a later main than the base', () => {
+  const head = [...base, entry(3, '0004_d', 400)]
+  assert.equal(run(head, { newestWhen: 350 }), '')
+  assert.match(run(head, { newestWhen: 450 }), /not later than the newest migration on main \(450\)/)
 })
 
 test('rejects renumbering, retiming or editing a migration already on main', () => {

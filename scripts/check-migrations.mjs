@@ -4,9 +4,12 @@
 // release broke this way), and runMigrations aborts a release on a new entry whose `when` is not
 // later than the newest applied one. This catches both in the PR instead of at release time.
 //
-// Usage: node scripts/check-migrations.mjs [base-ref]   (default: MIGRATIONS_BASE_REF or origin/main)
-// Without the base ref (shallow clone, no fetch) it only checks the working tree and says so.
-// A branch behind main (main has migrations the tree lacks) is not a migration problem and passes.
+// Usage: node scripts/check-migrations.mjs [base-ref]
+// The base is the main this tree builds on: MIGRATIONS_BASE_REF (CI passes HEAD^1, the main a PR
+// merge commit or a squash commit sits on), else `git merge-base HEAD origin/main`. Every base
+// migration must still be there unchanged, so a branch behind main passes but deleting one fails.
+// New stamps must beat the newest `when` on origin/main when it is known (a later main may have
+// raised it), else on the base. Without any base it only checks the working tree and says so.
 // An older-stamped entry is allowed only as an audited `original` in migrate.ts migrationSupersessions.
 import { execFileSync } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
@@ -27,10 +30,18 @@ const tagNumber = (tag) => Number.parseInt(tag.slice(0, 4), 10)
 /**
  * @param {{ head: {idx:number, tag:string, when:number}[], base?: {idx:number, tag:string, when:number}[],
  *   headSql: (tag: string) => string | undefined, baseSql?: (tag: string) => string | undefined,
- *   sqlFiles: string[], superseded?: Set<string> }} input
+ *   sqlFiles: string[], superseded?: Set<string>, newestWhen?: number }} input
  * @returns {string[]} problems, empty when the migrations are fine
  */
-export function checkMigrations({ head, base, headSql, baseSql, sqlFiles, superseded = new Set() }) {
+export function checkMigrations({
+  head,
+  base,
+  headSql,
+  baseSql,
+  sqlFiles,
+  superseded = new Set(),
+  newestWhen,
+}) {
   const problems = []
   const tags = new Set()
   for (const entry of head) {
@@ -44,16 +55,14 @@ export function checkMigrations({ head, base, headSql, baseSql, sqlFiles, supers
   }
   if (!base) return problems
 
-  // Only the shared prefix must match: main may be ahead of this tree (the tree is behind, fine),
-  // and entries past main's end are this tree's new migrations.
-  const shared = Math.min(base.length, head.length)
-  for (let i = 0; i < shared; i++) {
-    const old = base[i]
+  for (const [i, old] of base.entries()) {
     const now = head[i]
-    if (now.tag !== old.tag || now.when !== old.when || now.idx !== old.idx) {
+    if (!now) {
+      problems.push(`${old.tag}: removed; a migration on main may already be applied, append a new one instead`)
+    } else if (now.tag !== old.tag || now.when !== old.when || now.idx !== old.idx) {
       problems.push(
         `${old.tag}: main has ${old.tag} (idx ${old.idx}, when ${old.when}) where this tree has ${now.tag} ` +
-          `(idx ${now.idx}, when ${now.when}); migrations on main may be applied — rebase on main and append after them`,
+          `(idx ${now.idx}, when ${now.when}); migrations on main may be applied, rebase and append after them`,
       )
     } else if (baseSql && baseSql(old.tag) !== headSql(old.tag)) {
       problems.push(`${old.tag}.sql: edited after it landed on main; its hash is recorded where it ran, append a new migration`)
@@ -61,7 +70,7 @@ export function checkMigrations({ head, base, headSql, baseSql, sqlFiles, supers
   }
 
   // runMigrations compares against the newest applied stamp, not the journal's last entry.
-  const newestOnMain = Math.max(...base.map((e) => e.when))
+  const newestOnMain = Math.max(newestWhen ?? 0, ...base.map((e) => e.when))
   let prev = base.at(-1)
   for (const entry of head.slice(base.length)) {
     if (entry.when <= newestOnMain && !superseded.has(entry.tag)) {
@@ -83,8 +92,16 @@ function git(args) {
   return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
 }
 
+function readRef(ref) {
+  try {
+    git(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])
+    return JSON.parse(git(['show', `${ref}:${JOURNAL}`])).entries
+  } catch {
+    return undefined
+  }
+}
+
 function main() {
-  const baseRef = process.argv[2] || process.env.MIGRATIONS_BASE_REF || 'origin/main'
   const head = JSON.parse(readFileSync(JOURNAL, 'utf8')).entries
   const headSql = (tag) => {
     const path = join(MIGRATIONS_DIR, `${tag}.sql`)
@@ -92,31 +109,41 @@ function main() {
   }
   const sqlFiles = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql'))
 
-  let base
-  let baseSql
-  try {
-    git(['rev-parse', '--verify', '--quiet', `${baseRef}^{commit}`])
-    base = JSON.parse(git(['show', `${baseRef}:${JOURNAL}`])).entries
-    baseSql = (tag) => {
-      try {
-        return git(['show', `${baseRef}:${MIGRATIONS_DIR}/${tag}.sql`])
-      } catch {
-        return undefined
-      }
-    }
-  } catch {
-    console.warn(`check-migrations: ${baseRef} not available, only checking the working tree`)
+  let baseRef = process.argv[2] || process.env.MIGRATIONS_BASE_REF
+  if (!baseRef) {
+    try {
+      baseRef = git(['merge-base', 'HEAD', 'origin/main']).trim()
+    } catch {}
   }
+  const base = baseRef ? readRef(baseRef) : undefined
+  const baseSql = (tag) => {
+    try {
+      return git(['show', `${baseRef}:${MIGRATIONS_DIR}/${tag}.sql`])
+    } catch {
+      return undefined
+    }
+  }
+  if (!base) console.warn(`check-migrations: no base (${baseRef ?? 'merge-base with origin/main'}), only checking the working tree`)
+  const latestMain = readRef('origin/main')
+  const newestWhen = latestMain ? Math.max(...latestMain.map((e) => e.when)) : undefined
 
   const superseded = supersededTags(readFileSync(MIGRATE_SOURCE, 'utf8'))
-  const problems = checkMigrations({ head, base, headSql, baseSql, sqlFiles, superseded })
+  const problems = checkMigrations({
+    head,
+    base,
+    headSql,
+    baseSql: base ? baseSql : undefined,
+    sqlFiles,
+    superseded,
+    newestWhen,
+  })
   if (problems.length) {
     console.error(`check-migrations: ${problems.length} problem(s) against ${baseRef}:`)
     for (const p of problems) console.error(`  - ${p}`)
     console.error('See AGENTS.md「改迁移编号前先查两个库已经跑过哪些迁移」.')
     process.exit(1)
   }
-  console.log(`check-migrations: ${head.length} migrations ok${base ? ` (append-only against ${baseRef})` : ''}`)
+  console.log(`check-migrations: ${head.length} migrations ok${base ? ` (append-only against ${baseRef.slice(0, 12)})` : ''}`)
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) main()
