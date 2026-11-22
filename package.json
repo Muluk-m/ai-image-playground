@@ -17,7 +17,7 @@
     "lint:sh": "shellcheck -x -P SCRIPTDIR -S warning scripts/*.sh scripts/lib/*.sh deploy/backup/*.sh",
     "format": "biome format --write .",
     "hooks:install": "git config core.hooksPath .githooks",
-    "prepare": "[ -z \"$CI\" ] && [ -z \"$(git config core.hooksPath 2>/dev/null)\" ] && git config core.hooksPath .githooks 2>/dev/null || true",
+    "prepare": "node -e \"const g=(a)=>require('child_process').execFileSync('git',a,{stdio:['ignore','pipe','ignore']}).toString().trim();try{if(!process.env.CI&&g(['rev-parse','--is-inside-work-tree'])==='true'){let p='';try{p=g(['config','core.hooksPath'])}catch{}if(!p)g(['config','core.hooksPath','.githooks'])}}catch{}\"",
     "test:deps:up": "./scripts/infra-compose.sh up",
     "test:deps:down": "./scripts/infra-compose.sh down",
     "test:deps:status": "./scripts/infra-compose.sh status",

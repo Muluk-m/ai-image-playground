@@ -6,22 +6,31 @@
 //
 // Usage: node scripts/check-migrations.mjs [base-ref]   (default: MIGRATIONS_BASE_REF or origin/main)
 // Without the base ref (shallow clone, no fetch) it only checks the working tree and says so.
+// A branch behind main (main has migrations the tree lacks) is not a migration problem and passes.
+// An older-stamped entry is allowed only as an audited `original` in migrate.ts migrationSupersessions.
 import { execFileSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 export const MIGRATIONS_DIR = 'packages/db/drizzle'
 const JOURNAL = `${MIGRATIONS_DIR}/meta/_journal.json`
+const MIGRATE_SOURCE = 'packages/db/src/migrate.ts'
+
+/** Tags migrate.ts lets run behind a newer applied migration (`original` of each supersession). */
+export function supersededTags(source) {
+  return new Set([...source.matchAll(/original:\s*\{\s*tag:\s*'([^']+)'/g)].map((m) => m[1]))
+}
 
 const tagNumber = (tag) => Number.parseInt(tag.slice(0, 4), 10)
 
 /**
  * @param {{ head: {idx:number, tag:string, when:number}[], base?: {idx:number, tag:string, when:number}[],
  *   headSql: (tag: string) => string | undefined, baseSql?: (tag: string) => string | undefined,
- *   sqlFiles: string[] }} input
+ *   sqlFiles: string[], superseded?: Set<string> }} input
  * @returns {string[]} problems, empty when the migrations are fine
  */
-export function checkMigrations({ head, base, headSql, baseSql, sqlFiles }) {
+export function checkMigrations({ head, base, headSql, baseSql, sqlFiles, superseded = new Set() }) {
   const problems = []
   const tags = new Set()
   for (const entry of head) {
@@ -35,34 +44,35 @@ export function checkMigrations({ head, base, headSql, baseSql, sqlFiles }) {
   }
   if (!base) return problems
 
-  for (const [i, old] of base.entries()) {
+  // Only the shared prefix must match: main may be ahead of this tree (the tree is behind, fine),
+  // and entries past main's end are this tree's new migrations.
+  const shared = Math.min(base.length, head.length)
+  for (let i = 0; i < shared; i++) {
+    const old = base[i]
     const now = head[i]
-    if (!now) {
-      problems.push(`${old.tag}: removed from the journal; applied migrations stay, add a new one instead`)
-      continue
-    }
     if (now.tag !== old.tag || now.when !== old.when || now.idx !== old.idx) {
       problems.push(
-        `${old.tag}: changed from main (idx ${old.idx}→${now.idx}, tag ${old.tag}→${now.tag}, when ${old.when}→${now.when}); ` +
-          'migrations already on main may be applied, append a new one instead',
+        `${old.tag}: main has ${old.tag} (idx ${old.idx}, when ${old.when}) where this tree has ${now.tag} ` +
+          `(idx ${now.idx}, when ${now.when}); migrations on main may be applied — rebase on main and append after them`,
       )
     } else if (baseSql && baseSql(old.tag) !== headSql(old.tag)) {
       problems.push(`${old.tag}.sql: edited after it landed on main; its hash is recorded where it ran, append a new migration`)
     }
   }
 
-  const added = head.slice(base.length)
+  // runMigrations compares against the newest applied stamp, not the journal's last entry.
+  const newestOnMain = Math.max(...base.map((e) => e.when))
   let prev = base.at(-1)
-  for (const entry of added) {
-    if (prev && entry.when <= prev.when) {
+  for (const entry of head.slice(base.length)) {
+    if (entry.when <= newestOnMain && !superseded.has(entry.tag)) {
       problems.push(
-        `${entry.tag}: when ${entry.when} is not later than ${prev.tag} (${prev.when}); runMigrations will abort the release. ` +
-          'Rebase on main and give it a later timestamp',
+        `${entry.tag}: when ${entry.when} is not later than the newest migration on main (${newestOnMain}); ` +
+          'runMigrations will abort the release. Give it a later timestamp',
       )
     }
     if (prev && entry.idx !== prev.idx + 1) problems.push(`${entry.tag}: idx ${entry.idx} should be ${prev.idx + 1}`)
     if (prev && tagNumber(entry.tag) <= tagNumber(prev.tag)) {
-      problems.push(`${entry.tag}: number must be above ${prev.tag}; main moved on, rebase and renumber the new migration`)
+      problems.push(`${entry.tag}: number must be above ${prev.tag}`)
     }
     prev = entry
   }
@@ -98,7 +108,8 @@ function main() {
     console.warn(`check-migrations: ${baseRef} not available, only checking the working tree`)
   }
 
-  const problems = checkMigrations({ head, base, headSql, baseSql, sqlFiles })
+  const superseded = supersededTags(readFileSync(MIGRATE_SOURCE, 'utf8'))
+  const problems = checkMigrations({ head, base, headSql, baseSql, sqlFiles, superseded })
   if (problems.length) {
     console.error(`check-migrations: ${problems.length} problem(s) against ${baseRef}:`)
     for (const p of problems) console.error(`  - ${p}`)
@@ -108,4 +119,4 @@ function main() {
   console.log(`check-migrations: ${head.length} migrations ok${base ? ` (append-only against ${baseRef})` : ''}`)
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main()
+if (process.argv[1] && import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href) main()

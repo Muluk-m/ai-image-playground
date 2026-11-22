@@ -22,8 +22,8 @@ base=""
 while read -r local_ref local_sha _remote_ref _remote_sha; do
   [ "$local_sha" = "$zero" ] && continue # 删分支，不用查
   if [ "$local_sha" != "$head" ]; then
-    echo "pre-push: ${local_ref} 不是当前 HEAD，跳过本地检查，由 CI 把关。" >&2
-    exit 0
+    echo "pre-push: ${local_ref} 不是当前 HEAD，不做本地检查，由 CI 把关。" >&2
+    continue
   fi
   b=$(git merge-base "$local_sha" origin/main 2>/dev/null || true)
   [ -n "$b" ] && base="$b"

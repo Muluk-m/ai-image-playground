@@ -112,7 +112,10 @@ jobs:
             check_sha=$(git rev-parse "$check_sha^")
           done
           if [ "$state" != success ]; then
-            echo "::notice::Web checks for $check_sha on main is '$state'; skipping this window."
+            # failure 会一直挡住后续窗口，直到 main 上有新提交；用 warning 让它出现在运行摘要里。
+            level=notice
+            [ "$state" = failure ] && level=warning
+            echo "::$level::Web checks for $check_sha on main is '$state'; skipping this window."
             echo "ok=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
