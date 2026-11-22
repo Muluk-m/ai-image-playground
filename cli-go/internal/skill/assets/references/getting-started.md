@@ -29,4 +29,7 @@ session; natural-language requests remain usable. Do not invent a slash alias
 that the host has not registered.
 
 If setup was part of an image request, give this brief introduction and continue
-that request. Installation-only setup ends here without a sample generation.
+that request (1–3 images generate directly; 4+ image e-commerce sets present a
+shot plan and zero-cost `images validate` credit estimate first, and every result
+syncs to **Assets → Works / 资产 → 作品** on the Muvloom web workbench).
+Installation-only setup ends here without a sample generation.

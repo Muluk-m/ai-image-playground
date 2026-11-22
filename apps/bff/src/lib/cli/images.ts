@@ -21,6 +21,7 @@ import {
   isGptImage26Model,
   isGptSub2apiDeliverable,
   type QueueProvider,
+  resolveImageTier,
   type SubmitRequest,
 } from '@image-playground/shared'
 import {
@@ -34,7 +35,9 @@ import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { accountEffectiveConcurrencyLimit } from '../account-concurrency'
 import { canonicalJson } from '../canonicalJson'
+import { isCapabilityEnabled } from '../capabilities'
 import { declaredImageSizes, getDiscoveredChannels, resolveQueueModel } from '../channels'
+import { meteringDecisionOrDenied } from '../metering-decision'
 import { refreshInactiveModels, withoutInactiveModels } from '../model-availability'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { strictImageRequestAllowed } from '../taskSubmission'
@@ -404,6 +407,7 @@ export interface CliQuote {
 export interface CliImagePreview {
   readonly quote: CliQuote | null
   readonly planRequired: boolean
+  readonly meteringDeniedReason: string | null
 }
 
 /**
@@ -423,6 +427,92 @@ async function assertCliImage26Available(model: string, request: SubmitRequest):
     })
 }
 
+async function resolveCliMeteringDecision(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  hooks: Awaited<ReturnType<typeof loadPrivateBffOverlay>>['taskHooks'],
+  userId: string,
+  model: string,
+  unitMultiplier: number,
+) {
+  if (!hooks.meteringDecision) return undefined
+  return meteringDecisionOrDenied(
+    await hooks.meteringDecision({
+      tx,
+      userId,
+      model,
+      kind: 'image',
+      quantity: 1,
+      unitMultiplier,
+    }),
+    hooks.consumeUnmeteredQuota,
+  )
+}
+
+async function quoteCliCredits(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  hooks: Awaited<ReturnType<typeof loadPrivateBffOverlay>>['taskHooks'],
+  userId: string,
+  model: string,
+  unitMultiplier: number,
+  precomputedDecision?: ReturnType<typeof meteringDecisionOrDenied>,
+): Promise<CliQuote | null> {
+  if (!isCapabilityEnabled('billing:credits')) return null
+  const decision =
+    precomputedDecision !== undefined
+      ? precomputedDecision
+      : await resolveCliMeteringDecision(tx, hooks, userId, model, unitMultiplier)
+  if (decision && decision.kind !== 'metered') return null
+  const one = await hooks.quoteTask?.({
+    tx,
+    userId,
+    model,
+    quantity: 1,
+    unitMultiplier,
+  })
+  return one ? { estimated_credits: one.estimatedCredits } : null
+}
+
+/**
+ * 探测账号是否走积分钱包计费：免计量账号或无积分账户（如停用免计费权益的飞书企业号）返回 false，
+ * 避免 `/v1/me` 把无钱包账号显示成 `credits: 0` 或在 `PLAN_REQUIRED` 中下发不可购买的 `upgrade_url`。
+ */
+export async function probeAccountWalletAvailable(userId: string): Promise<boolean> {
+  if (!isCapabilityEnabled('billing:credits')) return false
+  const hooks = (await loadPrivateBffOverlay()).taskHooks
+  if (!hooks.meteringDecision) return true
+  const models = await availableImageModels()
+  const probeModel = models[0]?.id ?? 'gemini-3-pro-image'
+  const decision = await db.transaction((tx) =>
+    resolveCliMeteringDecision(tx, hooks, userId, probeModel, 1),
+  )
+  if (!decision || decision.kind === 'metered') return true
+  return decision.kind === 'denied' && decision.reason === '4k_subscription_required'
+}
+
+/**
+ * 判断 PLAN_REQUIRED 是否确因账号尚未开通会员订阅（而非直连通道关闭或渠道不支持 4K），
+ * 仅在真能靠开通会员解锁时才允许对外附带 upgrade_url。
+ */
+export function isMembershipUpgradeableRejection(
+  prepared: PreparedImageRequest,
+  request: SubmitRequest,
+): boolean {
+  if (prepared.model.provider === 'gemini' && request.image_size === '4K') {
+    const geminiSizes = declaredImageSizes(prepared.model.id)
+    if (geminiSizes?.length && !geminiSizes.includes('4K')) return false
+  }
+  const { requires } = resolveImageTier({
+    model: prepared.model.id,
+    provider: prepared.model.provider,
+    request,
+    entry: 'cli-strict',
+    member: false,
+    directAvailable: true,
+  })
+  if (requires.directRoute && !gptDirectConfigured(prepared.model.id)) return false
+  return Boolean(requires.membership)
+}
+
 /** 预检：报价与会员档判断放在同一个只读事务里，不建任务、不预扣。 */
 export async function previewImageRequest(
   userId: string,
@@ -432,6 +522,11 @@ export async function previewImageRequest(
   const hooks = (await loadPrivateBffOverlay()).taskHooks
   await assertCliImage26Available(prepared.model.id, request)
   const priced = request
+  const unitMultiplier = imageRateMultiplier(
+    prepared.model.id,
+    priced,
+    declaredImageSizes(prepared.model.id),
+  )
   return db.transaction(async (tx) => {
     const planRequired = !(await strictImageRequestAllowed(
       tx,
@@ -440,21 +535,29 @@ export async function previewImageRequest(
       prepared.model.id,
       priced,
     ))
-    if (planRequired) return { planRequired, quote: null }
-    const quote = await hooks.quoteTask?.({
+    if (planRequired) return { planRequired: true, meteringDeniedReason: null, quote: null }
+    const decision = await resolveCliMeteringDecision(
       tx,
+      hooks,
       userId,
-      model: prepared.model.id,
-      quantity: 1,
-      unitMultiplier: imageRateMultiplier(
-        prepared.model.id,
-        priced,
-        declaredImageSizes(prepared.model.id),
-      ),
-    })
+      prepared.model.id,
+      unitMultiplier,
+    )
+    if (decision?.kind === 'denied') {
+      return { planRequired: false, meteringDeniedReason: decision.reason, quote: null }
+    }
+    const quote = await quoteCliCredits(
+      tx,
+      hooks,
+      userId,
+      prepared.model.id,
+      unitMultiplier,
+      decision,
+    )
     return {
-      planRequired,
-      quote: quote ? { estimated_credits: quote.estimatedCredits } : null,
+      planRequired: false,
+      meteringDeniedReason: null,
+      quote,
     }
   })
 }
@@ -520,14 +623,13 @@ async function specialFormatCapabilities(
   const quote = async (request: SubmitRequest) => {
     const direct = !isGptImage26Model(model) || (await gptImage26DirectKey(model, request))
     const billed = direct ? request : (degradeGptImage26ForSub2api(request)?.request ?? request)
-    const one = await hooks.quoteTask?.({
+    return quoteCliCredits(
       tx,
+      hooks,
       userId,
       model,
-      quantity: 1,
-      unitMultiplier: imageRateMultiplier(model, billed, declaredImageSizes(model)),
-    })
-    return one ? { estimated_credits: one.estimatedCredits } : null
+      imageRateMultiplier(model, billed, declaredImageSizes(model)),
+    )
   }
   return {
     gif: {
@@ -594,13 +696,7 @@ export async function imageCapabilities(userId: string) {
         })
       // 该账号一个档位都提交不了的模型不列出，免得被当成默认模型。
       if (tiers.length === 0) continue
-      const quote = await hooks.quoteTask?.({
-        tx,
-        userId,
-        model: model.id,
-        quantity: 1,
-        unitMultiplier: 1,
-      })
+      const quote = await quoteCliCredits(tx, hooks, userId, model.id, 1)
       listed.push({
         id: model.id,
         label: model.label,
@@ -613,7 +709,7 @@ export async function imageCapabilities(userId: string) {
           (quality) => !gpt || memberTier || quality !== 'high',
         ),
         max_reference_images: caps.references.max,
-        price: quote ? { estimated_credits: quote.estimatedCredits } : null,
+        price: quote,
         typical_duration_seconds: model.etaSeconds ?? null,
         output_formats: outputFormatsFor(model.id),
         ...(image26 && !image26Direct ? { degraded: true as const } : {}),

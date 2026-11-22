@@ -288,7 +288,9 @@ uninstall, delete the `muvloom` binary from the install directory the installer
 printed, remove the PATH line it added (it printed the exact profile file), and
 optionally delete that config directory after logout.
 
-Follow the installed skill or CLI help for future requests. A user's generation
-request authorizes generation: proceed directly without a credit quote or a
-second confirmation. Quote costs only when asked, and pass `--max-credits` only
+Follow the installed skill or CLI help for future requests. For 1–3 images, a
+user's generation request authorizes generation directly without a credit quote
+or second confirmation; for 4+ image coordinated sets or e-commerce galleries,
+present one concise shot-plan and zero-cost `images validate` credit estimate
+for approval first (per `references/image-sets.md`). Pass `--max-credits` only
 for an explicit user-supplied credit limit. Setup itself must not spend credits.

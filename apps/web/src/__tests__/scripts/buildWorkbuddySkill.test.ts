@@ -249,6 +249,40 @@ describe('CLI Skill package and hot-update manifest', () => {
         'utf8',
       ),
     )
+
+    // Verify SkillVersion hot-update bump + 4+ image shot-plan & credit confirmation guidance.
+    const skillMd = strFromU8(cliFiles['muvloom/SKILL.md'])
+    const imageSetsMd = strFromU8(cliFiles['muvloom/references/image-sets.md'])
+    const cliMd = strFromU8(cliFiles['muvloom/references/cli.md'])
+    const errorsMd = strFromU8(cliFiles['muvloom/references/errors.md'])
+    expect(skillMd).toContain('1–3 images')
+    expect(skillMd).toContain('4+ image coordinated sets or e-commerce listing galleries')
+    expect(skillMd).toContain('muvloom images validate')
+    expect(skillMd).toContain('Assets → Works')
+    expect(skillMd).toContain('Add to canvas')
+    expect(skillMd).toContain('Smart edit')
+    expect(skillMd).toContain('Erase')
+    expect(skillMd).toContain('Crop')
+    expect(skillMd).not.toContain('upscaling')
+    // Upstream `skills-ref validate` on Windows calls `Path.read_text()` with default cp1252 when
+    // PYTHONUTF8 is unset; ensure SKILL.md contains zero cp1252-undefined UTF-8 bytes.
+    expect(() =>
+      new TextDecoder('windows-1252', { fatal: true }).decode(cliFiles['muvloom/SKILL.md']),
+    ).not.toThrow()
+    expect(imageSetsMd).toContain('## Confirmation policy: 1–3 images vs 4+ images')
+    expect(imageSetsMd).toContain('muvloom images validate')
+    expect(imageSetsMd).toContain('actual `--ref` files')
+    expect(imageSetsMd).toContain('unmetered enterprise accounts')
+    expect(imageSetsMd).toContain('Add to canvas / 放入画布')
+    expect(imageSetsMd).toContain('Smart edit / 智能改图')
+    expect(imageSetsMd).toContain('Erase / 擦除')
+    expect(imageSetsMd).toContain('Crop / 裁剪')
+    expect(imageSetsMd).not.toContain('upscaling')
+    expect(imageSetsMd).toContain('shared visual direction clause')
+    expect(imageSetsMd).toContain('INSUFFICIENT_CREDITS')
+    expect(cliMd).toContain('including `--ref` and `--frames`/`--frame-size`')
+    expect(errorsMd).toContain('details.top_up_url')
+    expect(errorsMd).toContain('details.upgrade_url')
   })
 })
 

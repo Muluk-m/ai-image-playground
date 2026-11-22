@@ -34,9 +34,11 @@ Model `--model` accepts either the id or the label (for example `gpt-image-2.5-f
 `auth logout` signs out, revokes the server connection when it can, and deletes stored credentials; it does not uninstall the CLI. The file credential store is `credentials.json` in `MUVLOOM_CONFIG_DIR` when set, otherwise in the user config directory (`~/Library/Application Support/muvloom` on macOS, `~/.config/muvloom` on Linux, `%APPDATA%\muvloom` on Windows). To uninstall, delete the `muvloom` binary from the install directory and remove any PATH line the installer added.
 
 Capability prices are live backend base-unit prices (multiplier 1), not a final
-quote for every resolution or quality. When the user asks what a specific request
-will cost, use `images validate` with those exact flags; its quote includes the
-request's size/quality multiplier. Keep pricing internal unless the user asks.
+quote for every resolution, quality, reference-image count, or GIF frame count.
+When quoting a specific request (either because the user asked or when building
+the pre-generation confirmation card for a 4+ image set per `image-sets.md`), run
+`images validate` with the exact flags (including `--ref` and `--frames`/`--frame-size`).
+For 1–3 image requests, keep pricing internal unless the user asks.
 
 ## Exit codes
 

@@ -27,8 +27,11 @@ const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await imp
 type ReservationLog = { taskId: string; model: string; credits: number; unitMultiplier: number }
 const billing = {
   members: new Set<string>(),
+  unmetered: new Set<string>(),
+  walletless: new Set<string>(),
   quote: 10,
   reservePrice: undefined as number | undefined,
+  insufficientAvailable: undefined as number | undefined,
   /** Makes the next reservations answer that the daily quota is used up. */
   quotaResetAt: undefined as string | undefined,
   reservations: [] as ReservationLog[],
@@ -68,6 +71,16 @@ _setPrivateBffOverlayForTesting(
             resetAt: billing.quotaResetAt,
           }
         const credits = (billing.reservePrice ?? billing.quote) * quantity * unitMultiplier
+        if (
+          billing.insufficientAvailable !== undefined &&
+          billing.insufficientAvailable < credits
+        ) {
+          return {
+            kind: 'insufficient_credits' as const,
+            required: credits,
+            available: billing.insufficientAvailable,
+          }
+        }
         billing.reservations.push({ taskId, model, credits, unitMultiplier })
         await tx.execute(
           sql`INSERT INTO cli_test_holds (task_id, credits) VALUES (${taskId}, ${credits})`,
@@ -78,7 +91,25 @@ _setPrivateBffOverlayForTesting(
         billing.settlements.push({ taskId, outcome })
       },
       async accountSummary({ userId }: { userId: string }) {
+        if (billing.unmetered.has(userId)) {
+          return { credits: 0, isMember: false, unmetered: true }
+        }
+        if (billing.walletless.has(userId)) {
+          return { credits: 0, isMember: false, unmetered: false }
+        }
         return { credits: 500, isMember: billing.members.has(userId) }
+      },
+      async meteringDecision({ userId }: { userId: string }) {
+        if (billing.unmetered.has(userId)) {
+          return { kind: 'unmetered' as const, metering: 'none' as const }
+        }
+        if (billing.walletless.has(userId)) {
+          return { kind: 'denied' as const, reason: 'billing_account_unavailable' }
+        }
+        return { kind: 'metered' as const, metering: 'credits' as const }
+      },
+      async consumeUnmeteredQuota() {
+        return { kind: 'consumed' as const }
       },
     },
   }),
@@ -158,8 +189,11 @@ beforeEach(async () => {
   _setChannelsForTesting(CHANNELS)
   _resetInactiveModelsForTesting()
   billing.members.clear()
+  billing.unmetered.clear()
+  billing.walletless.clear()
   billing.quote = 10
   billing.reservePrice = undefined
+  billing.insufficientAvailable = undefined
   billing.quotaResetAt = undefined
   process.env.GPT_DIRECT_ENABLED = 'true'
   _resetDirectBudgetCacheForTesting()
@@ -1144,7 +1178,13 @@ describe('capabilities and dry-run', () => {
         headers: bearer(access_token),
       })
       expect(premium.status).toBe(403)
-      expect(premium.json.error.code).toBe('PLAN_REQUIRED')
+      expect(premium.json.error).toMatchObject({
+        code: 'PLAN_REQUIRED',
+        details: {
+          upgrade_url: 'https://studio.test/pricing',
+          account: 'gated',
+        },
+      })
       const capped = await call('POST', path, {
         body: imageJob({ max_credits: 5 }),
         headers: bearer(access_token),
@@ -1157,6 +1197,114 @@ describe('capabilities and dry-run', () => {
     }
     expect(await db.select().from(schema.tasks)).toHaveLength(0)
     expect(billing.reservations).toHaveLength(0)
+
+    // INSUFFICIENT_CREDITS includes origin-aware top_up_url and connected account username.
+    billing.insufficientAvailable = 3
+    const lowBalance = await call('POST', '/v1/image-jobs', {
+      body: imageJob(),
+      headers: bearer(access_token),
+    })
+    expect(lowBalance.status).toBe(402)
+    expect(lowBalance.json.error).toMatchObject({
+      code: 'INSUFFICIENT_CREDITS',
+      details: {
+        required: 10,
+        available: 3,
+        top_up_url: 'https://studio.test/pricing',
+        account: 'gated',
+      },
+    })
+
+    const enterpriseLowBalance = await call('POST', '/v1/image-jobs', {
+      body: imageJob(),
+      headers: {
+        ...bearer(access_token),
+        host: 'api.enterprise.example',
+        'x-forwarded-proto': 'https',
+      },
+    })
+    expect(enterpriseLowBalance.status).toBe(402)
+    expect(enterpriseLowBalance.json.error).toMatchObject({
+      code: 'INSUFFICIENT_CREDITS',
+      details: {
+        required: 10,
+        available: 3,
+        top_up_url: 'https://enterprise.example/pricing',
+        account: 'gated',
+      },
+    })
+  })
+
+  it('suppresses credit balances, quotes and upgrade links for unmetered enterprise accounts', async () => {
+    const user = await createUser('feishu-corp')
+    billing.unmetered.add(user.id)
+    const { access_token } = await connect(user)
+
+    const me = await call('GET', '/v1/me', { headers: bearer(access_token) })
+    expect(me.status).toBe(200)
+    expect(me.json.data).toMatchObject({
+      credits: null,
+      member: false,
+      unmetered: true,
+    })
+
+    const caps = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
+    expect(caps.status).toBe(200)
+    expect(caps.json.data.models[0].price).toBeNull()
+
+    const preview = await call('POST', '/v1/image-jobs/validate', {
+      body: imageJob(),
+      headers: bearer(access_token),
+    })
+    expect(preview.status).toBe(200)
+    expect(preview.json.data.quote).toBeNull()
+
+    for (const path of ['/v1/image-jobs/validate', '/v1/image-jobs']) {
+      const denied4k = await call('POST', path, {
+        body: imageJob({ image_size: '4K' }),
+        headers: bearer(access_token),
+      })
+      expect(denied4k.status).toBe(403)
+      expect(denied4k.json.error.code).toBe('PLAN_REQUIRED')
+      expect(denied4k.json.error.details).toBeUndefined()
+    }
+
+    const created = await call('POST', '/v1/image-jobs', {
+      body: imageJob(),
+      headers: bearer(access_token),
+    })
+    expect(created.status).toBe(200)
+    expect(billing.reservations).toHaveLength(0)
+
+    // Disabled enterprise account without a credit wallet: validate and submit agree on FORBIDDEN/PLAN_REQUIRED,
+    // /v1/me reports null credits rather than 0, and 4K does not emit an unusable upgrade_url.
+    billing.unmetered.delete(user.id)
+    billing.walletless.add(user.id)
+
+    const disabledMe = await call('GET', '/v1/me', { headers: bearer(access_token) })
+    expect(disabledMe.status).toBe(200)
+    expect(disabledMe.json.data).toMatchObject({ credits: null, member: false })
+    expect(disabledMe.json.data.unmetered).toBeUndefined()
+
+    const disabledCaps = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
+    expect(disabledCaps.json.data.models[0].price).toBeNull()
+
+    for (const path of ['/v1/image-jobs/validate', '/v1/image-jobs']) {
+      const denied1k = await call('POST', path, {
+        body: imageJob(),
+        headers: bearer(access_token),
+      })
+      expect(denied1k.status).toBe(403)
+      expect(denied1k.json.error.code).toBe('FORBIDDEN')
+
+      const deniedDisabled4k = await call('POST', path, {
+        body: imageJob({ image_size: '4K' }),
+        headers: bearer(access_token),
+      })
+      expect(deniedDisabled4k.status).toBe(403)
+      expect(deniedDisabled4k.json.error.code).toBe('PLAN_REQUIRED')
+      expect(deniedDisabled4k.json.error.details).toBeUndefined()
+    }
   })
 
   it('quotes Gemini Pro by the requested tier, including 4K before the site offers it', async () => {
@@ -1455,6 +1603,24 @@ describe('CLI GPT image pricing', () => {
       const denied = await call('POST', path, { body, headers: bearer(access_token) })
       expect(denied.status).toBe(403)
       expect(denied.json.error.code).toBe('PLAN_REQUIRED')
+      if (changed === 'membership') {
+        expect(denied.json.error.details).toEqual({
+          upgrade_url: 'https://studio.test/pricing',
+          account: 'gpt-entitlement-change',
+        })
+      } else {
+        expect(denied.json.error.details).toBeUndefined()
+      }
+    }
+    if (changed === 'direct route') {
+      billing.members.delete(user.id)
+      const nonMemberDirectOff = await call('POST', '/v1/image-jobs/validate', {
+        body: imageJob({ model: 'gpt-image-2.5-flare', image_size: '4K' }),
+        headers: bearer(access_token),
+      })
+      expect(nonMemberDirectOff.status).toBe(403)
+      expect(nonMemberDirectOff.json.error.code).toBe('PLAN_REQUIRED')
+      expect(nonMemberDirectOff.json.error.details).toBeUndefined()
     }
     expect(await db.select().from(schema.tasks)).toHaveLength(0)
     expect(await db.select().from(schema.generation_commands)).toHaveLength(0)
