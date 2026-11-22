@@ -114,11 +114,11 @@ jobs:
       - run: node --test scripts/__tests__/lock-closure-changed.test.mjs scripts/__tests__/test-guard.test.mjs scripts/__tests__/cost-impact.test.mjs scripts/__tests__/review-stats.test.mjs scripts/__tests__/test-shard.test.mjs scripts/__tests__/ci-reuse-web-checks.test.mjs scripts/__tests__/check-migrations.test.mjs
       # check-migrations: HEAD^1 is the main this PR merge commit (or main/test push) sits on, so a
       # deleted migration fails; origin/main supplies the newest stamp if main moved on since.
-      # depth 2: when main is HEAD (main push), depth 1 would make HEAD the shallow boundary and hide HEAD^1.
+      # Pin HEAD^1 to a SHA before the fetch: a shallow fetch of a newer main can make HEAD the shallow
+      # boundary, after which HEAD^1 no longer resolves but the parent's objects are still there.
+      - run: echo "MIGRATIONS_BASE_REF=$(git rev-parse HEAD^1)" >> "$GITHUB_ENV"
       - run: git fetch --no-tags --depth=2 origin +refs/heads/main:refs/remotes/origin/main
       - run: pnpm lint
-        env:
-          MIGRATIONS_BASE_REF: HEAD^1
       # Deploy and backup scripts; shellcheck ships on the hosted runner.
       - run: pnpm lint:sh
   # Docker web 阶段只在构建输入变化时跑（中位 0，触发时约 95 秒），不需要 pnpm 安装，单独一台，不再拖慢 lint。
