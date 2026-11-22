@@ -16,18 +16,22 @@ max_late=${DEPLOY_WINDOW_MAX_LATE_MINUTES:-20}
 
 log() { printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*"; }
 
-now=$(date +%H:%M)
-# 去掉前导 0，免得 08、09 被当成八进制。
-hour=$(date +%H | sed 's/^0//')
-minute=$(date +%M | sed 's/^0//')
-now_min=$((${hour:-0} * 60 + ${minute:-0}))
-late=
-for slot in 750 1110 1410; do # 12:30、18:30、23:30（本地时间，分钟）
-  diff=$((now_min - slot))
-  if [ "$diff" -ge 0 ] && [ "$diff" -le "$max_late" ]; then late=$diff; fi
-done
-if [ -z "$late" ] && [ "${DEPLOY_WINDOW_FORCE:-}" != 1 ]; then
-  log "not within $max_late minutes after a window (local $now); not triggered"
+# 当前是否在某个窗口时点后 max_late 分钟内。每次请求前都查：重试退避也不能拖到窗口外。
+in_window() {
+  [ "${DEPLOY_WINDOW_FORCE:-}" = 1 ] && return 0
+  # 去掉前导 0，免得 08、09 被当成八进制。
+  hour=$(date +%H | sed 's/^0//')
+  minute=$(date +%M | sed 's/^0//')
+  now_min=$((${hour:-0} * 60 + ${minute:-0}))
+  for slot in 750 1110 1410; do # 12:30、18:30、23:30（本地时间，分钟）
+    diff=$((now_min - slot))
+    if [ "$diff" -ge 0 ] && [ "$diff" -le "$max_late" ]; then return 0; fi
+  done
+  return 1
+}
+
+if ! in_window; then
+  log "not within $max_late minutes after a window (local $(date +%H:%M)); not triggered"
   exit 0
 fi
 
@@ -61,4 +65,5 @@ while :; do
   [ "$attempt" -lt 4 ] || exit 1
   sleep $((attempt * 60))
   attempt=$((attempt + 1))
+  in_window || { log "window passed while retrying; not triggered"; exit 1; }
 done

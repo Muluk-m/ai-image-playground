@@ -116,7 +116,10 @@ jobs:
           # 当天第一个窗口之前：属于前一天 15:30 那档。
           [ -n "$slot" ] || slot=$(( $(date -u -d "$today 15:30" +%s) - 86400 ))
           since=$(date -u -d "@$slot" +%Y-%m-%dT%H:%M:%SZ)
-          if ! count=$(gh api "repos/$REPO/actions/workflows/deploy.yml/runs?event=workflow_dispatch&created=>=$since&per_page=1" --jq '.total_count'); then
+          # 只认 main 上、没被取消的手动运行：别的分支上的整单跳过；排队时被并发组替换掉的
+          # 从没执行过发布判定。
+          if ! count=$(gh api "repos/$REPO/actions/workflows/deploy.yml/runs?event=workflow_dispatch&branch=main&created=>=$since&per_page=100" \
+            --jq '[.workflow_runs[] | select(.conclusion != "cancelled")] | length'); then
             echo "::warning::Could not list dispatched runs since $since; deploying as the fallback."
             count=0
           fi
