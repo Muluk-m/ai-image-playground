@@ -1,9 +1,12 @@
-import { describe, expect, it } from 'bun:test'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { afterEach, describe, expect, it } from 'bun:test'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { getOAuthProviderDefinition } from '../../lib/oauth/registry'
+import '../../bootstrap/billing'
 import {
+  _setPrivateBffOverlayForTesting,
   assertPrivateBffOverlayPresent,
   EMPTY_PRIVATE_BFF_OVERLAY,
   loadPrivateBffOverlay,
@@ -11,33 +14,12 @@ import {
 
 const repositoryRoot = resolve(import.meta.dir, '../../../../..')
 
-async function lintBoundaryViolation(
-  source: string,
-): Promise<{ exitCode: number; output: string }> {
-  const fixtureDirectory = mkdtempSync(
-    join(repositoryRoot, 'apps/bff/src/__tests__/.private-boundary-'),
-  )
-  const fixture = join(fixtureDirectory, 'violation.ts')
-  writeFileSync(fixture, source)
-  try {
-    const child = Bun.spawn([join(repositoryRoot, 'node_modules/.bin/biome'), 'lint', fixture], {
-      cwd: repositoryRoot,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    const [exitCode, stdout, stderr] = await Promise.all([
-      child.exited,
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-    ])
-    return { exitCode, output: `${stdout}\n${stderr}` }
-  } finally {
-    rmSync(fixtureDirectory, { recursive: true, force: true })
-  }
-}
+afterEach(() => {
+  _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
+})
 
-describe('private overlay boundary', () => {
-  it('returns the useful empty overlay when the private entry is absent', async () => {
+describe('built-in billing & identity BFF overlay', () => {
+  it('returns the useful empty overlay when an explicit external entry is absent', async () => {
     const outputDirectory = mkdtempSync(join(tmpdir(), 'image-playground-public-build-'))
     try {
       const build = await Bun.build({
@@ -58,30 +40,38 @@ describe('private overlay boundary', () => {
     expect(response.status).toBe(404)
   })
 
-  it('starts public test processes on the empty overlay even when private/ is checked out', async () => {
-    // 公开测试库没有私有迁移；真 overlay 的结算钩子会去查不存在的计费表。
+  it('starts public test processes on the empty overlay by preload default', async () => {
+    // 公开测试库只跑公开迁移；由 bunfig.toml 预加载钉成空实现，显式重置后才加载内置计费模块。
     expect(await loadPrivateBffOverlay()).toBe(EMPTY_PRIVATE_BFF_OVERLAY)
   })
 
-  it('rejects a required private overlay when its entry is absent', async () => {
+  it('loads the built-in billing and identity module and registers Feishu OAuth when reset', async () => {
+    _setPrivateBffOverlayForTesting()
+    const overlay = await loadPrivateBffOverlay()
+    expect(overlay.present).toBe(true)
+    expect(getOAuthProviderDefinition('feishu')?.id).toBe('feishu')
+    // When billing:credits capability is off (default), hooks short-circuit without touching DB tables.
+    expect(
+      await overlay.taskHooks.reserveTask({
+        tx: {} as never,
+        taskId: 't1',
+        userId: 'u1',
+        model: 'gpt-image-2',
+        quantity: 1,
+        unitMultiplier: 1,
+      }),
+    ).toEqual({ kind: 'reserved', credits: 0 })
+    expect(await overlay.taskHooks.chatPricing('gpt-image-2')).toBeNull()
+    expect(await overlay.taskHooks.taskCredits({ taskIds: ['t1'] })).toEqual({})
+  })
+
+  it('rejects a required billing module when absent', async () => {
     const overlay = await loadPrivateBffOverlay(
       pathToFileURL(join(tmpdir(), 'missing-private-entry.ts')),
     )
 
     expect(() => assertPrivateBffOverlayPresent(overlay, 'billing:credits')).toThrow(
-      'billing:credits requires the private BFF overlay',
+      'billing:credits requires the billing BFF module',
     )
-  })
-
-  it('makes Biome reject static and dynamic private-tree imports', async () => {
-    const staticImport = await lintBoundaryViolation("import '../../../../private/example.ts'\n")
-    const dynamicImport = await lintBoundaryViolation(
-      "await import('../../../../private/example.ts')\n",
-    )
-
-    expect(staticImport.exitCode).not.toBe(0)
-    expect(staticImport.output).toContain('lint/style/noRestrictedImports')
-    expect(dynamicImport.exitCode).not.toBe(0)
-    expect(dynamicImport.output).toContain('lint/style/noRestrictedImports')
   })
 })
