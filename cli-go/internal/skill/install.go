@@ -19,7 +19,14 @@ import (
 
 // BundleVersion is tied to the native CLI release. Keep the bundled Skill and
 // the executable on the same version so hosts can report what was installed.
-const BundleVersion = "0.2.5"
+const BundleVersion = "0.2.6"
+
+// SkillVersion is the version of the Skill assets bundled here and published in
+// /cli/skill-manifest.json. On a CLI release it matches BundleVersion (e.g. "0.2.6").
+// For prompt-only hot-updates shipped via Web deploy without a new CLI binary, bump
+// SkillVersion to a dotted patch (e.g. "0.2.6.1") so installed CLIs auto-update safely
+// without downgrading.
+const SkillVersion = "0.2.6"
 
 //go:embed assets
 var bundled embed.FS
@@ -155,10 +162,10 @@ func Install(opts InstallOptions) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if err := installTree(destination, files, metadata{Skill: "muvloom", Version: BundleVersion, Host: opts.Host, Scope: opts.Scope, FileHash: hash}, opts.Host == "workbuddy" && opts.Scope == "user"); err != nil {
+	if err := installTree(destination, files, metadata{Skill: "muvloom", Version: SkillVersion, Host: opts.Host, Scope: opts.Scope, FileHash: hash}, opts.Host == "workbuddy" && opts.Scope == "user"); err != nil {
 		return Result{}, err
 	}
-	return Result{Host: opts.Host, Scope: opts.Scope, ProjectDir: projectDir, Path: destination, Version: BundleVersion, FileHash: hash}, nil
+	return Result{Host: opts.Host, Scope: opts.Scope, ProjectDir: projectDir, Path: destination, Version: SkillVersion, FileHash: hash}, nil
 }
 
 // installGeneric writes the bundled Skill to a local muvloom/ directory the user
@@ -202,10 +209,10 @@ func installGeneric(opts InstallOptions) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if err := installTree(destination, files, metadata{Skill: "muvloom", Version: BundleVersion, Host: "generic", Scope: "local", FileHash: hash}, false); err != nil {
+	if err := installTree(destination, files, metadata{Skill: "muvloom", Version: SkillVersion, Host: "generic", Scope: "local", FileHash: hash}, false); err != nil {
 		return Result{}, err
 	}
-	return Result{Host: "generic", Scope: "local", Path: destination, Version: BundleVersion, FileHash: hash}, nil
+	return Result{Host: "generic", Scope: "local", Path: destination, Version: SkillVersion, FileHash: hash}, nil
 }
 
 // checkDestination refuses a destination reached through a symlink.

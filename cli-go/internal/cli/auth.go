@@ -241,6 +241,25 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	skills, failed, refreshErr := skill.RefreshOutdated(a.Home, a.CWD)
 	if refreshErr != nil {
 		a.progress("Could not check the installed muvloom Skills (%s).", skillFailure(refreshErr))
+	} else {
+		// Best-effort silent hot-update from Muvloom's official web manifest (24h throttled
+		// per installed copy, strict overall 6s budget so auth status never stalls, SHA-256
+		// verified, never overrides user-edited copies).
+		autoCtx, cancelAuto := context.WithTimeout(ctx, skill.AutoUpdateBudget)
+		remoteRes := skill.MaybeAutoUpdate(autoCtx, skill.RemoteUpdateOptions{
+			Home:     a.Home,
+			CWD:      a.CWD,
+			StateDir: a.Store.Dir,
+			APIURL:   a.APIURL,
+			BaseURL:  a.ManifestBaseURL,
+			HTTP:     a.HTTP,
+		})
+		cancelAuto()
+		if len(remoteRes.Updated) > 0 {
+			if refreshed, err := skill.Installed(a.Home, a.CWD); err == nil {
+				skills = refreshed
+			}
+		}
 	}
 	for _, installed := range skills {
 		switch {
@@ -255,7 +274,7 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	var refreshFailures []map[string]string
 	for _, item := range failed {
 		a.progress("Could not update the muvloom Skill at %s to %s (%s). To retry: muvloom skill install --host %s --scope %s",
-			item.Path, skill.BundleVersion, skillFailure(item.Err), item.Host, item.Scope)
+			item.Path, skill.SkillVersion, skillFailure(item.Err), item.Host, item.Scope)
 		refreshFailures = append(refreshFailures, map[string]string{"path": item.Path, "reason": skillFailure(item.Err)})
 	}
 	store := a.Store.Describe()

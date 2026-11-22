@@ -5,8 +5,10 @@ import { fileURLToPath } from 'node:url'
 import { strFromU8, unzipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 import {
+  createCliSkillZip,
   createDoubaoSkillZip,
   createGenericSkillZip,
+  createSkillManifest,
   createWorkBuddySkillZip,
 } from '../../../scripts/build-workbuddy-skill.mjs'
 
@@ -152,6 +154,39 @@ describe('generic Skill package', () => {
     expect(files['muvloom/references/workbuddy.md']).toBeUndefined()
     expect(files['muvloom/references/doubao.md']).toBeUndefined()
     expect(Object.keys(files).every((name) => name.startsWith('muvloom/'))).toBe(true)
+  })
+})
+
+describe('CLI Skill package and hot-update manifest', () => {
+  it('ships claude-code/codex files (including agents/openai.yaml) and verifiable SHA-256 manifest', () => {
+    const cliZip = createCliSkillZip()
+    const cliFiles = unzipSync(cliZip)
+    expect(cliFiles['muvloom/SKILL.md']).toBeDefined()
+    expect(cliFiles['muvloom/agents/openai.yaml']).toBeDefined()
+    expect(cliFiles['muvloom/references/workbuddy.md']).toBeUndefined()
+    expect(cliFiles['muvloom/.muvloom-skill.json']).toBeUndefined()
+
+    const manifest = createSkillManifest()
+    expect(manifest.schema_version).toBe(1)
+    expect(manifest.skill).toBe('muvloom')
+    expect(manifest.version).toMatch(/^\d+\.\d+\.\d+(\.\d+)?$/)
+    expect(manifest.bundle_version).toMatch(/^\d+\.\d+\.\d+$/)
+    for (const host of ['claude-code', 'codex', 'workbuddy'] as const) {
+      const pkg = manifest.packages[host]
+      expect(pkg.archive).toMatch(/^muvloom-[a-z-]+\.zip$/)
+      expect(pkg.archive_sha256).toMatch(/^[a-f0-9]{64}$/)
+      expect(pkg.file_hash).toMatch(/^[a-f0-9]{64}$/)
+      expect(pkg.files.length).toBeGreaterThan(0)
+      expect(pkg.files.some((item) => item.path === 'SKILL.md')).toBe(true)
+      expect(pkg.files.some((item) => item.path === '.muvloom-skill.json')).toBe(false)
+    }
+    expect(manifest.packages['claude-code'].file_hash).toBe(manifest.packages.codex.file_hash)
+    expect(
+      manifest.packages.workbuddy.files.some((item) => item.path === 'references/workbuddy.md'),
+    ).toBe(true)
+    expect(
+      manifest.packages['claude-code'].files.some((item) => item.path === 'agents/openai.yaml'),
+    ).toBe(true)
   })
 })
 

@@ -25,7 +25,7 @@ func TestInstallUserHostsAndMetadata(t *testing.T) {
 			dirName = ".workbuddy"
 		}
 		root := filepath.Join(home, dirName, "skills", "muvloom")
-		if result.Path != root || result.Version != BundleVersion || result.FileHash == "" {
+		if result.Path != root || result.Version != SkillVersion || result.FileHash == "" {
 			t.Fatalf("unexpected result: %+v", result)
 		}
 		wantFiles := []string{"SKILL.md", "references/cli.md", "references/install.md", "references/jobs.md", "references/errors.md", "references/getting-started.md", "references/image-sets.md", "references/animation.md", ".muvloom-skill.json"}
@@ -47,7 +47,7 @@ func TestInstallUserHostsAndMetadata(t *testing.T) {
 		if err := json.Unmarshal(data, &meta); err != nil {
 			t.Fatal(err)
 		}
-		if meta.Version != BundleVersion || meta.Host != host || meta.Scope != "user" || meta.FileHash != result.FileHash {
+		if meta.Version != SkillVersion || meta.Host != host || meta.Scope != "user" || meta.FileHash != result.FileHash {
 			t.Fatalf("unexpected metadata: %+v", meta)
 		}
 	}
@@ -249,7 +249,7 @@ func TestRefreshOutdatedUpgradesWorkbuddyInstallWithMetadata(t *testing.T) {
 	if err != nil || len(failed) != 0 {
 		t.Fatalf("refresh workbuddy: %v %v", failed, err)
 	}
-	if len(installed) != 1 || installed[0].Host != "workbuddy" || !installed[0].Current || installed[0].Version != BundleVersion {
+	if len(installed) != 1 || installed[0].Host != "workbuddy" || !installed[0].Current || installed[0].Version != SkillVersion {
 		t.Fatalf("workbuddy was not upgraded: %+v", installed)
 	}
 	// WorkBuddy-specific instructions, metadata, and reference must survive the upgrade.
@@ -294,7 +294,7 @@ func TestLegacyWorkbuddyZipIsNotSilentlyOverwrittenButCanBeExplicitlyUpgraded(t 
 		t.Fatalf("explicit workbuddy install failed: %v", err)
 	}
 	after, err := Installed(home, cwd)
-	if err != nil || len(after) != 1 || !after[0].Intact || !after[0].Current || after[0].Version != BundleVersion {
+	if err != nil || len(after) != 1 || !after[0].Intact || !after[0].Current || after[0].Version != SkillVersion {
 		t.Fatalf("after explicit install = %+v, %v", after, err)
 	}
 }
@@ -413,7 +413,7 @@ func TestInstalledReportsUserAndProjectMetadata(t *testing.T) {
 	if len(installed) != 2 {
 		t.Fatalf("got %d installations: %+v", len(installed), installed)
 	}
-	if installed[0].Version != BundleVersion || installed[1].Version != BundleVersion {
+	if installed[0].Version != SkillVersion || installed[1].Version != SkillVersion {
 		t.Fatalf("unexpected versions: %+v", installed)
 	}
 }
@@ -492,7 +492,7 @@ func TestRefreshOutdatedReplacesOnlyUneditedOldCopies(t *testing.T) {
 	for _, item := range installed {
 		switch item.Host {
 		case "codex":
-			if !item.Current || item.Version != BundleVersion {
+			if !item.Current || item.Version != SkillVersion {
 				t.Fatalf("old copy not refreshed: %+v", item)
 			}
 		case "claude-code":

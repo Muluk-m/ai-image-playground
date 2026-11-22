@@ -92,7 +92,7 @@ var placeholders = map[string]string{
 	"image-size": "SIZE", "quality": "LEVEL", "ref": "FILE|MEDIA_ID", "max-credits": "N",
 	"output-format": "gif|svg", "frames": "N", "frame-duration-ms": "MS", "frame-size": "WxH",
 	"idempotency-key": "KEY", "wait": "SECONDS", "download": "DIR", "limit": "N", "cursor": "ID",
-	"timeout": "SECONDS", "output": "DIR", "host": "claude-code|codex|workbuddy|generic", "scope": "user|project",
+	"timeout": "SECONDS", "output": "DIR", "host": "claude-code|codex|workbuddy|generic", "scope": "user|project", "auto": "on|off",
 }
 
 // flagOrder puts the flags a command cannot do without first; the rest follow alphabetically.
@@ -115,6 +115,7 @@ var examples = map[string][]string{
 	"jobs list":          {"muvloom jobs list --idempotency-key KEY   # find a job whose submit response was lost"},
 	"artifacts download": {"muvloom artifacts download ARTIFACT_ID --output ./out/cat"},
 	"skill install":      {"muvloom skill install --host workbuddy", "muvloom skill install --host claude-code", "muvloom skill install --host codex --scope project", "muvloom skill install --host generic --output ./skill-pack"},
+	"update skill":       {"muvloom update skill", "muvloom update skill --check", "muvloom update skill --auto off"},
 }
 
 // notes add what a command's flags alone do not say.
