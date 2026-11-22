@@ -8,6 +8,7 @@ import {
 } from '../../../../features/agent/lib/turnEvents'
 import { FAILED_TURN_FIELDS, IDLE_TURN_FIELDS } from '../../../../features/agent/lib/turnSession'
 import type { AgentPanelMessage } from '../../../../features/agent/types'
+import { i18next } from '../../../../i18n'
 
 const TURN = 'turn-1'
 const context = { turnId: TURN, pendingUserText: null, conversationId: 'conv-1', now: () => 42 }
@@ -58,12 +59,10 @@ describe('reduceTurnEvent', () => {
     expect(reduceTurnEvent(running, toolStart(7), context).toolStartedAt).toEqual({ 'tool-1': 7 })
     expect(reduceTurnEvent(running, toolStart(), context).toolStartedAt).toEqual({ 'tool-1': 42 })
     // 续播重放同一条没有时刻的 toolStart：不重新计时。
-    const replayed = reduceTurnEvent(
-      { ...running, toolStartedAt: { 'tool-1': 5 } },
-      toolStart(),
-      context,
-    )
-    expect(replayed.toolStartedAt ?? { 'tool-1': 5 }).toEqual({ 'tool-1': 5 })
+    const started = { 'tool-1': 5 }
+    const replayed = reduceTurnEvent({ ...running, toolStartedAt: started }, toolStart(), context)
+    // 原样带回同一个对象，不换引用（换引用会触发无意义的重渲染）。
+    expect(replayed.toolStartedAt).toBe(started)
   })
 
   it('returns to idle when the turn completes', () => {
@@ -87,7 +86,7 @@ describe('reduceTurnEvent', () => {
       context,
     )
     expect(next).toMatchObject({ ...FAILED_TURN_FIELDS, activeTurn: null, messages: [] })
-    expect(next.error).toEqual(expect.any(String))
+    expect(next.error).toBe(i18next.t('error.upstream', { ns: 'agent' }))
     expect(next.error).not.toBe(TURN_FAILED())
     expect(next.errorDiagnostic).toEqual({
       code: 'agent_upstream_error',
@@ -96,6 +95,25 @@ describe('reduceTurnEvent', () => {
       durationMs: 1200,
     })
     expect(next.turns?.[TURN]).toBeDefined()
+  })
+
+  it('lets explicit diagnostic fields win over the server failure, and defaults the code', () => {
+    const next = reduceTurnEvent(
+      running,
+      turnEnd({
+        stopReason: 'failed',
+        failure: { code: 'upstream_raw', turnId: 'other', detail: 'quota' } as never,
+      }),
+      context,
+    )
+    expect(next.error).toBe(TURN_FAILED())
+    expect(next.errorDiagnostic).toEqual({
+      detail: 'quota',
+      code: 'agent_run_failed',
+      conversationId: 'conv-1',
+      turnId: TURN,
+      durationMs: 1200,
+    })
   })
 
   it('does not treat an interrupted turn as a failure', () => {

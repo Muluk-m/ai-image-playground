@@ -707,8 +707,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
   }
 
   /**
-   * 先把事件归约进面板，再做交付副作用。归约是纯的（见 `lib/panelMessages`），
-   * 这里只补轮自己的状态：哪一轮在跑、跑完是回 idle 还是判失败。
+   * 先把事件归约进队列与面板，再做交付副作用。轮事件的状态变化（面板、计时、哪一轮在跑、
+   * 回 idle 还是判失败）见 `lib/turnEvents` 的 `reduceTurnEvent`，这里只做队列归约与交付。
    */
   const apply = (
     event: AgentTurnEvent,
