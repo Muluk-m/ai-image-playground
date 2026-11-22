@@ -79,8 +79,8 @@ jobs:
             echo "sha=$EVENT_SHA" >> "$GITHUB_OUTPUT"
           fi
       # 窗口只发 `Web checks` 已在 main 上成功的 tip；没跑完或失败就跳过本窗口（不报错）。
-      # overlay-bump 用 GITHUB_TOKEN 推的 lock 提交不会触发 `Web checks`（它已先自己构建验证），
-      # 这种仅改 private.lock 的提交逐层越过，看最近一个有检查记录的祖先。
+      # overlay-bump 的 lock 提交推送前已自己构建验证；它的 `Web checks` 没有记录或仍在跑时，
+      # 这种仅改 private.lock 的提交逐层越过，看最近一个有检查记录的祖先。已失败则照常跳过窗口。
       - id: gate
         env:
           GH_TOKEN: ${{ github.token }}
@@ -99,14 +99,14 @@ jobs:
           }
           check_sha=$SHA
           state=
-          # 连续的 overlay-bump 提交都没有 Web checks，逐层往前找
+          # 连续的 overlay-bump 提交没有（或还没跑完）Web checks，逐层往前找
           while :; do
             if ! state=$(checks_state "$check_sha"); then
               state=unavailable
               break
             fi
-            [ "$state" = none ] || break
-            [ "$(git log -1 --format=%an "$check_sha")" = github-actions[bot] ] || break
+            case $state in none | running) ;; *) break ;; esac
+            [ "$(git log -1 --format=%an "$check_sha")" = 'github-actions[bot]' ] || break
             git log -1 --format=%s "$check_sha" | grep -q '^chore(overlay): pin ' || break
             [ "$(git diff --name-only "$check_sha^" "$check_sha")" = private.lock ] || break
             check_sha=$(git rev-parse "$check_sha^")

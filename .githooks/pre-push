@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # 推送前的本地快检：只查这次推送改到的东西，几秒到几十秒，省得等 CI 跑几分钟才看到 lint / 类型错。
 # 它不替代 CI（CI 仍然全量跑）。跳过：git push --no-verify，或 AIP_PRE_PUSH=skip；
-# 只跳类型检查：AIP_PRE_PUSH=lint。自愿启用：pnpm hooks:install（设置 core.hooksPath）。
+# 只跳类型检查：AIP_PRE_PUSH=lint。pnpm install 的 prepare 自动设置 core.hooksPath（CI 和已有自定义 hooksPath 除外）。
+# 有 test-guard constrained 标记的机器默认只跑 lint，typecheck 交给远端；AIP_PRE_PUSH=full 强制本地跑。
 set -euo pipefail
 
-mode="${AIP_PRE_PUSH:-full}"
+constrained="${XDG_CONFIG_HOME:-$HOME/.config}/test-guard/constrained"
+default_mode=full
+[ -e "$constrained" ] && default_mode=lint
+mode="${AIP_PRE_PUSH:-$default_mode}"
 [ "$mode" = skip ] && exit 0
 
 if [ ! -d node_modules ]; then
@@ -18,8 +22,8 @@ base=""
 while read -r local_ref local_sha _remote_ref _remote_sha; do
   [ "$local_sha" = "$zero" ] && continue # 删分支，不用查
   if [ "$local_sha" != "$head" ]; then
-    echo "pre-push: 只能检查当前 HEAD；请先检出 ${local_ref}，或用 git push --no-verify。" >&2
-    exit 1
+    echo "pre-push: ${local_ref} 不是当前 HEAD，跳过本地检查，由 CI 把关。" >&2
+    exit 0
   fi
   b=$(git merge-base "$local_sha" origin/main 2>/dev/null || true)
   [ -n "$b" ] && base="$b"
@@ -38,6 +42,7 @@ bun run scripts/check-private-boundary.ts
 bun run scripts/check-adr-numbers.ts
 bun run scripts/check-i18n-keys.ts
 bun run scripts/check-design.ts
+node scripts/check-migrations.mjs
 
 if [ "$mode" != lint ]; then
   echo "pre-push: 受影响包的 typecheck（turbo 缓存命中时很快）…" >&2

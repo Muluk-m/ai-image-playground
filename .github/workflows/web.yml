@@ -110,7 +110,9 @@ jobs:
           if-no-files-found: error
       - run: python3 scripts/test-cloud-test.py
       - run: node --test scripts/__tests__/ci-cli-required.test.mjs
-      - run: node --test scripts/__tests__/lock-closure-changed.test.mjs scripts/__tests__/test-guard.test.mjs scripts/__tests__/cost-impact.test.mjs scripts/__tests__/review-stats.test.mjs scripts/__tests__/test-shard.test.mjs scripts/__tests__/ci-reuse-web-checks.test.mjs
+      - run: node --test scripts/__tests__/lock-closure-changed.test.mjs scripts/__tests__/test-guard.test.mjs scripts/__tests__/cost-impact.test.mjs scripts/__tests__/review-stats.test.mjs scripts/__tests__/test-shard.test.mjs scripts/__tests__/ci-reuse-web-checks.test.mjs scripts/__tests__/check-migrations.test.mjs
+      # check-migrations compares packages/db/drizzle with main; the checkout above is shallow.
+      - run: git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
       - run: pnpm lint
       # Deploy and backup scripts; shellcheck ships on the hosted runner.
       - run: pnpm lint:sh
