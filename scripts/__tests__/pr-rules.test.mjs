@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { evaluatePr, section } from '../pr-rules.mjs'
+import { evaluatePr, section, stripComments } from '../pr-rules.mjs'
 
 const template = readFileSync(new URL('../../.github/pull_request_template.md', import.meta.url), 'utf8')
 const file = (filename, extra = {}) => ({ filename, status: 'modified', additions: 1, deletions: 1, ...extra })
@@ -48,8 +48,12 @@ test('critical flows need checked evidence with media, or a reasoned waiver', ()
   const checkedNoMedia = '- [ ] 本 PR 不涉及上述关键流程\n- [x] 已附测试账号在测试环境走通'
   assert.equal(evaluatePr({ files, body: body({ evidence: checkedNoMedia }) }).fails.length, 1)
 
-  const proven = `- [ ] 本 PR 不涉及上述关键流程\n- [x] 已附测试账号在测试环境走通\n\n普通账号，test.muvloom.online，abc123\n${shot}`
+  const proven = `- [ ] 本 PR 不涉及上述关键流程\n- [x] 已附测试账号在测试环境走通\n\n普通账号，test.muvloom.online，abc1234\n${shot}`
   assert.deepEqual(evaluatePr({ files, body: body({ evidence: proven }) }).fails, [])
+
+  // 勾了、有图，但没写环境、账号类型、提交。
+  const bare = `- [ ] 本 PR 不涉及上述关键流程\n- [x] 已附测试账号在测试环境（test.muvloom.online）走通\n\n${shot}`
+  assert.match(evaluatePr({ files, body: body({ evidence: bare }) }).fails.join(), /没写明环境（test.muvloom.online）、账号类型、提交 SHA/)
 
   const bareWaiver = '- [x] 本 PR 不涉及上述关键流程\n- [ ] 已附测试账号在测试环境走通'
   assert.equal(evaluatePr({ files, body: body({ evidence: bareWaiver }) }).fails.length, 1)
@@ -100,9 +104,21 @@ test('new migrations without a rollback file warn', () => {
   assert.match(evaluatePr({ files: [added], body: body() }).warns.join(), /没有回滚 SQL/)
   const withRollback = [added, file('packages/db/drizzle/rollback/0101_x.down.sql', { status: 'added' })]
   assert.deepEqual(evaluatePr({ files: withRollback, body: body() }).warns, [])
+  // 同一 PR 删掉或移走回滚文件，不算有回滚。
+  const removed = [added, file('packages/db/drizzle/rollback/0101_x.down.sql', { status: 'removed' })]
+  assert.match(evaluatePr({ files: removed, body: body() }).warns.join(), /没有回滚 SQL/)
+  const moved = [
+    added,
+    file('packages/db/drizzle/rollback/old.down.sql', {
+      status: 'renamed',
+      previous_filename: 'packages/db/drizzle/rollback/0101_x.down.sql',
+    }),
+  ]
+  assert.match(evaluatePr({ files: moved, body: body() }).warns.join(), /没有回滚 SQL/)
 })
 
 test('section reads a heading up to the next one, ignoring comments', () => {
   assert.equal(section('## A\n<!-- x -->\nfoo\n## B\nbar', 'A'), 'foo')
   assert.equal(section('## A\nfoo', 'C'), undefined)
+  assert.equal(stripComments('a<!-- b'), 'a')
 })

@@ -58,7 +58,8 @@ const notTest = (file) => !file.split('/').includes('__tests__')
 
 /** 去掉 HTML 注释：模板注释里本身就写着 test.muvloom.online 和示例。 */
 export function stripComments(body) {
-  return (body ?? '').replace(/<!--[\s\S]*?-->/g, '')
+  // 没闭合的 `<!--` 一直删到结尾，与 GitHub 渲染一致。
+  return (body ?? '').replace(/<!--[\s\S]*?(?:-->|$)/g, '')
 }
 
 /** `## 标题` 到下一个二级标题之间的正文。 */
@@ -135,8 +136,17 @@ export function evaluatePr({ files, body }) {
       .join(' ')
       .trim()
     const waived = /-\s*\[[xX]\]\s*本 PR 不涉及/.test(evidence) && explained(reason)
-    if (checked && hasMedia(evidence)) {
+    // 证据要写明环境、账号类型与提交；模板复选框自带的文字不算。
+    const written = withoutCheckboxes(evidence)
+    const missing = [
+      !written.includes('test.muvloom.online') && '环境（test.muvloom.online）',
+      !/账号/.test(written) && '账号类型',
+      !/\b[0-9a-f]{7,40}\b/i.test(written) && '提交 SHA',
+    ].filter(Boolean)
+    if (checked && hasMedia(evidence) && !missing.length) {
       // 证据齐全
+    } else if (checked && hasMedia(evidence)) {
+      fails.push(`改到关键流程：${list.join('、')}。「关键流程证据」有截图，但没写明${missing.join('、')}。`)
     } else if (waived) {
       warns.push(`改到关键流程：${list.join('、')}，作者声明不涉及流程行为：「${reason.slice(0, 120)}」。请评审确认。`)
     } else {
@@ -163,11 +173,13 @@ export function evaluatePr({ files, body }) {
     warns.push(`改动 ${lines} 行（不含 lockfile、快照等生成物），超过 ${LARGE_PR_LINES} 行，考虑按「一件事一个 PR」拆分。`)
   }
 
+  // 合并后仍在的文件：删掉的不算，改名只认新路径。
+  const present = new Set(files.filter((f) => f.status !== 'removed').map((f) => f.filename))
   for (const f of files) {
     const m = f.status === 'added' && MIGRATION.exec(f.filename)
     if (!m) continue
     const rollback = `packages/db/drizzle/rollback/${m[1]}.down.sql`
-    if (!paths.includes(rollback)) {
+    if (!present.has(rollback)) {
       warns.push(`新迁移 \`${m[1]}\` 没有回滚 SQL \`${rollback}\`；「怎么回滚」里写清不可回滚的原因或补上它。`)
     }
   }

@@ -101,7 +101,7 @@ CI（`.github/workflows/web.yml`，PR 以及 push 到 main 和 test 都跑）把
 
 **合并需 Nain 确认；上线后冒烟。** 合并 `main` 或私有 overlay 必须等 Nain 明确确认。Nain 确认并合并后，等下一个发布窗口（紧急修复走手动 `workflow_dispatch`）的部署 workflow 完成，核对线上版本，再实测改到的功能：接口用只读请求，界面在浏览器里看，关键流程用测试账号；结果写进 PR 评论。冒烟不过就开修复或回滚 PR，回滚同样要 Nain 确认，并在汇报里说明。
 
-**关键流程证据。** 改到注册/登录、支付/计费、生成（出图、出视频）流程的 PR，必须附测试账号在测试环境（https://test.muvloom.online）走通该流程的截图或录屏，写明账号类型、环境和提交；`PR rules` 按 `scripts/pr-rules.mjs` 的 `CRITICAL_FLOWS` 路径核对，只改类型或重构、流程行为不变的，勾「不涉及」并写明理由（至少 10 个字，「不涉及」「无」这类套话不算；降为警告，由评审确认）。路径清单外的流程改动同样要附。证据里不能出现密码、验证码、token 或真实用户数据。`scripts/agent-smoke.ts`（[智能体上线手册](docs/deploy/agent-rollout.md)第七节）、`scripts/pages-browser-smoke.sh`（[部署手册](docs/deploy/image-release.md)「前端启动验收」）和[云端测试](docs/agents/cloud-tests.md)只能作补充：它们不走真实登录、付款或生成，不能代替证据。
+**关键流程证据。** 改到注册/登录、支付/计费、生成（出图、出视频）流程的 PR，必须附测试账号在测试环境（https://test.muvloom.online）走通该流程的截图或录屏，写明账号类型、环境（test.muvloom.online）和提交 SHA；`PR rules` 按 `scripts/pr-rules.mjs` 的 `CRITICAL_FLOWS` 路径核对，只改类型或重构、流程行为不变的，勾「不涉及」并写明理由（至少 10 个字，「不涉及」「无」这类套话不算；降为警告，由评审确认）。路径清单外的流程改动同样要附。证据里不能出现密码、验证码、token 或真实用户数据。`scripts/agent-smoke.ts`（[智能体上线手册](docs/deploy/agent-rollout.md)第七节）、`scripts/pages-browser-smoke.sh`（[部署手册](docs/deploy/image-release.md)「前端启动验收」）和[云端测试](docs/agents/cloud-tests.md)只能作补充：它们不走真实登录、付款或生成，不能代替证据。
 
 **成本与影响说明。** 改到模型调用、模型/供应商切换、定价、额度、计费，或任何会改变推理成本的改动（更贵的默认模型、更多调用次数、更长上下文、更大输出、放宽限额），必须在 PR 描述的「成本与影响」和给 Nain 的汇报里写清楚改了什么、对成本的影响；涉及结算或扣费的还要在标题或正文标明「涉及结算，需 Nain 亲自审」。`PR rules` 按 `scripts/cost-impact.mjs` 的路径清单检查：命中时打 `cost-impact` 标签，「成本与影响」只写「不涉及」「无」「N/A」这类套话会失败（写明为什么不涉及即可）；清单外的成本改动同样要写、同样要标出来。未写清成本影响、未标出结算改动的，不要请 Nain 合并。
 
