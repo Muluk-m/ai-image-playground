@@ -59,3 +59,4 @@ apps/web/public/cli/muvloom-cli-skill.zip
 apps/web/public/cli/skill-manifest.json
 apps/web/public/cli/install.sh
 apps/web/public/cli/install.ps1
+apps/web/public/cli/bin/

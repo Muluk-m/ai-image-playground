@@ -27,7 +27,7 @@ import (
 )
 
 // Version is overridden at release time with -ldflags "-X .../cli.Version=x.y.z".
-var Version = "0.2.6"
+var Version = "0.2.7"
 
 const (
 	DefaultAPIURL  = "https://api.muvloom.online"
@@ -127,6 +127,9 @@ type App struct {
 	// Home and CWD override the Skill install roots in tests.
 	Home string
 	CWD  string
+	// ExecutablePath and Getenv override os.Executable and os.Getenv in tests.
+	ExecutablePath string
+	Getenv         func(string) string
 	// ManifestBaseURL overrides the official web origin for remote Skill hot-updates in tests.
 	ManifestBaseURL string
 	// Sleep is replaced in tests so polling runs instantly.
@@ -134,6 +137,10 @@ type App struct {
 	// OpenBrowser and Listen replace the system browser and the loopback listener in tests.
 	OpenBrowser func(url string) error
 	Listen      func(network, addr string) (net.Listener, error)
+	// lastDevicePollCode and lastDevicePollAt prevent back-to-back device_code token polls
+	// within the same invocation (e.g. setup -> auth status -> auth login) from tripping slow_down.
+	lastDevicePollCode string
+	lastDevicePollAt   time.Time
 }
 
 func New(out, errOut io.Writer) *App {
@@ -215,9 +222,11 @@ var commandList = []struct {
 		{"media download", "MEDIA_ID [--output PATH]", "Save an uploaded reference image", cmdMediaDownload},
 	}},
 	{"SETUP", []command{
-		{"skill install", "--host claude-code|codex|workbuddy|generic [--scope user|project]", "Install the bundled agent Skill", cmdSkillInstall},
+		{"setup", "[--origin URL] [--host auto|...] [--no-wait] [--timeout SECONDS] [--switch-service]", "Install the Skill, connect your account and verify readiness in one step", cmdSetup},
+		{"skill install", "--host auto|claude-code|codex|workbuddy|cursor|windsurf|cline|openclaw|generic [--scope user|project]", "Install the bundled agent Skill", cmdSkillInstall},
 		{"skill status", "", "Where the agent Skill is installed and its version", cmdSkillStatus},
 		{"update check", "", "Check for a newer CLI release (cached for the day)", cmdUpdateCheck},
+		{"update self", "[--check] [--auto on|off]", "Check or self-update the muvloom CLI binary", cmdUpdateSelf},
 		{"update skill", "[--check] [--auto on|off]", "Check or update installed agent Skills from Muvloom", cmdUpdateSkill},
 		{"version", "", "Print the CLI version", cmdVersion},
 	}},
@@ -333,7 +342,7 @@ func (a *App) Run(args []string) int {
 			a.apiURLSource = sourceEnvironment
 		}
 	} else {
-		a.resolveAPIURL(cmd.name == "auth login")
+		a.resolveAPIURL(cmd.name == "auth login" || cmd.name == "setup")
 	}
 	if err := validateAPIURL(a.APIURL); err != nil {
 		return a.render(nil, err)

@@ -147,7 +147,7 @@ jobs:
           base="$BASE_SHA"
           [ -n "$base" ] || base="$(git rev-parse HEAD^)"
           changed="$(git diff --name-only "$base" "$GITHUB_SHA")"
-          if printf '%s\n' "$changed" | grep -Eq '(^Dockerfile$|^\.dockerignore$|(^|/)vite\.config\.(ts|js|mjs|cjs)$|^scripts/)'; then
+          if printf '%s\n' "$changed" | grep -Eq '(^Dockerfile$|^\.dockerignore$|(^|/)vite\.config\.(ts|js|mjs|cjs)$|^scripts/|^cli-go/)'; then
             echo "required=true" >> "$GITHUB_OUTPUT"
           else
             echo "required=false" >> "$GITHUB_OUTPUT"

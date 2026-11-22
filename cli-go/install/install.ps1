@@ -6,6 +6,7 @@
 #                                          copy, and it is the one that runs), else the per-user
 #                                          %LOCALAPPDATA%\Programs\muvloom, which needs no administrator
 #   $env:MUVLOOM_NO_MODIFY_PATH = "1"     leave the user PATH, and this session's PATH, unchanged
+#   $env:MUVLOOM_ORIGIN = "https://..."   official web origin for fast CDN binary bootstrap
 #   $env:MUVLOOM_DISTRIBUTION_URL = "http://127.0.0.1:PORT/PATH"  local CI only
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
@@ -74,67 +75,133 @@ function Get-LatestVersion {
   return $tag.Substring(5)
 }
 
+$pinnedTarget = $null
 if ($env:MUVLOOM_VERSION) {
-  $target = $env:MUVLOOM_VERSION.TrimStart("v")
-  if (-not (Test-StableVersion $target)) { throw "muvloom install: MUVLOOM_VERSION must be an exact X.Y.Z version" }
-} else {
-  $target = Get-LatestVersion
+  $pinnedTarget = $env:MUVLOOM_VERSION.TrimStart("v")
+  if (-not (Test-StableVersion $pinnedTarget)) { throw "muvloom install: MUVLOOM_VERSION must be an exact X.Y.Z version" }
 }
-
+$minVer = $null
 if ($env:MUVLOOM_MIN_VERSION) {
-  $min = $env:MUVLOOM_MIN_VERSION.TrimStart("v")
-  if (-not (Test-StableVersion $min)) { throw "muvloom install: MUVLOOM_MIN_VERSION must be an exact X.Y.Z version" }
-  if ([version]$target -lt [version]$min) {
-    throw "muvloom install: latest or pinned release $target is older than MUVLOOM_MIN_VERSION $min"
-  }
+  $minVer = $env:MUVLOOM_MIN_VERSION.TrimStart("v")
+  if (-not (Test-StableVersion $minVer)) { throw "muvloom install: MUVLOOM_MIN_VERSION must be an exact X.Y.Z version" }
 }
 
-$current = Get-InstalledVersion $exe
-$skipDownload = $false
-if ($current -and (Test-StableVersion $current)) {
-  if ([version]$current -gt [version]$target) {
-    Write-Host "muvloom $current is already installed at $exe; not downgrading to $target"
-    $skipDownload = $true
-  } elseif ($current -eq $target -and (-not $env:MUVLOOM_VERSION -or $env:MUVLOOM_MIN_VERSION)) {
-    Write-Host "muvloom $current is already installed at $exe"
-    $skipDownload = $true
-  }
-}
-
-if (-not $skipDownload) {
-  $tag = "cli-v$target"
-  $asset = "muvloom_windows_amd64.exe"
-  $base = "$download/$tag"
-  $tmp = New-Item -ItemType Directory -Path (Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid()))
-  try {
-    Write-Host "Downloading $asset ($tag)"
-    try {
-      Invoke-WebRequest "$base/$asset" -OutFile (Join-Path $tmp $asset) -TimeoutSec 25 @requestOptions
-      Invoke-WebRequest "$base/checksums.txt" -OutFile (Join-Path $tmp "checksums.txt") -TimeoutSec 25 @requestOptions
-    } catch {
-      $directError = $_.Exception.Message
-      Write-Host "Direct download failed; trying the official GitHub Release API."
-      try {
-        $release = Invoke-RestMethod "$api/tags/$tag" -TimeoutSec 20 @requestOptions
-        foreach ($name in @($asset, "checksums.txt")) {
-          $id = ($release.assets | Where-Object { $_.name -ceq $name } | Select-Object -First 1).id
-          if ("$id" -cnotmatch '^[0-9]+$') { throw "No release asset found for $name" }
-          # The download query keeps binary responses separate from cached JSON metadata.
-          Invoke-WebRequest "$api/assets/${id}?download=1" -Headers @{ Accept = "application/octet-stream" } -OutFile (Join-Path $tmp $name) -TimeoutSec 60 @requestOptions
-        }
-      } catch {
-        throw "muvloom install: direct download failed ($directError); GitHub Release API failed ($($_.Exception.Message))"
-      }
+function Invoke-ManifestInstall {
+  if ($env:MUVLOOM_DISTRIBUTION_URL) { return $false }
+  $mOrigin = if ($env:MUVLOOM_ORIGIN) {
+    $trimmed = $env:MUVLOOM_ORIGIN.TrimEnd("/")
+    $official = @("https://muvloom.online", "https://image.nainma.online", "https://image-playground.qiliangjia.one", "https://test.muvloom.online")
+    if (($official -notcontains $trimmed) -and ($trimmed -cnotmatch '^http://(127\.0\.0\.1|localhost):[0-9]+$')) {
+      throw "muvloom install: MUVLOOM_ORIGIN must be an official Muvloom origin"
     }
-    $line = Get-Content (Join-Path $tmp "checksums.txt") | Where-Object { $_ -match " $([regex]::Escape($asset))$" }
-    if (-not $line) { throw "muvloom install: no checksum published for $asset" }
-    $expected = ($line -split " ")[0].ToLower()
-    $actual = (Get-FileHash (Join-Path $tmp $asset) -Algorithm SHA256).Hash.ToLower()
-    if ($expected -ne $actual) { throw "muvloom install: checksum mismatch for $asset" }
+    $trimmed
+  } elseif ($env:MUVLOOM_API_URL -like "https://test-api.muvloom.online*") {
+    "https://test.muvloom.online"
+  } elseif ($env:MUVLOOM_API_URL -like "https://image-api.qiliangjia.one*") {
+    "https://image-playground.qiliangjia.one"
+  } else {
+    "https://muvloom.online"
+  }
+
+  try {
+    $manifest = Invoke-RestMethod "$mOrigin/cli/skill-manifest.json" -UseBasicParsing -MaximumRedirection 0 -TimeoutSec 8
+  } catch {
+    return $false
+  }
+  $cliMeta = $manifest.cli
+  $binMeta = if ($cliMeta -and $cliMeta.binaries) { $cliMeta.binaries."windows/amd64" } else { $null }
+  if (-not $cliMeta -or -not $binMeta -or -not (Test-StableVersion "$($cliMeta.version)")) { return $false }
+  if ($binMeta.path -cnotmatch '^bin/v\d+\.\d+\.\d+/[A-Za-z0-9._-]+$' -or $binMeta.sha256 -cnotmatch '^[0-9a-f]{64}$') { return $false }
+  $mVer = "$($cliMeta.version)"
+  if ($pinnedTarget -and $pinnedTarget -ne $mVer) { return $false }
+  if ($minVer -and [version]$mVer -lt [version]$minVer) { return $false }
+
+  $cur = Get-InstalledVersion $exe
+  if ($cur -and (Test-StableVersion $cur)) {
+    if ([version]$cur -gt [version]$mVer) {
+      Write-Host "muvloom $cur is already installed at $exe; not downgrading to $mVer"
+      return $true
+    } elseif ($cur -eq $mVer -and (-not $pinnedTarget -or $minVer)) {
+      Write-Host "muvloom $cur is already installed at $exe"
+      return $true
+    }
+  }
+
+  $asset = "muvloom_windows_amd64.exe"
+  $mTmp = New-Item -ItemType Directory -Path (Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid()))
+  try {
+    $outFile = Join-Path $mTmp $asset
+    Write-Host "Downloading $asset (cli-v$mVer)"
+    try {
+      Invoke-WebRequest "$mOrigin/cli/$($binMeta.path)" -OutFile $outFile -UseBasicParsing -MaximumRedirection 0 -TimeoutSec 30
+    } catch {
+      return $false
+    }
+    $actual = (Get-FileHash $outFile -Algorithm SHA256).Hash.ToLower()
+    if ($actual -ne $binMeta.sha256) {
+      throw "muvloom install: checksum mismatch for $asset"
+    }
     New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-    Move-Item -Force (Join-Path $tmp $asset) $exe
+    Move-Item -Force $outFile $exe
+    return $true
   } finally {
-    Remove-Item -Recurse -Force $tmp
+    Remove-Item -Recurse -Force $mTmp -ErrorAction SilentlyContinue
+  }
+}
+
+if (-not (Invoke-ManifestInstall)) {
+  $target = if ($pinnedTarget) { $pinnedTarget } else { Get-LatestVersion }
+  if ($minVer -and [version]$target -lt [version]$minVer) {
+    throw "muvloom install: latest or pinned release $target is older than MUVLOOM_MIN_VERSION $minVer"
+  }
+
+  $current = Get-InstalledVersion $exe
+  $skipDownload = $false
+  if ($current -and (Test-StableVersion $current)) {
+    if ([version]$current -gt [version]$target) {
+      Write-Host "muvloom $current is already installed at $exe; not downgrading to $target"
+      $skipDownload = $true
+    } elseif ($current -eq $target -and (-not $pinnedTarget -or $minVer)) {
+      Write-Host "muvloom $current is already installed at $exe"
+      $skipDownload = $true
+    }
+  }
+
+  if (-not $skipDownload) {
+    $tag = "cli-v$target"
+    $asset = "muvloom_windows_amd64.exe"
+    $base = "$download/$tag"
+    $tmp = New-Item -ItemType Directory -Path (Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid()))
+    try {
+      Write-Host "Downloading $asset ($tag)"
+      try {
+        Invoke-WebRequest "$base/$asset" -OutFile (Join-Path $tmp $asset) -TimeoutSec 25 @requestOptions
+        Invoke-WebRequest "$base/checksums.txt" -OutFile (Join-Path $tmp "checksums.txt") -TimeoutSec 25 @requestOptions
+      } catch {
+        $directError = $_.Exception.Message
+        Write-Host "Direct download failed; trying the official GitHub Release API."
+        try {
+          $release = Invoke-RestMethod "$api/tags/$tag" -TimeoutSec 20 @requestOptions
+          foreach ($name in @($asset, "checksums.txt")) {
+            $id = ($release.assets | Where-Object { $_.name -ceq $name } | Select-Object -First 1).id
+            if ("$id" -cnotmatch '^[0-9]+$') { throw "No release asset found for $name" }
+            # The download query keeps binary responses separate from cached JSON metadata.
+            Invoke-WebRequest "$api/assets/${id}?download=1" -Headers @{ Accept = "application/octet-stream" } -OutFile (Join-Path $tmp $name) -TimeoutSec 60 @requestOptions
+          }
+        } catch {
+          throw "muvloom install: direct download failed ($directError); GitHub Release API failed ($($_.Exception.Message))"
+        }
+      }
+      $line = Get-Content (Join-Path $tmp "checksums.txt") | Where-Object { $_ -match " $([regex]::Escape($asset))$" }
+      if (-not $line) { throw "muvloom install: no checksum published for $asset" }
+      $expected = ($line -split " ")[0].ToLower()
+      $actual = (Get-FileHash (Join-Path $tmp $asset) -Algorithm SHA256).Hash.ToLower()
+      if ($expected -ne $actual) { throw "muvloom install: checksum mismatch for $asset" }
+      New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+      Move-Item -Force (Join-Path $tmp $asset) $exe
+    } finally {
+      Remove-Item -Recurse -Force $tmp
+    }
   }
 }
 

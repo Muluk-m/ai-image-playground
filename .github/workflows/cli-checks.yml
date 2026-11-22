@@ -7,7 +7,7 @@ on:
     inputs:
       release-tag:
         type: string
-        default: cli-v0.2.6
+        default: cli-v0.2.7
 
 permissions:
   contents: read

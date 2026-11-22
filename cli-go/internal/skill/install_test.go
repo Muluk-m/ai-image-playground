@@ -11,32 +11,33 @@ import (
 )
 
 func TestInstallUserHostsAndMetadata(t *testing.T) {
-	for _, host := range []string{"claude-code", "codex", "workbuddy"} {
+	for _, host := range SupportedHosts() {
 		home := t.TempDir()
 		result, err := Install(InstallOptions{Host: host, Scope: "user", Home: home})
 		if err != nil {
 			t.Fatalf("%s: %v", host, err)
 		}
-		dirName := ".claude"
-		switch host {
-		case "codex":
-			dirName = ".agents"
-		case "workbuddy":
-			dirName = ".workbuddy"
+		dirName, ok := HostDir(host)
+		if !ok {
+			t.Fatalf("missing hostDir for %s", host)
 		}
-		root := filepath.Join(home, dirName, "skills", "muvloom")
+		root := filepath.Join(home, filepath.FromSlash(dirName), "skills", "muvloom")
 		if result.Path != root || result.Version != SkillVersion || result.FileHash == "" {
 			t.Fatalf("unexpected result: %+v", result)
 		}
-		wantFiles := []string{"SKILL.md", "references/cli.md", "references/install.md", "references/jobs.md", "references/errors.md", "references/getting-started.md", "references/image-sets.md", "references/animation.md", ".muvloom-skill.json"}
+		wantFiles := []string{"SKILL.md", "scripts/muvloom", "scripts/muvloom.ps1", "scripts/muvloom.cmd", "references/cli.md", "references/install.md", "references/jobs.md", "references/errors.md", "references/getting-started.md", "references/image-sets.md", "references/animation.md", ".muvloom-skill.json"}
 		if host == "workbuddy" {
 			wantFiles = append(wantFiles, "references/workbuddy.md")
 		} else {
 			wantFiles = append(wantFiles, "agents/openai.yaml")
 		}
 		for _, name := range wantFiles {
-			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(name))); err != nil {
+			info, err := os.Stat(filepath.Join(root, filepath.FromSlash(name)))
+			if err != nil {
 				t.Fatalf("%s missing %s: %v", host, name, err)
+			}
+			if name == "scripts/muvloom" && filepath.Separator == '/' && info.Mode()&0o111 == 0 {
+				t.Fatalf("%s scripts/muvloom is not executable: %v", host, info.Mode())
 			}
 		}
 		var meta metadata
@@ -50,6 +51,59 @@ func TestInstallUserHostsAndMetadata(t *testing.T) {
 		if meta.Version != SkillVersion || meta.Host != host || meta.Scope != "user" || meta.FileHash != result.FileHash {
 			t.Fatalf("unexpected metadata: %+v", meta)
 		}
+	}
+}
+
+func TestInstallAutoPrefersCallingAgentEnvOrExistingHostDirs(t *testing.T) {
+	// 1. Inside WorkBuddy (env detected): installs ONLY into workbuddy even if ~/.cursor exists.
+	home1 := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home1, ".cursor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	res1, err := InstallAuto(InstallOptions{Scope: "user", Home: home1}, func(k string) string {
+		if k == "WORKBUDDY_SANDBOX" {
+			return "1"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res1.Installed) != 1 || res1.Host != "workbuddy" {
+		t.Fatalf("expected only workbuddy under WORKBUDDY_SANDBOX, got %+v", res1)
+	}
+	if _, err := os.Stat(filepath.Join(home1, ".cursor", "skills", "muvloom")); !os.IsNotExist(err) {
+		t.Fatal("sandboxed auto install touched another host's directory")
+	}
+
+	// 2. Plain terminal (no agent env, or explicit 0/false): installs into existing host config directories.
+	home2 := t.TempDir()
+	for _, d := range []string{".cursor", ".codeium/windsurf"} {
+		if err := os.MkdirAll(filepath.Join(home2, filepath.FromSlash(d)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res2, err := InstallAuto(InstallOptions{Scope: "user", Home: home2}, func(k string) string {
+		if k == "WORKBUDDY_SANDBOX" {
+			return "0"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res2.Installed) != 2 || res2.Installed[0].Host != "cursor" || res2.Installed[1].Host != "windsurf" {
+		t.Fatalf("unexpected directory-detected hosts: %+v", res2)
+	}
+
+	// 3. Brand-new machine (no agent env and no host dirs yet): installs core defaults.
+	home3 := t.TempDir()
+	res3, err := InstallAuto(InstallOptions{Scope: "user", Home: home3}, func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res3.Installed) != 3 {
+		t.Fatalf("expected 3 core default hosts on clean machine, got %+v", res3)
 	}
 }
 
@@ -567,4 +621,53 @@ func TestRefreshOutdatedNeverDowngradesMovesOrRacesACopy(t *testing.T) {
 			t.Fatal("an edit made while waiting for the lock was overwritten")
 		}
 	})
+}
+
+func TestWindsurfUserVsProjectDirectoriesAndTargetOnlyEnsureInstalled(t *testing.T) {
+	home := t.TempDir()
+	project := filepath.Join(home, "workspace")
+	if err := os.MkdirAll(filepath.Join(project, ".windsurf"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "package.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// User scope installs under ~/.codeium/windsurf/skills/muvloom; project scope under <project>/.windsurf/skills/muvloom.
+	uRes, err := EnsureInstalled(InstallOptions{Host: "windsurf", Scope: "user", Home: home, CWD: project})
+	if err != nil || uRes.Path != filepath.Join(home, ".codeium", "windsurf", "skills", "muvloom") {
+		t.Fatalf("unexpected windsurf user install: %+v %v", uRes, err)
+	}
+	detected, err := DetectAutoHosts("project", home, project, func(string) string { return "" })
+	if err != nil || len(detected) != 1 || detected[0] != "windsurf" {
+		t.Fatalf("expected project auto-detect to find .windsurf, got %v err=%v", detected, err)
+	}
+	pRes, err := EnsureInstalled(InstallOptions{Host: "windsurf", Scope: "project", Home: home, CWD: project})
+	if err != nil || !strings.HasSuffix(pRes.Path, filepath.Join(".windsurf", "skills", "muvloom")) {
+		t.Fatalf("unexpected windsurf project install: %+v %v", pRes, err)
+	}
+
+	// EnsureInstalled preserves a newer hot-updated copy even when an unrelated sibling host metadata is unreadable.
+	codexRes, err := Install(InstallOptions{Host: "codex", Scope: "user", Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakeRelease(t, codexRes.Path, "9.9.9", "codex", "user")
+	claudeDir := filepath.Join(home, ".claude", "skills", "muvloom")
+	if err := os.MkdirAll(claudeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	unreadableMeta := filepath.Join(claudeDir, ".muvloom-skill.json")
+	if err := os.WriteFile(unreadableMeta, []byte(`{"skill":"muvloom"}`), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(unreadableMeta, 0o600)
+
+	kept, err := EnsureInstalled(InstallOptions{Host: "codex", Scope: "user", Home: home})
+	if err != nil || kept.Version != "9.9.9" {
+		t.Fatalf("EnsureInstalled failed or downgraded codex when sibling was unreadable: %+v %v", kept, err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(codexRes.Path, "SKILL.md")); string(data) != "release 9.9.9" {
+		t.Fatal("EnsureInstalled overwrote newer hot-updated codex copy")
+	}
 }

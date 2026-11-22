@@ -1,0 +1,210 @@
+#!/bin/sh
+# Zero-dependency launcher bundled inside the Muvloom Agent Skill.
+# Uses an installed muvloom CLI (>= 0.2.5) if present; otherwise downloads and SHA-256
+# verifies the static binary from Muvloom's CDN (with GitHub Releases fallback) on first
+# run without requiring Python, Node.js, or modifying shell profiles.
+set -eu
+
+MIN_VERSION="${MUVLOOM_MIN_VERSION:-0.2.5}"
+MIN_VERSION="${MIN_VERSION#v}"
+SELF="$0"
+
+fail() { echo "muvloom launcher: $*" >&2; exit 1; }
+
+version_less() {
+  [ -n "$1" ] && [ -n "$2" ] || return 1
+  printf '%s\n' "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || return 1
+  printf '%s\n' "$2" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || return 1
+  [ "$1" = "$2" ] && return 1
+  [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | head -n 1)" = "$1" ]
+}
+
+usable_binary() {
+  candidate="$1"
+  [ -n "$candidate" ] && [ -f "$candidate" ] && [ -x "$candidate" ] || return 1
+  if [ -e "$SELF" ] && [ "$candidate" -ef "$SELF" ]; then
+    return 1
+  fi
+  out="$("$candidate" version 2>/dev/null || true)"
+  ver="$(printf '%s\n' "$out" | sed -n 's/^muvloom \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1)"
+  [ -n "$ver" ] && ! version_less "$ver" "$MIN_VERSION"
+}
+
+cache_root="${XDG_CACHE_HOME:-$HOME/.cache}"
+for candidate in \
+  "${MUVLOOM_INSTALL_DIR:+$MUVLOOM_INSTALL_DIR/muvloom}" \
+  "$HOME/.local/bin/muvloom" \
+  "$cache_root/muvloom/bin/muvloom" \
+  "/usr/local/bin/muvloom" \
+  "/opt/homebrew/bin/muvloom" \
+  "$(command -v muvloom 2>/dev/null || true)"
+do
+  if usable_binary "$candidate"; then
+    exec "$candidate" "$@"
+  fi
+done
+
+case "$(uname -s)" in
+  Darwin) os=darwin ;;
+  Linux) os=linux ;;
+  *) fail "unsupported operating system $(uname -s)" ;;
+esac
+case "$(uname -m)" in
+  arm64 | aarch64) os_arch="${os}/arm64"; asset="muvloom_${os}_arm64" ;;
+  x86_64 | amd64) os_arch="${os}/amd64"; asset="muvloom_${os}_amd64" ;;
+  *) fail "unsupported architecture $(uname -m)" ;;
+esac
+
+command -v curl >/dev/null 2>&1 || fail "curl is required"
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256() { sha256sum "$1" | cut -d' ' -f1; }
+elif command -v shasum >/dev/null 2>&1; then
+  sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
+else
+  fail "sha256sum or shasum is required"
+fi
+
+resolve_origin() {
+  if [ -n "${MUVLOOM_ORIGIN:-}" ]; then
+    orig="${MUVLOOM_ORIGIN%/}"
+    case "$orig" in
+      https://muvloom.online | https://image.nainma.online | https://image-playground.qiliangjia.one | https://test.muvloom.online)
+        printf '%s\n' "$orig"
+        return
+        ;;
+    esac
+    if printf '%s\n' "$orig" | grep -Eq '^http://(127\.0\.0\.1|localhost):[0-9]+$'; then
+      printf '%s\n' "$orig"
+      return
+    fi
+    fail "MUVLOOM_ORIGIN must be an official Muvloom origin (or loopback http for tests)"
+  fi
+  case "${MUVLOOM_API_URL:-}" in
+    https://test-api.muvloom.online*) printf '%s\n' "https://test.muvloom.online" ;;
+    https://image-api.qiliangjia.one*) printf '%s\n' "https://image-playground.qiliangjia.one" ;;
+    *) printf '%s\n' "https://muvloom.online" ;;
+  esac
+}
+
+origin="$(resolve_origin)"
+fetch_origin() {
+  case "$origin" in
+    http://127.0.0.1:* | http://localhost:*)
+      curl -q -fsSL --max-redirs 0 --noproxy '*' --connect-timeout 4 --max-time 25 "$@"
+      ;;
+    *)
+      curl -q -fsSL --proto '=https' --max-redirs 0 --connect-timeout 4 --max-time 30 "$@"
+      ;;
+  esac
+}
+
+target_dir="${MUVLOOM_INSTALL_DIR:-$HOME/.local/bin}"
+if ! mkdir -p "$target_dir" 2>/dev/null || [ ! -w "$target_dir" ]; then
+  target_dir="$cache_root/muvloom/bin"
+  mkdir -p "$target_dir"
+fi
+BIN="$target_dir/muvloom"
+
+stage_bin="$(mktemp "$target_dir/.muvloom-bootstrap.XXXXXX")"
+tmp="$(mktemp -d)"
+trap 'rm -f "$stage_bin"; rm -rf "$tmp"' EXIT
+
+try_manifest_bootstrap() {
+  manifest="$(fetch_origin "$origin/cli/skill-manifest.json" 2>/dev/null || true)"
+  [ -n "$manifest" ] || return 1
+  compact="$(printf '%s' "$manifest" | tr -d '\r\n\t ')"
+  cli_sec="$(printf '%s' "$compact" | sed -n 's/.*"cli":{\(.*\)/\1/p')"
+  manifest_ver="$(printf '%s' "$cli_sec" | sed -n 's/.*"version":"\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p')"
+  plat_escaped="$(printf '%s' "$os_arch" | sed 's/\//\\\//g')"
+  entry="$(printf '%s' "$cli_sec" | sed -n "s/.*\"${plat_escaped}\":{\([^}]*\)}.*/\1/p")"
+  rel_path="$(printf '%s' "$entry" | sed -n 's/.*"path":"\([^"]*\)".*/\1/p')"
+  expected_sha="$(printf '%s' "$entry" | sed -n 's/.*"sha256":"\([0-9a-f]\{64\}\)".*/\1/p')"
+  [ -n "$manifest_ver" ] && ! version_less "$manifest_ver" "$MIN_VERSION" || return 1
+  printf '%s\n' "$rel_path" | grep -Eq '^bin/v[0-9]+\.[0-9]+\.[0-9]+/[A-Za-z0-9._-]+$' || return 1
+  [ -n "$expected_sha" ] || return 1
+  fetch_origin -o "$stage_bin" "$origin/cli/$rel_path" 2>/dev/null || return 1
+  actual_sha="$(sha256 "$stage_bin")"
+  [ "$actual_sha" = "$expected_sha" ] || return 1
+  return 0
+}
+
+downloaded=""
+if try_manifest_bootstrap || try_manifest_bootstrap; then
+  downloaded=1
+fi
+
+if [ -z "$downloaded" ]; then
+  repo="Muluk-m/ai-image-playground"
+  gh_releases_url="https://api.github.com/repos/$repo/releases"
+  gh_download_base="https://github.com/$repo/releases/download"
+  gh_loopback=""
+  if [ -n "${MUVLOOM_GITHUB_RELEASES_URL:-}" ] && printf '%s\n' "$MUVLOOM_GITHUB_RELEASES_URL" | grep -Eq '^http://127\.0\.0\.1:[0-9]+/'; then
+    gh_releases_url="${MUVLOOM_GITHUB_RELEASES_URL%/}"
+    gh_loopback=1
+  fi
+  if [ -n "${MUVLOOM_GITHUB_DOWNLOAD_URL:-}" ] && printf '%s\n' "$MUVLOOM_GITHUB_DOWNLOAD_URL" | grep -Eq '^http://127\.0\.0\.1:[0-9]+/'; then
+    gh_download_base="${MUVLOOM_GITHUB_DOWNLOAD_URL%/}"
+    gh_loopback=1
+  fi
+  gh_curl() {
+    if [ -n "$gh_loopback" ]; then
+      curl -q -fsSL --max-redirs 5 --noproxy '*' --connect-timeout 6 --max-time 45 "$@"
+    else
+      curl -q -fsSL --proto '=https' --proto-redir '=https' --max-redirs 5 --connect-timeout 6 --max-time 45 "$@"
+    fi
+  }
+  body="$(gh_curl "${gh_releases_url}?per_page=100")" ||
+    fail "could not bootstrap muvloom CLI from $origin or GitHub Releases"
+  ver="$(printf '%s' "$body" | awk '
+    BEGIN { d = 0; in_str = 0; esc = 0; obj = "" }
+    {
+      n = length($0)
+      for (i = 1; i <= n; i++) {
+        c = substr($0, i, 1)
+        if (d == 1) obj = obj c
+        if (in_str) {
+          if (esc) esc = 0
+          else if (c == "\\") esc = 1
+          else if (c == "\"") in_str = 0
+          continue
+        }
+        if (c == "\"") { in_str = 1; continue }
+        if (c == "{") {
+          d++
+          if (d == 1) obj = "{"
+          continue
+        }
+        if (c == "}") {
+          if (d == 1) {
+            compact = obj
+            gsub(/[[:space:]]+/, "", compact)
+            if (compact !~ /"prerelease":true/ && compact !~ /"draft":true/) {
+              if (match(compact, /"tag_name":"cli-v[0-9]+\.[0-9]+\.[0-9]+"/)) {
+                t = substr(compact, RSTART + 17, RLENGTH - 18)
+                print t
+              }
+            }
+            obj = ""
+          }
+          if (d > 0) d--
+        }
+      }
+    }
+  ' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)"
+  [ -n "$ver" ] && ! version_less "$ver" "$MIN_VERSION" ||
+    fail "no release >= $MIN_VERSION available"
+  base="$gh_download_base/cli-v$ver"
+  gh_curl -o "$stage_bin" "$base/$asset" || fail "download failed: $base/$asset"
+  gh_curl -o "$tmp/checksums.txt" "$base/checksums.txt" || fail "download failed: $base/checksums.txt"
+  expected_sha="$(grep " $asset\$" "$tmp/checksums.txt" | cut -d' ' -f1)"
+  [ -n "$expected_sha" ] || fail "missing checksum for $asset"
+  actual_sha="$(sha256 "$stage_bin")"
+  [ "$actual_sha" = "$expected_sha" ] || fail "checksum mismatch for $asset"
+fi
+
+chmod 0755 "$stage_bin"
+mv "$stage_bin" "$BIN"
+trap - EXIT
+rm -rf "$tmp"
+
+exec "$BIN" "$@"

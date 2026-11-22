@@ -1,6 +1,8 @@
-// Package auth persists CLI credentials. The platform credential store (macOS Keychain,
-// Windows Credential Manager, Linux Secret Service) is used when available; otherwise a
-// 0600 file under the user config directory. Credential values are never logged.
+// Package auth persists CLI credentials. By default credentials live in a user-private 0600
+// file under the user config directory (mode 0700) so binary self-updates and multi-host agent
+// sandboxes never trigger OS keychain prompts; setting MUVLOOM_CREDENTIALS_STORE=keychain opts
+// into the platform credential store (macOS Keychain, Windows Credential Manager, Linux Secret
+// Service). Credential values are never logged.
 //
 // Files are only ever created and written in place: never renamed over, never deleted during
 // a login, a refresh or a logout. An agent host that sandboxes the config directory asks the
@@ -83,22 +85,28 @@ type PendingLogin struct {
 	Redeemed bool `json:"redeemed,omitempty"`
 	// Loopback sign-in: the callback registered with the authorization, the PKCE verifier and
 	// state that bind it to this login, and the one-time code once the callback brought one.
-	RedirectURI       string `json:"redirect_uri,omitempty"`
-	CodeVerifier      string `json:"code_verifier,omitempty"`
-	State             string `json:"state,omitempty"`
-	AuthorizationCode string `json:"authorization_code,omitempty"`
+	RedirectURI       string    `json:"redirect_uri,omitempty"`
+	CodeVerifier      string    `json:"code_verifier,omitempty"`
+	State             string    `json:"state,omitempty"`
+	AuthorizationCode string    `json:"authorization_code,omitempty"`
+	NextPollAt        time.Time `json:"next_poll_at,omitempty"`
 }
 
 type Store struct {
 	Dir string
-	// UseKeyring stores credentials in the platform credential store when it works.
+	// UseKeyring stores credentials in the platform credential store when explicitly opted in
+	// via MUVLOOM_CREDENTIALS_STORE=keychain.
 	UseKeyring bool
-	// ClearKeyring makes Clear remove the keychain entry even when this process stores to
-	// a file, so switching MUVLOOM_CREDENTIALS_STORE cannot leave a login behind. Tests that
-	// build a Store directly leave it off and never touch the real keychain.
+	// MigrateKeyring allows a one-time read-and-migrate from the OS keyring into 0600
+	// credentials.json when connection.json exists from an earlier <= 0.2.5 login and no
+	// file-mode marker has been written yet. Fresh 0.2.6+ installs and already-migrated files
+	// never touch the OS keyring.
+	MigrateKeyring bool
+	// ClearKeyring makes Clear remove any keychain entry on explicit sign-out in non-sandboxed
+	// hosts. Tests that build a Store directly leave it off and never touch the real keychain.
 	ClearKeyring bool
 	// ForceKeyring is set when the caller explicitly requested MUVLOOM_CREDENTIALS_STORE=keychain,
-	// overriding an existing file-mode marker left by a sandboxed host.
+	// overriding an existing file-mode marker left by default file mode or a sandboxed host.
 	ForceKeyring bool
 	// Keychain replaces the system credential store; nil means the system's.
 	Keychain Keychain
@@ -111,11 +119,7 @@ func (s Store) keychain() Keychain {
 	return systemKeychain{}
 }
 
-// ConfigDir is $MUVLOOM_CONFIG_DIR, or <user config dir>/muvloom.
-func ConfigDir() string {
-	if dir := os.Getenv("MUVLOOM_CONFIG_DIR"); dir != "" {
-		return dir
-	}
+func defaultConfigDir() string {
 	if dir, err := os.UserConfigDir(); err == nil {
 		return filepath.Join(dir, "muvloom")
 	}
@@ -125,29 +129,43 @@ func ConfigDir() string {
 	return ".muvloom"
 }
 
-// Default uses the keyring unless MUVLOOM_CREDENTIALS_STORE=file or the process runs inside
-// a sandboxed desktop host (e.g. WorkBuddy) where touching macOS Keychain triggers permission
-// prompts. A directory chosen with MUVLOOM_CONFIG_DIR keeps its credentials in files only and
-// never writes or deletes the keychain (auth status only reads it, see DefaultLoginElsewhere):
-// the keychain has one entry, which belongs to the default directory, so a login or sign-out
-// in another directory (a test service, a container) must not replace or remove it.
+// ConfigDir is $MUVLOOM_CONFIG_DIR, or <user config dir>/muvloom.
+func ConfigDir() string {
+	if dir := os.Getenv("MUVLOOM_CONFIG_DIR"); dir != "" {
+		return dir
+	}
+	return defaultConfigDir()
+}
+
+// Default stores credentials in a 0600 file under ConfigDir() across all hosts unless
+// MUVLOOM_CREDENTIALS_STORE=keychain explicitly opts into the OS keyring (and MUVLOOM_CONFIG_DIR
+// is unset). Avoiding the OS keyring by default prevents macOS Keychain ACL password dialogs
+// when unsigned binaries self-update or run inside headless/sandboxed agent shells.
 func Default() Store {
 	if os.Getenv("MUVLOOM_CONFIG_DIR") != "" {
 		return Store{Dir: ConfigDir()}
 	}
 	storePref := strings.ToLower(strings.TrimSpace(os.Getenv("MUVLOOM_CREDENTIALS_STORE")))
-	sandboxed := inKeychainSandboxedHost()
+	if storePref == "keychain" {
+		return Store{
+			Dir:          ConfigDir(),
+			UseKeyring:   true,
+			ClearKeyring: true,
+			ForceKeyring: true,
+		}
+	}
+	if inKeychainSandboxedHost() {
+		return Store{Dir: ConfigDir()}
+	}
 	return Store{
-		Dir:          ConfigDir(),
-		UseKeyring:   storePref != "file" && !sandboxed,
-		ClearKeyring: !sandboxed,
-		ForceKeyring: storePref == "keychain",
+		Dir:            ConfigDir(),
+		MigrateKeyring: storePref == "",
+		ClearKeyring:   true,
 	}
 }
 
 // inKeychainSandboxedHost detects desktop agent sandboxes (such as WorkBuddy on macOS) whose
-// file guards intercept writes to ~/Library/Keychains/. In those hosts the CLI prefers the 0600
-// credentials.json file unless the user explicitly requested MUVLOOM_CREDENTIALS_STORE=keychain.
+// file guards intercept writes to ~/Library/Keychains/.
 func inKeychainSandboxedHost() bool {
 	if strings.EqualFold(strings.TrimSpace(os.Getenv("MUVLOOM_CREDENTIALS_STORE")), "keychain") {
 		return false
@@ -165,17 +183,24 @@ func inKeychainSandboxedHost() bool {
 }
 
 // DefaultLoginElsewhere reports that this store is a MUVLOOM_CONFIG_DIR directory without a
-// login while the keychain holds the default directory's: before 0.2.1 such a directory
-// shared that entry, so its user must sign in here again.
+// login while the default config directory holds a file login (or, when keychain is injected in
+// tests, a keychain login). It never probes the real OS keychain in default file mode.
 func (s Store) DefaultLoginElsewhere() bool {
-	if s.UseKeyring || s.ClearKeyring || os.Getenv("MUVLOOM_CONFIG_DIR") == "" || inKeychainSandboxedHost() {
+	if s.UseKeyring || s.ClearKeyring || os.Getenv("MUVLOOM_CONFIG_DIR") == "" {
 		return false
 	}
 	if _, err := s.Load(); err == nil {
 		return false
 	}
-	_, err := s.keychain().Get(keyringService, keyringUser)
-	return err == nil
+	defDir := defaultConfigDir()
+	if filepath.Clean(defDir) != filepath.Clean(s.Dir) && fileHasContent(filepath.Join(defDir, "credentials.json")) {
+		return true
+	}
+	if s.Keychain != nil && !inKeychainSandboxedHost() {
+		_, err := s.Keychain.Get(keyringService, keyringUser)
+		return err == nil
+	}
+	return false
 }
 
 func (s Store) credentialsFile() string { return filepath.Join(s.Dir, "credentials.json") }
@@ -265,6 +290,36 @@ func (s Store) Describe() Info {
 	return info
 }
 
+func sameOriginURL(a, b string) bool {
+	na := strings.TrimRight(strings.ToLower(strings.TrimSpace(a)), "/")
+	nb := strings.TrimRight(strings.ToLower(strings.TrimSpace(b)), "/")
+	return na != "" && na == nb
+}
+
+func (s Store) ensureNoSymlinksForMigration() error {
+	if s.Dir == "" {
+		return errors.New("empty config directory")
+	}
+	if dirInfo, err := os.Lstat(s.Dir); err != nil {
+		return err
+	} else if dirInfo.Mode()&os.ModeSymlink != 0 || !dirInfo.IsDir() {
+		return errors.New("config directory is not a regular directory")
+	}
+	for _, target := range []string{s.serviceFile(), s.credentialsFile(), s.storeModeFile()} {
+		info, err := os.Lstat(target)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return fmt.Errorf("%s is not a regular file", filepath.Base(target))
+		}
+	}
+	return nil
+}
+
 func (s Store) Load() (Credentials, error) {
 	if s.shouldUseKeychainForRead() {
 		if secret, err := s.keychain().Get(keyringService, keyringUser); err == nil {
@@ -277,7 +332,89 @@ func (s Store) Load() (Credentials, error) {
 	}
 	var creds Credentials
 	err := readRecord(s.credentialsFile(), &creds)
+	if err == nil {
+		return creds, nil
+	}
+	// One-time seamless migration for <= 0.2.6 users upgrading from keychain to 0600 file mode:
+	// only runs when a checksum-verified connection.json exists on disk, paths contain no
+	// symlinks, and store-mode.json has not yet switched to file mode. Write errors are
+	// propagated (truncating any partial file so Keychain remains retryable) instead of
+	// falsely reporting migration success.
+	if errors.Is(err, ErrNotFound) && s.MigrateKeyring && !s.preferFileOverKeychain() && fileHasContent(s.serviceFile()) {
+		var migrated Credentials
+		var migratedOK bool
+		lockErr := s.locked(func() error {
+			if existingErr := readRecord(s.credentialsFile(), &migrated); existingErr == nil {
+				migratedOK = true
+				return nil
+			} else if !errors.Is(existingErr, ErrNotFound) {
+				return existingErr
+			}
+			if s.preferFileOverKeychain() {
+				return nil
+			}
+			if symErr := s.ensureNoSymlinksForMigration(); symErr != nil {
+				return nil
+			}
+			svcURL, svcErr := s.LoadService()
+			if svcErr != nil || svcURL == "" {
+				return nil
+			}
+			secret, kErr := s.keychain().Get(keyringService, keyringUser)
+			if kErr != nil {
+				return nil
+			}
+			if jsonErr := json.Unmarshal([]byte(secret), &migrated); jsonErr != nil {
+				return fmt.Errorf("stored credentials are unreadable: %w", jsonErr)
+			}
+			if migrated.BaseURL != "" && !sameOriginURL(migrated.BaseURL, svcURL) {
+				return nil
+			}
+			prevModeBytes, prevModeErr := os.ReadFile(s.storeModeFile())
+			if wErr := writeRecord(s.credentialsFile(), migrated); wErr != nil {
+				_ = truncateIfExists(s.credentialsFile())
+				return wErr
+			}
+			if mErr := writeRecord(s.storeModeFile(), storeMode{Source: "file", Reason: "migrated"}); mErr != nil {
+				_ = truncateIfExists(s.credentialsFile())
+				if prevModeErr == nil && len(prevModeBytes) > 0 {
+					_ = WriteFileInPlace(s.storeModeFile(), prevModeBytes)
+				} else {
+					_ = truncateIfExists(s.storeModeFile())
+				}
+				return mErr
+			}
+			_ = s.keychain().Delete(keyringService, keyringUser)
+			migratedOK = true
+			return nil
+		})
+		if lockErr != nil {
+			return Credentials{}, lockErr
+		}
+		if migratedOK {
+			return migrated, nil
+		}
+	}
 	return creds, err
+}
+
+// LoadForLogout reads credentials for server-side token revocation during `auth logout`,
+// falling back to the OS keyring when ClearKeyring is enabled and file mode is not active
+// (even if connection.json was removed or MUVLOOM_CREDENTIALS_STORE=file was set).
+func (s Store) LoadForLogout() (Credentials, error) {
+	creds, err := s.Load()
+	if err == nil {
+		return creds, nil
+	}
+	if errors.Is(err, ErrNotFound) && s.ClearKeyring && !s.preferFileOverKeychain() {
+		if secret, kErr := s.keychain().Get(keyringService, keyringUser); kErr == nil {
+			var kCreds Credentials
+			if json.Unmarshal([]byte(secret), &kCreds) == nil {
+				return kCreds, nil
+			}
+		}
+	}
+	return Credentials{}, err
 }
 
 // Save stores the credentials and, beside them, which service they belong to. The service
@@ -317,6 +454,25 @@ func (s Store) saveSecret(creds Credentials) error {
 	// credentials must still be somewhere.
 	if err := writeRecord(s.credentialsFile(), creds); err != nil {
 		return err
+	}
+	if !s.UseKeyring {
+		// Default 0600 file mode (or sandboxed host): keep store-mode.json set to "file" so
+		// normal refreshes and binary self-updates never invoke OS keyring syscalls. Only
+		// clean up a retired <= 0.2.5 keychain entry once when transitioning an existing
+		// connection.json directory into file mode for the first time.
+		if !stayFileMode {
+			reason := "sandbox"
+			if s.ClearKeyring {
+				reason = "file_default"
+				if fileHasContent(s.serviceFile()) {
+					_ = s.keychain().Delete(keyringService, keyringUser)
+				}
+			}
+			if err := writeRecord(s.storeModeFile(), storeMode{Source: "file", Reason: reason}); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	if stayFileMode {
 		// Keep file mode authoritative so sandboxed hosts (e.g. WorkBuddy) continue reading
@@ -539,6 +695,91 @@ func (s Store) SavePending(pending PendingLogin) error {
 
 func (s Store) ClearPending() error {
 	return s.locked(func() error { return truncateIfExists(s.pendingFile()) })
+}
+
+// ClearPendingIfMatch clears pending-login.json under the credential lock only when it still
+// holds expectedDeviceCode, leaving any newer login started concurrently untouched.
+func (s Store) ClearPendingIfMatch(expectedDeviceCode string) error {
+	return s.locked(func() error {
+		var cur PendingLogin
+		if err := readRecord(s.pendingFile(), &cur); err != nil || cur.DeviceCode != expectedDeviceCode {
+			return nil
+		}
+		return truncateIfExists(s.pendingFile())
+	})
+}
+
+// UpdatePendingIfMatch mutates pending-login.json under the credential lock only when it still
+// holds expectedDeviceCode, preventing a stale background poll from overwriting a logout or a
+// newer login session.
+func (s Store) UpdatePendingIfMatch(expectedDeviceCode string, fn func(*PendingLogin)) error {
+	return s.locked(func() error {
+		var cur PendingLogin
+		if err := readRecord(s.pendingFile(), &cur); err != nil || cur.DeviceCode != expectedDeviceCode {
+			return nil
+		}
+		fn(&cur)
+		return writeRecord(s.pendingFile(), cur)
+	})
+}
+
+type PendingCommitOutcome int
+
+const (
+	PendingAborted PendingCommitOutcome = iota
+	PendingCommitted
+	PendingAlreadyCompleted
+)
+
+func (s Store) loadStoredSecretUnlocked() (Credentials, error) {
+	if s.shouldUseKeychainForRead() {
+		if secret, err := s.keychain().Get(keyringService, keyringUser); err == nil {
+			var creds Credentials
+			if err := json.Unmarshal([]byte(secret), &creds); err != nil {
+				return Credentials{}, fmt.Errorf("stored credentials are unreadable: %w", err)
+			}
+			return creds, nil
+		}
+	}
+	var creds Credentials
+	err := readRecord(s.credentialsFile(), &creds)
+	return creds, err
+}
+
+// CommitPendingLogin atomically verifies under the credential lock that pending-login.json
+// still holds expectedDeviceCode, saves creds + service, and clears pending-login.json.
+// If a sibling process concurrently redeemed and committed the SAME expectedDeviceCode, it
+// returns (existingCreds, PendingAlreadyCompleted, nil) so the caller reuses that connection
+// instead of revoking it. If another process ran `auth logout` or started a different login
+// while redemption was in flight, it returns (Credentials{}, PendingAborted, nil).
+func (s Store) CommitPendingLogin(expectedDeviceCode string, creds Credentials) (Credentials, PendingCommitOutcome, error) {
+	var out Credentials
+	outcome := PendingAborted
+	err := s.locked(func() error {
+		var cur PendingLogin
+		if rErr := readRecord(s.pendingFile(), &cur); rErr != nil || cur.DeviceCode != expectedDeviceCode {
+			if existing, lErr := s.loadStoredSecretUnlocked(); lErr == nil &&
+				existing.RefreshToken != "" &&
+				existing.LoginDeviceCodeHash != "" &&
+				existing.LoginDeviceCodeHash == creds.LoginDeviceCodeHash &&
+				(creds.BaseURL == "" || sameOriginURL(existing.BaseURL, creds.BaseURL)) {
+				out = existing
+				outcome = PendingAlreadyCompleted
+			}
+			return nil
+		}
+		if sErr := s.saveSecret(creds); sErr != nil {
+			cur.Redeemed = true
+			_ = writeRecord(s.pendingFile(), cur)
+			return sErr
+		}
+		s.saveService(creds.BaseURL)
+		_ = truncateIfExists(s.pendingFile())
+		out = creds
+		outcome = PendingCommitted
+		return nil
+	})
+	return out, outcome, err
 }
 
 func fileHasContent(path string) bool {

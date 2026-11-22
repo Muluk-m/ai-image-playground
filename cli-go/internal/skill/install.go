@@ -19,14 +19,14 @@ import (
 
 // BundleVersion is tied to the native CLI release. Keep the bundled Skill and
 // the executable on the same version so hosts can report what was installed.
-const BundleVersion = "0.2.6"
+const BundleVersion = "0.2.7"
 
 // SkillVersion is the version of the Skill assets bundled here and published in
-// /cli/skill-manifest.json. On a CLI release it matches BundleVersion (e.g. "0.2.6").
+// /cli/skill-manifest.json. On a CLI release it matches BundleVersion (e.g. "0.2.7").
 // For prompt-only hot-updates shipped via Web deploy without a new CLI binary, bump
-// SkillVersion to a dotted patch (e.g. "0.2.6.1") so installed CLIs auto-update safely
+// SkillVersion to a dotted patch (e.g. "0.2.7.1") so installed CLIs auto-update safely
 // without downgrading.
-const SkillVersion = "0.2.6.1"
+const SkillVersion = "0.2.7"
 
 //go:embed assets
 var bundled embed.FS
@@ -60,6 +60,26 @@ type Result struct {
 	FileHash   string `json:"file_hash"`
 }
 
+// HostInstallFailure records one host target that `--host auto` could not install.
+type HostInstallFailure struct {
+	Host   string `json:"host"`
+	Reason string `json:"reason"`
+}
+
+// AutoResult reports one or more Skill copies installed by `--host auto`.
+// Top-level fields mirror the primary installed copy so callers reading `.path` or `.version`
+// see the same shape as single-host `skill install`.
+type AutoResult struct {
+	Host       string               `json:"host"`
+	Scope      string               `json:"scope"`
+	ProjectDir string               `json:"project_dir,omitempty"`
+	Path       string               `json:"path"`
+	Version    string               `json:"version"`
+	FileHash   string               `json:"file_hash"`
+	Installed  []Result             `json:"installed"`
+	Failed     []HostInstallFailure `json:"failed,omitempty"`
+}
+
 type metadata struct {
 	Skill    string `json:"skill"`
 	Version  string `json:"version"`
@@ -68,17 +88,264 @@ type metadata struct {
 	FileHash string `json:"file_hash"`
 }
 
-// hosts lists each supported agent host, in display order, with the directory holding its skills.
-var hosts = []struct{ name, dir string }{
-	{"claude-code", ".claude"},
-	{"codex", ".agents"},
-	{"workbuddy", ".workbuddy"},
+// hosts lists each supported agent host, in display order, with its user-scope and project-scope
+// config directories (Windsurf uses ~/.codeium/windsurf globally and <project>/.windsurf per workspace).
+var hosts = []struct{ name, userDir, projectDir string }{
+	{"claude-code", ".claude", ".claude"},
+	{"codex", ".agents", ".agents"},
+	{"workbuddy", ".workbuddy", ".workbuddy"},
+	{"cursor", ".cursor", ".cursor"},
+	{"windsurf", ".codeium/windsurf", ".windsurf"},
+	{"cline", ".cline", ".cline"},
+	{"openclaw", ".openclaw", ".openclaw"},
+}
+
+// SupportedHosts returns the canonical host names accepted by `skill install --host` (excluding "auto" and "generic").
+func SupportedHosts() []string {
+	names := make([]string, len(hosts))
+	for i, h := range hosts {
+		names[i] = h.name
+	}
+	return names
+}
+
+// HostDir returns the user-scope relative config directory (slash-separated) for a supported host.
+func HostDir(name string) (string, bool) {
+	return hostDir(name)
+}
+
+// HostDirForScope returns the relative config directory (slash-separated) for name and scope ("user" or "project").
+func HostDirForScope(name, scope string) (string, bool) {
+	return hostDirForScope(name, scope)
+}
+
+// IsSupportedHost reports whether name is one of the canonical host names in SupportedHosts().
+func IsSupportedHost(name string) bool {
+	_, ok := hostDir(name)
+	return ok
+}
+
+// DetectAutoHosts chooses which host(s) `--host auto` should install into:
+// 1. If process environment variables identify the calling agent host, install ONLY into that
+//    host (avoiding cross-host writes that may trip another host's desktop sandbox).
+// 2. Otherwise (e.g. a human terminal session), install into every supported host whose config
+//    directory already exists under root (home for user scope, project root for project scope).
+// 3. If no host directory exists yet on a fresh machine, install into the default core hosts.
+func DetectAutoHosts(scope, home, cwd string, getenv func(string) string) ([]string, error) {
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	hasAny := func(keys ...string) bool {
+		for _, k := range keys {
+			val := strings.ToLower(strings.TrimSpace(getenv(k)))
+			if val != "" && val != "0" && val != "false" && val != "no" && val != "off" {
+				return true
+			}
+		}
+		return false
+	}
+	var envHosts []string
+	if hasAny("WORKBUDDY_SANDBOX", "SANDBOX_CENTER_IPC_ADDRESS", "WORKBUDDY") {
+		envHosts = append(envHosts, "workbuddy")
+	}
+	if hasAny("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_PROJECT_DIR") {
+		envHosts = append(envHosts, "claude-code")
+	}
+	if hasAny("CODEX_SANDBOX", "CODEX_CI", "CODEX_THREAD_ID", "CODEX_HOME") {
+		envHosts = append(envHosts, "codex")
+	}
+	if hasAny("CURSOR_TRACE_ID", "CURSOR_AGENT") {
+		envHosts = append(envHosts, "cursor")
+	}
+	if hasAny("WINDSURF_CASCADE", "CODEIUM_EDITOR_APP_ROOT") {
+		envHosts = append(envHosts, "windsurf")
+	}
+	if hasAny("CLINE_TASK_ID", "CLINE_VERSION") {
+		envHosts = append(envHosts, "cline")
+	}
+	if hasAny("OPENCLAW_HOME", "OPENCLAW_AGENT") {
+		envHosts = append(envHosts, "openclaw")
+	}
+	if len(envHosts) > 0 {
+		return envHosts, nil
+	}
+
+	root := home
+	if root == "" {
+		var err error
+		root, err = os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("find home directory: %w", err)
+		}
+	}
+	if scope == "project" {
+		start := cwd
+		if start == "" {
+			var err error
+			start, err = os.Getwd()
+			if err != nil {
+				return nil, fmt.Errorf("find current directory: %w", err)
+			}
+		}
+		proj, err := findProjectRoot(start)
+		if err != nil {
+			return nil, err
+		}
+		root = proj
+	}
+	var existing []string
+	for _, h := range hosts {
+		relDir := h.userDir
+		if scope == "project" {
+			relDir = h.projectDir
+		}
+		candidate := filepath.Join(root, filepath.FromSlash(relDir))
+		var info os.FileInfo
+		var statErr error
+		if scope == "project" {
+			info, statErr = os.Lstat(candidate)
+		} else {
+			info, statErr = os.Stat(candidate)
+		}
+		if statErr == nil && info.IsDir() {
+			existing = append(existing, h.name)
+		}
+	}
+	if len(existing) > 0 {
+		return existing, nil
+	}
+	if scope == "project" {
+		return []string{"claude-code"}, nil
+	}
+	return []string{"claude-code", "codex", "workbuddy"}, nil
+}
+
+func installAutoWith(opts InstallOptions, getenv func(string) string, fn func(InstallOptions) (Result, error)) (AutoResult, error) {
+	if opts.Scope != "user" && opts.Scope != "project" {
+		return AutoResult{}, fmt.Errorf("unsupported scope %q", opts.Scope)
+	}
+	targets, err := DetectAutoHosts(opts.Scope, opts.Home, opts.CWD, getenv)
+	if err != nil {
+		return AutoResult{}, err
+	}
+	var installed []Result
+	var failed []HostInstallFailure
+	var firstErr error
+	for _, host := range targets {
+		single := opts
+		single.Host = host
+		res, installErr := fn(single)
+		if installErr != nil {
+			if firstErr == nil {
+				firstErr = installErr
+			}
+			failed = append(failed, HostInstallFailure{Host: host, Reason: installErr.Error()})
+			continue
+		}
+		installed = append(installed, res)
+	}
+	if len(installed) == 0 {
+		if firstErr != nil {
+			return AutoResult{}, firstErr
+		}
+		return AutoResult{}, errors.New("no target hosts could be installed")
+	}
+	primary := installed[0]
+	return AutoResult{
+		Host:       primary.Host,
+		Scope:      primary.Scope,
+		ProjectDir: primary.ProjectDir,
+		Path:       primary.Path,
+		Version:    primary.Version,
+		FileHash:   primary.FileHash,
+		Installed:  installed,
+		Failed:     failed,
+	}, nil
+}
+
+// InstallAuto detects active/installed hosts and installs the bundled Skill into each one.
+func InstallAuto(opts InstallOptions, getenv func(string) string) (AutoResult, error) {
+	return installAutoWith(opts, getenv, Install)
+}
+
+// EnsureInstalled installs the bundled Skill when missing or intact-and-older, while preserving
+// existing copies that were hot-updated to a newer SkillVersion or customized by the user.
+// It inspects ONLY the single target destination (never scanning unrelated host directories) and
+// refuses to overwrite when the destination exists in an unreadable or unverifiable state.
+func EnsureInstalled(opts InstallOptions) (Result, error) {
+	if opts.Host == "generic" {
+		return Install(opts)
+	}
+	if opts.Scope != "user" && opts.Scope != "project" {
+		return Result{}, fmt.Errorf("unsupported scope %q", opts.Scope)
+	}
+	_, destination, err := resolveSkillRootAndDest(opts.Host, opts.Scope, opts.Home, opts.CWD)
+	if err != nil {
+		return Result{}, err
+	}
+	exists, item, err := inspectAtPath(destination, opts.Host, opts.Scope)
+	if err != nil {
+		return Result{}, err
+	}
+	if exists && (item.Current || !item.Intact) {
+		return Result{
+			Host:     opts.Host,
+			Scope:    opts.Scope,
+			Path:     destination,
+			Version:  item.Version,
+			FileHash: item.FileHash,
+		}, nil
+	}
+	guarded := opts
+	guarded.onlyIf = func(dest string) (bool, error) {
+		ex, current, iErr := inspectAtPath(dest, opts.Host, opts.Scope)
+		if iErr != nil {
+			return false, iErr
+		}
+		if ex && (current.Current || !current.Intact) {
+			return false, nil
+		}
+		return true, nil
+	}
+	res, err := Install(guarded)
+	if errors.Is(err, errNotNeeded) {
+		ex, latest, lErr := inspectAtPath(destination, opts.Host, opts.Scope)
+		if lErr == nil && ex {
+			return Result{
+				Host:     opts.Host,
+				Scope:    opts.Scope,
+				Path:     destination,
+				Version:  latest.Version,
+				FileHash: latest.FileHash,
+			}, nil
+		}
+	}
+	return res, err
+}
+
+// EnsureAutoInstalled runs EnsureInstalled across all detected target hosts.
+func EnsureAutoInstalled(opts InstallOptions, getenv func(string) string) (AutoResult, error) {
+	return installAutoWith(opts, getenv, EnsureInstalled)
+}
+
+func skillFilePerm(rel string) os.FileMode {
+	if strings.HasPrefix(rel, "scripts/") && !strings.HasSuffix(rel, ".ps1") {
+		return 0o755
+	}
+	return 0o644
 }
 
 func hostDir(name string) (string, bool) {
+	return hostDirForScope(name, "user")
+}
+
+func hostDirForScope(name, scope string) (string, bool) {
 	for _, host := range hosts {
 		if host.name == name {
-			return host.dir, true
+			if scope == "project" {
+				return host.projectDir, true
+			}
+			return host.userDir, true
 		}
 	}
 	return "", false
@@ -88,12 +355,12 @@ func Install(opts InstallOptions) (Result, error) {
 	if opts.Host == "generic" {
 		return installGeneric(opts)
 	}
-	dir, ok := hostDir(opts.Host)
-	if !ok {
-		return Result{}, fmt.Errorf("unsupported host %q", opts.Host)
-	}
 	if opts.Scope != "user" && opts.Scope != "project" {
 		return Result{}, fmt.Errorf("unsupported scope %q", opts.Scope)
+	}
+	dir, ok := hostDirForScope(opts.Host, opts.Scope)
+	if !ok {
+		return Result{}, fmt.Errorf("unsupported host %q", opts.Host)
 	}
 	home := opts.Home
 	if home == "" {
@@ -131,7 +398,7 @@ func Install(opts InstallOptions) (Result, error) {
 		}
 		root = projectDir
 	}
-	destination := filepath.Join(root, dir, "skills", "muvloom")
+	destination := filepath.Join(root, filepath.FromSlash(dir), "skills", "muvloom")
 	if err := checkDestination(opts.Scope, root, destination); err != nil {
 		return Result{}, err
 	}
@@ -437,7 +704,7 @@ func isOfficialZipSkillDir(destination string) bool {
 		}
 		rel = filepath.ToSlash(rel)
 		if entry.IsDir() {
-			if rel != "references" {
+			if rel != "references" && rel != "scripts" {
 				clean = false
 				return fs.SkipAll
 			}
@@ -447,7 +714,9 @@ func isOfficialZipSkillDir(destination string) bool {
 			clean = false
 			return fs.SkipAll
 		}
-		if rel != "SKILL.md" && !(strings.HasPrefix(rel, "references/") && strings.HasSuffix(rel, ".md") && !strings.Contains(strings.TrimPrefix(rel, "references/"), "/")) {
+		isRef := strings.HasPrefix(rel, "references/") && strings.HasSuffix(rel, ".md") && !strings.Contains(strings.TrimPrefix(rel, "references/"), "/")
+		isLauncher := rel == "scripts/muvloom" || rel == "scripts/muvloom.ps1" || rel == "scripts/muvloom.cmd"
+		if rel != "SKILL.md" && !isRef && !isLauncher {
 			clean = false
 			return fs.SkipAll
 		}
@@ -479,7 +748,7 @@ func installTree(destination string, files []bundleFile, meta metadata, allowLeg
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return fmt.Errorf("create Skill directory: %w", err)
 		}
-		if err := os.WriteFile(target, file.data, 0o644); err != nil {
+		if err := os.WriteFile(target, file.data, skillFilePerm(file.path)); err != nil {
 			return fmt.Errorf("write Skill file: %w", err)
 		}
 	}

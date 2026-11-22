@@ -19,13 +19,14 @@ The exit code is the same in both modes.
 
 | Command | What to read from it |
 | --- | --- |
-| `auth status` | `state`: ready / unauthenticated / outdated / unreachable / service_mismatch; `api_url` and `api_url_source`; `credential_store` and `credential_store_issue`; `leftover_temp_files`; account, credits, membership, installed Skill. `unreachable` is transient: retry, do not start a new login. `credential_store: file` with `credential_store_issue: unavailable` means the keychain could not be used, so the login was stored in a file; this is not a setup failure |
-| `auth login` | Opens the approval page in the system default browser and waits; prints the link only when no browser can be opened (`MUVLOOM_NO_BROWSER=1` never opens one). For cloud/remote hosts with no browser control, prefer `--no-wait`, paste `verification_uri_complete` for the user, then wait with `--timeout`. Run it again after a timeout: it resumes the same sign-in |
+| `setup` | One-step onboarding (`--origin URL`, `--host auto|...`): installs/refreshes the Skill, connects the account (or returns `state: pending` with `--no-wait`), fetches `capabilities` (`default_model`, `models`), and runs `smoke_validate` |
+| `auth status` | `state`: ready / unauthenticated / outdated / unreachable / service_mismatch; `api_url` and `api_url_source`; `credential_store` (`file` by default, `keychain` when `MUVLOOM_CREDENTIALS_STORE=keychain`) and `credential_store_issue`; `leftover_temp_files`; account, credits, membership, installed Skill. Also auto-collects an approved pending login and runs 24h silent CLI/Skill updates. `unreachable` is transient: retry, do not start a new login |
+| `auth login` | Opens the approval page in the system default browser and waits; prints the link only when no browser can be opened (`MUVLOOM_NO_BROWSER=1` never opens one). For cloud/remote hosts with no browser control, prefer `--no-wait`, paste `verification_uri_complete` for the user, then wait with `--timeout` (once approved, any command auto-collects the login). Run it again after a timeout: it resumes the same sign-in |
 | `capabilities` | Each model's `output_formats`, ratios, sizes, qualities, reference-image limit, base price, and its `gif` / `svg` limits; account `limits`. Retry transient failures (exit 6) up to three times, waiting 5s then 15s |
 | `images validate` / `images create` | A quote, or the submitted `job` with its `job_id`, `idempotency_key`, `wait_timed_out` and `downloads`. `images validate` quotes without spending and is the zero-cost setup smoke |
 | `jobs get` / `wait` / `list` / `cancel` | Job `status`, `terminal`, `artifacts`, `actual_credits`; a list shows each job's artifact ids in its `artifacts` column, plus `next_cursor` |
 | `media …` / `artifacts …` | Uploaded references (`media_id`) and generated results (`artifact_id`); downloads report the saved `path` |
-| `update check`, `skill status`, `version` | Release check (`should_prompt`), installed Skills, CLI version. `auth status` also updates older, unedited Skill copies the CLI installed (next session) |
+| `update self`, `update skill`, `update check`, `skill status`, `version` | Self-update CLI binary, hot-update installed Skills, daily release check, installed Skills, CLI version |
 
 IDs: `job_id` is a generation task, `artifact_id` a generated image, `media_id` an uploaded reference image. They are not interchangeable.
 Model `--model` accepts either the id or the label (for example `gpt-image-2.5-flare` or `GPT Image 2.5 Flare`).

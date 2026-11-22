@@ -513,6 +513,10 @@ jobs:
           persist-credentials: false
       # The overlay packages are workspace members; the install covers their dependencies too.
       - uses: ./.github/actions/setup
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: cli-go/go.mod
+          cache-dependency-path: cli-go/go.sum
       - name: Require isolated test API and matching backend version
         env:
           PUBLIC_SHA: ${{ github.sha }}

@@ -24,7 +24,7 @@ func cmdCapabilities(ctx context.Context, a *App, args []string) (any, error) {
 	if _, err := parse(newFlags("capabilities"), args, 0); err != nil {
 		return nil, err
 	}
-	c, err := a.apiClient()
+	c, err := a.apiClient(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func cmdImagesValidate(ctx context.Context, a *App, args []string) (any, error) 
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
 	}
-	c, err := a.apiClient()
+	c, err := a.apiClient(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +188,7 @@ func cmdImagesCreate(ctx context.Context, a *App, args []string) (any, error) {
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
 	}
-	c, err := a.apiClient()
+	c, err := a.apiClient(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -347,7 +347,7 @@ func cmdJobsGet(ctx context.Context, a *App, args []string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	c, err := a.apiClient()
+	c, err := a.apiClient(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -366,7 +366,7 @@ func cmdJobsList(ctx context.Context, a *App, args []string) (any, error) {
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
 	}
-	c, err := a.apiClient()
+	c, err := a.apiClient(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -391,7 +391,7 @@ func cmdJobsWait(ctx context.Context, a *App, args []string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	c, err := a.apiClient()
+	c, err := a.apiClient(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -423,7 +423,7 @@ func cmdJobsCancel(ctx context.Context, a *App, args []string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	c, err := a.apiClient()
+	c, err := a.apiClient(ctx)
 	if err != nil {
 		return nil, err
 	}

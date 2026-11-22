@@ -95,7 +95,7 @@ func cmdMediaUpload(ctx context.Context, a *App, args []string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	c, err := a.apiClient()
+	c, err := a.apiClient(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func cmdArtifactsDownload(ctx context.Context, a *App, args []string) (any, erro
 }
 
 func (a *App) getJSON(ctx context.Context, path string) (any, error) {
-	c, err := a.apiClient()
+	c, err := a.apiClient(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +159,7 @@ func (a *App) downloadCommand(ctx context.Context, name, prefix string, args []s
 	if err != nil {
 		return nil, err
 	}
-	c, err := a.apiClient()
+	c, err := a.apiClient(ctx)
 	if err != nil {
 		return nil, err
 	}

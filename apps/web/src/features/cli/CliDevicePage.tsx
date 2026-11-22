@@ -359,7 +359,9 @@ export default function CliDevicePage() {
               <h1 className="text-xl font-semibold">{t('cliDevice.approveHeading')}</h1>
               <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 font-mono text-xs text-muted-foreground">
                 <Icon name="terminal" size="xs" />
-                {phase.authorization.client_name} · {code.toUpperCase()}
+                {loopbackState
+                  ? phase.authorization.client_name
+                  : `${phase.authorization.client_name} · ${code.toUpperCase()}`}
               </span>
             </div>
 
