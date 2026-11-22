@@ -32,7 +32,7 @@ Agent 负责开 PR、跑检查、处理评审并准备好合并说明，**合并
 2. 按 AGENTS.md「完成任务的硬性检查清单」跑格式化、lint、typecheck 与测试；重任务交给云端或 CI。
 3. 开 PR，按 [PR 模板](../../.github/pull_request_template.md) 填写。改到关键流程要附证据（AGENTS.md「关键流程证据」）；涉及成本要在「成本与影响」写清改了什么、对成本的影响（AGENTS.md「成本与影响说明」）。
 4. 合并前三项缺一不可：
-   - **CI 全绿**：`Web checks` 等 PR 上的检查都通过（`Cost impact` 只打标签提示，不拦合并）。main 没有分支保护和必需检查（2026-10-27 已定先不加：`overlay-bump.yml` 直接往 main 推 overlay 指针，必需检查会把它拦下），所以这条只靠流程守，紧急修复也要等 CI 全绿。
+   - **CI 全绿**：`Web checks` 等 PR 上的检查都通过。main ruleset 要求经 PR squash 合并且 `Web checks` 为必需检查（2026-11-22 起；overlay-bump 用唯一豁免的写 deploy key 推 lock）。`PR rules` 不是必需检查，红了要补齐或在 PR 里说明理由交 Nain 决定。
    - **`/review`**：在 PR 评论 `/review` 触发 AI Code Review（`.github/workflows/ai-review.yml`，不阻断合并），处理其中的有效意见。
    - **`@codex review`**：在 PR 评论 `@codex review`，处理有效意见。评论后 30 分钟仍没有回复就继续，并在 PR 里注明「Codex 30 分钟未回复」。
 5. 用 squash merge 合并，合并说明用中文。**检查齐了仍要等 Nain 明确确认后再合并**（见上表）；合并后跟进部署并冒烟。
