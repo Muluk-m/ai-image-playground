@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { dirname, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, relative, resolve } from 'node:path'
 
 /**
  * 服务端架构边界棘轮（ADR 0034）：
@@ -8,7 +8,8 @@ import { dirname, relative, resolve } from 'node:path'
  * 3. 保证 packages/db/src/schemas/ 保持无环 DAG。
  */
 
-const transpiler = new Bun.Transpiler({ loader: 'ts' })
+const tsTranspiler = new Bun.Transpiler({ loader: 'ts' })
+const tsxTranspiler = new Bun.Transpiler({ loader: 'tsx' })
 const sourceGlob = new Bun.Glob('**/*.{ts,tsx}')
 
 const ALLOWED_ROUTE_TO_DB = new Set([
@@ -79,25 +80,31 @@ const AGENT_LAYER_RANK: Readonly<Record<string, number>> = {
   orchestration: 5,
 }
 
+const JS_EXTENSION_PATTERN = /\.(?:[cm]?js|jsx)$/
+
 function resolveInternalTarget(
-  rootDir: string,
+  normalizedRoot: string,
   fromFile: string,
   specifier: string,
 ): string | null {
   if (!specifier.startsWith('.')) return null
-  const baseDir = dirname(resolve(rootDir, fromFile))
+  const baseDir = dirname(resolve(normalizedRoot, fromFile))
+  const stem = JS_EXTENSION_PATTERN.test(specifier)
+    ? specifier.replace(JS_EXTENSION_PATTERN, '')
+    : null
   const candidates = [
     resolve(baseDir, `${specifier}.ts`),
     resolve(baseDir, `${specifier}.tsx`),
     resolve(baseDir, specifier, 'index.ts'),
     resolve(baseDir, specifier, 'index.tsx'),
     resolve(baseDir, specifier),
+    ...(stem ? [resolve(baseDir, `${stem}.ts`), resolve(baseDir, `${stem}.tsx`)] : []),
   ]
   for (const candidate of candidates) {
     if (!existsSync(candidate)) continue
-    if (!candidate.startsWith(`${rootDir}/`)) continue
     if (!candidate.endsWith('.ts') && !candidate.endsWith('.tsx')) continue
-    const rel = relative(rootDir, candidate).replaceAll('\\', '/')
+    const rel = relative(normalizedRoot, candidate).replaceAll('\\', '/')
+    if (!rel || rel === '..' || rel.startsWith('../') || isAbsolute(rel)) continue
     if (rel.includes('__tests__')) return null
     return rel
   }
@@ -108,10 +115,11 @@ async function buildImportGraph(rootDir: string): Promise<{
   files: string[]
   adjacency: Map<string, string[]>
 }> {
+  const normalizedRoot = resolve(rootDir)
   const files: string[] = []
-  if (!existsSync(rootDir)) return { files, adjacency: new Map() }
+  if (!existsSync(normalizedRoot)) return { files, adjacency: new Map() }
 
-  for await (const file of sourceGlob.scan({ cwd: rootDir, onlyFiles: true })) {
+  for await (const file of sourceGlob.scan({ cwd: normalizedRoot, onlyFiles: true })) {
     const normalized = file.replaceAll('\\', '/')
     if (normalized.includes('__tests__')) continue
     files.push(normalized)
@@ -120,11 +128,18 @@ async function buildImportGraph(rootDir: string): Promise<{
 
   const adjacency = new Map<string, string[]>()
   for (const file of files) {
-    const text = await Bun.file(resolve(rootDir, file)).text()
+    const text = await Bun.file(resolve(normalizedRoot, file)).text()
+    const transpiler = file.endsWith('.tsx') ? tsxTranspiler : tsTranspiler
     const targets = new Set<string>()
     for (const imp of transpiler.scanImports(text)) {
-      if (imp.kind === 'import-type') continue
-      const target = resolveInternalTarget(rootDir, file, imp.path)
+      if (
+        imp.kind !== 'import-statement' &&
+        imp.kind !== 'dynamic-import' &&
+        imp.kind !== 'require-call'
+      ) {
+        continue
+      }
+      const target = resolveInternalTarget(normalizedRoot, file, imp.path)
       if (target && target !== file) targets.add(target)
     }
     adjacency.set(file, [...targets].sort())
@@ -227,17 +242,24 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
         }
       }
 
-      if (fromModule && toModule && fromModule.name !== toModule.name) {
+      if (toModule && fromModule?.name !== toModule.name && !file.startsWith('bootstrap/')) {
         if (toModule.rest !== 'index.ts') {
           violations.push(
             `[module-encapsulation] ${edge} bypasses modules/${toModule.name}/index.ts facade`,
           )
         }
-        if (CORE_PLATFORM_MODULES.has(fromModule.name) && UPPER_APP_MODULES.has(toModule.name)) {
-          violations.push(
-            `[core -> app-module] ${edge} violates ADR 0034 DAG (core platform must not depend on upper modules)`,
-          )
-        }
+      }
+
+      if (
+        fromModule &&
+        toModule &&
+        fromModule.name !== toModule.name &&
+        CORE_PLATFORM_MODULES.has(fromModule.name) &&
+        UPPER_APP_MODULES.has(toModule.name)
+      ) {
+        violations.push(
+          `[core -> app-module] ${edge} violates ADR 0034 DAG (core platform must not depend on upper modules)`,
+        )
       }
 
       if (

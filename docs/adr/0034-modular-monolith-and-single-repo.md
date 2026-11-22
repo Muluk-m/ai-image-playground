@@ -7,8 +7,8 @@
 服务端核心链路（事务内预扣、fenced lease、上游异步任务不重提、`reconciling` 隔离态、Admin 只读角色）在生产保持约 97.7% 成功率，但代码与协作结构已形成明显的结构性包袱：
 
 1. **双树外挂税过高**：`private/` overlay 带来 `private.lock`、`overlay-bump.yml`、`with-overlay` 重复 CI、`pnpm-lock.yaml` private importer 脆弱性以及 61 处公开文件直引 `lib/private-overlay` 的耦合；实际 `private/` 里的代码并无机密算法，仅收款/客服二维码等静态图片与密钥/部署配置需要保密。
-2. **目录扁平、上帝文件与反向依赖**：`packages/db/src/schema.ts` 单文件承载 80 张表/视图（2,271 行）；`apps/bff/src/lib/` 与 `lib/agent/` 平铺 260+ 文件；`db/task-transitions.ts`、`db/maintenance.ts`、`workers/task-scheduler.ts` 与 10 个 HTTP 路由存在跨层反向依赖；`upstream.ts`（1,848 行）、`taskSubmission.ts`（1,376 行）、`turn.ts`（1,201 行）、`billing/service.ts`（1,947 行）耦合严重。
-3. **热路径表宽与多头媒体**：`tasks` 表将高频更新的调度/租约列与大 JSONB payload（`request_payload`、`result_payload`、`archive_payload`、`upstream_body`、`metering`）混放一行，MVCC 更新放大膨胀；`user_asset_objects` 与 `media_objects` 双轨记账；占 58% 流量的参考图改图仍通过 BFF 内存搬运 base64。
+2. **目录扁平、上帝文件与反向依赖**：`packages/db/src/schema.ts` 单文件承载 80 张表/视图（2,271 行）；`apps/bff/src/lib/` 与 `lib/agent/` 平铺 260+ 文件；`db/task-transitions.ts`、`db/maintenance.ts`、`workers/task-scheduler.ts` 与 10 个 HTTP 路由存在跨层反向依赖；`upstream.ts`（1,858 行）、`taskSubmission.ts`（1,376 行）、`turn.ts`（1,201 行）、`billing/service.ts`（1,947 行）耦合严重。
+3. **热路径表宽与多头媒体**：`tasks` 表将高频更新的调度/租约列与 4 个大 JSONB payload 列（`request_payload`、`result_payload`、`archive_payload`、`metering`）及文本诊断列（`upstream_body`）混放一行，MVCC 更新放大膨胀；`user_asset_objects` 与 `media_objects` 双轨记账；占 58% 流量的参考图改图仍通过 BFF 内存搬运 base64。
 4. **单机连接预算紧绷**：3.6 GB VPS 上单实例 PostgreSQL（`max_connections=100`）迫使 BFF/Worker/Admin 连接池压到 6/4/3；`#1937 P3-5` 已停止写入 `server_logs`，仍待 P3-6 删表并引入轻量连接池缓解压力。
 
 ## 决定
