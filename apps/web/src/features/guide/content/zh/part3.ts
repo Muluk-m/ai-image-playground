@@ -1,10 +1,5 @@
 import { SUPPORT_CONTACT, SUPPORT_MAILTO } from '@image-playground/shared/support-contact'
-import {
-  CLI_MIN_VERSION,
-  CLI_VERSION,
-  installScriptCommands,
-  SESSION_PATH,
-} from '../../../cli/connectAgents'
+import { installScriptCommands, SESSION_PATH } from '../../../cli/connectAgents'
 import { faq, type GuidePage, list, note, p, prompt, steps, table, tip, warn } from '../../model'
 import { demo, still, workbuddyFilm } from '../media'
 
@@ -498,12 +493,13 @@ export const plugins: GuidePage = {
     '把幕芽接入 WorkBuddy、豆包工作、Claude Code、Codex 与其他 Agent，或直接在终端运行 muvloom 命令出图。',
   meta: {
     title: '插件与命令行：WorkBuddy、豆包工作、Claude Code 与 Codex - 幕芽 Muvloom 使用指南',
-    description: `在 WorkBuddy、豆包工作、Claude Code、Codex 与终端中使用幕芽：WorkBuddy 视频教程、各客户端安装与授权、muvloom CLI ${CLI_VERSION} 命令、任务等待与错误排查。`,
+    description:
+      '在 WorkBuddy、豆包工作、Claude Code、Codex 与终端中使用幕芽：WorkBuddy 视频教程、各客户端安装与授权、muvloom CLI 命令、任务等待与错误排查。',
   },
-  updated: '2026-11-19',
+  updated: '2026-11-22',
   intro: [
     p(
-      `幕芽插件由本机的原生命令行 \`muvloom\`（当前发布 ${CLI_VERSION}）与装进客户端的官方技能组成。工作台的[插件集成](/connect)支持 **WorkBuddy**、**豆包工作**、**Claude Code**、**Codex** 以及其他支持技能的 Agent。你可以在客户端里用自然语言或 \`/muv\` 出图，也可以直接在终端调用 \`muvloom\`；生成的作品会同步到当前幕芽账号的[资产](/assets)中。`,
+      '幕芽插件由本机的原生命令行 `muvloom` 与装进客户端的官方技能组成。工作台的[插件集成](/connect)支持 **WorkBuddy**、**豆包工作**、**Claude Code**、**Codex** 以及其他支持技能的 Agent。你可以在客户端里用自然语言或 `/muv` 出图，也可以直接在终端调用 `muvloom`；生成的作品会同步到当前幕芽账号的[资产](/assets)中。',
     ),
     workbuddyFilm(
       'WorkBuddy 幕芽插件完整使用教程',
@@ -522,8 +518,8 @@ export const plugins: GuidePage = {
           ['客户端', '让 Agent 安装', '手动安装技能', '对话调用方式'],
           [
             'WorkBuddy',
-            '复制提示词发给 WorkBuddy（按 `/cli/workbuddy.md` 自动下载技能包并安装到 `~/.workbuddy/skills/muvloom/`）',
-            '在 `/connect` 下载 `muvloom-workbuddy.zip`，从 WorkBuddy「添加技能 → 上传技能」导入',
+            '复制提示词发给 WorkBuddy（自动安装最新 CLI 并执行 `muvloom skill install --host workbuddy` 装到 `~/.workbuddy/skills/muvloom/`）',
+            '运行 `muvloom skill install --host workbuddy`（也可在 `/connect` 下载 `muvloom-workbuddy.zip` 从「添加技能 → 上传技能」导入）',
             '新建任务输入 `/muv`，选中 `muvloom`',
           ],
           [
@@ -552,7 +548,7 @@ export const plugins: GuidePage = {
           ],
         ),
         note(
-          '`muvloom skill install --host` 只接受 `claude-code`、`codex`（可选 `--scope user|project`，默认 `user`）以及用于导出通用技能目录的 `generic`（可配 `--output <目录>`）。WorkBuddy 和豆包工作走各自客户端的专用技能包导入，不要传 `--host workbuddy` 或 `--host doubao`。',
+          '`muvloom skill install --host` 接受 `claude-code`、`codex`、`workbuddy`（可选 `--scope user|project`，默认 `user`）以及用于导出通用技能目录的 `generic`（可配 `--output <目录>`）。豆包工作走客户端专用技能包导入，不要传 `--host doubao`。',
         ),
       ],
     },
@@ -580,20 +576,20 @@ export const plugins: GuidePage = {
     },
     {
       id: 'not-npm',
-      title: `手动安装命令行（${CLI_MIN_VERSION} 或更新）`,
+      title: '手动安装或更新命令行（最新稳定版）',
       blocks: [
         p(
-          `需要自己操作终端时，在[插件集成](/connect)切到 [[我自己来]]，或直接运行下方与你系统对应的命令。\`muvloom\` 是单个原生二进制（支持 macOS arm64/x64、Linux x64/arm64、Windows x64），不需要安装 Node、npm 或 Python，也没有 \`@muvloom/cli\` 这个 npm 包。`,
+          '需要自己操作终端时，在[插件集成](/connect)切到 [[我自己来]]，或直接运行下方与你系统对应的命令。`muvloom` 是单个原生二进制（支持 macOS arm64/x64、Linux x64/arm64、Windows x64），不需要安装 Node、npm 或 Python，也没有 `@muvloom/cli` 这个 npm 包。',
         ),
         p(
-          `安装命令会从当前站点下载 \`install.sh\` 或 \`install.ps1\`，先校验页面公布的 SHA-256，再以 \`MUVLOOM_MIN_VERSION=${CLI_MIN_VERSION}\` 安装或原地升级。不要把脚本直接管道进 \`sh\` 或 \`iex\`，也不要用 \`MUVLOOM_VERSION\` 钉死旧版本。原地升级会保留已有的登录连接。`,
+          '安装命令会从当前站点下载 `install.sh` 或 `install.ps1`，先校验页面公布的 SHA-256，再自动安装或原地升级到最新稳定版（已是最新版会自动跳过下载，也不会降级更新的版本）。不要把脚本直接管道进 `sh` 或 `iex`，也不要用 `MUVLOOM_VERSION` 钉死旧版本。原地升级会保留已有的登录连接。',
         ),
         prompt('macOS / Linux', unixInstall),
         prompt('Windows PowerShell', windowsInstall),
         list(
           `**安装位置**：macOS / Linux 优先替换已在 PATH 上且可写的 \`muvloom\`，否则装到免 sudo 可写的 \`/usr/local/bin\`，再否则装到 \`~/.local/bin\`（Windows 默认在 \`%LOCALAPPDATA%\\Programs\\muvloom\`）。可用 \`MUVLOOM_INSTALL_DIR\` 自定义。`,
           `**刷新当前终端 PATH**：首次安装后若紧接着运行 \`muvloom\` 提示找不到命令，先在当前终端执行 \`${SESSION_PATH.unix}\`（Windows 执行 \`${SESSION_PATH.windows}\`），或新开一个终端窗口。`,
-          '**装技能并登录**：Claude Code / Codex 接着运行 `muvloom skill install --host claude-code`（或 `codex`），最后运行 `muvloom auth login` 在浏览器完成授权。',
+          '**装技能并登录**：Claude Code / Codex / WorkBuddy 接着运行 `muvloom skill install --host claude-code`（或 `codex` / `workbuddy`），最后运行 `muvloom auth login` 在浏览器完成授权。',
         ),
       ],
     },

@@ -16,49 +16,45 @@ so a cached older copy is never used.
 
 ## Fast path: install CLI + Skill in one shell call
 
-Combine checking/installing the CLI and installing the host skill into a single
+Combine installing/updating the CLI and installing the host skill into a single
 shell command whenever this host can run shell commands, so setup finishes in
-at most two steps (on CLI 0.2.7+, `muvloom setup --origin <this-guide-origin> --timeout 15`
-installs the active host's skill, connects the account in the system default browser,
-fetches live `capabilities`, and runs the zero-cost `images validate` check in one step):
+at most two steps (1. install/update CLI + skill, 2. authorize account; on CLI 0.2.7+,
+`muvloom setup --origin <this-guide-origin> --timeout 15` combines active host skill install,
+browser authorization, `capabilities`, and the zero-cost `images validate` smoke check):
 
-- **WorkBuddy** (`~/.workbuddy/skills/muvloom/`): download `<this-guide-origin>/cli/muvloom-workbuddy.zip?v=<this-page-v>`, verify entries stay under `muvloom/` with no `..` or symlinks, and extract into `~/.workbuddy/skills/` (or `%USERPROFILE%\.workbuddy\skills\` on Windows). The unpacked package also includes a zero-dependency launcher (`scripts/muvloom` on macOS/Linux, `scripts\muvloom.cmd` on Windows) that automatically downloads and SHA-256-verifies the native CLI binary on first run if `muvloom` is not on `PATH` yet. Confirm the skill is enabled and `/muv` finds 幕芽 in a new task (if not visible yet, ask the user to fully quit and reopen WorkBuddy, then retry `/muv`). Only fetch [the WorkBuddy guide](workbuddy.md) if you need detailed troubleshooting.
-- **Claude Code**: run `muvloom skill install --host claude-code` (or `muvloom setup --origin <this-guide-origin>` on CLI 0.2.7+) right after installing/finding the CLI.
-- **Codex**: run `muvloom skill install --host codex` (or `muvloom setup --origin <this-guide-origin>` on CLI 0.2.7+) right after installing/finding the CLI.
+- **WorkBuddy**: run `muvloom skill install --host workbuddy` right after installing/updating the CLI (writes `~/.workbuddy/skills/muvloom/` or `%USERPROFILE%\.workbuddy\skills\muvloom\` and enables automatic skill hot-updates). Confirm the skill is enabled and `/muv` finds 幕芽 in a new task (if not visible yet, ask the user to fully quit and reopen WorkBuddy, then retry `/muv`). Only fetch [the WorkBuddy guide](workbuddy.md) if you need detailed troubleshooting or the ZIP fallback (which also includes the zero-dependency `scripts/muvloom` / `scripts\muvloom.cmd` launcher).
+- **Claude Code**: run `muvloom skill install --host claude-code` (or `muvloom setup --origin <this-guide-origin>` on CLI 0.2.7+) right after installing/updating the CLI.
+- **Codex**: run `muvloom skill install --host codex` (or `muvloom setup --origin <this-guide-origin>` on CLI 0.2.7+) right after installing/updating the CLI.
 - **豆包工作**: follow [the Doubao Work guide](doubao.md) (keeping `?v=`) to import `muvloom-doubao.zip`.
-- **Other hosts**: download `muvloom-skill.zip?v=<this-page-v>` and extract `muvloom/` into the host's skill directory or upload it via the host UI (on CLI 0.2.7+, `muvloom setup --origin <this-guide-origin>` auto-detects Cursor, Windsurf, Cline, and OpenClaw as well).
+- **Other hosts**: download `muvloom-skill.zip?v=<this-page-v>` (or run `muvloom skill install --host generic --output <dir>`) and install `muvloom/` into the host's skill directory or upload it via the host UI (on CLI 0.2.7+, `muvloom setup --origin <this-guide-origin>` auto-detects Cursor, Windsurf, Cline, and OpenClaw as well).
 
-## 1. Install CLI 0.2.5 or newer
+## 1. Install or update to the latest Muvloom CLI
 
-Run `muvloom version` first, and also look for a copy that is installed but
-missing from PATH (`~/.local/bin/muvloom`, `/usr/local/bin/muvloom`,
-`/opt/homebrew/bin/muvloom` on macOS / Linux; `%LOCALAPPDATA%\Programs\muvloom\muvloom.exe`
-on Windows).
+Run the verified installer below to install or upgrade `muvloom` to the latest
+stable release. If the latest release is already installed, the installer skips
+the download automatically; if a newer copy is already installed, it refuses to
+downgrade. Replacing an older copy in place keeps the user's sign-in.
 
-- If the installed version is already 0.2.5 or newer, do not run the installer.
-  An exact-version pin can downgrade a newer CLI; the installer also refuses to
-  downgrade, but you must not paste an install command over a newer copy.
-- If the command is missing, or the version is lower than 0.2.5, install with
-  the commands below. The installer replaces the existing CLI in place, keeps
-  the user's sign-in, and will not install a release older than
-  `MUVLOOM_MIN_VERSION`. It installs the latest release that meets that minimum,
-  not an exact pin.
+Also check common install paths if `muvloom` is not yet on PATH
+(`~/.local/bin/muvloom`, `/usr/local/bin/muvloom`, `/opt/homebrew/bin/muvloom`
+on macOS / Linux; `%LOCALAPPDATA%\Programs\muvloom\muvloom.exe` on Windows).
 
-Do not pipe a downloaded script into `sh` or `iex`. Download it to a temporary
-file, verify the SHA-256 published here, then execute. Fetch `install.sh` or
+Do not pipe a downloaded script into `sh` or `iex`, and do not pin
+`MUVLOOM_VERSION` to an older release. Download the script to a temporary file,
+verify the SHA-256 published here, then execute. Fetch `install.sh` or
 `install.ps1` from the same folder as this guide (same origin and `?v=`).
 
 ### macOS / Linux
 
 SHA-256 of `install.sh`:
-`681c2f193cb4a6f320b4ffde7855f5439501c2dd4a74d405cc8acbac2ea63c41`
+`2d814705e65cc9e2dc25046b6e3eb9d106ee5c1632d8e2189fc5c13f02a30161`
 
 ```sh
 tmp="$(mktemp)"
 curl -fsSL "<this-guide-origin>/cli/install.sh?v=<this-page-v>" -o "$tmp"
 actual="$(command -v sha256sum >/dev/null && sha256sum "$tmp" | awk '{print $1}' || shasum -a 256 "$tmp" | awk '{print $1}')"
-[ "$actual" = "681c2f193cb4a6f320b4ffde7855f5439501c2dd4a74d405cc8acbac2ea63c41" ] || { echo "checksum mismatch"; exit 1; }
-MUVLOOM_MIN_VERSION=0.2.5 sh "$tmp"
+[ "$actual" = "2d814705e65cc9e2dc25046b6e3eb9d106ee5c1632d8e2189fc5c13f02a30161" ] || { echo "checksum mismatch"; exit 1; }
+sh "$tmp"
 export PATH="${MUVLOOM_INSTALL_DIR:-$HOME/.local/bin}:$PATH"
 ```
 
@@ -72,13 +68,13 @@ and a profile change is only picked up by later sessions. Do not write
 ### Windows (PowerShell)
 
 SHA-256 of `install.ps1`:
-`20914e272efb65e7973df26ca5a344589fb0f954dede967e2c96e3afae421192`
+`d3d160e3781b10af36f2fda5c9763b902c42b44e7e2762d19589a7441645a646`
 
 ```powershell
 $script = Join-Path $env:TEMP "muvloom-install.ps1"
 Invoke-WebRequest "<this-guide-origin>/cli/install.ps1?v=<this-page-v>" -UseBasicParsing -TimeoutSec 20 -OutFile $script
-if ((Get-FileHash $script -Algorithm SHA256).Hash.ToLower() -ne "20914e272efb65e7973df26ca5a344589fb0f954dede967e2c96e3afae421192") { throw "checksum mismatch" }
-$env:MUVLOOM_MIN_VERSION = "0.2.5"; powershell -NoProfile -ExecutionPolicy Bypass -File $script; if ($LASTEXITCODE -ne 0) { throw "muvloom installer failed with exit code $LASTEXITCODE" }
+if ((Get-FileHash $script -Algorithm SHA256).Hash.ToLower() -ne "d3d160e3781b10af36f2fda5c9763b902c42b44e7e2762d19589a7441645a646") { throw "checksum mismatch" }
+powershell -NoProfile -ExecutionPolicy Bypass -File $script; if ($LASTEXITCODE -ne 0) { throw "muvloom installer failed with exit code $LASTEXITCODE" }
 $env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")
 ```
 
@@ -127,10 +123,16 @@ For Codex, run:
 muvloom skill install --host codex
 ```
 
-For WorkBuddy, use the Fast path above (or follow [the WorkBuddy guide](workbuddy.md)
-if detailed troubleshooting is needed) to install `muvloom-workbuddy.zip` into
-`~/.workbuddy/skills/muvloom/`. Confirm that a new task's `/muv` finds 幕芽 before
-reporting setup complete.
+For WorkBuddy, run:
+
+```sh
+muvloom skill install --host workbuddy
+```
+
+(This installs into `~/.workbuddy/skills/muvloom/` and enables automatic skill
+hot-updates. If detailed troubleshooting or the ZIP fallback is needed, see
+[the WorkBuddy guide](workbuddy.md).) Confirm that a new task's `/muv` finds 幕芽
+before reporting setup complete.
 
 For 豆包工作, follow [the Doubao Work guide](doubao.md) to install the official
 skill from the conversation and connect the account. Confirm that a new work
@@ -139,19 +141,18 @@ reporting setup complete. Do not write into unverified directories such as
 `~/.doubao/skills`.
 
 For other hosts, download the official skill package `muvloom-skill.zip` from
-the same folder as this guide (keep this page's `?v=`). If the host has a skill
-directory, install the package's `muvloom/` directory there (target
-`.../skills/muvloom/SKILL.md`, with no extra nested folder). If the host installs
-skills through its UI, upload that zip or the `muvloom/` folder with the host's
-add/upload-skill action. After setup, tell the user to type `/muv` (or the
-host's equivalent slash) to find 幕芽.
+the same folder as this guide (keep this page's `?v=`), or run
+`muvloom skill install --host generic --output <dir>` to export a local
+`muvloom/` folder. If the host has a skill directory, install `muvloom/` there
+(target `.../skills/muvloom/SKILL.md`, with no extra nested folder). If the host
+installs skills through its UI, upload that zip or the `muvloom/` folder with
+the host's add/upload-skill action. After setup, tell the user to type `/muv`
+(or the host's equivalent slash) to find 幕芽.
 
-There is no `--host doubao` in `skill install`: never invent `--host doubao` and
-do not write into an unverified host configuration directory as the default
-method. WorkBuddy uses the official `muvloom-workbuddy.zip` package above (which
-also writes `.muvloom-skill.json` for automatic updates), while CLI 0.2.7+ adds
-`--host auto`, `cursor`, `windsurf`, `cline`, `openclaw`, and `--host generic`
-(exporting a local `muvloom/` directory or `--output` to upload).
+`muvloom skill install --host` accepts `claude-code`, `codex`, `workbuddy`, and
+`generic` (plus `auto`, `cursor`, `windsurf`, `cline`, and `openclaw` on CLI 0.2.7+).
+Do not invent `--host doubao`, and do not write into an unverified host configuration
+directory as the default method.
 
 ## 4. Connect the account
 

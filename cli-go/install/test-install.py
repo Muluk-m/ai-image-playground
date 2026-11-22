@@ -497,12 +497,27 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.cli("version")["data"]["version"], VERSION)
 
+    def test_latest_skips_when_already_at_latest(self):
+        first = self.install(pin=False)
+        self.assertEqual(first.returncode, 0, first.stdout + first.stderr)
+        self.server.requests.clear()
+        result = self.install(pin=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("already installed", (result.stdout + result.stderr).lower())
+        self.assertFalse(any(f"/cli-v{VERSION}/" in path for path, _ in self.server.requests))
+        self.assertEqual(self.cli("version")["data"]["version"], VERSION)
+
+    def test_latest_upgrades_an_older_install(self):
+        self.write_fake_cli("0.0.1")
+        result = self.install(pin=False)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.cli("version")["data"]["version"], VERSION)
+
     def test_same_origin_manifest_install_and_bundled_skill_launcher(self):
         # 1. Same-origin manifest fast path (no MUVLOOM_DISTRIBUTION_URL, zero GitHub /releases calls).
         self.env.pop("MUVLOOM_DISTRIBUTION_URL", None)
         self.env.pop("MUVLOOM_VERSION", None)
         self.env["MUVLOOM_ORIGIN"] = self.origin
-        self.env["MUVLOOM_MIN_VERSION"] = VERSION
         command = ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(DIST / "install.ps1")] if self.windows else ["sh", str(DIST / "install.sh")]
         result = subprocess.run(command, cwd=self.project, env=self.env, text=True, capture_output=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -510,6 +525,13 @@ class InstallTests(unittest.TestCase):
         req_paths = [urlsplit(p).path for p, _ in self.server.requests]
         self.assertIn("/cli/skill-manifest.json", req_paths)
         self.assertFalse(any("releases" in p for p in req_paths), req_paths)
+
+        # Re-running without MUVLOOM_VERSION skips binary download when already at latest.
+        self.server.requests.clear()
+        repeat = subprocess.run(command, cwd=self.project, env=self.env, text=True, capture_output=True, timeout=60)
+        self.assertEqual(repeat.returncode, 0, repeat.stdout + repeat.stderr)
+        self.assertIn("already installed", (repeat.stdout + repeat.stderr).lower())
+        self.assertFalse(any("/cli/bin/" in urlsplit(p).path for p, _ in self.server.requests))
 
         # 2. Install Skill, delete the CLI binary, and verify bundled scripts/muvloom auto-bootstraps it!
         skill_data = self.cli("skill", "install", "--host", "workbuddy", "--scope", "user")["data"]

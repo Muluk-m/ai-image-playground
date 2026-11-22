@@ -1,6 +1,7 @@
-# Installs the native muvloom CLI for Windows x64 from GitHub releases, verifying its SHA-256 checksum.
+# Installs or upgrades the native muvloom CLI for Windows x64 to the latest stable GitHub release,
+# verifying its SHA-256 checksum (skips download if already up to date, never downgrades).
 #   $env:MUVLOOM_VERSION = "0.1.0"        pin an exact release (never downgrades a newer install)
-#   $env:MUVLOOM_MIN_VERSION = "0.2.5"    install the latest release that is at least this version
+#   $env:MUVLOOM_MIN_VERSION = "0.2.5"    require the resolved release to be at least this version
 #   $env:MUVLOOM_INSTALL_DIR = "..."      install directory. Default: where muvloom.exe already is (one
 #                                          copy, and it is the one that runs), else the per-user
 #                                          %LOCALAPPDATA%\Programs\muvloom, which needs no administrator
@@ -120,7 +121,7 @@ function Invoke-ManifestInstall {
     if ([version]$cur -gt [version]$mVer) {
       Write-Host "muvloom $cur is already installed at $exe; not downgrading to $mVer"
       return $true
-    } elseif ($minVer -and [version]$cur -ge [version]$minVer -and $cur -eq $mVer) {
+    } elseif ($cur -eq $mVer -and (-not $pinnedTarget -or $minVer)) {
       Write-Host "muvloom $cur is already installed at $exe"
       return $true
     }
@@ -160,7 +161,7 @@ if (-not (Invoke-ManifestInstall)) {
     if ([version]$current -gt [version]$target) {
       Write-Host "muvloom $current is already installed at $exe; not downgrading to $target"
       $skipDownload = $true
-    } elseif ($minVer -and [version]$current -ge [version]$minVer -and $current -eq $target) {
+    } elseif ($current -eq $target -and (-not $pinnedTarget -or $minVer)) {
       Write-Host "muvloom $current is already installed at $exe"
       $skipDownload = $true
     }

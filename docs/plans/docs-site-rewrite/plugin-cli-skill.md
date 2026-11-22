@@ -1,8 +1,8 @@
 # 在 Claude Code 与 Codex 中使用幕芽（Skill + CLI）
 
-这篇是给人读的集成文档，依据仓库 `cli-go/`（Go 二进制 `muvloom`，模块名 `github.com/Muluk-m/ai-image-playground/cli-go`）、随二进制打包的 Skill（`cli-go/internal/skill/assets/`）、网站接入页（`apps/web/src/features/cli/`）以及 BFF 路由（`apps/bff/src/routes/cli.ts`）写成。当前网站接入页写明的发布版本是 **CLI 0.2.5**。官方安装是同域的 `install.sh` / `install.ps1`（先校验 SHA-256，再用 `MUVLOOM_MIN_VERSION=0.2.5` 安装最新满足最低版本的发布），不要管道进 `sh` 或 `iex`，也不要用会降级的 `MUVLOOM_VERSION` 精确钉死。
+这篇是给人读的集成文档，依据仓库 `cli-go/`（Go 二进制 `muvloom`，模块名 `github.com/Muluk-m/ai-image-playground/cli-go`）、随二进制打包的 Skill（`cli-go/internal/skill/assets/`）、网站接入页（`apps/web/src/features/cli/`）以及 BFF 路由（`apps/bff/src/routes/cli.ts`）写成。官方安装是同域的 `install.sh` / `install.ps1`（先校验 SHA-256，再直接运行安装器，始终安装或原地升级到最新稳定版，已是最新则自动跳过），不要管道进 `sh` 或 `iex`，也不要用会降级的 `MUVLOOM_VERSION` 精确钉死。
 
-结论先说：这不是 npm 包。仓库里没有 `@muvloom/cli`，`npm` 上也没有以此为名的官方包。正式分发是单文件原生二进制 `muvloom`（macOS arm64/x64、Linux x64/arm64、Windows x64），不需要 Node.js、npm 或 Python。Skill 通过 `muvloom skill install --host claude-code|codex` 安装；Claude Code 里用 `/muvloom …` 调用，Codex 里用 `/` 选中 Skill 或 `$muvloom …`。
+结论先说：这不是 npm 包。仓库里没有 `@muvloom/cli`，`npm` 上也没有以此为名的官方包。正式分发是单文件原生二进制 `muvloom`（macOS arm64/x64、Linux x64/arm64、Windows x64），不需要 Node.js、npm 或 Python。Skill 通过 `muvloom skill install --host claude-code|codex|workbuddy` 安装；Claude Code 里用 `/muvloom …` 调用，Codex 里用 `/` 选中 Skill 或 `$muvloom …`，WorkBuddy 里输入 `/muv` 选中 `muvloom`。
 
 给智能体自动安装用的原文在：
 
@@ -21,46 +21,46 @@
 - RFC 8628 设备码登录。CLI 打开浏览器（或打印链接），用户在网站登录并批准；CLI 轮询换取令牌。授权码有效期在 `setup.md` 里写的是 20 分钟。
 - 原生 GIF / SVG：在模型的 `output_formats` 含 `gif` 或 `svg` 时，用 `--output-format gif|svg` 一次出片。
 - 4K 会员闸：服务端返回 `PLAN_REQUIRED`（HTTP 403），CLI 退出码 4。
-- Skill 宿主：`--host` **只接受** `claude-code` 与 `codex`。`--scope` 为 `user`（默认，所有项目）或 `project`（当前目录）。
+- Skill 宿主：`--host` 接受 `claude-code`、`codex`、`workbuddy`（`--scope` 为 `user` 默认或 `project`）以及导出通用目录的 `generic`。
 
 没有做、不要 invent：
 
 - 没有 npm 包 `@muvloom/cli`，没有 `npx @muvloom/cli`。
-- `muvloom skill install --host` **不接受** `workbuddy`、`doubao` 或其他值（传入会 `USAGE`）。WorkBuddy 走 `/cli/workbuddy.md` 与 `/cli/muvloom-workbuddy.zip`；豆包工作要在其客户端「插件·技能·伙伴」里上传技能，没有对应的 `--host`。
+- `muvloom skill install --host` **不接受** `doubao` 或其他未支持的值（传入会 `USAGE`）。豆包工作要在其客户端「插件·技能·伙伴」里上传技能（或按 `/cli/doubao.md` 导入 `/cli/muvloom-doubao.zip`），没有对应的 `--host`。
 - CLI **没有** `--n` / 张数参数。BFF 把每次 CLI 出图记成 `count: 1`。一次请求出一张；套图由 Skill 按 `image-sets.md` 拆成多次请求。
 - CLI **没有**视频生成命令。`capabilities` / `images *` 走的是 `/v1/capabilities` 与 `/v1/image-jobs`。
 - 用户不应手拼 HTTP。下面列出的 `/v1/…` 路由是 CLI 实际调用的服务端接口，只作对照，不是公开给人手写 curl 的教程。
 
 ---
 
-## 2. 安装 CLI 0.2.5 或更新
+## 2. 安装或更新至最新 CLI
 
-接入页给出的命令（`connectAgents.ts`）从本站同域下载 `install.sh` / `install.ps1`，先校验页面公布的 SHA-256，再用 `MUVLOOM_MIN_VERSION` 安装最新满足最低版本的发布。不要把脚本管道进 `sh` 或 `iex`，也不要用 `MUVLOOM_VERSION` 钉死精确版本（可能把已装的更新版本降级）。接入页的复制命令还带内容哈希 `?v=`，避免缓存到旧脚本。
+接入页给出的命令（`connectAgents.ts`）从本站同域下载 `install.sh` / `install.ps1`，先校验页面公布的 SHA-256，再直接执行安装器，始终安装或原地升级到最新稳定版（已是最新会自动跳过下载，永不降级）。不要把脚本管道进 `sh` 或 `iex`，也不要用 `MUVLOOM_VERSION` 钉死精确版本（可能把已装的更新版本降级）。接入页的复制命令还带内容哈希 `?v=`，避免缓存到旧脚本。
 
-macOS / Linux（SHA-256 of `install.sh`：`a4497cb8ac2fc14cb5bcfc6a96ea6f696f182f66d956ebf2714802ac78a00b27`）：
+macOS / Linux（SHA-256 of `install.sh`：`2d814705e65cc9e2dc25046b6e3eb9d106ee5c1632d8e2189fc5c13f02a30161`）：
 
 ```sh
 tmp="$(mktemp)"
 curl -fsSL "https://muvloom.online/cli/install.sh" -o "$tmp"
 actual="$(command -v sha256sum >/dev/null && sha256sum "$tmp" | awk '{print $1}' || shasum -a 256 "$tmp" | awk '{print $1}')"
-[ "$actual" = "a4497cb8ac2fc14cb5bcfc6a96ea6f696f182f66d956ebf2714802ac78a00b27" ] || { echo "checksum mismatch"; exit 1; }
-MUVLOOM_MIN_VERSION=0.2.5 sh "$tmp"
+[ "$actual" = "2d814705e65cc9e2dc25046b6e3eb9d106ee5c1632d8e2189fc5c13f02a30161" ] || { echo "checksum mismatch"; exit 1; }
+sh "$tmp"
 export PATH="${MUVLOOM_INSTALL_DIR:-$HOME/.local/bin}:$PATH"
 ```
 
-Windows（PowerShell；SHA-256 of `install.ps1`：`453cfa45ba6d41a59fcb9cd6b778db3a0882c06ca75fea753674553576b535fe`）：
+Windows（PowerShell；SHA-256 of `install.ps1`：`d3d160e3781b10af36f2fda5c9763b902c42b44e7e2762d19589a7441645a646`）：
 
 ```powershell
 $script = Join-Path $env:TEMP "muvloom-install.ps1"
 Invoke-WebRequest "https://muvloom.online/cli/install.ps1" -OutFile $script
-if ((Get-FileHash $script -Algorithm SHA256).Hash.ToLower() -ne "453cfa45ba6d41a59fcb9cd6b778db3a0882c06ca75fea753674553576b535fe") { throw "checksum mismatch" }
-$env:MUVLOOM_MIN_VERSION = "0.2.5"; powershell -NoProfile -ExecutionPolicy Bypass -File $script; if ($LASTEXITCODE -ne 0) { throw "muvloom installer failed with exit code $LASTEXITCODE" }
+if ((Get-FileHash $script -Algorithm SHA256).Hash.ToLower() -ne "d3d160e3781b10af36f2fda5c9763b902c42b44e7e2762d19589a7441645a646") { throw "checksum mismatch" }
+powershell -NoProfile -ExecutionPolicy Bypass -File $script; if ($LASTEXITCODE -ne 0) { throw "muvloom installer failed with exit code $LASTEXITCODE" }
 $env:Path = [Environment]::GetEnvironmentVariable("Path","User") + ";" + [Environment]::GetEnvironmentVariable("Path","Machine")
 ```
 
-装好后先跑 `muvloom version`。版本低于 0.2.5 应重装：安装器就地替换二进制并保留已有登录。默认安装位置（可用 `MUVLOOM_INSTALL_DIR` 覆盖）：已安装副本所在目录，否则在 PATH 上可写的 `/usr/local/bin`，否则 `~/.local/bin`（Unix）或 `%LOCALAPPDATA%\Programs\muvloom`（Windows）。
+装好后可跑 `muvloom version` 确认当前版本；重跑安装器会自动升级到最新稳定版、就地替换二进制并保留已有登录。默认安装位置（可用 `MUVLOOM_INSTALL_DIR` 覆盖）：已安装副本所在目录，否则在 PATH 上可写的 `/usr/local/bin`，否则 `~/.local/bin`（Unix）或 `%LOCALAPPDATA%\Programs\muvloom`（Windows）。
 
-**给用户复制时以接入页（`/connect`）或 `/cli/setup.md` 的校验命令为准**，最低版本为 `MUVLOOM_MIN_VERSION=0.2.5`。
+**给用户复制时以接入页（`/connect`）或 `/cli/setup.md` 的校验命令为准**。
 
 查找已安装副本（agent 环境经常没有 PATH）：`~/.local/bin/muvloom`、`/usr/local/bin/muvloom`、`/opt/homebrew/bin/muvloom`；Windows 为 `%LOCALAPPDATA%\Programs\muvloom\muvloom.exe`。
 
@@ -100,16 +100,17 @@ muvloom auth login
 
 ---
 
-## 4. 安装 Skill（Claude Code / Codex）
+## 4. 安装 Skill（Claude Code / Codex / WorkBuddy）
 
 ```sh
 muvloom skill install --host claude-code
 muvloom skill install --host codex
+muvloom skill install --host workbuddy
 muvloom skill install --host codex --scope project   # 仅当前项目目录
 muvloom skill status
 ```
 
-`--host` 只能是 `claude-code` 或 `codex`。`--scope` 默认 `user`，也可为 `project`。`skill status` 会报告安装位置和版本。自 CLI 0.2.2 起，`auth status` 还会把该 CLI 安装过、且未被用户改过的旧 Skill 副本更新到随包版本；改过的、残缺的或更新的副本不动。宿主要到下一轮会话才加载新 Skill。
+`--host` 接受 `claude-code`、`codex`、`workbuddy` 或 `generic`。`--scope` 默认 `user`，也可为 `project`。`skill status` 会报告安装位置和版本。`auth status` 与 `update skill` 会自动同步更新未修改的官方 Skill 副本；改过的、残缺的或更新的副本不动。宿主要到下一轮会话才加载新 Skill。
 
 调用方式（`getting-started.md`）：
 
@@ -122,7 +123,7 @@ muvloom skill status
 
 这些是聊天里的唤起，不是终端命令。终端里可执行文件名始终是 `muvloom`。
 
-WorkBuddy：按 https://muvloom.online/cli/workbuddy.md 在对话里安装官方技能（zip：`/cli/muvloom-workbuddy.zip`），确认技能出现在 WorkBuddy 后再声明完成。豆包工作：跳过 `skill install`，不要编造 `--host doubao`。
+WorkBuddy：优先使用 `muvloom skill install --host workbuddy`（或按 https://muvloom.online/cli/workbuddy.md 使用 `/cli/muvloom-workbuddy.zip` 兜底），确认技能出现在 WorkBuddy 后再声明完成。豆包工作：跳过 `skill install`，不要编造 `--host doubao`。
 
 ---
 
@@ -166,9 +167,9 @@ muvloom auth logout          # 吊销并忘记本机连接
 
 完整顺序（与 `setup.md` 一致）：
 
-1. `muvloom version`（需要 ≥ 0.2.5）。
+1. `muvloom version`（确认已装至最新稳定版）。
 2. 如需非默认服务，设置 `MUVLOOM_API_URL`。
-3. 按宿主安装 Skill（Claude Code / Codex）。
+3. 按宿主安装 Skill（Claude Code / Codex / WorkBuddy；豆包工作按 `/cli/doubao.md` 导入技能包）。
 4. `muvloom auth status`；不是 `ready` 就 `muvloom auth login`。
 5. `muvloom capabilities` 必须成功，才能宣布「可以生成」。用这次返回的模型列表说话：展示 `label`，标出 `default_model`，并根据每个模型的 `output_formats` 说明它能否直接出 GIF / SVG。不要写死一份模型目录，也不要在用户没问时报价格。
 
@@ -367,7 +368,7 @@ A：`muvloom jobs cancel JOB_ID`。排队中或运行中会停止并退回积分
 A：刷新宿主的技能列表或重开会话。不要编造宿主并未注册的斜杠别名。自然语言提到「幕芽」在支持的宿主里仍可能自动选中 Skill。
 
 **Q：豆包 / WorkBuddy 怎么装？**  
-A：不要运行 `muvloom skill install --host workbuddy` 或 `--host doubao`，当前 CLI 会报 USAGE。WorkBuddy 看 `/cli/workbuddy.md`；豆包在其客户端上传技能。
+A：WorkBuddy 优先运行 `muvloom skill install --host workbuddy`（或按 `/cli/workbuddy.md` 使用 `/cli/muvloom-workbuddy.zip` 兜底）。豆包工作没有对应的 `--host`，不要运行 `muvloom skill install --host doubao`（会报 USAGE），请按 `/cli/doubao.md` 在客户端上传 `/cli/muvloom-doubao.zip`。
 
 **Q：测试环境和生产环境能共用一次登录吗？**  
 A：不能默默混用。连错服务会 `SERVICE_MISMATCH`。测试站请设置 `MUVLOOM_API_URL=https://test-api.muvloom.online`。
