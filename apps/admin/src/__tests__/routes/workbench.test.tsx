@@ -40,6 +40,7 @@ vi.mock('../../lib/api-client', () => {
 
   async function get(url: string): Promise<unknown> {
     requests.push(url)
+    if (url === '/api/extensions') return { navigation: [], user_links: [] }
     if (url === '/api/me') {
       return {
         ok: true,

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { notFound, useLocation } from '@tanstack/react-router'
 import type { ComponentType, ReactNode } from 'react'
 import { Page } from '@/components/Page'
+import { privateAdminOverlay } from '../features/billing'
 import { apiClient } from './api-client'
 
 export interface PrivateAdminUserSummary {
@@ -40,51 +41,7 @@ export interface PrivateAdminOverlay {
   }>
 }
 
-const EmptyComponent = () => null
-const EMPTY_SUMMARIES: Readonly<Record<string, PrivateAdminUserSummary>> = Object.freeze({})
-const EMPTY_OVERLAY: PrivateAdminOverlay = Object.freeze({
-  present: false,
-  userSummaryColumnTitle: '',
-  useUserSummaries: () => EMPTY_SUMMARIES,
-  OverviewPanel: EmptyComponent,
-  SettingsPanel: EmptyComponent,
-  UserDetailPanel: EmptyComponent,
-})
-
-const privateModules = import.meta.glob('../../../../private/apps/admin/index.tsx', { eager: true })
-
-function resolveOverlay(): PrivateAdminOverlay {
-  const modules = Object.values(privateModules)
-  if (modules.length === 0) return EMPTY_OVERLAY
-  if (modules.length > 1) throw new Error('Only one private Admin overlay entry is allowed')
-
-  const module = modules[0]
-  if (!module || typeof module !== 'object' || !('privateAdminOverlay' in module)) {
-    throw new Error('private/apps/admin/index.tsx must export privateAdminOverlay')
-  }
-  const overlay = module.privateAdminOverlay
-  if (
-    !overlay ||
-    typeof overlay !== 'object' ||
-    !('present' in overlay) ||
-    overlay.present !== true ||
-    !('userSummaryColumnTitle' in overlay) ||
-    typeof overlay.userSummaryColumnTitle !== 'string' ||
-    !('useUserSummaries' in overlay) ||
-    typeof overlay.useUserSummaries !== 'function' ||
-    !('OverviewPanel' in overlay) ||
-    typeof overlay.OverviewPanel !== 'function' ||
-    !('SettingsPanel' in overlay) ||
-    typeof overlay.SettingsPanel !== 'function' ||
-    !('UserDetailPanel' in overlay) ||
-    typeof overlay.UserDetailPanel !== 'function'
-  ) {
-    throw new Error('privateAdminOverlay does not implement the complete extension contract')
-  }
-  return overlay as PrivateAdminOverlay
-}
-
-const overlay = resolveOverlay()
+const overlay: PrivateAdminOverlay = privateAdminOverlay
 
 interface AdminExtensionManifest {
   navigation: Array<{ label: string; href: string }>
