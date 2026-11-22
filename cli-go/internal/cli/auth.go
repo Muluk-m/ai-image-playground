@@ -351,13 +351,25 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	if selfRes.Status == "updated" && selfRes.LatestVersion != "" {
 		effectiveVersion = selfRes.LatestVersion
 	}
-	store := a.Store.Describe()
 	status := map[string]any{
-		"cli_version":      effectiveVersion,
-		"api_url":          a.APIURL,
-		"api_url_source":   a.apiURLSource,
-		"credential_store": store.Backend,
-		"skills":           skills,
+		"cli_version":    effectiveVersion,
+		"api_url":        a.APIURL,
+		"api_url_source": a.apiURLSource,
+		"skills":         skills,
+	}
+	syncStoreStatus := func() {
+		store := a.Store.Describe()
+		status["credential_store"] = store.Backend
+		if store.KeychainIssue != "" {
+			status["credential_store_issue"] = store.KeychainIssue
+		} else {
+			delete(status, "credential_store_issue")
+		}
+		if leftovers := a.Store.Leftovers(); len(leftovers) > 0 {
+			status["leftover_temp_files"] = len(leftovers)
+		} else {
+			delete(status, "leftover_temp_files")
+		}
 	}
 	if effectiveVersion != Version {
 		status["cli_updated_from"] = Version
@@ -368,14 +380,9 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	if len(refreshFailures) > 0 {
 		status["skill_refresh_failures"] = refreshFailures
 	}
-	if store.KeychainIssue != "" {
-		status["credential_store_issue"] = store.KeychainIssue
-	}
-	if leftovers := a.Store.Leftovers(); len(leftovers) > 0 {
-		status["leftover_temp_files"] = len(leftovers)
-	}
 	c, err := a.apiClient(ctx)
 	if err != nil {
+		syncStoreStatus()
 		if pending, pendErr := a.Store.LoadPending(); pendErr == nil && (time.Now().Before(pending.ExpiresAt) || pending.Redeemed && recoverable(pending)) && !completedLogin(a, pending) {
 			status["pending_login"] = map[string]any{
 				"user_code":                 pending.UserCode,
@@ -399,6 +406,7 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	if err := retryReadonly(ctx, func() error {
 		return c.Do(ctx, http.MethodGet, "/v1/me", nil, &me)
 	}); err != nil {
+		syncStoreStatus()
 		failure := asFailure(err)
 		switch exitByCode[failure.Code] {
 		case ExitAuth:
@@ -411,6 +419,7 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 		}
 		return status, nil
 	}
+	syncStoreStatus()
 	status["account"] = me.Account
 	status["credits"] = me.Credits
 	status["member"] = me.Member

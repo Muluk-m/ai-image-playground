@@ -2131,12 +2131,12 @@ func TestSetupCommandInstallsSkillLogsInAndValidatesInOneStep(t *testing.T) {
 
 	// 3. Subsequent `setup` auto-collects the approved login, reads capabilities, and runs smoke_validate.
 	app.APIURL = ""
-	readyRes := execute(t, app, "setup")
+	readyRes := execute(t, app, "setup", "--origin", f.server.URL)
 	if readyRes.code != ExitOK {
 		t.Fatalf("setup resume failed: %d %s %s", readyRes.code, readyRes.stdout, readyRes.stderr)
 	}
 	data := readyRes.out["data"].(map[string]any)
-	if data["state"] != "ready" || data["default_model"] == nil || data["models"] == nil || data["smoke_validate"] == nil {
+	if data["state"] != "ready" || data["credential_store"] != "file" || data["default_model"] == nil || data["models"] == nil || data["smoke_validate"] == nil {
 		t.Fatalf("incomplete setup readiness summary: %s", readyRes.stdout)
 	}
 
