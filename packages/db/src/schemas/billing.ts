@@ -262,7 +262,7 @@ export const referralRewards = pgTable(
   ],
 )
 
-export type BillingTransaction = Parameters<Parameters<DbHandle['transaction']>[0]>[0]
+export type BillingTransaction = Parameters<Parameters<DbHandle['db']['transaction']>[0]>[0]
 
 export const purchaseOrders = pgTable(
   'billing_purchase_orders',
