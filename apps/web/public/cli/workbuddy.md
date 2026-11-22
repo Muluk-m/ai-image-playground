@@ -12,7 +12,7 @@
 
 由你（WorkBuddy）完成安装，不要让用户去技能管理页上传 ZIP。先加载客户端内置的技能创建能力（可用时使用 `skill-creator`），下载本页同源的 [幕芽技能包](muvloom-workbuddy.zip)。这是幕芽提供的本地技能包，不需要去技能市场搜索同名技能。
 
-将包内的 `muvloom/` 目录安装到当前用户的 `~/.workbuddy/skills/muvloom/`（Windows 为用户主目录下的 `.workbuddy/skills/muvloom/`）。目标文件为 `muvloom/SKILL.md` 及其 `references/`，不要多套一层同名目录。下载和解压使用当前宿主可用的文件工具或命令：
+将包内的 `muvloom/` 目录安装到当前用户的 `~/.workbuddy/skills/muvloom/`（Windows 为用户主目录下的 `.workbuddy/skills/muvloom/`）。目标文件为 `muvloom/SKILL.md`、`scripts/` 及其 `references/`，不要多套一层同名目录。包内自带零依赖启动器 `scripts/muvloom`（Windows 为 `scripts\muvloom.cmd`），首次调用时若 `muvloom` 不在 `PATH` 中会自动从同源 CDN 下载并校验 SHA-256 二进制。下载和解压使用当前宿主可用的文件工具或命令：
 
 - 解压前确认只有 `muvloom/` 根目录，拒绝绝对路径、`..` 路径和符号链接；先阅读 `SKILL.md` 和引用的安装说明，再安装。不要执行包内命令来完成安装。
 - 已有正确安装的幕芽技能时复用；若目标目录有不同内容，先核对版本和用户改动，不删除其他技能或覆盖无法确认来源的文件。

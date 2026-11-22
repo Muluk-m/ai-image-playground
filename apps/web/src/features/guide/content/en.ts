@@ -1353,7 +1353,7 @@ const plugins: GuidePage = {
         list(
           '**Switching services**: The saved connection remembers its API URL. If `MUVLOOM_API_URL` disagrees with the saved connection, `muvloom auth status` exits with `0` and reports `state: "service_mismatch"` (inspect the `state` field), whereas other authenticated commands fail with `SERVICE_MISMATCH` (exit 4). Unset the variable to keep the current connection, or run `muvloom auth login --switch-service` when you intend to switch.',
           '**SSH and cloud hosts without a local browser**: On remote servers, containers or cloud agents (such as Doubao Work cloud tasks), set `MUVLOOM_NO_BROWSER=1` and run `muvloom auth login --no-wait`. Open the printed link in your computer’s default browser to click [[Authorize]], then run `muvloom auth login --timeout 30` to finish.',
-          '**Config and credential store**: Credentials use the system keychain when available and fall back to `credentials.json` in the config directory (`credential_store: file` in `auth status` is normal, not an error). Set `MUVLOOM_CONFIG_DIR` to isolate a directory or `MUVLOOM_CREDENTIALS_STORE=file` to force file storage.',
+          '**Config and credential store**: Credentials are stored by default in a `0600` `credentials.json` file inside the `0700` config directory (`credential_store: file` in `auth status`) so silent CLI self-updates never trigger OS keychain password prompts. Set `MUVLOOM_CONFIG_DIR` to isolate a directory or `MUVLOOM_CREDENTIALS_STORE=keychain` to explicitly use the system keychain.',
         ),
       ],
     },
@@ -1366,6 +1366,10 @@ const plugins: GuidePage = {
         ),
         table(
           ['Command', 'Purpose'],
+          [
+            'muvloom setup [--origin URL] [--host auto|...]',
+            'Install the active host skill, authorize in the browser, fetch capabilities and run a zero-cost smoke check in one step',
+          ],
           [
             'muvloom auth login [--no-wait] [--timeout SECONDS] [--switch-service]',
             'Start or resume device-code authorization',
@@ -1394,9 +1398,12 @@ const plugins: GuidePage = {
           ['muvloom media upload | list | get | download', 'Upload or manage reference images'],
           [
             'muvloom skill install | status',
-            'Install the skill for Claude Code / Codex, export a generic skill folder (`--host generic`), or check skill status',
+            'Install the skill (`--host auto`, Claude Code, Codex, WorkBuddy, Cursor, etc.), export a generic skill folder (`--host generic`), or check skill status',
           ],
-          ['muvloom update check / version', 'Check for a newer release or print the CLI version'],
+          [
+            'muvloom update self | skill | check / version',
+            'Self-update the CLI binary, hot-update installed skills, check release status, or print the CLI version (`auth status` also updates silently every 24h)',
+          ],
         ),
         p(
           '`images create` and `images validate` share `--prompt` (or `--prompt-file`), `--model`, `--aspect-ratio`, `--image-size` (`1K`, `2K` or `4K`—never a pixel string), `--quality` (`low`, `medium`, `high`), repeatable `--ref <local-file>`, `--max-credits`, and Image 2.6 flags `--output-format gif|svg`, `--frames`, `--frame-duration-ms` and `--frame-size`. `create` also accepts `--wait <seconds>` (defaults to `0`, which returns immediately after submit; pass a positive integer up to `3600` to wait for completion or trigger `--download`), `--download <dir>` and `--idempotency-key`.',

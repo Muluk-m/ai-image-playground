@@ -109,6 +109,13 @@ if [ -n "${EXTRA_ASSETS_DIR:-}" ] && [ ! -d "$EXTRA_ASSETS_DIR" ]; then
 fi
 
 cd "$repo_root"
+if [ "$app" = web ]; then
+  command -v go >/dev/null 2>&1 || {
+    echo "go is required to build /cli/bin static CLI binaries for web Pages releases." >&2
+    exit 1
+  }
+  sh "$repo_root/scripts/build-cli-web-bins.sh"
+fi
 pnpm --filter "@image-playground/$app" build:static-host
 
 dist_dir="$repo_root/apps/$app/dist"

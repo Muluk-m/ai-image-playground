@@ -1,5 +1,12 @@
 import { createHash } from 'node:crypto'
-import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { zipSync } from 'fflate'
@@ -92,12 +99,23 @@ function withHostSection(source, heading, paragraph) {
   return Buffer.from(`${nextFrontmatter}\n---\n${body}`)
 }
 
+function isExecutableSkillEntry(name) {
+  return name.startsWith('muvloom/scripts/') && !name.endsWith('.ps1')
+}
+
 function zipFiles(files) {
   return zipSync(
     Object.fromEntries(
       Object.entries(files).map(([name, bytes]) => [
         name,
-        [bytes, { mtime: new Date(2000, 0, 1) }],
+        [
+          bytes,
+          {
+            mtime: new Date(2000, 0, 1),
+            os: 3,
+            attrs: ((isExecutableSkillEntry(name) ? 0o100755 : 0o100644) << 16) >>> 0,
+          },
+        ],
       ]),
     ),
     { level: 9 },
@@ -178,23 +196,61 @@ export function createCliSkillZip({ sourceDirectory = sourceRoot } = {}) {
   return zipFiles(buildCliSkillFiles({ sourceDirectory }))
 }
 
-export function createSkillManifest({ sourceDirectory = sourceRoot } = {}) {
+const CLI_BINARY_TARGETS = [
+  ['darwin/arm64', 'muvloom_darwin_arm64'],
+  ['darwin/amd64', 'muvloom_darwin_amd64'],
+  ['linux/amd64', 'muvloom_linux_amd64'],
+  ['linux/arm64', 'muvloom_linux_arm64'],
+  ['windows/amd64', 'muvloom_windows_amd64.exe'],
+]
+
+function buildManifestCliMetadata(bundleVersion, binRoot) {
+  const verDir = resolve(binRoot, `v${bundleVersion}`)
+  if (!existsSync(verDir)) return undefined
+  const binaries = {}
+  for (const [platform, assetName] of CLI_BINARY_TARGETS) {
+    const filePath = resolve(verDir, assetName)
+    if (!existsSync(filePath)) return undefined
+    const bytes = readFileSync(filePath)
+    binaries[platform] = {
+      path: `bin/v${bundleVersion}/${assetName}`,
+      bytes: bytes.length,
+      sha256: sha256Hex(bytes),
+    }
+  }
+  return {
+    version: bundleVersion,
+    binaries,
+  }
+}
+
+export function createSkillManifest({
+  sourceDirectory = sourceRoot,
+  binRoot = resolve(webRoot, 'public/cli/bin'),
+} = {}) {
+  const bundleVer = cliBundleVersion()
   const cliFiles = buildCliSkillFiles({ sourceDirectory })
   const cliZip = zipFiles(cliFiles)
   const workbuddyFiles = buildWorkBuddySkillFiles({ sourceDirectory })
   const workbuddyZip = zipFiles(workbuddyFiles)
   const cliPkg = buildManifestPackage('muvloom-cli-skill.zip', cliZip, cliFiles)
   const workbuddyPkg = buildManifestPackage('muvloom-workbuddy.zip', workbuddyZip, workbuddyFiles)
+  const cliMeta = buildManifestCliMetadata(bundleVer, binRoot)
   return {
     schema_version: 1,
     skill: 'muvloom',
     version: cliSkillVersion(),
-    bundle_version: cliBundleVersion(),
+    bundle_version: bundleVer,
     packages: {
       'claude-code': cliPkg,
       codex: cliPkg,
       workbuddy: workbuddyPkg,
+      cursor: cliPkg,
+      windsurf: cliPkg,
+      cline: cliPkg,
+      openclaw: cliPkg,
     },
+    ...(cliMeta ? { cli: cliMeta } : {}),
   }
 }
 
@@ -209,19 +265,7 @@ export function writeCliSkillAssets() {
   const workbuddyZip = zipFiles(workbuddyFiles)
   const cliFiles = buildCliSkillFiles()
   const cliZip = zipFiles(cliFiles)
-  const cliPkg = buildManifestPackage('muvloom-cli-skill.zip', cliZip, cliFiles)
-  const workbuddyPkg = buildManifestPackage('muvloom-workbuddy.zip', workbuddyZip, workbuddyFiles)
-  const manifest = {
-    schema_version: 1,
-    skill: 'muvloom',
-    version: cliSkillVersion(),
-    bundle_version: cliBundleVersion(),
-    packages: {
-      'claude-code': cliPkg,
-      codex: cliPkg,
-      workbuddy: workbuddyPkg,
-    },
-  }
+  const manifest = createSkillManifest({ binRoot: resolve(outDir, 'bin') })
   writeFileSync(resolve(outDir, 'muvloom-workbuddy.zip'), workbuddyZip)
   writeFileSync(resolve(outDir, 'muvloom-doubao.zip'), createDoubaoSkillZip())
   writeFileSync(resolve(outDir, 'muvloom-skill.zip'), createGenericSkillZip())

@@ -614,7 +614,7 @@ export const plugins: GuidePage = {
         list(
           '**切换服务**：连接成功后服务地址会保存在本地，日常命令不需要每次带环境变量。如果当前环境变量与已保存的连接不一致，`muvloom auth status` 退出码仍为 `0` 并在结果中返回 `state: "service_mismatch"`（需读取 `state` 字段判断），而其他需要鉴权的命令会报错 `SERVICE_MISMATCH`（退出码 `4`）。清掉环境变量即可沿用原连接；确认要换站点时运行 `muvloom auth login --switch-service`。',
           '**SSH / 云端无浏览器环境**：豆包工作云端环境、远程服务器或容器里打不开本地浏览器时，设置 `MUVLOOM_NO_BROWSER=1` 并运行 `muvloom auth login --no-wait`，把打印出来的完整链接复制到你电脑的默认浏览器里打开并点 [[授权]]，再回到终端运行 `muvloom auth login --timeout 30` 完成连接。',
-          '**配置与凭据存储**：默认优先存系统钥匙串；钥匙串不可用时自动退回配置目录下的 `credentials.json`（`auth status` 显示 `credential_store: file`，不属于报错）。可用 `MUVLOOM_CONFIG_DIR` 指定独立配置目录，或设 `MUVLOOM_CREDENTIALS_STORE=file` 强制使用文件存储。',
+          '**配置与凭据存储**：默认将凭据保存在权限为 `0700` 的配置目录下的 `0600` 文件 `credentials.json` 中（`auth status` 显示 `credential_store: file`），避免二进制静默自升级后触发系统钥匙串弹窗；可用 `MUVLOOM_CONFIG_DIR` 指定独立配置目录，或设 `MUVLOOM_CREDENTIALS_STORE=keychain` 显式改用系统钥匙串。',
         ),
       ],
     },
@@ -627,6 +627,10 @@ export const plugins: GuidePage = {
         ),
         table(
           ['命令', '用途'],
+          [
+            'muvloom setup [--origin URL] [--host auto|...]',
+            '一键安装当前宿主技能、完成浏览器授权、读取模型能力并执行零花费预检',
+          ],
           [
             'muvloom auth login [--no-wait] [--timeout 秒] [--switch-service]',
             '发起或继续设备码登录授权',
@@ -643,9 +647,12 @@ export const plugins: GuidePage = {
           ['muvloom media upload | list | get | download', '上传或管理参考图素材'],
           [
             'muvloom skill install | status',
-            '为 Claude Code / Codex 安装技能，或用 `--host generic` 导出通用技能包；检查技能状态',
+            '为当前宿主（`--host auto`、Claude Code、Codex、WorkBuddy、Cursor 等）安装技能，或用 `--host generic` 导出通用技能包；检查技能状态',
           ],
-          ['muvloom update check / version', '检查是否有新版本；打印当前 CLI 版本号'],
+          [
+            'muvloom update self | skill | check / version',
+            '自升级 CLI 二进制、热更新已装技能、检查版本更新或打印当前版本号（日常由 `auth status` 每 24 小时静默更新）',
+          ],
         ),
         p(
           '`images create` 与 `images validate` 共用生成参数：`--prompt`（或 `--prompt-file`）、`--model`、`--aspect-ratio`、`--image-size`（只填 `1K`、`2K`、`4K`，不要写像素值）、`--quality`（`low`、`medium`、`high`）、可重复传入的 `--ref <本地图片路径>`、`--max-credits <积分上限>`，以及 Image 2.6 专用的 `--output-format gif|svg`、`--frames`、`--frame-duration-ms`、`--frame-size`。`create` 额外支持 `--wait <秒>`（默认 `0`，即提交后立即返回；需要等待完成或自动执行 `--download` 时必须显式传入正整数等待秒数，最大 `3600`）、`--download <目录>` 和 `--idempotency-key`。',

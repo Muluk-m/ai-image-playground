@@ -9,6 +9,12 @@
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 
+/cli/bin/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/cli/skill-manifest.json
+  Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0
+
 /sw.js
   Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0
 
