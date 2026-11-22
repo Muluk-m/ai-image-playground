@@ -1,27 +1,5 @@
-import { existsSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
 import colors from 'tailwindcss/colors';
 import animate from 'tailwindcss-animate';
-
-// Match the file-presence detection used by the Web overlay, including plain Vite builds.
-const defaultOverlayEntry = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../private/apps/web/index.tsx',
-);
-const privateWebOverlayEntry =
-  process.env.PRIVATE_WEB_OVERLAY_ENTRY ||
-  (existsSync(defaultOverlayEntry) ? defaultOverlayEntry : undefined);
-const privateWebOverlayRoot = privateWebOverlayEntry
-  ? dirname(privateWebOverlayEntry)
-  : undefined;
-const privateWebOverlayContent = privateWebOverlayRoot
-  ? [
-      `${privateWebOverlayRoot}/**/*.{js,ts,jsx,tsx}`,
-      `!${privateWebOverlayRoot}/**/{node_modules,dist}/**`,
-    ]
-  : [];
 
 /** @type {import('tailwindcss').Config} */
 export default {
@@ -30,7 +8,6 @@ export default {
   content: [
     './index.html',
     './src/**/*.{js,ts,jsx,tsx}',
-    ...privateWebOverlayContent,
   ],
   theme: {
     extend: {
