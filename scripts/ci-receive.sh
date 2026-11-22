@@ -71,7 +71,7 @@ cleanup() {
   rm -rf "$incoming"
   # A release that never reached its receiver is removed so the run can simply be retried.
   if [ "$status" -ne 0 ] && [ -n "$created" ]; then rm -rf "$release"; fi
-  if [ -n "${runtimes:-}" ]; then rm -f "$runtimes/.lock.owner.tmp" 2>/dev/null || true; fi
+  if [ -n "${runtimes:-}" ]; then rm -f "$runtimes/.lock.owner.tmp.$$" 2>/dev/null || true; fi
 }
 trap cleanup EXIT
 trap 'exit 129' HUP
@@ -121,9 +121,13 @@ runtime_files='scripts/vps-deploy.sh scripts/rollout-runtime.sh scripts/app-comp
 mirror=$runtimes/.mirror.git
 
 process_token() {
-  process_stat=/proc/$1/stat
-  [ -r "$process_stat" ] || { printf '%s' -; return 0; }
-  awk '{ sub(/^.*\) /, ""); print $20 }' "$process_stat"
+  if [ ! -d "/proc/$$" ]; then
+    printf '%s' -
+    return 0
+  fi
+  stat_line=$(cat "/proc/$1/stat" 2>/dev/null || true)
+  [ -n "$stat_line" ] || return 0
+  printf '%s\n' "$stat_line" | awk '{ sub(/^.*\) /, ""); print $20 }'
 }
 
 prepare_mirror() {
@@ -251,15 +255,17 @@ test_runtime() {
   dir=$(unpack_runtime "$main_commit") || return 1
   if printf '%s\n' "$release_commit" | grep -Eqx '[0-9a-f]{40}' &&
     [ "$release_commit" != "$main_commit" ]; then
-    if ! git -C "$mirror" cat-file -e "$release_commit^{tree}" 2>/dev/null; then
+    # mirror is a promisor repo (blob:none): without GIT_NO_LAZY_FETCH=1, cat-file and rev-parse
+    # implicitly lazy-fetch missing commits/trees with no wall-clock bound.
+    if ! GIT_NO_LAZY_FETCH=1 git -C "$mirror" cat-file -e "$release_commit^{tree}" 2>/dev/null; then
       # Diagnostic only: main's runtime is already unpacked, so cap this single commit/tree probe
       # tightly instead of stalling test or blocking paid under the shared runtimes lock.
       with_timeout 10 env GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=10 \
         git -C "$mirror" fetch -q --filter=blob:none --no-tags origin "$release_commit" >/dev/null 2>&1 || true
     fi
-    if git -C "$mirror" cat-file -e "$release_commit^{tree}" 2>/dev/null; then
-      main_trees=$(git -C "$mirror" rev-parse "$main_commit:deploy" "$main_commit:scripts" 2>/dev/null || echo missing-main)
-      release_trees=$(git -C "$mirror" rev-parse "$release_commit:deploy" "$release_commit:scripts" 2>/dev/null || echo missing-release)
+    if GIT_NO_LAZY_FETCH=1 git -C "$mirror" cat-file -e "$release_commit^{tree}" 2>/dev/null; then
+      main_trees=$(GIT_NO_LAZY_FETCH=1 git -C "$mirror" rev-parse "$main_commit:deploy" "$main_commit:scripts" 2>/dev/null || echo missing-main)
+      release_trees=$(GIT_NO_LAZY_FETCH=1 git -C "$mirror" rev-parse "$release_commit:deploy" "$release_commit:scripts" 2>/dev/null || echo missing-release)
       if [ "$main_trees" != "$release_trees" ]; then
         echo "Warning: test runs main's deployment runtime ($main_commit); deploy/ or scripts/ changes in $release_commit do not apply until merged to main" >&2
       fi
@@ -302,9 +308,10 @@ acquire_runtimes_lock() {
   owner_snapshot=
   while :; do
     if flock -n 9; then
+      owner_tmp="$runtimes/.lock.owner.tmp.$$"
       printf 'pid=%s\ntoken=%s\nwhat=receive %s %s\n' \
-        "$$" "$(process_token "$$")" "$target" "$release" > "$runtimes/.lock.owner.tmp" &&
-        mv -f "$runtimes/.lock.owner.tmp" "$runtimes/.lock.owner"
+        "$$" "$(process_token "$$")" "$target" "$release" > "$owner_tmp" &&
+        mv -f "$owner_tmp" "$runtimes/.lock.owner"
       return 0
     fi
     raw_owner=$(cat "$runtimes/.lock.owner" 2>/dev/null || true)
@@ -315,8 +322,8 @@ acquire_runtimes_lock() {
       if [ -n "$holder_pid" ] && [ -n "$holder_what" ] && kill -0 "$holder_pid" 2>/dev/null; then
         holder_token=$(printf '%s\n' "$raw_owner" | awk -F= '$1 == "token" { print $2; exit }')
         live_token=$(process_token "$holder_pid")
-        if [ -z "$holder_token" ] || [ "$holder_token" = - ] || [ "$live_token" = - ] ||
-          [ "$holder_token" = "$live_token" ]; then
+        if [ -n "$live_token" ] && { [ -z "$holder_token" ] || [ "$holder_token" = - ] ||
+          [ "$live_token" = - ] || [ "$holder_token" = "$live_token" ]; }; then
           owner_snapshot=$raw_owner
           break
         fi

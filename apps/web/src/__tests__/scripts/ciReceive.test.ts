@@ -662,7 +662,9 @@ describe('ci-receive.sh', () => {
       mkdirSync(runtimes(), { recursive: true })
       const lock = join(runtimes(), '.lock')
       const owner = join(runtimes(), '.lock.owner')
+      const foreignTmp = join(runtimes(), '.lock.owner.tmp.424242')
       writeFileSync(owner, 'pid=999999\ntoken=-\nwhat=receive paid /stale\n')
+      writeFileSync(foreignTmp, 'in-flight owner staging of another pid\n')
 
       // External holder delays writing its live .lock.owner for 120ms after taking flock.
       const delayedHolder = spawn(
@@ -685,6 +687,7 @@ describe('ci-receive.sh', () => {
         expect(busy.status).toBe(75)
         expect(busy.stderr).not.toContain('/stale')
         expect(busy.stderr).toMatch(/^ {2}what=receive paid \/delayed$/m)
+        expect(existsSync(foreignTmp)).toBe(true)
       } finally {
         if (delayedHolder.pid) {
           try {
