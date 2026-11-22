@@ -75,6 +75,8 @@ describe('check-arch-boundaries', () => {
         "import { mediaSecret } from '../media/internal'\nexport const bad = mediaSecret\n",
       'modules/execution/bad-deep-type.ts':
         "import type { MediaSecret } from '../media/internal'\nexport type BadType = MediaSecret\n",
+      'modules/execution/bad-import-equals.ts':
+        "import type AgentRuntime = require('../agent/runtime/exec')\nexport type EqType = AgentRuntime.RuntimeState\n",
       'modules/execution/bad-upward-type.ts': "export type { AgentFacade } from '../agent'\n",
       'delivery/http/bad-deep.ts':
         "import { mediaSecret } from '../../modules/media/internal'\nexport const d = mediaSecret\n",
@@ -105,6 +107,20 @@ describe('check-arch-boundaries', () => {
     ).toBe(true)
     expect(
       violations.some((v) =>
+        v.includes(
+          '[module-encapsulation] modules/execution/bad-import-equals.ts -> modules/agent/runtime/exec.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[core -> app-module] modules/execution/bad-import-equals.ts -> modules/agent/runtime/exec.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
         v.includes('[module-encapsulation] delivery/http/bad-deep.ts -> modules/media/internal.ts'),
       ),
     ).toBe(true)
@@ -122,7 +138,7 @@ describe('check-arch-boundaries', () => {
         ),
       ),
     ).toBe(true)
-    expect(violations).toHaveLength(5)
+    expect(violations).toHaveLength(7)
     expect(violations.some((v) => v.includes('modules/execution/ok.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('modules/agent/runtime/exec.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('bootstrap/container.ts ->'))).toBe(false)

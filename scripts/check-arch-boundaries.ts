@@ -146,6 +146,12 @@ function scanAllSpecifiers(file: string, text: string): string[] {
     ) {
       specifiers.add(node.arguments[0]!.text)
     } else if (
+      ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference) &&
+      ts.isStringLiteral(node.moduleReference.expression)
+    ) {
+      specifiers.add(node.moduleReference.expression.text)
+    } else if (
       ts.isImportTypeNode(node) &&
       ts.isLiteralTypeNode(node.argument) &&
       ts.isStringLiteral(node.argument.literal)
