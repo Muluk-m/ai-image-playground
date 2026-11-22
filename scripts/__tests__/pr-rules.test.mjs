@@ -54,6 +54,10 @@ test('critical flows need checked evidence with media, or a reasoned waiver', ()
   // 勾了、有图，但没写环境、账号类型、提交。
   const bare = `- [ ] 本 PR 不涉及上述关键流程\n- [x] 已附测试账号在测试环境（test.muvloom.online）走通\n\n${shot}`
   assert.match(evaluatePr({ files, body: body({ evidence: bare }) }).fails.join(), /没写明环境（test.muvloom.online）、账号类型、提交 SHA/)
+  // 附件 URL 里的 UUID 不是提交 SHA。
+  const upload = '![截图](https://github.com/user-attachments/assets/12345678-abcd-4321-abcd-123456789abc)'
+  const noSha = `- [ ] 本 PR 不涉及上述关键流程\n- [x] 已附测试账号在测试环境走通\n\n普通账号，test.muvloom.online\n${upload}`
+  assert.match(evaluatePr({ files, body: body({ evidence: noSha }) }).fails.join(), /没写明提交 SHA/)
 
   const bareWaiver = '- [x] 本 PR 不涉及上述关键流程\n- [ ] 已附测试账号在测试环境走通'
   assert.equal(evaluatePr({ files, body: body({ evidence: bareWaiver }) }).fails.length, 1)

@@ -137,7 +137,8 @@ export function evaluatePr({ files, body }) {
       .trim()
     const waived = /-\s*\[[xX]\]\s*本 PR 不涉及/.test(evidence) && explained(reason)
     // 证据要写明环境、账号类型与提交；模板复选框自带的文字不算。
-    const written = withoutCheckboxes(evidence)
+    // 链接不算：附件 URL 里的 UUID 会被当成提交 SHA。
+    const written = withoutCheckboxes(evidence).replace(/\bhttps?:\/\/\S+/g, ' ')
     const missing = [
       !written.includes('test.muvloom.online') && '环境（test.muvloom.online）',
       !/账号/.test(written) && '账号类型',
