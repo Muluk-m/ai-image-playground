@@ -4,9 +4,10 @@
 # Runbook, secrets and break-glass manual release: docs/deploy/image-release.md.
 name: Deploy production
 # 常规发布按窗口：北京时间 12:30、18:30、23:30，只发当时 origin/main 的 tip，且该提交在 main 上的
-# `Web checks` 必须已成功；窗口是增量的，各侧已是该提交就什么都不发，重复触发无害。
-# 窗口由 macmini2 的 launchd 按点触发（workflow_dispatch 带 window=true，scripts/deploy-window-tick.sh）：
-# GitHub 的 schedule 常晚 2–7 小时、12:30 那档从未触发过，只留作兜底。
+# `Web checks` 必须已成功；窗口是增量的，各侧已是该提交就什么都不发。
+# 窗口由 macmini2 的 launchd 按点触发（workflow_dispatch 带 window=true，scripts/deploy-window-tick.sh）。
+# GitHub 的 schedule 常晚 2–7 小时、12:30 那档从未触发过，只留作兜底：本窗口时点后已有手动触发就跳过，
+# 没有才发布并告警（见下面的 fallback 步骤）。
 # 不带 window 的 workflow_dispatch 是紧急通道：全量重发，须填 reason。
 on:
   schedule:
@@ -61,7 +62,8 @@ jobs:
       # 窗口（定时或 window=true 的手动触发）与紧急通道各走各的判定；下面的步骤只看 MODE。
       - id: mode
         env:
-          WINDOW: ${{ github.event_name == 'schedule' || inputs.window == true }}
+          # REST dispatch 传来的布尔值可能是字符串，两种都认；`false`/`'false'` 都不算窗口。
+          WINDOW: ${{ github.event_name == 'schedule' || inputs.window == true || inputs.window == 'true' }}
         run: |
           if [ "$WINDOW" = true ]; then
             echo "event=schedule" >> "$GITHUB_OUTPUT"
@@ -96,6 +98,35 @@ jobs:
           else
             echo "sha=$EVENT_SHA" >> "$GITHUB_OUTPUT"
           fi
+      # schedule 只是兜底：本窗口时点之后已有手动触发（launchd 的窗口或紧急发布）就跳过，免得迟到的
+      # schedule 在窗口外把 main 上更新的提交发出去；没有才兜底发布，并告警外部定时器没按点触发。
+      - id: fallback
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          now=$(date -u +%s)
+          today=$(date -u +%Y-%m-%d)
+          slot=
+          for t in 04:30 10:30 15:30; do
+            at=$(date -u -d "$today $t" +%s)
+            [ "$at" -le "$now" ] && slot=$at
+          done
+          # 当天第一个窗口之前：属于前一天 15:30 那档。
+          [ -n "$slot" ] || slot=$(( $(date -u -d "$today 15:30" +%s) - 86400 ))
+          since=$(date -u -d "@$slot" +%Y-%m-%dT%H:%M:%SZ)
+          if ! count=$(gh api "repos/$REPO/actions/workflows/deploy.yml/runs?event=workflow_dispatch&created=>=$since&per_page=1" --jq '.total_count'); then
+            echo "::warning::Could not list dispatched runs since $since; deploying as the fallback."
+            count=0
+          fi
+          if [ "$count" -gt 0 ]; then
+            echo "::notice::A dispatched run already started since the $since window; skipping this late schedule."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No dispatched window since $since; the macmini2 timer did not fire (see docs/deploy/image-release.md). Deploying as the fallback."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
       # 窗口只发 `Web checks` 已在 main 上成功的 tip；没跑完或失败就跳过本窗口（不报错）。
       # overlay-bump 的 lock 提交推送前已自己构建验证；它的 `Web checks` 没有记录或仍在跑时，
       # 这种仅改 private.lock 的提交逐层越过，看最近一个有检查记录的祖先。已失败则照常跳过窗口。
@@ -105,9 +136,14 @@ jobs:
           REPO: ${{ github.repository }}
           SHA: ${{ steps.sha.outputs.sha }}
           EVENT: ${{ steps.mode.outputs.event }}
+          FALLBACK_SKIP: ${{ steps.fallback.outputs.skip }}
         run: |
           if [ "$EVENT" != schedule ]; then
             echo "ok=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$FALLBACK_SKIP" = true ]; then
+            echo "ok=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           # success：有成功记录；running：无成功但有未完成；failure：只有失败；none：没有记录

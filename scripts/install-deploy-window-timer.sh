@@ -47,4 +47,7 @@ plutil -lint "$plist" >/dev/null
 domain=gui/$(id -u)
 launchctl bootout "$domain/$label" 2>/dev/null || true
 launchctl bootstrap "$domain" "$plist"
+launchctl print "$domain/$label" >/dev/null || { echo "$label did not load" >&2; exit 1; }
+token_file=$HOME/.config/ai-image-playground/deploy-dispatch.token
+[ -r "$token_file" ] || echo "warning: $token_file is missing; windows will not fire until it exists (chmod 600)" >&2
 echo "installed $label; log: $log_dir/deploy-window.log"
