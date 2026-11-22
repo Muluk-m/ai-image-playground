@@ -1,0 +1,51 @@
+name: PR rules
+# PR 描述与改动范围的机器检查（Danger）：界面截图、关键流程证据、成本说明、PR 过大、迁移回滚。
+# 规则在 scripts/pr-rules.mjs，dangerfile.js 只取数据、发评论、同步 cost-impact 标签。
+# 改描述（edited）也会重跑。规则失败时 job 失败（--failOnErrors）。目前不是 main ruleset 的必需检查：
+# 红了要补齐，或在 PR 里说明理由由 Nain 决定是否合并。
+#
+# 只检出并执行目标分支（base）上的 dangerfile 与规则，从不执行 PR 带来的代码；引入它们的那个 PR
+# 上 base 还没有，直接跳过。fork 的 PR 只有只读 token，发不了评论，也跳过。
+# Danger 及其依赖由 .github/danger/package-lock.json 钉住，npm ci --ignore-scripts 安装（不跑安装脚本）。
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+concurrency:
+  group: pr-rules-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  danger:
+    name: PR rules
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      statuses: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            dangerfile.js
+            scripts/pr-rules.mjs
+            scripts/cost-impact.mjs
+            .github/danger/
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Install pinned Danger
+        if: hashFiles('dangerfile.js', '.github/danger/package-lock.json') != ''
+        run: npm ci --prefix .github/danger --ignore-scripts --no-audit --no-fund
+      - name: Danger
+        if: hashFiles('dangerfile.js', '.github/danger/package-lock.json') != ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: .github/danger/node_modules/.bin/danger ci --dangerfile dangerfile.js --id pr-rules --failOnErrors

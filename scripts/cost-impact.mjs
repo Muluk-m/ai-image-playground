@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// 成本影响提示：PR 改到模型调用、模型/供应商切换、定价、额度或计费相关文件时，给 PR 打
-// cost-impact 标签并在检查摘要里列出命中的文件，提醒作者在描述的「成本与影响」里写清楚。
-// 只提示、不拦合并。规则见 AGENTS.md「成本与影响说明」，由 .github/workflows/cost-impact.yml 在每个 PR 上跑。
+// 成本影响路径清单：PR 改到模型调用、模型/供应商切换、定价、额度或计费相关文件时，PR rules
+// （scripts/pr-rules.mjs + dangerfile.js）打 cost-impact 标签并要求「成本与影响」写清楚。
+// 规则见 AGENTS.md「成本与影响说明」。下面的 CLI 入口保留给本地自查。
 //
 //   gh api --paginate repos/<repo>/pulls/<n>/files --jq '.[] | .filename, (.previous_filename // empty)' \
 //     | node scripts/cost-impact.mjs
