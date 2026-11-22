@@ -73,7 +73,7 @@ func Installed(home, cwd string) ([]Installation, error) {
 	result := make([]Installation, 0)
 	for _, location := range locations {
 		for _, host := range hosts {
-			path := filepath.Join(location.root, host.dir, "skills", "muvloom")
+			path := filepath.Join(location.root, filepath.FromSlash(host.dir), "skills", "muvloom")
 			data, readErr := os.ReadFile(filepath.Join(path, ".muvloom-skill.json"))
 			if errors.Is(readErr, os.ErrNotExist) {
 				// Official ZIP installs in user-scoped WorkBuddy before .muvloom-skill.json

@@ -60,6 +60,19 @@ type Result struct {
 	FileHash   string `json:"file_hash"`
 }
 
+// AutoResult reports one or more Skill copies installed by `--host auto`.
+// Top-level fields mirror the primary installed copy so callers reading `.path` or `.version`
+// see the same shape as single-host `skill install`.
+type AutoResult struct {
+	Host       string   `json:"host"`
+	Scope      string   `json:"scope"`
+	ProjectDir string   `json:"project_dir,omitempty"`
+	Path       string   `json:"path"`
+	Version    string   `json:"version"`
+	FileHash   string   `json:"file_hash"`
+	Installed  []Result `json:"installed"`
+}
+
 type metadata struct {
 	Skill    string `json:"skill"`
 	Version  string `json:"version"`
@@ -73,6 +86,168 @@ var hosts = []struct{ name, dir string }{
 	{"claude-code", ".claude"},
 	{"codex", ".agents"},
 	{"workbuddy", ".workbuddy"},
+	{"cursor", ".cursor"},
+	{"windsurf", ".codeium/windsurf"},
+	{"cline", ".cline"},
+	{"openclaw", ".openclaw"},
+}
+
+// SupportedHosts returns the canonical host names accepted by `skill install --host` (excluding "auto" and "generic").
+func SupportedHosts() []string {
+	names := make([]string, len(hosts))
+	for i, h := range hosts {
+		names[i] = h.name
+	}
+	return names
+}
+
+// HostDir returns the relative config directory (slash-separated) for a supported host.
+func HostDir(name string) (string, bool) {
+	return hostDir(name)
+}
+
+// IsSupportedHost reports whether name is one of the canonical host names in SupportedHosts().
+func IsSupportedHost(name string) bool {
+	_, ok := hostDir(name)
+	return ok
+}
+
+// DetectAutoHosts chooses which host(s) `--host auto` should install into:
+// 1. If process environment variables identify the calling agent host, install ONLY into that
+//    host (avoiding cross-host writes that may trip another host's desktop sandbox).
+// 2. Otherwise (e.g. a human terminal session), install into every supported host whose config
+//    directory already exists under root (home for user scope, project root for project scope).
+// 3. If no host directory exists yet on a fresh machine, install into the default core hosts.
+func DetectAutoHosts(scope, home, cwd string, getenv func(string) string) ([]string, error) {
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	hasAny := func(keys ...string) bool {
+		for _, k := range keys {
+			if strings.TrimSpace(getenv(k)) != "" {
+				return true
+			}
+		}
+		return false
+	}
+	var envHosts []string
+	if hasAny("WORKBUDDY_SANDBOX", "SANDBOX_CENTER_IPC_ADDRESS", "WORKBUDDY") {
+		envHosts = append(envHosts, "workbuddy")
+	}
+	if hasAny("CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_PROJECT_DIR") {
+		envHosts = append(envHosts, "claude-code")
+	}
+	if hasAny("CODEX_SANDBOX", "CODEX_CI", "CODEX_THREAD_ID", "CODEX_HOME") {
+		envHosts = append(envHosts, "codex")
+	}
+	if hasAny("CURSOR_TRACE_ID", "CURSOR_AGENT") {
+		envHosts = append(envHosts, "cursor")
+	}
+	if hasAny("WINDSURF_CASCADE", "CODEIUM_EDITOR_APP_ROOT") {
+		envHosts = append(envHosts, "windsurf")
+	}
+	if hasAny("CLINE_TASK_ID", "CLINE_VERSION") {
+		envHosts = append(envHosts, "cline")
+	}
+	if hasAny("OPENCLAW_HOME", "OPENCLAW_AGENT") {
+		envHosts = append(envHosts, "openclaw")
+	}
+	if len(envHosts) > 0 {
+		return envHosts, nil
+	}
+
+	root := home
+	if root == "" {
+		var err error
+		root, err = os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf("find home directory: %w", err)
+		}
+	}
+	if scope == "project" {
+		start := cwd
+		if start == "" {
+			var err error
+			start, err = os.Getwd()
+			if err != nil {
+				return nil, fmt.Errorf("find current directory: %w", err)
+			}
+		}
+		proj, err := findProjectRoot(start)
+		if err != nil {
+			return nil, err
+		}
+		root = proj
+	}
+	var existing []string
+	for _, h := range hosts {
+		candidate := filepath.Join(root, filepath.FromSlash(h.dir))
+		var info os.FileInfo
+		var statErr error
+		if scope == "project" {
+			info, statErr = os.Lstat(candidate)
+		} else {
+			info, statErr = os.Stat(candidate)
+		}
+		if statErr == nil && info.IsDir() {
+			existing = append(existing, h.name)
+		}
+	}
+	if len(existing) > 0 {
+		return existing, nil
+	}
+	if scope == "project" {
+		return []string{"claude-code"}, nil
+	}
+	return []string{"claude-code", "codex", "workbuddy"}, nil
+}
+
+// InstallAuto detects active/installed hosts and installs the bundled Skill into each one.
+func InstallAuto(opts InstallOptions, getenv func(string) string) (AutoResult, error) {
+	if opts.Scope != "user" && opts.Scope != "project" {
+		return AutoResult{}, fmt.Errorf("unsupported scope %q", opts.Scope)
+	}
+	targets, err := DetectAutoHosts(opts.Scope, opts.Home, opts.CWD, getenv)
+	if err != nil {
+		return AutoResult{}, err
+	}
+	var installed []Result
+	var firstErr error
+	for _, host := range targets {
+		single := opts
+		single.Host = host
+		res, installErr := Install(single)
+		if installErr != nil {
+			if firstErr == nil {
+				firstErr = installErr
+			}
+			continue
+		}
+		installed = append(installed, res)
+	}
+	if len(installed) == 0 {
+		if firstErr != nil {
+			return AutoResult{}, firstErr
+		}
+		return AutoResult{}, errors.New("no target hosts could be installed")
+	}
+	primary := installed[0]
+	return AutoResult{
+		Host:       primary.Host,
+		Scope:      primary.Scope,
+		ProjectDir: primary.ProjectDir,
+		Path:       primary.Path,
+		Version:    primary.Version,
+		FileHash:   primary.FileHash,
+		Installed:  installed,
+	}, nil
+}
+
+func skillFilePerm(rel string) os.FileMode {
+	if strings.HasPrefix(rel, "scripts/") && !strings.HasSuffix(rel, ".ps1") {
+		return 0o755
+	}
+	return 0o644
 }
 
 func hostDir(name string) (string, bool) {
@@ -131,7 +306,7 @@ func Install(opts InstallOptions) (Result, error) {
 		}
 		root = projectDir
 	}
-	destination := filepath.Join(root, dir, "skills", "muvloom")
+	destination := filepath.Join(root, filepath.FromSlash(dir), "skills", "muvloom")
 	if err := checkDestination(opts.Scope, root, destination); err != nil {
 		return Result{}, err
 	}
@@ -437,7 +612,7 @@ func isOfficialZipSkillDir(destination string) bool {
 		}
 		rel = filepath.ToSlash(rel)
 		if entry.IsDir() {
-			if rel != "references" {
+			if rel != "references" && rel != "scripts" {
 				clean = false
 				return fs.SkipAll
 			}
@@ -447,7 +622,9 @@ func isOfficialZipSkillDir(destination string) bool {
 			clean = false
 			return fs.SkipAll
 		}
-		if rel != "SKILL.md" && !(strings.HasPrefix(rel, "references/") && strings.HasSuffix(rel, ".md") && !strings.Contains(strings.TrimPrefix(rel, "references/"), "/")) {
+		isRef := strings.HasPrefix(rel, "references/") && strings.HasSuffix(rel, ".md") && !strings.Contains(strings.TrimPrefix(rel, "references/"), "/")
+		isLauncher := rel == "scripts/muvloom" || rel == "scripts/muvloom.ps1" || rel == "scripts/muvloom.cmd"
+		if rel != "SKILL.md" && !isRef && !isLauncher {
 			clean = false
 			return fs.SkipAll
 		}
@@ -479,7 +656,7 @@ func installTree(destination string, files []bundleFile, meta metadata, allowLeg
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 			return fmt.Errorf("create Skill directory: %w", err)
 		}
-		if err := os.WriteFile(target, file.data, 0o644); err != nil {
+		if err := os.WriteFile(target, file.data, skillFilePerm(file.path)); err != nil {
 			return fmt.Errorf("write Skill file: %w", err)
 		}
 	}

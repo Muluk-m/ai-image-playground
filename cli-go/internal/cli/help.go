@@ -92,7 +92,7 @@ var placeholders = map[string]string{
 	"image-size": "SIZE", "quality": "LEVEL", "ref": "FILE|MEDIA_ID", "max-credits": "N",
 	"output-format": "gif|svg", "frames": "N", "frame-duration-ms": "MS", "frame-size": "WxH",
 	"idempotency-key": "KEY", "wait": "SECONDS", "download": "DIR", "limit": "N", "cursor": "ID",
-	"timeout": "SECONDS", "output": "DIR", "host": "claude-code|codex|workbuddy|generic", "scope": "user|project", "auto": "on|off",
+	"timeout": "SECONDS", "output": "DIR", "host": "auto|claude-code|codex|workbuddy|cursor|windsurf|cline|openclaw|generic", "scope": "user|project", "auto": "on|off",
 }
 
 // flagOrder puts the flags a command cannot do without first; the rest follow alphabetically.
@@ -114,7 +114,8 @@ var examples = map[string][]string{
 	"jobs wait":          {"muvloom jobs wait JOB_ID --timeout 300"},
 	"jobs list":          {"muvloom jobs list --idempotency-key KEY   # find a job whose submit response was lost"},
 	"artifacts download": {"muvloom artifacts download ARTIFACT_ID --output ./out/cat"},
-	"skill install":      {"muvloom skill install --host workbuddy", "muvloom skill install --host claude-code", "muvloom skill install --host codex --scope project", "muvloom skill install --host generic --output ./skill-pack"},
+	"skill install":      {"muvloom skill install --host auto", "muvloom skill install --host workbuddy", "muvloom skill install --host claude-code", "muvloom skill install --host cursor", "muvloom skill install --host codex --scope project", "muvloom skill install --host generic --output ./skill-pack"},
+	"update self":        {"muvloom update self", "muvloom update self --check", "muvloom update self --auto off"},
 	"update skill":       {"muvloom update skill", "muvloom update skill --check", "muvloom update skill --auto off"},
 }
 
@@ -125,7 +126,7 @@ var notes = map[string]string{
 	"images validate": "Same flags as images create. Creates nothing and charges nothing.",
 	"auth login": "Opens the approval page in the system default browser and waits. Run it again after a timeout: it resumes the same sign-in. In a remote or cloud host with no browser control, set MUVLOOM_NO_BROWSER=1 and use --no-wait, then give the user verification_uri_complete to open in their default browser.\n" +
 		"Do not launch a specific browser such as Chrome.",
-	"skill install": "claude-code, codex, and workbuddy write to that host's skill directory. generic writes ./muvloom (or --output) for you to upload to any other host. There is no --host doubao.",
+	"skill install": "auto detects the calling agent host or existing host directories. claude-code, codex, workbuddy, cursor, windsurf, cline, and openclaw write to that host's skill directory. generic writes ./muvloom (or --output) for you to upload to any other host. There is no --host doubao.",
 }
 
 func commandHelp(cmd command, fs *flag.FlagSet) string {

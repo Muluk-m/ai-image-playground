@@ -11,20 +11,17 @@ import (
 )
 
 func TestInstallUserHostsAndMetadata(t *testing.T) {
-	for _, host := range []string{"claude-code", "codex", "workbuddy"} {
+	for _, host := range SupportedHosts() {
 		home := t.TempDir()
 		result, err := Install(InstallOptions{Host: host, Scope: "user", Home: home})
 		if err != nil {
 			t.Fatalf("%s: %v", host, err)
 		}
-		dirName := ".claude"
-		switch host {
-		case "codex":
-			dirName = ".agents"
-		case "workbuddy":
-			dirName = ".workbuddy"
+		dirName, ok := HostDir(host)
+		if !ok {
+			t.Fatalf("missing hostDir for %s", host)
 		}
-		root := filepath.Join(home, dirName, "skills", "muvloom")
+		root := filepath.Join(home, filepath.FromSlash(dirName), "skills", "muvloom")
 		if result.Path != root || result.Version != SkillVersion || result.FileHash == "" {
 			t.Fatalf("unexpected result: %+v", result)
 		}
@@ -50,6 +47,54 @@ func TestInstallUserHostsAndMetadata(t *testing.T) {
 		if meta.Version != SkillVersion || meta.Host != host || meta.Scope != "user" || meta.FileHash != result.FileHash {
 			t.Fatalf("unexpected metadata: %+v", meta)
 		}
+	}
+}
+
+func TestInstallAutoPrefersCallingAgentEnvOrExistingHostDirs(t *testing.T) {
+	// 1. Inside WorkBuddy (env detected): installs ONLY into workbuddy even if ~/.cursor exists.
+	home1 := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home1, ".cursor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	res1, err := InstallAuto(InstallOptions{Scope: "user", Home: home1}, func(k string) string {
+		if k == "WORKBUDDY_SANDBOX" {
+			return "1"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res1.Installed) != 1 || res1.Host != "workbuddy" {
+		t.Fatalf("expected only workbuddy under WORKBUDDY_SANDBOX, got %+v", res1)
+	}
+	if _, err := os.Stat(filepath.Join(home1, ".cursor", "skills", "muvloom")); !os.IsNotExist(err) {
+		t.Fatal("sandboxed auto install touched another host's directory")
+	}
+
+	// 2. Plain terminal (no agent env): installs into existing host config directories.
+	home2 := t.TempDir()
+	for _, d := range []string{".cursor", ".codeium/windsurf"} {
+		if err := os.MkdirAll(filepath.Join(home2, filepath.FromSlash(d)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res2, err := InstallAuto(InstallOptions{Scope: "user", Home: home2}, func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res2.Installed) != 2 || res2.Installed[0].Host != "cursor" || res2.Installed[1].Host != "windsurf" {
+		t.Fatalf("unexpected directory-detected hosts: %+v", res2)
+	}
+
+	// 3. Brand-new machine (no agent env and no host dirs yet): installs core defaults.
+	home3 := t.TempDir()
+	res3, err := InstallAuto(InstallOptions{Scope: "user", Home: home3}, func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res3.Installed) != 3 {
+		t.Fatalf("expected 3 core default hosts on clean machine, got %+v", res3)
 	}
 }
 

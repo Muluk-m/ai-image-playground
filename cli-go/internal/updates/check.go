@@ -16,16 +16,18 @@ import (
 
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/auth"
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/client"
+	"github.com/Muluk-m/ai-image-playground/cli-go/internal/skill"
 )
 
 const releasesURL = "https://api.github.com/repos/Muluk-m/ai-image-playground/releases"
 const releasePage = "https://github.com/Muluk-m/ai-image-playground/releases/tag/cli-v"
 
 type Checker struct {
-	Dir     string
-	Version string
-	HTTP    *http.Client
-	Now     func() time.Time
+	Dir            string
+	Version        string
+	ManifestOrigin string
+	HTTP           *http.Client
+	Now            func() time.Time
 }
 
 type Result struct {
@@ -120,6 +122,22 @@ type release struct {
 }
 
 func (c Checker) latest(ctx context.Context) (string, error) {
+	if origin := strings.TrimRight(strings.TrimSpace(c.ManifestOrigin), "/"); origin != "" {
+		if manifest, err := skill.FetchManifest(ctx, c.HTTP, origin); err == nil {
+			if manifest.CLI != nil {
+				if v, ok := parseVersion(manifest.CLI.Version); ok {
+					return v.String(), nil
+				}
+			}
+			if v, ok := parseVersion(manifest.BundleVersion); ok {
+				return v.String(), nil
+			}
+		}
+	}
+	return c.latestFromGitHub(ctx)
+}
+
+func (c Checker) latestFromGitHub(ctx context.Context) (string, error) {
 	httpClient := http.Client{CheckRedirect: client.NoRedirects}
 	if c.HTTP != nil {
 		httpClient = *c.HTTP

@@ -19,6 +19,7 @@ import (
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/auth"
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/client"
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/skill"
+	"github.com/Muluk-m/ai-image-playground/cli-go/internal/updates"
 )
 
 type tokenResponse struct {
@@ -290,14 +291,21 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	// the bundled Skill, effective from the host's next session. Only a copy that cannot be
 	// verified, was edited, or could not be replaced is reported, naming its path, since any
 	// host may be the one calling.
+	// Best-effort silent self-update of both the CLI binary and installed Skills from
+	// Muvloom's official web manifest (24h throttled, strict bounded budget, SHA-256 verified).
+	autoCtx, cancelAuto := context.WithTimeout(ctx, updates.SelfAutoUpdateBudget)
+	selfRes := updates.MaybeAutoUpdateSelf(autoCtx, updates.SelfUpdateOptions{
+		StateDir:       a.Store.Dir,
+		CurrentVersion: Version,
+		ExecutablePath: a.ExecutablePath,
+		APIURL:         a.APIURL,
+		BaseURL:        a.ManifestBaseURL,
+		HTTP:           a.HTTP,
+	})
 	skills, failed, refreshErr := skill.RefreshOutdated(a.Home, a.CWD)
 	if refreshErr != nil {
 		a.progress("Could not check the installed muvloom Skills (%s).", skillFailure(refreshErr))
 	} else {
-		// Best-effort silent hot-update from Muvloom's official web manifest (24h throttled
-		// per installed copy, strict overall 6s budget so auth status never stalls, SHA-256
-		// verified, never overrides user-edited copies).
-		autoCtx, cancelAuto := context.WithTimeout(ctx, skill.AutoUpdateBudget)
 		remoteRes := skill.MaybeAutoUpdate(autoCtx, skill.RemoteUpdateOptions{
 			Home:     a.Home,
 			CWD:      a.CWD,
@@ -306,13 +314,13 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 			BaseURL:  a.ManifestBaseURL,
 			HTTP:     a.HTTP,
 		})
-		cancelAuto()
 		if len(remoteRes.Updated) > 0 {
 			if refreshed, err := skill.Installed(a.Home, a.CWD); err == nil {
 				skills = refreshed
 			}
 		}
 	}
+	cancelAuto()
 	for _, installed := range skills {
 		switch {
 		case installed.Unverifiable:
@@ -329,13 +337,20 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 			item.Path, skill.SkillVersion, skillFailure(item.Err), item.Host, item.Scope)
 		refreshFailures = append(refreshFailures, map[string]string{"path": item.Path, "reason": skillFailure(item.Err)})
 	}
+	effectiveVersion := Version
+	if selfRes.Status == "updated" && selfRes.LatestVersion != "" {
+		effectiveVersion = selfRes.LatestVersion
+	}
 	store := a.Store.Describe()
 	status := map[string]any{
-		"cli_version":      Version,
+		"cli_version":      effectiveVersion,
 		"api_url":          a.APIURL,
 		"api_url_source":   a.apiURLSource,
 		"credential_store": store.Backend,
 		"skills":           skills,
+	}
+	if effectiveVersion != Version {
+		status["cli_updated_from"] = Version
 	}
 	if refreshErr != nil {
 		status["skill_check_error"] = skillFailure(refreshErr)
@@ -391,7 +406,7 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	status["member"] = me.Member
 	status["scopes"] = me.Scopes
 	status["min_cli_version"] = me.MinCLIVersion
-	update := versionLess(Version, me.MinCLIVersion)
+	update := versionLess(effectiveVersion, me.MinCLIVersion)
 	status["update_required"] = update
 	if update {
 		status["state"] = "outdated"

@@ -41,6 +41,7 @@ const (
 	maxArchiveFiles        = 128
 	maxSingleFileBytes     = 2 * 1024 * 1024
 	maxTotalExtractedBytes = 16 * 1024 * 1024
+	MaxCLIBinaryBytes      = 64 * 1024 * 1024
 )
 
 var (
@@ -53,10 +54,19 @@ var (
 	sha256HexRe    = regexp.MustCompile(`^[0-9a-f]{64}$`)
 	archiveNameRe  = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*\.zip$`)
 	dottedVerRe    = regexp.MustCompile(`^[0-9]+(\.[0-9]+){1,4}$`)
+	stableSemverRe = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+	hostSlugRe     = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
+	cliPlatformRe  = regexp.MustCompile(`^(darwin/(amd64|arm64)|linux/(amd64|arm64)|windows/amd64)$`)
 	officialWebMap = map[string]string{
 		"https://api.muvloom.online":       "https://muvloom.online",
 		"https://test-api.muvloom.online":  "https://test.muvloom.online",
 		"https://image-api.qiliangjia.one": "https://image-playground.qiliangjia.one",
+	}
+	officialAPIMap = map[string]string{
+		"https://muvloom.online":                "https://api.muvloom.online",
+		"https://image.nainma.online":           "https://api.muvloom.online",
+		"https://image-playground.qiliangjia.one": "https://image-api.qiliangjia.one",
+		"https://test.muvloom.online":           "https://test-api.muvloom.online",
 	}
 )
 
@@ -96,12 +106,46 @@ func ManifestOriginForAPI(apiURL string) (string, bool) {
 	return origin, ok
 }
 
+// APIURLForOrigin maps an official Muvloom web origin (or loopback dev URL) to its matching
+// API base URL for `muvloom setup --origin`.
+func APIURLForOrigin(origin string) (string, bool) {
+	parsed, err := url.Parse(strings.TrimSpace(origin))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.User != nil {
+		return "", false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	local := host == "127.0.0.1" || host == "localhost" || host == "::1"
+	if parsed.Scheme != "https" && !(parsed.Scheme == "http" && local) {
+		return "", false
+	}
+	key := strings.ToLower(parsed.Scheme) + "://" + strings.ToLower(parsed.Host)
+	if api, ok := officialAPIMap[key]; ok {
+		return api, true
+	}
+	if _, isAlreadyAPI := officialWebMap[key]; isAlreadyAPI || local {
+		return key, true
+	}
+	return "", false
+}
+
 type RemoteManifest struct {
 	SchemaVersion int                             `json:"schema_version"`
 	Skill         string                          `json:"skill"`
 	Version       string                          `json:"version"`
 	BundleVersion string                          `json:"bundle_version"`
 	Packages      map[string]RemoteManifestBundle `json:"packages"`
+	CLI           *RemoteManifestCLI              `json:"cli,omitempty"`
+}
+
+type RemoteManifestCLI struct {
+	Version  string                          `json:"version"`
+	Binaries map[string]RemoteManifestBinary `json:"binaries"`
+}
+
+type RemoteManifestBinary struct {
+	Path   string `json:"path"`
+	Bytes  int    `json:"bytes"`
+	SHA256 string `json:"sha256"`
 }
 
 type RemoteManifestBundle struct {
@@ -568,9 +612,11 @@ func runRemoteUpdate(
 	}, nil
 }
 
-func resolveManifestOrigin(opts RemoteUpdateOptions) (string, bool) {
-	if strings.TrimSpace(opts.BaseURL) != "" {
-		parsed, err := url.Parse(strings.TrimSpace(opts.BaseURL))
+// ResolveManifestOrigin resolves the trusted web origin serving /cli/skill-manifest.json
+// from an optional explicit test BaseURL or an official Muvloom API URL.
+func ResolveManifestOrigin(apiURL, baseURL string) (string, bool) {
+	if strings.TrimSpace(baseURL) != "" {
+		parsed, err := url.Parse(strings.TrimSpace(baseURL))
 		if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 			return "", false
 		}
@@ -579,9 +625,13 @@ func resolveManifestOrigin(opts RemoteUpdateOptions) (string, bool) {
 		if parsed.Scheme != "https" && !(parsed.Scheme == "http" && local) {
 			return "", false
 		}
-		return strings.TrimRight(opts.BaseURL, "/"), true
+		return strings.TrimRight(baseURL, "/"), true
 	}
-	return ManifestOriginForAPI(opts.APIURL)
+	return ManifestOriginForAPI(apiURL)
+}
+
+func resolveManifestOrigin(opts RemoteUpdateOptions) (string, bool) {
+	return ResolveManifestOrigin(opts.APIURL, opts.BaseURL)
 }
 
 func remoteRefreshable(item Installation, remoteVersion string) bool {
@@ -624,6 +674,12 @@ func httpGetBytes(ctx context.Context, httpClient *http.Client, targetURL string
 	return body, nil
 }
 
+// FetchManifest downloads and validates /cli/skill-manifest.json from a trusted origin
+// using a redirect-blocking HTTP client.
+func FetchManifest(ctx context.Context, base *http.Client, origin string) (RemoteManifest, error) {
+	return fetchManifest(ctx, safeHTTPClient(base), origin)
+}
+
 func fetchManifest(ctx context.Context, httpClient *http.Client, origin string) (RemoteManifest, error) {
 	body, err := httpGetBytes(ctx, httpClient, origin+"/cli/skill-manifest.json", remoteManifestTimeout, maxManifestBytes)
 	if err != nil {
@@ -647,11 +703,24 @@ func validateManifest(m RemoteManifest) error {
 		return errors.New("skill manifest has no packages")
 	}
 	for host, pkg := range m.Packages {
-		if _, ok := hostDir(host); !ok {
-			return fmt.Errorf("unknown host %q in skill manifest", host)
+		if !hostSlugRe.MatchString(host) {
+			return fmt.Errorf("invalid host %q in skill manifest", host)
 		}
 		if err := validateManifestBundle(pkg); err != nil {
 			return fmt.Errorf("invalid package %q: %w", host, err)
+		}
+	}
+	if m.CLI != nil {
+		if !stableSemverRe.MatchString(m.CLI.Version) || len(m.CLI.Binaries) == 0 {
+			return errors.New("invalid cli metadata in skill manifest")
+		}
+		for platform, bin := range m.CLI.Binaries {
+			if !cliPlatformRe.MatchString(platform) {
+				return fmt.Errorf("unsupported cli platform %q in skill manifest", platform)
+			}
+			if !isSafeRelativeSkillPath(bin.Path) || bin.Bytes <= 0 || bin.Bytes > MaxCLIBinaryBytes || !sha256HexRe.MatchString(bin.SHA256) {
+				return fmt.Errorf("invalid cli binary entry for %q in skill manifest", platform)
+			}
 		}
 	}
 	return nil
@@ -958,7 +1027,7 @@ func applyInPlaceUpdate(
 			rollback()
 			return false, err
 		}
-		if err := writeSkillFileInPlace(target, f.data); err != nil {
+		if err := writeSkillFileInPlace(target, f.data, skillFilePerm(f.path)); err != nil {
 			rollback()
 			return false, fmt.Errorf("write %s: %w", f.path, err)
 		}
@@ -1007,7 +1076,7 @@ func applyInPlaceUpdate(
 		return false, err
 	}
 	metaBytes = append(metaBytes, '\n')
-	if err := writeSkillFileInPlace(filepath.Join(destination, ".muvloom-skill.json"), metaBytes); err != nil {
+	if err := writeSkillFileInPlace(filepath.Join(destination, ".muvloom-skill.json"), metaBytes, 0o644); err != nil {
 		rollback()
 		return false, fmt.Errorf("write Skill metadata: %w", err)
 	}
@@ -1230,7 +1299,7 @@ func restoreFromJournal(journal updateJournal, inProcess bool) error {
 		if err := refuseSymlinks(dest, target); err != nil {
 			return err
 		}
-		if err := writeSkillFileInPlace(target, data); err != nil {
+		if err := writeSkillFileInPlace(target, data, skillFilePerm(rel)); err != nil {
 			return err
 		}
 	}
@@ -1310,7 +1379,7 @@ func resolveSkillRootAndDest(host, scope, home, cwd string) (string, string, err
 		}
 		root = projectDir
 	}
-	return root, filepath.Join(root, dir, "skills", "muvloom"), nil
+	return root, filepath.Join(root, filepath.FromSlash(dir), "skills", "muvloom"), nil
 }
 
 func snapshotSkillDir(root string) (map[string][]byte, error) {
@@ -1339,16 +1408,19 @@ func snapshotSkillDir(root string) (map[string][]byte, error) {
 	return snap, err
 }
 
-func writeSkillFileInPlace(target string, data []byte) error {
+func writeSkillFileInPlace(target string, data []byte, perm os.FileMode) error {
+	if perm == 0 {
+		perm = 0o644
+	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return err
 	}
-	file, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, 0o644)
+	file, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, perm)
 	if err != nil {
 		return err
 	}
 	if runtime.GOOS != "windows" {
-		if err := file.Chmod(0o644); err != nil {
+		if err := file.Chmod(perm); err != nil {
 			file.Close()
 			return err
 		}

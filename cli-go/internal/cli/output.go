@@ -104,7 +104,7 @@ func (a *App) writeText(data any) error {
 	case "auth status":
 		o, _ := value.(object)
 		writeValue(&b, reorder(o, "state", "api_url", "api_url_source", "connection_api_url", "account", "credits", "member",
-			"pending_login", "error", "cli_version", "min_cli_version", "update_required"), "")
+			"pending_login", "error", "cli_version", "cli_updated_from", "min_cli_version", "update_required"), "")
 	case "media list":
 		writeList(&b, value, "media", []string{"media_id", "content_type", "width", "height", "bytes", "created_at"}, "uploaded images")
 	default:
