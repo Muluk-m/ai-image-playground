@@ -2158,4 +2158,93 @@ func TestSetupCommandInstallsSkillLogsInAndValidatesInOneStep(t *testing.T) {
 	if switched.code != ExitOK || switched.out["data"].(map[string]any)["api_url"] != f2.server.URL {
 		t.Fatalf("setup --switch-service resume failed: %d %s %s", switched.code, switched.stdout, switched.stderr)
 	}
+
+	// 5. Re-running `setup` preserves user-edited Skill files instead of clobbering them.
+	wbSkillMd := filepath.Join(app.Home, ".workbuddy", "skills", "muvloom", "SKILL.md")
+	origBytes, err := os.ReadFile(wbSkillMd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	editedBytes := append(origBytes, []byte("\n<!-- user custom note -->\n")...)
+	if err := os.WriteFile(wbSkillMd, editedBytes, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rerun := execute(t, app, "setup")
+	if rerun.code != ExitOK {
+		t.Fatalf("setup rerun failed: %d %s", rerun.code, rerun.stdout)
+	}
+	afterBytes, err := os.ReadFile(wbSkillMd)
+	if err != nil || string(afterBytes) != string(editedBytes) {
+		t.Fatalf("setup overwrote user-edited SKILL.md")
+	}
+}
+
+func TestCollectPendingLoginRespectsNextPollAtAndSlowDown(t *testing.T) {
+	var tokenCalls int
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/oauth/token":
+			tokenCalls++
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"slow_down"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	home := t.TempDir()
+	store := auth.Store{Dir: filepath.Join(home, "config")}
+	if err := store.SavePending(auth.PendingLogin{
+		DeviceCode:              "dev-slow",
+		UserCode:                "ABCD-EFGH",
+		VerificationURIComplete: srvURL + "/device?user_code=ABCD-EFGH",
+		ExpiresAt:               time.Now().Add(10 * time.Minute),
+		IntervalSeconds:         5,
+		BaseURL:                 srvURL,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	var slept []time.Duration
+	app := &App{
+		APIURL:       srvURL,
+		apiURLSource: sourceEnvironment,
+		Store:        store,
+		Home:         home,
+		CWD:          home,
+		HTTP:         srv.Client(),
+		Sleep: func(_ context.Context, d time.Duration) error {
+			slept = append(slept, d)
+			return nil
+		},
+	}
+
+	// First `auth status` tries collect once, gets `slow_down`, increments IntervalSeconds to 10, and persists NextPollAt.
+	first := execute(t, app, "auth", "status")
+	if first.code != ExitOK || tokenCalls != 1 {
+		t.Fatalf("expected 1 token call on first status, got calls=%d code=%d", tokenCalls, first.code)
+	}
+	updatedPending, err := store.LoadPending()
+	if err != nil || updatedPending.IntervalSeconds != 10 || !time.Now().Before(updatedPending.NextPollAt) {
+		t.Fatalf("expected slow_down to persist IntervalSeconds=10 and future NextPollAt, got %+v err=%v", updatedPending, err)
+	}
+
+	// Second `auth status` waits out NextPollAt via Sleep (~10s), gets `slow_down` again -> IntervalSeconds=15 (>12s).
+	second := execute(t, app, "auth", "status")
+	if second.code != ExitOK || tokenCalls != 2 || len(slept) != 1 || slept[0] <= 0 {
+		t.Fatalf("expected second status to sleep for NextPollAt before polling, got calls=%d slept=%v", tokenCalls, slept)
+	}
+	backedOffPending, err := store.LoadPending()
+	if err != nil || backedOffPending.IntervalSeconds != 15 {
+		t.Fatalf("expected second slow_down to persist IntervalSeconds=15, got %+v err=%v", backedOffPending, err)
+	}
+
+	// Third immediate `auth status` sees waitRem > 12s and skips polling without stalling.
+	third := execute(t, app, "auth", "status")
+	if third.code != ExitOK || tokenCalls != 2 {
+		t.Fatalf("expected >12s NextPollAt to suppress immediate re-poll, got calls=%d", tokenCalls)
+	}
 }

@@ -85,10 +85,11 @@ type PendingLogin struct {
 	Redeemed bool `json:"redeemed,omitempty"`
 	// Loopback sign-in: the callback registered with the authorization, the PKCE verifier and
 	// state that bind it to this login, and the one-time code once the callback brought one.
-	RedirectURI       string `json:"redirect_uri,omitempty"`
-	CodeVerifier      string `json:"code_verifier,omitempty"`
-	State             string `json:"state,omitempty"`
-	AuthorizationCode string `json:"authorization_code,omitempty"`
+	RedirectURI       string    `json:"redirect_uri,omitempty"`
+	CodeVerifier      string    `json:"code_verifier,omitempty"`
+	State             string    `json:"state,omitempty"`
+	AuthorizationCode string    `json:"authorization_code,omitempty"`
+	NextPollAt        time.Time `json:"next_poll_at,omitempty"`
 }
 
 type Store struct {
@@ -304,25 +305,43 @@ func (s Store) Load() (Credentials, error) {
 	if err == nil {
 		return creds, nil
 	}
-	// One-time seamless migration for <= 0.2.5 users upgrading from keychain to 0600 file mode:
+	// One-time seamless migration for <= 0.2.6 users upgrading from keychain to 0600 file mode:
 	// only runs when connection.json exists on disk and store-mode.json has not yet switched to
-	// file mode, so fresh 0.2.6+ installs and already-migrated sessions never call Keychain.
+	// file mode, so fresh 0.2.7+ installs and already-migrated sessions never call Keychain.
+	// Reading, verifying connection.json, and writing run together under the credential lock so
+	// a concurrent logout or re-login can never be overwritten or overshadowed by stale data.
 	if errors.Is(err, ErrNotFound) && s.MigrateKeyring && !s.preferFileOverKeychain() && fileHasContent(s.serviceFile()) {
-		if secret, kErr := s.keychain().Get(keyringService, keyringUser); kErr == nil {
-			var migrated Credentials
-			if jsonErr := json.Unmarshal([]byte(secret), &migrated); jsonErr != nil {
-				return Credentials{}, fmt.Errorf("stored credentials are unreadable: %w", jsonErr)
-			}
-			_ = s.locked(func() error {
-				if !fileHasContent(s.credentialsFile()) && !s.preferFileOverKeychain() {
-					if wErr := writeRecord(s.credentialsFile(), migrated); wErr == nil {
-						if mErr := writeRecord(s.storeModeFile(), storeMode{Source: "file", Reason: "migrated"}); mErr == nil {
-							_ = s.keychain().Delete(keyringService, keyringUser)
-						}
-					}
-				}
+		var migrated Credentials
+		var migratedOK bool
+		lockErr := s.locked(func() error {
+			if existingErr := readRecord(s.credentialsFile(), &migrated); existingErr == nil {
+				migratedOK = true
 				return nil
-			})
+			} else if !errors.Is(existingErr, ErrNotFound) {
+				return existingErr
+			}
+			if s.preferFileOverKeychain() || !fileHasContent(s.serviceFile()) {
+				return nil
+			}
+			secret, kErr := s.keychain().Get(keyringService, keyringUser)
+			if kErr != nil {
+				return nil
+			}
+			if jsonErr := json.Unmarshal([]byte(secret), &migrated); jsonErr != nil {
+				return fmt.Errorf("stored credentials are unreadable: %w", jsonErr)
+			}
+			if wErr := writeRecord(s.credentialsFile(), migrated); wErr == nil {
+				if mErr := writeRecord(s.storeModeFile(), storeMode{Source: "file", Reason: "migrated"}); mErr == nil {
+					_ = s.keychain().Delete(keyringService, keyringUser)
+				}
+			}
+			migratedOK = true
+			return nil
+		})
+		if lockErr != nil {
+			return Credentials{}, lockErr
+		}
+		if migratedOK {
 			return migrated, nil
 		}
 	}

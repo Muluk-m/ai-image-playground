@@ -18,15 +18,15 @@ so a cached older copy is never used.
 
 Combine checking/installing the CLI and installing the host skill into a single
 shell command whenever this host can run shell commands, so setup finishes in
-at most two steps (on CLI 0.2.6+, `muvloom setup --origin <this-guide-origin> --timeout 15`
+at most two steps (on CLI 0.2.7+, `muvloom setup --origin <this-guide-origin> --timeout 15`
 installs the active host's skill, connects the account in the system default browser,
 fetches live `capabilities`, and runs the zero-cost `images validate` check in one step):
 
 - **WorkBuddy** (`~/.workbuddy/skills/muvloom/`): download `<this-guide-origin>/cli/muvloom-workbuddy.zip?v=<this-page-v>`, verify entries stay under `muvloom/` with no `..` or symlinks, and extract into `~/.workbuddy/skills/` (or `%USERPROFILE%\.workbuddy\skills\` on Windows). The unpacked package also includes a zero-dependency launcher (`scripts/muvloom` on macOS/Linux, `scripts\muvloom.cmd` on Windows) that automatically downloads and SHA-256-verifies the native CLI binary on first run if `muvloom` is not on `PATH` yet. Confirm the skill is enabled and `/muv` finds 幕芽 in a new task (if not visible yet, ask the user to fully quit and reopen WorkBuddy, then retry `/muv`). Only fetch [the WorkBuddy guide](workbuddy.md) if you need detailed troubleshooting.
-- **Claude Code**: run `muvloom skill install --host claude-code` (or `muvloom setup --origin <this-guide-origin>` on CLI 0.2.6+) right after installing/finding the CLI.
-- **Codex**: run `muvloom skill install --host codex` (or `muvloom setup --origin <this-guide-origin>` on CLI 0.2.6+) right after installing/finding the CLI.
+- **Claude Code**: run `muvloom skill install --host claude-code` (or `muvloom setup --origin <this-guide-origin>` on CLI 0.2.7+) right after installing/finding the CLI.
+- **Codex**: run `muvloom skill install --host codex` (or `muvloom setup --origin <this-guide-origin>` on CLI 0.2.7+) right after installing/finding the CLI.
 - **豆包工作**: follow [the Doubao Work guide](doubao.md) (keeping `?v=`) to import `muvloom-doubao.zip`.
-- **Other hosts**: download `muvloom-skill.zip?v=<this-page-v>` and extract `muvloom/` into the host's skill directory or upload it via the host UI (on CLI 0.2.6+, `muvloom setup --origin <this-guide-origin>` auto-detects Cursor, Windsurf, Cline, and OpenClaw as well).
+- **Other hosts**: download `muvloom-skill.zip?v=<this-page-v>` and extract `muvloom/` into the host's skill directory or upload it via the host UI (on CLI 0.2.7+, `muvloom setup --origin <this-guide-origin>` auto-detects Cursor, Windsurf, Cline, and OpenClaw as well).
 
 ## 1. Install CLI 0.2.5 or newer
 
@@ -51,13 +51,13 @@ file, verify the SHA-256 published here, then execute. Fetch `install.sh` or
 ### macOS / Linux
 
 SHA-256 of `install.sh`:
-`c49933d26587b3b4235278f6d8c4e8bd426948e16d958cc0e39d2532e614a056`
+`681c2f193cb4a6f320b4ffde7855f5439501c2dd4a74d405cc8acbac2ea63c41`
 
 ```sh
 tmp="$(mktemp)"
 curl -fsSL "<this-guide-origin>/cli/install.sh?v=<this-page-v>" -o "$tmp"
 actual="$(command -v sha256sum >/dev/null && sha256sum "$tmp" | awk '{print $1}' || shasum -a 256 "$tmp" | awk '{print $1}')"
-[ "$actual" = "c49933d26587b3b4235278f6d8c4e8bd426948e16d958cc0e39d2532e614a056" ] || { echo "checksum mismatch"; exit 1; }
+[ "$actual" = "681c2f193cb4a6f320b4ffde7855f5439501c2dd4a74d405cc8acbac2ea63c41" ] || { echo "checksum mismatch"; exit 1; }
 MUVLOOM_MIN_VERSION=0.2.5 sh "$tmp"
 export PATH="${MUVLOOM_INSTALL_DIR:-$HOME/.local/bin}:$PATH"
 ```
@@ -149,7 +149,7 @@ host's equivalent slash) to find 幕芽.
 There is no `--host doubao` in `skill install`: never invent `--host doubao` and
 do not write into an unverified host configuration directory as the default
 method. WorkBuddy uses the official `muvloom-workbuddy.zip` package above (which
-also writes `.muvloom-skill.json` for automatic updates), while CLI 0.2.6+ adds
+also writes `.muvloom-skill.json` for automatic updates), while CLI 0.2.7+ adds
 `--host auto`, `cursor`, `windsurf`, `cline`, `openclaw`, and `--host generic`
 (exporting a local `muvloom/` directory or `--output` to upload).
 
@@ -271,13 +271,13 @@ the client, then retry `/muv`; do not invent an unregistered slash alias.
 These are chat prompts, not terminal commands: use `muvloom` as the executable
 name for every CLI command.
 
-`auth status` shows `credential_store: file` by default: CLI 0.2.6+ stores
+`auth status` shows `credential_store: file` by default: CLI 0.2.7+ stores
 credentials in a `0600` `credentials.json` file inside the `0700` muvloom config
 directory (`MUVLOOM_CONFIG_DIR` when set, otherwise `~/Library/Application Support/muvloom`
 on macOS, `~/.config/muvloom` on Linux, `%APPDATA%\muvloom` on Windows) so silent
 binary upgrades never trigger OS keychain prompts (`MUVLOOM_CREDENTIALS_STORE=keychain`
-explicitly opts into the system keychain). On CLI 0.2.5 or when keychain mode is
-requested, `credential_store_issue: unavailable` or `unsupported_platform` means
+explicitly opts into the system keychain). On CLI 0.2.6 or earlier (or when keychain mode is
+requested), `credential_store_issue: unavailable` or `unsupported_platform` means
 the system keychain could not be used and the CLI fell back to `credentials.json`
 — it is not a setup failure.
 

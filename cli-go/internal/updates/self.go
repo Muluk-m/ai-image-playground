@@ -95,25 +95,35 @@ func selfLockPath(stateDir string) string {
 	return filepath.Join(stateDir, "updates", "self-update.lock")
 }
 
-func readSelfState(stateDir string) selfUpdateState {
+func readSelfState(stateDir string) (selfUpdateState, error) {
 	if stateDir == "" {
-		return selfUpdateState{}
+		return selfUpdateState{}, nil
 	}
 	path := selfStatePath(stateDir)
+	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
 		if attempt > 0 {
 			time.Sleep(20 * time.Millisecond)
 		}
 		data, err := os.ReadFile(path)
-		if err != nil || len(bytes.TrimSpace(data)) == 0 {
-			return selfUpdateState{}
+		if errors.Is(err, os.ErrNotExist) {
+			return selfUpdateState{}, nil
+		}
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if len(bytes.TrimSpace(data)) == 0 {
+			return selfUpdateState{}, nil
 		}
 		var state selfUpdateState
-		if json.Unmarshal(data, &state) == nil {
-			return state
+		if uErr := json.Unmarshal(data, &state); uErr == nil {
+			return state, nil
+		} else {
+			lastErr = uErr
 		}
 	}
-	return selfUpdateState{}
+	return selfUpdateState{}, lastErr
 }
 
 func writeSelfState(stateDir string, state selfUpdateState) error {
@@ -128,9 +138,13 @@ func writeSelfState(stateDir string, state selfUpdateState) error {
 }
 
 // SelfAutoUpdateEnabled reports whether automatic 24h silent CLI self-updates are enabled.
-// Missing or unreadable state defaults to enabled (only explicit JSON false disables it).
+// Missing state defaults to enabled; unreadable or corrupted state fails closed (returns false)
+// so a storage/parse fault never overrides a prior `--auto off` preference.
 func SelfAutoUpdateEnabled(stateDir string) bool {
-	state := readSelfState(stateDir)
+	state, err := readSelfState(stateDir)
+	if err != nil {
+		return false
+	}
 	return state.AutoUpdate == nil || *state.AutoUpdate
 }
 
@@ -147,7 +161,7 @@ func SetSelfAutoUpdate(stateDir string, enabled bool) error {
 		return err
 	}
 	defer release()
-	state := readSelfState(stateDir)
+	state, _ := readSelfState(stateDir)
 	val := enabled
 	state.AutoUpdate = &val
 	if enabled {
@@ -192,7 +206,11 @@ func MaybeAutoUpdateSelf(ctx context.Context, opts SelfUpdateOptions) SelfUpdate
 	if opts.StateDir == "" {
 		return SelfUpdateResult{Status: "skipped", AutoUpdate: true, CurrentVersion: curVer, Reason: "no_state_dir"}
 	}
-	if !SelfAutoUpdateEnabled(opts.StateDir) {
+	initState, initErr := readSelfState(opts.StateDir)
+	if initErr != nil {
+		return SelfUpdateResult{Status: "unavailable", AutoUpdate: false, CurrentVersion: curVer, Reason: "state_unreadable"}
+	}
+	if initState.AutoUpdate != nil && !*initState.AutoUpdate {
 		return SelfUpdateResult{Status: "disabled", AutoUpdate: false, CurrentVersion: curVer}
 	}
 	exe, ok := resolveTargetExecutable(opts.ExecutablePath, strings.TrimSpace(opts.ExecutablePath) != "")
@@ -222,7 +240,10 @@ func MaybeAutoUpdateSelf(ctx context.Context, opts SelfUpdateOptions) SelfUpdate
 	if opts.Now != nil {
 		now = opts.Now()
 	}
-	state := readSelfState(opts.StateDir)
+	state, stateErr := readSelfState(opts.StateDir)
+	if stateErr != nil {
+		return SelfUpdateResult{Status: "unavailable", AutoUpdate: false, CurrentVersion: curVer, Reason: "state_unreadable"}
+	}
 	if state.AutoUpdate != nil && !*state.AutoUpdate {
 		return SelfUpdateResult{Status: "disabled", AutoUpdate: false, CurrentVersion: curVer}
 	}
@@ -273,7 +294,7 @@ func CheckOrUpdateSelf(ctx context.Context, opts SelfUpdateOptions, checkOnly bo
 	}
 	CleanStaleOldBinary(exe)
 	var release func()
-	var state selfUpdateState
+	var statePtr *selfUpdateState
 	if opts.StateDir != "" {
 		if err := os.MkdirAll(filepath.Join(opts.StateDir, "updates"), 0o700); err != nil {
 			return SelfUpdateResult{}, err
@@ -286,14 +307,16 @@ func CheckOrUpdateSelf(ctx context.Context, opts SelfUpdateOptions, checkOnly bo
 			return SelfUpdateResult{}, err
 		}
 		release = unlock
-		state = readSelfState(opts.StateDir)
-		autoEnabled = state.AutoUpdate == nil || *state.AutoUpdate
-		state.LastCheckedAt = now
+		if state, sErr := readSelfState(opts.StateDir); sErr == nil {
+			autoEnabled = state.AutoUpdate == nil || *state.AutoUpdate
+			state.LastCheckedAt = now
+			statePtr = &state
+		}
 	}
 	if release != nil {
 		defer release()
 	}
-	return runSelfUpdate(ctx, opts, origin, exe, false, autoEnabled, &state, now)
+	return runSelfUpdate(ctx, opts, origin, exe, false, autoEnabled, statePtr, now)
 }
 
 func runSelfUpdate(

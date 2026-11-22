@@ -22,7 +22,7 @@ function readInstallGoConst(name, fallback) {
 }
 
 function cliBundleVersion() {
-  return readInstallGoConst('BundleVersion', '0.2.6')
+  return readInstallGoConst('BundleVersion', '0.2.7')
 }
 
 function cliSkillVersion() {

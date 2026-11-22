@@ -58,13 +58,15 @@ func cmdSetup(ctx context.Context, a *App, args []string) (any, error) {
 		a.apiURLSource = sourceEnvironment
 	}
 
-	// 1. Install or refresh the bundled Skill (unless --host none).
+	// 1. Install or refresh the bundled Skill (unless --host none), preserving copies already
+	// hot-updated to a newer SkillVersion or customized by the user.
 	var installedSkills []skill.Result
+	var skillFailures []skill.HostInstallFailure
 	switch *host {
 	case "none":
 		installedSkills = []skill.Result{}
 	case "auto":
-		autoRes, err := skill.InstallAuto(skill.InstallOptions{
+		autoRes, err := skill.EnsureAutoInstalled(skill.InstallOptions{
 			Scope: *scope,
 			Home:  a.Home,
 			CWD:   a.CWD,
@@ -73,8 +75,12 @@ func cmdSetup(ctx context.Context, a *App, args []string) (any, error) {
 			return nil, fail("INVALID_REQUEST", "%v", err)
 		}
 		installedSkills = autoRes.Installed
+		skillFailures = autoRes.Failed
+		for _, f := range skillFailures {
+			a.progress("Could not install the muvloom Skill for %s (%s)", f.Host, f.Reason)
+		}
 	default:
-		res, err := skill.Install(skill.InstallOptions{
+		res, err := skill.EnsureInstalled(skill.InstallOptions{
 			Host:   *host,
 			Scope:  *scope,
 			Output: *output,
@@ -85,6 +91,13 @@ func cmdSetup(ctx context.Context, a *App, args []string) (any, error) {
 			return nil, fail("INVALID_REQUEST", "%v", err)
 		}
 		installedSkills = []skill.Result{res}
+	}
+
+	outdatedFailure := func(m map[string]any) error {
+		if updatedTo, ok := m["cli_updated_to"].(string); ok && updatedTo != "" {
+			return fail("UPGRADE_REQUIRED", "CLI binary updated on disk to %s (running %v < server minimum %v); re-run `muvloom setup` to continue with the updated binary", updatedTo, m["cli_version"], m["min_cli_version"])
+		}
+		return fail("UPGRADE_REQUIRED", "This CLI (%v) is older than the server minimum (%v); run `muvloom update self`", m["cli_version"], m["min_cli_version"])
 	}
 
 	// 2. Check current account connection (also auto-collects approved pending logins and runs
@@ -100,7 +113,7 @@ func cmdSetup(ctx context.Context, a *App, args []string) (any, error) {
 	case "ready":
 		// Already signed in and meets min_cli_version.
 	case "outdated":
-		return nil, fail("UPGRADE_REQUIRED", "This CLI (%v) is older than the server minimum (%v); run `muvloom update self`", statusMap["cli_version"], statusMap["min_cli_version"])
+		return nil, outdatedFailure(statusMap)
 	case "unreachable":
 		if errMap, ok := statusMap["error"].(map[string]string); ok && errMap["code"] != "" {
 			return nil, fail(errMap["code"], "%s", errMap["message"])
@@ -152,18 +165,22 @@ func cmdSetup(ctx context.Context, a *App, args []string) (any, error) {
 		}
 		loginMap, _ := loginAny.(map[string]any)
 		if loginState, _ := loginMap["state"].(string); loginState == "pending" {
-			return map[string]any{
+			pendingOut := map[string]any{
 				"state":         "pending",
 				"api_url":       a.APIURL,
 				"skills":        installedSkills,
 				"pending_login": loginMap,
-			}, nil
+			}
+			if len(skillFailures) > 0 {
+				pendingOut["skill_install_failures"] = skillFailures
+			}
+			return pendingOut, nil
 		}
 		statusMap = loginMap
 		switch postState, _ := statusMap["state"].(string); postState {
 		case "ready":
 		case "outdated":
-			return nil, fail("UPGRADE_REQUIRED", "This CLI (%v) is older than the server minimum (%v); run `muvloom update self`", statusMap["cli_version"], statusMap["min_cli_version"])
+			return nil, outdatedFailure(statusMap)
 		case "unreachable":
 			if errMap, ok := statusMap["error"].(map[string]string); ok && errMap["code"] != "" {
 				return nil, fail(errMap["code"], "%s", errMap["message"])
@@ -205,8 +222,11 @@ func cmdSetup(ctx context.Context, a *App, args []string) (any, error) {
 		"models":           caps["models"],
 		"smoke_validate":   smokeQuote,
 	}
-	if updatedFrom, ok := statusMap["cli_updated_from"]; ok {
-		result["cli_updated_from"] = updatedFrom
+	if len(skillFailures) > 0 {
+		result["skill_install_failures"] = skillFailures
+	}
+	if updatedTo, ok := statusMap["cli_updated_to"]; ok {
+		result["cli_updated_to"] = updatedTo
 	}
 	return result, nil
 }

@@ -10,7 +10,7 @@
 
 还未安装时，由 WorkBuddy 在对话中下载幕芽接入指南同源的 `muvloom-workbuddy.zip`，检查技能内容和包内路径后，将 `muvloom/` 安装到当前用户的 `~/.workbuddy/skills/muvloom/`（Windows 使用用户主目录）。读回 `SKILL.md` 和引用文件，重新加载技能后验证已发现并启用。若新任务输入 `/muv` 仍无候选，保留安装文件，请用户完整退出并重新打开客户端，再输入 `/muv` 并选择 `muvloom`；本机 WorkBuddy 5.9.3 已实测恢复，其他版本仍以实际结果为准。不要重复安装或预先宣称成功。不要把手动上传交给用户作为默认安装步骤，不要假装该包已在技能市场上架。必要权限和安全确认使用宿主正常提示，不修改全局保护。
 
-用户要求连接账号时，按当前接入指南页面的域名，为本次会话选择该页面对应的 API；这一步也适用于已经安装 CLI 的情况。技能包内置零依赖启动器 `scripts/muvloom`（macOS/Linux）与 `scripts\muvloom.cmd`（Windows），当终端 `PATH` 中还没有 `muvloom` 时可直接调用该启动器（首次运行会自动从同源 CDN 下载并校验 SHA-256 二进制）；CLI 0.2.6+ 亦支持一条命令 `muvloom setup --origin <接入页域名> --timeout 15` 完成技能安装、授权、能力查询与零花费预检。CLI 0.2.5 的 `skill install --host` 仅支持 Claude Code 和 Codex，WorkBuddy 通过下载 `muvloom-workbuddy.zip` 安装到本地技能目录；升级到支持 `workbuddy` 的新版本 CLI 后，可使用 `muvloom skill install --host workbuddy --scope user` 安装，后续 `muvloom auth status` 会自动同步静默更新 CLI 与未修改的官方技能。
+用户要求连接账号时，按当前接入指南页面的域名，为本次会话选择该页面对应的 API；这一步也适用于已经安装 CLI 的情况。技能包内置零依赖启动器 `scripts/muvloom`（macOS/Linux）与 `scripts\muvloom.cmd`（Windows），当终端 `PATH` 中还没有 `muvloom` 时可直接调用该启动器（首次运行会自动从同源 CDN 下载并校验 SHA-256 二进制）；CLI 0.2.7+ 亦支持一条命令 `muvloom setup --origin <接入页域名> --timeout 15` 完成技能安装、授权、能力查询与零花费预检。CLI 0.2.5 的 `skill install --host` 仅支持 Claude Code 和 Codex，WorkBuddy 通过下载 `muvloom-workbuddy.zip` 安装到本地技能目录；升级到支持 `workbuddy` 的新版本 CLI 后，可使用 `muvloom skill install --host workbuddy --scope user` 安装，后续 `muvloom auth status` 会自动同步静默更新 CLI 与未修改的官方技能。
 
 ## 连接账号
 

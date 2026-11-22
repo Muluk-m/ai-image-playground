@@ -268,6 +268,34 @@ func TestWindowsExecutableSwapPathAndThrottle(t *testing.T) {
 	if testBinRes.Status != "skipped" || testBinRes.Reason != "non_updatable_binary" {
 		t.Fatalf("expected .test binary skip, got %+v", testBinRes)
 	}
+
+	// Corrupted self-update.json fails closed (does not overwrite binary after a prior --auto off).
+	corruptState := t.TempDir()
+	corruptExe := filepath.Join(dir, "muvloom-corrupt.exe")
+	if err := os.WriteFile(corruptExe, []byte("win-0.2.5"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(corruptState, "updates"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(corruptState, "updates", "self-update.json"), []byte("{not-json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	corruptRes := MaybeAutoUpdateSelf(context.Background(), SelfUpdateOptions{
+		StateDir:       corruptState,
+		CurrentVersion: "0.2.5",
+		ExecutablePath: corruptExe,
+		OS:             "windows",
+		Arch:           "amd64",
+		BaseURL:        srv.URL,
+		HTTP:           srv.Client(),
+	})
+	if corruptRes.Status != "unavailable" || corruptRes.Reason != "state_unreadable" || corruptRes.AutoUpdate {
+		t.Fatalf("expected fail-closed state_unreadable, got %+v", corruptRes)
+	}
+	if got, _ := os.ReadFile(corruptExe); string(got) != "win-0.2.5" {
+		t.Fatalf("corrupted state must not replace executable, got %q", got)
+	}
 }
 
 func TestCheckerPrefersManifestOriginAndFallsBackToGitHub(t *testing.T) {

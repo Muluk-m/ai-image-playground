@@ -28,6 +28,9 @@ func cmdSkillInstall(_ context.Context, a *App, args []string) (any, error) {
 		if err != nil {
 			return nil, fail("INVALID_REQUEST", "%v", err)
 		}
+		for _, f := range result.Failed {
+			a.progress("Could not install the muvloom Skill for %s (%s)", f.Host, f.Reason)
+		}
 		return result, nil
 	}
 	result, err := skill.Install(opts)

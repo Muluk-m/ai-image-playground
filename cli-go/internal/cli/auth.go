@@ -83,8 +83,16 @@ func (a *App) loadCredentials(ctx context.Context) (auth.Credentials, error) {
 // continue resuming it.
 func (a *App) tryCollectPendingLogin(ctx context.Context) (auth.Credentials, bool, error) {
 	pending, err := a.Store.LoadPending()
-	if err != nil || pending.DeviceCode == "" || pending.Redeemed || !sameService(pending.BaseURL, a.APIURL) || !time.Now().Before(pending.ExpiresAt) {
+	now := time.Now()
+	if err != nil || pending.DeviceCode == "" || pending.Redeemed || !sameService(pending.BaseURL, a.APIURL) || !now.Before(pending.ExpiresAt) {
 		return auth.Credentials{}, false, nil
+	}
+	var waitRem time.Duration
+	if pending.AuthorizationCode == "" && !pending.NextPollAt.IsZero() && now.Before(pending.NextPollAt) {
+		waitRem = pending.NextPollAt.Sub(now)
+		if waitRem > 12*time.Second {
+			return auth.Credentials{}, false, nil
+		}
 	}
 	if err := a.Store.Preflight(); err != nil {
 		return auth.Credentials{}, false, nil
@@ -99,14 +107,33 @@ func (a *App) tryCollectPendingLogin(ctx context.Context) (auth.Credentials, boo
 			return auth.Credentials{}, false, nil
 		}
 	}
-	pollCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	pollCtx, cancel := context.WithTimeout(ctx, waitRem+5*time.Second)
 	defer cancel()
+	if waitRem > 0 {
+		sleepFn := a.Sleep
+		if sleepFn == nil {
+			sleepFn = sleepContext
+		}
+		if err := sleepFn(pollCtx, waitRem); err != nil {
+			return auth.Credentials{}, false, nil
+		}
+	}
 	tokens, err := a.redeem(pollCtx, pending)
 	if err != nil {
+		interval := seconds(pending.IntervalSeconds, 1, 60)
 		var oauthErr *client.OAuthError
-		if errors.As(err, &oauthErr) && oauthErr.Code == "access_denied" {
-			_ = a.Store.ClearPending()
+		if errors.As(err, &oauthErr) {
+			switch oauthErr.Code {
+			case "access_denied", "expired_token", "invalid_grant":
+				_ = a.Store.ClearPending()
+				return auth.Credentials{}, false, nil
+			case "slow_down":
+				interval = min(interval+5*time.Second, time.Minute)
+				pending.IntervalSeconds = int(interval / time.Second)
+			}
 		}
+		pending.NextPollAt = time.Now().Add(interval)
+		_ = a.Store.SavePending(pending)
 		return auth.Credentials{}, false, nil
 	}
 	creds := a.credentialsFrom(tokens)
@@ -347,12 +374,8 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 			item.Path, skill.SkillVersion, skillFailure(item.Err), item.Host, item.Scope)
 		refreshFailures = append(refreshFailures, map[string]string{"path": item.Path, "reason": skillFailure(item.Err)})
 	}
-	effectiveVersion := Version
-	if selfRes.Status == "updated" && selfRes.LatestVersion != "" {
-		effectiveVersion = selfRes.LatestVersion
-	}
 	status := map[string]any{
-		"cli_version":    effectiveVersion,
+		"cli_version":    Version,
 		"api_url":        a.APIURL,
 		"api_url_source": a.apiURLSource,
 		"skills":         skills,
@@ -371,8 +394,8 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 			delete(status, "leftover_temp_files")
 		}
 	}
-	if effectiveVersion != Version {
-		status["cli_updated_from"] = Version
+	if selfRes.Status == "updated" && selfRes.LatestVersion != "" && selfRes.LatestVersion != Version {
+		status["cli_updated_to"] = selfRes.LatestVersion
 	}
 	if refreshErr != nil {
 		status["skill_check_error"] = skillFailure(refreshErr)
@@ -425,7 +448,7 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	status["member"] = me.Member
 	status["scopes"] = me.Scopes
 	status["min_cli_version"] = me.MinCLIVersion
-	update := versionLess(effectiveVersion, me.MinCLIVersion)
+	update := versionLess(Version, me.MinCLIVersion)
 	status["update_required"] = update
 	if update {
 		status["state"] = "outdated"
@@ -611,8 +634,17 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 		deadline = time.Now().Add(seconds(*timeout, 0, 3600))
 	}
 	interval := seconds(pending.IntervalSeconds, 1, 60)
-	if pending.AuthorizationCode == "" && a.lastDevicePollCode == pending.DeviceCode && !a.lastDevicePollAt.IsZero() {
-		if waitRem := interval - time.Since(a.lastDevicePollAt); waitRem > 0 {
+	if pending.AuthorizationCode == "" {
+		var waitRem time.Duration
+		if !pending.NextPollAt.IsZero() {
+			waitRem = time.Until(pending.NextPollAt)
+		}
+		if a.lastDevicePollCode == pending.DeviceCode && !a.lastDevicePollAt.IsZero() {
+			if memRem := interval - time.Since(a.lastDevicePollAt); memRem > waitRem {
+				waitRem = memRem
+			}
+		}
+		if waitRem > 0 {
 			if time.Now().Add(waitRem).After(deadline) {
 				return nil, &Failure{
 					Code:    "AUTH_PENDING",
@@ -650,9 +682,12 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 		} else {
 			switch oauthErr.Code {
 			case "authorization_pending":
+				pending.NextPollAt = time.Now().Add(interval)
+				_ = a.Store.SavePending(pending)
 			case "slow_down":
 				interval = min(interval+5*time.Second, time.Minute)
 				pending.IntervalSeconds = int(interval / time.Second)
+				pending.NextPollAt = time.Now().Add(interval)
 				_ = a.Store.SavePending(pending)
 			case "access_denied":
 				_ = a.Store.ClearPending()

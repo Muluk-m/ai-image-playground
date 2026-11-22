@@ -19,14 +19,14 @@ import (
 
 // BundleVersion is tied to the native CLI release. Keep the bundled Skill and
 // the executable on the same version so hosts can report what was installed.
-const BundleVersion = "0.2.6"
+const BundleVersion = "0.2.7"
 
 // SkillVersion is the version of the Skill assets bundled here and published in
-// /cli/skill-manifest.json. On a CLI release it matches BundleVersion (e.g. "0.2.6").
+// /cli/skill-manifest.json. On a CLI release it matches BundleVersion (e.g. "0.2.7").
 // For prompt-only hot-updates shipped via Web deploy without a new CLI binary, bump
-// SkillVersion to a dotted patch (e.g. "0.2.6.1") so installed CLIs auto-update safely
+// SkillVersion to a dotted patch (e.g. "0.2.7.1") so installed CLIs auto-update safely
 // without downgrading.
-const SkillVersion = "0.2.6"
+const SkillVersion = "0.2.7"
 
 //go:embed assets
 var bundled embed.FS
@@ -60,17 +60,24 @@ type Result struct {
 	FileHash   string `json:"file_hash"`
 }
 
+// HostInstallFailure records one host target that `--host auto` could not install.
+type HostInstallFailure struct {
+	Host   string `json:"host"`
+	Reason string `json:"reason"`
+}
+
 // AutoResult reports one or more Skill copies installed by `--host auto`.
 // Top-level fields mirror the primary installed copy so callers reading `.path` or `.version`
 // see the same shape as single-host `skill install`.
 type AutoResult struct {
-	Host       string   `json:"host"`
-	Scope      string   `json:"scope"`
-	ProjectDir string   `json:"project_dir,omitempty"`
-	Path       string   `json:"path"`
-	Version    string   `json:"version"`
-	FileHash   string   `json:"file_hash"`
-	Installed  []Result `json:"installed"`
+	Host       string               `json:"host"`
+	Scope      string               `json:"scope"`
+	ProjectDir string               `json:"project_dir,omitempty"`
+	Path       string               `json:"path"`
+	Version    string               `json:"version"`
+	FileHash   string               `json:"file_hash"`
+	Installed  []Result             `json:"installed"`
+	Failed     []HostInstallFailure `json:"failed,omitempty"`
 }
 
 type metadata struct {
@@ -203,8 +210,7 @@ func DetectAutoHosts(scope, home, cwd string, getenv func(string) string) ([]str
 	return []string{"claude-code", "codex", "workbuddy"}, nil
 }
 
-// InstallAuto detects active/installed hosts and installs the bundled Skill into each one.
-func InstallAuto(opts InstallOptions, getenv func(string) string) (AutoResult, error) {
+func installAutoWith(opts InstallOptions, getenv func(string) string, fn func(InstallOptions) (Result, error)) (AutoResult, error) {
 	if opts.Scope != "user" && opts.Scope != "project" {
 		return AutoResult{}, fmt.Errorf("unsupported scope %q", opts.Scope)
 	}
@@ -213,15 +219,17 @@ func InstallAuto(opts InstallOptions, getenv func(string) string) (AutoResult, e
 		return AutoResult{}, err
 	}
 	var installed []Result
+	var failed []HostInstallFailure
 	var firstErr error
 	for _, host := range targets {
 		single := opts
 		single.Host = host
-		res, installErr := Install(single)
+		res, installErr := fn(single)
 		if installErr != nil {
 			if firstErr == nil {
 				firstErr = installErr
 			}
+			failed = append(failed, HostInstallFailure{Host: host, Reason: installErr.Error()})
 			continue
 		}
 		installed = append(installed, res)
@@ -241,7 +249,73 @@ func InstallAuto(opts InstallOptions, getenv func(string) string) (AutoResult, e
 		Version:    primary.Version,
 		FileHash:   primary.FileHash,
 		Installed:  installed,
+		Failed:     failed,
 	}, nil
+}
+
+// InstallAuto detects active/installed hosts and installs the bundled Skill into each one.
+func InstallAuto(opts InstallOptions, getenv func(string) string) (AutoResult, error) {
+	return installAutoWith(opts, getenv, Install)
+}
+
+// EnsureInstalled installs the bundled Skill when missing or intact-and-older, while preserving
+// existing copies that were hot-updated to a newer SkillVersion or customized by the user.
+func EnsureInstalled(opts InstallOptions) (Result, error) {
+	if opts.Host == "generic" {
+		return Install(opts)
+	}
+	existingList, err := Installed(opts.Home, opts.CWD)
+	if err == nil {
+		for _, item := range existingList {
+			if item.foundHost == opts.Host && item.foundScope == opts.Scope {
+				if item.Current || !item.Intact {
+					return Result{
+						Host:     opts.Host,
+						Scope:    opts.Scope,
+						Path:     item.Path,
+						Version:  item.Version,
+						FileHash: item.FileHash,
+					}, nil
+				}
+				break
+			}
+		}
+	}
+	guarded := opts
+	guarded.onlyIf = func(destination string) (bool, error) {
+		current, cErr := Installed(opts.Home, opts.CWD)
+		if cErr != nil {
+			return true, nil
+		}
+		for _, item := range current {
+			if item.Path == destination {
+				return !item.Current && item.Intact, nil
+			}
+		}
+		return true, nil
+	}
+	res, err := Install(guarded)
+	if errors.Is(err, errNotNeeded) {
+		if latest, lErr := Installed(opts.Home, opts.CWD); lErr == nil {
+			for _, item := range latest {
+				if item.foundHost == opts.Host && item.foundScope == opts.Scope {
+					return Result{
+						Host:     opts.Host,
+						Scope:    opts.Scope,
+						Path:     item.Path,
+						Version:  item.Version,
+						FileHash: item.FileHash,
+					}, nil
+				}
+			}
+		}
+	}
+	return res, err
+}
+
+// EnsureAutoInstalled runs EnsureInstalled across all detected target hosts.
+func EnsureAutoInstalled(opts InstallOptions, getenv func(string) string) (AutoResult, error) {
+	return installAutoWith(opts, getenv, EnsureInstalled)
 }
 
 func skillFilePerm(rel string) os.FileMode {

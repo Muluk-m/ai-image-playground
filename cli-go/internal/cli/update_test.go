@@ -316,7 +316,7 @@ func TestUpdateSelfCommandAndAuthStatusAutoSelfUpdate(t *testing.T) {
 	if code := a.Run([]string{"--json", "auth", "status"}); code != ExitOK {
 		t.Fatalf("auth status failed: %d %s", code, out.String())
 	}
-	if !strings.Contains(out.String(), `"cli_version":"99.0.0"`) || !strings.Contains(out.String(), `"cli_updated_from":"`+Version+`"`) {
+	if !strings.Contains(out.String(), `"cli_version":"`+Version+`"`) || !strings.Contains(out.String(), `"cli_updated_to":"99.0.0"`) {
 		t.Fatalf("auth status did not report silent CLI upgrade: %s", out.String())
 	}
 	if got, _ := os.ReadFile(exe); !bytes.Equal(got, newBinary) {

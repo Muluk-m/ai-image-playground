@@ -138,26 +138,31 @@ if [ -n "${MUVLOOM_MIN_VERSION:-}" ]; then
     fail "MUVLOOM_MIN_VERSION must be an exact X.Y.Z version"
 fi
 
+m_origin=""
 resolve_manifest_origin() {
   if [ -n "${MUVLOOM_ORIGIN:-}" ]; then
     orig="${MUVLOOM_ORIGIN%/}"
     case "$orig" in
       https://muvloom.online | https://image.nainma.online | https://image-playground.qiliangjia.one | https://test.muvloom.online)
-        printf '%s\n' "$orig"
+        m_origin="$orig"
         return
         ;;
     esac
     printf '%s\n' "$orig" | grep -Eq '^http://(127\.0\.0\.1|localhost):[0-9]+$' ||
       fail "MUVLOOM_ORIGIN must be an official Muvloom origin (or loopback http for tests)"
-    printf '%s\n' "$orig"
+    m_origin="$orig"
     return
   fi
   case "${MUVLOOM_API_URL:-}" in
-    https://test-api.muvloom.online*) printf '%s\n' "https://test.muvloom.online" ;;
-    https://image-api.qiliangjia.one*) printf '%s\n' "https://image-playground.qiliangjia.one" ;;
-    *) printf '%s\n' "https://muvloom.online" ;;
+    https://test-api.muvloom.online*) m_origin="https://test.muvloom.online" ;;
+    https://image-api.qiliangjia.one*) m_origin="https://image-playground.qiliangjia.one" ;;
+    *) m_origin="https://muvloom.online" ;;
   esac
 }
+
+if [ -z "${MUVLOOM_DISTRIBUTION_URL:-}" ]; then
+  resolve_manifest_origin
+fi
 
 fetch_manifest_origin() {
   case "$1" in
@@ -170,9 +175,9 @@ fetch_manifest_origin() {
   esac
 }
 
+manifest_stage=""
 try_manifest_install() {
-  [ -z "${MUVLOOM_DISTRIBUTION_URL:-}" ] || return 1
-  m_origin="$(resolve_manifest_origin)"
+  [ -z "${MUVLOOM_DISTRIBUTION_URL:-}" ] && [ -n "$m_origin" ] || return 1
   manifest="$(fetch_manifest_origin "$m_origin/cli/skill-manifest.json" 2>/dev/null)" || return 1
   [ -n "$manifest" ] || return 1
   compact="$(printf '%s' "$manifest" | tr -d '\r\n\t ')"
@@ -214,14 +219,20 @@ try_manifest_install() {
     rm -rf "$m_tmp"
     fail "checksum mismatch for $asset (expected $m_sha, got $actual)"
   fi
-  mkdir -p "$INSTALL_DIR"
-  chmod 0755 "$m_tmp/$asset"
-  mv "$m_tmp/$asset" "$BIN"
-  rm -rf "$m_tmp"
+  manifest_stage="$m_tmp"
   return 0
 }
 
-if ! try_manifest_install; then
+if try_manifest_install; then
+  if [ -n "$manifest_stage" ]; then
+    trap 'rm -rf "$manifest_stage"' EXIT
+    mkdir -p "$INSTALL_DIR"
+    chmod 0755 "$manifest_stage/muvloom_${os}_${arch}"
+    mv "$manifest_stage/muvloom_${os}_${arch}" "$BIN"
+    rm -rf "$manifest_stage"
+    trap - EXIT
+  fi
+else
   if [ -n "$pinned_target" ]; then
     target="$pinned_target"
   else

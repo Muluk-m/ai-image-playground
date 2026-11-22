@@ -541,6 +541,17 @@ class InstallTests(unittest.TestCase):
         self.assertIn("official muvloom origin", (bad_launch.stdout + bad_launch.stderr).lower())
         self.assertEqual(self.server.requests, [])
 
+        # 4. Read-only install directory over an older binary fails instead of silently keeping old binary.
+        if not self.windows and hasattr(os, "geteuid") and os.geteuid() != 0:
+            self.env["MUVLOOM_ORIGIN"] = self.origin
+            self.write_fake_cli("0.0.1")
+            self.binary.parent.chmod(0o555)
+            try:
+                ro_install = subprocess.run(command, cwd=self.project, env=self.env, text=True, capture_output=True, timeout=30)
+                self.assertNotEqual(ro_install.returncode, 0)
+            finally:
+                self.binary.parent.chmod(0o700)
+
     @unittest.skipIf(platform.system() == "Windows", "Windows supports only the separately tested x64 platform")
     def test_unsupported_shell_architecture_fails_before_download(self):
 
