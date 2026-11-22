@@ -92,9 +92,10 @@ describe('CLI account summary', () => {
   it('reports the balance and the same membership definition', async () => {
     const now = Date.now()
     const before = await privateTaskHooks.accountSummary!({ userId: USER, now })
-    expect(before.isMember).toBe(false)
-    expect(typeof before.credits).toBe('number')
+    expect(before).not.toBeNull()
+    expect(before!.isMember).toBe(false)
+    expect(typeof before!.credits).toBe('number')
     await subscribe(now - 1_000, now + 60_000)
-    expect((await privateTaskHooks.accountSummary!({ userId: USER, now })).isMember).toBe(true)
+    expect((await privateTaskHooks.accountSummary!({ userId: USER, now }))?.isMember).toBe(true)
   })
 })
