@@ -40,7 +40,32 @@ class DistributionHandler(BaseHTTPRequestHandler):
             self.send_header("Location", f"/ok/cli-v{VERSION}/{parts[-1]}")
             self.end_headers()
             return
-        if len(parts) == 2 and parts[1] == "releases":
+        if parts == ["cli", "skill-manifest.json"]:
+            binaries = {}
+            for plat, asset_name in (
+                ("darwin/arm64", "muvloom_darwin_arm64"),
+                ("darwin/amd64", "muvloom_darwin_amd64"),
+                ("linux/amd64", "muvloom_linux_amd64"),
+                ("linux/arm64", "muvloom_linux_arm64"),
+                ("windows/amd64", "muvloom_windows_amd64.exe"),
+            ):
+                raw = (DIST / asset_name).read_bytes()
+                binaries[plat] = {
+                    "path": f"bin/v{VERSION}/{asset_name}",
+                    "bytes": len(raw),
+                    "sha256": hashlib.sha256(raw).hexdigest(),
+                }
+            body = json.dumps({
+                "schema_version": 1,
+                "skill": "muvloom",
+                "version": VERSION,
+                "bundle_version": VERSION,
+                "packages": {},
+                "cli": {"version": VERSION, "binaries": binaries},
+            }, indent=2).encode()
+        elif len(parts) == 4 and parts[:3] == ["cli", "bin", f"v{VERSION}"] and parts[3] in EXPECTED_ASSETS:
+            body = (DIST / parts[3]).read_bytes()
+        elif len(parts) == 2 and parts[1] == "releases":
             page = parse_qs(parsed.query).get("page", ["1"])[0]
             releases = [] if mode == "missing" or page != "1" else [
                 {"tag_name": "web-v99.0.0", "prerelease": False},
@@ -79,7 +104,8 @@ class DistributionHandler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         self.send_response(200)
-        self.send_header("Content-Type", "application/json" if parts[-1] == "releases" or parts[1:3] == ["releases", "tags"] else "application/octet-stream")
+        is_json = parts[-1] == "releases" or parts[1:3] == ["releases", "tags"] or parts == ["cli", "skill-manifest.json"]
+        self.send_header("Content-Type", "application/json" if is_json else "application/octet-stream")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -470,6 +496,38 @@ class InstallTests(unittest.TestCase):
         result = self.install(pin=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.cli("version")["data"]["version"], VERSION)
+
+    def test_same_origin_manifest_install_and_bundled_skill_launcher(self):
+        # 1. Same-origin manifest fast path (no MUVLOOM_DISTRIBUTION_URL, zero GitHub /releases calls).
+        self.env.pop("MUVLOOM_DISTRIBUTION_URL", None)
+        self.env.pop("MUVLOOM_VERSION", None)
+        self.env["MUVLOOM_ORIGIN"] = self.origin
+        self.env["MUVLOOM_MIN_VERSION"] = VERSION
+        command = ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(DIST / "install.ps1")] if self.windows else ["sh", str(DIST / "install.sh")]
+        result = subprocess.run(command, cwd=self.project, env=self.env, text=True, capture_output=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.cli("version")["data"]["version"], VERSION)
+        req_paths = [urlsplit(p).path for p, _ in self.server.requests]
+        self.assertIn("/cli/skill-manifest.json", req_paths)
+        self.assertFalse(any("releases" in p for p in req_paths), req_paths)
+
+        # 2. Install Skill, delete the CLI binary, and verify bundled scripts/muvloom auto-bootstraps it!
+        skill_data = self.cli("skill", "install", "--host", "workbuddy", "--scope", "user")["data"]
+        skill_dir = Path(skill_data["path"])
+        self.binary.unlink()
+        self.assertFalse(self.binary.exists())
+        self.server.requests.clear()
+
+        launcher_cmd = (
+            ["pwsh", "-NoProfile", "-NonInteractive", "-File", str(skill_dir / "scripts" / "muvloom.ps1"), "--json", "version"]
+            if self.windows
+            else [str(skill_dir / "scripts" / "muvloom"), "--json", "version"]
+        )
+        launched = subprocess.run(launcher_cmd, cwd=self.project, env=self.env, text=True, capture_output=True, timeout=60)
+        self.assertEqual(launched.returncode, 0, launched.stdout + launched.stderr)
+        envelope = json.loads(launched.stdout)
+        self.assertEqual(envelope["data"]["version"], VERSION)
+        self.assertTrue(self.binary.is_file())
 
     @unittest.skipIf(platform.system() == "Windows", "Windows supports only the separately tested x64 platform")
     def test_unsupported_shell_architecture_fails_before_download(self):

@@ -2097,3 +2097,46 @@ func TestApprovedPendingLoginIsCollectedAutomaticallyBySubsequentCommands(t *tes
 		}
 	})
 }
+
+func TestSetupCommandInstallsSkillLogsInAndValidatesInOneStep(t *testing.T) {
+	f := newFakeServer(t)
+	f.approveAfter = 1
+	app := newApp(t, f, t.TempDir())
+	app.APIURL = ""
+	app.Getenv = func(k string) string {
+		if k == "WORKBUDDY_SANDBOX" {
+			return "1"
+		}
+		return ""
+	}
+
+	// 1. Reject unsupported --origin cleanly.
+	bad := execute(t, app, "setup", "--origin", "https://evil.example.com")
+	if bad.code != ExitInvalid {
+		t.Fatalf("expected ExitInvalid for unsupported origin, got %d: %s", bad.code, bad.stdout)
+	}
+
+	// 2. --no-wait installs the WorkBuddy Skill and returns pending login.
+	pendingRes := execute(t, app, "setup", "--origin", f.server.URL, "--no-wait")
+	if pendingRes.code != ExitOK {
+		t.Fatalf("setup --no-wait failed: %d %s %s", pendingRes.code, pendingRes.stdout, pendingRes.stderr)
+	}
+	pendingData := pendingRes.out["data"].(map[string]any)
+	if pendingData["state"] != "pending" {
+		t.Fatalf("expected pending state, got %s", pendingRes.stdout)
+	}
+	if _, err := os.Stat(filepath.Join(app.Home, ".workbuddy", "skills", "muvloom", "SKILL.md")); err != nil {
+		t.Fatalf("setup did not install workbuddy Skill: %v", err)
+	}
+
+	// 3. Subsequent `setup` auto-collects the approved login, reads capabilities, and runs smoke_validate.
+	app.APIURL = ""
+	readyRes := execute(t, app, "setup")
+	if readyRes.code != ExitOK {
+		t.Fatalf("setup resume failed: %d %s %s", readyRes.code, readyRes.stdout, readyRes.stderr)
+	}
+	data := readyRes.out["data"].(map[string]any)
+	if data["state"] != "ready" || data["default_model"] == nil || data["models"] == nil || data["smoke_validate"] == nil {
+		t.Fatalf("incomplete setup readiness summary: %s", readyRes.stdout)
+	}
+}

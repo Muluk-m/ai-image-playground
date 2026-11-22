@@ -25,15 +25,19 @@ func TestInstallUserHostsAndMetadata(t *testing.T) {
 		if result.Path != root || result.Version != SkillVersion || result.FileHash == "" {
 			t.Fatalf("unexpected result: %+v", result)
 		}
-		wantFiles := []string{"SKILL.md", "references/cli.md", "references/install.md", "references/jobs.md", "references/errors.md", "references/getting-started.md", "references/image-sets.md", "references/animation.md", ".muvloom-skill.json"}
+		wantFiles := []string{"SKILL.md", "scripts/muvloom", "scripts/muvloom.ps1", "scripts/muvloom.cmd", "references/cli.md", "references/install.md", "references/jobs.md", "references/errors.md", "references/getting-started.md", "references/image-sets.md", "references/animation.md", ".muvloom-skill.json"}
 		if host == "workbuddy" {
 			wantFiles = append(wantFiles, "references/workbuddy.md")
 		} else {
 			wantFiles = append(wantFiles, "agents/openai.yaml")
 		}
 		for _, name := range wantFiles {
-			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(name))); err != nil {
+			info, err := os.Stat(filepath.Join(root, filepath.FromSlash(name)))
+			if err != nil {
 				t.Fatalf("%s missing %s: %v", host, name, err)
+			}
+			if name == "scripts/muvloom" && filepath.Separator == '/' && info.Mode()&0o111 == 0 {
+				t.Fatalf("%s scripts/muvloom is not executable: %v", host, info.Mode())
 			}
 		}
 		var meta metadata

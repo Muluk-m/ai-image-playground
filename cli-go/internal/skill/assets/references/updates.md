@@ -1,39 +1,23 @@
 # Updates
 
-Run `muvloom update check` at Skill startup. It returns `status`, `current_version`,
-`latest_version`, `checked_at`, `cached`, `should_prompt`, and the current
-`install_directory`. Checks and failed attempts are cached until the next local
-calendar day. A cached result never asks again that day. `unavailable` is
-non-blocking; resume the user's task.
+Both the `muvloom` CLI binary and installed Skills (`claude-code`, `codex`, `workbuddy`, `cursor`, `windsurf`, `cline`, `openclaw` copies with `.muvloom-skill.json`) automatically check Muvloom's official `/cli/skill-manifest.json` at most once every 24 hours during `muvloom auth status`:
 
-When `should_prompt: true`, briefly tell the user that a newer Muvloom version is
-available and ask whether to update. Continue their requested task while awaiting
-the reply. A refusal keeps the installed version; no upgrade runs without approval.
+- **SHA-256 verified**: every binary and Skill archive is verified against exact byte count and SHA-256 before atomic replacement.
+- **Non-blocking**: bounded timeout budget; offline or slow networks never fail or stall generation commands.
+- **Safe for local edits**: Skill copies edited by the user (`intact: false`) are never overwritten automatically.
+- **Credentials preserved**: logins are stored in `0600` files inside the `0700` muvloom config directory by default, so binary upgrades never trigger OS keychain password prompts.
 
-After approval:
+## Manual update controls
 
-1. Let any active local CLI command return before replacing its executable.
-   Install the exact approved `latest_version` using [install.md](install.md).
-   Set `MUVLOOM_VERSION` only for the installer invocation, and use the returned
-   `install_directory` as `MUVLOOM_INSTALL_DIR` to replace the existing CLI.
-2. Check `muvloom version`, then run `muvloom auth status`: it updates the Skill
-   copies the CLI installed, as described in install.md. Existing login credentials
-   are retained.
-3. Resume the original task. Report an installation failure without falling back
-   to another source or requesting the user's password or token.
-
-## Automatic Skill hot-updates
-
-Installed Skills (Claude Code, Codex, and WorkBuddy copies with `.muvloom-skill.json`)
-automatically check Muvloom's official `/cli/skill-manifest.json` at most once every
-24 hours during `muvloom auth status` (3-second timeout, SHA-256 verified, updated in
-place without touching user-edited copies or blocking generation).
-
-To manage Skill updates manually:
-
-- `muvloom update skill` — check and apply a newer Skill immediately.
-- `muvloom update skill --check` — check without modifying local files.
+- `muvloom update self` — check and self-update the `muvloom` CLI binary immediately.
+- `muvloom update self --check` — check for a newer CLI binary without modifying disk.
+- `muvloom update self --auto off` / `--auto on` — disable or re-enable automatic CLI self-updates.
+- `muvloom update skill` — check and apply newer Skills immediately.
+- `muvloom update skill --check` — check for newer Skills without modifying local files.
 - `muvloom update skill --auto off` / `--auto on` — disable or re-enable automatic Skill hot-updates.
+- `muvloom update check` — inspect the daily cached release status (`status`, `current_version`, `latest_version`, `install_directory`, `cli_auto_update`, `skill_auto_update`).
+
+If `muvloom update self` cannot write to a root-owned directory (such as `/usr/local/bin`), follow [install.md](install.md) to upgrade with appropriate permissions or install into `~/.local/bin`.
 
 An already-running generation continues on the server during an upgrade. Resume
 that same job using its saved ID or idempotency key instead of submitting again.

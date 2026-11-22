@@ -218,6 +218,7 @@ var commandList = []struct {
 		{"media download", "MEDIA_ID [--output PATH]", "Save an uploaded reference image", cmdMediaDownload},
 	}},
 	{"SETUP", []command{
+		{"setup", "[--origin URL] [--host auto|...] [--no-wait] [--timeout SECONDS] [--switch-service]", "Install the Skill, connect your account and verify readiness in one step", cmdSetup},
 		{"skill install", "--host auto|claude-code|codex|workbuddy|cursor|windsurf|cline|openclaw|generic [--scope user|project]", "Install the bundled agent Skill", cmdSkillInstall},
 		{"skill status", "", "Where the agent Skill is installed and its version", cmdSkillStatus},
 		{"update check", "", "Check for a newer CLI release (cached for the day)", cmdUpdateCheck},
@@ -337,7 +338,7 @@ func (a *App) Run(args []string) int {
 			a.apiURLSource = sourceEnvironment
 		}
 	} else {
-		a.resolveAPIURL(cmd.name == "auth login")
+		a.resolveAPIURL(cmd.name == "auth login" || cmd.name == "setup")
 	}
 	if err := validateAPIURL(a.APIURL); err != nil {
 		return a.render(nil, err)
