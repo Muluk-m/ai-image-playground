@@ -6,6 +6,7 @@ export {
   schema,
 } from './client'
 export { runMigrations } from './migrate'
+export { ensureBillingMigrations } from './migrate-billing'
 export {
   sqlBatchAttemptTarget,
   sqlCoalesceIntegerFromDigitText,

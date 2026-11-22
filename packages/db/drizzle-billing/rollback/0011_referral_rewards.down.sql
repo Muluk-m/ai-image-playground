@@ -1,0 +1,10 @@
+ALTER TABLE "billing_confirmed_payments"
+  DROP COLUMN "reward_credits",
+  DROP COLUMN "credits_per_yuan_scaled",
+  DROP COLUMN "paid_reward_basis_points",
+  DROP COLUMN "inviter_user_id";
+DROP TABLE "billing_referral_rewards";
+DROP TABLE "billing_referral_transfers";
+DROP TABLE "billing_referral_relationships";
+DROP TABLE "billing_referral_profiles";
+DROP TABLE "billing_referral_policy";
