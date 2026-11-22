@@ -13,6 +13,9 @@
  * package's suite over N machines; the N shards together run every file exactly once.
  *
  * All files run even after a failure; the summary at the end lists every failed file.
+ *
+ * BUN_TEST_TIMEOUT (ms, default 15000) replaces bun's 5s per-test default: database-backed tests
+ * that take ~4s on a CI runner timed out at random. A test's own timeout argument still wins.
  */
 import { closeSync, mkdtempSync, openSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -21,7 +24,7 @@ import { acquireTestLock, isConstrainedHost, refuseFullSuite } from './test-guar
 import { parseShard, type Shard, selectShard } from './test-shard'
 
 const roots: string[] = []
-let jobs = Number(process.env.BUN_TEST_JOBS ?? 1)
+let jobs = Number(process.env.BUN_TEST_JOBS || 1)
 let filter: string | undefined
 let shard: Shard | undefined
 const args = process.argv.slice(2)
@@ -35,6 +38,9 @@ for (let index = 0; index < args.length; index++) {
 }
 if (roots.length === 0) throw new Error('Pass at least one test root')
 if (!Number.isInteger(jobs) || jobs < 1) throw new Error('--jobs must be a positive integer')
+const testTimeout = Number(process.env.BUN_TEST_TIMEOUT || 15_000)
+if (!Number.isInteger(testTimeout) || testTimeout < 1)
+  throw new Error('BUN_TEST_TIMEOUT must be a positive integer (ms)')
 // 资源受限的机器只跑收窄过的文件，一次一个，整机同一时间只有一组测试（scripts/test-guard.ts）。
 if (isConstrainedHost()) {
   if (!filter) refuseFullSuite(`${roots.join(', ')} 的全量 Bun 测试`)
@@ -83,13 +89,16 @@ async function runFile(file: string): Promise<Result> {
   let log: number | 'inherit' = 'inherit'
   try {
     if (logPath) log = openSync(logPath, 'w')
-    const child = Bun.spawn([process.execPath, 'test', '--no-env-file', file], {
-      cwd: process.cwd(),
-      env: process.env,
-      stdout: log,
-      stderr: log,
-      stdin: 'ignore',
-    })
+    const child = Bun.spawn(
+      [process.execPath, 'test', '--no-env-file', `--timeout=${testTimeout}`, file],
+      {
+        cwd: process.cwd(),
+        env: process.env,
+        stdout: log,
+        stderr: log,
+        stdin: 'ignore',
+      },
+    )
     running.add(child)
     const exitCode = await child.exited
     running.delete(child)

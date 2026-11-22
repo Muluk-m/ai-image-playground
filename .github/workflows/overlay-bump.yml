@@ -1,8 +1,8 @@
 # overlay 的 `verified` 指针前移后，把 `private.lock` 抬到它；生产部署由下一个发布窗口带上。
 #
 # 为什么是公开仓来拉而不是 overlay 仓来推：推需要一枚能写公开仓的 PAT 存在私有仓里；拉只用
-# 现有的只读 deploy key。GITHUB_TOKEN 推的提交不会触发 `Web checks`（GitHub 规则），所以这里
-# 先自己把「候选公开树 + 新 overlay」lint / typecheck / build 一遍，通过才提交。不再立即触发
+# 现有的只读 deploy key。main 受 ruleset 保护，lock 提交用 MAIN_PUSH_SSH_KEY（唯一豁免的写 deploy key）推送，
+# 推送后照常触发 `Web checks`；推送前仍先把「候选公开树 + 新 overlay」lint / typecheck / build 一遍。不再立即触发
 # 生产部署：lock 进 main 后由下一个窗口（deploy.yml 的 schedule）发布；紧急时手动
 # `workflow_dispatch` deploy.yml 并填 reason。
 #
@@ -28,14 +28,19 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
+      # main is behind a ruleset (PR + required checks). The only bypass is a deploy key, so the
+      # lock commit is pushed with MAIN_PUSH_SSH_KEY, not GITHUB_TOKEN.
+      - name: Require the keys
+        env:
+          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
+          MAIN_PUSH_SSH_KEY: ${{ secrets.MAIN_PUSH_SSH_KEY }}
+        run: |
+          [ -n "$PRIVATE_OVERLAY_SSH_KEY" ] || { echo "::error::PRIVATE_OVERLAY_SSH_KEY is missing."; exit 1; }
+          [ -n "$MAIN_PUSH_SSH_KEY" ] || { echo "::error::MAIN_PUSH_SSH_KEY is missing."; exit 1; }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
-      - name: Require the overlay key
-        env:
-          PRIVATE_OVERLAY_SSH_KEY: ${{ secrets.PRIVATE_OVERLAY_SSH_KEY }}
-        run: |
-          [ -n "$PRIVATE_OVERLAY_SSH_KEY" ] || { echo "::error::PRIVATE_OVERLAY_SSH_KEY is missing."; exit 1; }
+          ssh-key: ${{ secrets.MAIN_PUSH_SSH_KEY }}
       - name: Check out the overlay at its verified pointer
         id: overlay
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -60,7 +65,7 @@ jobs:
           fi
       - if: steps.diff.outputs.changed == 'true'
         uses: ./.github/actions/setup
-      # 这一步替代 `Web checks`：GITHUB_TOKEN 推上去的提交不会再跑它。
+      # 推送前的自检；推送后 `Web checks` 还会在 main 上再跑一遍。
       - if: steps.diff.outputs.changed == 'true'
         name: Build the pair before pinning it
         run: |
@@ -74,7 +79,7 @@ jobs:
           SUBJECT: ${{ steps.diff.outputs.subject }}
         run: |
           printf '%s\n' "$LATEST" > private.lock
-          git config user.name github-actions[bot]
+          git config user.name 'github-actions[bot]'
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add private.lock
           git commit -m "chore(overlay): pin $(printf %.12s "$LATEST")" -m "$SUBJECT"
