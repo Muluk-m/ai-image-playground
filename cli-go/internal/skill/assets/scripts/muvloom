@@ -105,11 +105,13 @@ if ! mkdir -p "$target_dir" 2>/dev/null || [ ! -w "$target_dir" ]; then
 fi
 BIN="$target_dir/muvloom"
 
+stage_bin="$(mktemp "$target_dir/.muvloom-bootstrap.XXXXXX")"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+trap 'rm -f "$stage_bin"; rm -rf "$tmp"' EXIT
 
-downloaded=""
-if manifest="$(fetch_origin "$origin/cli/skill-manifest.json" 2>/dev/null || true)" && [ -n "$manifest" ]; then
+try_manifest_bootstrap() {
+  manifest="$(fetch_origin "$origin/cli/skill-manifest.json" 2>/dev/null || true)"
+  [ -n "$manifest" ] || return 1
   compact="$(printf '%s' "$manifest" | tr -d '\r\n\t ')"
   cli_sec="$(printf '%s' "$compact" | sed -n 's/.*"cli":{\(.*\)/\1/p')"
   manifest_ver="$(printf '%s' "$cli_sec" | sed -n 's/.*"version":"\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p')"
@@ -117,22 +119,41 @@ if manifest="$(fetch_origin "$origin/cli/skill-manifest.json" 2>/dev/null || tru
   entry="$(printf '%s' "$cli_sec" | sed -n "s/.*\"${plat_escaped}\":{\([^}]*\)}.*/\1/p")"
   rel_path="$(printf '%s' "$entry" | sed -n 's/.*"path":"\([^"]*\)".*/\1/p')"
   expected_sha="$(printf '%s' "$entry" | sed -n 's/.*"sha256":"\([0-9a-f]\{64\}\)".*/\1/p')"
-  if [ -n "$manifest_ver" ] && ! version_less "$manifest_ver" "$MIN_VERSION" &&
-     printf '%s\n' "$rel_path" | grep -Eq '^bin/v[0-9]+\.[0-9]+\.[0-9]+/[A-Za-z0-9._-]+$' &&
-     [ -n "$expected_sha" ]; then
-    if fetch_origin -o "$tmp/$asset" "$origin/cli/$rel_path" 2>/dev/null; then
-      actual_sha="$(sha256 "$tmp/$asset")"
-      if [ "$actual_sha" = "$expected_sha" ]; then
-        downloaded=1
-      fi
-    fi
-  fi
+  [ -n "$manifest_ver" ] && ! version_less "$manifest_ver" "$MIN_VERSION" || return 1
+  printf '%s\n' "$rel_path" | grep -Eq '^bin/v[0-9]+\.[0-9]+\.[0-9]+/[A-Za-z0-9._-]+$' || return 1
+  [ -n "$expected_sha" ] || return 1
+  fetch_origin -o "$stage_bin" "$origin/cli/$rel_path" 2>/dev/null || return 1
+  actual_sha="$(sha256 "$stage_bin")"
+  [ "$actual_sha" = "$expected_sha" ] || return 1
+  return 0
+}
+
+downloaded=""
+if try_manifest_bootstrap || try_manifest_bootstrap; then
+  downloaded=1
 fi
 
 if [ -z "$downloaded" ]; then
   repo="Muluk-m/ai-image-playground"
-  gh_curl() { curl -q -fsSL --proto '=https' --proto-redir '=https' --connect-timeout 6 --max-time 45 "$@"; }
-  body="$(gh_curl "https://api.github.com/repos/$repo/releases?per_page=100")" ||
+  gh_releases_url="https://api.github.com/repos/$repo/releases"
+  gh_download_base="https://github.com/$repo/releases/download"
+  gh_loopback=""
+  if [ -n "${MUVLOOM_GITHUB_RELEASES_URL:-}" ] && printf '%s\n' "$MUVLOOM_GITHUB_RELEASES_URL" | grep -Eq '^http://127\.0\.0\.1:[0-9]+/'; then
+    gh_releases_url="${MUVLOOM_GITHUB_RELEASES_URL%/}"
+    gh_loopback=1
+  fi
+  if [ -n "${MUVLOOM_GITHUB_DOWNLOAD_URL:-}" ] && printf '%s\n' "$MUVLOOM_GITHUB_DOWNLOAD_URL" | grep -Eq '^http://127\.0\.0\.1:[0-9]+/'; then
+    gh_download_base="${MUVLOOM_GITHUB_DOWNLOAD_URL%/}"
+    gh_loopback=1
+  fi
+  gh_curl() {
+    if [ -n "$gh_loopback" ]; then
+      curl -q -fsSL --max-redirs 5 --noproxy '*' --connect-timeout 6 --max-time 45 "$@"
+    else
+      curl -q -fsSL --proto '=https' --proto-redir '=https' --max-redirs 5 --connect-timeout 6 --max-time 45 "$@"
+    fi
+  }
+  body="$(gh_curl "${gh_releases_url}?per_page=100")" ||
     fail "could not bootstrap muvloom CLI from $origin or GitHub Releases"
   ver="$(printf '%s' "$body" | awk '
     BEGIN { d = 0; in_str = 0; esc = 0; obj = "" }
@@ -172,17 +193,17 @@ if [ -z "$downloaded" ]; then
   ' | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)"
   [ -n "$ver" ] && ! version_less "$ver" "$MIN_VERSION" ||
     fail "no release >= $MIN_VERSION available"
-  base="https://github.com/$repo/releases/download/cli-v$ver"
-  gh_curl -o "$tmp/$asset" "$base/$asset" || fail "download failed: $base/$asset"
+  base="$gh_download_base/cli-v$ver"
+  gh_curl -o "$stage_bin" "$base/$asset" || fail "download failed: $base/$asset"
   gh_curl -o "$tmp/checksums.txt" "$base/checksums.txt" || fail "download failed: $base/checksums.txt"
   expected_sha="$(grep " $asset\$" "$tmp/checksums.txt" | cut -d' ' -f1)"
   [ -n "$expected_sha" ] || fail "missing checksum for $asset"
-  actual_sha="$(sha256 "$tmp/$asset")"
+  actual_sha="$(sha256 "$stage_bin")"
   [ "$actual_sha" = "$expected_sha" ] || fail "checksum mismatch for $asset"
 fi
 
-chmod 0755 "$tmp/$asset"
-mv "$tmp/$asset" "$BIN"
+chmod 0755 "$stage_bin"
+mv "$stage_bin" "$BIN"
 trap - EXIT
 rm -rf "$tmp"
 

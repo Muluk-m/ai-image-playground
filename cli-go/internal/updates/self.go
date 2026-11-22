@@ -36,6 +36,7 @@ var (
 	ErrSelfRemoteUnavailable   = errors.New("remote CLI manifest or binary unavailable")
 	ErrSelfInvalidBinary       = errors.New("CLI binary failed integrity verification")
 	ErrSelfUpdateBusy          = errors.New("another CLI self-update is in progress")
+	errSelfBinaryNotFound      = errors.New("CLI binary path returned 404")
 )
 
 func SelfErrorReason(err error) string {
@@ -239,7 +240,6 @@ func MaybeAutoUpdateSelf(ctx context.Context, opts SelfUpdateOptions) SelfUpdate
 	if goos == "" {
 		goos = runtime.GOOS
 	}
-	cleanOrHealWindowsOldBinary(exe, goos)
 	origin, ok := skill.ResolveManifestOrigin(opts.APIURL, opts.BaseURL)
 	if !ok {
 		return SelfUpdateResult{Status: "skipped", AutoUpdate: true, CurrentVersion: curVer, Reason: "unrecognized_origin"}
@@ -257,6 +257,7 @@ func MaybeAutoUpdateSelf(ctx context.Context, opts SelfUpdateOptions) SelfUpdate
 		return SelfUpdateResult{Status: "skipped", AutoUpdate: true, CurrentVersion: curVer, Reason: "check_in_progress"}
 	}
 	defer release()
+	cleanOrHealWindowsOldBinary(exe, goos)
 
 	now := time.Now()
 	if opts.Now != nil {
@@ -281,17 +282,20 @@ func MaybeAutoUpdateSelf(ctx context.Context, opts SelfUpdateOptions) SelfUpdate
 	if ctx.Err() != nil {
 		return SelfUpdateResult{Status: "unavailable", AutoUpdate: true, CurrentVersion: curVer, Reason: "check_or_update_failed"}
 	}
-	state.LastCheckedAt = now
-	_ = writeSelfState(opts.StateDir, state)
 
 	opts.ExecutablePath = exe
 	res, err := runSelfUpdate(ctx, opts, origin, exe, false, true, &state, now)
 	if err != nil {
+		// Transient failure uses a 5-minute retry cooldown instead of locking out updates for 24h.
+		state.LastCheckedAt = now.Add(-selfCheckInterval + 5*time.Minute)
+		_ = writeSelfState(opts.StateDir, state)
 		if errors.Is(err, os.ErrPermission) {
 			return SelfUpdateResult{Status: "skipped", AutoUpdate: true, CurrentVersion: curVer, Reason: "permission_denied"}
 		}
 		return SelfUpdateResult{Status: "unavailable", AutoUpdate: true, CurrentVersion: curVer, Reason: "check_or_update_failed"}
 	}
+	state.LastCheckedAt = now
+	_ = writeSelfState(opts.StateDir, state)
 	return res
 }
 
@@ -318,29 +322,31 @@ func CheckOrUpdateSelf(ctx context.Context, opts SelfUpdateOptions, checkOnly bo
 	if goos == "" {
 		goos = runtime.GOOS
 	}
-	cleanOrHealWindowsOldBinary(exe, goos)
 	var release func()
 	var statePtr *selfUpdateState
+	lockTarget := filepath.Join(filepath.Dir(exe), ".muvloom-self-update.lock")
 	if opts.StateDir != "" {
 		if err := os.MkdirAll(filepath.Join(opts.StateDir, "updates"), 0o700); err != nil {
 			return SelfUpdateResult{}, err
 		}
-		unlock, err := auth.LockFile(selfLockPath(opts.StateDir), 2*time.Second)
-		if err != nil {
-			if errors.Is(err, auth.ErrLockTimeout) {
-				return SelfUpdateResult{}, fmt.Errorf("%w: %w", ErrSelfUpdateBusy, err)
-			}
-			return SelfUpdateResult{}, err
+		lockTarget = selfLockPath(opts.StateDir)
+	}
+	unlock, err := auth.LockFile(lockTarget, 2*time.Second)
+	if err != nil {
+		if errors.Is(err, auth.ErrLockTimeout) {
+			return SelfUpdateResult{}, fmt.Errorf("%w: %w", ErrSelfUpdateBusy, err)
 		}
-		release = unlock
+		return SelfUpdateResult{}, err
+	}
+	release = unlock
+	defer release()
+	cleanOrHealWindowsOldBinary(exe, goos)
+	if opts.StateDir != "" {
 		if state, sErr := readSelfState(opts.StateDir); sErr == nil {
 			autoEnabled = state.AutoUpdate == nil || *state.AutoUpdate
 			state.LastCheckedAt = now
 			statePtr = &state
 		}
-	}
-	if release != nil {
-		defer release()
 	}
 	return runSelfUpdate(ctx, opts, origin, exe, false, autoEnabled, statePtr, now)
 }
@@ -413,6 +419,22 @@ func runSelfUpdate(
 	}
 
 	data, err := downloadVerifiedBinary(ctx, opts.HTTP, origin+"/cli/"+binEntry.Path, binEntry.Bytes, binEntry.SHA256)
+	if errors.Is(err, errSelfBinaryNotFound) {
+		// A concurrent web deploy may have rotated /cli/skill-manifest.json and its content-hashed
+		// binary path between the manifest fetch and binary download: re-fetch the manifest once.
+		if refreshed, mErr := skill.FetchManifest(ctx, opts.HTTP, origin); mErr == nil && refreshed.CLI != nil {
+			if refreshedVer, rOK := parseVersion(refreshed.CLI.Version); rOK && curVer.less(refreshedVer) {
+				if nextEntry, nextOK := refreshed.CLI.Binaries[platformKey]; nextOK {
+					remoteVer = refreshedVer
+					binEntry = nextEntry
+					if state != nil && opts.StateDir != "" {
+						state.LastRemoteVersion = remoteVer.String()
+					}
+					data, err = downloadVerifiedBinary(ctx, opts.HTTP, origin+"/cli/"+binEntry.Path, binEntry.Bytes, binEntry.SHA256)
+				}
+			}
+		}
+	}
 	if err != nil {
 		return SelfUpdateResult{}, err
 	}
@@ -451,6 +473,9 @@ func downloadVerifiedBinary(ctx context.Context, base *http.Client, targetURL st
 		return nil, fmt.Errorf("%w: %w", ErrSelfRemoteUnavailable, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("%w: %w", ErrSelfRemoteUnavailable, errSelfBinaryNotFound)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("%w: unexpected HTTP status %d", ErrSelfRemoteUnavailable, resp.StatusCode)
 	}

@@ -40,6 +40,11 @@ class DistributionHandler(BaseHTTPRequestHandler):
             self.send_header("Location", f"/ok/cli-v{VERSION}/{parts[-1]}")
             self.end_headers()
             return
+        if mode == "gh-redirect" and len(parts) == 3 and parts[1] == f"cli-v{VERSION}":
+            self.send_response(302)
+            self.send_header("Location", f"/ok/cli-v{VERSION}/{parts[-1]}")
+            self.end_headers()
+            return
         if parts == ["cli", "skill-manifest.json"]:
             binaries = {}
             for plat, asset_name in (
@@ -550,6 +555,21 @@ class InstallTests(unittest.TestCase):
         envelope = json.loads(launched.stdout)
         self.assertEqual(envelope["data"]["version"], VERSION)
         self.assertTrue(self.binary.is_file())
+
+        # 2b. When CDN origin is unreachable, launcher falls back to GitHub Releases and follows 302 asset redirects.
+        self.binary.unlink()
+        self.server.requests.clear()
+        gh_env = dict(self.env)
+        gh_env["MUVLOOM_ORIGIN"] = "http://127.0.0.1:1"
+        gh_env["MUVLOOM_GITHUB_RELEASES_URL"] = f"{self.origin}/gh-redirect/releases"
+        gh_env["MUVLOOM_GITHUB_DOWNLOAD_URL"] = f"{self.origin}/gh-redirect"
+        gh_launched = subprocess.run(launcher_cmd, cwd=self.project, env=gh_env, text=True, capture_output=True, timeout=60)
+        self.assertEqual(gh_launched.returncode, 0, gh_launched.stdout + gh_launched.stderr)
+        self.assertEqual(json.loads(gh_launched.stdout)["data"]["version"], VERSION)
+        gh_paths = [urlsplit(p).path for p, _ in self.server.requests]
+        self.assertIn("/gh-redirect/releases", gh_paths)
+        self.assertTrue(any(p.startswith(f"/gh-redirect/cli-v{VERSION}/") for p in gh_paths), gh_paths)
+        self.assertTrue(any(p.startswith(f"/ok/cli-v{VERSION}/") for p in gh_paths), gh_paths)
 
         # 3. Untrusted third-party MUVLOOM_ORIGIN is rejected before making any network request.
         self.binary.unlink()

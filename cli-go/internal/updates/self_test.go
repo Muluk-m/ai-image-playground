@@ -357,3 +357,111 @@ func TestCheckerPrefersManifestOriginAndFallsBackToGitHub(t *testing.T) {
 		t.Fatalf("interrupted Windows swap was not healed from .muvloom-old: %q %v", got, err)
 	}
 }
+
+func TestSelfUpdateRefetchesManifestOnBinary404AndShortFailureCooldown(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(dir, "muvloom")
+	if err := os.WriteFile(exe, []byte("old-0.2.5"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var zipBuf bytes.Buffer
+	zw := zip.NewWriter(&zipBuf)
+	wZip, err := zw.Create("muvloom/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	skillContent := []byte("---\nname: muvloom\ndescription: Test\n---\n# Test\n")
+	_, _ = wZip.Write(skillContent)
+	_ = zw.Close()
+	zipBytes := zipBuf.Bytes()
+	zipSum := sha256.Sum256(zipBytes)
+	fileSum := sha256.Sum256(skillContent)
+	th := sha256.New()
+	fmt.Fprintf(th, "%s\x00%d\x00", "SKILL.md", len(skillContent))
+	th.Write(skillContent)
+	treeHash := hex.EncodeToString(th.Sum(nil))
+
+	newBin := []byte("fresh-deployed-0.2.8")
+	binSum := sha256.Sum256(newBin)
+	binSHA := hex.EncodeToString(binSum[:])
+
+	var manifestFetches atomic.Int32
+	var failAll atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if failAll.Load() {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		switch r.URL.Path {
+		case "/cli/skill-manifest.json":
+			n := manifestFetches.Add(1)
+			binPath := "bin/v0.2.8/muvloom_darwin_arm64-stale0000000"
+			if n >= 2 {
+				binPath = "bin/v0.2.8/muvloom_darwin_arm64-" + binSHA[:12]
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(skill.RemoteManifest{
+				SchemaVersion: 1,
+				Skill:         "muvloom",
+				Version:       "0.2.8",
+				BundleVersion: "0.2.8",
+				Packages: map[string]skill.RemoteManifestBundle{
+					"workbuddy": {
+						Archive:       "muvloom-workbuddy.zip",
+						ArchiveSHA256: hex.EncodeToString(zipSum[:]),
+						FileHash:      treeHash,
+						Files:         []skill.RemoteManifestFile{{Path: "SKILL.md", Bytes: len(skillContent), SHA256: hex.EncodeToString(fileSum[:])}},
+					},
+				},
+				CLI: &skill.RemoteManifestCLI{
+					Version: "0.2.8",
+					Binaries: map[string]skill.RemoteManifestBinary{
+						"darwin/arm64": {Path: binPath, SHA256: binSHA, Bytes: len(newBin)},
+					},
+				},
+			})
+		case "/cli/bin/v0.2.8/muvloom_darwin_arm64-" + binSHA[:12]:
+			_, _ = w.Write(newBin)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	// 1. Transient 502 backs off for 5 minutes rather than locking out auto-update for 24 hours.
+	stateDir := t.TempDir()
+	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
+	failAll.Store(true)
+	opts := SelfUpdateOptions{
+		StateDir:       stateDir,
+		CurrentVersion: "0.2.5",
+		ExecutablePath: exe,
+		OS:             "darwin",
+		Arch:           "arm64",
+		BaseURL:        srv.URL,
+		HTTP:           srv.Client(),
+		Now:            func() time.Time { return now },
+	}
+	failedRes := MaybeAutoUpdateSelf(context.Background(), opts)
+	if failedRes.Status != "unavailable" {
+		t.Fatalf("expected unavailable on 502, got %+v", failedRes)
+	}
+	now = now.Add(6 * time.Minute)
+	failAll.Store(false)
+
+	// 2. After 6 minutes, auto-update retries; first binary URL 404s, triggers 1 manifest re-fetch, and updates!
+	recovered := MaybeAutoUpdateSelf(context.Background(), opts)
+	if recovered.Status != "updated" || recovered.LatestVersion != "0.2.8" {
+		t.Fatalf("expected 404 manifest re-fetch to succeed, got %+v", recovered)
+	}
+	if manifestFetches.Load() != 2 {
+		t.Fatalf("expected exactly 2 manifest fetches across 404 retry, got %d", manifestFetches.Load())
+	}
+	if got, _ := os.ReadFile(exe); !bytes.Equal(got, newBin) {
+		t.Fatalf("binary not updated after manifest re-fetch: %q", got)
+	}
+}

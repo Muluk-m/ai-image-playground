@@ -24,14 +24,11 @@ function Test-UsableBinary($candidate) {
 }
 
 $defaultDir = if ($env:MUVLOOM_INSTALL_DIR) { $env:MUVLOOM_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "Programs\muvloom" }
-$recoveredTarget = Join-Path $defaultDir "muvloom.exe"
+$exe = Join-Path $defaultDir "muvloom.exe"
 $oldBackup = Join-Path $defaultDir ".muvloom.exe.muvloom-old"
-if ((-not (Test-Path $recoveredTarget)) -and (Test-Path $oldBackup)) {
-  try { Move-Item -Force $oldBackup $recoveredTarget -ErrorAction Stop } catch { }
-}
 $pathCmd = Get-Command muvloom.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
 $candidates = @(
-  (Join-Path $defaultDir "muvloom.exe"),
+  $exe,
   $(if ($pathCmd) { $pathCmd.Source } else { $null })
 )
 foreach ($c in $candidates) {
@@ -56,55 +53,69 @@ $origin = if ($env:MUVLOOM_ORIGIN) {
   "https://muvloom.online"
 }
 
-$exe = Join-Path $defaultDir "muvloom.exe"
 $mutex = New-Object System.Threading.Mutex($false, "Local\MuvloomCliBootstrap")
 $locked = $false
 try {
-  try { $locked = $mutex.WaitOne(30000) } catch [System.Threading.AbandonedMutexException] { $locked = $true }
-  if ((-not (Test-Path $exe)) -and (Test-Path $oldBackup)) {
+  try { $locked = $mutex.WaitOne(120000) } catch [System.Threading.AbandonedMutexException] { $locked = $true }
+  if (-not $locked) {
+    if (Test-UsableBinary $exe) {
+      & $exe @args
+      exit $LASTEXITCODE
+    }
+    throw "muvloom launcher: timed out waiting for another muvloom bootstrap process"
+  }
+  if ((-not (Test-Path -LiteralPath $exe)) -and (Test-Path -LiteralPath $oldBackup)) {
     try { Move-Item -Force $oldBackup $exe -ErrorAction Stop } catch { }
   }
   if (-not (Test-UsableBinary $exe)) {
+    New-Item -ItemType Directory -Force -Path $defaultDir | Out-Null
+    $stageFile = Join-Path $defaultDir (".muvloom-bootstrap-" + [Guid]::NewGuid().ToString("N") + ".exe")
     $tmp = New-Item -ItemType Directory -Path (Join-Path ([IO.Path]::GetTempPath()) ([Guid]::NewGuid()))
     try {
       $asset = "muvloom_windows_amd64.exe"
-      $outFile = Join-Path $tmp $asset
       $downloaded = $false
-      try {
-        $manifest = Invoke-RestMethod "$origin/cli/skill-manifest.json" -UseBasicParsing -MaximumRedirection 0 -TimeoutSec 8
-        $cliMeta = $manifest.cli
-        $binMeta = if ($cliMeta -and $cliMeta.binaries) { $cliMeta.binaries."windows/amd64" } else { $null }
-        if ($cliMeta -and $binMeta -and ([version]$cliMeta.version -ge [version]$minVersion) -and ($binMeta.path -cmatch '^bin/v\d+\.\d+\.\d+/[A-Za-z0-9._-]+$') -and ($binMeta.sha256 -cmatch '^[0-9a-f]{64}$')) {
-          Invoke-WebRequest "$origin/cli/$($binMeta.path)" -OutFile $outFile -UseBasicParsing -MaximumRedirection 0 -TimeoutSec 30
-          $actual = (Get-FileHash $outFile -Algorithm SHA256).Hash.ToLower()
-          if ($actual -eq $binMeta.sha256) { $downloaded = $true }
-        }
-      } catch { }
+      for ($attempt = 0; $attempt -lt 2 -and -not $downloaded; $attempt++) {
+        try {
+          $manifest = Invoke-RestMethod "$origin/cli/skill-manifest.json" -UseBasicParsing -MaximumRedirection 0 -TimeoutSec 8
+          $cliMeta = $manifest.cli
+          $binMeta = if ($cliMeta -and $cliMeta.binaries) { $cliMeta.binaries."windows/amd64" } else { $null }
+          if ($cliMeta -and $binMeta -and ([version]$cliMeta.version -ge [version]$minVersion) -and ($binMeta.path -cmatch '^bin/v\d+\.\d+\.\d+/[A-Za-z0-9._-]+$') -and ($binMeta.sha256 -cmatch '^[0-9a-f]{64}$')) {
+            Invoke-WebRequest "$origin/cli/$($binMeta.path)" -OutFile $stageFile -UseBasicParsing -MaximumRedirection 0 -TimeoutSec 30
+            $actual = (Get-FileHash $stageFile -Algorithm SHA256).Hash.ToLower()
+            if ($actual -eq $binMeta.sha256) { $downloaded = $true }
+          }
+        } catch { }
+      }
 
       if (-not $downloaded) {
-        $repo = "Muluk-m/ai-image-playground"
-        $releases = Invoke-RestMethod "https://api.github.com/repos/$repo/releases?per_page=100" -UseBasicParsing -TimeoutSec 20
-        $tag = ($releases | Where-Object { -not $_.prerelease -and $_.tag_name -match '^cli-v\d+\.\d+\.\d+$' } | Sort-Object { [version]($_.tag_name -replace '^cli-v', '') } -Descending | Select-Object -First 1).tag_name
+        $ghReleaseUrl = if ($env:MUVLOOM_GITHUB_RELEASES_URL -and ($env:MUVLOOM_GITHUB_RELEASES_URL -cmatch '^http://127\.0\.0\.1:[0-9]+/')) {
+          $env:MUVLOOM_GITHUB_RELEASES_URL.TrimEnd("/")
+        } else {
+          "https://api.github.com/repos/Muluk-m/ai-image-playground/releases"
+        }
+        $ghDownloadBase = if ($env:MUVLOOM_GITHUB_DOWNLOAD_URL -and ($env:MUVLOOM_GITHUB_DOWNLOAD_URL -cmatch '^http://127\.0\.0\.1:[0-9]+/')) {
+          $env:MUVLOOM_GITHUB_DOWNLOAD_URL.TrimEnd("/")
+        } else {
+          "https://github.com/Muluk-m/ai-image-playground/releases/download"
+        }
+        $releases = Invoke-RestMethod "${ghReleaseUrl}?per_page=100" -UseBasicParsing -TimeoutSec 20
+        $tag = ($releases | Where-Object { -not $_.prerelease -and -not $_.draft -and $_.tag_name -match '^cli-v\d+\.\d+\.\d+$' } | Sort-Object { [version]($_.tag_name -replace '^cli-v', '') } -Descending | Select-Object -First 1).tag_name
         if (-not $tag) { throw "muvloom launcher: could not find a release" }
         $ver = $tag.Substring(5)
         if ([version]$ver -lt [version]$minVersion) { throw "muvloom launcher: latest release $ver < $minVersion" }
-        $base = "https://github.com/$repo/releases/download/$tag"
-        Invoke-WebRequest "$base/$asset" -OutFile $outFile -UseBasicParsing -MaximumRedirection 0 -TimeoutSec 30
-        Invoke-WebRequest "$base/checksums.txt" -OutFile (Join-Path $tmp "checksums.txt") -UseBasicParsing -TimeoutSec 20
+        $base = "$ghDownloadBase/$tag"
+        Invoke-WebRequest "$base/$asset" -OutFile $stageFile -UseBasicParsing -MaximumRedirection 5 -TimeoutSec 45
+        Invoke-WebRequest "$base/checksums.txt" -OutFile (Join-Path $tmp "checksums.txt") -UseBasicParsing -MaximumRedirection 5 -TimeoutSec 25
         $line = Get-Content (Join-Path $tmp "checksums.txt") | Where-Object { $_ -match " $([regex]::Escape($asset))$" }
         if (-not $line) { throw "muvloom launcher: missing checksum for $asset" }
         $expected = ($line -split " ")[0].ToLower()
-        $actual = (Get-FileHash $outFile -Algorithm SHA256).Hash.ToLower()
+        $actual = (Get-FileHash $stageFile -Algorithm SHA256).Hash.ToLower()
         if ($actual -ne $expected) { throw "muvloom launcher: checksum mismatch for $asset" }
       }
 
-      New-Item -ItemType Directory -Force -Path $defaultDir | Out-Null
-      try {
-        Move-Item -Force $outFile $exe -ErrorAction Stop
-      } catch {
-        if (-not (Test-UsableBinary $exe)) { throw }
-      }
+      Move-Item -Force $stageFile $exe -ErrorAction Stop
     } finally {
+      Remove-Item -Force $stageFile -ErrorAction SilentlyContinue
       Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
     }
   }

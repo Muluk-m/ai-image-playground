@@ -860,4 +860,35 @@ func TestLegacyKeychainUpgradeMigratesOnceAndLogoutRevokesAndClearsKeychain(t *t
 	if len(kc2.entries) != 0 {
 		t.Fatalf("plain logout left credentials in keychain: %v", kc2.entries)
 	}
+
+	// 4. If writing store-mode.json fails during MigrateKeyring, credentials.json and store-mode.json
+	// are rolled back and the keychain entry is preserved so migration succeeds once permissions recover.
+	if runtime.GOOS != "windows" && os.Geteuid() != 0 {
+		dir3 := t.TempDir()
+		kc3 := &userKeychain{entries: map[string]string{}}
+		legacy3 := Store{Dir: dir3, UseKeyring: true, ClearKeyring: true, Keychain: kc3}
+		if err := legacy3.Save(Credentials{AccessToken: "m-a", RefreshToken: "m-r", BaseURL: "https://api.muvloom.online"}); err != nil {
+			t.Fatal(err)
+		}
+		modeFile := filepath.Join(dir3, "store-mode.json")
+		if err := os.WriteFile(modeFile, nil, 0o400); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(modeFile, 0o600) })
+
+		upg3 := Store{Dir: dir3, MigrateKeyring: true, ClearKeyring: true, Keychain: kc3}
+		if _, err := upg3.Load(); err == nil {
+			t.Fatal("expected Load to fail when store-mode.json is read-only")
+		}
+		if _, stillInKC := kc3.entries[keyringUser]; !stillInKC {
+			t.Fatal("failed migration deleted keychain entry prematurely")
+		}
+		if err := os.Chmod(modeFile, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		recovered, err := upg3.Load()
+		if err != nil || recovered.RefreshToken != "m-r" {
+			t.Fatalf("migration did not recover after fixing store-mode.json permissions: %+v, %v", recovered, err)
+		}
+	}
 }

@@ -202,9 +202,13 @@ func cmdSetup(ctx context.Context, a *App, args []string) (any, error) {
 	}); err != nil {
 		return nil, err
 	}
+	smokePayload, err := buildSmokeValidatePayload(caps)
+	if err != nil {
+		return nil, err
+	}
 	var smokeQuote map[string]any
 	if err := retryReadonly(ctx, func() error {
-		return c.Do(ctx, http.MethodPost, "/v1/image-jobs/validate", map[string]any{"prompt": "setup smoke"}, &smokeQuote)
+		return c.Do(ctx, http.MethodPost, "/v1/image-jobs/validate", smokePayload, &smokeQuote)
 	}); err != nil {
 		return nil, err
 	}
@@ -229,4 +233,60 @@ func cmdSetup(ctx context.Context, a *App, args []string) (any, error) {
 		result["cli_updated_to"] = updatedTo
 	}
 	return result, nil
+}
+
+func buildSmokeValidatePayload(caps map[string]any) (map[string]any, error) {
+	defaultModel, _ := caps["default_model"].(string)
+	modelsRaw, hasModels := caps["models"].([]any)
+	var chosen map[string]any
+	for _, item := range modelsRaw {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		id, _ := m["id"].(string)
+		if id == "" {
+			continue
+		}
+		if chosen == nil || (defaultModel != "" && id == defaultModel) {
+			chosen = m
+			if defaultModel != "" && id == defaultModel {
+				break
+			}
+		}
+	}
+	if chosen == nil && defaultModel == "" && hasModels && len(modelsRaw) == 0 {
+		return nil, fail("CAPABILITY_UNAVAILABLE", "No image models are currently available for this account")
+	}
+	payload := map[string]any{"prompt": "setup smoke"}
+	if chosen != nil {
+		if id, _ := chosen["id"].(string); id != "" {
+			payload["model"] = id
+		}
+		if size, _ := chosen["default_image_size"].(string); size != "" {
+			payload["image_size"] = size
+		}
+		if qualitiesRaw, ok := chosen["qualities"].([]any); ok && len(qualitiesRaw) > 0 {
+			firstQuality := ""
+			for _, qItem := range qualitiesRaw {
+				q, _ := qItem.(string)
+				if q == "" {
+					continue
+				}
+				if firstQuality == "" {
+					firstQuality = q
+				}
+				if q == "medium" {
+					firstQuality = q
+					break
+				}
+			}
+			if firstQuality != "" {
+				payload["quality"] = firstQuality
+			}
+		}
+	} else if defaultModel != "" {
+		payload["model"] = defaultModel
+	}
+	return payload, nil
 }

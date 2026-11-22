@@ -136,13 +136,16 @@ func (a *App) tryCollectPendingLogin(ctx context.Context) (auth.Credentials, boo
 	}
 	creds := a.credentialsFrom(tokens)
 	creds.LoginDeviceCodeHash = deviceCodeHash(pending.DeviceCode)
-	committed, saveErr := a.Store.CommitPendingLogin(pending.DeviceCode, creds)
+	savedCreds, outcome, saveErr := a.Store.CommitPendingLogin(pending.DeviceCode, creds)
 	if saveErr != nil {
 		return auth.Credentials{}, false, fail("CREDENTIAL_STORE_UNWRITABLE", "Signed in, but the credentials could not be stored (%s); make the muvloom config directory writable, then run `muvloom auth login` again", auth.Reason(saveErr))
 	}
-	if !committed {
+	switch outcome {
+	case auth.PendingCommitted, auth.PendingAlreadyCompleted:
+		return savedCreds, true, nil
+	default:
 		// Another process signed out or replaced pending-login.json while redemption was in flight:
-		// revoke the unused token family best-effort and leave the signed-out state untouched.
+		// revoke the orphaned token family best-effort and leave the signed-out state untouched.
 		if tokens.RefreshToken != "" {
 			revokeCtx, rCancel := context.WithTimeout(ctx, 3*time.Second)
 			_ = a.anonymousClient().PostForm(revokeCtx, "/v1/oauth/revoke", url.Values{
@@ -154,7 +157,6 @@ func (a *App) tryCollectPendingLogin(ctx context.Context) (auth.Credentials, boo
 		}
 		return auth.Credentials{}, false, nil
 	}
-	return creds, true, nil
 }
 
 // serviceMismatch is an explicit MUVLOOM_API_URL that disagrees with the service the stored

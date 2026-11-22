@@ -370,12 +370,18 @@ func (s Store) Load() (Credentials, error) {
 			if migrated.BaseURL != "" && !sameOriginURL(migrated.BaseURL, svcURL) {
 				return nil
 			}
+			prevModeBytes, prevModeErr := os.ReadFile(s.storeModeFile())
 			if wErr := writeRecord(s.credentialsFile(), migrated); wErr != nil {
 				_ = truncateIfExists(s.credentialsFile())
 				return wErr
 			}
 			if mErr := writeRecord(s.storeModeFile(), storeMode{Source: "file", Reason: "migrated"}); mErr != nil {
 				_ = truncateIfExists(s.credentialsFile())
+				if prevModeErr == nil && len(prevModeBytes) > 0 {
+					_ = WriteFileInPlace(s.storeModeFile(), prevModeBytes)
+				} else {
+					_ = truncateIfExists(s.storeModeFile())
+				}
 				return mErr
 			}
 			_ = s.keychain().Delete(keyringService, keyringUser)
@@ -717,15 +723,49 @@ func (s Store) UpdatePendingIfMatch(expectedDeviceCode string, fn func(*PendingL
 	})
 }
 
+type PendingCommitOutcome int
+
+const (
+	PendingAborted PendingCommitOutcome = iota
+	PendingCommitted
+	PendingAlreadyCompleted
+)
+
+func (s Store) loadStoredSecretUnlocked() (Credentials, error) {
+	if s.shouldUseKeychainForRead() {
+		if secret, err := s.keychain().Get(keyringService, keyringUser); err == nil {
+			var creds Credentials
+			if err := json.Unmarshal([]byte(secret), &creds); err != nil {
+				return Credentials{}, fmt.Errorf("stored credentials are unreadable: %w", err)
+			}
+			return creds, nil
+		}
+	}
+	var creds Credentials
+	err := readRecord(s.credentialsFile(), &creds)
+	return creds, err
+}
+
 // CommitPendingLogin atomically verifies under the credential lock that pending-login.json
 // still holds expectedDeviceCode, saves creds + service, and clears pending-login.json.
-// If another process ran `auth logout` or started a different login while redemption was in
-// flight, it returns (false, nil) without writing credentials or touching pending-login.json.
-func (s Store) CommitPendingLogin(expectedDeviceCode string, creds Credentials) (bool, error) {
-	var committed bool
+// If a sibling process concurrently redeemed and committed the SAME expectedDeviceCode, it
+// returns (existingCreds, PendingAlreadyCompleted, nil) so the caller reuses that connection
+// instead of revoking it. If another process ran `auth logout` or started a different login
+// while redemption was in flight, it returns (Credentials{}, PendingAborted, nil).
+func (s Store) CommitPendingLogin(expectedDeviceCode string, creds Credentials) (Credentials, PendingCommitOutcome, error) {
+	var out Credentials
+	outcome := PendingAborted
 	err := s.locked(func() error {
 		var cur PendingLogin
 		if rErr := readRecord(s.pendingFile(), &cur); rErr != nil || cur.DeviceCode != expectedDeviceCode {
+			if existing, lErr := s.loadStoredSecretUnlocked(); lErr == nil &&
+				existing.RefreshToken != "" &&
+				existing.LoginDeviceCodeHash != "" &&
+				existing.LoginDeviceCodeHash == creds.LoginDeviceCodeHash &&
+				(creds.BaseURL == "" || sameOriginURL(existing.BaseURL, creds.BaseURL)) {
+				out = existing
+				outcome = PendingAlreadyCompleted
+			}
 			return nil
 		}
 		if sErr := s.saveSecret(creds); sErr != nil {
@@ -735,10 +775,11 @@ func (s Store) CommitPendingLogin(expectedDeviceCode string, creds Credentials) 
 		}
 		s.saveService(creds.BaseURL)
 		_ = truncateIfExists(s.pendingFile())
-		committed = true
+		out = creds
+		outcome = PendingCommitted
 		return nil
 	})
-	return committed, err
+	return out, outcome, err
 }
 
 func fileHasContent(path string) bool {

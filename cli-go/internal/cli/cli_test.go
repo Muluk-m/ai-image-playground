@@ -239,7 +239,17 @@ func newFakeServer(t *testing.T) *fakeServer {
 			envelope(w, 503, nil, "TEMPORARILY_UNAVAILABLE")
 			return
 		}
-		envelope(w, 200, map[string]any{"models": []any{}, "default_model": ""}, "")
+		envelope(w, 200, map[string]any{
+			"models": []any{
+				map[string]any{
+					"id":                 "gpt-image-2.5-flare",
+					"label":              "GPT Image 2.5 Flare",
+					"default_image_size": "1K",
+					"qualities":          []any{"medium"},
+				},
+			},
+			"default_model": "gpt-image-2.5-flare",
+		}, "")
 	}))
 	mux.HandleFunc("POST /v1/image-jobs/validate", authed(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
@@ -2243,15 +2253,154 @@ func TestCollectPendingLoginRespectsNextPollAtAndSlowDown(t *testing.T) {
 
 	// CommitPendingLogin drops redemption if `auth logout` cleared pending-login.json concurrently.
 	_ = store.Clear()
-	committed, err := store.CommitPendingLogin("dev-slow", auth.Credentials{
-		AccessToken:  "stale-at",
-		RefreshToken: "stale-rt",
-		BaseURL:      srvURL,
+	_, outcome, err := store.CommitPendingLogin("dev-slow", auth.Credentials{
+		AccessToken:         "stale-at",
+		RefreshToken:        "stale-rt",
+		BaseURL:             srvURL,
+		LoginDeviceCodeHash: deviceCodeHash("dev-slow"),
 	})
-	if err != nil || committed {
-		t.Fatalf("expected CommitPendingLogin to abort after concurrent logout, got committed=%v err=%v", committed, err)
+	if err != nil || outcome != auth.PendingAborted {
+		t.Fatalf("expected CommitPendingLogin to abort after concurrent logout, got outcome=%v err=%v", outcome, err)
 	}
 	if _, loadErr := store.Load(); !errors.Is(loadErr, auth.ErrNotFound) {
 		t.Fatalf("concurrent logout was resurrected by stale CommitPendingLogin: %v", loadErr)
+	}
+}
+
+func TestConcurrentCollectPendingLoginDoesNotRevokeCommittedSession(t *testing.T) {
+	var revokeCalls int
+	var firstCommitted bool
+	var srvURL string
+	home := t.TempDir()
+	store := auth.Store{Dir: filepath.Join(home, "config")}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/oauth/token":
+			// Simulate Process A winning CommitPendingLogin while Process B's idempotent redeem is in flight.
+			if !firstCommitted {
+				firstCommitted = true
+				_, outcome, cErr := store.CommitPendingLogin("dev-concurrent", auth.Credentials{
+					AccessToken:         "shared-access",
+					RefreshToken:        "shared-refresh",
+					AccessExpiresAt:     time.Now().Add(time.Hour),
+					BaseURL:             srvURL,
+					LoginDeviceCodeHash: deviceCodeHash("dev-concurrent"),
+				})
+				if cErr != nil || outcome != auth.PendingCommitted {
+					t.Errorf("first CommitPendingLogin failed: outcome=%v err=%v", outcome, cErr)
+				}
+			}
+			_, _ = w.Write([]byte(`{"access_token":"shared-access","refresh_token":"shared-refresh","expires_in":3600}`))
+		case "/v1/oauth/revoke":
+			revokeCalls++
+			_, _ = w.Write([]byte(`{}`))
+		case "/v1/me":
+			envelope(w, 200, map[string]any{"account": map[string]any{"id": "u1", "username": "alice"}, "credits": 100, "member": false, "scopes": []string{"images:write"}, "min_cli_version": "0.2.5"}, "")
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	if err := store.SavePending(auth.PendingLogin{
+		DeviceCode:              "dev-concurrent",
+		RequestID:               "11111111-2222-4333-8444-555555555555",
+		UserCode:                "CONC-1234",
+		VerificationURIComplete: srvURL + "/device?user_code=CONC-1234",
+		ExpiresAt:               time.Now().Add(10 * time.Minute),
+		IntervalSeconds:         5,
+		BaseURL:                 srvURL,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	app := &App{
+		APIURL:       srvURL,
+		apiURLSource: sourceEnvironment,
+		Store:        store,
+		Home:         home,
+		CWD:          home,
+		HTTP:         srv.Client(),
+	}
+	res := execute(t, app, "auth", "status")
+	if res.code != ExitOK {
+		t.Fatalf("expected auth status to succeed, got code=%d stderr=%s", res.code, res.stderr)
+	}
+	if revokeCalls != 0 {
+		t.Fatalf("second concurrent collector revoked the shared session (%d revoke calls)", revokeCalls)
+	}
+	loaded, err := store.Load()
+	if err != nil || loaded.RefreshToken != "shared-refresh" {
+		t.Fatalf("expected shared-refresh to remain stored, got %+v err=%v", loaded, err)
+	}
+}
+
+func TestSetupSmokeValidateUsesAccountCapabilitiesAndEmptyModelsFailCleanly(t *testing.T) {
+	var emptyModels bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/me":
+			envelope(w, 200, map[string]any{"account": map[string]any{"id": "u1", "username": "freeuser"}, "credits": 20, "member": false, "scopes": []string{"images:write"}, "min_cli_version": "0.2.5"}, "")
+		case "/v1/capabilities":
+			if emptyModels {
+				envelope(w, 200, map[string]any{"default_model": nil, "models": []any{}}, "")
+				return
+			}
+			envelope(w, 200, map[string]any{
+				"default_model": "gpt-image-free",
+				"models": []any{
+					map[string]any{
+						"id":                 "gpt-image-free",
+						"label":              "Free Model",
+						"default_image_size": "1K",
+						"qualities":          []any{"low", "medium"},
+					},
+				},
+			}, "")
+		case "/v1/image-jobs/validate":
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if body["model"] != "gpt-image-free" || body["image_size"] != "1K" || body["quality"] != "medium" {
+				envelope(w, http.StatusForbidden, nil, "PLAN_REQUIRED")
+				return
+			}
+			envelope(w, 200, map[string]any{"creates_job": false, "quote": map[string]any{"estimated_credits": 1}}, "")
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	home := t.TempDir()
+	store := auth.Store{Dir: filepath.Join(home, "config")}
+	if err := store.Save(auth.Credentials{
+		AccessToken:     "tok",
+		RefreshToken:    "ref",
+		AccessExpiresAt: time.Now().Add(time.Hour),
+		BaseURL:         srv.URL,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	app := &App{
+		APIURL:       srv.URL,
+		apiURLSource: sourceEnvironment,
+		Store:        store,
+		Home:         home,
+		CWD:          home,
+		HTTP:         srv.Client(),
+	}
+	res := execute(t, app, "setup", "--host", "claude-code")
+	if res.code != ExitOK {
+		t.Fatalf("expected setup smoke validate to use account capabilities, got code=%d out=%s err=%s", res.code, res.stdout, res.stderr)
+	}
+
+	emptyModels = true
+	noModelRes := execute(t, app, "setup", "--host", "claude-code")
+	if noModelRes.code != ExitRejected || !strings.Contains(noModelRes.stdout, "CAPABILITY_UNAVAILABLE") {
+		t.Fatalf("expected CAPABILITY_UNAVAILABLE when account has 0 accessible models, got code=%d out=%s", noModelRes.code, noModelRes.stdout)
 	}
 }
