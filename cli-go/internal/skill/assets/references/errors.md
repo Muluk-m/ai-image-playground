@@ -10,8 +10,8 @@ The code is the `(CODE)` at the end of the `Error:` line on stderr, or `error.co
 | `AUTH_PENDING` | Browser approval not done yet | Keep waiting with `muvloom auth login`; ask the user to sign in and approve only if they have not yet been told |
 | `AUTH_DENIED` | User denied in the browser | Stop unless the user wants to retry |
 | `CREDENTIAL_STORE_UNWRITABLE` | The CLI cannot write its credential store (config directory or keychain). Login stops before the code is redeemed; if the code was already redeemed, the next login can usually finish it without a new approval | Tell the user the muvloom config directory must be writable (or set `MUVLOOM_CONFIG_DIR` to a writable one), then run the same `muvloom auth login` again; it asks for a new approval only if the service cannot repeat the last one |
-| `PLAN_REQUIRED` | The request (e.g. 4K) needs an active membership | Offer a smaller image size, or tell the user membership is required |
-| `INSUFFICIENT_CREDITS` | Not enough credits; `details.required`, `details.available` | Tell the user; do not retry |
+| `PLAN_REQUIRED` | The request (e.g. 4K) needs an active membership; `details.upgrade_url`, `details.account` | Offer a smaller image size or accessible model, or share `details.upgrade_url` (noting `details.account`) |
+| `INSUFFICIENT_CREDITS` | Not enough credits; `details.required`, `details.available`, `details.top_up_url`, `details.account` | Stop any remaining unsubmitted batch/set items immediately; report completed vs remaining items and share `details.top_up_url` + `details.account` so the user tops up the right account before resuming unfinished keys |
 | `QUOTA_EXCEEDED` | Today's generation quota is used up; `details.reset_at` is when it resets (exit code 5, never retried) | Tell the user the quota is used up and when it resets; do not retry or switch to another route before then |
 | `MAX_CREDITS_EXCEEDED` | Quote above `--max-credits`; `details.required` | Report that the user's explicit credit limit was exceeded and stop; keep the limit |
 | `IDEMPOTENCY_CONFLICT` | Key reused with different parameters | Use a new key for a different request |

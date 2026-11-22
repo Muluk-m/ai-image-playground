@@ -13,10 +13,9 @@ Use the `muvloom` CLI for Muvloom requests; authentication and HTTP belong to th
 ## Flow
 
 Carry the user's original request through every step; setup must not lose it.
-The user's request to generate authorizes that generation. Proceed directly without
-a credit quote or a second confirmation. Quote costs only when the user asks;
-apply a credit limit only when the user explicitly supplies one. Use sensible defaults
-for unspecified creative details; ask only for missing input that blocks the task.
+- **1–3 images** (a single image, targeted edit, or quick 2–3 image request), or when the user explicitly asks to generate directly without confirmation: the user's request authorizes generation — proceed directly without a credit quote or second confirmation. Quote costs only when asked; apply `--max-credits` only when the user explicitly supplies a limit.
+- **4+ image coordinated sets or e-commerce listing galleries**: follow [image-sets.md](references/image-sets.md) to verify SKU facts, quote exact per-slot and total credits with zero-cost `muvloom images validate`, and show **one concise shot-plan & credit confirmation card** before the first billable `images create`.
+Use sensible defaults for unspecified creative details; ask only for missing input that blocks the task.
 
 1. **Check setup**: `muvloom auth status` once at the start of the task; reuse ready state until an authentication error. `auth status` also handles 24h-throttled, SHA-256-verified silent updates of both the CLI binary and installed Skills in the background ([updates.md](references/updates.md)), and automatically collects any pending browser login that the user already approved.
    - Command not found → invoke the bundled launcher (`<skill-dir>/scripts/muvloom` on macOS/Linux or `<skill-dir>\scripts\muvloom.cmd` on Windows), or check the default locations in [install.md](references/install.md). For first-time onboarding from a setup page, `muvloom setup --origin <URL>` installs the Skill, signs in, reads `capabilities`, and runs the zero-cost validation quote in one step.
@@ -29,7 +28,7 @@ for unspecified creative details; ask only for missing input that blocks the tas
 2. **Read capabilities**: `muvloom capabilities` once for the task; refresh if the server rejects a capability. Use the requested model, ratio and size when supported; otherwise omit unspecified flags for server defaults. Preserve explicit user requirements when handling an unavailable option.
    - Each model lists its `output_formats`: `image` is a regular image; `gif` and `svg` mean the model outputs an animated GIF or an SVG vector directly, with the limits in its `gif` / `svg` entry. Pick the model by what the request needs, not by name alone.
    - For a coordinated image set or e-commerce gallery, read [image-sets.md](references/image-sets.md) before submission. For GIF, animated-image or SVG/vector requests, read [animation.md](references/animation.md) before choosing the model and output.
-3. **Create**: choose and keep a unique idempotency key (8–64 characters: letters, digits, `_ . : -`) before submission. Run `muvloom images create --prompt "…" [flags] --idempotency-key KEY --wait 300 --download ./muvloom-output`. Add `--max-credits N` only for an explicit user-supplied credit limit. Keep the job's `job_id` from the output; reuse the key only to recover the same request. Local reference images go directly in repeatable `--ref` flags. For a multiline prompt or shell-sensitive text, use a UTF-8 prompt file with `--prompt-file`.
+3. **Create**: choose and keep a unique idempotency key (8–64 characters: letters, digits, `_ . : -`) before submission. Run `muvloom images create --prompt "…" [flags] --idempotency-key KEY --wait 300 --download ./muvloom-output`. Add `--max-credits N` only for an explicit user-supplied credit limit. Keep the job's `job_id` from the output; reuse the key only to recover the same request. Local reference images go directly in repeatable `--ref` flags. For a multiline prompt or shell-sensitive text, use a UTF-8 prompt file with `--prompt-file`. On multi-image runs, stop submitting remaining slots immediately on the first `INSUFFICIENT_CREDITS` or `QUOTA_EXCEEDED` (exit code 5) and follow [errors.md](references/errors.md).
 4. **Finish and deliver**: a `wait_timed_out: true` response means the job is still running. Continue `muvloom jobs wait <job_id> --timeout 300` until it finishes, unless the user requested background submission. Once succeeded, download any remaining artifacts ([jobs.md](references/jobs.md)), show the images with the host's preview tools, and give the saved paths. A failed download only needs another download. Handle failed jobs with [errors.md](references/errors.md); explain a concrete blocker if completion is impossible.
 
 `muvloom images create --help` lists every generation flag (model, ratio, size, quality, reference images, prompt file, GIF/SVG output and frames); `images validate` takes the same flags.
@@ -48,4 +47,4 @@ disable the host's file or credential protection.
 - [install.md](references/install.md) — installing, bootstrapping or upgrading the CLI.
 - [updates.md](references/updates.md) — automatic silent updates and manual update controls.
 
-Generated images are artifacts in the user's Muvloom history; they are not saved to the asset library unless the user does that on the website.
+Every generated image also syncs automatically to the connected account's Muvloom Web workbench (**Assets → Works / 资产 → 作品**), where the user can open a work, click **Add to canvas / 放入画布**, and continue with region-based **Smart edit / 智能改图**, **Erase / 擦除**, **Cut out / 抠图**, **Expand / 扩图**, or **Crop / 裁剪**.

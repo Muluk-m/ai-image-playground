@@ -56,7 +56,7 @@ $origin = if ($env:MUVLOOM_ORIGIN) {
 $mutex = New-Object System.Threading.Mutex($false, "Local\MuvloomCliBootstrap")
 $locked = $false
 try {
-  try { $locked = $mutex.WaitOne(120000) } catch [System.Threading.AbandonedMutexException] { $locked = $true }
+  try { $locked = $mutex.WaitOne(210000) } catch [System.Threading.AbandonedMutexException] { $locked = $true }
   if (-not $locked) {
     if (Test-UsableBinary $exe) {
       & $exe @args

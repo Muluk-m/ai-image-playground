@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { config } from '../config'
+import { isCapabilityEnabled } from '../lib/capabilities'
 import {
   CLI_CLIENT_ID,
   createDeviceAuthorization,
@@ -29,8 +30,10 @@ import {
   availableImageModels,
   CLI_PROMPT_MAX_CHARS,
   imageCapabilities,
+  isMembershipUpgradeableRejection,
   normalizeImageRequest,
   previewImageRequest,
+  probeAccountWalletAvailable,
   toSubmitRequest,
 } from '../lib/cli/images'
 import { cancelJob, getJob, JOB_LIST_MAX, listJobs, recordCliJob } from '../lib/cli/jobs'
@@ -293,18 +296,57 @@ const pageQuery = (max: number) =>
     cursor: t.Optional(t.String({ minLength: 1, maxLength: 128 })),
   })
 
+async function resolveCliAccountBilling(userId: string) {
+  if (!isCapabilityEnabled('billing:credits')) {
+    return {
+      billingEnabled: false,
+      summary: undefined,
+      unmetered: false,
+      walletAvailable: false,
+      canPurchaseUpgrade: false,
+    }
+  }
+  const summary = await (await loadPrivateBffOverlay()).taskHooks.accountSummary?.({
+    userId,
+    now: Date.now(),
+  })
+  const unmetered = summary?.unmetered === true
+  const walletAvailable = unmetered ? false : await probeAccountWalletAvailable(userId)
+  return {
+    billingEnabled: true,
+    summary,
+    unmetered,
+    walletAvailable,
+    canPurchaseUpgrade: Boolean(summary && walletAvailable && !summary.isMember),
+  }
+}
+
+async function membershipUpgradeOptions(
+  request: Request,
+  user: { readonly id: string; readonly username: string },
+  upgradeableByMembership: boolean,
+) {
+  if (!upgradeableByMembership) return undefined
+  const { canPurchaseUpgrade } = await resolveCliAccountBilling(user.id)
+  if (!canPurchaseUpgrade) return undefined
+  return {
+    details: {
+      upgrade_url: `${cliVerificationOrigin(request)}/pricing`,
+      account: user.username,
+    },
+  }
+}
+
 /** 外部 CLI 接口。只有这一组用 Bearer 边界，网站的 /v1/queue 协议不受影响。 */
 export const cliApiRoutes = new Elysia()
   .use(cliBoundary())
   .get('/v1/me', async ({ cli }) => {
-    const summary = await (await loadPrivateBffOverlay()).taskHooks.accountSummary?.({
-      userId: cli.user.id,
-      now: Date.now(),
-    })
+    const { summary, unmetered, walletAvailable } = await resolveCliAccountBilling(cli.user.id)
     return cliSuccess({
       account: { id: cli.user.id, username: cli.user.username, nickname: cli.user.nickname },
-      credits: summary?.credits ?? null,
+      credits: walletAvailable ? (summary?.credits ?? null) : null,
       member: summary?.isMember ?? null,
+      ...(unmetered ? { unmetered: true } : {}),
       scopes: cli.scopes,
       min_cli_version: CLI_MIN_VERSION,
     })
@@ -312,12 +354,32 @@ export const cliApiRoutes = new Elysia()
   .get('/v1/capabilities', async ({ cli }) => cliSuccess(await imageCapabilities(cli.user.id)))
   .post(
     '/v1/image-jobs/validate',
-    async ({ cli, body }) => {
+    async ({ cli, body, request }) => {
       requireScope(cli, 'images:write')
       const prepared = normalizeImageRequest(body, await availableImageModels())
       await assertReferenceMedia(cli.user.id, prepared.normalized.reference_media_ids)
-      const preview = await previewImageRequest(cli.user.id, prepared, toSubmitRequest(prepared))
-      if (preview.planRequired) throw new CliRequestError('PLAN_REQUIRED')
+      const submit = toSubmitRequest(prepared)
+      const preview = await previewImageRequest(cli.user.id, prepared, submit)
+      if (preview.planRequired) {
+        throw new CliRequestError(
+          'PLAN_REQUIRED',
+          await membershipUpgradeOptions(
+            request,
+            cli.user,
+            isMembershipUpgradeableRejection(prepared, submit),
+          ),
+        )
+      }
+      if (preview.meteringDeniedReason) {
+        throw new CliRequestError(
+          preview.meteringDeniedReason === '4k_subscription_required'
+            ? 'PLAN_REQUIRED'
+            : 'FORBIDDEN',
+          preview.meteringDeniedReason === '4k_subscription_required'
+            ? await membershipUpgradeOptions(request, cli.user, true)
+            : undefined,
+        )
+      }
       const estimated = preview.quote?.estimated_credits
       if (body.max_credits !== undefined && estimated !== undefined && estimated > body.max_credits)
         throw new CliRequestError('MAX_CREDITS_EXCEEDED', {
@@ -386,14 +448,33 @@ export const cliApiRoutes = new Elysia()
         case 'authentication_required':
           throw new CliRequestError('UNAUTHENTICATED')
         case 'private_billing_denied':
-          throw new CliRequestError('PLAN_REQUIRED')
+          throw new CliRequestError(
+            'PLAN_REQUIRED',
+            await membershipUpgradeOptions(
+              request,
+              cli.user,
+              isMembershipUpgradeableRejection(prepared, submit),
+            ),
+          )
         case 'metering_denied':
           throw new CliRequestError(
             outcome.reason === '4k_subscription_required' ? 'PLAN_REQUIRED' : 'FORBIDDEN',
+            outcome.reason === '4k_subscription_required'
+              ? await membershipUpgradeOptions(request, cli.user, true)
+              : undefined,
           )
         case 'insufficient_credits':
           throw new CliRequestError('INSUFFICIENT_CREDITS', {
-            details: { required: outcome.required, available: outcome.available },
+            details: {
+              required: outcome.required,
+              available: outcome.available,
+              ...(isCapabilityEnabled('billing:credits')
+                ? {
+                    top_up_url: `${cliVerificationOrigin(request)}/pricing`,
+                    account: cli.user.username,
+                  }
+                : {}),
+            },
           })
         case 'max_credits_exceeded':
           throw new CliRequestError('MAX_CREDITS_EXCEEDED', {
