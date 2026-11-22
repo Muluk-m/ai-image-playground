@@ -12,8 +12,8 @@ export function parseWelcomeCredits(raw: string | undefined): number {
   const trimmed = raw?.trim()
   if (!trimmed) return DEFAULT_WELCOME_CREDITS
   const value = Number(trimmed)
-  if (!Number.isInteger(value) || value <= 0) {
-    throw new Error('WELCOME_CREDITS must be a positive integer')
+  if (!Number.isSafeInteger(value) || value <= 0 || value > MAX_CREDIT_BALANCE) {
+    throw new Error('WELCOME_CREDITS must be a positive integer within credit limits')
   }
   return value
 }

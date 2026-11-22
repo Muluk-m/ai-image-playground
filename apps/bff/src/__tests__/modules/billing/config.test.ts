@@ -18,9 +18,11 @@ describe('parseWelcomeCredits', () => {
     expect(parseWelcomeCredits(' 12000 ')).toBe(12_000)
   })
 
-  it('rejects a value that is not a positive integer', () => {
-    for (const raw of ['0', '-100', '1.5', 'many']) {
-      expect(() => parseWelcomeCredits(raw)).toThrow('WELCOME_CREDITS must be a positive integer')
+  it('rejects a value that is not a positive integer within credit limits', () => {
+    for (const raw of ['0', '-100', '1.5', 'many', '2147483648']) {
+      expect(() => parseWelcomeCredits(raw)).toThrow(
+        'WELCOME_CREDITS must be a positive integer within credit limits',
+      )
     }
   })
 })

@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
 import { getOAuthProviderDefinition } from '../../lib/oauth/registry'
 import '../../bootstrap/billing'
 import {
@@ -19,7 +18,7 @@ afterEach(() => {
 })
 
 describe('built-in billing & identity BFF overlay', () => {
-  it('returns the useful empty overlay when an explicit external entry is absent', async () => {
+  it('bundles standalone and exposes a clean 404 empty overlay when absent', async () => {
     const outputDirectory = mkdtempSync(join(tmpdir(), 'image-playground-public-build-'))
     try {
       const build = await Bun.build({
@@ -32,11 +31,10 @@ describe('built-in billing & identity BFF overlay', () => {
       rmSync(outputDirectory, { recursive: true, force: true })
     }
 
-    const overlay = await loadPrivateBffOverlay(
-      pathToFileURL(join(outputDirectory, 'missing-private-entry.ts')),
+    expect(EMPTY_PRIVATE_BFF_OVERLAY.present).toBe(false)
+    const response = await EMPTY_PRIVATE_BFF_OVERLAY.routes.handle(
+      new Request('http://localhost/private-route'),
     )
-    expect(overlay.present).toBe(false)
-    const response = await overlay.routes.handle(new Request('http://localhost/private-route'))
     expect(response.status).toBe(404)
   })
 
@@ -53,6 +51,9 @@ describe('built-in billing & identity BFF overlay', () => {
       const overlay = await loadPrivateBffOverlay()
       expect(overlay.present).toBe(true)
       expect(getOAuthProviderDefinition('feishu')?.id).toBe('feishu')
+      // Reloading the same built-in loader is idempotent and keeps the same provider instance.
+      _setPrivateBffOverlayForTesting()
+      expect((await loadPrivateBffOverlay()).present).toBe(true)
       // When billing:credits capability is off (default), hooks short-circuit without touching DB tables.
       expect(
         await overlay.taskHooks.reserveTask({
@@ -81,13 +82,9 @@ describe('built-in billing & identity BFF overlay', () => {
     }
   })
 
-  it('rejects a required billing module when absent', async () => {
-    const overlay = await loadPrivateBffOverlay(
-      pathToFileURL(join(tmpdir(), 'missing-private-entry.ts')),
-    )
-
-    expect(() => assertPrivateBffOverlayPresent(overlay, 'billing:credits')).toThrow(
-      'billing:credits requires the billing BFF module',
-    )
+  it('rejects a required billing module when absent', () => {
+    expect(() =>
+      assertPrivateBffOverlayPresent(EMPTY_PRIVATE_BFF_OVERLAY, 'billing:credits'),
+    ).toThrow('billing:credits requires the billing BFF module')
   })
 })

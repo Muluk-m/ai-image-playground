@@ -18,15 +18,6 @@ export {
   type TaskUsage,
 } from './billing-hooks'
 
-type PrivateBffModule = {
-  readonly privateBffRoutes: AnyElysia
-  readonly privateTaskHooks: PrivateTaskHooks
-  readonly privateOAuthProviders?: readonly OAuthProviderDefinition[]
-}
-type PrivateMigrationModule = {
-  runPrivateMigrations(databaseUrl: string): Promise<void>
-}
-
 export interface PrivateBffOverlay {
   readonly present: boolean
   readonly routes: AnyElysia
@@ -73,7 +64,15 @@ export function registerBuiltInBffOverlayLoader(loader: BuiltInBffOverlayLoader)
 }
 
 function registerProvidersIdempotent(providers: readonly OAuthProviderDefinition[]): void {
-  const missing = providers.filter((provider) => !getOAuthProviderDefinition(provider.id))
+  const missing: OAuthProviderDefinition[] = []
+  for (const provider of providers) {
+    const existing = getOAuthProviderDefinition(provider.id)
+    if (existing) {
+      if (existing !== provider) throw new Error(`conflicting OAuth provider: ${provider.id}`)
+      continue
+    }
+    missing.push(provider)
+  }
   if (missing.length > 0) registerOAuthProviders(missing)
 }
 
@@ -88,35 +87,7 @@ async function loadBuiltInOverlay(): Promise<PrivateBffOverlay> {
   })
 }
 
-async function loadExternalOverlay(entryUrl: URL): Promise<PrivateBffOverlay> {
-  if (!(await Bun.file(entryUrl).exists())) return EMPTY_PRIVATE_BFF_OVERLAY
-  const privateModule: PrivateBffModule = await import(entryUrl.href)
-  if (privateModule.privateOAuthProviders)
-    registerProvidersIdempotent(privateModule.privateOAuthProviders)
-
-  if (!(privateModule.privateBffRoutes instanceof Elysia)) {
-    throw new Error('external BFF module must export privateBffRoutes as an Elysia plugin')
-  }
-  if (
-    !privateModule.privateTaskHooks ||
-    typeof privateModule.privateTaskHooks.reserveTask !== 'function' ||
-    typeof privateModule.privateTaskHooks.finalizeTask !== 'function' ||
-    typeof privateModule.privateTaskHooks.chatPricing !== 'function' ||
-    typeof privateModule.privateTaskHooks.taskCredits !== 'function' ||
-    typeof privateModule.privateTaskHooks.runMaintenance !== 'function' ||
-    typeof privateModule.privateTaskHooks.onUserCreated !== 'function'
-  ) {
-    throw new Error('external BFF module must export the complete privateTaskHooks contract')
-  }
-  return Object.freeze({
-    present: true,
-    routes: privateModule.privateBffRoutes,
-    taskHooks: privateModule.privateTaskHooks,
-  })
-}
-
-export function loadPrivateBffOverlay(entryUrl?: URL): Promise<PrivateBffOverlay> {
-  if (entryUrl) return loadExternalOverlay(entryUrl)
+export function loadPrivateBffOverlay(): Promise<PrivateBffOverlay> {
   if (!overlayPromise) {
     overlayPromise = loadBuiltInOverlay().catch((error) => {
       overlayPromise = null
@@ -139,15 +110,6 @@ export function assertPrivateBffOverlayPresent(
   }
 }
 
-export async function runPrivateMigrations(databaseUrl: string, entryUrl?: URL): Promise<void> {
-  if (!entryUrl) {
-    await ensureBillingMigrations(databaseUrl)
-    return
-  }
-  if (!(await Bun.file(entryUrl).exists())) return
-  const privateModule: Partial<PrivateMigrationModule> = await import(entryUrl.href)
-  if (typeof privateModule.runPrivateMigrations !== 'function') {
-    throw new Error('migration module must export runPrivateMigrations')
-  }
-  await privateModule.runPrivateMigrations(databaseUrl)
+export async function runPrivateMigrations(databaseUrl: string): Promise<void> {
+  await ensureBillingMigrations(databaseUrl)
 }
