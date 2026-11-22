@@ -119,7 +119,7 @@ describe('submissionGuard', () => {
       disabledReason: '积分不足：需要 300，可用 200',
       blockedAction: { label: '充值积分' },
     })
-    expect(guard.blockedAction?.run).toBeFunction()
+    expect(guard.blockedAction?.run).toBeTypeOf('function')
   })
 
   it('does not throw when the snapshot is missing its nested credit account', () => {

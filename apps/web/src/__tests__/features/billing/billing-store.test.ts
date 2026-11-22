@@ -11,9 +11,7 @@ beforeAll(() => bootstrapCapabilities({ 'accounts:login': true, 'billing:credits
 
 function stubFetch(handler: (url: string) => Response): () => void {
   const original = globalThis.fetch
-  globalThis.fetch = Object.assign(async (input: RequestInfo | URL) => handler(String(input)), {
-    preconnect: original.preconnect,
-  }) as typeof fetch
+  globalThis.fetch = (async (input: RequestInfo | URL) => handler(String(input))) as typeof fetch
   return () => {
     globalThis.fetch = original
   }

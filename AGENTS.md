@@ -115,8 +115,7 @@ CI（`.github/workflows/web.yml`，PR 以及 push 到 main 和 test 都跑）把
   - 源 `apps/web/src/lib/api.ts` → 测 `apps/web/src/__tests__/lib/api.test.ts`
   - 源 `apps/bff/src/routes/submit.ts` → 测 `apps/bff/src/__tests__/routes/submit.test.ts`
 - 测试文件命名 `*.test.ts(x)`；Vitest 默认配置自动发现，不需要单独注册
-- 私有树包不强制使用 `src/` 目录；其测试放在相邻模块的 `__tests__/` 下（例如 `private/apps/bff/billing/__tests__/`）。
-- **数据库测试一个文件一个进程**：`apps/bff`、`apps/admin`、`packages/db` 与私有 BFF 的 `pnpm test`
+- **数据库测试一个文件一个进程**：`apps/bff`、`apps/admin` 与 `packages/db` 的 `pnpm test`
   都走 [`scripts/run-bun-tests-isolated.ts`](./scripts/run-bun-tests-isolated.ts)，逐文件 spawn 一个 bun 进程
   （`--filter` 收窄文件，`BUN_TEST_JOBS` 并发，默认 1；跑完全部文件后汇总失败）。每个 suite 从按迁移指纹
   建好的模板库克隆自己的库。

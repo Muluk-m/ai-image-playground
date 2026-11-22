@@ -63,16 +63,15 @@
   在每个用例前 `changeLanguage('zh-CN')`，通过 `vite.config.ts` 的 `test.setupFiles` 挂上。
 - `src/i18n/index.ts` 里的 `declare module 'i18next'` 把中文 catalog 的形状喂给 i18next：
   **写错 key 或漏建 key 在 `pnpm typecheck` 就红**，不用等运行时。因此新增文案要先加中文
-  catalog 再写调用。这段**必须留在 `index.ts` 里**——独立的 `.d.ts` 要靠各 tsconfig 的
-  `include` 捞进来，`private/apps/web/tsconfig.json` 没有捞，那个工程里 key 会退回无类型。
+  catalog 再写调用。这段**必须留在 `index.ts` 里**，避免独立 `.d.ts` 遗漏在部分 tsconfig 之外。
 - [`src/__tests__/i18n/catalog.test.ts`](../../src/__tests__/i18n/catalog.test.ts) 守四件事：
   两种语言 key 集合一致、插值占位符一致、复数后缀覆盖该 locale 的全部 plural category、没有空值。
   复数那条取**两种语言 plural base 的并集**再逐 locale 检查——只看各自的 base 会漏掉
   「一边写 `x_one`/`x_other`、另一边写成无后缀的 `x`」这种不对称，运行时缺后缀那边会落空。
 - `pnpm i18n:check` 体检死 key（语料里有、代码里没人引用）。按稳定 id 用模板拼出来的 key
   字面量搜不到，要把前缀登记进脚本的 `DYNAMIC_PREFIXES`。反方向由类型增强在 typecheck 兜住。
-- 私有 overlay 自带语料与接缝：`private/apps/web/i18n.ts` 导出 `tBilling`，在 overlay 加载时
-  把 `billing` 命名空间注册进同一个 i18next 实例。它不复用公开树的 `declare module`——
+- 计费模块自带独立命名空间：`apps/web/src/features/billing/i18n.ts` 导出 `tBilling`，在加载时
+  把 `billing` 命名空间注册进同一个 i18next 实例。它不复用主入口的 `declare module`——
   `CustomTypeOptions.resources` 只能声明一次，两处声明会冲突。
 
 ## 主题与显示设置
