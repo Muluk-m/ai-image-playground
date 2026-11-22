@@ -28,7 +28,17 @@ test('ui changes need a screenshot that says it came from the test environment',
   assert.match(evaluatePr({ files, body: body() }).fails.join(), /需要附测试环境 test.muvloom.online 的截图/)
   assert.match(evaluatePr({ files, body: body({ top: shot }) }).fails.join(), /没写明来自测试环境/)
   assert.deepEqual(evaluatePr({ files, body: body({ top: `test.muvloom.online 截图：\n${shot}` }) }).fails, [])
-  assert.deepEqual(evaluatePr({ files: [file('apps/website/src/pages/index.tsx')], body: body() }).fails, [])
+  // 官网与工作台同一份产物发到测试环境，同样要截图。
+  assert.equal(evaluatePr({ files: [file('apps/website/src/pages/index.tsx')], body: body() }).fails.length, 1)
+  // 正文里的文件名不是截图。
+  const named = body({ top: '本地产物 out.png；已在 test.muvloom.online 自测' })
+  assert.match(evaluatePr({ files, body: named }).fails.join(), /需要附测试环境/)
+})
+
+test('admin ui changes need a screenshot but not the test environment', () => {
+  const files = [file('apps/admin/src/components/AppSidebar.tsx')]
+  assert.match(evaluatePr({ files, body: body() }).fails.join(), /改了 Admin 界面/)
+  assert.deepEqual(evaluatePr({ files, body: body({ top: `本地 Admin：\n${shot}` }) }).fails, [])
 })
 
 test('critical flows need checked evidence with media, or a reasoned waiver', () => {
@@ -48,6 +58,12 @@ test('critical flows need checked evidence with media, or a reasoned waiver', ()
   const result = evaluatePr({ files, body: body({ evidence: waiver }) })
   assert.deepEqual(result.fails, [])
   assert.match(result.warns.join(), /作者声明不涉及流程行为：「只合并重复的类型声明/)
+
+  // 理由写在勾选行后面同样有效；套话不算理由。
+  const sameLine = '- [x] 本 PR 不涉及上述关键流程：只把类型从 a.ts 挪到 b.ts，运行时不变\n- [ ] 已附测试账号在测试环境走通'
+  assert.deepEqual(evaluatePr({ files, body: body({ evidence: sameLine }) }).fails, [])
+  for (const filler of ['不涉及。', '无', 'N/A', '不涉及，见上'])
+    assert.equal(evaluatePr({ files, body: body({ evidence: `${bareWaiver}\n\n${filler}` }) }).fails.length, 1, filler)
 })
 
 test('cost files need more than a bare 不涉及, and keep the cost label list', () => {
@@ -57,6 +73,8 @@ test('cost files need more than a bare 不涉及, and keep the cost label list',
   assert.deepEqual(bare.costFiles, ['apps/bff/src/lib/upstream.ts'])
   assert.deepEqual(evaluatePr({ files, body: body({ cost: '不涉及：只改日志字段，不改请求。' }) }).fails, [])
   assert.match(evaluatePr({ files, body: null }).fails.join(), /成本与影响/)
+  for (const filler of ['无', 'N/A', '-', '（不涉及）', '不涉及，见上', '暂无'])
+    assert.equal(evaluatePr({ files, body: body({ cost: filler }) }).fails.length, 1, filler)
 })
 
 test('renamed files are matched by their old path too', () => {
@@ -71,6 +89,8 @@ test('large PRs warn, without counting lockfiles and drizzle snapshots', () => {
     file('apps/bff/src/a.ts', { additions: 500 }),
     file('pnpm-lock.yaml', { additions: 5000 }),
     file('packages/db/drizzle/meta/0101_snapshot.json', { additions: 3000 }),
+    file('apps/web/src/components/ui/icon/glyphs.gen.ts', { additions: 4000 }),
+    file('apps/web/public/inspiration-manifest.json', { additions: 2000 }),
   ]
   assert.deepEqual(evaluatePr({ files: generated, body: body() }).warns, [])
 })

@@ -5,6 +5,19 @@ import { evaluatePr } from './scripts/pr-rules.mjs'
 
 const COST_LABEL = 'cost-impact'
 
+async function syncCostLabel(api, issue, wanted) {
+  const labels = (danger.github.issue.labels ?? []).map((label) => label.name)
+  try {
+    if (wanted && !labels.includes(COST_LABEL))
+      await api.issues.addLabels({ ...issue, labels: [COST_LABEL] })
+    else if (!wanted && labels.includes(COST_LABEL))
+      await api.issues.removeLabel({ ...issue, name: COST_LABEL })
+  } catch (error) {
+    // 标签只是提示；写失败不能顶掉规则结论。
+    warn(`没能同步 \`${COST_LABEL}\` 标签：${error?.status ?? ''} ${error?.message ?? error}`)
+  }
+}
+
 async function run() {
   const { owner, repo, number } = danger.github.thisPR
   const api = danger.github.api
@@ -13,16 +26,13 @@ async function run() {
 
   for (const message of result.fails) fail(message)
   for (const message of result.warns) warn(message)
-
-  const labels = (danger.github.issue.labels ?? []).map((label) => label.name)
-  if (result.costFiles.length) {
+  if (result.costFiles.length)
     markdown(`### 可能影响成本\n\n${result.costFiles.map((f) => `- \`${f}\``).join('\n')}`)
-    if (!labels.includes(COST_LABEL)) {
-      await api.issues.addLabels({ owner, repo, issue_number: number, labels: [COST_LABEL] })
-    }
-  } else if (labels.includes(COST_LABEL)) {
-    await api.issues.removeLabel({ owner, repo, issue_number: number, name: COST_LABEL })
-  }
+
+  // 跑的期间 PR 又推了新提交：标签留给新提交那次运行，避免旧结果后写覆盖新结果。
+  const eventHead = process.env.EVENT_HEAD_SHA
+  if (eventHead && danger.github.pr.head.sha !== eventHead) return
+  await syncCostLabel(api, { owner, repo, issue_number: number }, result.costFiles.length > 0)
 }
 
 schedule(run())

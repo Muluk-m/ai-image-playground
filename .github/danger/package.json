@@ -1,0 +1,8 @@
+{
+  "name": "pr-rules-danger",
+  "private": true,
+  "description": "Pinned Danger for .github/workflows/danger.yml; installed with npm ci --ignore-scripts.",
+  "dependencies": {
+    "danger": "14.1.0"
+  }
+}
