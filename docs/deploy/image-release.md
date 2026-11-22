@@ -40,18 +40,18 @@ Pages 发布入口为 `muvloom|test|admin`；后端生产目标只有 `paid`，�
 
 负责人决定（2026-09-18）：会话只负责合并到 `main`，不再手动发布；部署由 [`.github/workflows/deploy.yml`](../../.github/workflows/deploy.yml) 完成。下文手动步骤仅作应急（CI 不可用、需发布非 main 提交时）。
 
-1. 触发：`schedule` 窗口，北京时间 12:30、18:30、23:30（cron UTC `30 4,10,15 * * *`），只发当时 `origin/main` 的 tip，且该提交的 `Web checks` 须已在 main 上成功，未完成或失败则跳过本窗口（notice，不报错）；overlay-bump 用 `GITHUB_TOKEN` 推的 lock 提交没有 `Web checks`，改看其父提交。紧急通道是在 main 上手动 `workflow_dispatch`，必填 `reason`（写入 job summary），全量重发，用于紧急修复与 overlay 即时发布。main 上的 `Web checks` 先由 `prior` 核对：提交与其同仓 PR 头的代码树相同、且该 PR 头的 `Web checks` 已通过时，其余检查跳过（结论仍为 success），直接进入部署；PR 落后于 main、来自 fork 或找不到通过记录时照常全跑。并发组 `production-deploy` 不取消在跑的发布，排队只留最新一次。
+1. 触发：`schedule` 窗口，北京时间 12:30、18:30、23:30（cron UTC `30 4,10,15 * * *`），只发当时 `origin/main` 的 tip，且该提交的 `Web checks` 须已在 main 上成功，未完成或失败则跳过本窗口（失败打 warning，其余 notice，不报错）。紧急通道是在 main 上手动 `workflow_dispatch`，必填 `reason`（写入 job summary），全量重发，用于紧急修复。main 上的 `Web checks` 先由 `prior` 核对：提交与其同仓 PR 头的代码树相同、且该 PR 头的 `Web checks` 已通过时，其余检查跳过（结论仍为 success），直接进入部署；PR 落后于 main、来自 fork 或找不到通过记录时照常全跑。并发组 `production-deploy` 不取消在跑的发布，排队只留最新一次。
 2. `target`：[`scripts/ci-deploy-target.sh`](../../scripts/ci-deploy-target.sh) 判定共享 muvloom API、muvloom Pages 项目（企业域名与 muvloom 域名共用）、Admin 是否需要发布。前端扫描 `PAID_PUBLIC_ORIGIN` 的 `/version.json`，同一项目的其他域名随之更新。提交不是 `origin/main` 最新、或任一受管 API / 站点已运行其后代提交（不回退）则整单跳过；版本读不到或副本不一致照常发布。
 3. `release`：在同一个 `production-deploy` 并发组里根据根 `package.json` 的主次版本和已有 `vMAJOR.MINOR.*` 标签算出下一个补丁，打上 `vMAJOR.MINOR.PATCH` 并推送，避免两次发布抢同一个补丁。不把版本提交回 main。
-4. `backend`：仅在 API 树有变化时检出该提交，用 deploy key 按 `private.lock` 钉住的提交检出私有仓库到 `private/`，`GITHUB_TOKEN` 登录 GHCR，构建发布目录并经 forced command 执行 `deploy <id> paid <run_id>`，更新共享 muvloom 后端。
-5. `pages-muvloom`（显示名 `Pages (muvloom project, every product domain)`）→ `admin-pages`：一个项目、多个域名。只构建、上传一次 muvloom Pages 项目，`muvloom.online`、`image.nainma.online` 与企业域名 `image-playground.qiliangjia.one` 共用产物。`pages-release.sh muvloom` 把 `ENTERPRISE_PUBLIC_ORIGIN → ENTERPRISE_BFF_BASE_URL` 并入 `baseUrlsByOrigin`，并给企业域名追加按 host 生效的 `X-Robots-Tag: noindex, nofollow`。API 本次发布时，先等共享 muvloom API 与企业 API hostname `/health` 均报 `<公开sha>+<私有sha>`，再构建、上传并跑 Chromium 验收。企业域名在 Cloudflare 自定义域名列表中时，必须在 300 秒内与 muvloom 站 `version.json` 一致、带 noindex 头并通过 Chromium 验收，否则 job 失败；不在列表中时只给 warning，不代表企业域名已经交付。读不到域名列表也失败。前端单独发布时允许 backend job 跳过；Admin 等 `pages-muvloom` 成功或跳过。失败后只能按失败 job 重跑，不能重跑整单。
+4. `backend`：仅在 API 树有变化时检出该提交，`GITHUB_TOKEN` 登录 GHCR，单仓构建发布目录并经 forced command 执行 `deploy <id> paid <run_id>`，更新共享 muvloom 后端（为兼容 VPS 既有 `aip-ci-receive` 协议，`images.tsv` 与 `/health` 沿用 `<sha>+<sha>` 形式）。
+5. `pages-muvloom`（显示名 `Pages (muvloom project, every product domain)`）→ `admin-pages`：一个项目、多个域名。只构建、上传一次 muvloom Pages 项目，`muvloom.online`、`image.nainma.online` 与企业域名 `image-playground.qiliangjia.one` 共用产物。`pages-release.sh muvloom` 把 `ENTERPRISE_PUBLIC_ORIGIN → ENTERPRISE_BFF_BASE_URL` 并入 `baseUrlsByOrigin`，并给企业域名追加按 host 生效的 `X-Robots-Tag: noindex, nofollow`。API 本次发布时，先等共享 muvloom API 与企业 API hostname `/health` 均报当前提交版本（`<sha>+<sha>` 或 `<sha>`），再构建、上传并跑 Chromium 验收。企业域名在 Cloudflare 自定义域名列表中时，必须在 300 秒内与 muvloom 站 `version.json` 一致、带 noindex 头并通过 Chromium 验收，否则 job 失败；不在列表中时只给 warning，不代表企业域名已经交付。读不到域名列表也失败。前端单独发布时允许 backend job 跳过；Admin 等 `pages-muvloom` 成功或跳过。失败后只能按失败 job 重跑，不能重跑整单。
 6. 部署日志 `by=github-actions/run-<run_id>`；手动发布仍记 `user@host`（`DEPLOY_ACTOR` 可覆盖，写入时空白等字符换成 `-`）。
 
 ### 前端启动验收
 
 `pages-release.sh` 对 web 发布除版本清单外，还以普通 URL（不加绕缓存参数）核验首页与深链接的 HTML 内容标识（整份 HTML 的 sha256，含独立启动脚本）、所有构建 JS/CSS 的 MIME 与字节内容，以及不存在的 `/assets/*.js` 返回 404 且不得长期缓存。CDN 传播期间在 180 秒内有界重试，仍用普通 URL；超过期限仍不一致则退出非零，不记成功。生产 workflow 随后用无登录态 Chromium 打开 muvloom 与企业域名，确认匿名官网（未启用登录时直接进入工作台）、双语指南、登录入口与隔离的本地项目画布挂载、启动遮罩消失且无 JavaScript 异常。
 
-PR/main/test 的公开版与带 overlay 构建都在 Chromium 中冷启动官网、`/image` 工作台和项目深链接；工作台未挂载、启动遮罩未消失、JS 异常或分片加载失败均阻止检查通过。`pages-release.sh` 调用的上传入口还会在构建与附加资源复制后，对最终 `dist` 重跑同一检查，通过后才执行 Wrangler 上传，不以重新构建替代已测产物。发布后继续验证两个生产域名的真实加载。
+PR/main/test 的单仓构建都在 Chromium 中冷启动官网、`/image` 工作台和项目深链接；工作台未挂载、启动遮罩未消失、JS 异常或分片加载失败均阻止检查通过。`pages-release.sh` 调用的上传入口还会在构建与附加资源复制后，对最终 `dist` 重跑同一检查，通过后才执行 Wrangler 上传，不以重新构建替代已测产物。发布后继续验证两个生产域名的真实加载。
 
 浏览器运行时由 `scripts/pages-browser-smoke.sh` 在仓库外准备固定版本 Playwright；手动应急发布也必须通过该检查。本地产物检查按 `_redirects` 提供路由，保留缺失资源 404；项目直链使用隔离浏览器内预置的本地画布，首次导航前不加载任何应用模块。检查只 mock 匿名启动所需的只读 API 并阻止其它外部请求；不连接生产 API、不调用付费生成。它验证生产分片的真实求值与启动，不替代登录、业务数据及生成验收。失败时保存截图、原始 JS/资源错误和页面 HTML，CI 上传为七天保留的 artifact。
 
@@ -67,12 +67,11 @@ Admin（`apps/admin`）同样带顶层 `404.html`，`_redirects` 由 `apps/admin
 
 | Secret | 用途 |
 | --- | --- |
-| `PRIVATE_OVERLAY_SSH_KEY` | 私有仓库只读 deploy key |
 | `VPS_SSH_KEY` / `VPS_SSH_KNOWN_HOSTS` / `VPS_SSH_HOST` / `VPS_SSH_USER` | 连接 VPS 的受限 key、主机公钥、地址、用户（`ubuntu`） |
 | `PAGES_ENV` | 完整 `pages.env`；API 地址也从中读取 |
 | `PAID_CLOUDFLARE_API_TOKEN` | muvloom Pages 账号的上传令牌，写成 `$RUNNER_TEMP` 下 0600 文件，覆盖 `PAID_CLOUDFLARE_TOKEN_FILE`。Admin 同样使用它。 |
 
-`PAID_EXTRA_ASSETS_DIR` 在 CI 改指 `private/pages-assets/`（`contact-qr.jpg`、`pay-qr.jpg`），目录缺失即失败。企业域名与 muvloom 站是同一份产物，`/op/` 下的这些资源在企业域名上同样可访问（本就公开）。所有 `EXTRA_ASSETS_DIR` 内容都会公开发布，不可放密钥。GHCR 推送用 workflow 的 `GITHUB_TOKEN`（`packages: write`）；包须允许本仓库 Actions 写入。任一必需 secret 为空，对应 job 首步报错退出。
+单仓收口后不再随仓库分发收款/客服二维码资源，收款码与联系二维码统一存放在对象存储并通过后台 `billing_settings` 配置外链 URL；`PAGES_ENV` 若配置了 `PAID_EXTRA_ASSETS_DIR` 仍按原逻辑复制到 `dist/op/`，CI 不再强行覆盖该字段。所有 `EXTRA_ASSETS_DIR` 内容都会公开发布，不可放密钥。GHCR 推送用 workflow 的 `GITHUB_TOKEN`（`packages: write`）；包须允许本仓库 Actions 写入。任一必需 secret 为空，对应 job 首步报错退出。
 
 ### VPS 受限入口
 
@@ -127,7 +126,7 @@ muvloom Cloudflare 账号的 Bulk Redirect List `muvloom_pages_canonical` 将
 
 ### 手动构建与发布
 
-1. 准备独立、干净且依赖已按锁文件安装的检出，固定到同一已通过 main CI 的公开提交及 `private.lock` 对应的 `private/`。前端必须带 overlay。不要移动其他会话的 `private/` 或重写锁文件。
+1. 准备独立、干净且依赖已按锁文件安装的检出，固定到已通过 main CI 的单仓提交，不要重写锁文件。
 2. 在执行发布的机器准备仓库外 0600 配置，格式见 `deploy/pages.env.example`。填写 `PAID_PAGES_PROJECT`、`PAID_BFF_BASE_URL`、`PAID_PUBLIC_ORIGIN`、`PAID_CLOUDFLARE_ACCOUNT_ID`，以及企业域名的 `ENTERPRISE_PUBLIC_ORIGIN`、`ENTERPRISE_BFF_BASE_URL`；令牌通过 `PAID_CLOUDFLARE_TOKEN_FILE` 引用受保护文件，未配置时使用该机器的 Wrangler OAuth。
 3. 保留 muvloom 旧域名映射：`PAID_BFF_BASE_URLS_BY_ORIGIN='{"https://image.nainma.online":"https://api.nainma.online"}'`，避免旧域名会话失效。保留现有 `*_EXTRA_ASSETS_DIR` 等配置；该目录内容会公开发布。
 4. 将下列路径替换为本次独立检出和已核验配置，再执行：
@@ -145,13 +144,13 @@ cd /absolute/muvloom-checkout
 
 macmini2 现有生产配置参考：`/Users/mac/services/aip-free-recovery-20260918/pages-primary-remote.env`；使用前须按「仓库外更新前提」迁移企业键名并核验令牌。`pages-remote.env` 指向旧备用 API，不能用于正常生产发布。服务容器停机不影响读取这些配置，但发布不得依赖失效令牌。本机使用本机受保护配置与凭据路径，不直接引用 macmini2 的绝对路径。
 
-验收三个网页域名的 `version.json`、`runtime-config.json`：三者为同一部署、含预期私有提交，各自第一方 API 映射正确，企业域名带 noindex 头；再检查真实浏览器登录、原画布和前端改动。上传成功但域名校验超时时先查部署状态及缓存，不立即重复上传。默认静默更新；需要更新提示时设置对应 `*_NOTIFY_UPDATE=true`。
+验收三个网页域名的 `version.json`、`runtime-config.json`：三者为同一部署、含预期提交，各自第一方 API 映射正确，企业域名带 noindex 头；再检查真实浏览器登录、原画布和前端改动。上传成功但域名校验超时时先查部署状态及缓存，不立即重复上传。默认静默更新；需要更新提示时设置对应 `*_NOTIFY_UPDATE=true`。
 
-前端回滚：在独立检出恢复上一已验证公开/私有提交，使用相同生产配置重跑对应 `pages-release.sh`，按上述步骤验收。
+前端回滚：在独立检出恢复上一已验证提交，使用相同生产配置重跑对应 `pages-release.sh`，按上述步骤验收。
 
 ## 后台：前端在 Pages、API 在 VPS
 
-后台前端是 `apps/admin` 的 Vite 产物，跟 muvloom 站同一个 Cloudflare 账号、同一份 `private/` overlay，发到独立项目 `muvloom-admin`；
+后台前端是 `apps/admin` 的 Vite 产物，跟 muvloom 站同一个 Cloudflare 账号，发到独立项目 `muvloom-admin`；
 后台服务端还是 compose 里的 `admin` 容器，只出 API，经 tunnel 暴露成 `admin-api.muvloom.online`。
 两个域名同站（eTLD+1 相同），所以 `SameSite=Lax` 的 `admin_session` cookie 在 `fetch(credentials:'include')` 和 `<img>` 上都带得过去；`*.pages.dev` 预览域登不上，与主站一致。
 
@@ -159,7 +158,7 @@ macmini2 现有生产配置参考：`/Users/mac/services/aip-free-recovery-20260
 
 ```sh
 export PAGES_ENV_FILE=/absolute/protected/pages.env
-cd /absolute/muvloom-checkout   # 必须带已验证的 private/
+cd /absolute/muvloom-checkout
 ./scripts/pages-release.sh admin
 ```
 
@@ -191,7 +190,7 @@ push 到 `test` 分支由 [`.github/workflows/deploy-test.yml`](../../.github/wo
 
 镜像经私有 GHCR `ghcr.io/muluk-m/ai-image-playground`（owner 必须小写）传输，VPS 按 digest 拉取，只传变更层。发布目录只含 `images.tsv` 与 `SHA256SUMS`，体积很小，可经工作站中转。
 
-1. 构建机：GitHub Actions `ubuntu-24.04`（workflow 写死这个标签；`GITHUB_ACTIONS=true`）或 macmini2 手动兜底；其他 Linux 拒绝构建。独立检出已通过 PR/main CI 的公开提交与已验证的 `private/` Git 提交。生产使用 `paid`，隔离测试使用 `test`，两者均带 overlay。不得占用其他会话目录。
+1. 构建机：GitHub Actions `ubuntu-24.04`（workflow 写死这个标签；`GITHUB_ACTIONS=true`）或 macmini2 手动兜底；其他 Linux 拒绝构建。独立检出已通过 PR/main CI 的单仓提交。生产使用 `paid`，隔离测试使用 `test`。不得占用其他会话目录。
 2. 构建到尚不存在的目录：
 
 ```sh

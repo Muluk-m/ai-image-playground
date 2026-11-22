@@ -50,7 +50,7 @@ bootstrap 格式：
 }
 ```
 
-muvloom 生产包的 `privateCommit` 必须填写实际 overlay 提交，并与发布使用的 `private.lock` 配套。以运行容器的镜像 ID、`APP_VERSION` 为准；打包前后核对版本未变化。当前打包器输入上限 64 MiB，超过时须升级流式方案，不得截断。
+muvloom 生产包的 `privateCommit` 在单仓收口后与 `publicCommit` 保持一致（沿用发布镜像的 `APP_VERSION` 形式）。以运行容器的镜像 ID、`APP_VERSION` 为准；打包前后核对版本未变化。当前打包器输入上限 64 MiB，超过时须升级流式方案，不得截断。
 
 ## 打包与验证
 

@@ -23,12 +23,12 @@
 ## 发布链路
 
 1. 后端镜像构建（含 `scripts/ci-check-test-branch.sh`：落后 main 即失败）与门禁并行启动，镜像只是私有 GHCR 里的数据，门禁没过不会发布。
-2. 门禁先看同一提交的 `Web checks`：推 `test` 也会触发 web.yml，`verify` job（`scripts/ci-reuse-web-checks.sh`）等该 run 结束，只有 event 为 push、分支 `test`、`head_sha` 就是本次提交，且 `lint`、`typecheck`、`build`、`bff` 四片、`web-test` 三片、`with-overlay`（lint 与私有测试）、`with-overlay (build)`、`with-overlay (typecheck)` 全部 success，才复用，不再重跑。`with-overlay*` 用的是该提交 `private.lock` 钉住的 overlay，与镜像用的同一个提交，发布前还会核对。没有 run、有 job 失败或缺失（含 web.yml 改名）、等超时（25 分钟）都不复用，回落到本 workflow 自带的 `Checks` / `Tests` / `Web tests` / `Muvloom build checks` / `Muvloom overlay tests`，与复用前完全一致（公开 lint / typecheck / 完整测试与构建、带 overlay 的检查与 Chromium 首页/项目深链接启动检查）。`web.yml` 改 job 名要同步改脚本里的 `REQUIRED`，否则只会回落、不会放行。
+2. 门禁先看同一提交的 `Web checks`：推 `test` 也会触发 web.yml，`verify` job（`scripts/ci-reuse-web-checks.sh`）等该 run 结束，只有 event 为 push、分支 `test`、`head_sha` 就是本次提交，且 `lint`、`typecheck`（含 Admin 构建）、`build`（含 Chromium 首页/项目深链接启动检查）、`bff` 四片（含计费数据库测试）、`web-test` 三片（共 10 个 job）全部 success，才复用，不再重跑。没有 run、有 job 失败或缺失（含 web.yml 改名）、等超时（25 分钟）都不复用，回落到本 workflow 自带的 `Checks` / `Tests` / `Web tests`，与复用前覆盖项一致（单仓 lint / typecheck / 完整测试与构建及 Chromium 启动检查）。`web.yml` 改 job 名要同步改脚本里的 `REQUIRED`，否则只会回落、不会放行。
 3. 门禁通过后（复用或回落全绿）才进入 `rollout`：SSH receiver 接受 `deploy <release-id> test <run-id>`，digest 校验后只向 `image-playground-test` 发布。复用迁移、依赖检查、不可变运行时和排空协议；VPS 不构建。
-4. API `/health` 返回公开 SHA + overlay SHA 后，才构建同一对提交的测试前端；最终 `dist` 通过浏览器启动检查后才上传，上传后再验证测试域名的首页与项目深链接。
+4. API `/health` 返回本次提交版本（`<sha>+<sha>` 或 `<sha>`）后，才构建同一提交的测试前端；最终 `dist` 通过浏览器启动检查后才上传，上传后再验证测试域名的首页与项目深链接。
 5. 核验线上 `version.json`、TLS、CORS、登录、授权媒体与一次真实生成。
 
-GitHub 使用已有 VPS、Cloudflare 和 overlay secrets。CI 在读取 `PAGES_ENV` 后固定覆盖测试 API 为 `https://test-api.muvloom.online` 并清空 origin override，无需重写共享生产 secret 的 API 地址。共享 `PAGES_ENV` 与仓库外 `pages.env` 中的企业配置须使用 `ENTERPRISE_PUBLIC_ORIGIN` / `ENTERPRISE_BFF_BASE_URL`；旧键没有 fallback，更新前提见[部署手册](image-release.md#仓库外更新前提)。本机 `TEST_BFF_BASE_URL` 也必须使用测试 API 地址。测试使用单独 SSH key（secret `VPS_SSH_KEY_TEST`），在 VPS 绑定 `aip-ci-receive test`，只能发布 `test`；生产 key 绑定 `aip-ci-receive release`，只能发布 `paid`。`test` 镜像来自 `test` 分支本身，但宿主机执行的部署脚本由 receiver 自动从公开仓库 `main` 最新提交解出（不执行未合入 `main` 的分支脚本）；固定 `~/bin/aip-ci-receive` 自身变更时须在 VPS 备份更新。
+GitHub 使用已有 VPS 与 Cloudflare secrets。CI 在读取 `PAGES_ENV` 后固定覆盖测试 API 为 `https://test-api.muvloom.online` 并清空 origin override，无需重写共享生产 secret 的 API 地址。共享 `PAGES_ENV` 与仓库外 `pages.env` 中的企业配置须使用 `ENTERPRISE_PUBLIC_ORIGIN` / `ENTERPRISE_BFF_BASE_URL`；旧键没有 fallback，更新前提见[部署手册](image-release.md#仓库外更新前提)。本机 `TEST_BFF_BASE_URL` 也必须使用测试 API 地址。测试使用单独 SSH key（secret `VPS_SSH_KEY_TEST`），在 VPS 绑定 `aip-ci-receive test`，只能发布 `test`；生产 key 绑定 `aip-ci-receive release`，只能发布 `paid`。`test` 镜像来自 `test` 分支本身，但宿主机执行的部署脚本由 receiver 自动从公开仓库 `main` 最新提交解出（不执行未合入 `main` 的分支脚本）；固定 `~/bin/aip-ci-receive` 自身变更时须在 VPS 备份更新。
 
 发布成功后，独立的 `Browser scenarios` workflow（推送 `test` 时触发并等待发布成功）会在 runner 上用本地栈和 mock 上游跑一遍浏览器场景套件，只告警、不占用 `test-deploy` 并发组，见[浏览器场景套件](../agents/browser-scenarios.md)。
 
