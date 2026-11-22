@@ -65,16 +65,13 @@ fi
 
 incoming=$(mktemp -d "$releases_root/.incoming.XXXXXX")
 created=
-holds_runtimes_lock=
 # shellcheck disable=SC2329  # invoked via trap cleanup EXIT
 cleanup() {
   status=$?
   rm -rf "$incoming"
   # A release that never reached its receiver is removed so the run can simply be retried.
   if [ "$status" -ne 0 ] && [ -n "$created" ]; then rm -rf "$release"; fi
-  if [ -n "$holds_runtimes_lock" ]; then
-    rm -f "$runtimes/.lock.owner" "$runtimes/.lock.owner.tmp"
-  fi
+  if [ -n "${runtimes:-}" ]; then rm -f "$runtimes/.lock.owner.tmp" 2>/dev/null || true; fi
 }
 trap cleanup EXIT
 trap 'exit 129' HUP
@@ -144,6 +141,16 @@ prepare_mirror() {
 fetch_main() {
   GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60 \
     git -C "$mirror" fetch -q --filter=blob:none origin '+refs/heads/main:refs/heads/main' >&2
+}
+
+with_timeout() {
+  seconds=$1
+  shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout "$seconds" "$@"
+  else
+    "$@"
+  fi
 }
 
 # Unpacks <commit>'s deploy/ and scripts/ into ~/deploy-runtimes/<commit> if not already present,
@@ -245,11 +252,10 @@ test_runtime() {
   if printf '%s\n' "$release_commit" | grep -Eqx '[0-9a-f]{40}' &&
     [ "$release_commit" != "$main_commit" ]; then
     if ! git -C "$mirror" cat-file -e "$release_commit^{tree}" 2>/dev/null; then
-      GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60 \
-        git -C "$mirror" fetch -q --filter=blob:none --no-tags origin "$release_commit" >/dev/null 2>&1 ||
-        GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60 \
-          git -C "$mirror" fetch -q --filter=blob:none origin '+refs/heads/test:refs/heads/test' >/dev/null 2>&1 ||
-        true
+      # Diagnostic only: main's runtime is already unpacked, so cap this single commit/tree probe
+      # tightly instead of stalling test or blocking paid under the shared runtimes lock.
+      with_timeout 10 env GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=10 \
+        git -C "$mirror" fetch -q --filter=blob:none --no-tags origin "$release_commit" >/dev/null 2>&1 || true
     fi
     if git -C "$mirror" cat-file -e "$release_commit^{tree}" 2>/dev/null; then
       main_trees=$(git -C "$mirror" rev-parse "$main_commit:deploy" "$main_commit:scripts" 2>/dev/null || echo missing-main)
@@ -285,28 +291,50 @@ prune_runtimes() {
 # those last two steps. Busy means the same as a busy host lock (75): nothing changed, retry;
 # recording `what=receive <target> ...` lets ci-ship-release.sh wait when the other environment's
 # CI deploy holds this lock, while still failing at once on same-target contention.
-mkdir -p "$runtimes"
-exec 9>"$runtimes/.lock"
-if ! flock -n 9; then
-  rm -rf "$release"
-  echo "Deploy lock busy: another receiver holds $runtimes/.lock; release $release_id was not applied. Retry once it finishes." >&2
-  if [ -r "$runtimes/.lock.owner" ]; then
-    holder_pid=$(awk -F= '$1 == "pid" { print $2; exit }' "$runtimes/.lock.owner")
-    if [ -n "$holder_pid" ] && kill -0 "$holder_pid" 2>/dev/null; then
-      holder_token=$(awk -F= '$1 == "token" { print $2; exit }' "$runtimes/.lock.owner")
-      live_token=$(process_token "$holder_pid")
-      if [ -z "$holder_token" ] || [ "$holder_token" = - ] || [ "$live_token" = - ] ||
-        [ "$holder_token" = "$live_token" ]; then
-        sed 's/^/  /' "$runtimes/.lock.owner" >&2
+#
+# Acquire retries briefly so a contender arriving between a new holder's `flock` and its atomic
+# `.lock.owner` rename (or just as an exiting holder releases fd 9) either wins the lock or reads
+# a complete, live owner snapshot from memory without racing file removal under `set -e`.
+acquire_runtimes_lock() {
+  mkdir -p "$runtimes"
+  exec 9>"$runtimes/.lock"
+  attempt=0
+  owner_snapshot=
+  while :; do
+    if flock -n 9; then
+      printf 'pid=%s\ntoken=%s\nwhat=receive %s %s\n' \
+        "$$" "$(process_token "$$")" "$target" "$release" > "$runtimes/.lock.owner.tmp" &&
+        mv -f "$runtimes/.lock.owner.tmp" "$runtimes/.lock.owner"
+      return 0
+    fi
+    raw_owner=$(cat "$runtimes/.lock.owner" 2>/dev/null || true)
+    owner_snapshot=
+    if [ -n "$raw_owner" ]; then
+      holder_pid=$(printf '%s\n' "$raw_owner" | awk -F= '$1 == "pid" { print $2; exit }')
+      holder_what=$(printf '%s\n' "$raw_owner" | awk -F= '$1 == "what" { print substr($0, 6); exit }')
+      if [ -n "$holder_pid" ] && [ -n "$holder_what" ] && kill -0 "$holder_pid" 2>/dev/null; then
+        holder_token=$(printf '%s\n' "$raw_owner" | awk -F= '$1 == "token" { print $2; exit }')
+        live_token=$(process_token "$holder_pid")
+        if [ -z "$holder_token" ] || [ "$holder_token" = - ] || [ "$live_token" = - ] ||
+          [ "$holder_token" = "$live_token" ]; then
+          owner_snapshot=$raw_owner
+          break
+        fi
       fi
     fi
+    attempt=$((attempt + 1))
+    [ "$attempt" -lt 10 ] || break
+    sleep 0.05
+  done
+  rm -rf "$release"
+  echo "Deploy lock busy: another receiver holds $runtimes/.lock; release $release_id was not applied. Retry once it finishes." >&2
+  if [ -n "$owner_snapshot" ]; then
+    printf '%s\n' "$owner_snapshot" | sed 's/^/  /' >&2
   fi
   exit 75
-fi
-holds_runtimes_lock=1
-rm -f "$runtimes/.lock.owner"
-printf 'pid=%s\ntoken=%s\nwhat=receive %s %s\n' "$$" "$(process_token "$$")" "$target" "$release" > "$runtimes/.lock.owner.tmp" &&
-  mv -f "$runtimes/.lock.owner.tmp" "$runtimes/.lock.owner"
+}
+
+acquire_runtimes_lock
 
 if [ "$target" = paid ]; then
   runtime_root=$(paid_runtime) || {

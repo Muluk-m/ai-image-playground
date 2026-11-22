@@ -657,5 +657,67 @@ describe('ci-receive.sh', () => {
       expect(rollback.status, rollback.stderr).toBe(0)
       expect(rollback.stderr).not.toContain('installed receiver')
     })
+
+    it('waits briefly for a live holder to publish .lock.owner and ignores dead owner files', async () => {
+      mkdirSync(runtimes(), { recursive: true })
+      const lock = join(runtimes(), '.lock')
+      const owner = join(runtimes(), '.lock.owner')
+      writeFileSync(owner, 'pid=999999\ntoken=-\nwhat=receive paid /stale\n')
+
+      // External holder delays writing its live .lock.owner for 120ms after taking flock.
+      const delayedHolder = spawn(
+        'flock',
+        [
+          lock,
+          'sh',
+          '-c',
+          `sleep 0.12 && printf 'pid=%s\\ntoken=-\\nwhat=receive paid /delayed\\n' "$$" > "${owner}" && exec sleep 30`,
+        ],
+        { detached: true, stdio: 'ignore' },
+      )
+      try {
+        for (let tries = 0; tries < 50; tries++) {
+          if (spawnSync('flock', ['-n', lock, 'true']).status !== 0) break
+          await new Promise((resolve) => setTimeout(resolve, 20))
+        }
+        const otherId = `aip-${'d'.repeat(12)}-${'b'.repeat(12)}`
+        const busy = receive(`deploy ${otherId} test 2`, releaseTar(manifest('test')), {}, 'test')
+        expect(busy.status).toBe(75)
+        expect(busy.stderr).not.toContain('/stale')
+        expect(busy.stderr).toMatch(/^ {2}what=receive paid \/delayed$/m)
+      } finally {
+        if (delayedHolder.pid) {
+          try {
+            process.kill(-delayedHolder.pid, 'SIGKILL')
+          } catch {
+            delayedHolder.kill('SIGKILL')
+          }
+        }
+      }
+    })
+
+    it('caps the optional test drift probe with timeout so a stalled fetch never blocks deployment', () => {
+      const binDir = join(root, 'bin')
+      const timeoutLog = join(root, 'timeout-calls')
+      mkdirSync(binDir, { recursive: true })
+      writeFileSync(
+        join(binDir, 'timeout'),
+        `#!/bin/sh\nprintf '%s\\n' "$*" >> "${timeoutLog}"\nexit 124\n`,
+      )
+      chmodSync(join(binDir, 'timeout'), 0o755)
+
+      const result = receive(
+        `deploy ${id} test 1`,
+        releaseTar(manifest('test', sideCommit)),
+        { PATH: `${binDir}:${process.env.PATH}` },
+        'test',
+      )
+      expect(result.status, result.stderr).toBe(0)
+      expect(readFileSync(timeoutLog, 'utf8')).toMatch(/^10 env .* fetch .* /m)
+      expect(result.stderr).toContain(`could not inspect ${sideCommit}`)
+      expect(readFileSync(log, 'utf8')).toBe(
+        `test ${releases}/${id} actor=github-actions/run-1 runtime=main\n`,
+      )
+    })
   })
 })
