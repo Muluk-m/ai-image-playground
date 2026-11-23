@@ -6,16 +6,31 @@ import {
   type ManagedModelsView,
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
-import { getChannels, getChannelTopology, isChannelCredentialReady } from '../lib/channels'
+import { config } from '../config'
+import {
+  getChannels,
+  getChannelTopology,
+  isChannelCredentialReady,
+  refreshChannelsIfChanged,
+} from '../lib/channels'
 import {
   listModelAvailability,
   refreshInactiveModels,
   setModelActive,
 } from '../lib/model-availability'
+import { resolveChatApiKey } from '../lib/resolveApiKey'
 import { requireInternalService } from '../lib/user-auth'
+
+function legacyGatewaySecretRef(modelId: string): string {
+  const isClaude = modelId.toLowerCase().startsWith('claude-')
+  if (isClaude && config.upstream.claudeApiKey) return 'UPSTREAM_CLAUDE_API_KEY'
+  if (config.upstream.openaiApiKey) return 'UPSTREAM_OPENAI_API_KEY'
+  return isClaude ? 'UPSTREAM_CLAUDE_API_KEY / UPSTREAM_API_KEY' : 'UPSTREAM_API_KEY'
+}
 
 /** 生成模型取自 channel，对话模型取自 Agent 的 provider 配置与已绑定档位；同一个 id 只列一次。 */
 async function managedModels(): Promise<ManagedModelsView> {
+  refreshChannelsIfChanged()
   const { readAgentModelSettings } = await import('../lib/agent/model-settings-store')
   const { agentProviderTemplates, providerCredentialReady } = await import(
     '../lib/agent/provider-settings'
@@ -69,6 +84,16 @@ async function managedModels(): Promise<ManagedModelsView> {
     }
   }
 
+  interface ChatCandidate {
+    providerId: string
+    providerName: string
+    model: AgentConfiguredModel
+    secretRef: string
+    secretConfigured: boolean
+    profiles: AgentProfileKey[]
+  }
+  const chatCandidates = new Map<string, ChatCandidate[]>()
+
   for (const provider of agent.settings.providers) {
     const templateModels = new Map(
       (templatesById.get(provider.template)?.models ?? []).map((model) => [model.id, model]),
@@ -87,31 +112,56 @@ async function managedModels(): Promise<ManagedModelsView> {
         if (fromTemplate) providerModels.set(fromTemplate.id, fromTemplate)
       }
     }
-    const secretConfigured = providerCredentialReady(provider)
-    const secretRef =
-      provider.secretRef || (provider.id === 'upstream-gateway' ? 'UPSTREAM_API_KEY' : '')
+    const isLegacyGateway = provider.id === 'upstream-gateway' && !provider.secretRef
+    const providerReady = isLegacyGateway ? false : providerCredentialReady(provider)
     for (const model of providerModels.values()) {
-      const profiles = routedProfilesByProviderModel.get(`${provider.id}\0${model.id}`)
-      const existing = models.get(model.id)
-      if (existing) {
-        if (existing.kind !== 'chat') continue
-        // 多 Provider 声明同一模型 ID 时，优先保留当前被产品思考档位实际引用的 Provider 条目。
-        if (existing.agent_profiles?.length || !profiles?.length) continue
-      }
-      models.set(model.id, {
-        id: model.id,
-        label: model.name,
-        kind: 'chat',
-        source_label: provider.name,
-        source_id: provider.id,
-        secret_ref: secretRef,
-        secret_configured: secretConfigured,
-        capabilities: [...(model.imageInput ? ['vision'] : []), model.api],
-        context_window: model.contextWindow,
-        max_tokens: model.maxTokens,
-        ...(profiles?.length ? { agent_profiles: profiles } : {}),
+      const profiles = routedProfilesByProviderModel.get(`${provider.id}\0${model.id}`) ?? []
+      const secretConfigured = isLegacyGateway
+        ? Boolean(resolveChatApiKey(model.id))
+        : providerReady
+      const secretRef = isLegacyGateway ? legacyGatewaySecretRef(model.id) : provider.secretRef
+      const list = chatCandidates.get(model.id) ?? []
+      list.push({
+        providerId: provider.id,
+        providerName: provider.name,
+        model,
+        secretRef,
+        secretConfigured,
+        profiles,
       })
+      chatCandidates.set(model.id, list)
     }
+  }
+
+  for (const [modelId, candidates] of chatCandidates) {
+    if (models.has(modelId)) continue
+    const routed = candidates.filter((candidate) => candidate.profiles.length > 0)
+    const primary = routed[0] ?? candidates[0]!
+    const mergedProfiles = Array.from(
+      new Set(candidates.flatMap((candidate) => candidate.profiles)),
+    )
+    // 多 Provider 声明同 ID 对话模型时，只要任一实际被档位引用的 Provider 缺少凭证就按未就绪提示，不掩盖缺密钥风险。
+    const effectiveReady =
+      routed.length > 0
+        ? routed.every((candidate) => candidate.secretConfigured)
+        : candidates.some((candidate) => candidate.secretConfigured)
+    const sourceLabel =
+      candidates.length > 1
+        ? `${primary.providerName} 等 ${candidates.length} 个 Provider`
+        : primary.providerName
+    models.set(modelId, {
+      id: modelId,
+      label: primary.model.name,
+      kind: 'chat',
+      source_label: sourceLabel,
+      source_id: primary.providerId,
+      secret_ref: primary.secretRef,
+      secret_configured: effectiveReady,
+      capabilities: [...(primary.model.imageInput ? ['vision'] : []), primary.model.api],
+      context_window: primary.model.contextWindow,
+      max_tokens: primary.model.maxTokens,
+      ...(mergedProfiles.length ? { agent_profiles: mergedProfiles } : {}),
+    })
   }
 
   return {

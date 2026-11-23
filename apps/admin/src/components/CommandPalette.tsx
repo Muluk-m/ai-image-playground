@@ -8,6 +8,7 @@ import {
   NAV_GROUPS,
   type NavTo,
   overlayNavPath,
+  overlayNavTarget,
   resolveProvidersNavLabel,
 } from '@/components/AppSidebar'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -129,10 +130,11 @@ function PaletteBody({ onDone }: { onDone: () => void }) {
         const path = overlayNavPath(entry.href)
         return {
           kind: 'module' as const,
-          id: path,
+          id: entry.href,
           label: entry.label,
           hint: path === '/billing/orders' ? '经营' : '设置',
           to: path as '/audit',
+          href: entry.href,
         }
       })
     return [...publicModules, ...overlayModules]
@@ -167,7 +169,11 @@ function PaletteBody({ onDone }: { onDone: () => void }) {
   function select(item: PaletteItem): void {
     onDone()
     if (item.kind === 'module') {
-      void navigate({ to: item.to })
+      if (item.href) {
+        void navigate(overlayNavTarget(item.href))
+      } else {
+        void navigate({ to: item.to })
+      }
       return
     }
     if (item.kind === 'user') {

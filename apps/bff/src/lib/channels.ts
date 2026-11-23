@@ -50,6 +50,7 @@ import {
   MODEL_TIERS,
 } from '@image-playground/shared'
 import { findCatalogModel, publishModelCapabilities } from '@image-playground/shared/model-catalog'
+import { resolveApiKey } from './resolveApiKey'
 import { isObject } from './type-guards'
 import { capabilitiesForModel } from './upstream/adapters'
 import {
@@ -622,18 +623,25 @@ export function getChannels(): InternalChannel[] {
   return loaded
 }
 
+function usesImage26Sub2apiFallback(channel: Pick<InternalChannel, 'auth' | 'models'>): boolean {
+  const envFallback = channel.auth.secret || (process.env[channel.auth.secretRef]?.trim() ?? '')
+  if (runtimeSecret(channel.auth.secretRef, envFallback)) return false
+  if (channel.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0) return false
+  return (
+    process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true' &&
+    channel.models.length > 0 &&
+    channel.models.every((model) => isGptImage26Model(model.id))
+  )
+}
+
 export function isChannelCredentialReady(
   channel: Pick<InternalChannel, 'auth' | 'models'>,
 ): boolean {
   const envFallback = channel.auth.secret || (process.env[channel.auth.secretRef]?.trim() ?? '')
   if (runtimeSecret(channel.auth.secretRef, envFallback)) return true
   if (channel.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0) return true
-  if (
-    process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true' &&
-    channel.models.length > 0 &&
-    channel.models.every((model) => isGptImage26Model(model.id))
-  ) {
-    return true
+  if (usesImage26Sub2apiFallback(channel)) {
+    return Boolean(resolveApiKey('openai-compat'))
   }
   return false
 }
@@ -669,12 +677,14 @@ export function getChannelTopology(): ManagedChannelSummary[] {
         : active
           ? 'active'
           : 'unconfigured'
+      const sub2apiFallback = active ? usesImage26Sub2apiFallback(active) : false
       const secretConfigured = active
         ? isChannelCredentialReady(active)
         : Boolean(
             runtimeSecret(ch.auth.secretRef, process.env[ch.auth.secretRef]?.trim() ?? '') ||
               (ch.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0),
           )
+      const secretRef = sub2apiFallback ? 'UPSTREAM_API_KEY (2.6 兜底)' : ch.auth.secretRef
       const sourceModels = active ? active.models : ch.models
       return {
         id: ch.id,
@@ -682,7 +692,7 @@ export function getChannelTopology(): ManagedChannelSummary[] {
         kind: ch.kind,
         status,
         authType: ch.auth.type,
-        secretRef: ch.auth.secretRef,
+        secretRef,
         secretConfigured,
         ...(ch.maxConcurrency !== undefined ? { maxConcurrency: ch.maxConcurrency } : {}),
         asyncTasks: Boolean(ch.defaults.asyncTasks),
@@ -701,7 +711,9 @@ export function getChannelTopology(): ManagedChannelSummary[] {
     kind: channel.kind,
     status,
     authType: channel.auth.type,
-    secretRef: channel.auth.secretRef,
+    secretRef: usesImage26Sub2apiFallback(channel)
+      ? 'UPSTREAM_API_KEY (2.6 兜底)'
+      : channel.auth.secretRef,
     secretConfigured: isChannelCredentialReady(channel),
     ...(channel.maxConcurrency !== undefined ? { maxConcurrency: channel.maxConcurrency } : {}),
     asyncTasks: Boolean(channel.defaults.asyncTasks),

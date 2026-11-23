@@ -148,11 +148,24 @@ export function overlayNavPath(href: string): string {
 }
 
 /**
- * 公开路由类型里没有这些 path。运行时 `to` 仍是清单上的路径，收费构建的路由树能匹配到。
- * 断言成一个不带 search 的公开路由，只为通过公开树的类型检查。
+ * 公开路由类型里没有这些 path。运行时 `to` / `search` / `hash` 仍是清单上的完整目标，
+ * 避免丢失扩展入口自带的 `?tab=...` 或 `#...` 参数。
  */
-function overlayLinkTo(href: string): '/audit' {
-  return overlayNavPath(href) as '/audit'
+export function overlayNavTarget(href: string): {
+  to: '/audit'
+  search?: Record<string, string>
+  hash?: string
+} {
+  const url = new URL(href, 'http://overlay.local')
+  const path =
+    url.pathname.length > 1 && url.pathname.endsWith('/') ? url.pathname.slice(0, -1) : url.pathname
+  const search = Object.fromEntries(url.searchParams.entries())
+  const hash = url.hash ? url.hash.slice(1) : undefined
+  return {
+    to: path as '/audit',
+    ...(Object.keys(search).length > 0 ? { search } : {}),
+    ...(hash ? { hash } : {}),
+  }
 }
 
 export function overlayNavIsActive(pathname: string, href: string): boolean {
@@ -218,7 +231,7 @@ export function AppSidebar() {
           className={NAV_ACTIVE_CLASS}
           isActive={overlayNavIsActive(pathname, entry.href)}
         >
-          <Link to={overlayLinkTo(entry.href)}>
+          <Link {...overlayNavTarget(entry.href)}>
             <Icon />
             <span>{entry.label}</span>
           </Link>

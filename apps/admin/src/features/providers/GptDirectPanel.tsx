@@ -20,6 +20,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { modelsQueryKey } from '@/features/models/ModelTable'
 import { ApiError } from '@/lib/api-client'
 import {
   createGptDirectKey,
@@ -77,7 +78,10 @@ export function GptDirectPanel({
     try {
       await task()
       setDraftKey('')
-      await client.invalidateQueries({ queryKey: gptDirectQueryKey })
+      await Promise.all([
+        client.invalidateQueries({ queryKey: gptDirectQueryKey }),
+        client.invalidateQueries({ queryKey: modelsQueryKey }),
+      ])
     } catch (cause) {
       setError(failureMessage(cause))
     } finally {
@@ -340,13 +344,13 @@ export function GptDirectPanel({
                 <CardTitle className="text-base">OpenAI 官方 Costs 对账（UTC）</CardTitle>
                 {windowOfficialTotal !== null ? (
                   <span className="font-mono text-xs text-muted-foreground">
-                    官方合计 {usd(windowOfficialTotal)} · 差额{' '}
-                    {usd(windowOfficialTotal - windowEstimatedTotal)}
+                    官方窗口合计 {usd(windowOfficialTotal)}
                   </span>
                 ) : null}
               </div>
               <p className="text-xs text-muted-foreground">
-                对照 OpenAI Costs API 实扣账单（注意 UTC 与台北日界线存在 8 小时偏移）。
+                对照 OpenAI Costs API 实扣账单（按 UTC 日桶统计，与左侧台北自然日口径存在 8
+                小时日界线偏移，仅供各自窗口核对）。
               </p>
             </CardHeader>
             <CardContent>

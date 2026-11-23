@@ -13,7 +13,7 @@ import {
   type ModelReasoningLevel,
 } from '@image-playground/shared'
 import { Activity, ChevronDown, ChevronRight, Plus, Save, Trash2 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { type SetStateAction, useEffect, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -161,20 +161,29 @@ export function AgentModelSettingsForm({
   const [settings, setSettings] = useState(() => structuredClone(initial.settings))
   const [probingKey, setProbingKey] = useState<string | null>(null)
   const [probeResults, setProbeResults] = useState<Record<string, AgentModelProbeResult>>({})
+  const probeEpochRef = useRef(0)
 
   const dirty = JSON.stringify(settings) !== JSON.stringify(baseline.settings)
 
+  function updateSettings(next: SetStateAction<AgentModelSettings>) {
+    probeEpochRef.current += 1
+    setProbingKey(null)
+    setSettings(next)
+  }
+
   useEffect(() => {
     if (!dirty && initial.revision !== baseline.revision) {
+      probeEpochRef.current += 1
       setBaseline(initial)
       setSettings(structuredClone(initial.settings))
+      setProbingKey(null)
       setProbeResults({})
     }
   }, [baseline.revision, dirty, initial])
 
   function updateProvider(index: number, next: AgentProviderSettings) {
     setProbeResults({})
-    setSettings((current) => ({
+    updateSettings((current) => ({
       ...current,
       providers: current.providers.map((provider, i) => (i === index ? next : provider)),
     }))
@@ -205,7 +214,7 @@ export function AgentModelSettingsForm({
 
   function discard() {
     setBaseline(initial)
-    setSettings(structuredClone(initial.settings))
+    updateSettings(structuredClone(initial.settings))
     setProbeResults({})
   }
 
@@ -214,7 +223,7 @@ export function AgentModelSettingsForm({
     const saved = await save(settingsForSave(settings), baseline.revision)
     if (saved) {
       setBaseline(saved)
-      setSettings(structuredClone(saved.settings))
+      updateSettings(structuredClone(saved.settings))
       setProbeResults({})
     }
   }
@@ -222,18 +231,23 @@ export function AgentModelSettingsForm({
   async function runProbe(profileKey: AgentProfileKey, target: 'primary' | 'fallback') {
     if (!probe || probingKey) return
     const slot = `${profileKey}:${target}`
+    const epoch = probeEpochRef.current
     setProbingKey(slot)
     try {
       const result = await probe(settingsForSave(settings), profileKey, target)
+      if (probeEpochRef.current !== epoch) return
       setProbeResults((current) => ({ ...current, [slot]: result }))
     } catch (err) {
+      if (probeEpochRef.current !== epoch) return
       const message = err instanceof ApiError && err.message ? err.message : '探测请求失败'
       setProbeResults((current) => ({
         ...current,
         [slot]: { ok: false, status: 'failed', latencyMs: 0, message },
       }))
     } finally {
-      setProbingKey(null)
+      if (probeEpochRef.current === epoch) {
+        setProbingKey((current) => (current === slot ? null : current))
+      }
     }
   }
 
@@ -343,7 +357,7 @@ export function AgentModelSettingsForm({
                   delete copy[`${key}:primary`]
                   return copy
                 })
-                setSettings((current) => ({
+                updateSettings((current) => ({
                   ...current,
                   profiles: { ...current.profiles, [key]: { ...profile, ...next } },
                 }))
@@ -355,6 +369,7 @@ export function AgentModelSettingsForm({
               )
               const fallbackModels = modelsFor(fallbackProvider)
               const fallbackSelected = fallbackModels.find((item) => item.id === fallback?.modelId)
+              const fallbackInvalid = bindingInvalid(fallback)
 
               function changeFallback(next: AgentModelBinding | undefined) {
                 setProbeResults((current) => {
@@ -363,7 +378,7 @@ export function AgentModelSettingsForm({
                   delete copy[`${key}:fallback`]
                   return copy
                 })
-                setSettings((current) => ({
+                updateSettings((current) => ({
                   ...current,
                   profiles: {
                     ...current.profiles,
@@ -373,6 +388,7 @@ export function AgentModelSettingsForm({
               }
 
               const primaryProbe = probeResults[`${key}:primary`]
+              const fallbackProbe = probeResults[`${key}:fallback`]
 
               return (
                 <div
@@ -491,14 +507,46 @@ export function AgentModelSettingsForm({
                         <span className="text-xs font-medium text-muted-foreground">
                           ↳ 过载备用路由
                         </span>
-                        {fallback ? (
-                          <Badge variant="secondary" className="px-1.5 py-0 text-[11px]">
-                            已开启备用
-                          </Badge>
-                        ) : (
-                          <span className="text-[11px] text-muted-foreground">不切换</span>
-                        )}
+                        <div className="flex items-center gap-2">
+                          {fallback ? (
+                            <>
+                              <Badge variant="secondary" className="px-1.5 py-0 text-[11px]">
+                                已开启备用
+                              </Badge>
+                              {probe ? (
+                                <Button
+                                  type="button"
+                                  size="xs"
+                                  variant="outline"
+                                  disabled={fallbackInvalid || probingKey !== null}
+                                  onClick={() => void runProbe(key, 'fallback')}
+                                >
+                                  <Activity className="size-3" />
+                                  {probingKey === `${key}:fallback` ? '探测中' : '探测备用'}
+                                </Button>
+                              ) : null}
+                            </>
+                          ) : (
+                            <span className="text-[11px] text-muted-foreground">不切换</span>
+                          )}
+                        </div>
                       </div>
+                      {fallbackProbe ? (
+                        <div
+                          className={cn(
+                            'mb-2.5 rounded-md px-2.5 py-1.5 text-xs',
+                            fallbackProbe.ok
+                              ? 'bg-success/10 text-success'
+                              : fallbackProbe.status === 'unconfigured'
+                                ? 'bg-warning/10 text-warning'
+                                : 'bg-danger/10 text-danger',
+                          )}
+                        >
+                          {fallbackProbe.ok
+                            ? `备用路由连通正常 · ${fallbackProbe.latencyMs} ms`
+                            : (fallbackProbe.message ?? '探测未通过')}
+                        </div>
+                      ) : null}
                       <div className="grid gap-2.5 sm:grid-cols-3">
                         <Choice
                           label={`${DEPTH_LABELS[key]} · 过载备用 Provider`}
@@ -583,7 +631,7 @@ export function AgentModelSettingsForm({
               onClick={() => {
                 let n = 1
                 while (settings.providers.some((provider) => provider.id === `provider-${n}`)) n++
-                setSettings((current) => ({
+                updateSettings((current) => ({
                   ...current,
                   providers: [
                     ...current.providers,
@@ -612,12 +660,13 @@ export function AgentModelSettingsForm({
                 templates={initial.templates}
                 credentialReady={initial.credentialReady[provider.id]}
                 onChange={(next) => updateProvider(index, next)}
-                onRemove={() =>
-                  setSettings((current) => ({
+                onRemove={() => {
+                  setProbeResults({})
+                  updateSettings((current) => ({
                     ...current,
                     providers: current.providers.filter((_, i) => i !== index),
                   }))
-                }
+                }}
                 inUse={Object.values(settings.profiles).some(
                   (profile) =>
                     profile.providerId === provider.id ||

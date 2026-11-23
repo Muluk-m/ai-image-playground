@@ -1,4 +1,4 @@
-import type { ModelPrice } from '@image-playground/shared'
+import { MAX_CREDIT_BALANCE, type ModelPrice } from '@image-playground/shared'
 
 export type ModelPriceKind = 'chat' | 'image' | 'video'
 
@@ -100,7 +100,7 @@ export function previewReferralCredits(input: {
   paymentYuan: number
   percent: number
   creditsPerYuan: number
-}): number {
+}): number | null {
   if (
     !Number.isFinite(input.paymentYuan) ||
     input.paymentYuan <= 0 ||
@@ -111,10 +111,20 @@ export function previewReferralCredits(input: {
   ) {
     return 0
   }
-  const amountCents = BigInt(Math.round(input.paymentYuan * 100))
-  const basisPoints = BigInt(Math.round(input.percent * 100))
-  const creditsPerYuanScaled = BigInt(Math.round(input.creditsPerYuan * 10_000))
-  return Number((amountCents * basisPoints * creditsPerYuanScaled) / 10_000_000_000n)
+  const scaledPayment = Math.round(input.paymentYuan * 100)
+  const scaledPercent = Math.round(input.percent * 100)
+  const scaledRate = Math.round(input.creditsPerYuan * 10_000)
+  if (
+    !Number.isSafeInteger(scaledPayment) ||
+    !Number.isSafeInteger(scaledPercent) ||
+    !Number.isSafeInteger(scaledRate)
+  ) {
+    return null
+  }
+  const computed =
+    (BigInt(scaledPayment) * BigInt(scaledPercent) * BigInt(scaledRate)) / 10_000_000_000n
+  if (computed > BigInt(MAX_CREDIT_BALANCE)) return null
+  return Number(computed)
 }
 
 export function modelPriceFormValues(price: ModelPrice): ModelPriceForm {

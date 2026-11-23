@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { modelsQueryKey } from '@/features/models/ModelTable'
 import { ApiError } from '@/lib/api-client'
 import { isoTime } from '@/lib/format'
 import {
@@ -119,6 +120,8 @@ function SecretCard({ secret, writable }: { secret: UpstreamSecretView; writable
 
   function apply(next: UpstreamSecretsResult) {
     client.setQueryData(upstreamSecretsQueryKey, next)
+    void client.invalidateQueries({ queryKey: modelsQueryKey })
+    void client.invalidateQueries({ queryKey: ['agent-models'] })
     setDraft('')
     setError(null)
   }

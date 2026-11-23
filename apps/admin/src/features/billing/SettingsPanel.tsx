@@ -181,6 +181,7 @@ function LiveQrPreview({
   const [mode, setMode] = useState<'payment' | 'contact'>('payment')
   const [imageState, setImageState] = useState<'idle' | 'ok' | 'error'>('idle')
   const activeUrl = (mode === 'payment' ? paymentQrUrl : contactQrUrl).trim()
+  const isAbsolutePreviewable = /^(?:https?:\/\/|data:image\/)/i.test(activeUrl)
 
   useEffect(() => {
     setImageState('idle')
@@ -250,6 +251,14 @@ function LiveQrPreview({
                   {mode === 'payment'
                     ? '未填写收款码 URL'
                     : `未填客服二维码，将回退显示微信号：${contactWechat.trim() || '未配置'}`}
+                </p>
+              </div>
+            ) : !isAbsolutePreviewable ? (
+              <div className="space-y-1.5 rounded-md border border-warning/40 bg-warning/10 px-3 py-2.5 text-xs text-warning">
+                <p className="font-medium">相对路径无法在管理端校验真图</p>
+                <p className="text-[11px] leading-relaxed">
+                  相对地址（如 /op/...）将按用户端主站域名解析；请改用完整 https://
+                  对象存储外链以确保预览与用户端一致。
                 </p>
               </div>
             ) : (
@@ -641,7 +650,11 @@ function ReferralPolicyEditor({ policy }: { policy: ReferralPolicy }) {
                     实付 ¥{sampleYuan || '0'} 邀请人获赠
                   </span>
                   <span className="font-mono text-sm font-semibold text-foreground">
-                    +{credits(sampleReward)} 积分
+                    {sampleReward === null ? (
+                      <span className="text-warning">超出计算上限</span>
+                    ) : (
+                      `+${credits(sampleReward)} 积分`
+                    )}
                   </span>
                 </div>
               </div>

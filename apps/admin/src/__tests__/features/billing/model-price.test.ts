@@ -86,5 +86,11 @@ describe('模型单价请求与单位折算', () => {
       199,
     )
     expect(previewReferralCredits({ paymentYuan: 99, percent: 0, creditsPerYuan: 100 })).toBe(0)
+    expect(previewReferralCredits({ paymentYuan: 1e308, percent: 15, creditsPerYuan: 400 })).toBe(
+      null,
+    )
+    expect(
+      previewReferralCredits({ paymentYuan: 1_000_000_000, percent: 100, creditsPerYuan: 100 }),
+    ).toBe(null)
   })
 })
