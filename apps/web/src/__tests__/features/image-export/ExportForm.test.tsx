@@ -202,4 +202,54 @@ describe('image resize editing', () => {
     expect(width.value).toBe('1067')
     expect(height.value).toBe('800')
   })
+  it('prevents fieldset min-content horizontal overflow on long filenames and avoids duplicating the name in single-image preview', async () => {
+    const longName = 'Simulator Screenshot - iPhone 17 Pro - 2026-04-09 at 20.07.12.png'
+    await act(async () =>
+      root.render(
+        <ExportForm sources={[{ ...sources[0], name: longName, width: 1206, height: 2622 }]} />,
+      ),
+    )
+    const fieldset = host.querySelector('fieldset')!
+    expect(fieldset.className).toContain('min-w-0')
+    expect(fieldset.className).toContain('w-full')
+    const occurrences = host.textContent?.split(longName).length ?? 0
+    expect(occurrences - 1).toBe(1)
+  })
+  it('scales proportionally via quick percentage presets and only shows reset when modified', async () => {
+    await act(async () => root.render(<ExportForm sources={sources} />))
+    const findReset = () =>
+      [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+        (button) => button.textContent === 'export.reset',
+      )
+    expect(findReset()).toBeUndefined()
+    const half = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent === '50%',
+    )!
+    await act(async () => half.click())
+    expect(host.querySelector<HTMLInputElement>('#export-width')!.value).toBe('720')
+    expect(host.querySelector<HTMLInputElement>('#export-height')!.value).toBe('540')
+    expect(half.getAttribute('aria-pressed')).toBe('true')
+    expect(findReset()).toBeDefined()
+    const original = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
+      (button) => button.textContent === '100%',
+    )!
+    await act(async () => original.click())
+    expect(host.querySelector<HTMLInputElement>('#export-width')!.value).toBe('1440')
+    expect(host.querySelector<HTMLInputElement>('#export-height')!.value).toBe('1080')
+    expect(findReset()).toBeUndefined()
+  })
+  it('adds and removes export spec rows without showing a remove button for a single spec', async () => {
+    await act(async () => root.render(<ExportForm sources={sources} />))
+    expect(host.querySelector('[aria-label="export.removeRow"]')).toBeNull()
+    const addButton = [...host.querySelectorAll<HTMLButtonElement>('button')].find((button) =>
+      button.textContent?.includes('export.addRow'),
+    )!
+    await act(async () => addButton.click())
+    const removeButtons = host.querySelectorAll<HTMLButtonElement>(
+      '[aria-label="export.removeRow"]',
+    )
+    expect(removeButtons).toHaveLength(2)
+    await act(async () => removeButtons[1].click())
+    expect(host.querySelector('[aria-label="export.removeRow"]')).toBeNull()
+  })
 })

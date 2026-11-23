@@ -20,8 +20,8 @@ function StatBox({ stats }: { stats: readonly ToolStat[] }) {
     <dl className="mt-auto space-y-1 rounded-xl border border-border bg-card p-3 text-xs">
       {stats.map((stat) => (
         <div key={stat.label} className="flex items-center justify-between gap-3">
-          <dt className="text-muted-foreground">{stat.label}</dt>
-          <dd className="font-mono tabular-nums">{stat.value}</dd>
+          <dt className="shrink-0 text-muted-foreground">{stat.label}</dt>
+          <dd className="min-w-0 truncate text-right font-mono tabular-nums">{stat.value}</dd>
         </div>
       ))}
     </dl>
@@ -46,7 +46,7 @@ export function AddTile({ onClick }: { onClick: () => void }) {
 
 /**
  * 每件工具共用的工作台：顶栏面包屑与导入，左边工具列表，中间图片，右边这件工具的参数与汇总，
- * 底栏是带回创作输入框与下载。整页只有底栏的下载是实心芽绿；尺寸调整的导出表单自带下载，不显示底栏。
+ * 底栏是带回创作输入框与下载。整页只有底栏的下载是实心芽绿。
  */
 export default function ToolShell({
   tool,
@@ -60,6 +60,11 @@ export default function ToolShell({
   busy = false,
   processing = false,
   footer = true,
+  footerStatus,
+  showSendToComposer = true,
+  canDownload,
+  downloadBusy = false,
+  onDownload,
   panelClassName = 'lg:w-72',
   panelBody,
 }: {
@@ -75,14 +80,20 @@ export default function ToolShell({
   busy?: boolean
   processing?: boolean
   footer?: boolean
+  footerStatus?: ReactNode
+  showSendToComposer?: boolean
+  canDownload?: boolean
+  downloadBusy?: boolean
+  onDownload?: () => void
   panelClassName?: string
-  /** 整块替换参数栏（尺寸调整用自带底部按钮的导出表单）。 */
+  /** 整块替换参数栏时使用。 */
   panelBody?: ReactNode
 }) {
   const { t } = useTranslation('toolbox')
   const count = useToolboxStore((state) => state.items.length)
   const { dragging, dropZoneProps, inputs, openFiles, openFolder } = useToolboxIntake(busy)
   const name = t(`tool.${tool.id}.name`)
+  const downloadReady = canDownload ?? deliverables.length > 0
 
   return (
     <main
@@ -93,7 +104,7 @@ export default function ToolShell({
       <ToolboxHeader tool={tool} busy={busy} onAddImages={openFiles} onAddFolder={openFolder} />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
         <div className="shrink-0 border-b border-border lg:w-48 lg:border-b-0 lg:border-r">
-          <ToolList active={tool.id} />
+          <ToolList active={tool.id} busy={busy} />
         </div>
         <section
           className={`flex min-w-0 flex-col p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:px-5 ${
@@ -134,12 +145,14 @@ export default function ToolShell({
           )}
         </section>
         <aside
-          className={`flex shrink-0 flex-col border-t border-border bg-card/40 lg:min-h-0 lg:overflow-hidden lg:border-l lg:border-t-0 ${panelClassName}`}
+          className={`flex min-w-0 shrink-0 flex-col border-t border-border bg-card/40 lg:min-h-0 lg:overflow-hidden lg:border-l lg:border-t-0 ${panelClassName}`}
         >
           {panelBody ?? (
-            <div className="flex flex-1 flex-col gap-5 p-4 lg:overflow-y-auto">
+            <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-x-hidden p-4 lg:overflow-y-auto">
               <h2 className="text-title font-medium">{t('workbench.settings', { name })}</h2>
-              <div className="flex flex-col gap-5 [&_fieldset]:w-full">{controls}</div>
+              <div className="flex min-w-0 flex-col gap-5 [&_fieldset]:min-w-0 [&_fieldset]:w-full">
+                {controls}
+              </div>
               {stats.length > 0 && <StatBox stats={stats} />}
               {summary != null && (
                 <div className="mt-auto rounded-xl border border-border bg-card p-3">{summary}</div>
@@ -151,24 +164,31 @@ export default function ToolShell({
       {footer && (
         <div className="flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-background px-4 py-3 md:px-5">
           <span
-            className={`min-w-0 flex-1 text-xs text-muted-foreground ${processing ? '' : 'hidden sm:block'}`}
+            className={`min-w-0 flex-1 text-xs text-muted-foreground ${processing || footerStatus ? '' : 'hidden sm:block'}`}
           >
-            {processing ? t('footer.processing') : t('workbench.footerHint')}
+            {footerStatus ?? (processing ? t('footer.processing') : t('workbench.footerHint'))}
           </span>
           <span className="ml-auto flex flex-wrap gap-2">
+            {showSendToComposer && (
+              <Button
+                variant="outline"
+                disabled={deliverables.length === 0}
+                onClick={() => void sendImagesToComposer(deliverables)}
+              >
+                <Icon name="sendToComposer" />
+                {t('footer.sendToComposer')}
+              </Button>
+            )}
             <Button
-              variant="outline"
-              disabled={deliverables.length === 0}
-              onClick={() => void sendImagesToComposer(deliverables)}
+              disabled={!downloadReady}
+              onClick={() =>
+                onDownload ? onDownload() : void downloadImages(deliverables, `${name}.zip`)
+              }
             >
-              <Icon name="sendToComposer" />
-              {t('footer.sendToComposer')}
-            </Button>
-            <Button
-              disabled={deliverables.length === 0}
-              onClick={() => void downloadImages(deliverables, `${name}.zip`)}
-            >
-              <Icon name="download" />
+              <Icon
+                name={downloadBusy ? 'loading' : 'download'}
+                className={downloadBusy ? 'animate-spin' : undefined}
+              />
               {downloadLabel ??
                 (deliverables.length > 1
                   ? t('footer.downloadAll', { count: deliverables.length })

@@ -6,7 +6,7 @@ import type { ToolId } from '../lib/tool'
 import { useToolboxStore } from '../store'
 
 /** 工作台左侧的工具列表。换工具只换右边的处理方式，导入的图一张不动。 */
-export default function ToolList({ active }: { active: ToolId }) {
+export default function ToolList({ active, busy = false }: { active: ToolId; busy?: boolean }) {
   const { t } = useTranslation('toolbox')
   const openTool = useToolboxStore((state) => state.openTool)
   return (
@@ -26,6 +26,7 @@ export default function ToolList({ active }: { active: ToolId }) {
                 key={tool.id}
                 variant="ghost"
                 size="sm"
+                disabled={busy && !current}
                 aria-current={current ? 'page' : undefined}
                 onClick={() => !current && openTool(tool.id)}
                 className={`shrink-0 justify-start gap-2.5 px-2.5 text-body-sm font-normal ${
@@ -34,7 +35,7 @@ export default function ToolList({ active }: { active: ToolId }) {
                     : 'text-muted-foreground'
                 }`}
               >
-                <Icon name={tool.icon} />
+                <Icon name={tool.icon} filled={current} />
                 {t(`tool.${tool.id}.name`)}
               </Button>
             )
