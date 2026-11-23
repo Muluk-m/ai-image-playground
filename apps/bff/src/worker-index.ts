@@ -23,6 +23,7 @@ import { UPSTREAM_SECRET_REFRESH_MS } from './lib/upstream-secrets'
 import { registerAppAlertScan } from './ops/alert-kick'
 import { alertTargetsConfigured, createAlertSenderFromEnv } from './ops/alert-sender'
 import { createAppAlerting } from './ops/app-alerts'
+import { AgentBatchLoop } from './workers/agent-batch-loop'
 import { abortAllRunningAnalysisTasks, runningAnalysisTaskIds } from './workers/analysis-runner'
 import { abortAllRunningTasks, runningTaskIds } from './workers/task-execution'
 import { TaskScheduler } from './workers/task-scheduler'
@@ -62,13 +63,19 @@ await refreshOperatorConfig().catch((error) =>
   ),
 )
 const scheduler = new TaskScheduler()
-if (config.worker.startPaused) scheduler.drain()
+const batchLoop = new AgentBatchLoop()
+if (config.worker.startPaused) {
+  scheduler.drain()
+  batchLoop.drain()
+}
 scheduler.start()
+batchLoop.start()
 const activationTimer =
   config.worker.startPaused && config.worker.activationFile
     ? setInterval(() => {
         if (!config.worker.startPaused) {
           scheduler.resume()
+          batchLoop.resume()
           clearInterval(activationTimer!)
         }
       }, 1000)
@@ -178,14 +185,20 @@ const upstreamSecretTimer = setInterval(() => {
 }, UPSTREAM_SECRET_REFRESH_MS)
 const workerHealthServer = startWorkerHealthServer({
   port: config.worker.healthPort,
-  drain: () => scheduler.drain(),
-  resume: () => scheduler.resume(),
+  drain: () => {
+    scheduler.drain()
+    batchLoop.drain()
+  },
+  resume: () => {
+    scheduler.resume()
+    batchLoop.resume()
+  },
   drainStatus: () => {
     const status = scheduler.drainStatus()
     return {
       ...status,
       maintenanceActive: privateMaintenance !== undefined,
-      safeToStop: status.safeToStop && privateMaintenance === undefined,
+      safeToStop: status.safeToStop && batchLoop.isIdle() && privateMaintenance === undefined,
     }
   },
   staleAfterMs: config.worker.healthStaleAfterMs,
@@ -217,6 +230,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   if (shuttingDown) return
   shuttingDown = true
   scheduler.stop()
+  batchLoop.stop()
   if (activationTimer) clearInterval(activationTimer)
   stopHeartbeat()
   clearInterval(staleScanTimer)
@@ -232,6 +246,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   let maintenanceTimeout: ReturnType<typeof setTimeout> | undefined
   const [idle] = await Promise.all([
     scheduler.waitForIdle(drainTimeoutMs),
+    batchLoop.waitForIdle(drainTimeoutMs),
     Promise.race([
       privateMaintenance,
       new Promise<void>((resolve) => {
