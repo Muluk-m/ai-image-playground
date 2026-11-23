@@ -1824,20 +1824,14 @@ function upstreamAuthHeader(style: ChannelRouteStyle, key: string): Record<strin
  */
 const UPSTREAM_ERROR_BODY_MAX_BYTES = 64 * 1024
 
-async function readBoundedErrorText(
-  res: UpstreamResponse,
-): Promise<{ text: string; truncated: boolean }> {
+async function readBoundedErrorText(res: UpstreamResponse): Promise<string> {
   if (!res.body) {
     const raw = await res.text()
-    return {
-      text: raw.slice(0, UPSTREAM_ERROR_BODY_MAX_BYTES),
-      truncated: raw.length > UPSTREAM_ERROR_BODY_MAX_BYTES,
-    }
+    return raw.slice(0, UPSTREAM_ERROR_BODY_MAX_BYTES)
   }
   const reader = res.body.getReader()
   const chunks: Uint8Array[] = []
   let total = 0
-  let truncated = false
   try {
     while (total < UPSTREAM_ERROR_BODY_MAX_BYTES) {
       const { done, value } = await reader.read()
@@ -1847,7 +1841,6 @@ async function readBoundedErrorText(
       if (value.byteLength >= remaining) {
         chunks.push(value.subarray(0, remaining))
         total += remaining
-        truncated = true
         break
       }
       chunks.push(value)
@@ -1863,19 +1856,17 @@ async function readBoundedErrorText(
     bytes.set(chunk, offset)
     offset += chunk.byteLength
   }
-  return { text: new TextDecoder().decode(bytes), truncated }
+  return new TextDecoder().decode(bytes)
 }
 
 async function parseUpstreamResponse(res: UpstreamResponse): Promise<UpstreamCallResult> {
   if (!res.ok) {
-    const { text, truncated } = await readBoundedErrorText(res)
+    const text = await readBoundedErrorText(res)
     let payload: unknown = text
-    if (!truncated) {
-      try {
-        payload = JSON.parse(text)
-      } catch {
-        /* keep raw text */
-      }
+    try {
+      payload = JSON.parse(text)
+    } catch {
+      /* keep raw text */
     }
     const message = extractErrorMessage(payload, res.status)
     // 上游 envelope 完整落 log（截断）：extractErrorMessage 可能把诊断信息提取

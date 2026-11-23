@@ -1431,3 +1431,37 @@ it('cancels immediately once a non-2xx stream hits the 64 KiB cap without closin
     setUpstreamFetchForTesting()
   }
 })
+
+it('parses an exact 64 KiB JSON non-2xx error body without losing structured fields', async () => {
+  const { extractUpstreamFailure } = await import('../../lib/upstream')
+  const prefix = '{"error":{"message":"'
+  const suffix = '","code":"insufficient_quota","type":"insufficient_quota"}}'
+  const paddingLength = 64 * 1024 - Buffer.byteLength(prefix) - Buffer.byteLength(suffix)
+  const exactJson = `${prefix}${'z'.repeat(paddingLength)}${suffix}`
+  expect(Buffer.byteLength(exactJson)).toBe(64 * 1024)
+  setUpstreamFetchForTesting(
+    async () =>
+      new Response(exactJson, {
+        status: 429,
+        headers: { 'content-type': 'application/json' },
+      }),
+  )
+  try {
+    const error = await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'fixture' },
+    }).catch((err) => err)
+    expect(extractUpstreamFailure(error)).toMatchObject({
+      status: 429,
+      body: {
+        error: {
+          code: 'insufficient_quota',
+          type: 'insufficient_quota',
+        },
+      },
+    })
+  } finally {
+    setUpstreamFetchForTesting()
+  }
+})
