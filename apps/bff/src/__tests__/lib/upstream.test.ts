@@ -1349,3 +1349,44 @@ it.each([
     setUpstreamFetchForTesting()
   }
 })
+
+it('caps non-2xx response reads and cancels oversized error streams', async () => {
+  const { extractUpstreamFailure } = await import('../../lib/upstream')
+  let producedBytes = 0
+  let cancelled = false
+  const chunk = new TextEncoder().encode(`gateway dump ${'x'.repeat(16 * 1024)}\n`)
+  setUpstreamFetchForTesting(async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        producedBytes += chunk.byteLength
+        if (producedBytes > 512 * 1024) {
+          controller.error(new Error('non-2xx stream was buffered past safety cap'))
+          return
+        }
+        controller.enqueue(chunk)
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+    return new Response(stream, {
+      status: 502,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    })
+  })
+  try {
+    const error = await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'fixture' },
+    }).catch((err) => err)
+    expect(cancelled).toBe(true)
+    expect(producedBytes).toBeLessThanOrEqual(5 * chunk.byteLength)
+    expect(extractUpstreamFailure(error)).toMatchObject({
+      status: 502,
+      body: expect.stringMatching(/^gateway dump x+/),
+    })
+  } finally {
+    setUpstreamFetchForTesting()
+  }
+})
