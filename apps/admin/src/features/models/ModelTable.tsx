@@ -153,27 +153,18 @@ function ModelSpecSummary({ model }: { model: ManagedModel }) {
   )
 }
 
-let availabilityMutationSeq = 0
-
 function useModelAvailabilityToggle(model: ManagedModel) {
   const client = useQueryClient()
   const [pendingActive, setPendingActive] = useState<boolean | null>(null)
   const mutation = useMutation({
-    mutationFn: async ({ active, reason }: { active: boolean; reason: string }) => {
-      const seq = ++availabilityMutationSeq
-      const data = await apiClient.put<ManagedModelsView>(
-        `/api/models/${encodeURIComponent(model.id)}`,
-        { active, reason },
-      )
-      return { seq, data }
-    },
-    onSuccess: ({ seq, data }) => {
-      if (seq === availabilityMutationSeq) {
-        client.setQueryData(modelsQueryKey, data)
-      } else {
-        // 并发快速切换多个模型时，丢弃旧快照并重新拉取最新目录，避免先发后到覆盖新状态。
-        void client.invalidateQueries({ queryKey: modelsQueryKey })
-      }
+    mutationFn: ({ active, reason }: { active: boolean; reason: string }) =>
+      apiClient.put<ManagedModelsView>(`/api/models/${encodeURIComponent(model.id)}`, {
+        active,
+        reason,
+      }),
+    onSuccess: () => {
+      // 并发上下架时不以单次响应的完整快照直接覆写缓存，统一触发重拉以保证与服务端最新状态一致。
+      void client.invalidateQueries({ queryKey: modelsQueryKey })
       setPendingActive(null)
     },
   })

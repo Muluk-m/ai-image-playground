@@ -23,6 +23,8 @@ export interface ManagedChannelSummary {
   secretConfigured: boolean
   maxConcurrency?: number
   asyncTasks: boolean
+  /** 实际调度协议模式：同步、异步轮询，或 GPT 会员直连同步 + 网关异步双通道。 */
+  dispatchMode?: 'sync' | 'async' | 'dual'
   timeoutSeconds?: number
   models: ManagedChannelModelSummary[]
 }

@@ -5,6 +5,7 @@ import {
   type AgentModelSettings,
   type AgentProfileKey,
 } from '@image-playground/shared'
+import { resolveChatApiKey } from '../resolveApiKey'
 import { isObject } from '../type-guards'
 import { agentStreamFn } from './model'
 import {
@@ -92,7 +93,11 @@ export async function probeAgentModelBinding(body: unknown): Promise<AgentModelP
     profiles: Object.fromEntries(AGENT_PROFILE_KEYS.map((key) => [key, singleBinding])),
   })
   const provider = isolatedSettings.providers[0]!
-  if (!providerCredentialReady(provider)) {
+  const providerReady =
+    provider.id === 'upstream-gateway' && !provider.secretRef
+      ? Boolean(resolveChatApiKey(isolatedSettings.profiles[profileKey as AgentProfileKey].modelId))
+      : providerCredentialReady(provider)
+  if (!providerReady) {
     return {
       ok: false,
       status: 'unconfigured',

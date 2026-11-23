@@ -68,8 +68,12 @@ export function ChannelTopologyPanel({ channels }: { channels: readonly ManagedC
                     <TableCell className="min-w-[150px] align-top">
                       <div className="text-xs font-medium">{KIND_LABELS[channel.kind]}</div>
                       <div className="mt-0.5 text-xs text-muted-foreground">
-                        {channel.asyncTasks ? '异步任务轮询' : '同步流/响应'} ·{' '}
-                        {channel.authType === 'bearer' ? 'Bearer' : 'Query Key'}
+                        {channel.dispatchMode === 'dual'
+                          ? '直连同步 / 网关异步双通道'
+                          : channel.dispatchMode === 'async' || channel.asyncTasks
+                            ? '异步任务轮询'
+                            : '同步流/响应'}{' '}
+                        · {channel.authType === 'bearer' ? 'Bearer' : 'Query Key'}
                       </div>
                     </TableCell>
                     <TableCell className="min-w-[130px] align-top font-mono text-xs">

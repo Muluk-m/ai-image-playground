@@ -50,7 +50,6 @@ import {
   MODEL_TIERS,
 } from '@image-playground/shared'
 import { findCatalogModel, publishModelCapabilities } from '@image-playground/shared/model-catalog'
-import { resolveApiKey } from './resolveApiKey'
 import { isObject } from './type-guards'
 import { capabilitiesForModel } from './upstream/adapters'
 import {
@@ -591,6 +590,7 @@ function isFileNotFoundError(err: unknown): boolean {
 let loaded: InternalChannel[] = []
 let retired: InternalChannel[] = []
 let declaredParsedChannels: ParsedChannel[] | null = null
+let testChannelsOverride = false
 let disabledModels: ReadonlyMap<string, string> = new Map()
 let discoveredCache: DiscoveredChannel[] = []
 
@@ -598,6 +598,7 @@ export function initChannels(filePath = defaultChannelsPath()): ChannelsLoadResu
   const result = loadChannelsFromFile(filePath)
   setLoaded(result.channels, result.disabled, result.disabledModels)
   declaredParsedChannels = result.declared ?? []
+  testChannelsOverride = false
   refreshSignature = undefined
   return result
 }
@@ -606,6 +607,7 @@ let refreshSignature: string | undefined
 
 /** Periodic reloads only rebuild channels when the file or effective credentials change. */
 export function refreshChannelsIfChanged(filePath = defaultChannelsPath()): void {
+  if (testChannelsOverride) return
   let fileVersion = 'missing'
   try {
     const stat = statSync(filePath, { bigint: true })
@@ -623,6 +625,22 @@ export function getChannels(): InternalChannel[] {
   return loaded
 }
 
+const DEDICATED_STYLE_CHANNELS = new Set([
+  'agnes-images',
+  'grok-images',
+  'grok-video',
+  'agnes-video',
+  'ark-video',
+  'veo-video',
+  'vertex-images',
+])
+
+function hasSub2apiOpenAICredential(): boolean {
+  const openaiKey = process.env.UPSTREAM_OPENAI_API_KEY?.trim() ?? ''
+  if (openaiKey) return true
+  return Boolean(runtimeSecret('UPSTREAM_API_KEY', process.env.UPSTREAM_API_KEY?.trim() ?? ''))
+}
+
 function usesImage26Sub2apiFallback(channel: Pick<InternalChannel, 'auth' | 'models'>): boolean {
   const envFallback = channel.auth.secret || (process.env[channel.auth.secretRef]?.trim() ?? '')
   if (runtimeSecret(channel.auth.secretRef, envFallback)) return false
@@ -634,6 +652,26 @@ function usesImage26Sub2apiFallback(channel: Pick<InternalChannel, 'auth' | 'mod
   )
 }
 
+function resolveChannelDispatch(
+  channel: Pick<InternalChannel, 'id' | 'kind' | 'defaults' | 'models'>,
+): { asyncTasks: boolean; dispatchMode: 'sync' | 'async' | 'dual' } {
+  if (channel.kind !== 'openai-queue' || DEDICATED_STYLE_CHANNELS.has(channel.id)) {
+    const asyncTasks = Boolean(channel.defaults.asyncTasks)
+    return { asyncTasks, dispatchMode: asyncTasks ? 'async' : 'sync' }
+  }
+  const responsesBridge = Boolean(process.env.UPSTREAM_OPENAI_RESPONSES_BASE_URL?.trim())
+  const gatewayAsync =
+    process.env.UPSTREAM_ASYNC_IMAGE_TASKS?.trim().toLowerCase() === 'true' && !responsesBridge
+  const hasGptDirect = channel.models.some(
+    (model) => isGptDirectModel(model.id) || isGptImage26Model(model.id),
+  )
+  const directOn = hasGptDirect && gptDirectSizeEnabled()
+  if (directOn && gatewayAsync) return { asyncTasks: true, dispatchMode: 'dual' }
+  if (!directOn && gatewayAsync) return { asyncTasks: true, dispatchMode: 'async' }
+  const asyncTasks = Boolean(channel.defaults.asyncTasks)
+  return { asyncTasks, dispatchMode: asyncTasks ? 'async' : 'sync' }
+}
+
 export function isChannelCredentialReady(
   channel: Pick<InternalChannel, 'auth' | 'models'>,
 ): boolean {
@@ -641,7 +679,7 @@ export function isChannelCredentialReady(
   if (runtimeSecret(channel.auth.secretRef, envFallback)) return true
   if (channel.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0) return true
   if (usesImage26Sub2apiFallback(channel)) {
-    return Boolean(resolveApiKey('openai-compat'))
+    return hasSub2apiOpenAICredential()
   }
   return false
 }
@@ -686,6 +724,12 @@ export function getChannelTopology(): ManagedChannelSummary[] {
           )
       const secretRef = sub2apiFallback ? 'UPSTREAM_API_KEY (2.6 兜底)' : ch.auth.secretRef
       const sourceModels = active ? active.models : ch.models
+      const dispatch = resolveChannelDispatch({
+        id: ch.id,
+        kind: ch.kind,
+        defaults: ch.defaults,
+        models: sourceModels,
+      })
       return {
         id: ch.id,
         label: ch.label,
@@ -695,7 +739,8 @@ export function getChannelTopology(): ManagedChannelSummary[] {
         secretRef,
         secretConfigured,
         ...(ch.maxConcurrency !== undefined ? { maxConcurrency: ch.maxConcurrency } : {}),
-        asyncTasks: Boolean(ch.defaults.asyncTasks),
+        asyncTasks: dispatch.asyncTasks,
+        dispatchMode: dispatch.dispatchMode,
         ...(ch.defaults.timeout !== undefined ? { timeoutSeconds: ch.defaults.timeout } : {}),
         models: mapModels(sourceModels, ch.modelMaxConcurrency),
       }
@@ -705,21 +750,27 @@ export function getChannelTopology(): ManagedChannelSummary[] {
   const summarize = (
     channel: InternalChannel,
     status: ManagedChannelSummary['status'],
-  ): ManagedChannelSummary => ({
-    id: channel.id,
-    label: channel.label,
-    kind: channel.kind,
-    status,
-    authType: channel.auth.type,
-    secretRef: usesImage26Sub2apiFallback(channel)
-      ? 'UPSTREAM_API_KEY (2.6 兜底)'
-      : channel.auth.secretRef,
-    secretConfigured: isChannelCredentialReady(channel),
-    ...(channel.maxConcurrency !== undefined ? { maxConcurrency: channel.maxConcurrency } : {}),
-    asyncTasks: Boolean(channel.defaults.asyncTasks),
-    ...(channel.defaults.timeout !== undefined ? { timeoutSeconds: channel.defaults.timeout } : {}),
-    models: mapModels(channel.models, channel.modelMaxConcurrency),
-  })
+  ): ManagedChannelSummary => {
+    const dispatch = resolveChannelDispatch(channel)
+    return {
+      id: channel.id,
+      label: channel.label,
+      kind: channel.kind,
+      status,
+      authType: channel.auth.type,
+      secretRef: usesImage26Sub2apiFallback(channel)
+        ? 'UPSTREAM_API_KEY (2.6 兜底)'
+        : channel.auth.secretRef,
+      secretConfigured: isChannelCredentialReady(channel),
+      ...(channel.maxConcurrency !== undefined ? { maxConcurrency: channel.maxConcurrency } : {}),
+      asyncTasks: dispatch.asyncTasks,
+      dispatchMode: dispatch.dispatchMode,
+      ...(channel.defaults.timeout !== undefined
+        ? { timeoutSeconds: channel.defaults.timeout }
+        : {}),
+      models: mapModels(channel.models, channel.modelMaxConcurrency),
+    }
+  }
   return [
     ...loaded.map((channel) => summarize(channel, 'active')),
     ...retired.map((channel) => summarize(channel, 'disabled')),
@@ -926,5 +977,6 @@ export function _setChannelsForTesting(
   disabledModels?: Readonly<Record<string, string>>,
 ): void {
   declaredParsedChannels = null
+  testChannelsOverride = true
   setLoaded(channels, disabled, disabledModels)
 }

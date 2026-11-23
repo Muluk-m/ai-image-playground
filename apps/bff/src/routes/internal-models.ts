@@ -136,30 +136,41 @@ async function managedModels(): Promise<ManagedModelsView> {
   for (const [modelId, candidates] of chatCandidates) {
     if (models.has(modelId)) continue
     const routed = candidates.filter((candidate) => candidate.profiles.length > 0)
-    const primary = routed[0] ?? candidates[0]!
     const mergedProfiles = Array.from(
       new Set(candidates.flatMap((candidate) => candidate.profiles)),
     )
-    // 多 Provider 声明同 ID 对话模型时，只要任一实际被档位引用的 Provider 缺少凭证就按未就绪提示，不掩盖缺密钥风险。
+    // 多 Provider 声明同 ID 对话模型时，只要任一实际被档位引用的 Provider 缺少凭证就按未就绪提示，
+    // 且让展示的来源与 secret_ref 精确指向缺失凭证（或就绪）的那条候选，避免状态与变量名自相矛盾。
     const effectiveReady =
       routed.length > 0
         ? routed.every((candidate) => candidate.secretConfigured)
         : candidates.some((candidate) => candidate.secretConfigured)
+    const representative =
+      routed.length > 0
+        ? effectiveReady
+          ? routed[0]!
+          : (routed.find((candidate) => !candidate.secretConfigured) ?? routed[0]!)
+        : effectiveReady
+          ? (candidates.find((candidate) => candidate.secretConfigured) ?? candidates[0]!)
+          : candidates[0]!
     const sourceLabel =
       candidates.length > 1
-        ? `${primary.providerName} 等 ${candidates.length} 个 Provider`
-        : primary.providerName
+        ? `${representative.providerName} 等 ${candidates.length} 个 Provider`
+        : representative.providerName
     models.set(modelId, {
       id: modelId,
-      label: primary.model.name,
+      label: representative.model.name,
       kind: 'chat',
       source_label: sourceLabel,
-      source_id: primary.providerId,
-      secret_ref: primary.secretRef,
+      source_id: representative.providerId,
+      secret_ref: representative.secretRef,
       secret_configured: effectiveReady,
-      capabilities: [...(primary.model.imageInput ? ['vision'] : []), primary.model.api],
-      context_window: primary.model.contextWindow,
-      max_tokens: primary.model.maxTokens,
+      capabilities: [
+        ...(representative.model.imageInput ? ['vision'] : []),
+        representative.model.api,
+      ],
+      context_window: representative.model.contextWindow,
+      max_tokens: representative.model.maxTokens,
       ...(mergedProfiles.length ? { agent_profiles: mergedProfiles } : {}),
     })
   }
