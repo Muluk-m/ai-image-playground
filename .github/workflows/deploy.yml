@@ -308,9 +308,12 @@ jobs:
           printf '%s\n' "$PAGES_API_TOKEN" | grep -Eqx '[A-Za-z0-9_-]+' ||
             { echo "::error::${PREFIX}_CLOUDFLARE_API_TOKEN has unexpected characters."; exit 1; }
           printf 'CLOUDFLARE_API_TOKEN=%s\n' "$PAGES_API_TOKEN" > "$RUNNER_TEMP/$PREFIX-cloudflare.env"
+          # Later assignments win when the file is sourced. PAGES_ENV is the workstation file and
+          # its asset dir is a local path; the runner has no operator assets to copy (#1952).
           {
             printf '%s\n' "$PAGES_ENV"
             echo "${PREFIX}_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/$PREFIX-cloudflare.env"
+            echo "${PREFIX}_EXTRA_ASSETS_DIR="
           } > "$RUNNER_TEMP/pages.env"
           echo "PAGES_ENV_FILE=$RUNNER_TEMP/pages.env" >> "$GITHUB_ENV"
       - name: Wait for the shared muvloom API and the enterprise API hostname
@@ -447,6 +450,7 @@ jobs:
           {
             printf '%s\n' "$PAGES_ENV"
             echo "ADMIN_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/PAID-cloudflare.env"
+            echo "ADMIN_EXTRA_ASSETS_DIR="
           } > "$RUNNER_TEMP/pages.env"
           echo "PAGES_ENV_FILE=$RUNNER_TEMP/pages.env" >> "$GITHUB_ENV"
       - name: Skip unless the Admin cutover is configured
