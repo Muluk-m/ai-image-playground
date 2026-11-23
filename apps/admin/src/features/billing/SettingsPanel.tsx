@@ -421,7 +421,7 @@ function SettingsEditor({ catalog }: { catalog: Catalog }) {
                     <FormControl>
                       <Input
                         className="font-mono text-xs"
-                        placeholder="/op/payment-qr.png"
+                        placeholder="https://assets.example.com/pay-qr.jpg"
                         {...field}
                       />
                     </FormControl>
@@ -438,7 +438,7 @@ function SettingsEditor({ catalog }: { catalog: Catalog }) {
                     <FormControl>
                       <Input
                         className="font-mono text-xs"
-                        placeholder="/op/contact-qr.png"
+                        placeholder="https://assets.example.com/contact-qr.jpg"
                         {...field}
                       />
                     </FormControl>
