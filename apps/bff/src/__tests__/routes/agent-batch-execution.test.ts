@@ -62,6 +62,7 @@ _setPrivateBffOverlayForTesting({
 const { app } = await import('../../app')
 const { config } = await import('../../config')
 const { runTask } = await import('../../workers/task-runner')
+const { AgentBatchLoop } = await import('../../workers/agent-batch-loop')
 const { TaskScheduler } = await import('../../workers/task-scheduler')
 const { purgeOldTasks } = await import('../../db/maintenance')
 const { dispatchAgentBatch } = await import('../../lib/agent/batch-execution')
@@ -235,14 +236,20 @@ it('worker 重启后按持久批次接续提交窗口，三项各执行一次且
     return Response.json({ data: [{ b64_json: output.toString('base64') }] })
   })
   const previousWorker = new TaskScheduler({ pollIntervalMs: 10_000 })
+  const previousBatchLoop = new AgentBatchLoop({ pollIntervalMs: 10_000 })
   previousWorker.drain()
+  previousBatchLoop.drain()
   previousWorker.start()
+  previousBatchLoop.start()
   await waitFor(() => previousWorker.lastSuccessfulPollAt() !== null)
   previousWorker.stop()
+  previousBatchLoop.stop()
   expect(calls).toHaveLength(0)
   const worker = new TaskScheduler({ pollIntervalMs: 10, concurrency: { 'openai-compat': 1 } })
+  const batchLoop = new AgentBatchLoop({ pollIntervalMs: 10 })
   try {
     worker.start()
+    batchLoop.start()
     // Only the worker can refill the window; do not read or re-confirm the batch to drive it.
     await waitFor(() => calls.length === 3, 5000)
     await waitFor(async () => (await (await request(path)).json()).batch.status === 'closed', 5000)
@@ -262,8 +269,10 @@ it('worker 重启后按持久批次接续提交窗口，三项各执行一次且
     )
   } finally {
     previousWorker.stop()
+    previousBatchLoop.stop()
     worker.stop()
-    await worker.waitForIdle(5000)
+    batchLoop.stop()
+    await Promise.all([worker.waitForIdle(5000), batchLoop.waitForIdle(5000)])
   }
 }, 15000)
 
@@ -344,8 +353,10 @@ it('上游鉴权公共故障暂停后续派发，已提交项继续结算且刷�
       : Response.json({ data: [{ b64_json: output.toString('base64') }] })
   })
   const worker = new TaskScheduler({ pollIntervalMs: 10, concurrency: { 'openai-compat': 1 } })
+  const batchLoop = new AgentBatchLoop({ pollIntervalMs: 10 })
   try {
     worker.start()
+    batchLoop.start()
     await waitFor(async () => {
       const page = await (await request(path)).json()
       return page.batch.status !== 'running' && page.items[1].execution?.status === 'completed'
@@ -366,7 +377,8 @@ it('上游鉴权公共故障暂停后续派发，已提交项继续结算且刷�
     )
   } finally {
     worker.stop()
-    await worker.waitForIdle(5000)
+    batchLoop.stop()
+    await Promise.all([worker.waitForIdle(5000), batchLoop.waitForIdle(5000)])
   }
 }, 15000)
 

@@ -60,6 +60,7 @@ _setPrivateBffOverlayForTesting({
 const { app } = await import('../../app')
 const { config } = await import('../../config')
 const { runTask } = await import('../../workers/task-runner')
+const { AgentBatchLoop } = await import('../../workers/agent-batch-loop')
 const { TaskScheduler } = await import('../../workers/task-scheduler')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
@@ -241,8 +242,10 @@ it('slow batch media preparation does not block ordinary launches, cancellation 
     await barrier
   }
   const worker = new TaskScheduler({ pollIntervalMs: 10_000, concurrency: { 'openai-compat': 1 } })
+  const batches = new AgentBatchLoop({ pollIntervalMs: 10_000 })
   try {
     worker.start()
+    batches.start()
     await waitFor(() => reads > 0)
     // A real object-store read is stalled, but the unrelated queued request must already start.
     await waitFor(() => normalStarted)
@@ -251,21 +254,28 @@ it('slow batch media preparation does not block ordinary launches, cancellation 
     await worker.tick()
     await waitFor(() => normalAborted && worker.activeCount() === 0)
     await worker.tick()
+    batches.tick()
     await worker.tick()
+    batches.tick()
     expect(reads).toBe(1) // More polling does not start another copy of the stalled batch.
     worker.drain()
+    batches.drain()
     await worker.tick()
-    expect(worker.drainStatus()).toMatchObject({ draining: true, active: 0, safeToStop: false })
-    expect(await worker.waitForIdle(20)).toBe(false)
+    expect(worker.drainStatus()).toMatchObject({ draining: true, active: 0, safeToStop: true })
+    expect(batches.isIdle()).toBe(false)
+    expect(await batches.waitForIdle(20)).toBe(false)
     worker.stop()
+    batches.stop()
     release()
     expect(await worker.waitForIdle(5000)).toBe(true)
-    expect(worker.drainStatus().safeToStop).toBe(true)
+    expect(await batches.waitForIdle(5000)).toBe(true)
+    expect(worker.drainStatus().safeToStop && batches.isIdle()).toBe(true)
     expect((await (await request(path)).json()).batch.submittedCount).toBe(2)
   } finally {
     worker.stop()
+    batches.stop()
     release()
     storage.beforeRead = undefined
-    await worker.waitForIdle(5000)
+    await Promise.all([worker.waitForIdle(5000), batches.waitForIdle(5000)])
   }
 }, 15_000)
