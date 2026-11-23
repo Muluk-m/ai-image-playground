@@ -45,9 +45,13 @@ function ResizeCard({
     (singleOutput.width !== item.width || singleOutput.height !== item.height)
 
   return (
-    <div className="group flex flex-col overflow-hidden rounded-2xl border border-border bg-card">
-      <div className={`relative aspect-[4/3] ${CHECKERBOARD}`}>
-        <img src={item.url} alt={item.name} className="h-full w-full object-contain" />
+    <div className="group overflow-hidden rounded-2xl border border-border bg-card">
+      <div className={`relative aspect-[4/3] overflow-hidden ${CHECKERBOARD}`}>
+        <img
+          src={item.url}
+          alt={item.name}
+          className="absolute inset-0 h-full w-full object-contain"
+        />
         <Button
           variant="outline"
           size="icon-xs"
@@ -167,7 +171,6 @@ export default function ExportTool() {
     done,
     images,
     count,
-    locked,
     invalid,
     hasJpeg,
     hasVideo,
@@ -193,7 +196,11 @@ export default function ExportTool() {
       outputValue =
         width && height
           ? `${width} × ${height} px`
-          : t(locked ? 'export.batchHint' : 'export.multipleValues')
+          : width
+            ? `${width} × ${t('export.multipleValues')}`
+            : height
+              ? `${t('export.multipleValues')} × ${height}`
+              : t('export.multipleValues')
     }
     return [
       { label: t('stats.images'), value: t('stats.imagesValue', { count: images }) },
@@ -217,15 +224,15 @@ export default function ExportTool() {
       downloadBusy={busyAction === 'export'}
       sendToComposerBusy={busyAction === 'composer'}
       downloadLabel={
-        busyAction === 'export'
-          ? t('export.progress', { done: progress, total: sources.length })
+        busyAction === 'export' && progress !== null
+          ? t('export.progress', { done: progress.done, total: progress.total })
           : count > 0
             ? t('export.action', { count })
             : t('footer.download')
       }
       footerStatus={
-        busy
-          ? t('export.progress', { done: progress, total: sources.length })
+        progress !== null
+          ? t('export.progress', { done: progress.done, total: progress.total })
           : count > 1
             ? t('export.zipHint')
             : undefined
@@ -240,7 +247,7 @@ export default function ExportTool() {
       }
     >
       {({ openFiles }) => (
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(196px,100%),1fr))] gap-3">
           {items.map((item) => (
             <ResizeCard
               key={item.id}

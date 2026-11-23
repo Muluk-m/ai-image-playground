@@ -20,8 +20,8 @@ function StatBox({ stats }: { stats: readonly ToolStat[] }) {
     <dl className="mt-auto space-y-1 rounded-xl border border-border bg-card p-3 text-xs">
       {stats.map((stat) => (
         <div key={stat.label} className="flex items-center justify-between gap-3">
-          <dt className="text-muted-foreground">{stat.label}</dt>
-          <dd className="font-mono tabular-nums">{stat.value}</dd>
+          <dt className="shrink-0 text-muted-foreground">{stat.label}</dt>
+          <dd className="min-w-0 truncate text-right font-mono tabular-nums">{stat.value}</dd>
         </div>
       ))}
     </dl>
@@ -109,7 +109,7 @@ export default function ToolShell({
       <ToolboxHeader tool={tool} busy={busy} onAddImages={openFiles} onAddFolder={openFolder} />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
         <div className="shrink-0 border-b border-border lg:w-48 lg:border-b-0 lg:border-r">
-          <ToolList active={tool.id} />
+          <ToolList active={tool.id} busy={busy} />
         </div>
         <section
           className={`flex min-w-0 flex-col p-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:px-5 ${

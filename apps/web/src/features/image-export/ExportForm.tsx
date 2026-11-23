@@ -69,7 +69,9 @@ export default function ExportForm({
                   ? t('export.loading')
                   : dimensions
                     ? `${dimensions.width} × ${dimensions.height} px`
-                    : !single && t(locked ? 'export.batchHint' : 'export.ratioUnlocked')}
+                    : images > 0 &&
+                      !single &&
+                      t(locked ? 'export.batchHint' : 'export.ratioUnlocked')}
               </p>
             )}
           </div>
@@ -195,10 +197,10 @@ export default function ExportForm({
             disabled={!canExport}
             onClick={() => void runExport()}
           >
-            {busy ? (
+            {progress !== null ? (
               <>
                 <Icon name="loading" className="animate-spin" />
-                {t('export.progress', { done: progress, total: sources.length })}
+                {t('export.progress', { done: progress.done, total: progress.total })}
               </>
             ) : (
               <>

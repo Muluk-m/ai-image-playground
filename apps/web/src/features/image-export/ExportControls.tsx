@@ -267,7 +267,7 @@ export default function ExportControls({
               <Select
                 value={String(row.scale)}
                 onValueChange={(value) => updateRow(row.id, { scale: Number(value) })}
-                disabled={busy}
+                disabled={busy || empty}
               >
                 <SelectTrigger
                   aria-label={t('export.scaleRow', { index: index + 1 })}
@@ -286,7 +286,7 @@ export default function ExportControls({
               <Select
                 value={row.format}
                 onValueChange={(value) => updateRow(row.id, { format: value as typeof row.format })}
-                disabled={busy}
+                disabled={busy || empty}
               >
                 <SelectTrigger
                   aria-label={t('export.formatRow', { index: index + 1 })}
@@ -334,7 +334,7 @@ export default function ExportControls({
             max={100}
             step={1}
             value={[settings.quality]}
-            disabled={busy}
+            disabled={busy || empty}
             onValueChange={([quality]) => setQuality(quality)}
           />
         </ExportSection>

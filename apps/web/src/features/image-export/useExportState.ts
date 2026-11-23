@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { CanvasLimitError } from '../toolbox/lib/canvasLimits'
-import { downloadImages, sendImagesToComposer } from '../toolbox/lib/deliver'
+import { downloadImages } from '../toolbox/lib/deliver'
+import { deliverResizedToComposer } from './deliverToComposer'
 import { type ExportSettings, type ExportSource, exportSize, prepareExports } from './export'
 
 export type ExportAxis = 'width' | 'height'
@@ -41,7 +42,7 @@ export function useExportState({
   } | null>(null)
   const [loadedPreview, setLoadedPreview] = useState<string | null>(null)
   const [loadingDimensions, setLoadingDimensions] = useState(false)
-  const [progress, setProgress] = useState<number | null>(null)
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
   const [busyAction, setBusyAction] = useState<ExportBusyAction>(null)
   const [error, setError] = useState<ExportError | null>(null)
   const [done, setDone] = useState(0)
@@ -74,6 +75,7 @@ export function useExportState({
     setLoadedDimensions(null)
     setLoadedPreview(null)
     setLoadingDimensions(false)
+    setError((prev) => (prev?.key === 'export.originalFailed' ? null : prev))
     if (!single || !first || (first.width && first.height)) return
     setLoadingDimensions(true)
     void first
@@ -254,23 +256,29 @@ export function useExportState({
     abort.current?.abort()
     const controller = new AbortController()
     abort.current = controller
+    const cached = firstBlob.current
+    const inputs = single && cached && first ? [{ ...first, load: async () => cached }] : sources
+    const total = inputs.length
     setError(null)
     setDone(0)
     setBusyAction(action)
-    setProgress(0)
+    setProgress({ done: 0, total })
+    const reportProgress = (completed: number) => {
+      if (!controller.signal.aborted && abort.current === controller) {
+        setProgress({ done: completed, total })
+      }
+    }
     try {
-      const cached = firstBlob.current
-      const inputs = single && cached && first ? [{ ...first, load: async () => cached }] : sources
-      const files = await prepareExports(inputs, settings, controller.signal, setProgress)
+      const files = await prepareExports(inputs, settings, controller.signal, reportProgress)
       controller.signal.throwIfAborted()
       if (action === 'export') {
         await downloadImages(files, `${name}.zip`, controller.signal)
-        if (!controller.signal.aborted) setDone(files.length)
+        if (!controller.signal.aborted && abort.current === controller) setDone(files.length)
       } else {
-        await sendImagesToComposer(files)
+        await deliverResizedToComposer(files, controller.signal)
       }
     } catch (err) {
-      if (!controller.signal.aborted) {
+      if (!controller.signal.aborted && abort.current === controller) {
         setError(
           err instanceof CanvasLimitError
             ? { key: 'export.limit', width: err.width, height: err.height }
@@ -278,8 +286,8 @@ export function useExportState({
         )
       }
     } finally {
-      if (abort.current === controller) abort.current = null
-      if (!controller.signal.aborted) {
+      if (abort.current === controller) {
+        abort.current = null
         setProgress(null)
         setBusyAction(null)
       }

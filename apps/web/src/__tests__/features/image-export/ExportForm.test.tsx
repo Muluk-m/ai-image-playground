@@ -10,6 +10,9 @@ vi.mock('../../../i18n', () => {
   return { useTranslation: () => ({ t }) }
 })
 vi.mock('../../../features/toolbox/lib/deliver', () => ({ downloadImages: vi.fn() }))
+vi.mock('../../../features/image-export/deliverToComposer', () => ({
+  deliverResizedToComposer: vi.fn(),
+}))
 vi.mock('../../../features/image-export/export', async (importActual) => ({
   ...(await importActual<typeof import('../../../features/image-export/export')>()),
   prepareExports: vi.fn(async (inputs: readonly { load: () => Promise<Blob> }[]) => {

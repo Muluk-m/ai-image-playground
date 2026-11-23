@@ -2,13 +2,17 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { deliverResizedToComposer } from '../../../features/image-export/deliverToComposer'
 import ExportTool from '../../../features/image-export/ExportTool'
-import { downloadImages, sendImagesToComposer } from '../../../features/toolbox/lib/deliver'
+import { downloadImages } from '../../../features/toolbox/lib/deliver'
 import { useToolboxStore } from '../../../features/toolbox/store'
 
 vi.mock('../../../features/toolbox/lib/deliver', () => ({
   downloadImages: vi.fn(async () => {}),
   sendImagesToComposer: vi.fn(async () => {}),
+}))
+vi.mock('../../../features/image-export/deliverToComposer', () => ({
+  deliverResizedToComposer: vi.fn(async () => {}),
 }))
 vi.mock('../../../features/image-export/export', async (importActual) => ({
   ...(await importActual<typeof import('../../../features/image-export/export')>()),
@@ -72,6 +76,7 @@ describe('ExportTool workbench redesign', () => {
     const occurrences = host.textContent?.split(LONG_NAME).length ?? 0
     expect(occurrences - 1).toBe(1)
     expect(host.querySelector('fieldset')?.className).toContain('min-w-0')
+    expect(host.innerHTML).toContain('minmax(min(196px,100%),1fr)')
     expect(host.textContent).toContain('1206 × 2622 px')
 
     // Scaling to 50% immediately reflects the resized output on the stage card and stats box.
@@ -87,10 +92,47 @@ describe('ExportTool workbench redesign', () => {
     expect(host.textContent).toContain('1206×2622')
     expect(findButton('导出 2 个文件')).toBeDefined()
 
-    // Both unified workbench footer actions work.
+    // Both unified workbench footer actions work and pass AbortSignal.
     await act(async () => findButton('放入创作输入框').click())
-    expect(sendImagesToComposer).toHaveBeenCalledTimes(1)
+    expect(deliverResizedToComposer).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(deliverResizedToComposer).mock.calls[0]?.[1]).toBeInstanceOf(AbortSignal)
     await act(async () => findButton('导出 2 个文件').click())
     expect(downloadImages).toHaveBeenCalledTimes(1)
+  })
+
+  it('aborts the in-flight composer delivery signal when unmounted while sending', async () => {
+    let capturedSignal: AbortSignal | undefined
+    let release!: () => void
+    vi.mocked(deliverResizedToComposer).mockImplementationOnce(
+      (_files, signal) =>
+        new Promise<void>((resolve) => {
+          capturedSignal = signal
+          release = resolve
+        }),
+    )
+    useToolboxStore.setState({
+      items: [
+        {
+          id: 'img-1',
+          name: 'photo.png',
+          url: 'blob:img-1',
+          type: 'image/png',
+          size: 1000,
+          width: 800,
+          height: 600,
+          decodable: true,
+        },
+      ],
+    })
+    await act(async () => root.render(<ExportTool />))
+    await act(async () => {
+      findButton('放入创作输入框').click()
+      await Promise.resolve()
+    })
+    expect(capturedSignal).toBeInstanceOf(AbortSignal)
+    expect(capturedSignal?.aborted).toBe(false)
+    await act(async () => root.unmount())
+    expect(capturedSignal?.aborted).toBe(true)
+    release()
   })
 })
