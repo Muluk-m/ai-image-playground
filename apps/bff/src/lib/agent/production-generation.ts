@@ -232,25 +232,45 @@ export async function listProductionGenerations(
     .orderBy(desc(drafts.created_at))
     .limit(onlyDraftId || onlyMessageId ? 1 : 100)
   const messages = await listAgentMessages(conversationId, { kind: 'user', userId })
-  const result: ProductionGenerationView[] = []
-  for (const draft of rows) {
+  const entries = rows.flatMap((draft) => {
     const binding = draft.submission.production
-    if (!binding) continue
-    for (const candidate of draftCandidates(draft, messages)) {
-      let artifacts: ProductionGenerationView['artifacts'] = []
-      let status = 'awaiting_confirmation'
-      if (candidate.taskId) {
-        const [task] = await db
-          .select()
+    if (!binding) return []
+    return [{ draft, binding, candidates: draftCandidates(draft, messages) }]
+  })
+  const taskIds = [
+    ...new Set(
+      entries.flatMap((entry) =>
+        entry.candidates.flatMap((candidate) => (candidate.taskId ? [candidate.taskId] : [])),
+      ),
+    ),
+  ]
+  const tasksById = new Map(
+    (taskIds.length === 0
+      ? []
+      : await db
+          .select({
+            id: schema.tasks.id,
+            status: schema.tasks.status,
+            provider: schema.tasks.provider,
+            result_payload: schema.tasks.result_payload,
+          })
           .from(schema.tasks)
           .where(
             and(
-              eq(schema.tasks.id, candidate.taskId),
+              inArray(schema.tasks.id, taskIds),
               eq(schema.tasks.user_id, userId),
               eq(schema.tasks.agent_conversation_id, conversationId),
             ),
           )
-          .limit(1)
+    ).map((task) => [task.id, task]),
+  )
+  const result: ProductionGenerationView[] = []
+  for (const { draft, binding, candidates } of entries) {
+    for (const candidate of candidates) {
+      let artifacts: ProductionGenerationView['artifacts'] = []
+      let status = 'awaiting_confirmation'
+      if (candidate.taskId) {
+        const task = tasksById.get(candidate.taskId)
         status = task?.status ?? 'missing'
         const provider = task && asQueueProvider(task.provider)
         if (task?.status === 'completed' && provider)

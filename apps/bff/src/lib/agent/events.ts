@@ -3,7 +3,7 @@ import {
   type AgentTurnEndEvent,
   type AgentTurnEvent,
 } from '@image-playground/shared'
-import { and, asc, desc, eq, gt, lt, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, lt, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { log } from '../logger'
 import { claimConversation, releaseConversation } from './execution'
@@ -164,7 +164,7 @@ export async function openTurnEventLog(
       })
     void writes.catch((err) => {
       log.warn(
-        { event: 'agent.event_persist_failed', turnId, err },
+        { event: 'agent.event_persist_failed', conversationId, turnId, err },
         'turn events awaiting persistence',
       )
     })
@@ -346,16 +346,25 @@ async function unterminatedTurns(conversationId: string): Promise<UnterminatedTu
  * 否则按失败补并把页脚一起落上：刷新后的面板与续播看到的是同一个结局。
  */
 async function writeSeals(conversationId: string, turns: readonly UnterminatedTurn[]) {
+  if (turns.length === 0) return
+  const summaries = new Map(
+    (
+      await db
+        .select()
+        .from(schema.agent_turns)
+        .where(
+          and(
+            eq(schema.agent_turns.conversation_id, conversationId),
+            inArray(
+              schema.agent_turns.turn_id,
+              turns.map((turn) => turn.turnId),
+            ),
+          ),
+        )
+    ).map((row) => [row.turn_id, row]),
+  )
   for (const turn of turns) {
-    const [summary] = await db
-      .select()
-      .from(schema.agent_turns)
-      .where(
-        and(
-          eq(schema.agent_turns.conversation_id, conversationId),
-          eq(schema.agent_turns.turn_id, turn.turnId),
-        ),
-      )
+    const summary = summaries.get(turn.turnId)
     const durationMs = summary?.duration_ms ?? Math.max(turn.lastAt - turn.firstAt, 0)
     // 没有页脚：这一轮是被打断的（服务重启、执行者被接管），不是只丢了终帧。先把它提交过的
     // 后台任务的结果卡补上，再算要不要续一次。动态引入：它静态依赖工具注册表与 pi。
