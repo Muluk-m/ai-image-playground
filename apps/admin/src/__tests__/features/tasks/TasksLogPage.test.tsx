@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
   GenerationTaskItem,
@@ -115,11 +115,13 @@ describe('TasksLogTable', () => {
 
     const table = screen.getByRole('table')
     const headers = within(table).getAllByRole('columnheader')
-    // First 3 columns are sticky left with deterministic left offsets
+    // First 3 columns are sticky left, followed immediately by 执行耗时 and 排队等待
     expect(headers[0]).toHaveStyle({ left: '0px' })
     expect(headers[1]).toHaveStyle({ left: '104px' })
     expect(headers[2]).toHaveStyle({ left: '248px' })
     expect(headers[3]?.style.left).toBe('')
+    expect(headers[3]).toHaveTextContent('执行耗时')
+    expect(headers[4]).toHaveTextContent('排队等待')
     for (const header of headers) {
       expect(header.className).toContain('whitespace-nowrap')
     }
@@ -139,6 +141,75 @@ describe('TasksLogTable', () => {
     )
     expect(onQuickFilterUser).toHaveBeenCalledWith('usr-1')
     expect(onOpenTask).not.toHaveBeenCalled()
+  })
+
+  it('shows live elapsed run and queue durations for in-flight tasks and updates every second', () => {
+    vi.useFakeTimers()
+    try {
+      const base = Date.parse('2026-11-23T23:28:00+08:00')
+      vi.setSystemTime(base + 45_000)
+
+      const inFlightTasks: GenerationTaskItem[] = [
+        {
+          ...SAMPLE_TASKS[0]!,
+          id: 'queued-task-1',
+          status: 'queued',
+          submitted_at: base,
+          started_at: null,
+          completed_at: null,
+        },
+        {
+          ...SAMPLE_TASKS[0]!,
+          id: 'running-task-1',
+          status: 'in_progress',
+          submitted_at: base - 10_000,
+          started_at: base - 5_000,
+          completed_at: null,
+        },
+      ]
+
+      render(
+        <TasksLogTable
+          tasks={inFlightTasks}
+          summary={SAMPLE_SUMMARY}
+          total={2}
+          sortField="submitted_at"
+          sortDir="desc"
+          pinCount={3}
+          hiddenCols={[]}
+          density="compact"
+          onSortChange={vi.fn()}
+          onPinCountChange={vi.fn()}
+          onToggleColumn={vi.fn()}
+          onResetColumns={vi.fn()}
+          onDensityChange={vi.fn()}
+          onOpenTask={vi.fn()}
+          onQuickFilterUser={vi.fn()}
+          onQuickFilterDevice={vi.fn()}
+        />,
+      )
+
+      const table = screen.getByRole('table')
+      const rows = within(table).getAllByRole('row')
+      const queuedCells = within(rows[1]!).getAllByRole('cell')
+      const runningCells = within(rows[2]!).getAllByRole('cell')
+
+      // Queued task: run_ms is '—', queue_ms shows live 45s wait
+      expect(queuedCells[3]).toHaveTextContent('—')
+      expect(queuedCells[4]).toHaveTextContent('45s')
+
+      // Running task: run_ms shows live 50s execution, queue_ms shows 5.0s
+      expect(runningCells[3]).toHaveTextContent('50s')
+      expect(runningCells[4]).toHaveTextContent('5.0s')
+
+      act(() => {
+        vi.advanceTimersByTime(3000)
+      })
+      expect(queuedCells[4]).toHaveTextContent('48s')
+      expect(runningCells[3]).toHaveTextContent('53s')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

@@ -73,7 +73,7 @@ export function Page({ crumbs, title, description, actions, children }: PageProp
         </div>
       </header>
 
-      <div className="flex-1 space-y-4 px-4 py-5 md:px-6">{children}</div>
+      <div className="min-w-0 flex-1 space-y-4 px-4 py-5 md:px-6">{children}</div>
     </>
   )
 }
