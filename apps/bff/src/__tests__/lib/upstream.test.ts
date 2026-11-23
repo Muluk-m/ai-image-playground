@@ -1390,3 +1390,44 @@ it('caps non-2xx response reads and cancels oversized error streams', async () =
     setUpstreamFetchForTesting()
   }
 })
+
+it('cancels immediately once a non-2xx stream hits the 64 KiB cap without closing', async () => {
+  const { extractUpstreamFailure } = await import('../../lib/upstream')
+  let pulls = 0
+  let cancelled = false
+  const exactCap = new TextEncoder().encode(`exact cap ${'y'.repeat(64 * 1024 - 10)}`)
+  setUpstreamFetchForTesting(async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1
+        if (pulls === 1) {
+          controller.enqueue(exactCap)
+          return
+        }
+        // 模拟上游发满 64 KiB 后保持连接不关闭：若继续 read 会一直挂起直到外层超时。
+        return new Promise<void>(() => {})
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+    return new Response(stream, {
+      status: 502,
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+    })
+  })
+  try {
+    const error = await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'fixture' },
+    }).catch((err) => err)
+    expect(cancelled).toBe(true)
+    expect(extractUpstreamFailure(error)).toMatchObject({
+      status: 502,
+      body: expect.stringMatching(/^exact cap y+/),
+    })
+  } finally {
+    setUpstreamFetchForTesting()
+  }
+})

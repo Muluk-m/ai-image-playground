@@ -1839,16 +1839,14 @@ async function readBoundedErrorText(
   let total = 0
   let truncated = false
   try {
-    while (true) {
+    while (total < UPSTREAM_ERROR_BODY_MAX_BYTES) {
       const { done, value } = await reader.read()
       if (done) break
       if (value.byteLength === 0) continue
       const remaining = UPSTREAM_ERROR_BODY_MAX_BYTES - total
-      if (value.byteLength > remaining) {
-        if (remaining > 0) {
-          chunks.push(value.subarray(0, remaining))
-          total += remaining
-        }
+      if (value.byteLength >= remaining) {
+        chunks.push(value.subarray(0, remaining))
+        total += remaining
         truncated = true
         break
       }

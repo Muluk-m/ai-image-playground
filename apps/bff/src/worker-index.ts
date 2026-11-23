@@ -244,7 +244,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   )
 
   let maintenanceTimeout: ReturnType<typeof setTimeout> | undefined
-  const [idle] = await Promise.all([
+  const [schedulerIdle, batchIdle] = await Promise.all([
     scheduler.waitForIdle(drainTimeoutMs),
     batchLoop.waitForIdle(drainTimeoutMs),
     Promise.race([
@@ -255,23 +255,46 @@ async function gracefulShutdown(signal: string): Promise<void> {
     ]).finally(() => clearTimeout(maintenanceTimeout)),
     opsMaintenanceStopped,
   ])
-  if (!idle) {
+  let batchSettled = batchIdle
+  if (!schedulerIdle || !batchIdle) {
     // id 必须在 abort 之前取：runner settle 之后会把自己从 runningTasks 摘掉。
-    const aborted = runningTaskIds()
-    const abortedAnalysis = runningAnalysisTaskIds()
-    abortAllRunningTasks()
-    abortAllRunningAnalysisTasks()
+    const aborted = schedulerIdle ? [] : runningTaskIds()
+    const abortedAnalysis = schedulerIdle ? [] : runningAnalysisTaskIds()
+    if (!schedulerIdle) {
+      abortAllRunningTasks()
+      abortAllRunningAnalysisTasks()
+    }
     log.warn(
-      { event: 'worker.shutdown_drain_timeout', drainTimeoutMs, aborted: aborted.length },
-      'drain window expired, aborting inflight tasks for requeue',
+      {
+        event: 'worker.shutdown_drain_timeout',
+        drainTimeoutMs,
+        aborted: aborted.length,
+        abortedAnalysis: abortedAnalysis.length,
+        batchInFlight: !batchIdle,
+      },
+      'drain window expired, waiting for inflight shutdown settle',
     )
-    await scheduler.waitForIdle(QUEUE_TIMEOUTS.SHUTDOWN_ABORT_SETTLE_MS)
-    await recoverTasksByIds(aborted)
-    await recoverAnalysisTasks(Date.now(), abortedAnalysis)
+    const [, batchSettledAfterAbort] = await Promise.all([
+      schedulerIdle
+        ? Promise.resolve(true)
+        : scheduler.waitForIdle(QUEUE_TIMEOUTS.SHUTDOWN_ABORT_SETTLE_MS),
+      batchIdle
+        ? Promise.resolve(true)
+        : batchLoop.waitForIdle(QUEUE_TIMEOUTS.SHUTDOWN_ABORT_SETTLE_MS),
+    ])
+    batchSettled = batchSettledAfterAbort
+    if (aborted.length > 0) await recoverTasksByIds(aborted)
+    if (abortedAnalysis.length > 0) await recoverAnalysisTasks(Date.now(), abortedAnalysis)
+    if (!batchSettled) {
+      log.warn(
+        { event: 'worker.shutdown_batch_timeout', drainTimeoutMs },
+        'agent batch advancement still active at shutdown; exiting non-zero for stale recovery',
+      )
+    }
   }
 
-  log.info({ event: 'worker.shutdown_done' }, 'task worker stopped')
-  await finalize()
+  log.info({ event: 'worker.shutdown_done', batchSettled }, 'task worker stopped')
+  await finalize(batchSettled ? 0 : 1)
 }
 
 process.on('SIGTERM', () => void gracefulShutdown('SIGTERM'))
