@@ -450,6 +450,7 @@ jobs:
           {
             printf '%s\n' "$PAGES_ENV"
             echo "ADMIN_CLOUDFLARE_TOKEN_FILE=$RUNNER_TEMP/PAID-cloudflare.env"
+            echo "ADMIN_EXTRA_ASSETS_DIR="
           } > "$RUNNER_TEMP/pages.env"
           echo "PAGES_ENV_FILE=$RUNNER_TEMP/pages.env" >> "$GITHUB_ENV"
       - name: Skip unless the Admin cutover is configured
