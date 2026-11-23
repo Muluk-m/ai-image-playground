@@ -68,4 +68,25 @@ describe('Admin agent model configuration', () => {
     expect(response.status).toBe(200)
     expect(requests).toEqual([{ path: '/internal/admin/agent-models', operator: 'password-admin' }])
   })
+
+  it('protects and forwards single-profile connectivity probes', async () => {
+    const denied = await app.handle(
+      new Request('http://localhost/api/agent-models/probe', { method: 'POST' }),
+    )
+    expect(denied.status).toBe(401)
+
+    requests.length = 0
+    const cookie = await login()
+    const response = await app.handle(
+      new Request('http://localhost/api/agent-models/probe', {
+        method: 'POST',
+        headers: { cookie, 'content-type': 'application/json' },
+        body: JSON.stringify({ profile: 'default', settings: { providers: [], profiles: {} } }),
+      }),
+    )
+    expect(response.status).toBe(200)
+    expect(requests).toEqual([
+      { path: '/internal/admin/agent-models/probe', operator: 'password-admin' },
+    ])
+  })
 })

@@ -1,5 +1,10 @@
 import type { AssistantMessage, Context } from '@earendil-works/pi-ai'
-import { AGENT_PROFILE_KEYS, type AgentModelSettings } from '@image-playground/shared'
+import {
+  AGENT_PROFILE_KEYS,
+  type AgentModelProbeResult,
+  type AgentModelSettings,
+  type AgentProfileKey,
+} from '@image-playground/shared'
 import { isObject } from '../type-guards'
 import { agentStreamFn } from './model'
 import {
@@ -41,6 +46,80 @@ export async function preflightAgentModelSave(body: unknown): Promise<void> {
     throw error
   }
   await preflightAgentModelSettings(settings)
+}
+
+/**
+ * 后台按档位手动探测单次连通性（1 token）。不回传原始网络错误或上游地址，防止内网端点或凭证信息外泄。
+ */
+export async function probeAgentModelBinding(body: unknown): Promise<AgentModelProbeResult> {
+  if (!isObject(body)) throw new AgentSettingsError('探测请求无效')
+  const profileKey = body.profile
+  if (
+    typeof profileKey !== 'string' ||
+    !AGENT_PROFILE_KEYS.includes(profileKey as AgentProfileKey)
+  ) {
+    throw new AgentSettingsError('未知档位')
+  }
+  const target = body.target === 'fallback' ? 'fallback' : 'primary'
+  if (
+    !isObject(body.settings) ||
+    !Array.isArray(body.settings.providers) ||
+    !isObject(body.settings.profiles)
+  ) {
+    throw new AgentSettingsError('模型设置无效')
+  }
+  const rawProfile = body.settings.profiles[profileKey]
+  if (!isObject(rawProfile)) throw new AgentSettingsError(`缺少 ${profileKey} 档位`)
+  const rawBinding = target === 'fallback' ? rawProfile.fallback : rawProfile
+  if (target === 'fallback' && rawBinding === undefined) {
+    return { ok: false, status: 'unconfigured', latencyMs: 0, message: '未配置备用路由' }
+  }
+  if (!isObject(rawBinding) || typeof rawBinding.providerId !== 'string') {
+    throw new AgentSettingsError('路由绑定无效')
+  }
+  const rawProvider = body.settings.providers.find(
+    (item) => isObject(item) && item.id === rawBinding.providerId,
+  )
+  if (!rawProvider) throw new AgentSettingsError('所选 Provider 不存在')
+
+  const singleBinding = {
+    providerId: rawBinding.providerId,
+    modelId: rawBinding.modelId,
+    reasoning: rawBinding.reasoning,
+  }
+  const isolatedSettings = validateAgentModelSettings({
+    providers: [rawProvider],
+    profiles: Object.fromEntries(AGENT_PROFILE_KEYS.map((key) => [key, singleBinding])),
+  })
+  const provider = isolatedSettings.providers[0]!
+  if (!providerCredentialReady(provider)) {
+    return {
+      ok: false,
+      status: 'unconfigured',
+      latencyMs: 0,
+      message: '服务端尚未配置该 Provider 的密钥',
+    }
+  }
+  const startedAt = performance.now()
+  try {
+    const key = profileKey as AgentProfileKey
+    const runtime = configuredAgentRuntime(isolatedSettings, key === 'default' ? undefined : key)
+    // 超时控制在 10s，低于 Admin -> BFF 内部代理的 15s 上限，确保返回结构化诊断而非代理 500。
+    const stream = await agentStreamFn(undefined, {}, runtime)(runtime.model, PROBE_CONTEXT, {
+      maxTokens: 1,
+      signal: AbortSignal.timeout(10_000),
+      reasoning: runtime.effort === 'off' ? undefined : runtime.effort,
+    })
+    const message = await stream.result()
+    const latencyMs = Math.max(1, Math.round(performance.now() - startedAt))
+    if (message.stopReason === 'error' || message.stopReason === 'aborted') {
+      return { ok: false, status: 'failed', latencyMs, message: '上游拒绝了探测请求' }
+    }
+    return { ok: true, status: 'ok', latencyMs }
+  } catch {
+    const latencyMs = Math.max(1, Math.round(performance.now() - startedAt))
+    return { ok: false, status: 'failed', latencyMs, message: '连接失败或响应超时' }
+  }
 }
 
 async function probeProfile(

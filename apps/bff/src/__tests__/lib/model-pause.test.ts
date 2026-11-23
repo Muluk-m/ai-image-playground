@@ -146,3 +146,28 @@ it('hides stopped models from the page', async () => {
   expect(ids).toContain('grok-imagine-video')
   expect(ids).not.toContain(MODEL)
 })
+
+it('returns channel topology and model provenance without exposing upstream URLs or secrets', async () => {
+  const response = await internal('/')
+  expect(response.status).toBe(200)
+  const raw = await response.text()
+  expect(raw).not.toContain('https://gateway.example/v1')
+  const view = JSON.parse(raw) as ManagedModelsView
+  expect(view.channels).toEqual([
+    expect.objectContaining({
+      id: 'grok-video',
+      label: 'Grok',
+      kind: 'openai-queue',
+      status: 'active',
+      secretRef: 'VIDEO_API_KEY',
+      secretConfigured: true,
+      asyncTasks: true,
+    }),
+  ])
+  expect(view.models.find((model) => model.id === MODEL)).toMatchObject({
+    source_id: 'grok-video',
+    source_label: 'Grok',
+    secret_ref: 'VIDEO_API_KEY',
+    secret_configured: true,
+  })
+})

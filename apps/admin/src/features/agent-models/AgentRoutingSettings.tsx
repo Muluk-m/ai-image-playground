@@ -1,4 +1,9 @@
-import type { AgentModelSettings, AgentModelSettingsView } from '@image-playground/shared'
+import type {
+  AgentModelProbeResult,
+  AgentModelSettings,
+  AgentModelSettingsView,
+  AgentProfileKey,
+} from '@image-playground/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { DangerConfirmDialog } from '@/components/DangerConfirmDialog'
@@ -6,13 +11,13 @@ import { ErrorState, PendingState } from '@/components/Page'
 import { ApiError, apiClient } from '@/lib/api-client'
 import { AgentModelSettingsForm } from './AgentModelSettingsForm'
 
-const queryKey = ['agent-models']
+export const agentModelsQueryKey = ['agent-models']
 
 /** Pi Provider、模型与产品档位的映射。保存后对话模型清单可能变了，模型列表跟着重取。 */
 export function AgentRoutingSettings() {
   const client = useQueryClient()
   const query = useQuery({
-    queryKey,
+    queryKey: agentModelsQueryKey,
     queryFn: () => apiClient.get<AgentModelSettingsView>('/api/agent-models'),
     refetchOnWindowFocus: false,
   })
@@ -38,7 +43,7 @@ export function AgentRoutingSettings() {
         reason,
       }),
     onSuccess: (data) => {
-      client.setQueryData(queryKey, data)
+      client.setQueryData(agentModelsQueryKey, data)
       void client.invalidateQueries({ queryKey: ['models'] })
       setSaved(true)
     },
@@ -57,7 +62,10 @@ export function AgentRoutingSettings() {
   return (
     <>
       {saved ? (
-        <p role="status" className="text-sm text-muted-foreground">
+        <p
+          role="status"
+          className="mb-3 rounded-lg border border-success/30 bg-success/10 px-4 py-2.5 text-sm text-success"
+        >
           配置已保存，下一轮对话将使用新配置。
         </p>
       ) : null}
@@ -65,6 +73,13 @@ export function AgentRoutingSettings() {
         initial={query.data}
         pending={update.isPending}
         error={error}
+        probe={(settings: AgentModelSettings, profile: AgentProfileKey, target) =>
+          apiClient.post<AgentModelProbeResult>('/api/agent-models/probe', {
+            settings,
+            profile,
+            target,
+          })
+        }
         save={async (settings, revision) => {
           setSaved(false)
           const confirmed = await new Promise<AgentModelSettingsView | undefined>((resolve) => {

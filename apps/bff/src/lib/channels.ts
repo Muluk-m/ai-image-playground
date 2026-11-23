@@ -33,6 +33,7 @@ import type {
   ChannelModel,
   DiscoveredChannel,
   GeminiImageSize,
+  ManagedChannelSummary,
   ModelBadge,
   ModelLogoId,
   ModelTier,
@@ -92,7 +93,7 @@ export interface InternalChannel {
 }
 
 /** parseChannel 的产物：baseUrl 尚未解析，只有 `baseUrl` / `baseUrlRef` 二选一。 */
-interface ParsedChannel extends Omit<InternalChannel, 'baseUrl'> {
+export interface ParsedChannel extends Omit<InternalChannel, 'baseUrl'> {
   baseUrl?: string
   baseUrlRef?: string
   requiresSecret: boolean
@@ -110,6 +111,8 @@ export interface ChannelsLoadResult {
   disabledModels: Record<string, string>
   /** 非致命问题清单（缺 secret 等），由 startup 落日志。 */
   warnings: string[]
+  /** channels.json 中声明的完整解析项（供后台只读拓扑展示未配凭证或已下线渠道）。 */
+  declared?: ParsedChannel[]
 }
 
 export class ChannelsLoadError extends Error {
@@ -450,6 +453,7 @@ export function parseChannelsConfig(
 
   const warnings: string[] = []
   const seenIds = new Set<string>()
+  const declared: ParsedChannel[] = []
   const channels: InternalChannel[] = []
   const disabled: InternalChannel[] = []
   // 无原型：模型 id 只校验非空，`constructor` 之类的键不能撞上继承属性。
@@ -458,6 +462,7 @@ export function parseChannelsConfig(
     const ch = parseChannel(raw, idx)
     if (seenIds.has(ch.id)) throw new ChannelsLoadError(`channels[${idx}].id duplicate: '${ch.id}'`)
     seenIds.add(ch.id)
+    declared.push(ch)
 
     const resolved = resolveBaseUrl(ch, envLookup)
     if (ch.disabled) {
@@ -518,7 +523,7 @@ export function parseChannelsConfig(
     }
     channels.push(toInternal(ch, resolved.baseUrl, secret))
   })
-  return { channels, disabled, disabledModels, warnings }
+  return { channels, disabled, disabledModels, warnings, declared }
 }
 
 function toInternal(ch: ParsedChannel, baseUrl: string, secret: string): InternalChannel {
@@ -584,12 +589,14 @@ function isFileNotFoundError(err: unknown): boolean {
 
 let loaded: InternalChannel[] = []
 let retired: InternalChannel[] = []
+let declaredParsedChannels: ParsedChannel[] | null = null
 let disabledModels: ReadonlyMap<string, string> = new Map()
 let discoveredCache: DiscoveredChannel[] = []
 
 export function initChannels(filePath = defaultChannelsPath()): ChannelsLoadResult {
   const result = loadChannelsFromFile(filePath)
   setLoaded(result.channels, result.disabled, result.disabledModels)
+  declaredParsedChannels = result.declared ?? []
   refreshSignature = undefined
   return result
 }
@@ -613,6 +620,98 @@ export function refreshChannelsIfChanged(filePath = defaultChannelsPath()): void
 
 export function getChannels(): InternalChannel[] {
   return loaded
+}
+
+export function isChannelCredentialReady(
+  channel: Pick<InternalChannel, 'auth' | 'models'>,
+): boolean {
+  const envFallback = channel.auth.secret || (process.env[channel.auth.secretRef]?.trim() ?? '')
+  if (runtimeSecret(channel.auth.secretRef, envFallback)) return true
+  if (channel.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0) return true
+  if (
+    process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true' &&
+    channel.models.length > 0 &&
+    channel.models.every((model) => isGptImage26Model(model.id))
+  ) {
+    return true
+  }
+  return false
+}
+
+/**
+ * 后台渠道拓扑视图：只返回渠道标识、协议、并发上限、密钥环境变量引用及是否已配置，
+ * 绝不返回解析后的上游地址（可能含内网代理）或密钥内容。
+ */
+export function getChannelTopology(): ManagedChannelSummary[] {
+  const mapModels = (
+    models: readonly ChannelModel[],
+    modelMaxConcurrency?: Record<string, number>,
+  ) =>
+    models.map((model) => {
+      const modelCap = modelMaxConcurrency?.[model.id]
+      return {
+        id: model.id,
+        label: model.label,
+        media: model.media ?? 'image',
+        capabilities: model.capabilities,
+        ...(modelCap !== undefined ? { maxConcurrency: modelCap } : {}),
+        ...(model.etaSeconds !== undefined ? { etaSeconds: model.etaSeconds } : {}),
+        ...(model.degraded ? { degraded: true } : {}),
+      }
+    })
+
+  if (declaredParsedChannels !== null) {
+    const loadedById = new Map(loaded.map((channel) => [channel.id, channel]))
+    return declaredParsedChannels.map((ch) => {
+      const active = loadedById.get(ch.id)
+      const status: ManagedChannelSummary['status'] = ch.disabled
+        ? 'disabled'
+        : active
+          ? 'active'
+          : 'unconfigured'
+      const secretConfigured = active
+        ? isChannelCredentialReady(active)
+        : Boolean(
+            runtimeSecret(ch.auth.secretRef, process.env[ch.auth.secretRef]?.trim() ?? '') ||
+              (ch.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0),
+          )
+      const sourceModels = active ? active.models : ch.models
+      return {
+        id: ch.id,
+        label: ch.label,
+        kind: ch.kind,
+        status,
+        authType: ch.auth.type,
+        secretRef: ch.auth.secretRef,
+        secretConfigured,
+        ...(ch.maxConcurrency !== undefined ? { maxConcurrency: ch.maxConcurrency } : {}),
+        asyncTasks: Boolean(ch.defaults.asyncTasks),
+        ...(ch.defaults.timeout !== undefined ? { timeoutSeconds: ch.defaults.timeout } : {}),
+        models: mapModels(sourceModels, ch.modelMaxConcurrency),
+      }
+    })
+  }
+
+  const summarize = (
+    channel: InternalChannel,
+    status: ManagedChannelSummary['status'],
+  ): ManagedChannelSummary => ({
+    id: channel.id,
+    label: channel.label,
+    kind: channel.kind,
+    status,
+    authType: channel.auth.type,
+    secretRef: channel.auth.secretRef,
+    secretConfigured: isChannelCredentialReady(channel),
+    ...(channel.maxConcurrency !== undefined ? { maxConcurrency: channel.maxConcurrency } : {}),
+    asyncTasks: Boolean(channel.defaults.asyncTasks),
+    ...(channel.defaults.timeout !== undefined ? { timeoutSeconds: channel.defaults.timeout } : {}),
+    models: mapModels(channel.models, channel.modelMaxConcurrency),
+  })
+  return [
+    ...loaded.map((channel) => summarize(channel, 'active')),
+    ...retired.map((channel) => summarize(channel, 'disabled')),
+  ]
 }
 
 /**
@@ -814,5 +913,6 @@ export function _setChannelsForTesting(
   disabled: InternalChannel[] = [],
   disabledModels?: Readonly<Record<string, string>>,
 ): void {
+  declaredParsedChannels = null
   setLoaded(channels, disabled, disabledModels)
 }

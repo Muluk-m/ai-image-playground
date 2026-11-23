@@ -1,6 +1,6 @@
 import type { ManagedModelKind } from '@image-playground/shared'
 import { useQuery } from '@tanstack/react-query'
-import { notFound, useLocation } from '@tanstack/react-router'
+import { Navigate, notFound } from '@tanstack/react-router'
 import type { ComponentType, ReactNode } from 'react'
 import { Page } from '@/components/Page'
 import { privateAdminOverlay } from '../features/billing'
@@ -48,6 +48,12 @@ interface AdminExtensionManifest {
   user_links: Array<{ label: string; href_template: string }>
 }
 
+function normalizeExtensionPath(href: string): string {
+  const end = href.search(/[?#]/)
+  const path = end === -1 ? href : href.slice(0, end)
+  return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path
+}
+
 function useAdminExtensionManifest() {
   return useQuery({
     queryKey: ['admin-extensions'],
@@ -85,24 +91,31 @@ export function usePrivateAdminNavigation(): ReadonlyArray<{ label: string; href
   return query.data?.navigation ?? NO_NAVIGATION
 }
 
+/** 是否启用了商业计费设置扩展（用于「模型与计费」合并工作台页签与导航文案）。 */
+export function usePrivateAdminBillingSettingsEnabled(): boolean {
+  const navigation = usePrivateAdminNavigation()
+  return navigation.some((entry) => normalizeExtensionPath(entry.href) === '/billing/settings')
+}
+
 export function PrivateAdminOverviewPanel() {
   const enabled = usePrivateAdminOverlayEnabled()
   const Component = overlay.OverviewPanel
   return enabled ? <Component /> : null
 }
-export function PrivateAdminSettingsPanel() {
+
+/** 嵌入 `/providers?tab=billing` 的商业计费配置面板。 */
+export function PrivateAdminBillingPanel() {
   const enabled = usePrivateAdminOverlayEnabled()
-  const navigation = usePrivateAdminNavigation()
-  const pathname = useLocation({ select: (location) => location.pathname })
   const Component = overlay.SettingsPanel
   if (!enabled) return null
-  // 私有路由自己只渲染面板，页头由公开侧补上，标题取 /api/extensions 里对应的导航项。
-  const label = navigation.find((entry) => entry.href === pathname)?.label ?? '设置'
-  return (
-    <Page crumbs={[{ label }]}>
-      <Component />
-    </Page>
-  )
+  return <Component />
+}
+
+/** 旧 `/billing/settings` 路由入口：重定向至统一的「模型与计费 → 套餐与收款」页签。 */
+export function PrivateAdminSettingsPanel() {
+  const enabled = usePrivateAdminOverlayEnabled()
+  if (!enabled) return null
+  return <Navigate to="/providers" search={{ tab: 'billing' }} replace />
 }
 
 export function PrivateAdminUserDetailPanel(props: {
@@ -146,7 +159,7 @@ export function PrivateAdminOrdersPanel() {
   const Component = overlay.OrdersPanel
   if (!enabled || !Component) return null
   return (
-    <Page crumbs={[{ label: '订单核款' }]}>
+    <Page crumbs={[{ label: '订单核款' }]} description="对照收款凭证核验到账并执行套餐开通或续期">
       <Component />
     </Page>
   )

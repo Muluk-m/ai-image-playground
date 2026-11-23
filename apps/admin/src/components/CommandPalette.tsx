@@ -4,16 +4,22 @@ import { useNavigate } from '@tanstack/react-router'
 import { Boxes, MonitorSmartphone, Search, Sparkles, User } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { NAV_GROUPS, type NavTo } from '@/components/AppSidebar'
+import {
+  NAV_GROUPS,
+  type NavTo,
+  overlayNavPath,
+  resolveProvidersNavLabel,
+} from '@/components/AppSidebar'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { adminSessionQueryOptions } from '@/lib/admin-session'
 import { apiClient } from '@/lib/api-client'
+import { usePrivateAdminNavigation } from '@/lib/private-overlay'
 import { useUsers } from '@/lib/queries'
 import { cn } from '@/lib/utils'
 
 type PaletteItem =
-  | { kind: 'module'; id: string; label: string; hint: string; to: NavTo }
+  | { kind: 'module'; id: string; label: string; hint: string; to: NavTo | '/audit'; href?: string }
   | { kind: 'user'; id: string; label: string; hint: string }
   | { kind: 'inspiration'; id: string; label: string; hint: string }
   | { kind: 'task'; id: string; label: string; hint: string }
@@ -81,6 +87,8 @@ export function CommandPalette() {
 function PaletteBody({ onDone }: { onDone: () => void }) {
   const navigate = useNavigate()
   const { data: adminSession } = useQuery(adminSessionQueryOptions)
+  const privateNavigation = usePrivateAdminNavigation()
+  const providersLabel = resolveProvidersNavLabel(privateNavigation)
   const [draft, setDraft] = useState('')
   const [term, setTerm] = useState('')
   const [active, setActive] = useState(0)
@@ -103,21 +111,32 @@ function PaletteBody({ onDone }: { onDone: () => void }) {
     enabled: searchable,
   })
 
-  const modules = useMemo<PaletteItem[]>(
-    () =>
-      NAV_GROUPS.flatMap((group) =>
-        group.entries
-          .filter((entry) => !entry.gated || adminSession?.accounts_login)
-          .map((entry) => ({
-            kind: 'module' as const,
-            id: entry.to,
-            label: entry.label,
-            hint: group.label,
-            to: entry.to,
-          })),
-      ),
-    [adminSession?.accounts_login],
-  )
+  const modules = useMemo<PaletteItem[]>(() => {
+    const publicModules: PaletteItem[] = NAV_GROUPS.flatMap((group) =>
+      group.entries
+        .filter((entry) => !entry.gated || adminSession?.accounts_login)
+        .map((entry) => ({
+          kind: 'module' as const,
+          id: entry.to,
+          label: entry.to === '/providers' ? providersLabel : entry.label,
+          hint: group.label,
+          to: entry.to,
+        })),
+    )
+    const overlayModules: PaletteItem[] = privateNavigation
+      .filter((entry) => overlayNavPath(entry.href) !== '/billing/settings')
+      .map((entry) => {
+        const path = overlayNavPath(entry.href)
+        return {
+          kind: 'module' as const,
+          id: path,
+          label: entry.label,
+          hint: path === '/billing/orders' ? '经营' : '设置',
+          to: path as '/audit',
+        }
+      })
+    return [...publicModules, ...overlayModules]
+  }, [adminSession?.accounts_login, privateNavigation, providersLabel])
 
   const items = useMemo<PaletteItem[]>(() => {
     const needle = term.toLowerCase()

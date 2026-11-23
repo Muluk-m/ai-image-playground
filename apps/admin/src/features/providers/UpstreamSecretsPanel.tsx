@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { ErrorState, PendingState } from '@/components/Page'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -15,12 +16,32 @@ import {
   upstreamSecretsQueryKey,
   useUpstreamSecrets,
 } from '@/lib/queries'
+import { cn } from '@/lib/utils'
 
 const SOURCE_LABEL = {
-  admin: '后台',
-  env: '环境变量',
+  admin: '后台加密存储',
+  env: '部署环境变量',
   unset: '未设置',
 } as const
+
+const SLOT_META: Record<UpstreamSecretView['id'], { env: string; scope: string }> = {
+  openai_direct: {
+    env: 'OPENAI_API_KEY',
+    scope: 'OpenAI 生图渠道 · Agent OpenAI Provider',
+  },
+  gemini: {
+    env: 'GEMINI_API_KEY',
+    scope: 'Gemini 原生生图渠道',
+  },
+  vertex: {
+    env: 'VERTEX_API_KEY',
+    scope: 'Vertex Nano Banana 生图渠道',
+  },
+  sub2api: {
+    env: 'UPSTREAM_API_KEY',
+    scope: 'sub2api 网关 · 默认 Agent 对话与 GPT 双通道兜底',
+  },
+}
 
 function failureMessage(cause: unknown): string {
   if (!(cause instanceof ApiError)) return '操作失败，请稍后重试'
@@ -42,29 +63,39 @@ export function UpstreamSecretsPanel() {
 
 function UpstreamSecretList({ data }: { data: UpstreamSecretsResult }) {
   return (
-    <div className="space-y-4">
-      <div>
-        <h2 className="text-base font-semibold">上游密钥</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          管理生成与 Agent 使用的运行时密钥。密钥只写入后端，不会回显。
-        </p>
-      </div>
-      {data.disabledReason ? (
-        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
-          {data.disabledReason}
-        </p>
-      ) : null}
-      {data.warning ? (
-        <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-200">
-          {data.warning}
-        </p>
-      ) : null}
-      <div className="grid gap-4 lg:grid-cols-2">
-        {data.secrets.map((secret) => (
-          <SecretCard key={secret.id} secret={secret} writable={data.writable} />
-        ))}
-      </div>
-    </div>
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div>
+            <CardTitle className="text-base">上游运行时密钥槽位</CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              以 AES-256-GCM 写入数据库并在 10 秒内热同步到全部 BFF / Worker
+              节点，密钥明文永不回显。
+            </p>
+          </div>
+          <Badge variant={data.writable ? 'outline' : 'warning'}>
+            {data.writable ? '可在线热替换' : '只读模式'}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {data.disabledReason ? (
+          <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+            {data.disabledReason}
+          </p>
+        ) : null}
+        {data.warning ? (
+          <p className="rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+            {data.warning}
+          </p>
+        ) : null}
+        <div className="grid gap-3 lg:grid-cols-2">
+          {data.secrets.map((secret) => (
+            <SecretCard key={secret.id} secret={secret} writable={data.writable} />
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -84,7 +115,7 @@ function SecretCard({ secret, writable }: { secret: UpstreamSecretView; writable
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState<'save' | 'clear' | 'test' | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [probe, setProbe] = useState<string | null>(null)
+  const [probe, setProbe] = useState<{ ok: boolean; text: string } | null>(null)
 
   function apply(next: UpstreamSecretsResult) {
     client.setQueryData(upstreamSecretsQueryKey, next)
@@ -133,9 +164,14 @@ function SecretCard({ secret, writable }: { secret: UpstreamSecretView; writable
     setProbe(null)
     try {
       const result = await testUpstreamSecret(secret.id, apiKey)
-      setProbe(
-        result.ok ? '连接成功' : result.httpStatus ? `连接失败 ${result.httpStatus}` : '连接失败',
-      )
+      setProbe({
+        ok: result.ok,
+        text: result.ok
+          ? '连接成功'
+          : result.httpStatus
+            ? `连接失败 ${result.httpStatus}`
+            : '连接失败',
+      })
     } catch (cause) {
       setError(failureMessage(cause))
     } finally {
@@ -143,6 +179,7 @@ function SecretCard({ secret, writable }: { secret: UpstreamSecretView; writable
     }
   }
 
+  const slotInfo = SLOT_META[secret.id]
   const meta = [
     SOURCE_LABEL[secret.source],
     secret.updatedAt ? isoTime(secret.updatedAt) : '',
@@ -152,65 +189,86 @@ function SecretCard({ secret, writable }: { secret: UpstreamSecretView; writable
     .join(' · ')
 
   return (
-    <Card>
-      <CardHeader className="space-y-1 p-4">
-        <div className="flex items-baseline justify-between gap-3">
-          <CardTitle className="text-base">{secret.label}</CardTitle>
+    <div className="space-y-3 rounded-xl border bg-muted/20 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold">{secret.label}</h3>
+            {slotInfo ? (
+              <span className="rounded border bg-background px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+                {slotInfo.env}
+              </span>
+            ) : null}
+          </div>
+          {slotInfo ? <p className="mt-1 text-xs text-muted-foreground">{slotInfo.scope}</p> : null}
+        </div>
+        <span className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium">
           <span
-            className={secret.configured ? 'text-sm font-medium' : 'text-sm text-muted-foreground'}
-          >
+            className={cn(
+              'size-2 rounded-full',
+              secret.configured ? 'bg-success' : 'bg-muted-foreground/40',
+            )}
+            aria-hidden
+          />
+          <span className={secret.configured ? 'text-foreground' : 'text-muted-foreground'}>
             {secret.configured ? '已配置' : '未配置'}
           </span>
-        </div>
-        <p className="text-xs text-muted-foreground">{meta}</p>
-      </CardHeader>
-      <CardContent className="p-4 pt-0">
-        <form
-          className="space-y-3"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void save()
+        </span>
+      </div>
+
+      <p className="text-xs text-muted-foreground">{meta}</p>
+
+      <form
+        className="space-y-2.5"
+        onSubmit={(event) => {
+          event.preventDefault()
+          void save()
+        }}
+      >
+        <Input
+          type="password"
+          name={`upstream-secret-${secret.id}`}
+          autoComplete="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          value={draft}
+          placeholder="输入新密钥覆盖…"
+          aria-label={`${secret.label} 新密钥`}
+          onChange={(event) => {
+            setDraft(event.target.value)
+            setProbe(null)
           }}
-        >
-          <Input
-            type="password"
-            name={`upstream-secret-${secret.id}`}
-            autoComplete="off"
-            autoCapitalize="off"
-            spellCheck={false}
-            value={draft}
-            placeholder="新密钥"
-            aria-label={`${secret.label} 新密钥`}
-            onChange={(event) => {
-              setDraft(event.target.value)
-              setProbe(null)
-            }}
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              disabled={!draft.trim() || pending !== null}
-              onClick={() => void test()}
-            >
-              {pending === 'test' ? '测试中' : '测试连接'}
-            </Button>
-            <Button type="submit" disabled={!writable || !draft.trim() || pending !== null}>
-              {pending === 'save' ? '保存中' : '保存'}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={secret.source !== 'admin' || pending !== null}
-              onClick={() => void clear()}
-            >
-              {pending === 'clear' ? '清除中' : '清除'}
-            </Button>
-          </div>
-          {probe ? <p className="text-sm">{probe}</p> : null}
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
-        </form>
-      </CardContent>
-    </Card>
+        />
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={!draft.trim() || pending !== null}
+            onClick={() => void test()}
+          >
+            {pending === 'test' ? '测试中' : '测试连接'}
+          </Button>
+          <Button type="submit" size="sm" disabled={!writable || !draft.trim() || pending !== null}>
+            {pending === 'save' ? '保存中' : '保存'}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            disabled={secret.source !== 'admin' || pending !== null}
+            onClick={() => void clear()}
+          >
+            {pending === 'clear' ? '清除中' : '清除'}
+          </Button>
+          {probe ? (
+            <span className={cn('text-xs font-medium', probe.ok ? 'text-success' : 'text-danger')}>
+              {probe.text}
+            </span>
+          ) : null}
+        </div>
+        {error ? <p className="text-xs text-danger">{error}</p> : null}
+      </form>
+    </div>
   )
 }
