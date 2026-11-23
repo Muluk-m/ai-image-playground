@@ -166,7 +166,6 @@ export default function ExportTool() {
     settings,
     progress,
     busy,
-    busyAction,
     error,
     done,
     images,
@@ -175,11 +174,9 @@ export default function ExportTool() {
     hasJpeg,
     hasVideo,
     canExport,
-    canSendToComposer,
     outputSizes,
     sharedAxis,
     runExport,
-    runSendToComposer,
   } = state
 
   const stats: ToolStat[] = (() => {
@@ -219,12 +216,11 @@ export default function ExportTool() {
       processing={busy}
       panelClassName="lg:w-80"
       stats={stats}
+      showSendToComposer={false}
       canDownload={canExport}
-      canSendToComposer={canSendToComposer}
-      downloadBusy={busyAction === 'export'}
-      sendToComposerBusy={busyAction === 'composer'}
+      downloadBusy={busy}
       downloadLabel={
-        busyAction === 'export' && progress !== null
+        progress !== null
           ? t('export.progress', { done: progress.done, total: progress.total })
           : count > 0
             ? t('export.action', { count })
@@ -238,7 +234,6 @@ export default function ExportTool() {
             : undefined
       }
       onDownload={() => void runExport()}
-      onSendToComposer={() => void runSendToComposer()}
       controls={
         <>
           <ExportControls state={state} />

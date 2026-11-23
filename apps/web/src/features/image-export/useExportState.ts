@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { CanvasLimitError } from '../toolbox/lib/canvasLimits'
 import { downloadImages } from '../toolbox/lib/deliver'
-import { deliverResizedToComposer } from './deliverToComposer'
 import { type ExportSettings, type ExportSource, exportSize, prepareExports } from './export'
 
 export type ExportAxis = 'width' | 'height'
@@ -10,8 +9,6 @@ export type ExportError =
   | { key: 'export.originalFailed' }
   | { key: 'export.failed' }
   | { key: 'export.limit'; width: number; height: number }
-
-export type ExportBusyAction = 'export' | 'composer' | null
 
 export const EXPORT_FORMATS = ['image/png', 'image/jpeg', 'image/webp', 'image/avif'] as const
 export const EXPORT_SCALES = [0.5, 1, 2, 3, 4] as const
@@ -43,7 +40,6 @@ export function useExportState({
   const [loadedPreview, setLoadedPreview] = useState<string | null>(null)
   const [loadingDimensions, setLoadingDimensions] = useState(false)
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null)
-  const [busyAction, setBusyAction] = useState<ExportBusyAction>(null)
   const [error, setError] = useState<ExportError | null>(null)
   const [done, setDone] = useState(0)
   const [sizeDraft, setSizeDraft] = useState<Partial<Record<ExportAxis, string>>>({})
@@ -62,6 +58,12 @@ export function useExportState({
   useEffect(() => {
     if (prevSourcesKey.current === sourcesKey) return
     prevSourcesKey.current = sourcesKey
+    // 输入列表变化（如批量异步入图尚未结束或移除图片）时中止在途导出，避免交付过期集合。
+    if (abort.current) {
+      abort.current.abort()
+      abort.current = null
+      setProgress(null)
+    }
     setSizeDraft({})
     setError(null)
     setDone(0)
@@ -173,7 +175,6 @@ export function useExportState({
   const hasJpeg = images > 0 && settings.rows.some((row) => row.format === 'image/jpeg')
   const hasVideo = sources.some((source) => source.media === 'video')
   const canExport = !empty && !invalid && !loading && !busy
-  const canSendToComposer = images > 0 && !hasVideo && !invalid && !loading && !busy
 
   const changeSize = (axis: ExportAxis, text: string) => {
     setSizeDraft((prev) => (locked ? { [axis]: text } : { ...prev, [axis]: text }))
@@ -252,7 +253,7 @@ export function useExportState({
 
   const setQuality = (quality: number) => setSettings((prev) => ({ ...prev, quality }))
 
-  const execute = async (action: Exclude<ExportBusyAction, null>) => {
+  const runExport = async () => {
     abort.current?.abort()
     const controller = new AbortController()
     abort.current = controller
@@ -261,7 +262,6 @@ export function useExportState({
     const total = inputs.length
     setError(null)
     setDone(0)
-    setBusyAction(action)
     setProgress({ done: 0, total })
     const reportProgress = (completed: number) => {
       if (!controller.signal.aborted && abort.current === controller) {
@@ -271,12 +271,8 @@ export function useExportState({
     try {
       const files = await prepareExports(inputs, settings, controller.signal, reportProgress)
       controller.signal.throwIfAborted()
-      if (action === 'export') {
-        await downloadImages(files, `${name}.zip`, controller.signal)
-        if (!controller.signal.aborted && abort.current === controller) setDone(files.length)
-      } else {
-        await deliverResizedToComposer(files, controller.signal)
-      }
+      await downloadImages(files, `${name}.zip`, controller.signal)
+      if (!controller.signal.aborted && abort.current === controller) setDone(files.length)
     } catch (err) {
       if (!controller.signal.aborted && abort.current === controller) {
         setError(
@@ -289,7 +285,6 @@ export function useExportState({
       if (abort.current === controller) {
         abort.current = null
         setProgress(null)
-        setBusyAction(null)
       }
     }
   }
@@ -301,7 +296,6 @@ export function useExportState({
     loading,
     progress,
     busy,
-    busyAction,
     error,
     done,
     sizeDraft,
@@ -323,7 +317,6 @@ export function useExportState({
     hasJpeg,
     hasVideo,
     canExport,
-    canSendToComposer,
     changeSize,
     applyPercent,
     toggleLock,
@@ -332,8 +325,7 @@ export function useExportState({
     addRow,
     removeRow,
     setQuality,
-    runExport: () => execute('export'),
-    runSendToComposer: () => execute('composer'),
+    runExport,
   }
 }
 

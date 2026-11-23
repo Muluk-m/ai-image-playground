@@ -10,9 +10,6 @@ vi.mock('../../../i18n', () => {
   return { useTranslation: () => ({ t }) }
 })
 vi.mock('../../../features/toolbox/lib/deliver', () => ({ downloadImages: vi.fn() }))
-vi.mock('../../../features/image-export/deliverToComposer', () => ({
-  deliverResizedToComposer: vi.fn(),
-}))
 vi.mock('../../../features/image-export/export', async (importActual) => ({
   ...(await importActual<typeof import('../../../features/image-export/export')>()),
   prepareExports: vi.fn(async (inputs: readonly { load: () => Promise<Blob> }[]) => {
@@ -225,15 +222,15 @@ describe('image resize editing', () => {
         (button) => button.textContent === 'export.reset',
       )
     expect(findReset()).toBeUndefined()
-    const half = [...host.querySelectorAll<HTMLButtonElement>('button[role="radio"]')].find(
+    const half = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
       (button) => button.textContent === '50%',
     )!
     await act(async () => half.click())
     expect(host.querySelector<HTMLInputElement>('#export-width')!.value).toBe('720')
     expect(host.querySelector<HTMLInputElement>('#export-height')!.value).toBe('540')
-    expect(half.getAttribute('aria-checked')).toBe('true')
+    expect(half.getAttribute('aria-pressed')).toBe('true')
     expect(findReset()).toBeDefined()
-    const original = [...host.querySelectorAll<HTMLButtonElement>('button[role="radio"]')].find(
+    const original = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
       (button) => button.textContent === '100%',
     )!
     await act(async () => original.click())

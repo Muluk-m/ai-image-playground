@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { SettingsSegmented } from '../../components/composer/SettingsPanel'
 import { Button } from '../../components/ui/button'
 import { Icon } from '../../components/ui/icon'
 import { Input } from '../../components/ui/input'
@@ -206,35 +207,16 @@ export default function ExportControls({
           </div>
         </div>
 
-        <div
-          role="radiogroup"
-          aria-label={t('export.scalePresets')}
-          className="grid min-w-0 grid-cols-5 gap-0.5 rounded-lg border border-border bg-muted/40 p-0.5"
-        >
-          {SCALE_PRESETS.map((percent) => {
-            const active = activePercent === percent
-            return (
-              <Button
-                key={percent}
-                type="button"
-                variant="ghost"
-                size="xs"
-                role="radio"
-                aria-checked={active}
-                disabled={single && !dimensions}
-                onClick={() => applyPercent(percent)}
-                className={cn(
-                  'min-w-0 px-0 font-mono text-label-sm tabular-nums',
-                  active
-                    ? 'bg-primary/15 font-medium text-primary hover:bg-primary/15 hover:text-primary'
-                    : 'font-normal text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {percent}%
-              </Button>
-            )
-          })}
-        </div>
+        <SettingsSegmented
+          label={t('export.scalePresets')}
+          value={activePercent}
+          onChange={applyPercent}
+          options={SCALE_PRESETS.map((percent) => ({
+            value: percent,
+            label: `${percent}%`,
+            disabled: busy || empty || (single && !dimensions),
+          }))}
+        />
 
         {invalid ? (
           <p className="text-xs text-destructive" role="alert">

@@ -2,17 +2,14 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { deliverResizedToComposer } from '../../../features/image-export/deliverToComposer'
 import ExportTool from '../../../features/image-export/ExportTool'
+import { prepareExports } from '../../../features/image-export/export'
 import { downloadImages } from '../../../features/toolbox/lib/deliver'
 import { useToolboxStore } from '../../../features/toolbox/store'
 
 vi.mock('../../../features/toolbox/lib/deliver', () => ({
   downloadImages: vi.fn(async () => {}),
   sendImagesToComposer: vi.fn(async () => {}),
-}))
-vi.mock('../../../features/image-export/deliverToComposer', () => ({
-  deliverResizedToComposer: vi.fn(async () => {}),
 }))
 vi.mock('../../../features/image-export/export', async (importActual) => ({
   ...(await importActual<typeof import('../../../features/image-export/export')>()),
@@ -48,10 +45,9 @@ function findButton(label: string): HTMLButtonElement {
 }
 
 describe('ExportTool workbench redesign', () => {
-  it('disables controls and footer actions when no images are imported', async () => {
+  it('disables controls and download action when no images are imported', async () => {
     await act(async () => root.render(<ExportTool />))
     expect(host.querySelector('fieldset')?.hasAttribute('disabled')).toBe(true)
-    expect(findButton('放入创作输入框').disabled).toBe(true)
     expect(findButton('下载').disabled).toBe(true)
   })
 
@@ -80,7 +76,7 @@ describe('ExportTool workbench redesign', () => {
     expect(host.textContent).toContain('1206 × 2622 px')
 
     // Scaling to 50% immediately reflects the resized output on the stage card and stats box.
-    const half = [...host.querySelectorAll<HTMLButtonElement>('button[role="radio"]')].find(
+    const half = [...host.querySelectorAll<HTMLButtonElement>('button')].find(
       (button) => button.textContent === '50%',
     )!
     await act(async () => half.click())
@@ -92,47 +88,46 @@ describe('ExportTool workbench redesign', () => {
     expect(host.textContent).toContain('1206×2622')
     expect(findButton('导出 2 个文件')).toBeDefined()
 
-    // Both unified workbench footer actions work and pass AbortSignal.
-    await act(async () => findButton('放入创作输入框').click())
-    expect(deliverResizedToComposer).toHaveBeenCalledTimes(1)
-    expect(vi.mocked(deliverResizedToComposer).mock.calls[0]?.[1]).toBeInstanceOf(AbortSignal)
+    // Bottom export action runs cleanly.
     await act(async () => findButton('导出 2 个文件').click())
     expect(downloadImages).toHaveBeenCalledTimes(1)
   })
 
-  it('aborts the in-flight composer delivery signal when unmounted while sending', async () => {
+  it('aborts an in-flight export when the imported image list changes mid-export', async () => {
     let capturedSignal: AbortSignal | undefined
     let release!: () => void
-    vi.mocked(deliverResizedToComposer).mockImplementationOnce(
-      (_files, signal) =>
-        new Promise<void>((resolve) => {
+    vi.mocked(prepareExports).mockImplementationOnce(
+      (_inputs, _settings, signal) =>
+        new Promise((resolve) => {
           capturedSignal = signal
-          release = resolve
+          release = () => resolve([{ name: 'photo.png', blob: new Blob(['out']) }])
         }),
     )
-    useToolboxStore.setState({
-      items: [
-        {
-          id: 'img-1',
-          name: 'photo.png',
-          url: 'blob:img-1',
-          type: 'image/png',
-          size: 1000,
-          width: 800,
-          height: 600,
-          decodable: true,
-        },
-      ],
-    })
+    const first = {
+      id: 'img-1',
+      name: 'photo.png',
+      url: 'blob:img-1',
+      type: 'image/png',
+      size: 1000,
+      width: 800,
+      height: 600,
+      decodable: true,
+    }
+    useToolboxStore.setState({ items: [first] })
     await act(async () => root.render(<ExportTool />))
     await act(async () => {
-      findButton('放入创作输入框').click()
+      findButton('导出 1 个文件').click()
       await Promise.resolve()
     })
-    expect(capturedSignal).toBeInstanceOf(AbortSignal)
     expect(capturedSignal?.aborted).toBe(false)
-    await act(async () => root.unmount())
+    await act(async () => {
+      useToolboxStore.setState({ items: [first, { ...first, id: 'img-2', name: 'second.png' }] })
+    })
     expect(capturedSignal?.aborted).toBe(true)
     release()
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(downloadImages).not.toHaveBeenCalled()
   })
 })

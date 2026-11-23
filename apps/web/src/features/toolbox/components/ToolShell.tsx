@@ -61,12 +61,10 @@ export default function ToolShell({
   processing = false,
   footer = true,
   footerStatus,
+  showSendToComposer = true,
   canDownload,
-  canSendToComposer,
   downloadBusy = false,
-  sendToComposerBusy = false,
   onDownload,
-  onSendToComposer,
   panelClassName = 'lg:w-72',
   panelBody,
 }: {
@@ -83,12 +81,10 @@ export default function ToolShell({
   processing?: boolean
   footer?: boolean
   footerStatus?: ReactNode
+  showSendToComposer?: boolean
   canDownload?: boolean
-  canSendToComposer?: boolean
   downloadBusy?: boolean
-  sendToComposerBusy?: boolean
   onDownload?: () => void
-  onSendToComposer?: () => void
   panelClassName?: string
   /** 整块替换参数栏时使用。 */
   panelBody?: ReactNode
@@ -98,7 +94,6 @@ export default function ToolShell({
   const { dragging, dropZoneProps, inputs, openFiles, openFolder } = useToolboxIntake(busy)
   const name = t(`tool.${tool.id}.name`)
   const downloadReady = canDownload ?? deliverables.length > 0
-  const composerReady = canSendToComposer ?? deliverables.length > 0
 
   return (
     <main
@@ -174,19 +169,16 @@ export default function ToolShell({
             {footerStatus ?? (processing ? t('footer.processing') : t('workbench.footerHint'))}
           </span>
           <span className="ml-auto flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              disabled={!composerReady}
-              onClick={() =>
-                onSendToComposer ? onSendToComposer() : void sendImagesToComposer(deliverables)
-              }
-            >
-              <Icon
-                name={sendToComposerBusy ? 'loading' : 'sendToComposer'}
-                className={sendToComposerBusy ? 'animate-spin' : undefined}
-              />
-              {t('footer.sendToComposer')}
-            </Button>
+            {showSendToComposer && (
+              <Button
+                variant="outline"
+                disabled={deliverables.length === 0}
+                onClick={() => void sendImagesToComposer(deliverables)}
+              >
+                <Icon name="sendToComposer" />
+                {t('footer.sendToComposer')}
+              </Button>
+            )}
             <Button
               disabled={!downloadReady}
               onClick={() =>
