@@ -60,6 +60,7 @@ _setPrivateBffOverlayForTesting({
 const { app } = await import('../../app')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
 const { runTask } = await import('../../workers/task-runner')
+const { AgentBatchLoop } = await import('../../workers/agent-batch-loop')
 const { TaskScheduler } = await import('../../workers/task-scheduler')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
@@ -271,6 +272,7 @@ it('100项按窗口执行，暂停恢复不重扣，99项完成和1项未知在�
     await gate
   }
   let worker = new TaskScheduler({ pollIntervalMs: 10, concurrency: { 'openai-compat': 1 } })
+  let batchLoop = new AgentBatchLoop({ pollIntervalMs: 10 })
   const wakes = () =>
     db
       .select()
@@ -283,6 +285,7 @@ it('100项按窗口执行，暂停恢复不重扣，99项完成和1项未知在�
       )
   try {
     worker.start()
+    batchLoop.start()
     await waitFor(() => preparingNext, 10000)
     const pauseResponse = await request(`${path}/pause`, {
       commandId: 'hundred-pause',
@@ -294,18 +297,23 @@ it('100项按窗口执行，暂停恢复不重扣，99项完成和1项未知在�
     storage.beforeRead = undefined
     release()
     expect(await worker.waitForIdle(10000)).toBe(true)
+    expect(await batchLoop.waitForIdle(10000)).toBe(true)
     expect((await (await request(path)).json()).batch.submittedCount).toBe(3)
     expect((await (await request(`${path}/confirm`, command)).json()).batch.status).toBe('paused')
     expect(await wakes()).toHaveLength(0)
     worker.stop()
+    batchLoop.stop()
     expect(await worker.waitForIdle(10000)).toBe(true)
+    expect(await batchLoop.waitForIdle(10000)).toBe(true)
     worker = new TaskScheduler({ pollIntervalMs: 10, concurrency: { 'openai-compat': 1 } })
+    batchLoop = new AgentBatchLoop({ pollIntervalMs: 10 })
     const resumeResponse = await request(`${path}/resume`, {
       ...command,
       commandId: 'hundred-resume',
     })
     expect(resumeResponse.status).toBe(200)
     worker.start()
+    batchLoop.start()
     await waitFor(() => actual.length === 100, 90000)
     await waitFor(async () => {
       const current = await (await request(path)).json()
@@ -402,6 +410,8 @@ it('100项按窗口执行，暂停恢复不重扣，99项完成和1项未知在�
     storage.beforeRead = undefined
     release()
     worker.stop()
+    batchLoop.stop()
     expect(await worker.waitForIdle(10000)).toBe(true)
+    expect(await batchLoop.waitForIdle(10000)).toBe(true)
   }
 }, 120000)

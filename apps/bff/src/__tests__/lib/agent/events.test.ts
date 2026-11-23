@@ -5,8 +5,13 @@ import type { StoredAgentEvent, TurnEventLog } from '../../../lib/agent/events'
 process.env.DATABASE_URL = await resetTestDatabase('bff_agent_events')
 process.env.PORT = '0'
 
-const { appendAgentTurnEvents, openTurnEventLog, purgeOldAgentTurnEvents, readTurnEvents } =
-  await import('../../../lib/agent/events')
+const {
+  appendAgentTurnEvents,
+  openTurnEventLog,
+  purgeOldAgentTurnEvents,
+  readTurnEvents,
+  sealAbandonedTurns,
+} = await import('../../../lib/agent/events')
 const { createAgentConversation } = await import('../../../lib/agent/conversations')
 const { close: closeDb, db, schema } = await import('../../../db/client')
 
@@ -157,5 +162,51 @@ describe('轮事件日志', () => {
     expect(await purgeOldAgentTurnEvents(24 * HOUR, now)).toBe(1)
     expect((await readTurnEvents(conversationId, 'turn-old', 0)).kind).toBe('no-such-turn')
     expect(await replayed(conversationId, 'turn-new', 0)).toHaveLength(1)
+  })
+
+  it('补终帧时一次批量取回多轮页脚并按各自状态收尾', async () => {
+    const now = Date.now()
+    const conversationId = await conversation()
+    await appendAgentTurnEvents(
+      conversationId,
+      'turn-with-summary',
+      [{ seq: 1, event: { type: 'turnStart', turnId: 'turn-with-summary', userMessageId: 'u1' } }],
+      now - 2_000,
+    )
+    await db.insert(schema.agent_turns).values({
+      conversation_id: conversationId,
+      turn_id: 'turn-with-summary',
+      duration_ms: 321,
+      stop_reason: 'aborted',
+      created_at: now - 1_500,
+    })
+    await appendAgentTurnEvents(
+      conversationId,
+      'turn-without-summary',
+      [
+        {
+          seq: 2,
+          event: { type: 'turnStart', turnId: 'turn-without-summary', userMessageId: 'u2' },
+        },
+      ],
+      now - 1_000,
+    )
+
+    await sealAbandonedTurns(conversationId, true)
+
+    const firstEvents = await replayed(conversationId, 'turn-with-summary', 0)
+    const secondEvents = await replayed(conversationId, 'turn-without-summary', 0)
+    expect(firstEvents.at(-1)?.event).toMatchObject({
+      type: 'turnEnd',
+      turnId: 'turn-with-summary',
+      durationMs: 321,
+      stopReason: 'aborted',
+    })
+    expect(secondEvents.at(-1)?.event).toMatchObject({
+      type: 'turnEnd',
+      turnId: 'turn-without-summary',
+      stopReason: 'failed',
+      error: 'agent_run_failed',
+    })
   })
 })

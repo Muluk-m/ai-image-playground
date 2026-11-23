@@ -676,3 +676,48 @@ it('dispatches analysis through its own bounded consumer and includes it in depl
     await scheduler.waitForIdle(1000)
   }
 })
+
+it('AgentBatchLoop advances cursors independently and stops dispatching on drain', async () => {
+  const { AgentBatchLoop } = await import('../../workers/agent-batch-loop')
+  const seenCursors: (string | null)[] = []
+  let canContinue = () => false
+  let release = () => {}
+  const loop = new AgentBatchLoop({
+    pollIntervalMs: 10_000,
+    advance: async (cursor, canDispatch) => {
+      seenCursors.push(cursor)
+      canContinue = canDispatch
+      if (seenCursors.length === 2) {
+        await new Promise<void>((resolve) => {
+          release = resolve
+        })
+      }
+      return `cursor-${seenCursors.length}`
+    },
+  })
+  try {
+    loop.start()
+    await waitFor(() => seenCursors.length === 1 && loop.isIdle())
+    loop.tick()
+    await waitFor(() => seenCursors.length === 2 && !loop.isIdle())
+    expect(seenCursors).toEqual([null, 'cursor-1'])
+    expect(canContinue()).toBe(true)
+
+    loop.drain()
+    expect(canContinue()).toBe(false)
+    expect(await loop.waitForIdle(10)).toBe(false)
+    release()
+    expect(await loop.waitForIdle(1000)).toBe(true)
+    expect(loop.isIdle()).toBe(true)
+
+    // Drained run must not overwrite the saved cursor.
+    loop.resume()
+    loop.tick()
+    await waitFor(() => seenCursors.length === 3 && loop.isIdle())
+    expect(seenCursors[2]).toBe('cursor-1')
+  } finally {
+    loop.stop()
+    release()
+    await loop.waitForIdle(1000)
+  }
+})

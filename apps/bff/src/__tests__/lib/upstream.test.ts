@@ -1349,3 +1349,118 @@ it.each([
     setUpstreamFetchForTesting()
   }
 })
+
+it('caps non-2xx response reads and cancels oversized error streams', async () => {
+  const { extractUpstreamFailure } = await import('../../lib/upstream')
+  let producedBytes = 0
+  let cancelled = false
+  const chunk = new TextEncoder().encode(`gateway dump ${'x'.repeat(16 * 1024)}\n`)
+  setUpstreamFetchForTesting(async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        producedBytes += chunk.byteLength
+        if (producedBytes > 512 * 1024) {
+          controller.error(new Error('non-2xx stream was buffered past safety cap'))
+          return
+        }
+        controller.enqueue(chunk)
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+    return new Response(stream, {
+      status: 502,
+      headers: { 'content-type': 'text/html; charset=utf-8' },
+    })
+  })
+  try {
+    const error = await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'fixture' },
+    }).catch((err) => err)
+    expect(cancelled).toBe(true)
+    expect(producedBytes).toBeLessThanOrEqual(5 * chunk.byteLength)
+    expect(extractUpstreamFailure(error)).toMatchObject({
+      status: 502,
+      body: expect.stringMatching(/^gateway dump x+/),
+    })
+  } finally {
+    setUpstreamFetchForTesting()
+  }
+})
+
+it('cancels immediately once a non-2xx stream hits the 64 KiB cap without closing', async () => {
+  const { extractUpstreamFailure } = await import('../../lib/upstream')
+  let pulls = 0
+  let cancelled = false
+  const exactCap = new TextEncoder().encode(`exact cap ${'y'.repeat(64 * 1024 - 10)}`)
+  setUpstreamFetchForTesting(async () => {
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulls += 1
+        if (pulls === 1) {
+          controller.enqueue(exactCap)
+          return
+        }
+        // 模拟上游发满 64 KiB 后保持连接不关闭：若继续 read 会一直挂起直到外层超时。
+        return new Promise<void>(() => {})
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+    return new Response(stream, {
+      status: 502,
+      headers: { 'content-type': 'text/plain; charset=utf-8' },
+    })
+  })
+  try {
+    const error = await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'fixture' },
+    }).catch((err) => err)
+    expect(cancelled).toBe(true)
+    expect(extractUpstreamFailure(error)).toMatchObject({
+      status: 502,
+      body: expect.stringMatching(/^exact cap y+/),
+    })
+  } finally {
+    setUpstreamFetchForTesting()
+  }
+})
+
+it('parses an exact 64 KiB JSON non-2xx error body without losing structured fields', async () => {
+  const prefix = '{"error":{"message":"'
+  const suffix = '","code":"insufficient_quota","type":"insufficient_quota"}}'
+  const paddingLength = 64 * 1024 - Buffer.byteLength(prefix) - Buffer.byteLength(suffix)
+  const exactJson = `${prefix}${'z'.repeat(paddingLength)}${suffix}`
+  expect(Buffer.byteLength(exactJson)).toBe(64 * 1024)
+  setUpstreamFetchForTesting(
+    async () =>
+      new Response(exactJson, {
+        status: 429,
+        headers: { 'content-type': 'application/json' },
+      }),
+  )
+  try {
+    const error = await callUpstream({
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'fixture' },
+    }).catch((err) => err)
+    expect(error).toMatchObject({
+      upstreamStatus: 429,
+      upstreamPayload: {
+        error: {
+          code: 'insufficient_quota',
+          type: 'insufficient_quota',
+        },
+      },
+    })
+  } finally {
+    setUpstreamFetchForTesting()
+  }
+})

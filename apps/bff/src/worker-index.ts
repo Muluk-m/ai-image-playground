@@ -23,6 +23,7 @@ import { UPSTREAM_SECRET_REFRESH_MS } from './lib/upstream-secrets'
 import { registerAppAlertScan } from './ops/alert-kick'
 import { alertTargetsConfigured, createAlertSenderFromEnv } from './ops/alert-sender'
 import { createAppAlerting } from './ops/app-alerts'
+import { AgentBatchLoop } from './workers/agent-batch-loop'
 import { abortAllRunningAnalysisTasks, runningAnalysisTaskIds } from './workers/analysis-runner'
 import { abortAllRunningTasks, runningTaskIds } from './workers/task-execution'
 import { TaskScheduler } from './workers/task-scheduler'
@@ -62,13 +63,19 @@ await refreshOperatorConfig().catch((error) =>
   ),
 )
 const scheduler = new TaskScheduler()
-if (config.worker.startPaused) scheduler.drain()
+const batchLoop = new AgentBatchLoop()
+if (config.worker.startPaused) {
+  scheduler.drain()
+  batchLoop.drain()
+}
 scheduler.start()
+batchLoop.start()
 const activationTimer =
   config.worker.startPaused && config.worker.activationFile
     ? setInterval(() => {
         if (!config.worker.startPaused) {
           scheduler.resume()
+          batchLoop.resume()
           clearInterval(activationTimer!)
         }
       }, 1000)
@@ -178,14 +185,20 @@ const upstreamSecretTimer = setInterval(() => {
 }, UPSTREAM_SECRET_REFRESH_MS)
 const workerHealthServer = startWorkerHealthServer({
   port: config.worker.healthPort,
-  drain: () => scheduler.drain(),
-  resume: () => scheduler.resume(),
+  drain: () => {
+    scheduler.drain()
+    batchLoop.drain()
+  },
+  resume: () => {
+    scheduler.resume()
+    batchLoop.resume()
+  },
   drainStatus: () => {
     const status = scheduler.drainStatus()
     return {
       ...status,
       maintenanceActive: privateMaintenance !== undefined,
-      safeToStop: status.safeToStop && privateMaintenance === undefined,
+      safeToStop: status.safeToStop && batchLoop.isIdle() && privateMaintenance === undefined,
     }
   },
   staleAfterMs: config.worker.healthStaleAfterMs,
@@ -217,6 +230,7 @@ async function gracefulShutdown(signal: string): Promise<void> {
   if (shuttingDown) return
   shuttingDown = true
   scheduler.stop()
+  batchLoop.stop()
   if (activationTimer) clearInterval(activationTimer)
   stopHeartbeat()
   clearInterval(staleScanTimer)
@@ -230,8 +244,9 @@ async function gracefulShutdown(signal: string): Promise<void> {
   )
 
   let maintenanceTimeout: ReturnType<typeof setTimeout> | undefined
-  const [idle] = await Promise.all([
+  const [schedulerIdle, batchIdle] = await Promise.all([
     scheduler.waitForIdle(drainTimeoutMs),
+    batchLoop.waitForIdle(drainTimeoutMs),
     Promise.race([
       privateMaintenance,
       new Promise<void>((resolve) => {
@@ -240,23 +255,46 @@ async function gracefulShutdown(signal: string): Promise<void> {
     ]).finally(() => clearTimeout(maintenanceTimeout)),
     opsMaintenanceStopped,
   ])
-  if (!idle) {
+  let batchSettled = batchIdle
+  if (!schedulerIdle || !batchIdle) {
     // id 必须在 abort 之前取：runner settle 之后会把自己从 runningTasks 摘掉。
-    const aborted = runningTaskIds()
-    const abortedAnalysis = runningAnalysisTaskIds()
-    abortAllRunningTasks()
-    abortAllRunningAnalysisTasks()
+    const aborted = schedulerIdle ? [] : runningTaskIds()
+    const abortedAnalysis = schedulerIdle ? [] : runningAnalysisTaskIds()
+    if (!schedulerIdle) {
+      abortAllRunningTasks()
+      abortAllRunningAnalysisTasks()
+    }
     log.warn(
-      { event: 'worker.shutdown_drain_timeout', drainTimeoutMs, aborted: aborted.length },
-      'drain window expired, aborting inflight tasks for requeue',
+      {
+        event: 'worker.shutdown_drain_timeout',
+        drainTimeoutMs,
+        aborted: aborted.length,
+        abortedAnalysis: abortedAnalysis.length,
+        batchInFlight: !batchIdle,
+      },
+      'drain window expired, waiting for inflight shutdown settle',
     )
-    await scheduler.waitForIdle(QUEUE_TIMEOUTS.SHUTDOWN_ABORT_SETTLE_MS)
-    await recoverTasksByIds(aborted)
-    await recoverAnalysisTasks(Date.now(), abortedAnalysis)
+    const [, batchSettledAfterAbort] = await Promise.all([
+      schedulerIdle
+        ? Promise.resolve(true)
+        : scheduler.waitForIdle(QUEUE_TIMEOUTS.SHUTDOWN_ABORT_SETTLE_MS),
+      batchIdle
+        ? Promise.resolve(true)
+        : batchLoop.waitForIdle(QUEUE_TIMEOUTS.SHUTDOWN_ABORT_SETTLE_MS),
+    ])
+    batchSettled = batchSettledAfterAbort
+    if (aborted.length > 0) await recoverTasksByIds(aborted)
+    if (abortedAnalysis.length > 0) await recoverAnalysisTasks(Date.now(), abortedAnalysis)
+    if (!batchSettled) {
+      log.warn(
+        { event: 'worker.shutdown_batch_timeout', drainTimeoutMs },
+        'agent batch advancement still active at shutdown; exiting non-zero for stale recovery',
+      )
+    }
   }
 
-  log.info({ event: 'worker.shutdown_done' }, 'task worker stopped')
-  await finalize()
+  log.info({ event: 'worker.shutdown_done', batchSettled }, 'task worker stopped')
+  await finalize(batchSettled ? 0 : 1)
 }
 
 process.on('SIGTERM', () => void gracefulShutdown('SIGTERM'))

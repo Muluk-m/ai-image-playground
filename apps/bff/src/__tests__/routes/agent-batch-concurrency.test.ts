@@ -59,6 +59,7 @@ _setPrivateBffOverlayForTesting({
   },
 })
 const { app } = await import('../../app')
+const { AgentBatchLoop } = await import('../../workers/agent-batch-loop')
 const { TaskScheduler } = await import('../../workers/task-scheduler')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
@@ -296,6 +297,7 @@ it('跨批入队窗口与实际运行并发分别受限，同账号两批不会�
     }
   })
   const worker = new TaskScheduler({ pollIntervalMs: 10, concurrency: { 'openai-compat': 3 } })
+  const batchLoop = new AgentBatchLoop({ pollIntervalMs: 10 })
   const running = () =>
     db
       .select({ userId: schema.tasks.user_id })
@@ -303,6 +305,7 @@ it('跨批入队窗口与实际运行并发分别受限，同账号两批不会�
       .where(and(eq(schema.tasks.kind, 'queue'), eq(schema.tasks.status, 'in_progress')))
   try {
     worker.start()
+    batchLoop.start()
     let startedSeen = 0
     await waitFor(() => calls.length === 3, 10000)
     const initial = await running()
@@ -375,6 +378,8 @@ it('跨批入队窗口与实际运行并发分别受限，同账号两批不会�
     releaseAll = true
     for (const release of releases.values()) release()
     worker.stop()
+    batchLoop.stop()
     expect(await worker.waitForIdle(10000)).toBe(true)
+    expect(await batchLoop.waitForIdle(10000)).toBe(true)
   }
 }, 60000)

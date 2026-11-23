@@ -52,6 +52,15 @@ class TaskScheduler {
   async waitForIdle() { return true; }
 }
 mock.module(path('workers/task-scheduler.ts'), () => ({ TaskScheduler }));
+class AgentBatchLoop {
+  start() {}
+  stop() {}
+  drain() {}
+  resume() {}
+  isIdle() { return true; }
+  async waitForIdle() { return true; }
+}
+mock.module(path('workers/agent-batch-loop.ts'), () => ({ AgentBatchLoop }));
 const health = await import(path('workers/worker-health.ts'));
 const startWorkerHealthServer = health.startWorkerHealthServer;
 let server;

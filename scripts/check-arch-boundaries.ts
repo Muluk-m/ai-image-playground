@@ -51,12 +51,12 @@ const ALLOWED_DB_TO_OUTSIDE = new Set([
 ])
 
 const ALLOWED_WORKERS_TO_AGENT = new Set([
+  'workers/agent-batch-loop.ts -> lib/agent/batch-execution.ts',
   'workers/analysis-runner.ts -> lib/agent/request-budget.ts',
   'workers/analysis-runner.ts -> lib/agent/tools/errors.ts',
   'workers/analysis-runner.ts -> lib/agent/visual-resources.ts',
   'workers/task-runner.ts -> lib/agent/masked-input.ts',
   'workers/task-runner.ts -> lib/agent/masked-output.ts',
-  'workers/task-scheduler.ts -> lib/agent/batch-execution.ts',
 ])
 
 /**

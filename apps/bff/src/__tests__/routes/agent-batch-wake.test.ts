@@ -63,6 +63,7 @@ _setPrivateBffOverlayForTesting({
 const { app } = await import('../../app')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
 const { runTask } = await import('../../workers/task-runner')
+const { AgentBatchLoop } = await import('../../workers/agent-batch-loop')
 const { TaskScheduler } = await import('../../workers/task-scheduler')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
@@ -243,13 +244,16 @@ it('整批跨窗口完成后持久投递一次复核，沿用新轮预算且不�
   const advanced = await (await request(`${path}/confirm`, command)).json()
   await runTask(advanced.items[2].execution.taskId)
   const restartedWorker = new TaskScheduler()
+  const batchLoop = new AgentBatchLoop()
   try {
     restartedWorker.start()
+    batchLoop.start()
     await waitFor(() => restartedWorker.lastSuccessfulPollAt() !== null)
-    await restartedWorker.waitForIdle(5000)
+    await Promise.all([restartedWorker.waitForIdle(5000), batchLoop.waitForIdle(5000)])
   } finally {
     restartedWorker.stop()
-    await restartedWorker.waitForIdle(5000)
+    batchLoop.stop()
+    await Promise.all([restartedWorker.waitForIdle(5000), batchLoop.waitForIdle(5000)])
   }
   const completed = await (await request(path)).json()
   expect(completed.batch).toMatchObject({ status: 'closed', submittedCount: 3, actualCredits: 21 })
@@ -378,13 +382,16 @@ it('批次聚合通知沿用余额门禁，余额不足不新开模型轮且不�
   const advanced = await (await request(`${path}/confirm`, command)).json()
   await runTask(advanced.items[2].execution.taskId)
   const restartedWorker = new TaskScheduler()
+  const batchLoop = new AgentBatchLoop()
   try {
     restartedWorker.start()
+    batchLoop.start()
     await waitFor(() => restartedWorker.lastSuccessfulPollAt() !== null)
-    await restartedWorker.waitForIdle(5000)
+    await Promise.all([restartedWorker.waitForIdle(5000), batchLoop.waitForIdle(5000)])
   } finally {
     restartedWorker.stop()
-    await restartedWorker.waitForIdle(5000)
+    batchLoop.stop()
+    await Promise.all([restartedWorker.waitForIdle(5000), batchLoop.waitForIdle(5000)])
   }
   const completed = await (await request(path)).json()
   expect(completed.batch).toMatchObject({ status: 'closed', submittedCount: 3, actualCredits: 21 })
@@ -501,13 +508,16 @@ it('用户新消息合并待处理批次通知，只开用户轮并保留批次�
   const advanced = await (await request(`${path}/confirm`, command)).json()
   await runTask(advanced.items[2].execution.taskId)
   const restartedWorker = new TaskScheduler()
+  const batchLoop = new AgentBatchLoop()
   try {
     restartedWorker.start()
+    batchLoop.start()
     await waitFor(() => restartedWorker.lastSuccessfulPollAt() !== null)
-    await restartedWorker.waitForIdle(5000)
+    await Promise.all([restartedWorker.waitForIdle(5000), batchLoop.waitForIdle(5000)])
   } finally {
     restartedWorker.stop()
-    await restartedWorker.waitForIdle(5000)
+    batchLoop.stop()
+    await Promise.all([restartedWorker.waitForIdle(5000), batchLoop.waitForIdle(5000)])
   }
   const completed = await (await request(path)).json()
   expect(completed.batch).toMatchObject({ status: 'closed', submittedCount: 3, actualCredits: 21 })
