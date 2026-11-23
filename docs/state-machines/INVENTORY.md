@@ -25,7 +25,7 @@
 
 ### 1. queue-task
 
-- 位置：`packages/shared/src/queue-protocol.ts`，`packages/db` 的 `tasks.status`，写入在 `apps/bff/src/db/task-transitions.ts`、`apps/bff/src/workers/task-execution.ts`、`apps/bff/src/db/maintenance.ts`、`apps/bff/src/lib/taskSubmission.ts`、`apps/bff/src/lib/task-reconciliation.ts`。
+- 位置：`packages/shared/src/queue-protocol.ts`，`packages/db` 的 `tasks.status`，写入在 `apps/bff/src/modules/execution/task-transitions.ts`、`apps/bff/src/workers/task-execution.ts`、`apps/bff/src/db/maintenance.ts`、`apps/bff/src/lib/taskSubmission.ts`、`apps/bff/src/lib/task-reconciliation.ts`。
 - 状态：`queued`、`in_progress`、`reconciling`、`completed`、`failed`、`cancelled`。
 - 转移：见 [queue-task.md](queue-task.md)。提交插入 `queued`；worker 和分析认领 `claim` 到 `in_progress`；可重试失败回 `queued`；已经派出的分析从 `queued` 或 `in_progress` 进入 `reconciling` 且不结算；零派发的分析核查写成 `cancelled`；人工确认先 `resume` 回 `in_progress` 再结算；生图终态走 `finishTask`。
 - 现在能表示的非法组合：终态仍带执行令牌；`reconciling` 但 `reconciliation_required` 不为真（库检查会挡）；`queued` 上直接 `succeed`。客户端另有一套三态 `running | done | error`，两边不是同一个类型。

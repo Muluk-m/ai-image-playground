@@ -24,6 +24,7 @@ _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 process.env.PORT = '0'
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
+await import('../../bootstrap/task-lifecycle')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { runTask } = await import('../../workers/task-runner')
 const { recoverTasksByIds } = await import('../../db/maintenance')

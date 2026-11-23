@@ -14,7 +14,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../quota-operator-c
 
 const { app } = await import('../../app')
 const { close: closeDb, db, schema } = await import('../../db/client')
-const { finishTask, heldBy } = await import('../../db/task-transitions')
+const { finishTask, heldBy } = await import('../../modules/execution')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { _resetInactiveModelsForTesting, modelUnavailable, refreshInactiveModels } = await import(
   '../../lib/model-availability'

@@ -1,6 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
-import { cancelTasks } from '../db/task-transitions'
+import { cancelTasks } from '../modules/execution'
 import { log } from '../lib/logger'
 import { taskAccessWhere } from '../lib/task-access'
 import { cancelUpstreamOfCancelledTasks } from '../lib/upstream-cancel'

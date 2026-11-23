@@ -22,7 +22,7 @@ export const CRITICAL_FLOWS = {
   支付计费: [
     /^apps\/bff\/src\/lib\/(private-overlay|billing-hooks)\.ts$/,
     /^apps\/bff\/src\/modules\/billing\//,
-    /^apps\/bff\/src\/db\/task-transitions\.ts$/,
+    /^apps\/bff\/src\/modules\/execution\/task-transitions\.ts$/,
     /^apps\/web\/src\/features\/(pricing|billing)\//,
     /^apps\/web\/src\/components\/(Credits|SubmissionBillingAction)\.tsx$/,
   ],
@@ -30,6 +30,7 @@ export const CRITICAL_FLOWS = {
     /^apps\/bff\/src\/routes\/(submit|cancel|result|generations|production-generations|agent-batches)\.ts$/,
     /^apps\/bff\/src\/lib\/(taskSubmission|generations)\.ts$/,
     /^apps\/bff\/src\/lib\/agent\/production-generation\.ts$/,
+    /^apps\/bff\/src\/modules\/execution\/task-lifecycle-bus\.ts$/,
     /^apps\/bff\/src\/workers\/(task-execution|task-runner|task-scheduler|runnable-tasks)\.ts$/,
     /^apps\/web\/src\/lib\/(generationJob|batchGenerate|placeCloudGeneration)\.ts$/,
   ],

@@ -13,7 +13,7 @@ process.env.PORT = '0'
 const billing = installRecordingTaskHooks()
 
 const { close, db, schema } = await import('../../db/client')
-const { reconcileTasks } = await import('../../db/task-transitions')
+const { reconcileTasks } = await import('../../modules/execution')
 const { autoReconcileTasks, setAutoReconcileAlertSenderForTesting } = await import(
   '../../lib/auto-reconcile'
 )

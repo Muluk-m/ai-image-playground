@@ -11,18 +11,18 @@ process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test'
 process.env.DATABASE_URL = TEST_DB
 process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
-process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../quota-operator-config.json')
+process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../../quota-operator-config.json')
 
-const { app } = await import('../../app')
-const { close: closeDb, db, schema } = await import('../../db/client')
+const { app } = await import('../../../app')
+const { close: closeDb, db, schema } = await import('../../../db/client')
 const { cancelTasks, finishTask, gptSettledUsage, heldBy } = await import(
-  '../../db/task-transitions'
+  '../../../modules/execution'
 )
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
-  '../../lib/private-overlay'
+  '../../../lib/private-overlay'
 )
-type PrivateBffOverlay = import('../../lib/private-overlay').PrivateBffOverlay
-type PrivateTaskHooks = import('../../lib/private-overlay').PrivateTaskHooks
+type PrivateBffOverlay = import('../../../lib/private-overlay').PrivateBffOverlay
+type PrivateTaskHooks = import('../../../lib/private-overlay').PrivateTaskHooks
 type TaskStatus = (typeof schema.tasks.$inferInsert)['status']
 const SETTLEMENT_TOKEN = 'settlement-test-worker'
 

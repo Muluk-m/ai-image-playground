@@ -16,7 +16,7 @@ import {
   requeueTaskArchive,
   saveArchiveCheckpoint,
   type TerminalTaskUpdate,
-} from '../db/task-transitions'
+} from '../modules/execution'
 import { accountConcurrencyLimit } from '../lib/account-concurrency'
 import { getRoutableChannels } from '../lib/channels'
 import { durableGenerationInputs } from '../lib/generationMedia'
@@ -38,7 +38,7 @@ import { checkIdleSlot, lockIdleSlotClaims, providerConcurrencyLimit } from './i
  * 停表并摘掉登记。没人续的租约到点之后，这一行交给回收扫描（`db/maintenance`）接手。
  *
  * 非 worker 的写入方（cancel route、回收扫描、对话轮结算）不经句柄，它们各自在
- * `db/task-transitions` 上显式给出归属范围，见那边的说明。
+ * `modules/execution/task-transitions` 上显式给出归属范围，见那边的说明。
  */
 
 /** 租约窗口：失去它的执行者写不动这一行，回收扫描过了它才接手。 */

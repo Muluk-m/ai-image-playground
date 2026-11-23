@@ -5,7 +5,7 @@ import {
 } from '@earendil-works/pi-ai'
 import { and, eq, sql } from 'drizzle-orm'
 import { db, schema } from '../db/client'
-import { finishTask, heldBy } from '../db/task-transitions'
+import { finishTask, heldBy } from '../modules/execution'
 import { type ChatTaskPricing, chatTaskPricing, chatTurnsBilled } from './agent/chat-task'
 import { compactionSettings } from './agent/compaction-settings'
 import { agentStreamFn } from './agent/model'

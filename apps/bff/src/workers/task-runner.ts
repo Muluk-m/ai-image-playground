@@ -9,7 +9,7 @@ import {
   type TaskErrorType,
 } from '@image-playground/shared'
 import { config } from '../config'
-import type { TerminalTaskUpdate } from '../db/task-transitions'
+import type { TerminalTaskUpdate } from '../modules/execution'
 import { cropMaskedUpstream } from '../lib/agent/masked-input'
 import { MaskedOutputError, protectMaskedOutput } from '../lib/agent/masked-output'
 import { isCapabilityEnabled } from '../lib/capabilities'

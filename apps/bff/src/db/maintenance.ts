@@ -31,7 +31,7 @@ import {
   requeueTask,
   requeueTaskArchive,
   requeueTasksForPolling,
-} from './task-transitions'
+} from '../modules/execution'
 
 export interface RecoveredTasks {
   requeued: number
