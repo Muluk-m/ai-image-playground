@@ -57,6 +57,7 @@ import {
   gptDirectSizeEnabled,
   gptImage26DirectListed,
 } from './upstream/gpt-direct-availability'
+import { isGptImageModel } from './upstream/openai'
 import { runtimeSecret, upstreamSecretRevision } from './upstream-secret-cache'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
@@ -659,17 +660,30 @@ function resolveChannelDispatch(
     const asyncTasks = Boolean(channel.defaults.asyncTasks)
     return { asyncTasks, dispatchMode: asyncTasks ? 'async' : 'sync' }
   }
-  const responsesBridge = Boolean(process.env.UPSTREAM_OPENAI_RESPONSES_BASE_URL?.trim())
-  const gatewayAsync =
-    process.env.UPSTREAM_ASYNC_IMAGE_TASKS?.trim().toLowerCase() === 'true' && !responsesBridge
-  const hasGptDirect = channel.models.some(
-    (model) => isGptDirectModel(model.id) || isGptImage26Model(model.id),
-  )
-  const directOn = hasGptDirect && gptDirectSizeEnabled()
-  if (directOn && gatewayAsync) return { asyncTasks: true, dispatchMode: 'dual' }
-  if (!directOn && gatewayAsync) return { asyncTasks: true, dispatchMode: 'async' }
-  const asyncTasks = Boolean(channel.defaults.asyncTasks)
-  return { asyncTasks, dispatchMode: asyncTasks ? 'async' : 'sync' }
+  const gatewayAsync = process.env.UPSTREAM_ASYNC_IMAGE_TASKS?.trim().toLowerCase() === 'true'
+  if (!gatewayAsync) {
+    const asyncTasks = Boolean(channel.defaults.asyncTasks)
+    return { asyncTasks, dispatchMode: asyncTasks ? 'async' : 'sync' }
+  }
+  // 与 upstream.ts:1418-1425 保持同一口径：UPSTREAM_IMAGE_RESPONSES_MODEL 生效时，
+  // 非 2.6 的 GPT Image 模型走 Responses 同步流；Image 2.6 在 sub2api 强制走 /images/generations（异步）。
+  const responsesBridgeOn = Boolean(process.env.UPSTREAM_IMAGE_RESPONSES_MODEL?.trim())
+  const directOn = gptDirectSizeEnabled()
+  if (channel.models.length === 0) {
+    return { asyncTasks: true, dispatchMode: 'async' }
+  }
+  let hasSync = false
+  let hasAsync = false
+  for (const model of channel.models) {
+    const is26 = isGptImage26Model(model.id)
+    const isDirectEligible = isGptDirectModel(model.id) || is26
+    const usesResponsesSync = responsesBridgeOn && !is26 && isGptImageModel(model.id)
+    if ((isDirectEligible && directOn) || usesResponsesSync) hasSync = true
+    if (!usesResponsesSync) hasAsync = true
+  }
+  if (hasSync && hasAsync) return { asyncTasks: true, dispatchMode: 'dual' }
+  if (hasAsync) return { asyncTasks: true, dispatchMode: 'async' }
+  return { asyncTasks: false, dispatchMode: 'sync' }
 }
 
 export function isChannelCredentialReady(
