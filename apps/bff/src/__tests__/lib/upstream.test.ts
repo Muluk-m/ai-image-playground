@@ -1433,7 +1433,6 @@ it('cancels immediately once a non-2xx stream hits the 64 KiB cap without closin
 })
 
 it('parses an exact 64 KiB JSON non-2xx error body without losing structured fields', async () => {
-  const { extractUpstreamFailure } = await import('../../lib/upstream')
   const prefix = '{"error":{"message":"'
   const suffix = '","code":"insufficient_quota","type":"insufficient_quota"}}'
   const paddingLength = 64 * 1024 - Buffer.byteLength(prefix) - Buffer.byteLength(suffix)
@@ -1452,9 +1451,9 @@ it('parses an exact 64 KiB JSON non-2xx error body without losing structured fie
       model: 'gpt-image-2',
       request: { prompt: 'fixture' },
     }).catch((err) => err)
-    expect(extractUpstreamFailure(error)).toMatchObject({
-      status: 429,
-      body: {
+    expect(error).toMatchObject({
+      upstreamStatus: 429,
+      upstreamPayload: {
         error: {
           code: 'insufficient_quota',
           type: 'insufficient_quota',
