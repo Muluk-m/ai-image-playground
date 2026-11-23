@@ -213,6 +213,107 @@ describe('TasksLogTable', () => {
     }
   })
 
+  it('freezes in-flight durations at snapshotAt when liveElapsed is false', () => {
+    vi.useFakeTimers()
+    try {
+      const base = Date.parse('2026-11-23T23:28:00+08:00')
+      const snapshotAt = base + 20_000
+      vi.setSystemTime(base + 20_000)
+
+      const inFlightTasks: GenerationTaskItem[] = [
+        {
+          ...SAMPLE_TASKS[0]!,
+          id: 'queued-frozen-1',
+          status: 'queued',
+          submitted_at: base,
+          started_at: null,
+          completed_at: null,
+        },
+        {
+          ...SAMPLE_TASKS[0]!,
+          id: 'running-frozen-1',
+          status: 'in_progress',
+          submitted_at: base - 10_000,
+          started_at: base - 5_000,
+          completed_at: null,
+        },
+      ]
+
+      const { rerender } = render(
+        <TasksLogTable
+          tasks={inFlightTasks}
+          summary={SAMPLE_SUMMARY}
+          total={2}
+          liveElapsed
+          snapshotAt={snapshotAt}
+          sortField="submitted_at"
+          sortDir="desc"
+          pinCount={3}
+          hiddenCols={[]}
+          density="compact"
+          onSortChange={vi.fn()}
+          onPinCountChange={vi.fn()}
+          onToggleColumn={vi.fn()}
+          onResetColumns={vi.fn()}
+          onDensityChange={vi.fn()}
+          onOpenTask={vi.fn()}
+          onQuickFilterUser={vi.fn()}
+          onQuickFilterDevice={vi.fn()}
+        />,
+      )
+
+      const table = screen.getByRole('table')
+      const rows = within(table).getAllByRole('row')
+      const queuedCells = within(rows[1]!).getAllByRole('cell')
+      const runningCells = within(rows[2]!).getAllByRole('cell')
+
+      // While live, elapsed climbs over 5 seconds
+      act(() => {
+        vi.advanceTimersByTime(5000)
+      })
+      expect(queuedCells[4]).toHaveTextContent('25s')
+      expect(runningCells[3]).toHaveTextContent('30s')
+
+      // Pausing refresh freezes durations back to snapshotAt and stops ticking
+      rerender(
+        <TasksLogTable
+          tasks={inFlightTasks}
+          summary={SAMPLE_SUMMARY}
+          total={2}
+          liveElapsed={false}
+          snapshotAt={snapshotAt}
+          sortField="submitted_at"
+          sortDir="desc"
+          pinCount={3}
+          hiddenCols={[]}
+          density="compact"
+          onSortChange={vi.fn()}
+          onPinCountChange={vi.fn()}
+          onToggleColumn={vi.fn()}
+          onResetColumns={vi.fn()}
+          onDensityChange={vi.fn()}
+          onOpenTask={vi.fn()}
+          onQuickFilterUser={vi.fn()}
+          onQuickFilterDevice={vi.fn()}
+        />,
+      )
+
+      expect(queuedCells[4]).toHaveTextContent('20s')
+      expect(runningCells[3]).toHaveTextContent('25s')
+      expect(within(runningCells[3]!).getByTitle('截至快照时刻：运行中，已执行 25s')).toBeTruthy()
+      expect(within(queuedCells[4]!).getByTitle('截至快照时刻：排队中，已等待 20s')).toBeTruthy()
+
+      // Even 60 seconds later, frozen snapshot durations never drift or turn falsely overdue
+      act(() => {
+        vi.advanceTimersByTime(60_000)
+      })
+      expect(queuedCells[4]).toHaveTextContent('20s')
+      expect(runningCells[3]).toHaveTextContent('25s')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('rounds formatDurationMs cleanly across minute boundaries without producing 60s or 1m 60s', () => {
     expect(formatDurationMs(9_960)).toBe('10s')
     expect(formatDurationMs(59_600)).toBe('1m')

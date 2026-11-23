@@ -86,6 +86,12 @@ function GenerationTasksPage() {
     pageSize: search.pageSize ?? 50,
   }
   const query = useGenerationTasks(queryFilters, rollingPreset)
+  const [lastSnapshotAt, setLastSnapshotAt] = useState<number>(() => Date.now())
+  useEffect(() => {
+    if (query.dataUpdatedAt > 0) setLastSnapshotAt(query.dataUpdatedAt)
+  }, [query.dataUpdatedAt])
+  const liveElapsed = isRolling && liveEnabled
+  const snapshotAt = query.dataUpdatedAt > 0 ? query.dataUpdatedAt : lastSnapshotAt
   const tasks = query.data?.tasks ?? []
   const total = query.data?.total ?? tasks.length
 
@@ -190,6 +196,8 @@ function GenerationTasksPage() {
                 tasks={tasks}
                 summary={query.data.summary}
                 total={total}
+                liveElapsed={liveElapsed}
+                snapshotAt={snapshotAt}
                 selectedTaskId={search.task}
                 sortField={sortField}
                 sortDir={sortDir}

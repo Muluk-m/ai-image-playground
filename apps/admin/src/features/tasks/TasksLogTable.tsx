@@ -38,6 +38,9 @@ interface TasksLogTableProps {
   tasks: readonly GenerationTaskItem[]
   summary?: GenerationTasksSummary
   total: number
+  /** 为 true 时在途任务耗时每秒推进；暂停刷新或固定时间范围时冻结在 snapshotAt。 */
+  liveElapsed?: boolean
+  snapshotAt?: number
   selectedTaskId?: string
   sortField: TaskSortField
   sortDir: SortDirection
@@ -74,9 +77,9 @@ function isInFlightStatus(status: GenerationTaskItem['status']): boolean {
   return status === 'queued' || status === 'in_progress' || status === 'reconciling'
 }
 
-/** 仅当当前页存在在途任务时每秒推进，用于实时显示排队等待与执行耗时。 */
-function useElapsedNow(active: boolean): number {
-  const [now, setNow] = useState(() => Date.now())
+/** 仅当自动刷新开启且当前页存在在途任务时每秒推进；暂停刷新或固定时间窗时冻结在快照时刻。 */
+function useElapsedNow(active: boolean, snapshotAt?: number): number {
+  const [now, setNow] = useState(() => snapshotAt ?? Date.now())
   useEffect(() => {
     if (!active) return
     let timer: number | undefined
@@ -98,13 +101,15 @@ function useElapsedNow(active: boolean): number {
       document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [active])
-  return now
+  return active ? Math.max(now, snapshotAt ?? 0) : (snapshotAt ?? now)
 }
 
 export function TasksLogTable({
   tasks,
   summary,
   total,
+  liveElapsed = true,
+  snapshotAt,
   selectedTaskId,
   sortField,
   sortDir,
@@ -124,7 +129,7 @@ export function TasksLogTable({
   const [scrolledX, setScrolledX] = useState(false)
   const [hasMoreRight, setHasMoreRight] = useState(false)
   const hasInFlight = useMemo(() => tasks.some((task) => isInFlightStatus(task.status)), [tasks])
-  const now = useElapsedNow(hasInFlight)
+  const now = useElapsedNow(liveElapsed && hasInFlight, snapshotAt)
 
   const hiddenSet = useMemo(() => new Set<TaskColumnId>(hiddenCols), [hiddenCols])
   const columns = useMemo(() => {
@@ -578,6 +583,7 @@ export function TasksLogTable({
                             col={col}
                             task={task}
                             now={now}
+                            liveElapsed={liveElapsed}
                             onOpenTask={onOpenTask}
                             onQuickFilterUser={onQuickFilterUser}
                             onQuickFilterDevice={onQuickFilterDevice}
@@ -616,6 +622,7 @@ function TaskCell({
   col,
   task,
   now,
+  liveElapsed,
   onOpenTask,
   onQuickFilterUser,
   onQuickFilterDevice,
@@ -623,6 +630,7 @@ function TaskCell({
   col: TaskColumnDef
   task: GenerationTaskItem
   now: number
+  liveElapsed: boolean
   onOpenTask: (taskId: string) => void
   onQuickFilterUser: (userId: string) => void
   onQuickFilterDevice: (deviceId: string) => void
@@ -789,11 +797,14 @@ function TaskCell({
         task.started_at != null
       const ms = isLiveRun ? Math.max(0, now - task.started_at!) : finishedMs
       const label = formatDurationMs(ms)
+      const statusLabel = task.status === 'reconciling' ? '待核查' : '运行中'
       return (
         <span
           title={
             isLiveRun
-              ? `${task.status === 'reconciling' ? '待核查' : '运行中'}，已执行 ${label}`
+              ? liveElapsed
+                ? `${statusLabel}，已执行 ${label}`
+                : `截至快照时刻：${statusLabel}，已执行 ${label}`
               : undefined
           }
           className={cn(
@@ -821,7 +832,13 @@ function TaskCell({
       const label = formatDurationMs(ms)
       return (
         <span
-          title={isLiveQueue ? `排队中，已等待 ${label}` : undefined}
+          title={
+            isLiveQueue
+              ? liveElapsed
+                ? `排队中，已等待 ${label}`
+                : `截至快照时刻：排队中，已等待 ${label}`
+              : undefined
+          }
           className={cn(
             'font-mono text-xs tabular-nums',
             ms === null
@@ -845,7 +862,13 @@ function TaskCell({
       const label = formatDurationMs(ms)
       return (
         <span
-          title={isLiveTotal ? `进行中，已提交 ${label}` : undefined}
+          title={
+            isLiveTotal
+              ? liveElapsed
+                ? `进行中，已提交 ${label}`
+                : `截至快照时刻：进行中，已提交 ${label}`
+              : undefined
+          }
           className={cn(
             'font-mono text-xs tabular-nums',
             ms === null
