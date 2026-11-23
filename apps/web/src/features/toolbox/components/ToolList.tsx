@@ -34,7 +34,7 @@ export default function ToolList({ active }: { active: ToolId }) {
                     : 'text-muted-foreground'
                 }`}
               >
-                <Icon name={tool.icon} />
+                <Icon name={tool.icon} filled={current} />
                 {t(`tool.${tool.id}.name`)}
               </Button>
             )
