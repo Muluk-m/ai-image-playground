@@ -13,10 +13,9 @@ process.env.INTERNAL_API_TOKEN = 'fixture-service-credential-alpha'
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../../quota-operator-config.json')
 
 const { close: closeDb, db, schema } = await import('../../../db/client')
-const {
-  _setPrivateBffOverlayForTesting,
-  EMPTY_PRIVATE_BFF_OVERLAY,
-} = await import('../../../lib/private-overlay')
+const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
+  '../../../lib/private-overlay'
+)
 const {
   _resetTaskLifecycleListenersForTesting,
   cancelTasks,
@@ -191,7 +190,9 @@ describe('TaskLifecycleBus transactional execution', () => {
       id: 'cancel-before',
       stage: 'before-settlement',
       async onTasksCancelled(_tx, event) {
-        order.push(`before:${event.tasks.map((task) => task.taskId).join(',')}:${event.failedAs ?? 'none'}`)
+        order.push(
+          `before:${event.tasks.map((task) => task.taskId).join(',')}:${event.failedAs ?? 'none'}`,
+        )
       },
     })
     registerTaskLifecycleListener({

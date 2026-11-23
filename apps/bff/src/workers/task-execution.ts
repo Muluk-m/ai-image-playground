@@ -8,6 +8,14 @@ import { and, eq, isNull, lte, or, type SQL, type SQLWrapper, sql } from 'drizzl
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { publishGenerations } from '../db/generation-events'
+import { accountConcurrencyLimit } from '../lib/account-concurrency'
+import { getRoutableChannels } from '../lib/channels'
+import { durableGenerationInputs } from '../lib/generationMedia'
+import { log } from '../lib/logger'
+import { type BffTransaction, loadPrivateBffOverlay } from '../lib/private-overlay'
+import { recordTaskOutcome } from '../lib/telemetry'
+import { taskConcurrencyScope } from '../lib/upstream'
+import { cancelLateUpstreamTasks } from '../lib/upstream-cancel'
 import {
   finishTask,
   heldBy,
@@ -17,14 +25,6 @@ import {
   saveArchiveCheckpoint,
   type TerminalTaskUpdate,
 } from '../modules/execution'
-import { accountConcurrencyLimit } from '../lib/account-concurrency'
-import { getRoutableChannels } from '../lib/channels'
-import { durableGenerationInputs } from '../lib/generationMedia'
-import { log } from '../lib/logger'
-import { type BffTransaction, loadPrivateBffOverlay } from '../lib/private-overlay'
-import { recordTaskOutcome } from '../lib/telemetry'
-import { taskConcurrencyScope } from '../lib/upstream'
-import { cancelLateUpstreamTasks } from '../lib/upstream-cancel'
 import { checkIdleSlot, lockIdleSlotClaims, providerConcurrencyLimit } from './idle-concurrency'
 
 /**

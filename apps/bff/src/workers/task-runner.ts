@@ -9,7 +9,6 @@ import {
   type TaskErrorType,
 } from '@image-playground/shared'
 import { config } from '../config'
-import type { TerminalTaskUpdate } from '../modules/execution'
 import { cropMaskedUpstream } from '../lib/agent/masked-input'
 import { MaskedOutputError, protectMaskedOutput } from '../lib/agent/masked-output'
 import { isCapabilityEnabled } from '../lib/capabilities'
@@ -49,6 +48,7 @@ import {
 import { GptImage26RouteUnavailableError, ImagePlanRequiredError } from '../lib/upstream/errors'
 import { gptDirectConfigured } from '../lib/upstream/gpt-routing'
 import { partialFailureOf } from '../lib/upstream/partial'
+import type { TerminalTaskUpdate } from '../modules/execution'
 import { archivedGenerationOutcome } from './archivedGenerationOutcome'
 import { claimTaskExecution, type TaskExecution } from './task-execution'
 

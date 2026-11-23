@@ -53,6 +53,10 @@ const ALLOWED_WORKERS_TO_AGENT = new Set([
   'workers/task-runner.ts -> lib/agent/masked-output.ts',
 ])
 
+const ALLOWED_EXECUTION_TO_LEGACY_LIB = new Set([
+  'modules/execution/task-transitions.ts -> lib/private-overlay.ts',
+])
+
 /**
  * 存量运行时强连通分量内的具体有向边白名单（边级棘轮）：
  * 删边使分量缩小时自然通过；在原分量节点集合内新增任何成环边都会立即拦截。
@@ -331,6 +335,14 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
       ) {
         violations.push(
           `[core -> legacy-agent] ${edge} violates ADR 0034 DAG (core platform must not depend on lib/agent)`,
+        )
+      } else if (
+        fromModule?.name === 'execution' &&
+        target.startsWith('lib/') &&
+        !ALLOWED_EXECUTION_TO_LEGACY_LIB.has(edge)
+      ) {
+        violations.push(
+          `[execution -> legacy-lib] ${edge} is not allowed (invert upward/legacy dependency via TaskLifecycleBus or port)`,
         )
       }
 
