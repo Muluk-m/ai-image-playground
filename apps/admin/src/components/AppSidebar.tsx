@@ -5,9 +5,9 @@ import {
   BookOpen,
   Bug,
   ClipboardList,
+  Cpu,
   HeartPulse,
   Inbox,
-  KeyRound,
   LogOut,
   type LucideIcon,
   MessageSquareText,
@@ -76,8 +76,7 @@ export interface NavGroup {
 
 /**
  * 左侧分组导航，也是 ⌘K 面板的模块清单（CommandPalette 直接读这份）。
- * 私有树的收款与计费不写在这份清单里：入口来自 /api/extensions。收费构建会把
- * overlay 的路由编进同一棵树，侧栏跟其他模块一样做客户端跳转，并带上选中态。
+ * 私有树的「订单核款」归入高频「经营」组；「计费设置」并入统一的 `/providers`（开启计费时显示为「模型与计费」）。
  */
 export const NAV_GROUPS: readonly NavGroup[] = [
   {
@@ -113,17 +112,18 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   {
     label: '设置',
     entries: [
-      { to: '/providers', icon: KeyRound, label: '供应商' },
+      {
+        to: '/providers',
+        icon: Cpu,
+        label: '模型与网关',
+        activePaths: ['/providers', '/billing/settings'],
+      },
       { to: '/platform-settings', icon: SlidersHorizontal, label: '平台配置' },
       { to: '/audit', icon: BookOpen, label: '审计' },
     ],
   },
 ]
 
-/**
- * 私有导航项来自 /api/extensions，只有名称与链接；图标在这里按链接认领。
- * 认不出的新入口退回齿轮，不会因为私有树加了入口就让公开侧报错。
- */
 const OVERLAY_NAV_ICONS: Readonly<Record<string, LucideIcon>> = {
   '/billing/orders': ReceiptText,
   '/billing/settings': Settings,
@@ -148,11 +148,24 @@ export function overlayNavPath(href: string): string {
 }
 
 /**
- * 公开路由类型里没有这些 path。运行时 `to` 仍是清单上的路径，收费构建的路由树能匹配到。
- * 断言成一个不带 search 的公开路由，只为通过公开树的类型检查。
+ * 公开路由类型里没有这些 path。运行时 `to` / `search` / `hash` 仍是清单上的完整目标，
+ * 避免丢失扩展入口自带的 `?tab=...` 或 `#...` 参数。
  */
-function overlayLinkTo(href: string): '/audit' {
-  return overlayNavPath(href) as '/audit'
+export function overlayNavTarget(href: string): {
+  to: '/audit'
+  search?: Record<string, string>
+  hash?: string
+} {
+  const url = new URL(href, 'http://overlay.local')
+  const path =
+    url.pathname.length > 1 && url.pathname.endsWith('/') ? url.pathname.slice(0, -1) : url.pathname
+  const search = Object.fromEntries(url.searchParams.entries())
+  const hash = url.hash ? url.hash.slice(1) : undefined
+  return {
+    to: path as '/audit',
+    ...(Object.keys(search).length > 0 ? { search } : {}),
+    ...(hash ? { hash } : {}),
+  }
 }
 
 export function overlayNavIsActive(pathname: string, href: string): boolean {
@@ -162,12 +175,30 @@ export function overlayNavIsActive(pathname: string, href: string): boolean {
   return pathname.startsWith(`${path}/`)
 }
 
+export function resolveProvidersNavLabel(
+  privateNavigation: ReadonlyArray<{ label: string; href: string }>,
+): string {
+  const hasBillingSettings = privateNavigation.some(
+    (entry) => overlayNavPath(entry.href) === '/billing/settings',
+  )
+  return hasBillingSettings ? '模型与计费' : '模型与网关'
+}
+
 export function AppSidebar() {
   const navigate = useNavigate()
   const pathname = useLocation({ select: (location) => location.pathname })
   const queryClient = useQueryClient()
   const { data: adminSession } = useQuery(adminSessionQueryOptions)
   const privateNavigation = usePrivateAdminNavigation()
+  const providersLabel = resolveProvidersNavLabel(privateNavigation)
+
+  const businessOverlayEntries = privateNavigation.filter(
+    (entry) => overlayNavPath(entry.href) === '/billing/orders',
+  )
+  const settingsOverlayEntries = privateNavigation.filter((entry) => {
+    const path = overlayNavPath(entry.href)
+    return path !== '/billing/orders' && path !== '/billing/settings'
+  })
 
   function refresh(): void {
     const refreshEvent = new Event(ADMIN_REFRESH_EVENT, { cancelable: true })
@@ -188,6 +219,25 @@ export function AppSidebar() {
     }
     queryClient.clear()
     void navigate({ to: '/login' })
+  }
+
+  function renderOverlayItem(entry: { label: string; href: string }) {
+    const Icon = overlayNavIcon(overlayNavPath(entry.href))
+    return (
+      <SidebarMenuItem key={entry.href}>
+        <SidebarMenuButton
+          asChild
+          tooltip={entry.label}
+          className={NAV_ACTIVE_CLASS}
+          isActive={overlayNavIsActive(pathname, entry.href)}
+        >
+          <Link {...overlayNavTarget(entry.href)}>
+            <Icon />
+            <span>{entry.label}</span>
+          </Link>
+        </SidebarMenuButton>
+      </SidebarMenuItem>
+    )
   }
 
   return (
@@ -221,52 +271,57 @@ export function AppSidebar() {
           const entries = group.entries.filter(
             (entry) => !entry.gated || adminSession?.accounts_login,
           )
-          const overlayEntries = group.label === '设置' ? privateNavigation : []
-          if (!entries.length && !overlayEntries.length) return null
+          const extraEntries =
+            group.label === '经营'
+              ? businessOverlayEntries
+              : group.label === '设置'
+                ? settingsOverlayEntries
+                : []
+          if (!entries.length && !extraEntries.length) return null
+
           return (
             <SidebarGroup key={group.label}>
               <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu aria-label={group.label}>
-                  {overlayEntries.map((entry) => {
-                    const Icon = overlayNavIcon(overlayNavPath(entry.href))
-                    return (
-                      <SidebarMenuItem key={entry.href}>
+                  {group.label === '设置' ? extraEntries.map(renderOverlayItem) : null}
+                  {entries.flatMap((entry) => {
+                    const label = entry.to === '/providers' ? providersLabel : entry.label
+                    const item = (
+                      <SidebarMenuItem key={entry.to}>
                         <SidebarMenuButton
                           asChild
-                          tooltip={entry.label}
+                          tooltip={label}
                           className={NAV_ACTIVE_CLASS}
-                          isActive={overlayNavIsActive(pathname, entry.href)}
+                          isActive={
+                            entry.activePaths
+                              ? entry.activePaths.some(
+                                  (path) => pathname === path || pathname.startsWith(`${path}/`),
+                                )
+                              : entry.exact
+                                ? pathname === entry.to
+                                : pathname.startsWith(entry.to)
+                          }
                         >
-                          <Link to={overlayLinkTo(entry.href)}>
-                            <Icon />
-                            <span>{entry.label}</span>
+                          <Link to={entry.to}>
+                            <entry.icon />
+                            <span>{label}</span>
                           </Link>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
                     )
+                    if (group.label === '经营' && entry.to === '/users') {
+                      return [item, ...businessOverlayEntries.map(renderOverlayItem)]
+                    }
+                    if (
+                      group.label === '经营' &&
+                      entry.to === '/overview' &&
+                      !entries.some((candidate) => candidate.to === '/users')
+                    ) {
+                      return [item, ...businessOverlayEntries.map(renderOverlayItem)]
+                    }
+                    return [item]
                   })}
-                  {entries.map((entry) => (
-                    <SidebarMenuItem key={entry.to}>
-                      <SidebarMenuButton
-                        asChild
-                        tooltip={entry.label}
-                        className={NAV_ACTIVE_CLASS}
-                        isActive={
-                          entry.activePaths
-                            ? entry.activePaths.some((path) => pathname.startsWith(path))
-                            : entry.exact
-                              ? pathname === entry.to
-                              : pathname.startsWith(entry.to)
-                        }
-                      >
-                        <Link to={entry.to}>
-                          <entry.icon />
-                          <span>{entry.label}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>

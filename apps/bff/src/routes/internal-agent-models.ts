@@ -7,6 +7,16 @@ export const internalAgentModelRoutes = new Elysia({ prefix: '/internal/admin/ag
     const { agentModelSettingsView } = await import('../lib/agent/model-settings-store')
     return agentModelSettingsView()
   })
+  .post('/probe', async ({ body, status }) => {
+    const { probeAgentModelBinding } = await import('../lib/agent/model-preflight')
+    const { AgentSettingsError } = await import('../lib/agent/provider-settings')
+    try {
+      return await probeAgentModelBinding(body)
+    } catch (error) {
+      if (error instanceof AgentSettingsError) return status(error.status, { error: error.message })
+      throw error
+    }
+  })
   .put('/', async ({ body, request, status }) => {
     const { saveAgentModelSettings, agentModelSettingsView } = await import(
       '../lib/agent/model-settings-store'

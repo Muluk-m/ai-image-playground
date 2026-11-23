@@ -16,4 +16,4 @@
 
 这里配置的是 Agent 对话轮。摘要、搜索等辅助调用和图片／视频生成渠道继续使用原有独立配置；不把生图渠道与对话 Provider 混为同一个注册表。Pi 内置目录升级随依赖版本发布，不在用户请求过程中自动访问厂商模型发现 API。
 18:
-Admin 入口统一为 `/providers`：Provider 实例、对话模型与产品档位在「Provider 与模型」页签，运行时密钥在「运行时密钥」页签。旧 `/agent-models` 与 `/upstream-secrets` 深链只做重定向，不再出现在侧栏；生成模型上下架仍属于独立的「模型」模块，避免把生成渠道与 Agent Provider 注册表混在一起。
+Admin 入口统一为 `/providers`（「模型与计费」／「模型与网关」）：全模态模型目录与积分单价在「模型与定价」页签，Agent 档位路由、Provider 实例与只读生成渠道拓扑在「Agent 路由与渠道」页签，运行时密钥与直连预算在「密钥池与预算」页签；开启商业计费时「套餐与收款」页签并入同一工作台。旧 `/agent-models`、`/upstream-secrets`、`/models` 与 `/billing/settings` 深链均保留并重定向到对应页签；生图渠道配置本身（`channels.json`）仍与 Agent Provider 注册表分开存储，不在后台混为同一写模型。

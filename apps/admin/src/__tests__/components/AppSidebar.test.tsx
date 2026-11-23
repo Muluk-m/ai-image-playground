@@ -4,7 +4,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/react-router'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { NAV_GROUPS, overlayNavIsActive, overlayNavPath } from '@/components/AppSidebar'
+import {
+  NAV_GROUPS,
+  overlayNavIsActive,
+  overlayNavPath,
+  resolveProvidersNavLabel,
+} from '@/components/AppSidebar'
 
 const navigation = vi.hoisted(() => ({
   entries: [] as Array<{ label: string; href: string }>,
@@ -15,6 +20,8 @@ vi.mock('../../lib/private-overlay', async (importOriginal) => {
   return {
     ...actual,
     usePrivateAdminNavigation: () => navigation.entries,
+    usePrivateAdminBillingSettingsEnabled: () =>
+      navigation.entries.some((entry) => entry.href === '/billing/settings'),
   }
 })
 
@@ -23,6 +30,7 @@ vi.mock('../../lib/api-client', () => ({
     get: async (url: string) => {
       if (url === '/api/me') return { ok: true, accounts_login: true, accounts_sync: false }
       if (url === '/api/extensions') return { navigation: navigation.entries, user_links: [] }
+      if (url === '/api/models') return { models: [], channels: [] }
       throw new Error(`unexpected request: ${url}`)
     },
     post: async () => ({}),
@@ -48,11 +56,11 @@ function renderAt(path: string): { history: { location: { pathname: string } } }
   return { history }
 }
 
-async function settingsGroup(): Promise<ReturnType<typeof within>> {
-  return within(await screen.findByRole('list', { name: '设置' }))
+async function navGroup(name: '经营' | '设置'): Promise<ReturnType<typeof within>> {
+  return within(await screen.findByRole('list', { name }))
 }
 
-describe('overlayNavIsActive', () => {
+describe('overlayNavIsActive & resolveProvidersNavLabel', () => {
   it('matches the extension path and its descendants, not a longer sibling', () => {
     expect(overlayNavPath('/billing/orders?status=open')).toBe('/billing/orders')
     expect(overlayNavPath('/billing/settings/')).toBe('/billing/settings')
@@ -62,9 +70,16 @@ describe('overlayNavIsActive', () => {
     expect(overlayNavIsActive('/billing/settings', '/billing/orders')).toBe(false)
     expect(overlayNavIsActive('/audit', '/')).toBe(false)
   })
+
+  it('upgrades the gateway label when billing settings extension is present', () => {
+    expect(resolveProvidersNavLabel([])).toBe('模型与网关')
+    expect(resolveProvidersNavLabel([{ label: '计费设置', href: '/billing/settings' }])).toBe(
+      '模型与计费',
+    )
+  })
 })
 
-describe('overlay sidebar links', () => {
+describe('consolidated sidebar links', () => {
   beforeEach(() => {
     navigation.entries = [
       { label: '订单核款', href: '/billing/orders' },
@@ -72,58 +87,46 @@ describe('overlay sidebar links', () => {
     ]
   })
 
-  it('client-navigates extension pages instead of loading a new document', async () => {
+  it('places 订单核款 under 经营 and merges 计费设置 into 模型与计费', async () => {
     const { history } = renderAt('/overview')
-    const settings = await settingsGroup()
-    const orders = settings.getByRole('link', { name: '订单核款' })
-    const billing = settings.getByRole('link', { name: '计费设置' })
+    const business = await navGroup('经营')
+    const settings = await navGroup('设置')
+
+    const orders = business.getByRole('link', { name: '订单核款' })
     expect(orders).toHaveAttribute('href', '/billing/orders')
     expect(orders).toHaveAttribute('data-active', 'false')
-    expect(billing).toHaveAttribute('data-active', 'false')
 
-    fireEvent.click(billing)
+    expect(settings.queryByRole('link', { name: '计费设置' })).not.toBeInTheDocument()
+    const gateway = settings.getByRole('link', { name: '模型与计费' })
+    expect(gateway).toHaveAttribute('href', '/providers')
+    expect(gateway).toHaveAttribute('data-active', 'false')
+
+    fireEvent.click(gateway)
     await waitFor(() => {
-      expect(history.location.pathname).toBe('/billing/settings')
+      expect(history.location.pathname).toBe('/providers')
     })
+    expect(gateway).toHaveAttribute('data-active', 'true')
   })
 
-  it('shows the selected state for the extension page that is open', async () => {
-    navigation.entries = [
-      { label: '订单核款', href: '/overview' },
-      { label: '计费设置', href: '/audit' },
-    ]
-    const { history } = renderAt('/audit')
-    const settings = await settingsGroup()
-    expect(settings.getByRole('link', { name: '计费设置' })).toHaveAttribute('data-active', 'true')
-    expect(settings.getByRole('link', { name: '订单核款' })).toHaveAttribute('data-active', 'false')
-    expect(settings.getByRole('link', { name: '审计' })).toHaveAttribute('data-active', 'true')
-
-    fireEvent.click(settings.getByRole('link', { name: '订单核款' }))
-    await waitFor(() => {
-      expect(history.location.pathname).toBe('/overview')
-    })
-    expect(settings.getByRole('link', { name: '订单核款' })).toHaveAttribute('data-active', 'true')
-    expect(settings.getByRole('link', { name: '计费设置' })).toHaveAttribute('data-active', 'false')
-  })
-
-  it('keeps a parent extension entry active on a nested path', async () => {
-    navigation.entries = [{ label: '订单核款', href: '/users' }]
-    renderAt('/users/user-1')
-    const settings = await settingsGroup()
-    expect(await settings.findByRole('link', { name: '订单核款' })).toHaveAttribute(
+  it('still renders and activates extra unknown extension entries in 设置', async () => {
+    navigation.entries = [{ label: '合规导出', href: '/audit' }]
+    renderAt('/audit')
+    const settings = await navGroup('设置')
+    expect(settings.getByRole('link', { name: '模型与网关' })).toHaveAttribute(
       'data-active',
-      'true',
+      'false',
     )
+    expect(settings.getByRole('link', { name: '合规导出' })).toHaveAttribute('data-active', 'true')
+    expect(settings.getByRole('link', { name: '审计' })).toHaveAttribute('data-active', 'true')
   })
 })
 
-describe('prompt navigation', () => {
-  it('includes the prompt ledger and feedback inbox in business navigation and command destinations', () => {
-    expect(NAV_GROUPS.find((group) => group.label === '经营')?.entries).toContainEqual(
-      expect.objectContaining({ to: '/prompts', label: '提示词' }),
-    )
-    expect(NAV_GROUPS.find((group) => group.label === '经营')?.entries).toContainEqual(
-      expect.objectContaining({ to: '/feedback', label: '用户反馈' }),
+describe('prompt & feedback navigation', () => {
+  it('includes the prompt ledger and user feedback inbox in business navigation', () => {
+    const entries = NAV_GROUPS.find((group) => group.label === '经营')?.entries
+    expect(entries).toContainEqual(expect.objectContaining({ to: '/prompts', label: '提示词' }))
+    expect(entries).toContainEqual(
+      expect.objectContaining({ to: '/feedback', label: '用户反馈', gated: true }),
     )
   })
 })

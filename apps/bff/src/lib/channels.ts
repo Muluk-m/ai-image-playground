@@ -33,6 +33,7 @@ import type {
   ChannelModel,
   DiscoveredChannel,
   GeminiImageSize,
+  ManagedChannelSummary,
   ModelBadge,
   ModelLogoId,
   ModelTier,
@@ -56,6 +57,7 @@ import {
   gptDirectSizeEnabled,
   gptImage26DirectListed,
 } from './upstream/gpt-direct-availability'
+import { isGptImageModel } from './upstream/openai'
 import { runtimeSecret, upstreamSecretRevision } from './upstream-secret-cache'
 
 export type ChannelAuthType = 'bearer' | 'query-key'
@@ -92,7 +94,7 @@ export interface InternalChannel {
 }
 
 /** parseChannel 的产物：baseUrl 尚未解析，只有 `baseUrl` / `baseUrlRef` 二选一。 */
-interface ParsedChannel extends Omit<InternalChannel, 'baseUrl'> {
+export interface ParsedChannel extends Omit<InternalChannel, 'baseUrl'> {
   baseUrl?: string
   baseUrlRef?: string
   requiresSecret: boolean
@@ -110,6 +112,8 @@ export interface ChannelsLoadResult {
   disabledModels: Record<string, string>
   /** 非致命问题清单（缺 secret 等），由 startup 落日志。 */
   warnings: string[]
+  /** channels.json 中声明的完整解析项（供后台只读拓扑展示未配凭证或已下线渠道）。 */
+  declared?: ParsedChannel[]
 }
 
 export class ChannelsLoadError extends Error {
@@ -450,6 +454,7 @@ export function parseChannelsConfig(
 
   const warnings: string[] = []
   const seenIds = new Set<string>()
+  const declared: ParsedChannel[] = []
   const channels: InternalChannel[] = []
   const disabled: InternalChannel[] = []
   // 无原型：模型 id 只校验非空，`constructor` 之类的键不能撞上继承属性。
@@ -458,6 +463,7 @@ export function parseChannelsConfig(
     const ch = parseChannel(raw, idx)
     if (seenIds.has(ch.id)) throw new ChannelsLoadError(`channels[${idx}].id duplicate: '${ch.id}'`)
     seenIds.add(ch.id)
+    declared.push(ch)
 
     const resolved = resolveBaseUrl(ch, envLookup)
     if (ch.disabled) {
@@ -518,7 +524,7 @@ export function parseChannelsConfig(
     }
     channels.push(toInternal(ch, resolved.baseUrl, secret))
   })
-  return { channels, disabled, disabledModels, warnings }
+  return { channels, disabled, disabledModels, warnings, declared }
 }
 
 function toInternal(ch: ParsedChannel, baseUrl: string, secret: string): InternalChannel {
@@ -584,12 +590,16 @@ function isFileNotFoundError(err: unknown): boolean {
 
 let loaded: InternalChannel[] = []
 let retired: InternalChannel[] = []
+let declaredParsedChannels: ParsedChannel[] | null = null
+let testChannelsOverride = false
 let disabledModels: ReadonlyMap<string, string> = new Map()
 let discoveredCache: DiscoveredChannel[] = []
 
 export function initChannels(filePath = defaultChannelsPath()): ChannelsLoadResult {
   const result = loadChannelsFromFile(filePath)
   setLoaded(result.channels, result.disabled, result.disabledModels)
+  declaredParsedChannels = result.declared ?? []
+  testChannelsOverride = false
   refreshSignature = undefined
   return result
 }
@@ -598,6 +608,7 @@ let refreshSignature: string | undefined
 
 /** Periodic reloads only rebuild channels when the file or effective credentials change. */
 export function refreshChannelsIfChanged(filePath = defaultChannelsPath()): void {
+  if (testChannelsOverride) return
   let fileVersion = 'missing'
   try {
     const stat = statSync(filePath, { bigint: true })
@@ -613,6 +624,171 @@ export function refreshChannelsIfChanged(filePath = defaultChannelsPath()): void
 
 export function getChannels(): InternalChannel[] {
   return loaded
+}
+
+const DEDICATED_STYLE_CHANNELS = new Set([
+  'agnes-images',
+  'grok-images',
+  'grok-video',
+  'agnes-video',
+  'ark-video',
+  'veo-video',
+  'vertex-images',
+])
+
+function hasSub2apiOpenAICredential(): boolean {
+  const openaiKey = process.env.UPSTREAM_OPENAI_API_KEY?.trim() ?? ''
+  if (openaiKey) return true
+  return Boolean(runtimeSecret('UPSTREAM_API_KEY', process.env.UPSTREAM_API_KEY?.trim() ?? ''))
+}
+
+function usesImage26Sub2apiFallback(channel: Pick<InternalChannel, 'auth' | 'models'>): boolean {
+  const envFallback = channel.auth.secret || (process.env[channel.auth.secretRef]?.trim() ?? '')
+  if (runtimeSecret(channel.auth.secretRef, envFallback)) return false
+  if (channel.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0) return false
+  return (
+    process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true' &&
+    channel.models.length > 0 &&
+    channel.models.every((model) => isGptImage26Model(model.id))
+  )
+}
+
+function resolveChannelDispatch(
+  channel: Pick<InternalChannel, 'id' | 'kind' | 'defaults' | 'models'>,
+): { asyncTasks: boolean; dispatchMode: 'sync' | 'async' | 'dual' } {
+  if (channel.kind !== 'openai-queue' || DEDICATED_STYLE_CHANNELS.has(channel.id)) {
+    const asyncTasks = Boolean(channel.defaults.asyncTasks)
+    return { asyncTasks, dispatchMode: asyncTasks ? 'async' : 'sync' }
+  }
+  const gatewayAsync = process.env.UPSTREAM_ASYNC_IMAGE_TASKS?.trim().toLowerCase() === 'true'
+  if (!gatewayAsync) {
+    const asyncTasks = Boolean(channel.defaults.asyncTasks)
+    return { asyncTasks, dispatchMode: asyncTasks ? 'async' : 'sync' }
+  }
+  // 与 upstream.ts:1418-1425 保持同一口径：UPSTREAM_IMAGE_RESPONSES_MODEL 生效时，
+  // 非 2.6 的 GPT Image 模型走 Responses 同步流；Image 2.6 在 sub2api 强制走 /images/generations（异步）。
+  const responsesBridgeOn = Boolean(process.env.UPSTREAM_IMAGE_RESPONSES_MODEL?.trim())
+  const directOn = gptDirectSizeEnabled()
+  if (channel.models.length === 0) {
+    return { asyncTasks: true, dispatchMode: 'async' }
+  }
+  let hasSync = false
+  let hasAsync = false
+  for (const model of channel.models) {
+    const is26 = isGptImage26Model(model.id)
+    const isDirectEligible = isGptDirectModel(model.id) || is26
+    const usesResponsesSync = responsesBridgeOn && !is26 && isGptImageModel(model.id)
+    if ((isDirectEligible && directOn) || usesResponsesSync) hasSync = true
+    if (!usesResponsesSync) hasAsync = true
+  }
+  if (hasSync && hasAsync) return { asyncTasks: true, dispatchMode: 'dual' }
+  if (hasAsync) return { asyncTasks: true, dispatchMode: 'async' }
+  return { asyncTasks: false, dispatchMode: 'sync' }
+}
+
+export function isChannelCredentialReady(
+  channel: Pick<InternalChannel, 'auth' | 'models'>,
+): boolean {
+  const envFallback = channel.auth.secret || (process.env[channel.auth.secretRef]?.trim() ?? '')
+  if (runtimeSecret(channel.auth.secretRef, envFallback)) return true
+  if (channel.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0) return true
+  if (usesImage26Sub2apiFallback(channel)) {
+    return hasSub2apiOpenAICredential()
+  }
+  return false
+}
+
+/**
+ * 后台渠道拓扑视图：只返回渠道标识、协议、并发上限、密钥环境变量引用及是否已配置，
+ * 绝不返回解析后的上游地址（可能含内网代理）或密钥内容。
+ */
+export function getChannelTopology(): ManagedChannelSummary[] {
+  const mapModels = (
+    models: readonly ChannelModel[],
+    modelMaxConcurrency?: Record<string, number>,
+  ) =>
+    models.map((model) => {
+      const modelCap = modelMaxConcurrency?.[model.id]
+      return {
+        id: model.id,
+        label: model.label,
+        media: model.media ?? 'image',
+        capabilities: model.capabilities,
+        ...(modelCap !== undefined ? { maxConcurrency: modelCap } : {}),
+        ...(model.etaSeconds !== undefined ? { etaSeconds: model.etaSeconds } : {}),
+        ...(model.degraded ? { degraded: true } : {}),
+      }
+    })
+
+  if (declaredParsedChannels !== null) {
+    const loadedById = new Map(loaded.map((channel) => [channel.id, channel]))
+    return declaredParsedChannels.map((ch) => {
+      const active = loadedById.get(ch.id)
+      const status: ManagedChannelSummary['status'] = ch.disabled
+        ? 'disabled'
+        : active
+          ? 'active'
+          : 'unconfigured'
+      const sub2apiFallback = active ? usesImage26Sub2apiFallback(active) : false
+      const secretConfigured = active
+        ? isChannelCredentialReady(active)
+        : Boolean(
+            runtimeSecret(ch.auth.secretRef, process.env[ch.auth.secretRef]?.trim() ?? '') ||
+              (ch.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0),
+          )
+      const secretRef = sub2apiFallback ? 'UPSTREAM_API_KEY (2.6 兜底)' : ch.auth.secretRef
+      const sourceModels = active ? active.models : ch.models
+      const dispatch = resolveChannelDispatch({
+        id: ch.id,
+        kind: ch.kind,
+        defaults: ch.defaults,
+        models: sourceModels,
+      })
+      return {
+        id: ch.id,
+        label: ch.label,
+        kind: ch.kind,
+        status,
+        authType: ch.auth.type,
+        secretRef,
+        secretConfigured,
+        ...(ch.maxConcurrency !== undefined ? { maxConcurrency: ch.maxConcurrency } : {}),
+        asyncTasks: dispatch.asyncTasks,
+        dispatchMode: dispatch.dispatchMode,
+        ...(ch.defaults.timeout !== undefined ? { timeoutSeconds: ch.defaults.timeout } : {}),
+        models: mapModels(sourceModels, ch.modelMaxConcurrency),
+      }
+    })
+  }
+
+  const summarize = (
+    channel: InternalChannel,
+    status: ManagedChannelSummary['status'],
+  ): ManagedChannelSummary => {
+    const dispatch = resolveChannelDispatch(channel)
+    return {
+      id: channel.id,
+      label: channel.label,
+      kind: channel.kind,
+      status,
+      authType: channel.auth.type,
+      secretRef: usesImage26Sub2apiFallback(channel)
+        ? 'UPSTREAM_API_KEY (2.6 兜底)'
+        : channel.auth.secretRef,
+      secretConfigured: isChannelCredentialReady(channel),
+      ...(channel.maxConcurrency !== undefined ? { maxConcurrency: channel.maxConcurrency } : {}),
+      asyncTasks: dispatch.asyncTasks,
+      dispatchMode: dispatch.dispatchMode,
+      ...(channel.defaults.timeout !== undefined
+        ? { timeoutSeconds: channel.defaults.timeout }
+        : {}),
+      models: mapModels(channel.models, channel.modelMaxConcurrency),
+    }
+  }
+  return [
+    ...loaded.map((channel) => summarize(channel, 'active')),
+    ...retired.map((channel) => summarize(channel, 'disabled')),
+  ]
 }
 
 /**
@@ -814,5 +990,7 @@ export function _setChannelsForTesting(
   disabled: InternalChannel[] = [],
   disabledModels?: Readonly<Record<string, string>>,
 ): void {
+  declaredParsedChannels = null
+  testChannelsOverride = true
   setLoaded(channels, disabled, disabledModels)
 }
