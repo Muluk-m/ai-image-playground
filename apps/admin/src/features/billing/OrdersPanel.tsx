@@ -79,10 +79,6 @@ export function OrdersPanel() {
     ) ?? []
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">订单核款</h1>
-        <p className="mt-1 text-sm text-muted-foreground">对照收款记录，确认到账后续期。</p>
-      </div>
       <Card>
         <CardHeader>
           <CardTitle>从收款记录找订单</CardTitle>
