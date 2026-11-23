@@ -7,6 +7,7 @@ import type {
   GenerationTasksFacets,
   GenerationTasksSummary,
 } from '../../../../contracts'
+import { formatDurationMs } from '../../../features/tasks/constants'
 import { TasksFilterPanel } from '../../../features/tasks/TasksFilterPanel'
 import { TasksLogTable } from '../../../features/tasks/TasksLogTable'
 
@@ -210,6 +211,13 @@ describe('TasksLogTable', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('rounds formatDurationMs cleanly across minute boundaries without producing 60s or 1m 60s', () => {
+    expect(formatDurationMs(9_960)).toBe('10s')
+    expect(formatDurationMs(59_600)).toBe('1m')
+    expect(formatDurationMs(119_600)).toBe('2m')
+    expect(formatDurationMs(65_000)).toBe('1m 05s')
   })
 })
 

@@ -447,12 +447,14 @@ export function TasksLogTable({
                   <span className="font-mono">
                     {task.completed_at
                       ? duration(task.started_at, task.completed_at)
-                      : task.status === 'queued'
+                      : task.status === 'queued' && task.started_at == null
                         ? `排队 ${formatDurationMs(Math.max(0, now - task.submitted_at))}`
-                        : (task.status === 'in_progress' || task.status === 'reconciling') &&
-                            task.started_at != null
-                          ? `已跑 ${formatDurationMs(Math.max(0, now - task.started_at))}`
-                          : '—'}
+                        : task.status === 'queued'
+                          ? `重试等待 · 总计 ${formatDurationMs(Math.max(0, now - task.submitted_at))}`
+                          : (task.status === 'in_progress' || task.status === 'reconciling') &&
+                              task.started_at != null
+                            ? `已跑 ${formatDurationMs(Math.max(0, now - task.started_at))}`
+                            : '—'}
                   </span>
                 </div>
                 {task.error_type ? (

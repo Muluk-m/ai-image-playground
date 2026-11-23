@@ -279,9 +279,10 @@ export function writeTasksTablePrefs(prefs: TasksTablePrefs): void {
 export function formatDurationMs(ms: number | null): string {
   if (ms === null || !Number.isFinite(ms) || ms < 0) return '—'
   if (ms < 1000) return `${Math.round(ms)}ms`
-  const sec = ms / 1000
-  if (sec < 60) return `${sec < 10 ? sec.toFixed(1) : Math.round(sec)}s`
-  const minutes = Math.floor(sec / 60)
-  const rem = Math.round(sec % 60)
+  if (ms < 9_950) return `${(ms / 1000).toFixed(1)}s`
+  const totalSec = Math.round(ms / 1000)
+  if (totalSec < 60) return `${totalSec}s`
+  const minutes = Math.floor(totalSec / 60)
+  const rem = totalSec % 60
   return rem === 0 ? `${minutes}m` : `${minutes}m ${String(rem).padStart(2, '0')}s`
 }
