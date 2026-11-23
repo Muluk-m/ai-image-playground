@@ -477,11 +477,11 @@ function taskOrderBy(filters: GenerationTaskFilters) {
   const direction = dir === 'asc' ? sql`ASC` : sql`DESC`
   switch (sort) {
     case 'run_ms':
-      return sql`CASE WHEN t.started_at IS NOT NULL AND t.completed_at IS NOT NULL AND t.completed_at >= t.started_at THEN EXTRACT(EPOCH FROM (t.completed_at - t.started_at)) END ${direction} NULLS LAST, t.submitted_at DESC, t.id DESC`
+      return sql`CASE WHEN t.started_at IS NOT NULL AND t.completed_at IS NOT NULL AND t.completed_at >= t.started_at THEN EXTRACT(EPOCH FROM (t.completed_at - t.started_at)) WHEN t.completed_at IS NULL AND t.started_at IS NOT NULL AND t.status IN ('in_progress', 'reconciling') THEN GREATEST(0, EXTRACT(EPOCH FROM (NOW() - t.started_at))) END ${direction} NULLS LAST, t.submitted_at DESC, t.id DESC`
     case 'queue_ms':
-      return sql`CASE WHEN t.started_at IS NOT NULL AND t.started_at >= t.submitted_at THEN EXTRACT(EPOCH FROM (t.started_at - t.submitted_at)) END ${direction} NULLS LAST, t.submitted_at DESC, t.id DESC`
+      return sql`CASE WHEN t.started_at IS NOT NULL AND t.started_at >= t.submitted_at THEN EXTRACT(EPOCH FROM (t.started_at - t.submitted_at)) WHEN t.started_at IS NULL AND t.status = 'queued' THEN GREATEST(0, EXTRACT(EPOCH FROM (NOW() - t.submitted_at))) END ${direction} NULLS LAST, t.submitted_at DESC, t.id DESC`
     case 'total_ms':
-      return sql`CASE WHEN t.completed_at IS NOT NULL AND t.completed_at >= t.submitted_at THEN EXTRACT(EPOCH FROM (t.completed_at - t.submitted_at)) END ${direction} NULLS LAST, t.submitted_at DESC, t.id DESC`
+      return sql`CASE WHEN t.completed_at IS NOT NULL AND t.completed_at >= t.submitted_at THEN EXTRACT(EPOCH FROM (t.completed_at - t.submitted_at)) WHEN t.completed_at IS NULL AND t.status IN ('queued', 'in_progress', 'reconciling') THEN GREATEST(0, EXTRACT(EPOCH FROM (NOW() - t.submitted_at))) END ${direction} NULLS LAST, t.submitted_at DESC, t.id DESC`
     case 'attempt_count':
       return sql`t.attempt_count ${direction}, t.upstream_invocation_count ${direction}, t.submitted_at DESC, t.id DESC`
     case 'upstream_invocation_count':

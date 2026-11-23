@@ -600,10 +600,24 @@ describe('today generation overview', () => {
       dir: 'desc',
     })
     expect(byRunDesc.tasks.map((item) => item.id)).toEqual([
+      'rich-reconciling',
       'rich-fail-504',
       'rich-slow-sub2api',
       'rich-fast-direct',
+    ])
+    const byTotalDesc = await getGenerationTasks({
+      from: richFrom,
+      to: richTo,
+      page: 1,
+      pageSize: 50,
+      sort: 'total_ms',
+      dir: 'desc',
+    })
+    expect(byTotalDesc.tasks.map((item) => item.id)).toEqual([
       'rich-reconciling',
+      'rich-fail-504',
+      'rich-slow-sub2api',
+      'rich-fast-direct',
     ])
     expect(byRunDesc.summary).toMatchObject({
       total: 4,
