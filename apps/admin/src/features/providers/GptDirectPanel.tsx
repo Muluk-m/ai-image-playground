@@ -11,6 +11,14 @@ import { Kpi } from '@/components/Kpi'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import {
   Table,
@@ -70,6 +78,7 @@ export function GptDirectPanel({
   const [draftBudget, setDraftBudget] = useState('200')
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null)
 
   async function run(id: string, task: () => Promise<GptDirectAdminView>) {
     if (pending) return
@@ -77,13 +86,21 @@ export function GptDirectPanel({
     setError(null)
     try {
       await task()
-      setDraftKey('')
+      if (id === 'create') setDraftKey('')
       await Promise.all([
         client.invalidateQueries({ queryKey: gptDirectQueryKey }),
         client.invalidateQueries({ queryKey: modelsQueryKey }),
       ])
     } catch (cause) {
       setError(failureMessage(cause))
+      if (
+        cause instanceof ApiError &&
+        cause.body &&
+        typeof cause.body === 'object' &&
+        (cause.body as { error?: unknown }).error === 'stale_revision'
+      ) {
+        await client.invalidateQueries({ queryKey: gptDirectQueryKey })
+      }
     } finally {
       setPending(null)
     }
@@ -169,11 +186,17 @@ export function GptDirectPanel({
           ) : null}
 
           <form
+            noValidate
             className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-3"
             onSubmit={(event) => {
               event.preventDefault()
+              if (!draftKey.trim()) return
               const budgetUsd = Number(draftBudget)
-              if (!draftKey.trim() || !Number.isInteger(budgetUsd) || budgetUsd <= 0) return
+              if (!draftBudget.trim() || !Number.isInteger(budgetUsd) || budgetUsd <= 0) {
+                setError('月预算请填写大于 0 的整数（美元）')
+                return
+              }
+              setError(null)
               void run('create', () => createGptDirectKey({ apiKey: draftKey.trim(), budgetUsd }))
             }}
           >
@@ -267,7 +290,7 @@ export function GptDirectPanel({
                       }}
                       onDelete={() => {
                         if (!key.id) return
-                        void run(`delete-${key.id}`, () => deleteGptDirectKey(key.id as string))
+                        setDeleteTarget({ id: key.id, label: key.label || key.fingerprint })
                       }}
                       onRestore={() => {
                         void run(`restore-${key.fingerprint}`, () =>
@@ -282,7 +305,7 @@ export function GptDirectPanel({
           </div>
 
           {error ? (
-            <p role="status" className="text-xs text-danger">
+            <p role="alert" className="text-xs text-danger">
               {error}
             </p>
           ) : null}
@@ -391,6 +414,46 @@ export function GptDirectPanel({
           </Card>
         ) : null}
       </div>
+
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && pending === null) setDeleteTarget(null)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>删除 OpenAI 直连密钥</DialogTitle>
+            <DialogDescription>
+              确认从后台密钥池删除 <code className="font-mono">{deleteTarget?.label}</code>？
+              删除后如密钥池为空将回退到部署环境变量或 sub2api。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={pending !== null}
+              onClick={() => setDeleteTarget(null)}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={pending !== null || !deleteTarget?.id}
+              onClick={() => {
+                const target = deleteTarget
+                if (!target?.id) return
+                setDeleteTarget(null)
+                void run(`delete-${target.id}`, () => deleteGptDirectKey(target.id))
+              }}
+            >
+              确认删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -529,7 +592,7 @@ function KeyRow({
       </TableCell>
       <TableCell className="py-2.5 pr-4">
         <div className="flex items-center justify-end gap-1.5">
-          {row.status === 'disabled' ? (
+          {row.status === 'disabled' || row.status === 'cooldown' ? (
             <Button
               type="button"
               size="xs"
