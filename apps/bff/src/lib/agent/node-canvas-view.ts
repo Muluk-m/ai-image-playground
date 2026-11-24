@@ -1,11 +1,9 @@
 import { createHash } from 'node:crypto'
 import { type CanvasNode, projectArtifactId, readCanvasDocument } from '@image-playground/shared'
-import { and, eq, isNull } from 'drizzle-orm'
 import * as Y from 'yjs'
-import { db, schema } from '../../db/client'
 import type { AgentToolContext } from '../../modules/agent/contracts'
 import { AgentToolError } from '../../modules/agent/contracts'
-import { accessCanvasDocument } from '../canvasSyncStore'
+import { accessCanvasDocument, findCanvasProjectByConversation } from '../../modules/canvas'
 
 export interface ReadNodeCanvasParams {
   query?: string
@@ -26,18 +24,7 @@ function label(node: CanvasNode): string {
 
 export async function agentCanvasProject(context: AgentToolContext) {
   if (!context.userId) return null
-  const [project] = await db
-    .select({ id: schema.canvas_projects.id })
-    .from(schema.canvas_projects)
-    .where(
-      and(
-        eq(schema.canvas_projects.user_id, context.userId),
-        eq(schema.canvas_projects.conversation_id, context.conversationId),
-        isNull(schema.canvas_projects.deleted_at),
-      ),
-    )
-    .limit(1)
-  return project ?? null
+  return findCanvasProjectByConversation(context.userId, context.conversationId)
 }
 
 /** Read the authorized server graph, never accept a client-supplied project identity. */

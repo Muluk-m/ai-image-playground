@@ -10,10 +10,9 @@ import {
   type ProjectElement,
   projectArtifactId,
 } from '@image-playground/shared'
-import { and, eq, isNull } from 'drizzle-orm'
-import { db, schema } from '../../db/client'
 import type { AgentToolContext } from '../../modules/agent/contracts'
 import { AgentToolError } from '../../modules/agent/contracts'
+import { loadCanvasProjectDocument } from '../../modules/canvas'
 
 const TEXT_PREVIEW_CHARS = 80
 
@@ -28,22 +27,7 @@ async function loadDocument(
   context: AgentToolContext,
 ): Promise<{ document: ProjectDocument; revision: number } | null> {
   if (!context.userId) return null
-  const [row] = await db
-    .select({
-      document: schema.canvas_projects.document,
-      revision: schema.canvas_projects.revision,
-    })
-    .from(schema.canvas_projects)
-    .where(
-      and(
-        eq(schema.canvas_projects.conversation_id, context.conversationId),
-        eq(schema.canvas_projects.user_id, context.userId),
-        // 进了回收站的画布用户自己都看不见，模型更不该从这里把它读回来。
-        isNull(schema.canvas_projects.deleted_at),
-      ),
-    )
-    .limit(1)
-  return row?.document ? { document: row.document, revision: row.revision } : null
+  return loadCanvasProjectDocument(context.userId, context.conversationId)
 }
 
 function box(element: { x: number; y: number; width: number; height: number }): string {
