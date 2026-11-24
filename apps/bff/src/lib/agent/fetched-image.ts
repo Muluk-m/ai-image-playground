@@ -1,6 +1,6 @@
 import type { AgentFetchedImage } from '@image-playground/shared'
 import sharp, { type Metadata } from 'sharp'
-import { AgentToolError, safeFetchToolError } from '../../modules/agent'
+import { AgentToolError, safeFetchToolError } from '../../modules/agent/contracts'
 import { detectMediaMime } from '../imageArchive'
 import { assertMediaImageProcessingBudget, MEDIA_UPLOAD_MAX_PIXELS } from '../media-image-limits'
 import { MediaError, storeMedia } from '../projectMedia'

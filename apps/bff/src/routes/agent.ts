@@ -35,7 +35,6 @@ import {
 import { Elysia, t } from 'elysia'
 import sharp from 'sharp'
 import { config } from '../config'
-import { agentJobViews, cancelAgentJob } from '../lib/agent/background-jobs'
 import { confirmAgentGeneration, discardConversationDraftInputs } from '../lib/agent/confirmations'
 import {
   announceQueuedMessage,
@@ -53,17 +52,6 @@ import {
   readUserMessageContent,
 } from '../lib/agent/conversation-service'
 import {
-  AGENT_CONVERSATIONS_MAX_LIMIT,
-  AGENT_MESSAGES_MAX_LIMIT,
-  type AgentOwner,
-  createAgentConversation,
-  findAgentConversation,
-  listAgentConversationsPage,
-  listAgentMessages,
-  listAgentMessagesPage,
-  parseAgentConversationCursor,
-} from '../lib/agent/conversations'
-import {
   isSealLease,
   lastConversationEventSeq,
   openTurnEventBase,
@@ -71,21 +59,7 @@ import {
   readTurnEvents,
   sealAbandonedTurns,
 } from '../lib/agent/events'
-import { agentInstance, conversationExecution, forwardActiveTurn } from '../lib/agent/execution'
 import { readAgentFollowUps } from '../lib/agent/follow-ups'
-import {
-  readConversationMedia,
-  readyCanvasMediaIds,
-  removeAgentConversationReferences,
-  validateConversationMediaSelections,
-} from '../lib/agent/images'
-import {
-  agentSubmissionEntry,
-  type InboxEntry,
-  queuedAgentMessages,
-  reserveAgentSubmissionCancellation,
-} from '../lib/agent/inbox'
-import { withAgentLifecycle } from '../lib/agent/lifecycle'
 import { MASK_PROMPT_POINTS_MAX, refineEditRegion } from '../lib/agent/mask-proposal'
 import {
   advanceAgentRetryQueueSafely,
@@ -96,11 +70,6 @@ import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
 import { markAgentSaveCardSaved } from '../lib/agent/saves'
 import { segmentRateLimiter } from '../lib/agent/segment-rate-limit'
 import { segmenterStatus } from '../lib/agent/segmentation'
-import {
-  InvalidSelectionError,
-  selectionPreview,
-  validateSelections,
-} from '../lib/agent/selection-preview'
 import { agentReplayStream, agentTurnStream } from '../lib/agent/sse'
 import { agentTurnRateLimited } from '../lib/agent/turn-rate-limit'
 import { agentTurnSettled, listAgentTurnSummaries } from '../lib/agent/turn-summary'
@@ -119,6 +88,34 @@ import { attachmentLimits, BULK_ATTACHMENT_MAX_REFERENCES } from '../lib/operato
 import { reservationFailureResponse } from '../lib/private-overlay'
 import { MediaError } from '../lib/projectMedia'
 import { resolveAuthUser } from '../lib/user-auth'
+import {
+  AGENT_CONVERSATIONS_MAX_LIMIT,
+  AGENT_MESSAGES_MAX_LIMIT,
+  type AgentOwner,
+  agentInstance,
+  agentJobViews,
+  agentSubmissionEntry,
+  cancelAgentJob,
+  conversationExecution,
+  createAgentConversation,
+  findAgentConversation,
+  forwardActiveTurn,
+  type InboxEntry,
+  InvalidSelectionError,
+  listAgentConversationsPage,
+  listAgentMessages,
+  listAgentMessagesPage,
+  parseAgentConversationCursor,
+  queuedAgentMessages,
+  readConversationMedia,
+  readyCanvasMediaIds,
+  removeAgentConversationReferences,
+  reserveAgentSubmissionCancellation,
+  selectionPreview,
+  validateConversationMediaSelections,
+  validateSelections,
+  withAgentLifecycle,
+} from '../modules/agent'
 import { agentBatchRoutes } from './agent-batches'
 
 /** 归属不依赖登录能力：有会话 cookie 就挂用户，否则挂设备。 */

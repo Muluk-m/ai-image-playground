@@ -20,7 +20,7 @@ import {
 } from '@image-playground/shared'
 import { and, eq, isNull, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import { AgentToolError, queueRefusalCode } from '../../modules/agent'
+import { AgentToolError, queueRefusalCode } from '../../modules/agent/contracts'
 import { createQueueTask } from '../../modules/execution'
 import { resolveQueueModel } from '../channels'
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from '../imageArchive'

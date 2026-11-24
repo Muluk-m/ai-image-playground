@@ -4,7 +4,7 @@ import type {
   AgentImageReference,
   TurnAuthorization,
   TurnAuthorizationText,
-} from '../../modules/agent'
+} from '../../modules/agent/contracts'
 import { clarificationChainStart, replayTurnText, turnPromptText } from './turn-input'
 
 export type { TurnAuthorization, TurnAuthorizationText }

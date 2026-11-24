@@ -1,1 +1,1 @@
-export { queueArtifacts } from '../../modules/agent'
+export { queueArtifacts } from '../../modules/agent/contracts'

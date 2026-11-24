@@ -8,7 +8,7 @@ import type {
 } from '@image-playground/shared'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import type { AgentToolAudience } from '../../modules/agent'
+import type { AgentToolAudience } from '../../modules/agent/contracts'
 import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
 import { enqueueAgentUserMessage } from './inbox'

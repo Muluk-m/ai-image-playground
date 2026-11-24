@@ -15,6 +15,8 @@ test('模型、供应商、定价、额度、扣费入口和计费模块的改�
     'apps/bff/src/lib/agent/turn-rate-limit.ts',
     'apps/bff/src/lib/agent/chat-task.ts',
     'apps/bff/src/lib/agent/auto-submit.ts',
+    'apps/bff/src/modules/agent/conversation/background-jobs.ts',
+    'apps/bff/src/modules/agent/conversation/model-image.ts',
     'apps/bff/src/lib/agent/batch-analysis-preparation.ts',
     'apps/bff/src/lib/agent/batch-execution.ts',
     'apps/bff/src/lib/upstream/openai.ts',

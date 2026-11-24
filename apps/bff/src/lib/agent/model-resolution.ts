@@ -1,6 +1,6 @@
 import type { ChannelMedia } from '@image-playground/shared'
 import { config } from '../../config'
-import { AGENT_IMAGE_FALLBACK_MODEL, type QueueTarget } from '../../modules/agent'
+import { AGENT_IMAGE_FALLBACK_MODEL, type QueueTarget } from '../../modules/agent/contracts'
 import { resolveQueueModel } from '../channels'
 import { knownInactiveModels } from '../model-availability'
 

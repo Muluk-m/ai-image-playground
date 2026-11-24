@@ -13,7 +13,7 @@ import type {
 } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import { toolErrorText } from '../../modules/agent'
+import { toolErrorText } from '../../modules/agent/contracts'
 import { bffDrain } from '../drain'
 import { log } from '../logger'
 import type { BffTransaction, TaskOutcome } from '../private-overlay'

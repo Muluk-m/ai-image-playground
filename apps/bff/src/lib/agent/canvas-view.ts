@@ -12,8 +12,8 @@ import {
 } from '@image-playground/shared'
 import { and, eq, isNull } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import type { AgentToolContext } from '../../modules/agent'
-import { AgentToolError } from '../../modules/agent'
+import type { AgentToolContext } from '../../modules/agent/contracts'
+import { AgentToolError } from '../../modules/agent/contracts'
 
 const TEXT_PREVIEW_CHARS = 80
 

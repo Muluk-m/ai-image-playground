@@ -17,7 +17,7 @@ import {
   queueParamsFor,
   requestedImageCount,
   withAspectRatio,
-} from '../../../modules/agent'
+} from '../../../modules/agent/contracts'
 import { submitAgentGeneration } from '../auto-submit'
 import { saveGenerationDraft } from '../confirmations'
 import { resolveAgentModel } from '../model-resolution'

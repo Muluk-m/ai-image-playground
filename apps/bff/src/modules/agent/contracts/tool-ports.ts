@@ -179,3 +179,17 @@ export interface MaskedEditPlan {
   /** 这次提交登记之后计划会是什么样：随任务一起记下，唤醒轮据此接着执行。 */
   carryAfter(submission: MaskedSubmission): MaskedPlanCarry
 }
+
+/** 同一批里几个任务各自记下的计划合成一份：内容取并集，后续编辑以最后提交的那一次为准。 */
+export function mergeMaskedPlanCarries(
+  carries: readonly MaskedPlanCarry[],
+): MaskedPlanCarry | undefined {
+  const last = carries.at(-1)
+  if (!last) return undefined
+  return {
+    authorization: last.authorization,
+    protected: carries.some((carry) => carry.protected),
+    contents: [...new Set(carries.flatMap((carry) => carry.contents))],
+    deferred: last.deferred,
+  }
+}

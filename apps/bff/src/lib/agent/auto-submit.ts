@@ -8,7 +8,7 @@ import type {
   SubmitRequest,
 } from '@image-playground/shared'
 import { AGENT_AUTO_SUBMIT_MAX_PER_TURN, shapeQueuePrompt } from '@image-playground/shared'
-import { type AgentAutoSubmitBudget, queueRefusalCode } from '../../modules/agent'
+import { type AgentAutoSubmitBudget, queueRefusalCode } from '../../modules/agent/contracts'
 import {
   type CreateQueueTaskInput,
   type CreateQueueTaskOutcome,

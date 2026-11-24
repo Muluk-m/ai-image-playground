@@ -11,7 +11,7 @@ import {
   videoSupportForCapabilities,
 } from '@image-playground/shared'
 import { config } from '../../config'
-import type { QueueTarget } from '../../modules/agent'
+import type { QueueTarget } from '../../modules/agent/contracts'
 import { isCapabilityEnabled } from '../capabilities'
 import { getChannels, resolveQueueModel } from '../channels'
 import { knownInactiveModels } from '../model-availability'

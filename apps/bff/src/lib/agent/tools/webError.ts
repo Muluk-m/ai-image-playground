@@ -1,1 +1,1 @@
-export { safeFetchToolError } from '../../../modules/agent'
+export { safeFetchToolError } from '../../../modules/agent/contracts'

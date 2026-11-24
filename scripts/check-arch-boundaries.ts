@@ -20,12 +20,12 @@ const ALLOWED_DB_TO_OUTSIDE = new Set([
   'db/client.ts -> config.ts',
   'db/maintenance.ts -> config.ts',
   'db/maintenance.ts -> lib/agent/batch-progress.ts',
-  'db/maintenance.ts -> lib/agent/conversations.ts',
   'db/maintenance.ts -> lib/durableMediaStore.ts',
   'db/maintenance.ts -> lib/logger.ts',
   'db/maintenance.ts -> lib/objectStore.ts',
   'db/maintenance.ts -> lib/retry.ts',
   'db/maintenance.ts -> lib/sync-assets.ts',
+  'db/maintenance.ts -> modules/agent/index.ts',
   'db/maintenance.ts -> modules/execution/index.ts',
   'db/migrate.ts -> config.ts',
   'db/migrate.ts -> lib/capabilities.ts',
@@ -323,7 +323,10 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
       }
 
       if (toModule && fromModule?.name !== toModule.name && !file.startsWith('bootstrap/')) {
-        if (toModule.rest !== 'index.ts') {
+        if (
+          toModule.rest !== 'index.ts' &&
+          !(toModule.name === 'agent' && toModule.rest === 'contracts/index.ts')
+        ) {
           violations.push(
             `[module-encapsulation] ${edge} bypasses modules/${toModule.name}/index.ts facade`,
           )
@@ -363,21 +366,28 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
       if (fromModule?.name === 'agent' && toModule?.name === 'agent') {
         const fromLayer = agentLayerOf(fromModule.rest)
         const toLayer = agentLayerOf(toModule.rest)
-        if (fromLayer && toLayer && AGENT_LAYER_RANK[fromLayer]! < AGENT_LAYER_RANK[toLayer]!) {
+        if (fromLayer && toModule.rest === 'index.ts') {
+          violations.push(
+            `[agent-layer] ${edge} violates ADR 0034 agent sub-layer order (${fromLayer} -> facade index.ts)`,
+          )
+        } else if (
+          fromLayer &&
+          toLayer &&
+          AGENT_LAYER_RANK[fromLayer]! < AGENT_LAYER_RANK[toLayer]!
+        ) {
           violations.push(
             `[agent-layer] ${edge} violates ADR 0034 agent sub-layer order (${fromLayer} -> ${toLayer})`,
           )
         }
       }
 
-      if (
-        fromModule?.name === 'agent' &&
-        agentLayerOf(fromModule.rest) === 'contracts' &&
-        target.startsWith('lib/agent/')
-      ) {
-        violations.push(
-          `[agent-contracts -> legacy-agent] ${edge} is not allowed (contracts layer must stay free of lib/agent deps)`,
-        )
+      if (fromModule?.name === 'agent' && target.startsWith('lib/agent/')) {
+        const layer = agentLayerOf(fromModule.rest)
+        if (layer === 'contracts' || layer === 'conversation' || layer === 'inbox') {
+          violations.push(
+            `[agent-${layer} -> legacy-agent] ${edge} is not allowed (${layer} layer must stay free of lib/agent deps)`,
+          )
+        }
       }
 
       if (
