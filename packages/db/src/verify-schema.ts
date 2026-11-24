@@ -231,6 +231,8 @@ export const EXPECTED_INDEXES = [
   'idx_tasks_provider_submitted',
   'idx_tasks_status_submitted',
   'idx_tasks_error_submitted',
+  'idx_tasks_reconciling_next_retry',
+  'idx_tasks_reconciling_alert',
   'idx_tasks_user_client_request_id',
   'idx_tasks_user_status_time',
   'idx_tasks_user_time',

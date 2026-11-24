@@ -21,13 +21,9 @@ export function setAutoReconcileAlertSenderForTesting(next?: AlertSender): void 
   sender = next ?? envAlertSender()
 }
 
-/**
- * 结果确认到期就向上游核对一次。查到结果就归档完成；确认没有可交付结果就失败退款并唤醒助手。
- * 查询失败或上游仍在生成则保持原状，并把下次核对往后推，避免少数对不上的任务占满每一轮名额。
- * 进入超过 30 分钟仍未结束的，单独扫出来通知运维；去重写在任务行上，重启和多 worker 不会重复发。
- */
-export async function autoReconcileTasks(now = Date.now()): Promise<void> {
-  const rows = await db
+/** 构造到期自动对账扫描查询，供执行与 EXPLAIN 索引验收共用，避免两处条件漂移。 */
+export function buildDueReconcilingTasksQuery(now: number) {
+  return db
     .select({
       id: schema.tasks.id,
       startedAt: schema.tasks.reconcile_started_at,
@@ -44,6 +40,40 @@ export async function autoReconcileTasks(now = Date.now()): Promise<void> {
     )
     .orderBy(asc(schema.tasks.next_retry_at))
     .limit(5)
+}
+
+/** 构造 30 分钟超时未告警扫描查询，供执行与 EXPLAIN 索引验收共用。 */
+export function buildOverdueReconcileAlertQuery(now: number) {
+  const dueAt = now - QUEUE_TIMEOUTS.RECONCILE_ALERT_AFTER_MS
+  return db
+    .select({
+      id: schema.tasks.id,
+      userId: schema.tasks.user_id,
+      startedAt: schema.tasks.reconcile_started_at,
+    })
+    .from(schema.tasks)
+    .where(
+      and(
+        eq(schema.tasks.status, 'reconciling'),
+        eq(schema.tasks.kind, 'queue'),
+        isNull(schema.tasks.reconcile_alerted_at),
+        or(
+          isNull(schema.tasks.reconcile_started_at),
+          lte(schema.tasks.reconcile_started_at, dueAt),
+        ),
+      ),
+    )
+    .orderBy(asc(schema.tasks.reconcile_started_at))
+    .limit(20)
+}
+
+/**
+ * 结果确认到期就向上游核对一次。查到结果就归档完成；确认没有可交付结果就失败退款并唤醒助手。
+ * 查询失败或上游仍在生成则保持原状，并把下次核对往后推，避免少数对不上的任务占满每一轮名额。
+ * 进入超过 30 分钟仍未结束的，单独扫出来通知运维；去重写在任务行上，重启和多 worker 不会重复发。
+ */
+export async function autoReconcileTasks(now = Date.now()): Promise<void> {
+  const rows = await buildDueReconcilingTasksQuery(now)
   for (const task of rows) {
     try {
       await reconcileOne(task, now)
@@ -133,27 +163,7 @@ function terminal(status: unknown): 'reconciling' | 'completed' | 'failed' {
 
 /** 超过 30 分钟仍在确认的，不依赖本轮有没有轮到核对。 */
 async function alertOverdue(now: number): Promise<void> {
-  const dueAt = now - QUEUE_TIMEOUTS.RECONCILE_ALERT_AFTER_MS
-  const rows = await db
-    .select({
-      id: schema.tasks.id,
-      userId: schema.tasks.user_id,
-      startedAt: schema.tasks.reconcile_started_at,
-    })
-    .from(schema.tasks)
-    .where(
-      and(
-        eq(schema.tasks.status, 'reconciling'),
-        eq(schema.tasks.kind, 'queue'),
-        isNull(schema.tasks.reconcile_alerted_at),
-        or(
-          isNull(schema.tasks.reconcile_started_at),
-          lte(schema.tasks.reconcile_started_at, dueAt),
-        ),
-      ),
-    )
-    .orderBy(asc(schema.tasks.reconcile_started_at))
-    .limit(20)
+  const rows = await buildOverdueReconcileAlertQuery(now)
   for (const task of rows) {
     if (!reconcilingDue(task.startedAt, now, QUEUE_TIMEOUTS.RECONCILE_ALERT_AFTER_MS)) continue
     try {
