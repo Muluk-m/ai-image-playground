@@ -218,7 +218,9 @@ class TaskExecutionHandle implements TaskExecution {
       const updated = await tx
         .update(schema.tasks)
         .set({
-          request_payload: sql`${schema.tasks.request_payload} || ${JSON.stringify({ image26_degrade: record })}::jsonb`,
+          // Bun SQL binds string params for `::jsonb` as JSON string scalars, which turns `||`
+          // into a 2-element array instead of merging objects; cast via `::text::jsonb` (see common.ts).
+          request_payload: sql`${schema.tasks.request_payload} || ${JSON.stringify({ image26_degrade: record })}::text::jsonb`,
         })
         .where(this.#own())
         .returning({ id: schema.tasks.id })
