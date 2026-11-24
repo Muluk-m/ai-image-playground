@@ -7,7 +7,7 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 const root = resolve(__dirname, '../../../../..')
-const { retainPagesAssets, KEEP_RELEASES } = await import(
+const { retainPagesAssets, KEEP_DAYS } = await import(
   pathToFileURL(join(root, 'scripts/retain-pages-assets.mjs')).href
 )
 
@@ -120,25 +120,38 @@ it('copies the previous release files that this build no longer has', async () =
   expect(releases[1].files).toEqual(['assets/AuthGate-OLDOLDOL.js', 'assets/shared-SSSSSSSS.js'])
 })
 
-it(`keeps at most ${KEEP_RELEASES} releases and nothing older than 14 days`, async () => {
-  const releases = Array.from({ length: 8 }, (_, index) => ({
-    publishedAt: daysAgo(index + 1),
-    files: [`assets/r${index}-RRRRRRR${index}.js`],
+it(`keeps every release from the last ${KEEP_DAYS} days, however many, and nothing older`, async () => {
+  // Twenty releases a day apart in hours: a count limit would have dropped most of them.
+  const releases = Array.from({ length: 20 }, (_, index) => ({
+    publishedAt: daysAgo((index + 1) / 4),
+    files: [`assets/r${index}-RRRRRR${String(index).padStart(2, '0')}.js`],
   }))
-  releases.push({ publishedAt: daysAgo(30), files: ['assets/ancient-ANCIENT0.js'] })
+  releases.push({ publishedAt: daysAgo(KEEP_DAYS + 1), files: ['assets/stale-STALE000.js'] })
   const routes: Record<string, () => Response> = {
     '/assets-manifest.json': () => json({ version: 1, releases }),
   }
   for (const release of releases) routes[`/${release.files[0]}`] = () => js('old')
   await run(site(routes))
   const kept = (await manifest()).releases
-  expect(kept).toHaveLength(KEEP_RELEASES)
+  expect(kept).toHaveLength(21)
   expect(kept.slice(1).map((release: { publishedAt: string }) => release.publishedAt)).toEqual(
-    releases.slice(0, KEEP_RELEASES - 1).map((release) => release.publishedAt),
+    releases.slice(0, 20).map((release) => release.publishedAt),
   )
-  expect(await exists('assets/r0-RRRRRRR0.js')).toBe(true)
-  expect(await exists(`assets/r${KEEP_RELEASES - 1}-RRRRRRR${KEEP_RELEASES - 1}.js`)).toBe(false)
-  expect(await exists('assets/ancient-ANCIENT0.js')).toBe(false)
+  expect(await exists('assets/r19-RRRRRR19.js')).toBe(true)
+  expect(await exists('assets/stale-STALE000.js')).toBe(false)
+})
+
+it('drops a previous release whose files are all gone', async () => {
+  await run(
+    site({
+      '/assets-manifest.json': () =>
+        json({
+          version: 1,
+          releases: [{ publishedAt: daysAgo(1), files: ['assets/gone-GGGGGGGG.js'] }],
+        }),
+    }),
+  )
+  expect((await manifest()).releases).toHaveLength(1)
 })
 
 it.each([

@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Pages serves only the latest deployment on a custom domain, so a tab opened on the previous
-// release gets 404 for chunks it has not loaded yet. Before upload, copy the hashed files of the
-// last few releases from the live site into this dist and record them in assets-manifest.json.
+// release gets 404 for chunks it has not loaded yet. Before upload, copy the hashed files of every
+// release from the last KEEP_DAYS days from the live site into this dist and record them in
+// assets-manifest.json. Releases are kept by age, not by count, so how often production is
+// released does not shorten how long an open tab stays safe.
 //
 // Usage: node scripts/retain-pages-assets.mjs <dist-dir> <live-origin>
 //
@@ -14,8 +16,7 @@ import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const MANIFEST = 'assets-manifest.json'
-export const KEEP_RELEASES = 5
-export const KEEP_DAYS = 14
+export const KEEP_DAYS = 7
 /** Pages allows 20,000 files per deployment; older releases are dropped above this. */
 export const MAX_FILES = 15_000
 /** Pages rejects larger files, so a bigger response is not a real asset. */
@@ -160,7 +161,6 @@ export function selectReleases(releases, now) {
   return releases
     .filter((release) => Date.parse(release.publishedAt) >= cutoff)
     .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt))
-    .slice(0, KEEP_RELEASES - 1)
 }
 
 async function mapPool(items, limit, fn) {
@@ -239,10 +239,12 @@ export async function retainPagesAssets({
 
   const releases = [
     { publishedAt: now.toISOString(), files: current },
-    ...kept.map((release) => ({
-      publishedAt: release.publishedAt,
-      files: release.files.filter((file) => present.has(file) || (wanted.has(file) && !missing.has(file))),
-    })),
+    ...kept
+      .map((release) => ({
+        publishedAt: release.publishedAt,
+        files: release.files.filter((file) => present.has(file) || (wanted.has(file) && !missing.has(file))),
+      }))
+      .filter((release) => release.files.length > 0),
   ]
   await writeFile(
     join(distDir, MANIFEST),
