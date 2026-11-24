@@ -16,6 +16,8 @@ import { i18next, UserFacingError } from '../../i18n'
 import type { TaskParams } from '../../types'
 import { normalizeApiTimeout } from '../apiProfiles'
 import { authenticatedBffFetch } from '../authClient'
+import { accountScope, isUserStorageScope } from '../authScope'
+import { getAttachmentLimits, isClientCapabilityEnabled } from '../clientCapabilities'
 import { getDeviceId } from '../deviceId'
 import { gifFrameSize } from '../image26Format'
 import {
@@ -24,8 +26,10 @@ import {
   type CallApiOptions,
   type CallApiResult,
   getApiErrorMessage,
+  getDataUrlDecodedByteSize,
   getDataUrlEncodedByteSize,
 } from '../imageApiShared'
+import { uploadMediaSource } from '../mediaUpload'
 import { bffBaseUrl } from '../runtimeConfig'
 import { nearestAspectRatio } from '../size'
 import { taskCancelled, taskFailure } from '../taskError'
@@ -65,6 +69,59 @@ export function submitErrorCodeOf(error: unknown): string | undefined {
 
 const { POLL_BACKOFF_MS, POLL_MAX_MS, POLL_MAX_CONSECUTIVE_FAILURES } = QUEUE_TIMEOUTS
 const CONFIRMING_POLL_MS = 1000
+/** 超过该编码体积的本地 data URL 走预签名直传（转成 `aip-media:<id>`），小图直接内联省一次 RTT。 */
+export const DIRECT_SUBMIT_UPLOAD_MIN_BYTES = 64 * 1024
+const DIRECT_SUBMIT_UPLOAD_TIMEOUT_MS = 30_000
+
+/**
+ * 登录后且服务端开启附件直传时，把较大的 `data:image/*` 输入图经预签名 URL 直传对象存储，
+ * 替换为 `aip-media:<mediaId>`，保留原数组下标顺序（视频首尾帧下标与提示词图序不变）；
+ * 任意单张直传失败或超时均静默回退原始 data URL，不影响提交主流程。
+ */
+export async function prepareDirectSubmitInputs(
+  inputs: readonly string[],
+  options?: { readonly timeoutMs?: number },
+): Promise<string[]> {
+  if (
+    !inputs.length ||
+    !isUserStorageScope() ||
+    !isClientCapabilityEnabled('accounts:sync') ||
+    !isClientCapabilityEnabled('agent:attachments')
+  ) {
+    return [...inputs]
+  }
+  const sameAccount = accountScope()
+  const attachmentByteLimit = getAttachmentLimits()?.imageBytes
+  const timeoutMs = options?.timeoutMs ?? DIRECT_SUBMIT_UPLOAD_TIMEOUT_MS
+  const inFlight = new Map<string, Promise<string>>()
+  const promote = (url: string): Promise<string> => {
+    if (
+      !url.startsWith('data:image/') ||
+      getDataUrlEncodedByteSize(url) < DIRECT_SUBMIT_UPLOAD_MIN_BYTES
+    ) {
+      return Promise.resolve(url)
+    }
+    if (attachmentByteLimit !== undefined && getDataUrlDecodedByteSize(url) > attachmentByteLimit) {
+      return Promise.resolve(url)
+    }
+    const existing = inFlight.get(url)
+    if (existing) return existing
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    const pending = uploadMediaSource(url, {
+      signal: controller.signal,
+      purpose: 'conversation-attachment',
+    })
+      .then((uploaded) => (uploaded?.id ? `aip-media:${uploaded.id}` : url))
+      .catch(() => url)
+      .finally(() => clearTimeout(timer))
+    inFlight.set(url, pending)
+    return pending
+  }
+  const resolved = await Promise.all(inputs.map(promote))
+  if (!sameAccount()) throw new Error('media_scope_changed')
+  return resolved
+}
 
 /** 队列产出的字节地址。留在传输层，避免认证启动时提前加载用户 store。 */
 export function queueOutputUrl(taskId: string, outputIndex: number): string {
@@ -94,15 +151,23 @@ export async function callQueueChannelApi(
   if (!provider) {
     throw new UserFacingError(i18next.t('dispatch.unsupportedModel', { ns: 'lib' }))
   }
+  const preparedInputs = await prepareDirectSubmitInputs(opts.inputImageDataUrls)
   assertImageInputPayloadSize(
-    opts.inputImageDataUrls.reduce((sum, url) => sum + getDataUrlEncodedByteSize(url), 0),
+    preparedInputs.reduce((sum, url) => sum + getDataUrlEncodedByteSize(url), 0),
   )
 
   const model = profile.selectedModelId
   const base = bffBaseUrl()
   const codexCli = Boolean(channel.defaults.codexCli)
 
-  const requestId = await submit(base, provider, model, opts, codexCli, opts.clientRequestId)
+  const requestId = await submit(
+    base,
+    provider,
+    model,
+    { ...opts, inputImageDataUrls: preparedInputs },
+    codexCli,
+    opts.clientRequestId,
+  )
   opts.onQueueSubmitted?.(requestId)
   return await pollAndFetch(channel, base, requestId, opts.onQueueStatus)
 }
@@ -384,8 +449,9 @@ export async function submitVideoRequest(input: VideoSubmitInput): Promise<strin
       i18next.t('queue.unsupportedKindVideo', { ns: 'lib', kind: input.channel.kind }),
     )
   }
+  const preparedInputs = await prepareDirectSubmitInputs(input.inputImageDataUrls)
   assertImageInputPayloadSize(
-    input.inputImageDataUrls.reduce((sum, url) => sum + getDataUrlEncodedByteSize(url), 0),
+    preparedInputs.reduce((sum, url) => sum + getDataUrlEncodedByteSize(url), 0),
   )
   const body: Record<string, unknown> = {
     prompt: input.prompt,
@@ -393,7 +459,7 @@ export async function submitVideoRequest(input: VideoSubmitInput): Promise<strin
     video: input.video,
     client_request_id: input.clientRequestId,
   }
-  if (input.inputImageDataUrls.length) body.input_images = input.inputImageDataUrls
+  if (preparedInputs.length) body.input_images = preparedInputs
   if (input.stageAuthorization) body.stage_authorization = input.stageAuthorization
   return await postSubmit(bffBaseUrl(), provider, input.model, body)
 }

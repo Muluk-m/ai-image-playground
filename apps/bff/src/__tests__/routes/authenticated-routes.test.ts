@@ -722,6 +722,66 @@ describe('BFF optional user auth', () => {
     )
     expect(foreign.status).toBe(400)
     expect(foreign.json).toMatchObject({ error: 'invalid_input_image' })
+
+    // Pure input_media_ids submit resolves identically and archives exact bytes.
+    const byMediaIds = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({ input_media_ids: [mediaId.toUpperCase()] }),
+      { cookie: aliceCookie },
+    )
+    expect(byMediaIds.status).toBe(200)
+    const mediaIdsTaskId = (byMediaIds.json as { request_id: string }).request_id
+    expect(await storage.read(`${mediaIdsTaskId}/in/0`)).toEqual(new Uint8Array(TEST_IMAGE.png))
+
+    // Mixed input_images + input_media_ids preserves order ([inline, mediaId]).
+    const inlineJpeg = `data:image/jpeg;base64,${TEST_IMAGE.jpeg.toString('base64')}`
+    const mixed = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({ input_images: [inlineJpeg], input_media_ids: [mediaId] }),
+      { cookie: aliceCookie },
+    )
+    expect(mixed.status).toBe(200)
+    const mixedTaskId = (mixed.json as { request_id: string }).request_id
+    expect(await storage.read(`${mixedTaskId}/in/0`)).toEqual(new Uint8Array(TEST_IMAGE.jpeg))
+    expect(await storage.read(`${mixedTaskId}/in/1`)).toEqual(new Uint8Array(TEST_IMAGE.png))
+
+    // Combined count exceeding QUEUE_MAX_INPUT_IMAGES (16) is rejected with 400 invalid_request.
+    const tooMany = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({
+        input_images: Array.from({ length: 10 }, () => inlineJpeg),
+        input_media_ids: Array.from({ length: 7 }, () => mediaId),
+      }),
+      { cookie: aliceCookie },
+    )
+    expect(tooMany.status).toBe(400)
+    expect(tooMany.json).toMatchObject({ error: 'invalid_request' })
+
+    // Foreign user's input_media_ids is rejected with 400 invalid_input_image.
+    const foreignMediaIds = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({
+        device_id: 'bob-device-aaaa-bbbb-cccc',
+        input_media_ids: [mediaId],
+      }),
+      { cookie: bobCookie },
+    )
+    expect(foreignMediaIds.status).toBe(400)
+    expect(foreignMediaIds.json).toMatchObject({ error: 'invalid_input_image' })
+
+    // Non-UUID input_media_ids fails schema validation with 400 invalid_request.
+    const badUuid = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({ input_media_ids: ['not-a-uuid'] }),
+      { cookie: aliceCookie },
+    )
+    expect(badUuid.status).toBe(400)
+    expect(badUuid.json).toMatchObject({ error: 'invalid_request' })
   })
 
   it('对象存储读输入图卡住或回 5xx 时，提交有期限：重试一次，仍不行就明确回 503', async () => {
