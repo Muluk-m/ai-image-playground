@@ -96,6 +96,7 @@ export function OperatorSettingsPanel() {
   const query = useOperatorSettings()
   const client = useQueryClient()
   const [search, setSearch] = useState('')
+  const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [stale, setStale] = useState(false)
   const [pendingKey, setPendingKey] = useState<string | null>(null)
@@ -113,6 +114,7 @@ export function OperatorSettingsPanel() {
 
   async function save(row: OperatorSettingRow, value: boolean | number, reason: string) {
     if (pendingKey !== null) return
+    setNotice(null)
     setError(null)
     setStale(false)
     setPendingKey(row.key)
@@ -124,6 +126,7 @@ export function OperatorSettingsPanel() {
       })
       await client.cancelQueries({ queryKey: operatorSettingsQueryKey })
       client.setQueryData(operatorSettingsQueryKey, snapshot)
+      setNotice(`已保存「${row.name}」配置`)
     } catch (cause) {
       const result = mutationError(cause)
       setError(result.message)
@@ -135,6 +138,7 @@ export function OperatorSettingsPanel() {
 
   async function clear(row: OperatorSettingRow, reason: string) {
     if (pendingKey !== null) return
+    setNotice(null)
     setError(null)
     setStale(false)
     setPendingKey(row.key)
@@ -145,6 +149,7 @@ export function OperatorSettingsPanel() {
       })
       await client.cancelQueries({ queryKey: operatorSettingsQueryKey })
       client.setQueryData(operatorSettingsQueryKey, snapshot)
+      setNotice(`已清除「${row.name}」覆盖`)
     } catch (cause) {
       const result = mutationError(cause)
       setError(result.message)
@@ -155,6 +160,7 @@ export function OperatorSettingsPanel() {
   }
 
   async function refresh() {
+    setNotice(null)
     setError(null)
     setStale(false)
     await query.refetch()
@@ -168,6 +174,14 @@ export function OperatorSettingsPanel() {
         placeholder="搜索配置键或中文名"
         aria-label="搜索能力与配额"
       />
+      {notice ? (
+        <p
+          role="status"
+          className="rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success"
+        >
+          {notice}
+        </p>
+      ) : null}
       {error ? (
         <div
           role="alert"
@@ -342,22 +356,35 @@ function SettingRowView({
                   <DialogTitle>{action === 'clear' ? '清除覆盖' : '保存覆盖'}</DialogTitle>
                   <DialogDescription>请填写本次配置变更的原因。</DialogDescription>
                 </DialogHeader>
-                <Input
-                  autoFocus
-                  aria-label="修改原因"
-                  maxLength={1000}
-                  value={reason}
-                  onChange={(event) => setReason(event.target.value)}
-                  placeholder="修改原因（必填）"
-                />
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setReasonOpen(false)} disabled={pending}>
-                    取消
-                  </Button>
-                  <Button onClick={submit} disabled={pending || !reason.trim()}>
-                    继续
-                  </Button>
-                </DialogFooter>
+                <form
+                  className="space-y-4"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    if (!pending && reason.trim()) submit()
+                  }}
+                >
+                  <Input
+                    autoFocus
+                    aria-label="修改原因"
+                    maxLength={1000}
+                    value={reason}
+                    onChange={(event) => setReason(event.target.value)}
+                    placeholder="修改原因（必填）"
+                  />
+                  <DialogFooter>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setReasonOpen(false)}
+                      disabled={pending}
+                    >
+                      取消
+                    </Button>
+                    <Button type="submit" disabled={pending || !reason.trim()}>
+                      继续
+                    </Button>
+                  </DialogFooter>
+                </form>
               </DialogContent>
             </Dialog>
             <Dialog

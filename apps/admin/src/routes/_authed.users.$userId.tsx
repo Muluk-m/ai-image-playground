@@ -35,6 +35,7 @@ function UserOperations({ user }: { user: AdminUserRow }) {
   const queryClient = useQueryClient()
   const [resetting, setResetting] = useState(false)
   const [confirming, setConfirming] = useState<'status' | 'sessions' | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const mutation = useMutation({
     mutationFn: ({ operation, reason }: { operation: 'status' | 'sessions'; reason: string }) => {
       const id = encodeURIComponent(user.id)
@@ -45,8 +46,15 @@ function UserOperations({ user }: { user: AdminUserRow }) {
         reason,
       })
     },
-    onSuccess: async () => {
+    onSuccess: async (_data, variables) => {
       setConfirming(null)
+      setNotice(
+        variables.operation === 'sessions'
+          ? '已撤销全部活跃会话'
+          : user.status === 'active'
+            ? '已停用该账号'
+            : '已启用该账号',
+      )
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['user', user.id] }),
         queryClient.invalidateQueries({ queryKey: ['users'] }),
@@ -63,7 +71,11 @@ function UserOperations({ user }: { user: AdminUserRow }) {
         variant="outline"
         size="sm"
         disabled={mutation.isPending || user.active_sessions === 0}
-        onClick={() => setConfirming('sessions')}
+        title={user.active_sessions === 0 ? '当前无活跃会话' : undefined}
+        onClick={() => {
+          setNotice(null)
+          setConfirming('sessions')
+        }}
       >
         <LogOut /> 撤销会话
       </Button>
@@ -71,11 +83,19 @@ function UserOperations({ user }: { user: AdminUserRow }) {
         variant={user.status === 'active' ? 'destructive' : 'outline'}
         size="sm"
         disabled={mutation.isPending}
-        onClick={() => setConfirming('status')}
+        onClick={() => {
+          setNotice(null)
+          setConfirming('status')
+        }}
       >
         {user.status === 'active' ? <ShieldOff /> : <ShieldCheck />}
         {user.status === 'active' ? '停用' : '启用'}
       </Button>
+      {notice ? (
+        <span role="status" className="text-xs font-medium text-success">
+          {notice}
+        </span>
+      ) : null}
       {mutation.isError ? <span className="text-xs text-destructive">操作失败，请重试</span> : null}
       <UserFormDialog mode="reset" user={user} open={resetting} onOpenChange={setResetting} />
       <DangerConfirmDialog

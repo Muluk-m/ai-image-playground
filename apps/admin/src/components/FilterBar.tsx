@@ -1,3 +1,4 @@
+import { useRouter } from '@tanstack/react-router'
 import { Plus, Search, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { DateTimePicker } from '@/components/DateTimePicker'
@@ -333,10 +334,12 @@ function AddFilter({
 }
 
 function SavedViews({ pageKey }: { pageKey: string }) {
+  const router = useRouter({ warn: false })
   const [views, setViews] = useState(() => readSavedViews(pageKey))
   const [name, setName] = useState('')
+  const [open, setOpen] = useState(false)
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="outline" size="sm" className="h-8 text-xs">
           保存视图
@@ -380,7 +383,12 @@ function SavedViews({ pageKey }: { pageKey: string }) {
                   type="button"
                   className="min-w-0 flex-1 truncate rounded px-2 py-1 text-left text-xs hover:bg-muted"
                   onClick={() => {
-                    window.location.assign(view.href)
+                    setOpen(false)
+                    if (router) {
+                      router.history.push(view.href)
+                    } else {
+                      window.location.assign(view.href)
+                    }
                   }}
                 >
                   {view.name}
