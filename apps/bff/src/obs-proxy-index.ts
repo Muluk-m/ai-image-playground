@@ -1,8 +1,4 @@
-import {
-  createObsProxy,
-  OBS_PROXY_MAX_BODY_BYTES,
-  shouldLogObsProxyRequest,
-} from './ops/obs-proxy'
+import { createObsProxy, OBS_PROXY_MAX_BODY_BYTES, shouldLogObsProxyRequest } from './ops/obs-proxy'
 
 /** OpenObserve 只读代理的进程入口（compose 服务 `obs-proxy`，APP_ROLE=obs-proxy）。 */
 
