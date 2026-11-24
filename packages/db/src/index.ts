@@ -1,4 +1,12 @@
 export {
+  type BackfillTaskPayloadsBatch,
+  type BackfillTaskPayloadsOptions,
+  type BackfillTaskPayloadsResult,
+  backfillTaskPayloads,
+  type TaskPayloadsConsistencyReport,
+  verifyTaskPayloadsConsistency,
+} from './backfill-task-payloads'
+export {
   createDb,
   type DbHandle,
   type DbPoolOptions,

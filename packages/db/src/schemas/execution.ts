@@ -33,6 +33,16 @@ import { bunJsonb, epochMs } from './common'
 import { cli_connections, users } from './identity'
 import { media_objects } from './media'
 
+export interface TaskMeteringSnapshot {
+  mode: 'credits' | 'none'
+  model: string
+  quantity: number
+  unitMultiplier: number
+  pricing?: AgentBatchPriceSnapshot
+  /** 提交时定下的档位决定；2026-11 之前的任务行没有。 */
+  tier?: ImageTierSnapshot
+}
+
 export const tasks = pgTable(
   'tasks',
   {
@@ -43,15 +53,7 @@ export const tasks = pgTable(
     reconciliation_required: boolean('reconciliation_required').notNull().default(false),
     request_payload: bunJsonb('request_payload').$type<PersistedSubmitRequest>().notNull(),
     /** Submission-time billing mode and pricing inputs; terminal paths reuse this immutable snapshot. */
-    metering: bunJsonb('metering').$type<{
-      mode: 'credits' | 'none'
-      model: string
-      quantity: number
-      unitMultiplier: number
-      pricing?: AgentBatchPriceSnapshot
-      /** 提交时定下的档位决定；2026-11 之前的任务行没有。 */
-      tier?: ImageTierSnapshot
-    } | null>(),
+    metering: bunJsonb('metering').$type<TaskMeteringSnapshot | null>(),
     result_payload: bunJsonb('result_payload'),
     /** Recoverable source URLs or spooled object references; never inline original bytes. */
     archive_payload: bunJsonb('archive_payload'),
@@ -218,6 +220,21 @@ export const queue_tasks = pgView('queue_tasks').as((qb) =>
     .where(eq(tasks.kind, 'queue')),
 )
 
+/**
+ * 冷载荷 1:1 附表（ADR 0034 Phase 5）：存放低频大体积载荷，避免 tasks 热路径续租/认领
+ * 产生整行 MVCC 复制。Expand 阶段与 tasks 同事务双写，Contract 后承接全部冷载荷读写。
+ */
+export const task_payloads = pgTable('task_payloads', {
+  task_id: text('task_id')
+    .primaryKey()
+    .references(() => tasks.id, { onDelete: 'cascade' }),
+  request_payload: bunJsonb('request_payload').$type<PersistedSubmitRequest>().notNull(),
+  metering: bunJsonb('metering').$type<TaskMeteringSnapshot | null>(),
+  result_payload: bunJsonb('result_payload'),
+  archive_payload: bunJsonb('archive_payload'),
+  upstream_body: text('upstream_body'),
+})
+
 export const task_dispatches = pgTable(
   'task_dispatches',
   {
@@ -259,6 +276,8 @@ export const cli_jobs = pgTable(
 
 export type Task = typeof tasks.$inferSelect
 export type NewTask = typeof tasks.$inferInsert
+export type TaskPayload = typeof task_payloads.$inferSelect
+export type NewTaskPayload = typeof task_payloads.$inferInsert
 export const generation_records = pgTable(
   'generation_records',
   {
