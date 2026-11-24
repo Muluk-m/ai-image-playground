@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import type { Catalog, ModelPrice } from '@image-playground/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { apiClient } from '../../lib/private-host'
@@ -114,17 +114,16 @@ function PriceEditor({
     defaultValues: values,
   })
 
-  const isDirtyRef = useRef(false)
-  isDirtyRef.current = form.formState.isDirty
+  const isDirty = form.formState.isDirty
 
   useEffect(() => {
-    if (!isDirtyRef.current) {
+    if (!isDirty && serverVersion !== baselineVersion) {
       setBaselineVersion(serverVersion)
       form.reset(values)
     }
-  }, [form, serverVersion, values])
+  }, [baselineVersion, form, isDirty, serverVersion, values])
 
-  const hasConflict = serverVersion !== baselineVersion && form.formState.isDirty
+  const hasConflict = serverVersion !== baselineVersion && isDirty
 
   const watchedAmount = Number(form.watch('amount'))
   const watchedOut = Number(form.watch('outputAmount'))

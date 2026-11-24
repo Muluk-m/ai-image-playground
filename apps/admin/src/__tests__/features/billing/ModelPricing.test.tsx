@@ -74,5 +74,15 @@ describe('ModelPricing', () => {
     fireEvent.click(screen.getByRole('button', { name: '载入最新' }))
     expect(screen.getByLabelText('输出（积分/千tok）')).toHaveValue(45)
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
+
+    // Edit input -> another server update arrives -> revert input back to original value:
+    // editor becomes clean and must immediately sync the latest server values.
+    fireEvent.change(inputAmount, { target: { value: '9' } })
+    client.setQueryData(['private-billing', 'catalog'], makeCatalog(3000, 60))
+    expect(await screen.findByRole('status')).toHaveTextContent('服务端单价已有新版本')
+
+    fireEvent.change(inputAmount, { target: { value: '6' } })
+    expect(await screen.findByDisplayValue('60')).toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 })
