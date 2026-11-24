@@ -229,59 +229,74 @@ export function useBilling(): BillingSnapshot {
   return value
 }
 
-type BillingModalIntent = 'pricing' | 'recharge'
-const PENDING_BILLING_MODAL_KEY = 'muvloom:pending-billing-modal'
-const PENDING_BILLING_MODAL_TTL_MS = 10 * 60 * 1000
-let pendingBillingModal: BillingModalIntent | null = null
+type WorkspaceSheetKind = 'plans' | 'topup'
+const WORKSPACE_SHEET_STORAGE_KEY = 'muvloom:workspace-sheet-intent'
+const WORKSPACE_SHEET_WINDOW_MS = 10 * 60 * 1000
+let pendingWorkspaceSheet: { kind: WorkspaceSheetKind; until: number } | null = null
 
-function readStoredBillingModal(): BillingModalIntent | null {
+function toModalName(kind: WorkspaceSheetKind): 'pricing' | 'recharge' {
+  return kind === 'plans' ? 'pricing' : 'recharge'
+}
+
+function toSheetKind(modal: 'pricing' | 'recharge'): WorkspaceSheetKind {
+  return modal === 'pricing' ? 'plans' : 'topup'
+}
+
+function clearPendingWorkspaceSheet(): void {
+  pendingWorkspaceSheet = null
   try {
-    const raw = window.sessionStorage.getItem(PENDING_BILLING_MODAL_KEY)
+    window.sessionStorage.removeItem(WORKSPACE_SHEET_STORAGE_KEY)
+  } catch {
+    // 忽略存储异常。
+  }
+}
+
+function readPendingWorkspaceSheet(): WorkspaceSheetKind | null {
+  const now = Date.now()
+  if (pendingWorkspaceSheet) {
+    if (pendingWorkspaceSheet.until > now) return pendingWorkspaceSheet.kind
+    clearPendingWorkspaceSheet()
+    return null
+  }
+  try {
+    const raw = window.sessionStorage.getItem(WORKSPACE_SHEET_STORAGE_KEY)
     if (!raw) return null
-    const parsed = JSON.parse(raw) as { modal?: unknown; expiresAt?: unknown }
-    if (
-      (parsed.modal === 'pricing' || parsed.modal === 'recharge') &&
-      typeof parsed.expiresAt === 'number' &&
-      parsed.expiresAt > Date.now()
-    ) {
-      return parsed.modal
+    const [kind, untilText] = raw.split(':')
+    const until = Number(untilText)
+    if ((kind === 'plans' || kind === 'topup') && Number.isFinite(until) && until > now) {
+      pendingWorkspaceSheet = { kind, until }
+      return kind
     }
-    window.sessionStorage.removeItem(PENDING_BILLING_MODAL_KEY)
+    window.sessionStorage.removeItem(WORKSPACE_SHEET_STORAGE_KEY)
   } catch {
     // sessionStorage 不可用时退回内存状态。
   }
   return null
 }
 
-function clearStoredBillingModal(): void {
-  pendingBillingModal = null
+export function queueBillingModal(modal: 'pricing' | 'recharge'): void {
+  const kind = toSheetKind(modal)
+  const until = Date.now() + WORKSPACE_SHEET_WINDOW_MS
+  pendingWorkspaceSheet = { kind, until }
   try {
-    window.sessionStorage.removeItem(PENDING_BILLING_MODAL_KEY)
-  } catch {
-    // 忽略存储异常。
-  }
-}
-
-export function queueBillingModal(modal: BillingModalIntent): void {
-  pendingBillingModal = modal
-  try {
-    window.sessionStorage.setItem(
-      PENDING_BILLING_MODAL_KEY,
-      JSON.stringify({ modal, expiresAt: Date.now() + PENDING_BILLING_MODAL_TTL_MS }),
-    )
+    window.sessionStorage.setItem(WORKSPACE_SHEET_STORAGE_KEY, `${kind}:${until}`)
   } catch {
     // 忽略存储异常，内存态仍可用。
   }
 }
 
-export function hasPendingBillingModal(): boolean {
-  return (pendingBillingModal ?? readStoredBillingModal()) !== null
+export function clearPendingBillingModal(): void {
+  clearPendingWorkspaceSheet()
 }
 
-export function consumePendingBillingModal(): BillingModalIntent | null {
-  const next = pendingBillingModal ?? readStoredBillingModal()
-  clearStoredBillingModal()
-  return next
+export function hasPendingBillingModal(): boolean {
+  return readPendingWorkspaceSheet() !== null
+}
+
+export function consumePendingBillingModal(): 'pricing' | 'recharge' | null {
+  const kind = readPendingWorkspaceSheet()
+  clearPendingWorkspaceSheet()
+  return kind ? toModalName(kind) : null
 }
 
 export function openBilling(): void {
@@ -289,12 +304,12 @@ export function openBilling(): void {
 }
 
 export function openPricing(): void {
-  clearStoredBillingModal()
+  clearPendingWorkspaceSheet()
   window.dispatchEvent(new Event(OPEN_PRICING_EVENT))
 }
 
 export function openRecharge(): void {
-  clearStoredBillingModal()
+  clearPendingWorkspaceSheet()
   window.dispatchEvent(new Event(OPEN_RECHARGE_EVENT))
 }
 

@@ -5,8 +5,10 @@ import { Icon } from '../../components/ui/icon'
 import { i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
 import { formatCount, formatNumber } from '../../i18n/format'
 import { useLocalePicker } from '../../i18n/useLocalePicker'
+import { isClientCapabilityEnabled } from '../../lib/clientCapabilities'
 import { navigate } from '../../lib/pathname'
 import {
+  clearPendingBillingModal,
   hasPendingBillingModal,
   openPricing,
   openRecharge,
@@ -134,24 +136,32 @@ export default function PricingPage({
     setRechargeYuan(amounts[Math.floor((amounts.length - 1) / 2)] ?? amounts[0] ?? 0)
   }, [catalog, rechargeYuan])
 
+  const billingEnabled = isClientCapabilityEnabled('billing:credits')
+
   useEffect(() => {
     if (embedded || !auth.user || !hasPendingBillingModal()) return
+    if (!billingEnabled) {
+      clearPendingBillingModal()
+      return
+    }
     navigate('/image')
-  }, [embedded, auth.user])
+  }, [embedded, auth.user, billingEnabled])
 
   const enter = (intent: 'pricing' | 'recharge' | 'workspace' = 'workspace') => {
     if (embedded) {
       closePricingSheet()
       if (auth.enabled && !auth.user) {
-        if (intent === 'pricing' || intent === 'recharge') queueBillingModal(intent)
+        if (billingEnabled && (intent === 'pricing' || intent === 'recharge'))
+          queueBillingModal(intent)
         auth.login()
         return
       }
+      if (!billingEnabled) return
       if (intent === 'pricing') openPricing()
       else if (intent === 'recharge') openRecharge()
       return
     }
-    if (intent === 'pricing' || intent === 'recharge') queueBillingModal(intent)
+    if (billingEnabled && (intent === 'pricing' || intent === 'recharge')) queueBillingModal(intent)
     if (auth.enabled && !auth.user) {
       auth.login()
       return
