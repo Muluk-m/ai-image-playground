@@ -100,11 +100,16 @@ esac
 lock_held=false
 release_dispatch_lock() {
   if [ "$lock_held" = true ]; then
-    rm -rf "$lock_dir" 2>/dev/null || true
+    owner=$(cat "$lock_dir/pid" 2>/dev/null || true)
+    if [ "$owner" = "$$" ] || [ -z "$owner" ]; then
+      rm -rf "$lock_dir" 2>/dev/null || true
+    fi
     lock_held=false
   fi
 }
-trap 'release_dispatch_lock' EXIT INT TERM
+trap 'release_dispatch_lock' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 acquire_dispatch_lock() {
   mkdir -p "$(dirname "$lock_dir")"
@@ -115,18 +120,25 @@ acquire_dispatch_lock() {
       lock_held=true
       return 0
     fi
-    # Recover stale lock left behind by a crashed process.
-    if [ -r "$lock_dir/pid" ]; then
+    # Serialize stale-lock recovery so concurrent waiters can never delete a freshly acquired lock.
+    if mkdir "${lock_dir}.reap" 2>/dev/null; then
+      reap_acquired=false
       owner_pid=$(cat "$lock_dir/pid" 2>/dev/null || true)
       case $owner_pid in
         '' | *[!0-9]*) ;;
         *)
           if ! kill -0 "$owner_pid" 2>/dev/null; then
             rm -rf "$lock_dir" 2>/dev/null || true
-            continue
+            if mkdir "$lock_dir" 2>/dev/null; then
+              printf '%s\n' "$$" >"$lock_dir/pid"
+              lock_held=true
+              reap_acquired=true
+            fi
           fi
           ;;
       esac
+      rmdir "${lock_dir}.reap" 2>/dev/null || true
+      [ "$reap_acquired" = false ] || return 0
     fi
     if [ "$(date +%s)" -ge "$lock_deadline" ]; then
       echo "Timed out waiting for local release dispatch lock ($lock_dir)." >&2
@@ -223,12 +235,26 @@ check_already_live() {
 }
 
 # check_active_run: if an active (in_progress, queued, waiting, etc.) Deploy production run already
-# covers $include, piggyback on it instead of dispatching a second deploy.
+# covers $include, piggyback on it instead of dispatching a second deploy. Fails closed if GitHub
+# API cannot be reached so transient errors never cause blind duplicate dispatches.
 check_active_run() {
   [ "$mode" = incremental ] && [ "$pin_sha" = false ] || return 0
-  runs=$(gh api "repos/$repo/actions/workflows/deploy.yml/runs?branch=main&per_page=100" \
-    --jq '.workflow_runs[]? | select(.status != "completed") | "\(.id)\t\(.status)\t\(.head_sha)\t\(.html_url)"' \
-    2>/dev/null) || return 0
+  runs=
+  queried=false
+  for attempt in 1 2; do
+    if runs=$(gh api "repos/$repo/actions/workflows/deploy.yml/runs?branch=main&per_page=100" \
+      --jq '.workflow_runs[]? | select(.status != "completed") | "\(.id)\t\(.status)\t\(.head_sha)\t\(.html_url)"' \
+      2>/dev/null); then
+      queried=true
+      break
+    fi
+    [ "$attempt" -eq 2 ] || sleep 1
+  done
+  if [ "$queried" = false ]; then
+    release_dispatch_lock
+    echo "Could not query active Deploy production runs for $repo; refusing to dispatch without verifying idempotency." >&2
+    exit 1
+  fi
   [ -n "$runs" ] || return 0
 
   matched_id=
@@ -236,7 +262,6 @@ check_active_run() {
   matched_sha=
   matched_url=
   fetched_again=false
-  # Read via line splitting so variables persist outside subshell.
   old_ifs=$IFS
   set -f
   IFS='
@@ -308,8 +333,6 @@ wait_for_web_checks() {
     state=$(web_check_state "$target")
     case $state in
       success)
-        # If we waited, refresh origin/main so we neither miss a concurrent deploy nor dispatch
-        # against a newly merged commit whose Web checks are still running.
         if [ "$waited" = true ]; then
           if refresh_target; then
             echo "origin/main advanced to $(git log -1 --format='%h' "$target") while waiting; checking its Web checks…"
@@ -340,12 +363,20 @@ wait_for_web_checks() {
 
 check_already_live
 check_active_run
-wait_for_web_checks
 
-# Serialize the final recheck + dispatch + run-ID discovery so two parallel Agents on this machine
-# cannot race past check_active_run and dispatch two runs at once.
-acquire_dispatch_lock
-refresh_target || true
+# Wait for Web checks, then acquire the local lock and confirm origin/main did not advance to an
+# unverified commit while waiting for the lock. Never hold the lock across a CI wait.
+while :; do
+  wait_for_web_checks
+  acquire_dispatch_lock
+  if refresh_target; then
+    release_dispatch_lock
+    echo "origin/main advanced to $(git log -1 --format='%h' "$target") while waiting for lock; re-checking Web checks…"
+    continue
+  fi
+  break
+done
+
 check_already_live
 check_active_run
 

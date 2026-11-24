@@ -359,6 +359,62 @@ describe('release.sh', () => {
     expect(ghCalls().filter((c) => c.startsWith('workflow run'))).toHaveLength(1)
   })
 
+  it('safely reaps a stale lock across two concurrent callers without double-dispatching', async () => {
+    const lockDir = join(root, 'release.lock')
+    mkdirSync(lockDir, { recursive: true })
+    writeFileSync(join(lockDir, 'pid'), '999999\n')
+
+    serve({
+      [`${api}/health`]: health(commits[0]),
+      [`${web}/version.json`]: site(commits[0]),
+      [`${admin}/version.json`]: site(commits[0]),
+    })
+    mockGh(
+      {
+        [`repos/${repoSlug}/actions/workflows/deploy.yml/runs?branch=main&per_page=100`]: [
+          { workflow_runs: [] },
+        ],
+        [`repos/${repoSlug}/actions/workflows/web.yml/runs?head_sha=${commits[2]}&event=push&branch=main&per_page=100`]:
+          [{ workflow_runs: [{ status: 'completed', conclusion: 'success' }] }],
+      },
+      { dispatchDelaySec: 1 },
+    )
+
+    const [a, b] = await Promise.all([runReleaseAsync('--no-watch'), runReleaseAsync('--no-watch')])
+    expect(a.status).toBe(0)
+    expect(b.status).toBe(0)
+    const outcomes = [a.stdout, b.stdout].map((s) =>
+      s.includes('outcome=dispatched')
+        ? 'dispatched'
+        : s.includes('outcome=piggybacked')
+          ? 'piggybacked'
+          : 'other',
+    )
+    expect(outcomes.sort()).toEqual(['dispatched', 'piggybacked'])
+    expect(ghCalls().filter((c) => c.startsWith('workflow run'))).toHaveLength(1)
+  })
+
+  it('fails closed when active deploy runs cannot be queried instead of blindly dispatching', () => {
+    serve({
+      [`${api}/health`]: health(commits[0]),
+      [`${web}/version.json`]: site(commits[0]),
+      [`${admin}/version.json`]: site(commits[0]),
+    })
+    writeFileSync(
+      join(root, 'bin/gh'),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> '${ghLogFile}'
+exit 1
+`,
+    )
+    chmodSync(join(root, 'bin/gh'), 0o755)
+
+    const res = runRelease('--no-watch')
+    expect(res.status).toBe(1)
+    expect(res.stderr).toContain('refusing to dispatch without verifying idempotency')
+    expect(ghCalls().some((c) => c.startsWith('workflow run'))).toBe(false)
+  })
+
   it('exits non-zero when watch is enabled and the dispatched run cannot be located', () => {
     serve({
       [`${api}/health`]: health(commits[0]),

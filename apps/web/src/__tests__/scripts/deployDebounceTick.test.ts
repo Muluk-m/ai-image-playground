@@ -90,7 +90,7 @@ function baseResponses(opts?: {
   prodApiSha?: string
   prodWebSha?: string
   prodAdminSha?: string
-  compareFiles?: string[]
+  compareFiles?: Array<string | { filename: string; previous_filename?: string }>
   compareStatus?: string
 }) {
   const headSha = opts?.headSha ?? shaB
@@ -101,7 +101,7 @@ function baseResponses(opts?: {
   const comparePayload = JSON.stringify({
     status: opts?.compareStatus ?? 'ahead',
     total_commits: 1,
-    files: compareFiles.map((filename) => ({ filename })),
+    files: compareFiles.map((f) => (typeof f === 'string' ? { filename: f } : f)),
   })
   const map: Record<string, string> = {
     [`${apiBase}/repos/${repoSlug}/commits/main`]: JSON.stringify({ sha: headSha }),
@@ -161,6 +161,8 @@ beforeEach(() => {
     DEPLOY_DISPATCH_TOKEN_FILE: tokenFile,
     DEPLOY_PAUSE_FILE: pauseFile,
     DEPLOY_STATE_FILE: stateFile,
+    DEPLOY_LOCK_DIR: join(root, 'release.lock'),
+    DEPLOY_DISPATCH_WAIT_SECONDS: '0',
     DEPLOY_API_URL: prodApi,
     DEPLOY_WEB_URL: prodWeb,
     DEPLOY_ADMIN_URL: prodAdmin,
@@ -320,5 +322,34 @@ describe('deploy-debounce-tick.sh', () => {
     expect(flush.status).toBe(0)
     expect(flush.stdout).toContain('dispatched auto-batch (max wait 45m)')
     expect(readDispatches()).toHaveLength(1)
+  })
+
+  it('treats diverged compare history conservatively as needing deploy instead of skipping', () => {
+    mockCurl(
+      baseResponses({
+        headSha: shaB,
+        compareStatus: 'diverged',
+        compareFiles: ['docs/only-doc.md'],
+      }),
+    )
+    const hold = tick('2026-11-24T12:00:00Z')
+    expect(hold.status).toBe(0)
+    expect(hold.stdout).toContain('holding')
+    const state = JSON.parse(readFileSync(stateFile, 'utf8'))
+    expect(state.shipped_sha).toBe('')
+  })
+
+  it('detects files moved out of a deployable path via previous_filename', () => {
+    mockCurl(
+      baseResponses({
+        headSha: shaB,
+        compareFiles: [{ filename: 'docs/archived.ts', previous_filename: 'apps/web/src/old.ts' }],
+      }),
+    )
+    const hold = tick('2026-11-24T12:00:00Z')
+    expect(hold.status).toBe(0)
+    expect(hold.stdout).toContain('holding')
+    const state = JSON.parse(readFileSync(stateFile, 'utf8'))
+    expect(state.shipped_sha).toBe('')
   })
 })

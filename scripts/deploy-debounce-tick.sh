@@ -29,6 +29,10 @@ api=${GITHUB_API_URL:-https://api.github.com}
 token_file=${DEPLOY_DISPATCH_TOKEN_FILE:-$HOME/.config/ai-image-playground/deploy-dispatch.token}
 pause_file=${DEPLOY_PAUSE_FILE:-$HOME/.config/ai-image-playground/deploy-auto.pause}
 state_file=${DEPLOY_STATE_FILE:-$HOME/.cache/ai-image-playground/deploy-debounce-state.json}
+lock_dir=${DEPLOY_LOCK_DIR:-${RELEASE_LOCK_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/ai-image-playground/release-dispatch.lock}}
+lock_wait=${DEPLOY_LOCK_WAIT_SECONDS:-30}
+dispatch_wait=${DEPLOY_DISPATCH_WAIT_SECONDS:-15}
+dispatch_poll=${DEPLOY_DISPATCH_POLL_SECONDS:-2}
 debounce_min=${DEPLOY_DEBOUNCE_MINUTES:-10}
 max_wait_min=${DEPLOY_MAX_WAIT_MINUTES:-45}
 max_retries=${DEPLOY_MAX_RETRIES:-2}
@@ -44,6 +48,56 @@ prod_web=${DEPLOY_WEB_URL:-${PAID_PUBLIC_ORIGIN:-https://muvloom.online}}
 prod_admin=${DEPLOY_ADMIN_URL:-${ADMIN_PUBLIC_ORIGIN:-https://admin.muvloom.online}}
 
 log() { printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*"; }
+
+lock_held=false
+release_dispatch_lock() {
+  if [ "$lock_held" = true ]; then
+    owner=$(cat "$lock_dir/pid" 2>/dev/null || true)
+    if [ "$owner" = "$$" ] || [ -z "$owner" ]; then
+      rm -rf "$lock_dir" 2>/dev/null || true
+    fi
+    lock_held=false
+  fi
+}
+trap 'release_dispatch_lock' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+acquire_dispatch_lock() {
+  mkdir -p "$(dirname "$lock_dir")"
+  lock_deadline=$(( $(date +%s) + lock_wait ))
+  while :; do
+    if mkdir "$lock_dir" 2>/dev/null; then
+      printf '%s\n' "$$" >"$lock_dir/pid"
+      lock_held=true
+      return 0
+    fi
+    if mkdir "${lock_dir}.reap" 2>/dev/null; then
+      reap_acquired=false
+      owner_pid=$(cat "$lock_dir/pid" 2>/dev/null || true)
+      case $owner_pid in
+        '' | *[!0-9]*) ;;
+        *)
+          if ! kill -0 "$owner_pid" 2>/dev/null; then
+            rm -rf "$lock_dir" 2>/dev/null || true
+            if mkdir "$lock_dir" 2>/dev/null; then
+              printf '%s\n' "$$" >"$lock_dir/pid"
+              lock_held=true
+              reap_acquired=true
+            fi
+          fi
+          ;;
+      esac
+      rmdir "${lock_dir}.reap" 2>/dev/null || true
+      [ "$reap_acquired" = false ] || return 0
+    fi
+    if [ "$(date +%s)" -ge "$lock_deadline" ]; then
+      log "local release dispatch lock ($lock_dir) busy; deferring to next tick"
+      exit 0
+    fi
+    sleep 1
+  done
+}
 
 if [ -e "$pause_file" ]; then
   log "auto-release paused ($pause_file)"
@@ -116,19 +170,24 @@ write_state() {
   mv "$tmp" "$state_file"
 }
 
+check_active_deploy() {
+  for st in in_progress queued waiting pending requested; do
+    st_json=$(gh_get "repos/$repo/actions/workflows/deploy.yml/runs?branch=main&status=$st&per_page=5")
+    active_id=$(printf '%s' "$st_json" | jq -r '.workflow_runs[0].id // ""')
+    if [ -n "$active_id" ]; then
+      release_dispatch_lock
+      log "deploy already active ($active_id $st); waiting"
+      exit 0
+    fi
+  done
+}
+
 now=${DEPLOY_NOW_EPOCH:-$(date +%s)}
 read_state
 
 # 1. Never stack runs while a production deploy is active. Query by active status directly so
 # bursts of cancelled/completed runs cannot push a long-running deploy off page 1.
-for st in in_progress queued waiting pending requested; do
-  st_json=$(gh_get "repos/$repo/actions/workflows/deploy.yml/runs?branch=main&status=$st&per_page=5")
-  active_id=$(printf '%s' "$st_json" | jq -r '.workflow_runs[0].id // ""')
-  if [ -n "$active_id" ]; then
-    log "deploy already active ($active_id $st); waiting"
-    exit 0
-  fi
-done
+check_active_deploy
 
 # 2. Fetch current main HEAD and track when main actually changed (rather than commit author time).
 head_json=$(gh_get "repos/$repo/commits/main")
@@ -219,10 +278,12 @@ side_needs_deploy() {
   cmp_status=$(printf '%s' "$compare_json" | jq -r '.status // ""')
   case $cmp_status in
     identical | behind) return 1 ;;
+    ahead) ;;
+    *) return 0 ;;
   esac
   truncated=$(printf '%s' "$compare_json" | jq -r '((.files | length) >= 300) or ((.total_commits // 0) >= 250)')
   [ "$truncated" = false ] || return 0
-  changed_files=$(printf '%s' "$compare_json" | jq -r '.files[]?.filename')
+  changed_files=$(printf '%s' "$compare_json" | jq -r '.files[]? | .filename, (.previous_filename // empty)')
   [ -n "$changed_files" ] || return 1
   if printf '%s\n' "$changed_files" | grep -Eq "$pattern|^pnpm-lock\.yaml$"; then
     return 0
@@ -283,7 +344,11 @@ else
   reason="auto-batch (quiet ${debounce_min}m)"
 fi
 
-# 8. Dispatch ONE incremental Deploy production run with unique dispatch_id (token via stdin).
+# 8. Coordinate via the shared local dispatch lock, re-check active runs, dispatch ONE incremental
+# run with unique dispatch_id, and wait briefly for it to materialize before releasing the lock.
+acquire_dispatch_lock
+check_active_deploy
+
 if [ -n "${DEPLOY_DISPATCH_ID:-}" ]; then
   dispatch_id=$DEPLOY_DISPATCH_ID
 else
@@ -306,10 +371,24 @@ case $status in
     last_dispatch_at=$now
     dispatch_attempts=$((dispatch_attempts + 1))
     write_state
+    # Wait briefly for the dispatched run to materialize while holding the shared lock so a
+    # concurrent scripts/release.sh caller sees it via active-run checks.
+    mat_deadline=$(( $(date +%s) + dispatch_wait ))
+    while [ "$dispatch_wait" -gt 0 ]; do
+      recent=$(gh_get "repos/$repo/actions/workflows/deploy.yml/runs?event=workflow_dispatch&branch=main&per_page=20" 2>/dev/null) || recent='{}'
+      found=$(printf '%s' "$recent" | jq -r --arg did "[$dispatch_id]" '
+        any(.workflow_runs[]?; (.display_title // "") | contains($did))
+      ')
+      [ "$found" = true ] && break
+      [ "$(date +%s)" -lt "$mat_deadline" ] || break
+      sleep "$dispatch_poll"
+    done
+    release_dispatch_lock
     log "dispatched $reason for $head_sha (dispatch_id=$dispatch_id, attempt=$dispatch_attempts, HTTP $status)"
     exit 0
     ;;
   *)
+    release_dispatch_lock
     log "dispatch failed for $head_sha (HTTP $status)"
     exit 1
     ;;
