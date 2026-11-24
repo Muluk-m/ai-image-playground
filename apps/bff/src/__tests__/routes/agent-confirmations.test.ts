@@ -38,7 +38,7 @@ const billing = installRecordingTaskHooks()
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
-const { setQueueTaskPollingForTesting } = await import('../../lib/taskSubmission')
+const { setQueueTaskPollingForTesting } = await import('../../modules/execution')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')

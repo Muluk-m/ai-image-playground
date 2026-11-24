@@ -326,7 +326,7 @@ describe('repeated submissions', () => {
   })
 
   it('leaves other entry points alone: a batch may hold identical items', async () => {
-    const { createQueueTask } = await import('../../lib/taskSubmission')
+    const { createQueueTask } = await import('../../modules/execution')
     const input = {
       entry: 'batch' as const,
       provider: 'openai-compat' as const,
@@ -341,7 +341,7 @@ describe('repeated submissions', () => {
   })
 
   it('refuses a blank prompt on every entry point before reserving', async () => {
-    const { createQueueTask } = await import('../../lib/taskSubmission')
+    const { createQueueTask } = await import('../../modules/execution')
     const outcome = await createQueueTask({
       entry: 'web-direct',
       provider: 'openai-compat',

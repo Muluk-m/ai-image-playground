@@ -1,5 +1,5 @@
 import type { AgentToolErrorCode } from '@image-playground/shared'
-import type { CreateQueueTaskOutcome } from '../../taskSubmission'
+import type { CreateQueueTaskOutcome } from '../../../modules/execution'
 
 /**
  * 带分类的工具失败。消息照旧是给模型读的那句话；`code` 是给界面的——界面只认它（ADR 0006）。

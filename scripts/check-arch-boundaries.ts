@@ -54,6 +54,31 @@ const ALLOWED_WORKERS_TO_AGENT = new Set([
 ])
 
 const ALLOWED_EXECUTION_TO_LEGACY_LIB = new Set([
+  'modules/execution/submission-admission.ts -> lib/capabilities.ts',
+  'modules/execution/submission-admission.ts -> lib/metering-decision.ts',
+  'modules/execution/submission-admission.ts -> lib/model-availability.ts',
+  'modules/execution/submission-admission.ts -> lib/private-overlay.ts',
+  'modules/execution/submission-admission.ts -> lib/quota.ts',
+  'modules/execution/submission-idempotency.ts -> lib/canonicalJson.ts',
+  'modules/execution/submission-idempotency.ts -> lib/capabilities.ts',
+  'modules/execution/submission-idempotency.ts -> lib/channels.ts',
+  'modules/execution/submission-idempotency.ts -> lib/imageArchive.ts',
+  'modules/execution/submission-idempotency.ts -> lib/queueProvider.ts',
+  'modules/execution/submission-prepare.ts -> lib/channels.ts',
+  'modules/execution/submission-prepare.ts -> lib/imageArchive.ts',
+  'modules/execution/submission-prepare.ts -> lib/objectStore.ts',
+  'modules/execution/submission-tier.ts -> lib/channels.ts',
+  'modules/execution/submission-tier.ts -> lib/gpt-membership.ts',
+  'modules/execution/submission-tier.ts -> lib/private-overlay.ts',
+  'modules/execution/submission-tier.ts -> lib/type-guards.ts',
+  'modules/execution/submission-tier.ts -> lib/upstream/gpt-routing.ts',
+  'modules/execution/task-outcome.ts -> lib/extractImages.ts',
+  'modules/execution/task-outcome.ts -> lib/public-task-error.ts',
+  'modules/execution/task-outcome.ts -> lib/queueProvider.ts',
+  'modules/execution/task-submission-plugins.ts -> lib/quota.ts',
+  'modules/execution/task-submission.ts -> lib/capabilities.ts',
+  'modules/execution/task-submission.ts -> lib/telemetry.ts',
+  'modules/execution/task-submission.ts -> lib/upstream/gpt-direct-availability.ts',
   'modules/execution/task-transitions.ts -> lib/private-overlay.ts',
 ])
 

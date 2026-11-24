@@ -26,8 +26,9 @@ process.env.DATABASE_URL = await resetTestDatabase('bff_image_tier_entries')
 process.env.PORT = '0'
 _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 
+await import('../../bootstrap/task-submission')
 const { close, db, schema } = await import('../../db/client')
-const { createQueueTask, submitPrepared } = await import('../../lib/taskSubmission')
+const { createQueueTask, submitPrepared } = await import('../../modules/execution')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 
 type Outcome = Awaited<ReturnType<typeof createQueueTask>>

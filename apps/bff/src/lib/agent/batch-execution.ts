@@ -13,7 +13,7 @@ import {
 import { and, asc, eq, gt, inArray, isNotNull, isNull, or } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
-import { cancelTasks } from '../../modules/execution'
+import { cancelTasks, type CreateQueueTaskInput, submitPrepared } from '../../modules/execution'
 import {
   type AnalysisReservationResult,
   type PreparedAnalysisTask,
@@ -33,7 +33,6 @@ import {
 } from '../private-overlay'
 import { SafeFetchError } from '../safeFetch'
 import type { SubmissionRefusal } from '../submissionRefusal'
-import { type CreateQueueTaskInput, submitPrepared } from '../taskSubmission'
 import { cancelUpstreamOfCancelledTasks } from '../upstream-cancel'
 import { cancelledBatchDependents, readFrozenDependencyTargets } from './batch-dependencies'
 import { batchItem, batchItemValues } from './batch-items'

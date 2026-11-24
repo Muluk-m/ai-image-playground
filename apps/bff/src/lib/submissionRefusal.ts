@@ -1,7 +1,7 @@
 import { status } from 'elysia'
 import { log } from './logger'
 import { reservationFailureResponse } from './private-overlay'
-import type { CreateQueueTaskOutcome } from './taskSubmission'
+import type { CreateQueueTaskOutcome } from '../modules/execution'
 
 /** 提交没建出任务的那些结局。重复提交照样带回已有任务的 id。 */
 export type SubmissionRefusal = Exclude<CreateQueueTaskOutcome, { kind: 'created' }>

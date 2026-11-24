@@ -30,7 +30,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
-const { setQueueTaskPollingForTesting } = await import('../../lib/taskSubmission')
+const { setQueueTaskPollingForTesting } = await import('../../modules/execution')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')

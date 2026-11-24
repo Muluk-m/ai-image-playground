@@ -32,7 +32,7 @@ const billing = installRecordingTaskHooks()
 
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
-const { setQueueTaskPollingForTesting } = await import('../../lib/taskSubmission')
+const { setQueueTaskPollingForTesting } = await import('../../modules/execution')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../db/client')

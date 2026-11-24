@@ -13,7 +13,7 @@ import {
   type CreateQueueTaskInput,
   type CreateQueueTaskOutcome,
   submitPrepared,
-} from '../taskSubmission'
+} from '../../modules/execution'
 import { recentlyRateLimitedLocked } from './rate-limit-resend'
 import { queueRefusalCode } from './tools/errors'
 import { agentVideoRequestError } from './video-models'

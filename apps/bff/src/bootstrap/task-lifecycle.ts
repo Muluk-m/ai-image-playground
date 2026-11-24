@@ -1,5 +1,8 @@
 import { taskFailureCode } from '@image-playground/shared'
-import { registerTaskLifecycleListener, type TaskLifecycleListener } from '../modules/execution'
+import {
+  registerTaskLifecycleListener,
+  type TaskLifecycleListener,
+} from '../modules/execution/task-lifecycle-bus'
 
 const generationMediaListener: TaskLifecycleListener = {
   id: 'generation-media',

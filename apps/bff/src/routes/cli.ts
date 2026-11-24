@@ -50,7 +50,7 @@ import {
 import { log } from '../lib/logger'
 import { resolveMediaInputs } from '../lib/mediaInputs'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
-import { createQueueTask } from '../lib/taskSubmission'
+import { createQueueTask } from '../modules/execution'
 import { requireUser } from '../lib/user-auth'
 import { sessionClientFromRequest } from '../lib/user-session'
 import { cliVerificationOrigin, frontendOrigin } from './oauth'

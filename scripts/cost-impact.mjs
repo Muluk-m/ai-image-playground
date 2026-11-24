@@ -27,9 +27,9 @@ export const COST_PATHS = [
   // 批量分析与批量生成：模型解析、配额与任务派发
   /^apps\/bff\/src\/lib\/agent\/batch-[^/]*\.ts$/,
   // 任务提交、状态流转与计费模块
-  /^apps\/bff\/src\/lib\/(taskSubmission|private-overlay|billing-hooks)\.ts$/,
-  /^apps\/bff\/src\/modules\/execution\/task-transitions\.ts$/,
-  /^apps\/bff\/src\/bootstrap\/task-lifecycle\.ts$/,
+  /^apps\/bff\/src\/lib\/(private-overlay|billing-hooks)\.ts$/,
+  /^apps\/bff\/src\/modules\/execution\/(task-transitions|task-submission|submission-admission|submission-tier|submission-prepare|submission-idempotency)\.ts$/,
+  /^apps\/bff\/src\/bootstrap\/(task-lifecycle|task-submission)\.ts$/,
   /^apps\/bff\/src\/modules\/billing\//,
   // 上游供应商调用
   /^apps\/bff\/src\/lib\/upstream(\.ts$|\/)/,

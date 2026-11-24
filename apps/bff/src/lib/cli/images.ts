@@ -40,7 +40,7 @@ import { declaredImageSizes, getDiscoveredChannels, resolveQueueModel } from '..
 import { meteringDecisionOrDenied } from '../metering-decision'
 import { refreshInactiveModels, withoutInactiveModels } from '../model-availability'
 import { loadPrivateBffOverlay } from '../private-overlay'
-import { strictImageRequestAllowed } from '../taskSubmission'
+import { strictImageRequestAllowed } from '../../modules/execution'
 import { gptImage26DirectListed, gptImage26Enabled } from '../upstream/gpt-direct-availability'
 import { gptDirectConfigured, gptImage26DirectKey } from '../upstream/gpt-routing'
 import { CliRequestError } from './envelope'

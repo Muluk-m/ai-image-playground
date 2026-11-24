@@ -28,7 +28,7 @@ import { MEDIA_INPUT_PATTERN, MediaInputError, resolveMediaInputs } from '../lib
 import { asQueueProvider } from '../lib/queueProvider'
 import { submissionRefusalResponse } from '../lib/submissionRefusal'
 import { taskAccessWhere } from '../lib/task-access'
-import { createQueueTask, findTaskByIdempotencyKey } from '../lib/taskSubmission'
+import { createQueueTask, findTaskByIdempotencyKey } from '../modules/execution'
 import { requireUser } from '../lib/user-auth'
 
 /** 与归档时的解码口径一致：base64 编码的 data URL。 */

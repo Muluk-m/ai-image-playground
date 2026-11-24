@@ -6,8 +6,8 @@ import sharp from 'sharp'
 import {
   _setPrivateBffOverlayForTesting,
   EMPTY_PRIVATE_BFF_OVERLAY,
-} from '../../lib/private-overlay'
-import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
+} from '../../../lib/private-overlay'
+import { InMemoryObjectStore } from '../../helpers/inMemoryObjectStore'
 
 process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
 process.env.UPSTREAM_API_KEY = 'test-key'
@@ -16,12 +16,13 @@ process.env.PORT = '0'
 _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 
 // 动态引入：环境要先钉死，再让捕获配置的模块加载。
-const { close, db, schema } = await import('../../db/client')
-const { config } = await import('../../config')
-const { createQueueTask, submitPrepared } = await import('../../lib/taskSubmission')
-const { setObjectStoreForTesting } = await import('../../lib/objectStore')
+await import('../../../bootstrap/task-submission')
+const { close, db, schema } = await import('../../../db/client')
+const { config } = await import('../../../config')
+const { createQueueTask, submitPrepared } = await import('../../../modules/execution')
+const { setObjectStoreForTesting } = await import('../../../lib/objectStore')
 // 数据库测试的模块加载边界：静态 import 会在上面的独立 DATABASE_URL 与 overlay 注入前捕获单例。
-const { quoteBatchPlan } = await import('../../lib/agent/batch-plans')
+const { quoteBatchPlan } = await import('../../../lib/agent/batch-plans')
 
 // 原尺寸不是 16 的倍数，所以建任务时必须补边；`masked_original_size` 记的是补边前的那个。
 const WIDTH = 1001
