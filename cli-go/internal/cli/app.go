@@ -121,6 +121,9 @@ type App struct {
 	Out     io.Writer
 	Err     io.Writer
 	HTTP    *http.Client
+	// TransferIdle ends an upload or download that moved no bytes for this long; zero means
+	// defaultTransferIdle. API calls keep HTTP's total timeout.
+	TransferIdle time.Duration
 	// RefreshLockWait bounds the wait for another process that is refreshing the token.
 	// Zero means the default.
 	RefreshLockWait time.Duration

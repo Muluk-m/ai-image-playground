@@ -69,14 +69,19 @@ func (a *App) uploadMedia(ctx context.Context, c *client.HTTPClient, path string
 		return media{}, err
 	}
 	a.progress("Uploading %s (%d bytes)", filepath.Base(path), size)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, reserved.UploadURL, file)
+	upload := a.startTransfer(ctx, true)
+	defer upload.stop()
+	req, err := http.NewRequestWithContext(upload.ctx, http.MethodPut, reserved.UploadURL, file)
 	if err != nil {
 		return media{}, err
 	}
 	req.ContentLength = size
 	req.Header.Set("Content-Type", contentType)
-	resp, err := a.HTTP.Do(req)
+	resp, err := upload.http.Do(req)
 	if err != nil {
+		if upload.stalled() {
+			return media{}, upload.stalledFailure("Upload")
+		}
 		return media{}, fail("NETWORK_ERROR", "Upload failed: could not reach storage")
 	}
 	resp.Body.Close()
@@ -198,12 +203,17 @@ func (a *App) downloadTo(ctx context.Context, c *client.HTTPClient, path, target
 	if err := a.checkStorageURL(signed.DownloadURL); err != nil {
 		return download{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, signed.DownloadURL, nil)
+	fetch := a.startTransfer(ctx, false)
+	defer fetch.stop()
+	req, err := http.NewRequestWithContext(fetch.ctx, http.MethodGet, signed.DownloadURL, nil)
 	if err != nil {
 		return download{}, err
 	}
-	resp, err := a.HTTP.Do(req)
+	resp, err := fetch.http.Do(req)
 	if err != nil {
+		if fetch.stalled() {
+			return download{}, fetch.stalledFailure("Download")
+		}
 		return download{}, fail("NETWORK_ERROR", "Download failed: could not reach storage")
 	}
 	defer resp.Body.Close()
@@ -212,6 +222,10 @@ func (a *App) downloadTo(ctx context.Context, c *client.HTTPClient, path, target
 	}
 	size, present, err := writeNew(target, resp.Body)
 	if err != nil {
+		// Only a failed read can mean a stall; FILE_EXISTS and local file errors stand as they are.
+		if asFailure(err).Code == "NETWORK_ERROR" && fetch.stalled() {
+			return download{}, fetch.stalledFailure("Download")
+		}
 		return download{}, err
 	}
 	absolute, _ := filepath.Abs(target)

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -70,6 +71,8 @@ type fakeServer struct {
 	twoArtifacts bool
 	failArtifact string
 	failJobPoll  bool
+	// serveFile replaces the storage handler for downloads and uploads when set.
+	serveFile http.HandlerFunc
 	// meFails, capFails, validateFails and getFails are remaining 503s to emit
 	// before the corresponding read-only endpoint succeeds. 0 means healthy.
 	meFails       int
@@ -333,7 +336,22 @@ func newFakeServer(t *testing.T) *fakeServer {
 		}
 		envelope(w, 200, map[string]any{"download_url": f.server.URL + "/files/a.png", "content_type": f.contentType()}, "")
 	}))
-	mux.HandleFunc("GET /files/a.png", func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte("PNGDATA")) })
+	mux.HandleFunc("/files/", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		custom := f.serveFile
+		f.mu.Unlock()
+		if custom != nil {
+			custom(w, r)
+			return
+		}
+		_, _ = w.Write([]byte("PNGDATA"))
+	})
+	mux.HandleFunc("POST /v1/media", authed(func(w http.ResponseWriter, r *http.Request) {
+		envelope(w, 200, map[string]any{"media_id": "m-up", "status": "pending", "upload_url": f.server.URL + "/files/upload"}, "")
+	}))
+	mux.HandleFunc("POST /v1/media/{id}/complete", authed(func(w http.ResponseWriter, r *http.Request) {
+		envelope(w, 200, map[string]any{"media_id": r.PathValue("id"), "status": "ready"}, "")
+	}))
 	f.server = httptest.NewServer(mux)
 	t.Cleanup(f.server.Close)
 	return f
@@ -2402,5 +2420,166 @@ func TestSetupSmokeValidateUsesAccountCapabilitiesAndEmptyModelsFailCleanly(t *t
 	noModelRes := execute(t, app, "setup", "--host", "claude-code")
 	if noModelRes.code != ExitRejected || !strings.Contains(noModelRes.stdout, "CAPABILITY_UNAVAILABLE") {
 		t.Fatalf("expected CAPABILITY_UNAVAILABLE when account has 0 accessible models, got code=%d out=%s", noModelRes.code, noModelRes.stdout)
+	}
+}
+
+// transferApp gives API calls a total timeout far below the transfer time, so only the idle
+// limit can let a slow transfer finish.
+func transferApp(t *testing.T, f *fakeServer) *App {
+	t.Helper()
+	app := newApp(t, f, t.TempDir())
+	login(t, app)
+	short := *f.server.Client()
+	short.Timeout = 1500 * time.Millisecond
+	app.HTTP = &short
+	app.TransferIdle = time.Second
+	return app
+}
+
+func TestSlowDownloadThatKeepsMovingFinishes(t *testing.T) {
+	f := newFakeServer(t)
+	f.serveFile = func(w http.ResponseWriter, r *http.Request) {
+		for _, b := range []byte("PNGDATA-SLOW") {
+			_, _ = w.Write([]byte{b})
+			w.(http.Flusher).Flush()
+			time.Sleep(150 * time.Millisecond) // ~1.8s in total, past the 1.5s API timeout
+		}
+	}
+	app := transferApp(t, f)
+	target := filepath.Join(t.TempDir(), "slow.png")
+	r := execute(t, app, "artifacts", "download", "art_job-1_0", "--output", target)
+	if r.code != ExitOK {
+		t.Fatalf("slow download = %d %s", r.code, r.stdout)
+	}
+	if content, _ := os.ReadFile(target); string(content) != "PNGDATA-SLOW" {
+		t.Fatalf("download = %q", content)
+	}
+}
+
+func TestStalledDownloadIsATemporaryFailure(t *testing.T) {
+	f := newFakeServer(t)
+	f.serveFile = func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("PNG"))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}
+	app := transferApp(t, f)
+	target := filepath.Join(t.TempDir(), "stalled.png")
+	r := execute(t, app, "artifacts", "download", "art_job-1_0", "--output", target)
+	if r.code != ExitTemporary || r.out["error"].(map[string]any)["code"] != "NETWORK_ERROR" {
+		t.Fatalf("stalled download = %d %s", r.code, r.stdout)
+	}
+	if !strings.Contains(r.stdout, "stalled") {
+		t.Fatalf("message should say the transfer stalled: %s", r.stdout)
+	}
+	if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("a stalled download left a file behind")
+	}
+}
+
+func TestDownloadWithNoResponseStallsAfterThePlainIdleLimit(t *testing.T) {
+	f := newFakeServer(t)
+	f.serveFile = func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }
+	app := transferApp(t, f)
+	r := execute(t, app, "artifacts", "download", "art_job-1_0", "--output", filepath.Join(t.TempDir(), "x.png"))
+	// A download sends no body, so it must not get the upload's longer wait for the response.
+	if r.code != ExitTemporary || !strings.Contains(r.stdout, "Download stalled: nothing moved for 1s") {
+		t.Fatalf("download with no response = %d %s", r.code, r.stdout)
+	}
+}
+
+func writeUpload(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "ref.png")
+	if err := os.WriteFile(path, bytes.Repeat([]byte("P"), 64<<10), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// slowLink plays a slow uplink: each write sends at most 1 KiB and then takes 60ms, about
+// 17 KiB/s. An 8 KiB write therefore takes ~480ms, longer than the idle limit, while bytes keep
+// moving the whole time.
+type slowLink struct{ net.Conn }
+
+func (c slowLink) Write(b []byte) (int, error) {
+	written := 0
+	for written < len(b) {
+		n, err := c.Conn.Write(b[written:min(written+1024, len(b))])
+		written += n
+		if err != nil {
+			return written, err
+		}
+		time.Sleep(60 * time.Millisecond)
+	}
+	return written, nil
+}
+
+func TestSlowUploadThatKeepsMovingFinishes(t *testing.T) {
+	f := newFakeServer(t)
+	f.serveFile = func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusOK)
+	}
+	app := transferApp(t, f)
+	app.TransferIdle = 400 * time.Millisecond
+	slow := app.HTTP.Transport.(*http.Transport).Clone()
+	slow.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		return slowLink{conn}, nil
+	}
+	app.HTTP.Transport = slow
+	path := filepath.Join(t.TempDir(), "ref.png")
+	// 40 KiB at ~17 KiB/s is ~2.4s, past the 1.5s API timeout.
+	if err := os.WriteFile(path, bytes.Repeat([]byte("P"), 40<<10), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := execute(t, app, "media", "upload", path)
+	if r.code != ExitOK || r.out["data"].(map[string]any)["status"] != "ready" {
+		t.Fatalf("slow upload = %d %s", r.code, r.stdout)
+	}
+}
+
+func TestTransferProgressRacingTheTimerNeverCancels(t *testing.T) {
+	app := &App{HTTP: &http.Client{}, TransferIdle: 20 * time.Millisecond}
+	moving := app.startTransfer(context.Background(), false)
+	for end := time.Now().Add(300 * time.Millisecond); time.Now().Before(end); {
+		moving.extend(moving.idle) // progress right around every expiry
+		time.Sleep(5 * time.Millisecond)
+	}
+	if moving.stalled() || moving.ctx.Err() != nil {
+		t.Fatal("a transfer that kept moving was cancelled")
+	}
+	moving.stop()
+	if moving.stalled() {
+		t.Fatal("stopping a transfer must not read as a stall")
+	}
+	moving.extend(time.Hour) // progress after stop is ignored
+
+	idle := app.startTransfer(context.Background(), false)
+	defer idle.stop()
+	select {
+	case <-idle.ctx.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("an idle transfer was never cancelled")
+	}
+	if !idle.stalled() {
+		t.Fatal("an idle transfer must end as stalled")
+	}
+}
+
+func TestStalledUploadIsATemporaryFailure(t *testing.T) {
+	f := newFakeServer(t)
+	f.serveFile = func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		<-r.Context().Done() // never answers
+	}
+	app := transferApp(t, f)
+	r := execute(t, app, "media", "upload", writeUpload(t))
+	if r.code != ExitTemporary || !strings.Contains(r.stdout, "Upload stalled: nothing moved for 4s") {
+		t.Fatalf("stalled upload = %d %s", r.code, r.stdout)
 	}
 }
