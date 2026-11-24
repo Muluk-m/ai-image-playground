@@ -12,9 +12,14 @@ import { db, schema } from '../db/client'
 import { heldBy } from '../modules/execution'
 import { compactionSettings } from './agent/compaction-settings'
 import { resolveOwnedMediaImages } from './agent/images'
-import { assertRequestWithinBudget, requestInputTokens } from './agent/request-budget'
+import {
+  AgentContextOverflow,
+  assertRequestWithinBudget,
+  requestInputTokens,
+} from './agent/request-budget'
+import { AgentToolError } from './agent/tools/errors'
 import { prepareVisualEvidence, visualEvidenceOf } from './agent/visual-input'
-import { withVisualPreparation } from './agent/visual-resources'
+import { withVisualPreparation, withVisualSignal } from './agent/visual-resources'
 import { analysisComparison } from './analysis-comparison'
 import { isCapabilityEnabled } from './capabilities'
 import { type ChatAttempt, extractJson } from './chatCompletion'
@@ -45,6 +50,23 @@ function analysisPrompt(
   return `${prompt}\n检查所有指定图片：${inputs.map((input) => input.imageId).join('、')}。只返回 JSON {"findings":[{"imageId":"指定图片编号","text":"针对该图片的结论"}]}，每张图片恰好一条；${intent === 'joint_comparison' ? '另外必须返回独立 comparison:{"status":"completed","imageIds":[全部指定图片编号],"text":"明确的图片间关系与比较结论"}。若无法完成联合比较，comparison.status 必须为 incomplete，不能用逐图描述冒充关系结论。' : ''}${manifest}`
 }
 
+const KNOWN_ANALYSIS_PREPARATION_ERRORS = new Set([
+  'analysis_input_changed',
+  'analysis_output_budget_invalid',
+  'analysis_inputs_invalid',
+  'analysis_visual_evidence_missing',
+  'analysis_lease_lost',
+])
+
+export function classifyAnalysisPreparationError(error: unknown, aborted: boolean): string {
+  if (error instanceof AgentContextOverflow) return 'context_overflow'
+  if (error instanceof AgentToolError) return error.code
+  if (error instanceof Error && KNOWN_ANALYSIS_PREPARATION_ERRORS.has(error.message)) {
+    return error.message
+  }
+  return aborted ? 'analysis_cancelled' : 'analysis_preparation_failed'
+}
+
 export async function prepareAnalysisTask(input: {
   userId: string
   intent?: AnalysisInputSnapshot['intent']
@@ -54,50 +76,52 @@ export async function prepareAnalysisTask(input: {
   maxOutputTokens?: number
   signal?: AbortSignal
 }): Promise<PreparedAnalysisTask> {
-  return withVisualPreparation(async () => {
-    if (
-      !input.inputs.length ||
-      input.inputs.length > 100 ||
-      new Set(input.inputs.map((one) => one.imageId)).size !== input.inputs.length
-    )
-      throw new Error('analysis_inputs_invalid')
-    const images = await resolveOwnedMediaImages(input.inputs, input.userId)
-    const visual = await prepareVisualEvidence(images, 'analysis')
-    const prompt = analysisPrompt(input.prompt, input.inputs, visual.manifest, input.intent)
-    const context: Context = {
-      messages: [
-        {
-          role: 'user',
-          content: [{ type: 'text', text: prompt }, ...visual.content],
-          timestamp: 0,
-        },
-      ],
-    }
-    const maxOutputTokens = input.maxOutputTokens ?? config.agent.maxTokens
-    if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1)
-      throw new Error('analysis_output_budget_invalid')
-    assertRequestWithinBudget(context, {
-      ...compactionSettings({
-        contextWindow: config.agent.contextWindow,
-        maxTokens: maxOutputTokens,
-      }),
-      outputReserveTokens: maxOutputTokens,
-    })
-    return {
-      model: input.model,
-      intent: input.intent ?? 'inspection',
-      prompt: input.prompt,
-      inputs: input.inputs,
-      estimatedInputTokens: requestInputTokens(context),
-      visualManifest: visual.manifest,
-      evidence: visual.content.map((block) => {
-        const record = visualEvidenceOf(block)
-        if (!record) throw new Error('analysis_visual_evidence_missing')
-        return record
-      }),
-      images: visual.content.map((block) => `data:${block.mimeType};base64,${block.data}`),
-    }
-  }, input.signal)
+  const run = () =>
+    withVisualPreparation(async () => {
+      if (
+        !input.inputs.length ||
+        input.inputs.length > 100 ||
+        new Set(input.inputs.map((one) => one.imageId)).size !== input.inputs.length
+      )
+        throw new Error('analysis_inputs_invalid')
+      const images = await resolveOwnedMediaImages(input.inputs, input.userId)
+      const visual = await prepareVisualEvidence(images, 'analysis')
+      const prompt = analysisPrompt(input.prompt, input.inputs, visual.manifest, input.intent)
+      const context: Context = {
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: prompt }, ...visual.content],
+            timestamp: 0,
+          },
+        ],
+      }
+      const maxOutputTokens = input.maxOutputTokens ?? config.agent.maxTokens
+      if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1)
+        throw new Error('analysis_output_budget_invalid')
+      assertRequestWithinBudget(context, {
+        ...compactionSettings({
+          contextWindow: config.agent.contextWindow,
+          maxTokens: maxOutputTokens,
+        }),
+        outputReserveTokens: maxOutputTokens,
+      })
+      return {
+        model: input.model,
+        intent: input.intent ?? 'inspection',
+        prompt: input.prompt,
+        inputs: input.inputs,
+        estimatedInputTokens: requestInputTokens(context),
+        visualManifest: visual.manifest,
+        evidence: visual.content.map((block) => {
+          const record = visualEvidenceOf(block)
+          if (!record) throw new Error('analysis_visual_evidence_missing')
+          return record
+        }),
+        images: visual.content.map((block) => `data:${block.mimeType};base64,${block.data}`),
+      }
+    }, input.signal)
+  return input.signal !== undefined ? withVisualSignal(input.signal, run) : run()
 }
 
 export interface ReserveAnalysisTaskInput {

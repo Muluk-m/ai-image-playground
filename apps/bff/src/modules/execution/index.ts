@@ -8,6 +8,20 @@ export {
   strictImageRequestAllowed,
 } from './submission-tier'
 export {
+  _resetTaskExecutionHooksForTesting,
+  type AgentBatchAdvancer,
+  getAgentBatchAdvancer,
+  getMaskedEditExecutionHook,
+  listTaskExecutionHookIds,
+  type MaskedCropRegion,
+  type MaskedEditExecutionHook,
+  type MaskedOutputTransform,
+  MissingTaskExecutionHookError,
+  registerAgentBatchAdvancer,
+  registerMaskedEditExecutionHook,
+  type TaskExecutionHookId,
+} from './task-execution-hooks'
+export {
   _resetTaskLifecycleListenersForTesting,
   type CancelledTaskRecord,
   type ExecutionTransaction,

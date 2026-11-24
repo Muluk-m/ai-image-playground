@@ -6,7 +6,11 @@ import { maskedEditSettings } from './masked-edit-settings'
 import { type MaskedCrop, paddedEditSize } from './masked-input'
 import { selectionSettings } from './selection-settings'
 
-export class MaskedOutputError extends Error {}
+const MASKED_OUTPUT_ERROR_TAG = Symbol.for('image-playground.masked-output-error')
+
+export class MaskedOutputError extends Error {
+  readonly [MASKED_OUTPUT_ERROR_TAG] = true
+}
 
 type Pixels = Awaited<ReturnType<typeof pixels>>
 

@@ -1,3 +1,4 @@
+import '../../bootstrap/task-execution'
 import '../../bootstrap/task-lifecycle'
 import '../../bootstrap/task-submission'
 import { eq } from 'drizzle-orm'
