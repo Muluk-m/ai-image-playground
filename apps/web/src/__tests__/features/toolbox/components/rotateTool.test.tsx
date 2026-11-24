@@ -6,6 +6,7 @@ import RotateTool from '../../../../features/toolbox/components/RotateTool'
 import { downloadImages } from '../../../../features/toolbox/lib/deliver'
 import { rotateImage } from '../../../../features/toolbox/lib/rotation'
 import { useToolboxStore } from '../../../../features/toolbox/store'
+import { useStore } from '../../../../store'
 import { stubPointerApis } from '../../../helpers/radix'
 
 vi.mock('../../../../features/toolbox/lib/deliver', () => ({
@@ -115,6 +116,11 @@ it('blocks stale export while adjusting, remembers each image, and resets to the
     expand: true,
   })
   await click('清空')
+  expect(useStore.getState().confirmDialog).not.toBeNull()
+  await act(async () => {
+    useStore.getState().confirmDialog?.action()
+    useStore.getState().setConfirmDialog(null)
+  })
   expect(host.querySelector('canvas')).toBeNull()
   expect(host.textContent).toContain('选择图片')
 })
