@@ -384,60 +384,100 @@ export async function checkDirAcyclic(rootDir: string, label: string): Promise<s
 /**
  * 共享只读模型包护栏（ADR 0034 Phase 3 PR-3.3）：
  * 1. `packages/read-models/src` 内部保持无环 DAG；
- * 2. 禁止在包内调用 `createDb` 自建连接池（只接受调用方注入句柄，确保 Admin 只读角色校验不被绕过）；
- * 3. `types.ts` 保持纯类型与浏览器安全，禁止引入 `drizzle-orm` 或 `@image-playground/db`。
+ * 2. 禁止在包内导入 `bun`/`bun:*`/`postgres` 或通过静态/动态/命名空间/重导出方式获取 `createDb`
+ *    （只接受调用方注入句柄，确保 Admin 只读角色校验不被绕过）；
+ * 3. `types.ts` 保持纯类型与浏览器安全，仅允许导入 `@image-playground/shared`（含子路径）。
  */
 export async function checkReadModelsBoundaries(rootDir: string): Promise<string[]> {
   const violations = await checkDirAcyclic(rootDir, 'packages/read-models/src')
   const normalizedRoot = resolve(rootDir)
   if (!existsSync(normalizedRoot)) return violations
 
+  const isDbPackage = (spec: string) =>
+    spec === '@image-playground/db' || spec.startsWith('@image-playground/db/')
+  const isForbiddenDriver = (spec: string) =>
+    spec === 'bun' || spec.startsWith('bun:') || spec === 'postgres' || spec.startsWith('postgres/')
+  const isAllowedTypesImport = (spec: string) =>
+    spec === '@image-playground/shared' || spec.startsWith('@image-playground/shared/')
+
   for await (const file of sourceGlob.scan({ cwd: normalizedRoot, onlyFiles: true })) {
     const normalized = file.replaceAll('\\', '/')
     if (normalized.includes('__tests__')) continue
     const text = await Bun.file(resolve(normalizedRoot, normalized)).text()
     const specifiers = scanAllSpecifiers(normalized, text)
-    if (specifiers.includes('bun')) {
-      violations.push(
-        `[read-models-pool] packages/read-models/src/${normalized} must not import bun (inject DbHandle instead of creating SQL pools)`,
-      )
-    }
-    if (normalized === 'types.ts') {
-      for (const spec of specifiers) {
-        if (
-          spec === 'drizzle-orm' ||
-          spec.startsWith('drizzle-orm/') ||
-          spec === '@image-playground/db' ||
-          spec.startsWith('@image-playground/db/')
-        ) {
-          violations.push(
-            `[read-models-types] packages/read-models/src/types.ts must not import ${spec} (keep browser-safe)`,
-          )
-        }
+    for (const spec of specifiers) {
+      if (isForbiddenDriver(spec)) {
+        violations.push(
+          `[read-models-pool] packages/read-models/src/${normalized} must not import ${spec} (inject DbHandle instead of creating SQL pools)`,
+        )
+      }
+      if (normalized === 'types.ts' && !isAllowedTypesImport(spec)) {
+        violations.push(
+          `[read-models-types] packages/read-models/src/types.ts must not import ${spec} (only @image-playground/shared is allowed to keep browser-safe)`,
+        )
       }
     }
     const sourceFile = ts.createSourceFile(normalized, text, ts.ScriptTarget.Latest, false)
-    let importsCreateDb = false
+    let forbiddenDbPoolReason: string | null = null
     const visit = (node: ts.Node): void => {
+      if (forbiddenDbPoolReason) return
       if (
         ts.isImportDeclaration(node) &&
         ts.isStringLiteral(node.moduleSpecifier) &&
-        (node.moduleSpecifier.text === '@image-playground/db' ||
-          node.moduleSpecifier.text.startsWith('@image-playground/db/')) &&
-        node.importClause?.namedBindings &&
-        ts.isNamedImports(node.importClause.namedBindings)
+        isDbPackage(node.moduleSpecifier.text)
       ) {
-        for (const el of node.importClause.namedBindings.elements) {
-          const imported = (el.propertyName ?? el.name).text
-          if (imported === 'createDb') importsCreateDb = true
+        const bindings = node.importClause?.namedBindings
+        if (bindings && ts.isNamespaceImport(bindings)) {
+          forbiddenDbPoolReason = 'namespace import from @image-playground/db'
+        } else if (bindings && ts.isNamedImports(bindings)) {
+          for (const el of bindings.elements) {
+            const imported = (el.propertyName ?? el.name).text
+            if (imported === 'createDb') {
+              forbiddenDbPoolReason = 'createDb import from @image-playground/db'
+              break
+            }
+          }
         }
+      } else if (
+        ts.isExportDeclaration(node) &&
+        node.moduleSpecifier &&
+        ts.isStringLiteral(node.moduleSpecifier) &&
+        isDbPackage(node.moduleSpecifier.text)
+      ) {
+        if (!node.exportClause) {
+          forbiddenDbPoolReason = 'wildcard re-export from @image-playground/db'
+        } else if (ts.isNamedExports(node.exportClause)) {
+          for (const el of node.exportClause.elements) {
+            const exported = (el.propertyName ?? el.name).text
+            if (exported === 'createDb') {
+              forbiddenDbPoolReason = 'createDb re-export from @image-playground/db'
+              break
+            }
+          }
+        }
+      } else if (
+        ts.isCallExpression(node) &&
+        node.arguments.length === 1 &&
+        ts.isStringLiteral(node.arguments[0]!) &&
+        isDbPackage(node.arguments[0]!.text) &&
+        (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
+      ) {
+        forbiddenDbPoolReason = 'dynamic import/require of @image-playground/db'
+      } else if (
+        ts.isImportEqualsDeclaration(node) &&
+        ts.isExternalModuleReference(node.moduleReference) &&
+        ts.isStringLiteral(node.moduleReference.expression) &&
+        isDbPackage(node.moduleReference.expression.text)
+      ) {
+        forbiddenDbPoolReason = 'import=require of @image-playground/db'
       }
       ts.forEachChild(node, visit)
     }
     visit(sourceFile)
-    if (importsCreateDb) {
+    if (forbiddenDbPoolReason) {
       violations.push(
-        `[read-models-pool] packages/read-models/src/${normalized} must not import createDb (inject DbHandle instead)`,
+        `[read-models-pool] packages/read-models/src/${normalized} forbidden ${forbiddenDbPoolReason} (inject DbHandle instead)`,
       )
     }
   }

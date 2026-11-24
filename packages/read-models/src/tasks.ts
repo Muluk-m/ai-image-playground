@@ -7,6 +7,7 @@ import {
   mapGenerationTask,
   PROMPT_TEXT_SQL,
   parsePercentilePair,
+  type ReadModelsDb,
   type ReadModelsDbHandle,
   type Row,
   sqlTextIn,
@@ -313,15 +314,16 @@ function sortFacetOptions(items: GenerationTasksFacetOption[]): GenerationTasksF
 }
 
 // 精确时间窗分面短缓存 + 并发合并：翻页、改筛选和改排序时复用下拉选项计数，不同时间窗绝不串数据。
+// 按底层 `handle.db` 引用判等，兼容内联传入 `{ db, schema }` 的调用方。
 const TASK_FACETS_CACHE_MS = 60_000
 type WindowFacetOptions = Pick<GenerationTasksFacets, 'models' | 'providers' | 'errorTypes'>
 const windowFacetsCache = new Map<
   string,
-  { at: number; db: ReadModelsDbHandle; value: WindowFacetOptions }
+  { at: number; db: ReadModelsDb; value: WindowFacetOptions }
 >()
 const windowFacetsPending = new Map<
   string,
-  { db: ReadModelsDbHandle; promise: Promise<WindowFacetOptions> }
+  { db: ReadModelsDb; promise: Promise<WindowFacetOptions> }
 >()
 
 export function resetWindowFacetsCacheForTesting(): void {
@@ -333,18 +335,19 @@ async function getWindowFacetOptions(
   handle: ReadModelsDbHandle,
   window: TimeWindow,
 ): Promise<WindowFacetOptions> {
+  const db = handle.db
   const key = `${window.from}:${window.to}`
   const now = Date.now()
   const cached = windowFacetsCache.get(key)
-  if (cached && cached.db === handle && now - cached.at < TASK_FACETS_CACHE_MS) {
+  if (cached && cached.db === db && now - cached.at < TASK_FACETS_CACHE_MS) {
     return cached.value
   }
   const pending = windowFacetsPending.get(key)
-  if (pending && pending.db === handle) {
+  if (pending && pending.db === db) {
     return pending.promise
   }
   const promise = (async () => {
-    const facetRows = (await handle.db.execute(sql`
+    const facetRows = (await db.execute(sql`
       SELECT
         GROUPING(f.model) AS g_model,
         GROUPING(f.provider) AS g_provider,
@@ -386,10 +389,10 @@ async function getWindowFacetOptions(
       errorTypes: sortFacetOptions(errorOptions),
     }
     if (windowFacetsCache.size > 32) windowFacetsCache.clear()
-    windowFacetsCache.set(key, { at: Date.now(), db: handle, value })
+    windowFacetsCache.set(key, { at: Date.now(), db, value })
     return value
   })()
-  windowFacetsPending.set(key, { db: handle, promise })
+  windowFacetsPending.set(key, { db, promise })
   try {
     return await promise
   } finally {

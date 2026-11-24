@@ -6,6 +6,7 @@ import {
   getTaskVolume,
   mapTaskListItem,
   nullableEpochMs,
+  type ReadModelsDb,
   type ReadModelsDbHandle,
   type ReadModelsQueryExecutor,
   type Row,
@@ -222,10 +223,10 @@ export async function listUsers(
 /** 全局 KPI 跟翻页无关。短缓存让连续翻页不再各扫一遍用户和 24 小时任务。 */
 export const USER_KPI_CACHE_MS = 30_000
 
-// 缓存跟着数据库句柄走：同一进程换了 DATABASE_URL 时不拿别的库的数字。
-let userKpiCache: { at: number; value: UserKpis; db: ReadModelsDbHandle } | null = null
-let userKpiPending: { promise: Promise<UserKpis>; db: ReadModelsDbHandle; fresh: boolean } | null =
-  null
+// 缓存跟着底层 Drizzle 实例走：同一进程换了 DATABASE_URL 时不拿别的库的数字，
+// 也兼容调用方按结构类型内联传入 `{ db, schema }`。
+let userKpiCache: { at: number; value: UserKpis; db: ReadModelsDb } | null = null
+let userKpiPending: { promise: Promise<UserKpis>; db: ReadModelsDb; fresh: boolean } | null = null
 let userKpiGeneration = 0
 let userKpiCacheGeneration = 0
 
@@ -277,17 +278,17 @@ export function getUserKpis(
   now = Date.now(),
   fresh = false,
 ): Promise<UserKpis> {
-  if (!fresh && userKpiCache?.db === handle && now - userKpiCache.at < USER_KPI_CACHE_MS)
+  const db = handle.db
+  if (!fresh && userKpiCache?.db === db && now - userKpiCache.at < USER_KPI_CACHE_MS)
     return Promise.resolve(userKpiCache.value)
   // 强制刷新不搭普通查询的车（它可能早于刚才的写入），但多次强制刷新共用一次扫描。
-  if (userKpiPending?.db === handle && (!fresh || userKpiPending.fresh))
-    return userKpiPending.promise
+  if (userKpiPending?.db === db && (!fresh || userKpiPending.fresh)) return userKpiPending.promise
   // 手动刷新另起一次查询；代数让更早发起的查询晚到时不覆盖更新的缓存。
   const generation = ++userKpiGeneration
   const promise: Promise<UserKpis> = loadUserKpis(handle)
     .then((value) => {
       if (generation >= userKpiCacheGeneration) {
-        userKpiCache = { at: now, value, db: handle }
+        userKpiCache = { at: now, value, db }
         userKpiCacheGeneration = generation
       }
       return value
@@ -295,7 +296,7 @@ export function getUserKpis(
     .finally(() => {
       if (userKpiPending?.promise === promise) userKpiPending = null
     })
-  userKpiPending = { promise, db: handle, fresh }
+  userKpiPending = { promise, db, fresh }
   return promise
 }
 

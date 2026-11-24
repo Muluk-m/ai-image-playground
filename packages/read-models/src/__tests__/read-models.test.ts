@@ -20,10 +20,17 @@ import {
   resetUserKpiCacheForTesting,
   resetWindowFacetsCacheForTesting,
   TaskQueryError,
+  todayWindow,
 } from '../index'
 
 let handle: DbHandle
 const now = Date.now()
+// Clamp fixture timestamps inside both today's Beijing window and the last 24h so tests stay
+// deterministic even right after 00:00 CST (16:00 UTC).
+const todayStart = todayWindow(now).from
+const task1SubmittedAt = Math.max(now - 60_000, todayStart)
+const task2SubmittedAt = Math.max(now - 30_000, task1SubmittedAt + 5_000)
+const queryNow = Math.max(now, task2SubmittedAt + 5_000)
 
 beforeAll(async () => {
   const url = await resetTestDatabase('read_models_core')
@@ -82,9 +89,9 @@ beforeAll(async () => {
         n: 2,
       } as unknown as TaskInsert['request_payload'],
       result_payload: { _image_meta: [{ index: 0, mime: 'image/png' }] },
-      submitted_at: now - 60_000,
-      started_at: now - 55_000,
-      completed_at: now - 45_000,
+      submitted_at: task1SubmittedAt,
+      started_at: task1SubmittedAt + 1_000,
+      completed_at: task1SubmittedAt + 3_000,
       attempt_count: 1,
       upstream_invocation_count: 1,
     },
@@ -101,9 +108,9 @@ beforeAll(async () => {
         device_id: 'rm-dev-1',
         contents: [{ parts: [{ text: 'sunset beach' }] }],
       } as unknown as TaskInsert['request_payload'],
-      submitted_at: now - 30_000,
-      started_at: now - 25_000,
-      completed_at: now - 20_000,
+      submitted_at: task2SubmittedAt,
+      started_at: task2SubmittedAt + 1_000,
+      completed_at: task2SubmittedAt + 3_000,
       attempt_count: 2,
       upstream_invocation_count: 2,
     },
@@ -155,8 +162,8 @@ describe('@image-playground/read-models', () => {
     expect(listed.segments).toMatchObject({ all: 1, 'active-7d': 1, disabled: 0 })
 
     resetUserKpiCacheForTesting()
-    const first = getUserKpis(handle, now)
-    const second = getUserKpis(handle, now)
+    const first = getUserKpis(handle, queryNow)
+    const second = getUserKpis({ db: handle.db, schema: handle.schema }, queryNow)
     expect(second).toBe(first)
     const kpis = await first
     expect(kpis.total_users).toBe(2)
@@ -195,12 +202,12 @@ describe('@image-playground/read-models', () => {
     expect(overview.summary.failed).toBe(1)
     expect(overview.pulse.current.images).toBe(2)
 
-    const today = await getTodayOverview(handle, now)
+    const today = await getTodayOverview(handle, queryNow)
     expect(today.summary.tasks).toBe(2)
     expect(today.models.map((m) => m.model)).toEqual(['gemini-3-pro', 'gpt-image-2'])
 
     resetWindowFacetsCacheForTesting()
-    const window = { from: now - 3600_000, to: now + 1000 }
+    const window = { from: Math.min(todayStart, now - 3600_000), to: queryNow }
     const paged = await getGenerationTasks(handle, { ...window, page: 1, pageSize: 50 })
     expect(paged.total).toBe(2)
     expect(paged.facets?.statusCounts.completed).toBe(1)
@@ -217,7 +224,7 @@ describe('@image-playground/read-models', () => {
   })
 
   it('supports injectable server log reader on getOverviewActivity and keyset pagination on audits', async () => {
-    const window = { from: now - 3600_000, to: now + 1000 }
+    const window = { from: Math.min(todayStart, now - 3600_000), to: queryNow }
     const offActivity = await getOverviewActivity(handle, window)
     expect(offActivity.tasks).toHaveLength(2)
     expect(offActivity.server).toEqual({ availability: 'off', total: 0, entries: [] })
