@@ -54,6 +54,27 @@ test('critical flows need checked evidence with media, or a reasoned waiver', ()
   )
   assert.match(
     evaluatePr({
+      files: [file('apps/bff/src/bootstrap/task-execution.ts')],
+      body: body(),
+    }).fails.join(),
+    /改到关键流程：生成（`apps\/bff\/src\/bootstrap\/task-execution.ts`）/,
+  )
+  assert.match(
+    evaluatePr({
+      files: [file('apps/bff/src/modules/execution/task-execution-hooks.ts')],
+      body: body(),
+    }).fails.join(),
+    /改到关键流程：生成（`apps\/bff\/src\/modules\/execution\/task-execution-hooks.ts`）/,
+  )
+  assert.match(
+    evaluatePr({
+      files: [file('apps/bff/src/workers/agent-batch-loop.ts')],
+      body: body(),
+    }).fails.join(),
+    /改到关键流程：生成（`apps\/bff\/src\/workers\/agent-batch-loop.ts`）/,
+  )
+  assert.match(
+    evaluatePr({
       files: [file('apps/bff/src/modules/execution/task-outcome.ts')],
       body: body(),
     }).fails.join(),

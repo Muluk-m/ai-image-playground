@@ -2,14 +2,12 @@ import { isDeepStrictEqual } from 'node:util'
 import { and, eq } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
-import { AgentContextOverflow } from '../lib/agent/request-budget'
-import { AgentToolError } from '../lib/agent/tools/errors'
-import { withVisualSignal } from '../lib/agent/visual-resources'
 import {
   ANALYSIS_LEASE_MS,
   analysisOwnership,
   analysisRequestPrompt,
   claimAnalysisTask,
+  classifyAnalysisPreparationError,
   finalizeAnalysisTask,
   prepareAnalysisTask,
   recordAnalysisAttempt,
@@ -62,14 +60,12 @@ export async function runAnalysisTask(taskId: string): Promise<void> {
           config.agent.maxTokens,
           analysis.price_snapshot.outputReserveTokens,
         )
-        const prepared = await withVisualSignal(controller.signal, () =>
-          prepareAnalysisTask({
-            userId: analysis.user_id,
-            ...analysis.input_snapshot,
-            maxOutputTokens: maxTokens,
-            signal: controller.signal,
-          }),
-        )
+        const prepared = await prepareAnalysisTask({
+          userId: analysis.user_id,
+          ...analysis.input_snapshot,
+          maxOutputTokens: maxTokens,
+          signal: controller.signal,
+        })
         controller.signal.throwIfAborted()
         if (
           prepared.estimatedInputTokens !== analysis.input_snapshot.estimatedInputTokens ||
@@ -137,23 +133,7 @@ export async function runAnalysisTask(taskId: string): Promise<void> {
           .set({ response_content: response ?? '' })
           .where(callOwnership())
       } catch (error) {
-        const localRejection =
-          error instanceof AgentContextOverflow
-            ? 'context_overflow'
-            : error instanceof AgentToolError
-              ? error.code
-              : error instanceof Error &&
-                  [
-                    'analysis_input_changed',
-                    'analysis_output_budget_invalid',
-                    'analysis_inputs_invalid',
-                    'analysis_visual_evidence_missing',
-                    'analysis_lease_lost',
-                  ].includes(error.message)
-                ? error.message
-                : controller.signal.aborted
-                  ? 'analysis_cancelled'
-                  : 'analysis_preparation_failed'
+        const localRejection = classifyAnalysisPreparationError(error, controller.signal.aborted)
         // Preparation failures have no request. A dispatched call stays unknown until evidence resolves it.
         await db
           .update(schema.analysis_model_calls)

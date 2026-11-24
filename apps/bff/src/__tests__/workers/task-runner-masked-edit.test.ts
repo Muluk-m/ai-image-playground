@@ -16,6 +16,7 @@ process.env.DATABASE_URL = await resetTestDatabase('bff_task_runner_masked_edit'
 process.env.PORT = '0'
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../projects-operator-config.json')
 _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
+await import('../../bootstrap/task-execution')
 await import('../../bootstrap/task-lifecycle')
 const { close, db, schema } = await import('../../db/client')
 const { runTask } = await import('../../workers/task-runner')

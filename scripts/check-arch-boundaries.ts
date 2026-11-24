@@ -44,15 +44,6 @@ const ALLOWED_DB_TO_OUTSIDE = new Set([
   'db/migrate.ts -> lib/private-overlay.ts',
 ])
 
-const ALLOWED_WORKERS_TO_AGENT = new Set([
-  'workers/agent-batch-loop.ts -> lib/agent/batch-execution.ts',
-  'workers/analysis-runner.ts -> lib/agent/request-budget.ts',
-  'workers/analysis-runner.ts -> lib/agent/tools/errors.ts',
-  'workers/analysis-runner.ts -> lib/agent/visual-resources.ts',
-  'workers/task-runner.ts -> lib/agent/masked-input.ts',
-  'workers/task-runner.ts -> lib/agent/masked-output.ts',
-])
-
 const ALLOWED_EXECUTION_TO_LEGACY_LIB = new Set([
   'modules/execution/submission-admission.ts -> lib/capabilities.ts',
   'modules/execution/submission-admission.ts -> lib/metering-decision.ts',
@@ -326,11 +317,9 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
         (file.startsWith('workers/') || file.startsWith('delivery/workers/')) &&
         (target.startsWith('lib/agent/') || target.startsWith('modules/agent/'))
       ) {
-        if (!ALLOWED_WORKERS_TO_AGENT.has(edge)) {
-          violations.push(
-            `[workers -> agent] ${edge} is not allowed (keep queue workers decoupled from agent)`,
-          )
-        }
+        violations.push(
+          `[workers -> agent] ${edge} is not allowed (keep queue workers decoupled from agent)`,
+        )
       }
 
       if (toModule && fromModule?.name !== toModule.name && !file.startsWith('bootstrap/')) {

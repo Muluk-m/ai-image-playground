@@ -1,10 +1,10 @@
 import { config } from '../config'
-import { advanceAgentBatches } from '../lib/agent/batch-execution'
 import { log } from '../lib/logger'
+import { type AgentBatchAdvancer, getAgentBatchAdvancer } from '../modules/execution'
 
 export interface AgentBatchLoopOptions {
   pollIntervalMs?: number
-  advance?: (cursor: string | null, canDispatch: () => boolean) => Promise<string | null>
+  advance?: AgentBatchAdvancer
 }
 
 /**
@@ -13,7 +13,7 @@ export interface AgentBatchLoopOptions {
  */
 export class AgentBatchLoop {
   private readonly pollIntervalMs: number
-  private readonly advance: NonNullable<AgentBatchLoopOptions['advance']>
+  private readonly advance: AgentBatchAdvancer
   private timer: ReturnType<typeof setInterval> | null = null
   private stopped = true
   private draining = false
@@ -23,7 +23,7 @@ export class AgentBatchLoop {
 
   constructor(options: AgentBatchLoopOptions = {}) {
     this.pollIntervalMs = options.pollIntervalMs ?? config.worker.pollIntervalMs
-    this.advance = options.advance ?? advanceAgentBatches
+    this.advance = options.advance ?? getAgentBatchAdvancer()
   }
 
   start(): void {
