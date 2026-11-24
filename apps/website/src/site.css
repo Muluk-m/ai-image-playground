@@ -164,8 +164,8 @@ body { margin: 0; background: hsl(var(--background)); color: hsl(var(--foregroun
   .site-brand { font-size: theme('fontSize.base'); gap: 8px; }
   .site-nav-links { display: none; }
   .site-nav-actions { gap: 12px; }
-  .site-nav-actions > button { padding-inline: 12px; }
-  .site-nav-actions > button svg { display: none; }
+  .site-nav-actions > button:not(.mkt-theme) { padding-inline: 12px; }
+  .site-nav-actions > button:not(.mkt-theme) svg { display: none; }
   .site-hero-copy { top: auto; bottom: 192px; left: 24px; right: 24px; }
   :where(.site-hero-copy) h1 { max-width: 8em; margin: 24px auto; line-height: 1.15; }
   .site-cover { object-position: 66% center; }

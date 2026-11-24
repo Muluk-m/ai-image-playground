@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import ToolboxHeader from '../../../../features/toolbox/components/ToolboxHeader'
 import { resizeTool } from '../../../../features/toolbox/lib/registry'
 import { useToolboxStore } from '../../../../features/toolbox/store'
+import { useStore } from '../../../../store'
 
 let host: HTMLDivElement
 let root: Root
@@ -57,6 +58,13 @@ it('keeps import available with existing images, returns without losing them, an
   expect(useToolboxStore.getState().activeTool).toBeNull()
   expect(useToolboxStore.getState().items).toHaveLength(8)
   await act(async () => button('清空').click())
+  expect(useToolboxStore.getState().items).toHaveLength(8)
+  const confirm = useStore.getState().confirmDialog
+  expect(confirm).not.toBeNull()
+  await act(async () => {
+    confirm?.action()
+    useStore.getState().setConfirmDialog(null)
+  })
   expect(useToolboxStore.getState().items).toHaveLength(0)
   await act(async () => button('添加图片').click())
   expect(openFiles).toHaveBeenCalledTimes(2)

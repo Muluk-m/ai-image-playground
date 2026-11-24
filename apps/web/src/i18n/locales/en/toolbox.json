@@ -45,6 +45,9 @@
     "imported_one": "{{count}} image",
     "imported_other": "{{count}} images",
     "clear": "Clear",
+    "clearTitle": "Clear imported images",
+    "clearMessage_one": "Clear {{count}} imported image and its adjustments?",
+    "clearMessage_other": "Clear all {{count}} imported images and their adjustments?",
     "addImages": "Add images",
     "addFolder": "Folder",
     "hint": "Drop images or a folder, or paste",
@@ -121,7 +124,9 @@
     "slices_one": "{{count}} tile",
     "slices_other": "{{count}} tiles",
     "up": "Move earlier",
-    "down": "Move later"
+    "down": "Move later",
+    "sourceLimitHint_one": "This tool uses only the first {{count}} image",
+    "sourceLimitHint_other": "This tool uses only the first {{count}} images"
   },
   "export": {
     "title": "Export",
@@ -199,7 +204,8 @@
     "open": "Compare {{name}}",
     "slider": "Before and after",
     "before": "Before",
-    "after": "After"
+    "after": "After",
+    "exit": "Exit compare"
   },
   "stats": {
     "images": "Images",

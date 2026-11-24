@@ -1,5 +1,7 @@
 import { type PointerEvent, useRef, useState } from 'react'
+import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
+import { useCloseOnEscape } from '../../../hooks/useCloseOnEscape'
 import { useTranslation } from '../../../i18n'
 
 const clamp = (value: number) => Math.min(100, Math.max(0, value))
@@ -18,6 +20,7 @@ export default function CompareView({
   const [split, setSplit] = useState(50)
   const box = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)
+  useCloseOnEscape(true, onExit)
   const follow = (event: PointerEvent) => {
     const rect = box.current?.getBoundingClientRect()
     if (rect?.width) setSplit(clamp(((event.clientX - rect.left) / rect.width) * 100))
@@ -70,7 +73,6 @@ export default function CompareView({
           const step = event.shiftKey ? 10 : 2
           if (event.key === 'ArrowLeft') setSplit((value) => clamp(value - step))
           else if (event.key === 'ArrowRight') setSplit((value) => clamp(value + step))
-          else if (event.key === 'Escape') onExit()
           else return
           event.preventDefault()
         }}
@@ -79,6 +81,20 @@ export default function CompareView({
       >
         <Icon name="compare" size="xs" />
       </div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="xs"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation()
+          onExit()
+        }}
+        className="absolute left-2 top-2 z-10 rounded-md bg-scrim/60 px-2 text-on-media hover:bg-scrim/80 hover:text-on-media"
+      >
+        <Icon name="close" size="xs" />
+        {t('compare.exit')}
+      </Button>
       <span className="pointer-events-none absolute bottom-2 left-2 rounded-md bg-black/60 px-1.5 py-0.5 font-mono text-label-sm text-white">
         {t('compare.before')}
       </span>

@@ -2,12 +2,18 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import { Button } from '../../../web/src/components/ui/button'
 import { Icon } from '../../../web/src/components/ui/icon'
 import { siteAssetUrl } from '../../../web/src/features/guide/content/siteAssets'
+import { initTheme, setThemeChoice } from '../../../web/src/theme'
 import { alternatePage, copy, editions, guidePath, type Locale, type SitePage } from '../catalog'
 import { structuredData } from '../guideData'
 import { rememberSiteLocale } from '../localeSelection'
+import { marketingCopy } from '../marketing'
 import { AuthBoundary } from './AuthBoundary'
 import { Guide, GuideMovedPage } from './Guide'
 import { MarketingHome } from './MarketingHome'
+
+function toggleSiteTheme() {
+  setThemeChoice(document.documentElement.classList.contains('dark') ? 'light' : 'dark')
+}
 
 const Auth = lazy(() => import('./SiteAuth'))
 const hero = siteAssetUrl('/website-assets/creator-hero.webp')
@@ -26,6 +32,7 @@ export function Site({ page }: { page: SitePage }) {
   const [mounted, setMounted] = useState(false)
   useEffect(() => {
     setMounted(true)
+    return initTheme()
   }, [])
   const start = () => setLogin(true)
   const navigation = (
@@ -34,17 +41,22 @@ export function Site({ page }: { page: SitePage }) {
         <Brand locale={page.locale} />
       </a>
       <div className="site-nav-links">
-        <a
-          href={
-            page.kind === 'home' ? '#features' : `${page.locale === 'en' ? '/en/' : '/'}#features`
-          }
-        >
-          {text.explore}
-        </a>
+        <a href="/explore">{text.explore}</a>
         <a href="/pricing">{text.pricing}</a>
         <a href={editions[page.locale].root}>{text.guide}</a>
       </div>
       <div className="site-nav-actions">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="mkt-theme"
+          aria-label={marketingCopy[page.locale].nav.theme}
+          onClick={toggleSiteTheme}
+        >
+          <Icon name="light" className="sun" />
+          <Icon name="dark" className="moon" />
+        </Button>
         <a
           href={alternatePage(page).path}
           hrefLang={alternatePage(page).locale}
