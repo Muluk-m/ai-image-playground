@@ -78,8 +78,8 @@ _Avoid_: 版本、edition、环境、SKU、双版本
 展开成一组能力默认值的便利名字，仅在配置解析时存在，**展开后即消失**。不得被任何调用点判断。
 _Avoid_: EDITION、版本枚举、mode
 
-**私有树（private tree）**：
-存在性本身即开关的目录或包。「不在」是默认状态，「在」是例外。
+**私有树（private tree，已退役）**：
+原双仓时期存在性本身即开关的 `private/` 目录或包；已于 [ADR 0034](docs/adr/0034-modular-monolith-and-single-repo.md)（#1952）收口并入公开单仓，商业能力统一改由 `operator-config` 能力开关控制，仅收款/客服二维码等静态图片与密钥保留在外部私有存储。
 _Avoid_: ee 目录、企业版代码、付费模块
 
 **基线配置（baseline config）**：

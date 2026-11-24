@@ -29,15 +29,44 @@ afterEach(() => {
 })
 
 describe('check-arch-boundaries', () => {
-  it('passes against the current repository baseline', async () => {
-    const [bffViolations, dbViolations, readModelsViolations] = await Promise.all([
-      checkBffBoundaries(resolve(repoRoot, 'apps/bff/src')),
-      checkDirAcyclic(resolve(repoRoot, 'packages/db/src'), 'packages/db/src'),
-      checkReadModelsBoundaries(resolve(repoRoot, 'packages/read-models/src')),
-    ])
+  it('passes against the current repository baseline (with stale allowlist ratchet locked)', async () => {
+    const [bffViolations, adminServerViolations, dbViolations, readModelsViolations] =
+      await Promise.all([
+        checkBffBoundaries(resolve(repoRoot, 'apps/bff/src'), { checkStaleAllowlist: true }),
+        checkDirAcyclic(resolve(repoRoot, 'apps/admin/server'), 'apps/admin/server'),
+        checkDirAcyclic(resolve(repoRoot, 'packages/db/src'), 'packages/db/src'),
+        checkReadModelsBoundaries(resolve(repoRoot, 'packages/read-models/src')),
+      ])
     expect(bffViolations).toEqual([])
+    expect(adminServerViolations).toEqual([])
     expect(dbViolations).toEqual([])
     expect(readModelsViolations).toEqual([])
+  })
+
+  it('flags stale allowlist entries when checkStaleAllowlist is enabled while allowing active ones', async () => {
+    const dir = createTempTree({
+      'config.ts': 'export const config = {}\n',
+      'db/client.ts': "import { config } from '../config'\nexport const c = config\n",
+    })
+
+    expect(await checkBffBoundaries(dir)).toEqual([])
+    const violations = await checkBffBoundaries(dir, { checkStaleAllowlist: true })
+    expect(
+      violations.some((v) =>
+        v.includes('[stale-allowlist] ALLOWED_DB_TO_OUTSIDE: db/client.ts -> config.ts'),
+      ),
+    ).toBe(false)
+    expect(
+      violations.some((v) =>
+        v.includes('[stale-allowlist] ALLOWED_DB_TO_OUTSIDE: db/migrate.ts -> lib/capabilities.ts'),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) => v.includes('[stale-allowlist] ALLOWED_EXECUTION_TO_LEGACY_LIB:')),
+    ).toBe(true)
+    expect(
+      violations.some((v) => v.includes('[stale-allowlist] ALLOWED_LEGACY_AGENT_TO_MODULE_TOOLS:')),
+    ).toBe(true)
   })
 
   it('rejects new routes -> db, db -> non-db, and workers -> agent imports (including .js specifiers and relative rootDir)', async () => {

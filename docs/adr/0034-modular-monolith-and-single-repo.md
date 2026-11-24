@@ -1,6 +1,6 @@
 # 0034：单仓模块化单体、商业代码脱敏并入与热路径渐进重构
 
-日期：2026-11-22。状态：已接受。关联：[ADR 0003](0003-agent-runtime-in-bff-process.md)、[ADR 0012](0012-agent-background-jobs-and-postgres-inbox.md)、[ADR 0023](0023-canvas-document-on-yjs.md)、[ADR 0033](0033-observability-on-opentelemetry.md)。
+日期：2026-11-22。状态：已实施（Phase 0–6 架构重构与零停机 Expand 阶段已全部合入 `main`；Contract 删列/删表待生产发布与回填验收后执行）。关联：[ADR 0003](0003-agent-runtime-in-bff-process.md)、[ADR 0012](0012-agent-background-jobs-and-postgres-inbox.md)、[ADR 0023](0023-canvas-document-on-yjs.md)、[ADR 0033](0033-observability-on-opentelemetry.md)。
 
 ## 背景
 
@@ -47,3 +47,46 @@
 - **短期**：Phase 0 先立门禁与拆 `schema.ts`（零行为变更）；Phase 1 优先合仓，完成后所有后续重构均在单仓、单套 CI 下推进。
 - **安全边界**：计费结算迁入事件总线（Phase 2）与数据库热路径拆分（Phase 5）必须独立切片，严格遵守零停机前后向兼容与结算专项评审纪律；公开合仓前须逐项扫描确认零密钥、零收款/客服二维码入仓。
 - **演进路径**：Phase 0（护栏与 Schema 拆包）→ Phase 1（`private/` 脱敏并入公开单仓）→ Phase 2（`TaskLifecycleBus` 断环、`taskSubmission` 与 `billing` 拆解）→ Phase 3（`upstream` 适配器化、接口清理与 `packages/read-models`）→ Phase 4（`lib/agent` 六子域拆解至 0 循环依赖）→ Phase 5（`task_payloads` 冷热分离、统一媒体与 R2 直传）→ Phase 6（`server_logs` 收尾、PgBouncer 与基线清零）。
+
+## 实施记录（Phase 0–6）
+
+### 已锁定架构基线（`scripts/check-arch-boundaries.ts`）
+
+- **全服务端 0 运行时循环依赖**：`apps/bff/src`（原 85 文件巨型 SCC → 0）、`apps/admin/server`（0）、`packages/db/src`（0）、`packages/read-models/src`（0）。
+- **清零的跨层反向依赖**：`routes -> db` = 0、`workers -> agent` = 0、`lib/agent -> lib/agent/tools` = 0、`modules/canvas -> agent` = 0。
+- **陈旧白名单棘轮锁定**：`checkBffBoundaries(..., { checkStaleAllowlist: true })` 在 `pnpm lint` 与基线单测中强制开启；每消除一条存量例外即必须同步移出白名单，防止违规边静默回流。
+
+### 已合入 PR 账本（`main`）
+
+| 阶段 | PR | 摘要 |
+| --- | --- | --- |
+| Phase 0 | #1950 | 落盘 ADR 0034、`scripts/check-arch-boundaries.ts` 与 `packages/db/src/schemas/*.ts` 按域拆包 |
+| Phase 1 | #1952 | `private/` overlay 脱敏并入公开单仓，下线 `private.lock` 与双套 CI |
+| Phase 2 | #1964, #1966, #1968, #1973, #1976 | `TaskLifecycleBus` 事务内事件总线、`modules/execution` 拆解、worker 去 agent 依赖、`billing` 6 模块拆解与 3 窄端口 |
+| Phase 3 | #1984, #1985, #1987, #1994 | `upstream` 无环网关与注册表、0 `routes -> db`、接口清理与 keyset 游标分页、`@image-playground/read-models` 共享只读模型包 |
+| Phase 4 | #1999, #2003, #2004, #2012, #2014 | `modules/agent/{contracts,conversation,inbox,runtime,tools,orchestration}` + `modules/canvas`，全仓 0 运行时循环依赖 |
+| Phase 5 | #2020, #2024, #2025, #2026, #2027 | `tasks` 对账局部索引、`task_payloads` Expand/双写/切读、统一媒体账本与零搬运回填、工作台大图预签名直传与精确下标透传 |
+| Phase 6 | #2028, #2029, 本 PR (PR-6.3) | 移除 PG `server_logs` 运行时清理与旧缓冲代码、可选 PgBouncer 事务连接池与 `DIRECT_DATABASE_URL` 直连路由、锁定棘轮与完结 ADR |
+
+## 生产发布后回填与 Contract 收尾手册
+
+Phase 5–6 已合入 `main` 的改动全部遵守零停机 Expand / Switch-Read 兼容纪律，未执行任何删列或删表。待手动触发 `Deploy production` 发布上线且旧代次 BFF / worker 容器排空后，按以下顺序完成回填与 Contract 清理：
+
+1. **回填并校验 `task_payloads`**：
+   ```bash
+   DATABASE_URL=<prod-direct-url> bun run scripts/backfill-task-payloads.ts --repair
+   DATABASE_URL=<prod-direct-url> bun run scripts/backfill-task-payloads.ts --verify-only
+   ```
+   确认输出 `missing = 0` 且 `mismatched = 0`。
+2. **回填并校验统一媒体账本**：
+   ```bash
+   DATABASE_URL=<prod-direct-url> bun run scripts/backfill-asset-media.ts
+   DATABASE_URL=<prod-direct-url> bun run scripts/backfill-asset-media.ts --verify-only
+   ```
+   确认 `user_asset_objects` 与 `media_objects` / `media_references` 差异为 `0`。
+3. **（可选）启用共享 PgBouncer 事务连接池**：按 [PgBouncer 连接池手册](../deploy/pgbouncer.md) 依次执行 `provision-pooler` / `up-pooler`，先在 `test.json` 开启 `database.pooler: true` 验收，再切 `prod.json`。
+4. **分独立 Contract PR 执行破坏性清理（仅在上述发布排空与回填验收全部通过后合并）**：
+   - 在 `apps/bff/src/index.ts` 接入 `reclaimUnreferencedAssetMedia` 周期回收；
+   - **Contract 1（`tasks` 瘦身）**：移除应用层旧列双写与兼容视图，新增迁移删除同步触发器及 `tasks` 5 个冷列（`request_payload`、`result_payload`、`archive_payload`、`metering`、`upstream_body`）；
+   - **Contract 2（退场 `user_asset_objects`）**：移除应用层双写兜底，新增迁移删除 `user_asset_objects` 表；
+   - **Contract 3（退场 `server_logs`）**：将 Admin 测试夹具（`apps/admin/src/__tests__/server/helpers/table-log-source.ts`、`apps/admin/src/__tests__/server/routes/today.test.ts`）迁离 PG 表，再新增迁移删除 `packages/db/src/schemas/ops.ts` 中的 `server_logs` 表。

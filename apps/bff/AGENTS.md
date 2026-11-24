@@ -11,7 +11,7 @@ BFF 的公开核心只做四件事：
 3. **持久化 + 幂等** — PostgreSQL 存 task，浏览器刷新 / 关 tab 后用 `client_request_id` 幂等恢复，不重复扣额度。
 4. **托管前端静态产物** — `apps/web/dist` 由 BFF serve（`STATIC_DIR` env），跟 BFF 同源省 CORS preflight。
 
-私有 BFF overlay 可以在这些接缝上增加计费等部署专属能力；它仍必须遵守 BFF
+计费等商业能力已按 [ADR 0034](../../docs/adr/0034-modular-monolith-and-single-repo.md) 并入主仓并通过 `operator-config` 能力开关按需启用（默认关闭）；启用时仍必须遵守 BFF
 是唯一写入者、提交与预扣同事务、worker 结算或退回的纪律。
 
 **BFF 不做**：通用协议翻译。`upstream.ts` 只允许已验证的 channel 兼容性适配（端点 / body 形状选择，以及上游不支持多图数量时的 `n` fan-out + 结果合并）；不要把它扩成任意 OpenAI / Gemini 字段转换代理。浏览器不直连上游，生成一律走这里的平台渠道；用户不配置密钥或自定义端点。
