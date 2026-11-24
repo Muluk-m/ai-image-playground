@@ -28,8 +28,8 @@ import { MEDIA_INPUT_PATTERN, MediaInputError, resolveMediaInputs } from '../lib
 import { asQueueProvider } from '../lib/queueProvider'
 import { submissionRefusalResponse } from '../lib/submissionRefusal'
 import { taskAccessWhere } from '../lib/task-access'
-import { createQueueTask, findTaskByIdempotencyKey } from '../lib/taskSubmission'
 import { requireUser } from '../lib/user-auth'
+import { createQueueTask, findTaskByIdempotencyKey } from '../modules/execution'
 
 /** 与归档时的解码口径一致：base64 编码的 data URL。 */
 const DATA_URL_PATTERN = '^data:[^;,]+;base64,'

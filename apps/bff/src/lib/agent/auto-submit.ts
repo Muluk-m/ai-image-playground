@@ -8,12 +8,12 @@ import type {
   SubmitRequest,
 } from '@image-playground/shared'
 import { AGENT_AUTO_SUBMIT_MAX_PER_TURN, shapeQueuePrompt } from '@image-playground/shared'
-import { modelCapabilities } from '../channels'
 import {
   type CreateQueueTaskInput,
   type CreateQueueTaskOutcome,
   submitPrepared,
-} from '../taskSubmission'
+} from '../../modules/execution'
+import { modelCapabilities } from '../channels'
 import { recentlyRateLimitedLocked } from './rate-limit-resend'
 import { queueRefusalCode } from './tools/errors'
 import { agentVideoRequestError } from './video-models'

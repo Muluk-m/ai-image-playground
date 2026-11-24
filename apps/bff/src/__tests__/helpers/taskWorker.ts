@@ -1,4 +1,5 @@
 import '../../bootstrap/task-lifecycle'
+import '../../bootstrap/task-submission'
 import { eq } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { TerminalTaskUpdate } from '../../modules/execution'

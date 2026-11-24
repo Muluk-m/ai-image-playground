@@ -1241,7 +1241,7 @@ it('keeps Grok account-pool details out of queue and agent responses while retai
   }
   const [stored] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
   expect(stored!.error_message).toBe(raw)
-  const { queueTaskOutcome } = await import('../../lib/taskSubmission')
+  const { queueTaskOutcome } = await import('../../modules/execution')
   expect(queueTaskOutcome(stored!)).toMatchObject({
     kind: 'failed',
     reason: 'This model is temporarily unavailable. Please choose another model.',

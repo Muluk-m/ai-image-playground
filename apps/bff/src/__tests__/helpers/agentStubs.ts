@@ -1,3 +1,4 @@
+import '../../bootstrap/task-submission'
 import { mock } from 'bun:test'
 import {
   AGENT_FRAME_SEPARATOR,

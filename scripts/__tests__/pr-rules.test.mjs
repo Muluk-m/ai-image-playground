@@ -48,6 +48,24 @@ test('critical flows need checked evidence with media, or a reasoned waiver', ()
     evaluatePr({ files: [file('apps/bff/src/bootstrap/task-lifecycle.ts')], body: body() }).fails.join(),
     /支付计费（`apps\/bff\/src\/bootstrap\/task-lifecycle.ts`）、生成（`apps\/bff\/src\/bootstrap\/task-lifecycle.ts`）/,
   )
+  assert.match(
+    evaluatePr({ files: [file('apps/bff/src/bootstrap/task-submission.ts')], body: body() }).fails.join(),
+    /支付计费（`apps\/bff\/src\/bootstrap\/task-submission.ts`）、生成（`apps\/bff\/src\/bootstrap\/task-submission.ts`）/,
+  )
+  assert.match(
+    evaluatePr({
+      files: [file('apps/bff/src/modules/execution/task-outcome.ts')],
+      body: body(),
+    }).fails.join(),
+    /改到关键流程：生成（`apps\/bff\/src\/modules\/execution\/task-outcome.ts`）/,
+  )
+  assert.match(
+    evaluatePr({
+      files: [file('apps/bff/src/modules/execution/submission-idempotency.ts')],
+      body: body(),
+    }).fails.join(),
+    /支付计费（`apps\/bff\/src\/modules\/execution\/submission-idempotency.ts`）、生成（`apps\/bff\/src\/modules\/execution\/submission-idempotency.ts`）/,
+  )
 
   const checkedNoMedia = '- [ ] 本 PR 不涉及上述关键流程\n- [x] 已附测试账号在测试环境走通'
   assert.equal(evaluatePr({ files, body: body({ evidence: checkedNoMedia }) }).fails.length, 1)

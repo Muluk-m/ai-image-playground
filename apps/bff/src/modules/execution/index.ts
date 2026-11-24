@@ -1,4 +1,13 @@
 export {
+  DUPLICATE_SUBMISSION_WINDOW_MS,
+  findTaskByIdempotencyKey,
+} from './submission-idempotency'
+export {
+  premiumRequestAllowed,
+  premiumTierRequested,
+  strictImageRequestAllowed,
+} from './submission-tier'
+export {
   _resetTaskLifecycleListenersForTesting,
   type CancelledTaskRecord,
   type ExecutionTransaction,
@@ -13,6 +22,29 @@ export {
   type TasksCancelledEvent,
   type TerminalTaskStatus,
 } from './task-lifecycle-bus'
+export {
+  awaitQueueTask,
+  type QueueTaskOutcome,
+  type QueueTaskTerminalRow,
+  queueTaskOutcome,
+  setQueueTaskPollingForTesting,
+} from './task-outcome'
+export { createQueueTask, submitPrepared } from './task-submission'
+export {
+  _resetTaskSubmissionPluginsForTesting,
+  assertTaskSubmissionPluginRegistered,
+  type CreateQueueTaskInput,
+  type CreateQueueTaskOutcome,
+  listTaskSubmissionPluginIds,
+  MissingTaskSubmissionPluginError,
+  type PreparationRefusal,
+  registerTaskSubmissionPlugin,
+  type SubmissionInputTransformResult,
+  type SubmitPreparedResult,
+  type TaskPricingUnits,
+  type TaskSubmissionContext,
+  type TaskSubmissionPlugin,
+} from './task-submission-plugins'
 export {
   cancelTasks,
   finishTask,
