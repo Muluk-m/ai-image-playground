@@ -172,7 +172,6 @@ export default function PricingPage({
       auth.login()
       return
     }
-    if (intent === 'pricing' || intent === 'recharge') queueBillingModal(intent)
     navigate('/image')
   }
 

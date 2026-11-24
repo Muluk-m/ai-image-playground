@@ -235,17 +235,6 @@ function InspirationEditor({
     }
   }, [onDirtyChange])
 
-  const mountedRef = useRef(true)
-
-  useEffect(() => {
-    mountedRef.current = true
-    onDirtyChange(false)
-    return () => {
-      mountedRef.current = false
-      onDirtyChange(false)
-    }
-  }, [onDirtyChange])
-
   function patch(next: Partial<InspirationWriteInput>): void {
     draftRevisionRef.current += 1
     onDirtyChange(draftRevisionRef.current !== savedRevisionRef.current)

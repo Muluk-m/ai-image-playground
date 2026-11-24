@@ -1,12 +1,7 @@
 import type { AgentActiveTurnView } from '@image-playground/shared'
 import { i18next } from '../../../i18n'
-import type { AgentPanelMessage, AgentTurnFooter } from '../types'
-import {
-  type AgentConversationState,
-  AgentRequestError,
-  type AgentTurnSource,
-  fetchMessages,
-} from './agentClient'
+import type { AgentPanelMessage, AgentTurnFooter, ReturnedMessagesErrorCode } from '../types'
+import { type AgentConversationState, AgentRequestError, type AgentTurnSource } from './agentClient'
 import type { AgentPanelState } from './panelMessages'
 import { turnSource } from './turnFollower'
 import { type AgentTurnFields, applyTurnSessionEvent } from './turnSession'
@@ -26,7 +21,7 @@ export interface ConversationOpenerState extends AgentTurnFields {
   readonly historyLoading: boolean
   readonly historyFailed: boolean
   readonly returnedMessagesPending: boolean
-  readonly returnedMessagesError: string | null
+  readonly returnedMessagesError: ReturnedMessagesErrorCode | null
 }
 
 /** 这个会话的本机显示快照；绑定后它就是面板写入的目标。 */
@@ -49,6 +44,7 @@ export interface ConversationOpenerDeps {
   readonly sessionReset: (conversationId: string | null) => Partial<ConversationOpenerState>
   /** 交付换代，返回「还是这一代」的判断。 */
   readonly resetDelivery: () => () => boolean
+  readonly fetchMessages: (conversationId: string) => Promise<AgentConversationState>
   /** 改认这个会话为本机快照写入目标。 */
   readonly bindCache: (conversationId: string) => ConversationSnapshotCache
   /** 会话已不存在：删掉它的本机快照。 */
@@ -71,7 +67,6 @@ export interface ConversationOpenerDeps {
     readonly detach: (projectId: string) => Promise<void>
     readonly open: (projectId: string) => void
   }
-  readonly fetchMessages?: (conversationId: string) => Promise<AgentConversationState>
 }
 
 /**
@@ -83,7 +78,6 @@ export interface ConversationOpenerDeps {
  */
 export function createConversationOpener(deps: ConversationOpenerDeps) {
   const { get, set } = deps
-  const load = deps.fetchMessages ?? ((conversationId) => fetchMessages(conversationId))
 
   return async function openConversation(conversationId: string, turnId?: string) {
     const currentDelivery = deps.resetDelivery()
@@ -112,7 +106,7 @@ export function createConversationOpener(deps: ConversationOpenerDeps) {
     })
     let state: AgentConversationState
     try {
-      state = await load(conversationId)
+      state = await deps.fetchMessages(conversationId)
       remoteSettled = true
       if (!isCurrent()) return
     } catch (thrown) {

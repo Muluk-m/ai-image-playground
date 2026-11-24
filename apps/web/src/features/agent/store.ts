@@ -158,6 +158,7 @@ import type {
   AgentToolMessage,
   AgentTurnFooter,
   AgentTurnStatus,
+  ReturnedMessagesErrorCode,
 } from './types'
 
 // 文案按调用时取，不在模块加载时定死：切语言之后新出的报错要跟着换语言。
@@ -365,8 +366,6 @@ export interface AgentState {
    */
   confirmAllPrompts(): Promise<{ confirmed: number; failure: AgentPromptConfirmResult | null }>
 }
-
-type ReturnedMessagesErrorCode = 'stop_failed' | 'return_handoff_failed' | 'fallback'
 
 class ReturnedMessagesPersistenceError extends Error {
   readonly code: 'return_handoff_failed' | 'fallback'
@@ -778,9 +777,10 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
 
   const openConversation = createConversationOpener({
     get,
-    set: (patch) => set(patch as Partial<AgentState>),
+    set,
     sessionReset,
     resetDelivery,
+    fetchMessages: (conversationId) => fetchMessages(conversationId),
     bindCache: (conversationId) => historyCache.bind(conversationCache(conversationId)),
     forgetCache: (conversationId) => historyCache.forget(conversationId),
     releaseRunOrigins: releaseIdleAgentNodeRunOrigins,
