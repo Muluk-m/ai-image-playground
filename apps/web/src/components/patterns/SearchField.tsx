@@ -29,7 +29,13 @@ export default function SearchField({
         type="search"
         value={value}
         onKeyDown={(event) => {
-          if (event.key === 'Escape' && onClear && hasValue) {
+          if (
+            event.key === 'Escape' &&
+            !event.nativeEvent.isComposing &&
+            event.keyCode !== 229 &&
+            onClear &&
+            hasValue
+          ) {
             event.preventDefault()
             event.stopPropagation()
             onClear()

@@ -52,6 +52,16 @@ export default function NodeAssetPicker({
           className="flex w-[min(92vw,380px)] flex-col p-5"
           closeLabel={common('action.close')}
           onInteractOutside={(event) => event.preventDefault()}
+          onEscapeKeyDown={(event) => {
+            if (event.isComposing || event.keyCode === 229) {
+              event.preventDefault()
+              return
+            }
+            if (!creating && query.length > 0) {
+              event.preventDefault()
+              setQuery('')
+            }
+          }}
         >
           <SheetTitle>{t('nodes.assets')}</SheetTitle>
           <SheetDescription>{description ?? t('nodes.assetDragHint')}</SheetDescription>

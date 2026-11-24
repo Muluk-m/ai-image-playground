@@ -241,7 +241,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   } | null>(null)
   // 附件按钮弹的「图片 / 文件夹」二选一，与画布工具条那颗回形针同一套菜单。
   const [attachMenu, setAttachMenu] = useState<{ x: number; y: number } | null>(null)
-  const [libraryPickerOpen, setLibraryPickerOpen] = useState(false)
+  const [libraryPickerZone, setLibraryPickerZone] = useState<'loop' | 'shared' | null>(null)
   const attachZoneRef = useRef<'loop' | 'shared'>('loop')
   const [justMovedSharedId, setJustMovedSharedId] = useState<string | null>(null)
   const [batchSending, setBatchSending] = useState(false)
@@ -2234,21 +2234,28 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 icon={<Icon name="assets" />}
                 label={t('studio.library')}
                 onClick={() => {
+                  const zone = isBatchMode ? attachZoneRef.current : 'loop'
                   setAttachMenu(null)
-                  setLibraryPickerOpen(true)
+                  setLibraryPickerZone(zone)
                 }}
               />
             </ContextMenu>
           )}
-          {libraryPickerOpen && (
+          {libraryPickerZone && (
             <NodeAssetPicker
               description={t('library:panel.pickToAttach')}
-              onClose={() => setLibraryPickerOpen(false)}
+              onClose={() => setLibraryPickerZone(null)}
               onChoose={(asset) => {
-                setLibraryPickerOpen(false)
+                const zone = libraryPickerZone
+                const targetAdmission = zone === 'shared' ? sharedAdmission : admission
+                const revision = attachmentRevision.current
+                setLibraryPickerZone(null)
                 void useLibraryStore
                   .getState()
-                  .attachAsset(asset.id)
+                  .attachAsset(asset.id, targetAdmission, {
+                    targetZone: zone,
+                    shouldCommit: () => revision === attachmentRevision.current,
+                  })
                   .catch(() => {
                     showToast(t('library:asset.saveFailed'), 'error')
                   })
