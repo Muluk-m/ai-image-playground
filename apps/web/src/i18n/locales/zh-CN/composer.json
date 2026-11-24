@@ -1,18 +1,16 @@
 {
   "bulk": {
-    "favoriteTitle": "批量收藏",
-    "unfavoriteTitle": "批量取消收藏",
-    "favoriteMessage_other": "确定要收藏选中的 {{count}} 条记录吗？",
-    "unfavoriteMessage_other": "确定要取消收藏选中的 {{count}} 条记录吗？",
-    "confirmFavorite": "确认收藏",
-    "confirmUnfavorite": "确认取消",
+    "favorited_other": "已收藏 {{count}} 条记录",
+    "unfavorited_other": "已取消收藏 {{count}} 条记录",
+    "favoriteSelected": "收藏选中",
+    "unfavoriteSelected": "取消收藏",
+    "selectedCount_other": "已选 {{count}}",
     "deleteTitle": "批量删除",
     "deleteMessage_other": "确定要删除选中的 {{count}} 条记录吗？",
     "noImages": "选中的记录没有图片",
     "clearSelection": "取消选择",
     "deselectAll": "取消全选",
     "selectAllVisible": "全选当前可见",
-    "toggleFavorite": "收藏/取消收藏",
     "delete": "删除选中",
     "export": "导出所选"
   },
@@ -46,8 +44,8 @@
   "submit": {
     "generateCount_other": "生成 {{count}} 张",
     "maskEdit": "遮罩编辑",
-    "maskEditShortcut": "遮罩编辑 (Ctrl+Enter)",
-    "generateShortcut": "生成 (Ctrl+Enter)",
+    "maskEditShortcut": "遮罩编辑 ({{shortcut}})",
+    "generateShortcut": "生成 ({{shortcut}})",
     "submitting": "提交中",
     "noModel": "暂无可用模型，请稍后再试",
     "startCanvas": "开始创作",
@@ -69,8 +67,8 @@
     "size": "尺寸",
     "quality": "质量",
     "format": "格式",
-    "transparent": "透明",
-    "noRewrite": "防改写",
+    "transparent": "透明背景",
+    "noRewrite": "保留原始提示词",
     "compression": "压缩",
     "moderation": "审核",
     "count": "数量",
@@ -135,7 +133,10 @@
     "undo": "撤销",
     "redo": "重做",
     "resetView": "重置视图",
-    "clear": "清空遮罩"
+    "clear": "清空遮罩",
+    "discardTitle": "放弃遮罩修改",
+    "discardMessage": "当前遮罩有未保存的涂抹，关闭后将不会保留。",
+    "discardConfirm": "放弃修改"
   },
   "select": {
     "dragToReorder": "拖拽排序"
@@ -151,8 +152,7 @@
     "count_other": "{{count}} 张",
     "autoSizeHint": "智能比例下由模型决定尺寸。",
     "compressionHint": "留空按服务默认。",
-    "transparentHint": "生成后在本机抠出透明底，仅 PNG。",
-    "noRewriteHint": "提示词原样发给模型，不让网关改写。",
+    "stillOnlyWithReferenceHint": "带参考图时仅支持生成静态图片。",
     "quality": {
       "auto": "自动",
       "low": "低",
@@ -251,6 +251,10 @@
     "promotedDragNotice": "已移入共用参考（@参考{{n}}）",
     "demotedNotice": "已移回遍历原图",
     "demotedClearedNotice": "已移回遍历原图，并清理对应引用",
+    "clearedLoopNotice_other": "已清空 {{count}} 张遍历原图",
+    "clearedSharedNotice_other": "已清空 {{count}} 张共用参考",
+    "loopLimitReached": "遍历原图已达上限（{{max}} 张）",
+    "sharedLimitReached": "共用参考已达上限（{{max}} 张）",
     "overflowInImageMode": "图片生成单次最多参考 {{max}} 张，当前已选 {{count}} 张。",
     "switchToBatch": "切到批量生图继续",
     "examples": {

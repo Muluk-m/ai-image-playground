@@ -116,7 +116,7 @@
     "noMatches": "没有找到匹配的记录",
     "empty": "还没有作品。去创作页写一句，或到探索里挑个起点。",
     "mine": "我的作品",
-    "showAll": "查看全部作品",
+    "showAll": "查看全部",
     "submitted": "已提交"
   },
   "set": {
@@ -126,6 +126,7 @@
     "cancelledCount": "已取消 {{cancelled}}",
     "failedCount": "失败 {{failed}}",
     "expandToView": "展开查看",
+    "expandMore_other": "展开其余 {{count}} 张",
     "resultAlt": "{{name}} 结果",
     "batchTag": "逐张生成",
     "runningCount": "生成中 {{running}}",
@@ -136,6 +137,7 @@
     "itemDetail": "第 {{index}} 张详情",
     "downloadItem": "下载第 {{index}} 张",
     "downloadAll": "全部下载",
+    "retryAllFailed": "全部重试",
     "itemList": "逐张结果",
     "deleteItem": "删除第 {{index}} 张"
   },

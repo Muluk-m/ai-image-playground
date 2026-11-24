@@ -283,6 +283,13 @@ export function BatchDualZone({
             className="creation-add creation-batch-add"
             aria-label={t('batch.addLoop')}
             aria-disabled={loopFull || disabled || undefined}
+            title={
+              !canAttach
+                ? t('image.addFailed', { reason: t('param.modelUnavailable') })
+                : loopFull
+                  ? t('batch.loopLimitReached', { max: BATCH_GENERATE_MAX })
+                  : undefined
+            }
             onClick={(event) => !loopFull && !disabled && onAddLoop(event)}
           >
             <Icon name="add" />
@@ -478,6 +485,13 @@ export function BatchDualZone({
             className="creation-add creation-batch-add"
             aria-label={t('batch.addShared')}
             aria-disabled={sharedFull || disabled || undefined}
+            title={
+              !canAttach
+                ? t('image.addFailed', { reason: t('param.modelUnavailable') })
+                : sharedFull
+                  ? t('batch.sharedLimitReached', { max: sharedMax })
+                  : undefined
+            }
             onClick={(event) => !sharedFull && !disabled && onAddShared(event)}
           >
             <Icon name="add" />

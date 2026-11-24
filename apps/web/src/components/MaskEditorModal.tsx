@@ -165,6 +165,16 @@ export default function MaskEditorModal() {
 
   const close = () => {
     if (isSaving) return
+    if (undoStackRef.current.length > 0) {
+      setConfirmDialog({
+        title: t('mask.discardTitle'),
+        message: t('mask.discardMessage'),
+        confirmText: t('mask.discardConfirm'),
+        tone: 'danger',
+        action: () => setMaskEditorImageId(null),
+      })
+      return
+    }
     setMaskEditorImageId(null)
   }
   useEffect(
@@ -642,11 +652,26 @@ export default function MaskEditorModal() {
     isAltKeyPressed,
   ])
 
+  const undoRedoRef = useRef<{ undo: () => void; redo: () => void }>({
+    undo: () => {},
+    redo: () => {},
+  })
+
   useEffect(() => {
     if (!imageId) return
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.altKey) setIsAltKeyPressed(true)
+      if ((event.metaKey || event.ctrlKey) && !event.altKey) {
+        const key = event.key.toLowerCase()
+        if (key === 'z' && !event.shiftKey) {
+          event.preventDefault()
+          undoRedoRef.current.undo()
+        } else if ((key === 'z' && event.shiftKey) || key === 'y') {
+          event.preventDefault()
+          undoRedoRef.current.redo()
+        }
+      }
     }
     const handleKeyUp = (event: KeyboardEvent) => {
       if (event.key === 'Alt') setIsAltKeyPressed(false)
@@ -875,6 +900,10 @@ export default function MaskEditorModal() {
     syncHistoryState()
   }
 
+  useEffect(() => {
+    undoRedoRef.current = { undo: handleUndo, redo: handleRedo }
+  })
+
   const handleClear = () => {
     const canvas = maskCanvasRef.current
     if (!canvas || !isReady || isSaving) return
@@ -983,7 +1012,7 @@ export default function MaskEditorModal() {
                 </h2>
                 <Button
                   type="button"
-                  onClick={showMaskInfoPopover}
+                  onClick={() => setShowMaskInfo((v) => !v)}
                   onMouseEnter={showMaskInfoPopover}
                   onMouseLeave={hideMaskInfoPopover}
                   onTouchStart={startMaskInfoTouch}
@@ -993,6 +1022,7 @@ export default function MaskEditorModal() {
                   size="icon-xs"
                   className="text-muted-foreground"
                   aria-label={t('mask.infoLabel')}
+                  aria-expanded={showMaskInfo}
                   title={t('mask.infoLabel')}
                 >
                   <Icon name="info" />
@@ -1134,23 +1164,25 @@ export default function MaskEditorModal() {
                   </Button>
                 </div>
 
-                <div
-                  ref={brushSizeControlRef}
-                  className="relative flex items-center justify-center"
-                >
-                  <Button
-                    ref={brushSizeButtonRef}
-                    onClick={toggleBrushControls}
-                    variant={showBrushControls ? 'secondary' : 'outline'}
-                    size="icon-sm"
-                    aria-label={t('mask.brushSize')}
-                    aria-expanded={showBrushControls}
-                    disabled={!isReady || isSaving || tool === 'lasso'}
-                    title={t('mask.brushSize')}
+                {tool !== 'lasso' && (
+                  <div
+                    ref={brushSizeControlRef}
+                    className="relative flex items-center justify-center"
                   >
-                    <span className="text-sm font-semibold tracking-tight">{brushSize}</span>
-                  </Button>
-                </div>
+                    <Button
+                      ref={brushSizeButtonRef}
+                      onClick={toggleBrushControls}
+                      variant={showBrushControls ? 'secondary' : 'outline'}
+                      size="icon-sm"
+                      aria-label={t('mask.brushSize')}
+                      aria-expanded={showBrushControls}
+                      disabled={!isReady || isSaving}
+                      title={t('mask.brushSize')}
+                    >
+                      <span className="text-sm font-semibold tracking-tight">{brushSize}</span>
+                    </Button>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-0.5 sm:gap-2 sm:ml-1">

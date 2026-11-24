@@ -1,5 +1,7 @@
 import { formatImageRatio, parseImageSize } from '@image-playground/shared'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { taskExportSources } from '../features/image-export/sources'
+import { openImageExport } from '../features/image-export/store'
 import { openWorkProject } from '../features/library/lib/openWorkProject'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useImagePreview } from '../hooks/useImagePreview'
@@ -210,6 +212,32 @@ export default function DetailModal() {
     }
   }, [maskTargetSrc, maskSrc])
 
+  const outputCount = task?.outputImages?.length ?? 0
+  useEffect(() => {
+    if (!task || outputCount <= 1) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+      const target = event.target instanceof Element ? event.target : null
+      if (target?.closest('input, textarea, [contenteditable="true"]')) return
+      if (
+        useStore.getState().lightboxImageId ||
+        useStore.getState().confirmDialog ||
+        showRawUrlsModal ||
+        showRawResponseModal
+      )
+        return
+      event.preventDefault()
+      setImageIndex((prev) =>
+        event.key === 'ArrowLeft'
+          ? (prev - 1 + outputCount) % outputCount
+          : (prev + 1) % outputCount,
+      )
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [task, outputCount, showRawUrlsModal, showRawResponseModal])
+
   if (!task) return null
 
   const outputLen = task.outputImages?.length || 0
@@ -261,6 +289,12 @@ export default function DetailModal() {
   const handleEdit = () => {
     void editOutputImage(task, task.outputImages?.[imageIndex])
     setDetailTaskId(null)
+  }
+
+  const handleExport = () => {
+    const sources = taskExportSources([task])
+    if (sources.length === 0) return
+    openImageExport(sources)
   }
 
   const handleSendToCanvas = () => {
@@ -690,7 +724,7 @@ export default function DetailModal() {
                   {t('card.canvas')}
                 </span>
               )}
-              {(task.prompt?.length ?? 0) > 120 && (
+              {(task.prompt?.length ?? 0) > 120 || (task.prompt?.split('\n').length ?? 0) > 4 ? (
                 <Button
                   type="button"
                   variant="link"
@@ -700,8 +734,9 @@ export default function DetailModal() {
                 >
                   {promptExpanded ? t('common:action.collapse') : t('detail.expandAll')}
                 </Button>
+              ) : (
+                <span className="block mb-3" />
               )}
-              {(task.prompt?.length ?? 0) <= 120 && <span className="block mb-3" />}
               {showRevisedPrompt && currentRevisedPrompt && (
                 <div className="mb-4">
                   <ActualValueBadge
@@ -718,17 +753,19 @@ export default function DetailModal() {
                     <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                       {t('detail.referenceSection')}
                     </h3>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={handleCopyInputImage}
-                      className="text-muted-foreground"
-                      title={t('detail.copyReference')}
-                      aria-label={t('detail.copyReference')}
-                    >
-                      <Icon name="copy" size="xs" />
-                    </Button>
+                    {allInputImageIds.length === 1 && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={handleCopyInputImage}
+                        className="text-muted-foreground"
+                        title={t('detail.copyReference')}
+                        aria-label={t('detail.copyReference')}
+                      >
+                        <Icon name="copy" size="xs" />
+                      </Button>
+                    )}
                   </div>
                   <div className="flex gap-2 flex-wrap">
                     {allInputImageIds.map((imgId) => {
@@ -901,6 +938,19 @@ export default function DetailModal() {
                 <Icon name="sendToCanvas" />
                 {t('action.sendToCanvas')}
               </Button>
+              {outputLen > 0 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleExport}
+                  className="col-span-2 w-full text-muted-foreground hover:text-foreground sm:w-9"
+                  title={t(outputLen > 1 ? 'action.exportImages' : 'action.exportImage')}
+                  aria-label={t(outputLen > 1 ? 'action.exportImages' : 'action.exportImage')}
+                >
+                  <Icon name="download" />
+                </Button>
+              )}
               {projectId && (
                 <Button
                   type="button"
