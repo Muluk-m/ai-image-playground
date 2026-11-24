@@ -83,6 +83,7 @@ export default function DeriveVideoPopover({
         value={prompt}
         onChange={(event) => setPrompt(event.target.value)}
         onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing) return
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
             event.preventDefault()
             void submit()
