@@ -9,9 +9,14 @@ import {
   agentTool,
   taskFailureCode,
 } from '@image-playground/shared'
-import { and, eq, inArray, or, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import { cancelTasks, type QueueTaskTerminalRow, queueTaskOutcome } from '../../modules/execution'
+import {
+  cancelTasks,
+  type ExternalExecutionTransaction,
+  type QueueTaskTerminalRow,
+  queueTaskOutcome,
+} from '../../modules/execution'
 import { accountConcurrencyLimit, accountQueuePositions } from '../account-concurrency'
 import { cancelAnalysisTasks } from '../analysis-tasks'
 import { type BffTransaction, loadMeteringPort } from '../billing-ports'
@@ -19,7 +24,7 @@ import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
 import { taskProgressPhase } from '../task-progress'
 import { cancelUpstreamOfCancelledTasks } from '../upstream-cancel'
-import { queueArtifacts } from './tools/queueTask'
+import { queueArtifacts } from './job-artifacts'
 
 /**
  * 后台任务的结局只有一个来源：任务表。结果块在提交时写成 `submitted`，读回会话时对照任务行
@@ -65,14 +70,90 @@ export function settledJobBlock(
   }
 }
 
+const MAX_SETTLE_CAS_ATTEMPTS = 5
+
+function applySettlementToContent(
+  content: readonly AgentContentBlock[],
+  byId: ReadonlyMap<string, QueueTaskTerminalRow>,
+  credits: Readonly<Record<string, number>>,
+): { readonly changed: boolean; readonly content: AgentContentBlock[] } {
+  let changed = false
+  const next = content.map((block) => {
+    if (block.type !== 'toolResult' || !block.job) return block
+    const amount = credits[block.job.taskId]
+    const charge = Number.isSafeInteger(amount) && amount >= 0 ? amount : undefined
+    if (pendingJob(block)) {
+      const settledBlock = settledJobBlock(block, byId.get(block.job.taskId), charge)
+      if (!settledBlock) return block
+      changed = true
+      return settledBlock
+    }
+    if (block.job.chargedCredits !== undefined || charge === undefined) return block
+    changed = true
+    return { ...block, job: { ...block.job, chargedCredits: charge } }
+  })
+  return { changed, content: next }
+}
+
+async function persistSettledMessage(
+  conversationId: string,
+  initial: AgentMessageView,
+  byId: ReadonlyMap<string, QueueTaskTerminalRow>,
+  credits: Readonly<Record<string, number>>,
+): Promise<AgentContentBlock[]> {
+  let currentContent: readonly AgentContentBlock[] = initial.content
+  for (let attempt = 0; attempt < MAX_SETTLE_CAS_ATTEMPTS; attempt += 1) {
+    const applied = applySettlementToContent(currentContent, byId, credits)
+    if (!applied.changed) return [...currentContent]
+    // 乐观锁 CAS：校验实际更新到行；同一消息多个后台任务并发终态或与 wakeSkipped 交错时，重读最新行合并重试。
+    const updated = await db
+      .update(schema.agent_messages)
+      .set({ content: applied.content })
+      .where(
+        and(
+          eq(schema.agent_messages.conversation_id, conversationId),
+          eq(schema.agent_messages.id, initial.id),
+          isNull(schema.agent_messages.deleted_at),
+          // 参数先定成 text 再转：直接写 `::jsonb`，驱动会把这串 JSON 再编码成一个 jsonb 字符串。
+          sql`${schema.agent_messages.content} = ${JSON.stringify(currentContent)}::text::jsonb`,
+        ),
+      )
+      .returning({ id: schema.agent_messages.id })
+    if (updated.length > 0) return applied.content
+    const [fresh] = await db
+      .select({ content: schema.agent_messages.content })
+      .from(schema.agent_messages)
+      .where(
+        and(
+          eq(schema.agent_messages.conversation_id, conversationId),
+          eq(schema.agent_messages.id, initial.id),
+          isNull(schema.agent_messages.deleted_at),
+        ),
+      )
+      .limit(1)
+    if (!fresh) return applied.content
+    currentContent = fresh.content
+  }
+  throw new Error(
+    `Agent job settlement CAS contention exceeded ${MAX_SETTLE_CAS_ATTEMPTS} attempts for message ${initial.id}`,
+  )
+}
+
+export interface AgentJobSettlementTarget {
+  readonly taskId: string
+  readonly turnId?: string | null
+}
+
 /**
- * 把这些消息里已经结束的后台任务结算成终局，落库后返回改写过的消息。调用方负责确权：
- * 消息必须来自已经按归属查出来的会话，任务也只认挂在这个会话下的。
+ * 把这些消息里已经结束的后台任务结算成终局。
+ * - `persist = true`（默认，用于终态提交后监听、清任务前强制兜底、单张重试等写路径）：将结果回写落库；
+ * - `persist = false`（{@link projectSettledAgentJobs}，用于会话读路径）：仅在内存中投影视图，不执行任何 DB 写操作。
+ * 调用方负责确权：消息必须来自已经按归属查出来的会话，任务也只认挂在这个会话下的。
  */
 export async function settleAgentJobs(
   conversationId: string,
   messages: readonly AgentMessageView[],
-  options: { readonly requireCharges?: boolean } = {},
+  options: { readonly requireCharges?: boolean; readonly persist?: boolean } = {},
 ): Promise<AgentMessageView[]> {
   const pendingIds = messages.flatMap((message) =>
     message.content.filter(pendingJob).map((block) => block.job.taskId),
@@ -139,40 +220,157 @@ export async function settleAgentJobs(
 
   const settled: AgentMessageView[] = []
   for (const message of messages) {
-    let changed = false
-    const content = message.content.map((block) => {
-      if (block.type !== 'toolResult' || !block.job) return block
-      const amount = credits[block.job.taskId]
-      const charge = Number.isSafeInteger(amount) && amount >= 0 ? amount : undefined
-      if (pendingJob(block)) {
-        const next = settledJobBlock(block, byId.get(block.job.taskId), charge)
-        if (!next) return block
-        changed = true
-        return next
-      }
-      if (block.job.chargedCredits !== undefined || charge === undefined) return block
-      changed = true
-      return { ...block, job: { ...block.job, chargedCredits: charge } }
-    })
-    if (!changed) {
+    const applied = applySettlementToContent(message.content, byId, credits)
+    if (!applied.changed) {
       settled.push(message)
       continue
     }
-    // 只在这条消息还是读到时的样子才写：两个读者同时结算，算出来的是同一份，谁先写都一样。
-    await db
-      .update(schema.agent_messages)
-      .set({ content })
-      .where(
-        and(
-          eq(schema.agent_messages.conversation_id, conversationId),
-          eq(schema.agent_messages.id, message.id),
-          // 参数先定成 text 再转：直接写 `::jsonb`，驱动会把这串 JSON 再编码成一个 jsonb 字符串。
-          sql`${schema.agent_messages.content} = ${JSON.stringify(message.content)}::text::jsonb`,
-        ),
-      )
+    const content =
+      options.persist !== false
+        ? await persistSettledMessage(conversationId, message, byId, credits)
+        : applied.content
     settled.push({ ...message, content })
   }
   return settled
+}
+
+/**
+ * 纯只读投影：会话消息读取路径不再触发 `UPDATE agent_messages` 写副作用。
+ * 正常任务终态由 TaskLifecycleBus 提交后监听落库；此处仅在内存为历史未落账卡片或并发竞态窗口补齐展示视图。
+ */
+export function projectSettledAgentJobs(
+  conversationId: string,
+  messages: readonly AgentMessageView[],
+): Promise<AgentMessageView[]> {
+  return settleAgentJobs(conversationId, messages, { persist: false })
+}
+
+async function findMessagesForTaskIds(
+  conversationId: string,
+  taskIds: readonly string[],
+  turnIds?: readonly string[],
+) {
+  if (taskIds.length === 0) return []
+  return db
+    .select({
+      id: schema.agent_messages.id,
+      turn_id: schema.agent_messages.turn_id,
+      role: schema.agent_messages.role,
+      content: schema.agent_messages.content,
+      created_at: schema.agent_messages.created_at,
+    })
+    .from(schema.agent_messages)
+    .where(
+      and(
+        eq(schema.agent_messages.conversation_id, conversationId),
+        ...(turnIds && turnIds.length > 0
+          ? [inArray(schema.agent_messages.turn_id, [...turnIds])]
+          : []),
+        isNull(schema.agent_messages.deleted_at),
+        or(
+          ...taskIds.map(
+            (taskId) =>
+              sql`${schema.agent_messages.content} @> ${JSON.stringify([
+                { type: 'toolResult', job: { taskId } },
+              ])}::text::jsonb`,
+          ),
+        ),
+      ),
+    )
+}
+
+/**
+ * 任务终态提交后按 `(conversationId, turnId, taskId)` 精准定向结算并回写对应的结果卡消息：
+ * 优先走 `idx_agent_messages_turn (conversation_id, turn_id)` 索引，仅检查当轮消息而非扫描整段会话历史；
+ * 仅对缺少 `turnId` 或未命中的历史任务才回退会话级兜底查询。
+ */
+export async function settleAgentJobsForTasks(
+  conversationId: string,
+  targets: readonly AgentJobSettlementTarget[],
+): Promise<void> {
+  const byTaskId = new Map<string, string | null>()
+  for (const target of targets) {
+    if (!byTaskId.has(target.taskId) || (!byTaskId.get(target.taskId) && target.turnId)) {
+      byTaskId.set(target.taskId, target.turnId ?? null)
+    }
+  }
+  if (byTaskId.size === 0) return
+
+  const scopedTaskIds: string[] = []
+  const scopedTurnIds = new Set<string>()
+  const unscopedTaskIds: string[] = []
+  for (const [taskId, turnId] of byTaskId) {
+    if (turnId) {
+      scopedTaskIds.push(taskId)
+      scopedTurnIds.add(turnId)
+    } else {
+      unscopedTaskIds.push(taskId)
+    }
+  }
+
+  const rowsById = new Map<
+    string,
+    {
+      id: string
+      turn_id: string
+      role: AgentMessageView['role']
+      content: AgentContentBlock[]
+      created_at: number
+    }
+  >()
+  if (scopedTaskIds.length > 0) {
+    const scopedRows = await findMessagesForTaskIds(conversationId, scopedTaskIds, [
+      ...scopedTurnIds,
+    ])
+    for (const row of scopedRows) rowsById.set(row.id, row)
+  }
+  if (unscopedTaskIds.length > 0) {
+    const fallbackRows = await findMessagesForTaskIds(conversationId, unscopedTaskIds)
+    for (const row of fallbackRows) rowsById.set(row.id, row)
+  }
+  if (rowsById.size === 0) return
+  await settleAgentJobs(
+    conversationId,
+    [...rowsById.values()].map((row) => ({
+      id: row.id,
+      turnId: row.turn_id,
+      role: row.role,
+      content: row.content,
+      createdAt: row.created_at,
+    })),
+  )
+}
+
+/**
+ * 覆盖「任务先到达终态、结果卡后提交落库」的竞态窗口（如 `auto-submit`、单张重试、崩溃重放）：
+ * 结果卡写入事务提交后做一次按主键查任务状态；任务仍在排队/执行时立刻返回，已终态则定向落库结果卡。
+ */
+export async function settleSubmittedTaskIfTerminal(
+  conversationId: string,
+  taskId: string,
+  turnId?: string | null,
+): Promise<void> {
+  try {
+    const [task] = await db
+      .select({ status: schema.tasks.status })
+      .from(schema.tasks)
+      .where(
+        and(eq(schema.tasks.id, taskId), eq(schema.tasks.agent_conversation_id, conversationId)),
+      )
+      .limit(1)
+    if (
+      !task ||
+      (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled')
+    ) {
+      return
+    }
+    await settleAgentJobsForTasks(conversationId, [{ taskId, turnId }])
+  } catch (err) {
+    log.warn(
+      { event: 'agent.job_settlement_post_write_failed', conversationId, taskId, err },
+      'post-card-write agent job settlement failed; read projection and pre-purge sweep will recover',
+    )
+  }
 }
 
 /**
@@ -274,20 +472,26 @@ async function setAgentJobsWakeSkipped(
  */
 export async function cancelAgentConversationJobs(
   conversationId: string,
-  tx?: BffTransaction,
+  external?: ExternalExecutionTransaction,
 ): Promise<number> {
-  const cancel = async (executor: BffTransaction) => {
+  const cancel = async (executor: ExternalExecutionTransaction) => {
     const cancelled = await cancelTasks(
       and(eq(schema.tasks.agent_conversation_id, conversationId), eq(schema.tasks.kind, 'queue'))!,
-      { tx: executor },
+      executor,
     )
     const analysis = await cancelAnalysisTasks(
       eq(schema.tasks.agent_conversation_id, conversationId),
-      executor,
+      executor.tx,
     )
     return cancelled.length + analysis
   }
-  return tx ? cancel(tx) : db.transaction(cancel)
+  if (external) return cancel(external)
+  const postCommitHooks: Array<() => Promise<void>> = []
+  const count = await db.transaction((tx) =>
+    cancel({ tx, onCommit: (hook) => postCommitHooks.push(hook) }),
+  )
+  for (const hook of postCommitHooks) await hook()
+  return count
 }
 
 /**

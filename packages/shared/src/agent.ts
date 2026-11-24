@@ -1526,6 +1526,8 @@ export interface AgentConversationSnapshot {
   readonly cursor?: number
   /** 按处理顺序排着的消息，连同轮到时没能开轮、还没撤掉的那几条（带 `failure`）；老服务端没有这一项。 */
   readonly queue?: readonly AgentQueuedMessageView[]
+  /** 还有更早的历史消息时给出当前页最旧一条的序号，传 `?beforeSeq=` 向前翻页；null 表示已到开头。 */
+  readonly nextBeforeSeq?: number | null
 }
 
 /**

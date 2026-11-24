@@ -754,6 +754,31 @@ export async function agentResumeQueued(conversationId: string, turnId: string):
   return row !== undefined
 }
 
+/** 批量查询一组轮是否已排入中断续跑，消除 `writeSeals` 逐轮查收件箱的 N+1。 */
+export async function queuedAgentResumeTurnIds(
+  conversationId: string,
+  turnIds: readonly string[],
+): Promise<ReadonlySet<string>> {
+  const uniqueTurnIds = [...new Set(turnIds)]
+  if (uniqueTurnIds.length === 0) return new Set()
+  const keyToTurnId = new Map(uniqueTurnIds.map((turnId) => [agentResumeKey(turnId), turnId]))
+  const rows = await db
+    .select({ clientMessageId: inbox.client_message_id })
+    .from(inbox)
+    .where(
+      and(
+        eq(inbox.conversation_id, conversationId),
+        inArray(inbox.client_message_id, [...keyToTurnId.keys()]),
+      ),
+    )
+  const queued = new Set<string>()
+  for (const row of rows) {
+    const turnId = row.clientMessageId ? keyToTurnId.get(row.clientMessageId) : undefined
+    if (turnId) queued.add(turnId)
+  }
+  return queued
+}
+
 /**
  * 在起轮的事务里取走一条：只有它仍待处理时才成立。与撤回争同一行，输的一方更新不到任何行。
  * 参考图原件此时已交给这一轮归档，不再留在收件箱里。

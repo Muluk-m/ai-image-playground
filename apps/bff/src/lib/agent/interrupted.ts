@@ -2,6 +2,7 @@ import type { AgentInboxResumePayload } from '@image-playground/db'
 import type { AgentToolEndEvent } from '@image-playground/shared'
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
+import { settleSubmittedTaskIfTerminal } from './background-jobs'
 import { appendAgentMessage, listAgentToolCalls } from './conversations'
 import {
   type AgentReplayedSubmission,
@@ -118,6 +119,7 @@ async function restoreSubmittedJobCards(
       role: 'assistant',
       content: [block],
     })
+    if (job) await settleSubmittedTaskIfTerminal(conversationId, job.taskId, turnId)
     const { type: _stored, ...fields } = block
     restored.push({ type: 'toolEnd', messageId: call.messageId, ...fields })
   }

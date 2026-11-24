@@ -359,7 +359,8 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
         }
       }
     }
-    return await db.transaction(async (tx) => {
+    const postCommitHooks: Array<() => Promise<void>> = []
+    const outcome = await db.transaction(async (tx) => {
       const [owned] = await tx
         .select({ id: schema.tasks.id })
         .from(schema.tasks)
@@ -369,7 +370,12 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
         throw new ReconciliationError('reconciliation_lease_lost')
       let status: 'reconciling' | 'completed' | 'failed' = 'reconciling'
       if (update) {
-        if (!(await finishTask(taskId, update, heldBy(token), { tx })))
+        if (
+          !(await finishTask(taskId, update, heldBy(token), {
+            tx,
+            onCommit: (hook) => postCommitHooks.push(hook),
+          }))
+        )
           throw new ReconciliationError('reconciliation_lease_lost')
         status = update.status === 'completed' ? 'completed' : 'failed'
       }
@@ -398,6 +404,8 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
       })
       return { taskId, status, ...(reason ? { reason } : {}) }
     })
+    for (const hook of postCommitHooks) await hook()
+    return outcome
   } finally {
     clearInterval(heartbeat)
     // Failure leaves the same unresolved task available for another evidence-backed command.

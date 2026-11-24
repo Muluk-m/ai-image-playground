@@ -164,7 +164,8 @@ export async function deleteProject(
  */
 async function removeIdleConversation(conversationId: string): Promise<boolean> {
   try {
-    if ((await fetchMessages(conversationId)).activeTurn) return false
+    if ((await fetchMessages(conversationId, undefined, undefined, { limit: 1 })).activeTurn)
+      return false
     await removeConversation(conversationId)
   } catch (error) {
     if (!(error instanceof AgentRequestError && error.status === 404)) throw error
