@@ -444,6 +444,17 @@ export const agentRoutes = new Elysia()
       const owner = ownerOf(authUser, headers[DEVICE_ID_HEADER])
       const conversation = await findAgentConversation(params.id, owner)
       if (!conversation) return status(404, NOT_FOUND)
+      // 向前翻历史页只需单次按 (conversation_id, seq) 索引拉取老消息，不重查整份轮摘要/队列/执行态，避免长会话翻页总成本退化为平方级。
+      if (beforeSeq !== undefined) {
+        const page = await listAgentMessagesPage(conversation.id, owner, { limit, beforeSeq })
+        const snapshot: AgentConversationSnapshot = {
+          messages: page.messages,
+          turns: [],
+          activeTurn: null,
+          nextBeforeSeq: page.nextBeforeSeq,
+        }
+        return snapshot
+      }
       const forwarded = await forwardActiveTurn(conversation.id, request)
       if (forwarded) return forwarded
       const local = runningTurn(conversation.id)
@@ -463,13 +474,12 @@ export const agentRoutes = new Elysia()
         ? undefined
         : (liveBase ?? (await lastConversationEventSeq(conversation.id)))
       const [page, turns, queue] = await Promise.all([
-        listAgentMessagesPage(conversation.id, owner, { limit, beforeSeq }),
+        listAgentMessagesPage(conversation.id, owner, { limit }),
         listAgentTurnSummaries(conversation.id),
         queuedAgentMessages(conversation.id),
       ])
-      // 没有谁在跑：队里还有人等着就接着开轮，客户端再看一次快照就挂得上。向前翻老消息时不触发捡轮。
-      if (!execution && beforeSeq === undefined)
-        await pickUpIdleConversation(conversation.id, queue)
+      // 没有谁在跑：队里还有人等着就接着开轮，客户端再看一次快照就挂得上。
+      if (!execution) await pickUpIdleConversation(conversation.id, queue)
       const snapshot: AgentConversationSnapshot = {
         messages: page.messages,
         turns,

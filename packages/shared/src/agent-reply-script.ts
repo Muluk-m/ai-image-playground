@@ -291,8 +291,9 @@ export function sanitizeReplyText(text: string, userText = ''): string {
  */
 export function sanitizeAssistantMessages(
   messages: readonly AgentMessageView[],
+  userTextOverride?: string,
 ): AgentMessageView[] {
-  const userText = collectUserReplyText(messages)
+  const userText = userTextOverride ?? collectUserReplyText(messages)
   const extra = compileReplyScripts(userText).extra
   let changed = false
   const next = messages.map((message) => {

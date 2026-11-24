@@ -714,7 +714,13 @@ describe('cursor pagination on conversations and messages', () => {
       expect(res.status).toBe(200)
       const body = res.json as {
         messages: Array<{ id: string }>
+        turns: unknown[]
+        activeTurn: unknown
         nextBeforeSeq: number | null
+      }
+      if (beforeSeq !== undefined && beforeSeq !== null) {
+        expect(body.turns).toEqual([])
+        expect(body.activeTurn).toBeNull()
       }
       collected.unshift(body.messages.map((message) => message.id))
       if (body.nextBeforeSeq === null) break
@@ -745,5 +751,50 @@ describe('cursor pagination on conversations and messages', () => {
         )
       ).status,
     ).toBe(400)
+  })
+
+  it('preserves conversation-level reply script allowlist when user prompt and assistant reply span pages', async () => {
+    const conversationId = await startConversation()
+    const now = Date.now()
+    await db.insert(schema.agent_messages).values([
+      {
+        conversation_id: conversationId,
+        id: 'cyrillic-user',
+        turn_id: 'turn-cyrillic',
+        seq: 1,
+        role: 'user',
+        content: [{ type: 'text', text: 'Привет, сделай постер' }],
+        created_at: now,
+      },
+      {
+        conversation_id: conversationId,
+        id: 'cyrillic-assistant',
+        turn_id: 'turn-cyrillic',
+        seq: 2,
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Готово! Вот ваш постер.' }],
+        created_at: now + 1,
+      },
+    ])
+
+    // limit=1 时最新页只含俄文助手回复、不含俄文用户消息，仍应依据整段会话用户语种完整保留正文。
+    const res = await request(
+      'GET',
+      `/api/agent/conversations/${conversationId}/messages?limit=1`,
+      {
+        deviceId: DEVICE,
+      },
+    )
+    expect(res.status).toBe(200)
+    const body = res.json as {
+      messages: Array<{ id: string; content: Array<{ type: string; text?: string }> }>
+      nextBeforeSeq: number | null
+    }
+    expect(body.nextBeforeSeq).toBe(2)
+    expect(body.messages).toHaveLength(1)
+    expect(body.messages[0]!.content[0]).toEqual({
+      type: 'text',
+      text: 'Готово! Вот ваш постер.',
+    })
   })
 })

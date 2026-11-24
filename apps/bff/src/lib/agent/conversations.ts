@@ -25,7 +25,7 @@ import {
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
 import { projectSettledAgentJobs, settleAgentJobs } from './background-jobs'
-import { sanitizeAssistantMessages } from './reply-script'
+import { collectUserReplyText, sanitizeAssistantMessages } from './reply-script'
 
 /** 归属互斥由 `agent_conversations_owner_check` 兜底，这里用联合类型让调用方无从写出两者并存。 */
 export type AgentOwner =
@@ -404,6 +404,20 @@ export async function settleAgentConversationJobs(conversationId: string): Promi
   await settleAgentJobs(conversationId, rows.map(messageView), { requireCharges: true })
 }
 
+async function conversationUserReplyText(conversationId: string): Promise<string> {
+  const rows = await db
+    .select({ content: schema.agent_messages.content })
+    .from(schema.agent_messages)
+    .where(
+      and(
+        eq(schema.agent_messages.conversation_id, conversationId),
+        eq(schema.agent_messages.role, 'user'),
+        isNull(schema.agent_messages.deleted_at),
+      ),
+    )
+  return collectUserReplyText(rows.map((row) => ({ role: 'user' as const, content: row.content })))
+}
+
 async function hydrateAgentMessages(
   conversationId: string,
   rows: readonly {
@@ -413,6 +427,7 @@ async function hydrateAgentMessages(
     content: AgentContentBlock[]
     created_at: number
   }[],
+  options: { readonly isPartialPage?: boolean } = {},
 ): Promise<AgentMessageView[]> {
   // 终态由 TaskLifecycleBus 提交后监听落库；读路径只做纯内存只读投影，不触发 DB 写入。
   const messages = await projectSettledAgentJobs(conversationId, rows.map(messageView))
@@ -427,25 +442,25 @@ async function hydrateAgentMessages(
       ),
     ),
   ]
-  if (!taskIds.length) return sanitizeAssistantMessages(messages)
-  // 只认挂在这个已经确权的会话下的任务：产物 id 本身证明不了归属。
-  const tasks = await db
-    .select({ id: schema.tasks.id, request: schema.tasks.request_payload })
-    .from(schema.tasks)
-    .where(
-      and(
-        inArray(schema.tasks.id, taskIds),
-        eq(schema.tasks.agent_conversation_id, conversationId),
-      ),
+  let enriched = messages
+  if (taskIds.length) {
+    // 只认挂在这个已经确权的会话下的任务：产物 id 本身证明不了归属。
+    const tasks = await db
+      .select({ id: schema.tasks.id, request: schema.tasks.request_payload })
+      .from(schema.tasks)
+      .where(
+        and(
+          inArray(schema.tasks.id, taskIds),
+          eq(schema.tasks.agent_conversation_id, conversationId),
+        ),
+      )
+    const prompts = new Map(
+      tasks.map((task) => [
+        task.id,
+        restoreQueuePrompt({ shaping: task.request.prompt_shaping, prompt: task.request.prompt }),
+      ]),
     )
-  const prompts = new Map(
-    tasks.map((task) => [
-      task.id,
-      restoreQueuePrompt({ shaping: task.request.prompt_shaping, prompt: task.request.prompt }),
-    ]),
-  )
-  return sanitizeAssistantMessages(
-    messages.map((message) => ({
+    enriched = messages.map((message) => ({
       ...message,
       content: message.content.map((block) => {
         if (block.type !== 'toolResult' || block.prompt) return block
@@ -454,8 +469,15 @@ async function hydrateAgentMessages(
           .find(Boolean)
         return prompt ? { ...block, prompt } : block
       }),
-    })),
-  )
+    }))
+  }
+  const pageSanitized = sanitizeAssistantMessages(enriched)
+  // 分页窗口里若触发了文字系统清洗，再按整段会话的用户原文重算白名单，避免跨页的俄文/阿拉伯文等合法回复被误删。
+  if (options.isPartialPage && pageSanitized !== enriched) {
+    const fullUserText = await conversationUserReplyText(conversationId)
+    return sanitizeAssistantMessages(enriched, fullUserText)
+  }
+  return pageSanitized
 }
 
 /**
@@ -536,7 +558,9 @@ export async function listAgentMessagesPage(
   const hasMore = fetched.length > limit
   const pageRows = (hasMore ? fetched.slice(0, limit) : fetched).reverse()
   const nextBeforeSeq = hasMore && pageRows[0] ? pageRows[0].seq : null
-  const hydrated = await hydrateAgentMessages(conversationId, pageRows)
+  const hydrated = await hydrateAgentMessages(conversationId, pageRows, {
+    isPartialPage: hasMore || options.beforeSeq !== undefined,
+  })
   const messages =
     owner.kind === 'user' ? await withArtifactMedia(owner.userId, hydrated) : hydrated
   return { messages, nextBeforeSeq }
