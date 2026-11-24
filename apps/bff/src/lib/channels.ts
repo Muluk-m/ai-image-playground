@@ -52,6 +52,7 @@ import {
 import { findCatalogModel, publishModelCapabilities } from '@image-playground/shared/model-catalog'
 import { isObject } from './type-guards'
 import { capabilitiesForModel } from './upstream/adapters'
+import { geminiDirectEnabledKeyCount } from './upstream/gemini-key-config'
 import {
   gptDirectEnabledKeyCount,
   gptDirectSizeEnabled,
@@ -692,6 +693,7 @@ export function isChannelCredentialReady(
   const envFallback = channel.auth.secret || (process.env[channel.auth.secretRef]?.trim() ?? '')
   if (runtimeSecret(channel.auth.secretRef, envFallback)) return true
   if (channel.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0) return true
+  if (channel.auth.secretRef === 'VERTEX_API_KEY' && geminiDirectEnabledKeyCount() > 0) return true
   if (usesImage26Sub2apiFallback(channel)) {
     return hasSub2apiOpenAICredential()
   }
@@ -734,7 +736,8 @@ export function getChannelTopology(): ManagedChannelSummary[] {
         ? isChannelCredentialReady(active)
         : Boolean(
             runtimeSecret(ch.auth.secretRef, process.env[ch.auth.secretRef]?.trim() ?? '') ||
-              (ch.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0),
+              (ch.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0) ||
+              (ch.auth.secretRef === 'VERTEX_API_KEY' && geminiDirectEnabledKeyCount() > 0),
           )
       const secretRef = sub2apiFallback ? 'UPSTREAM_API_KEY (2.6 兜底)' : ch.auth.secretRef
       const sourceModels = active ? active.models : ch.models

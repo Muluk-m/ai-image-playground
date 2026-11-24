@@ -3,6 +3,20 @@ import { log } from '../../logger'
 import { planDispatchedImage, stampReceipt } from '../adapters'
 import { fanOutRequests } from '../fanout'
 import { mergeGeminiCandidateResults } from '../gemini'
+import {
+  estimateGeminiCostMicroUsd,
+  recordGeminiUsage,
+  releaseGeminiReservation,
+} from '../gemini-budget'
+import { hasGeminiDirectPool } from '../gemini-key-config'
+import {
+  classifyGeminiKeyFailure,
+  GeminiDirectKeysExhaustedError,
+  markGeminiKeyCooldown,
+  markGeminiKeyDisabled,
+  reserveGeminiDirectKey,
+  selectGeminiDirectKey,
+} from '../gemini-keys'
 import { gptDirectConfigured } from '../gpt-routing'
 import { resolveUpstream, type UpstreamRoute } from '../routes'
 import type { UpstreamCallResult } from '../shared'
@@ -16,8 +30,30 @@ import {
 } from '../vertex'
 import type { UpstreamExecutionContext, UpstreamExecutor } from './types'
 
+interface GeminiTarget {
+  model: string
+  url: string
+  body: string
+  imageSize?: string
+  concurrency: UpstreamRoute['concurrency']
+}
+
+function readBodyImageSize(
+  bodyObj: Record<string, unknown>,
+  fallback?: string,
+): string | undefined {
+  const gc = bodyObj.generationConfig as { imageConfig?: { imageSize?: unknown } } | undefined
+  const size = gc?.imageConfig?.imageSize
+  return typeof size === 'string' ? size : fallback
+}
+
+function upstreamStatusOf(error: unknown): number | undefined {
+  const status = (error as { upstreamStatus?: unknown } | null)?.upstreamStatus
+  return typeof status === 'number' ? status : undefined
+}
+
 /**
- * Vertex 429 回落的目标：只回落到同一个 Vertex 直连上（同一个 key、同一个 baseUrl）的另一个模型，
+ * Vertex 429 回落的目标：只回落到同一个 Vertex 直连上（同一个 baseUrl）的另一个模型，
  * 换到别的上游就要换协议和凭据，不在这次止损的范围里。回落模型不认的分辨率按它自己的声明收口。
  * 找不到、或配成原模型本身时不回落。
  */
@@ -27,9 +63,7 @@ function resolveVertexFallback(
   request: HydratedSubmitRequest,
   base: string,
   key: string,
-):
-  | { model: string; url: string; body: string; concurrency: UpstreamRoute['concurrency'] }
-  | undefined {
+): GeminiTarget | undefined {
   if (!fallbackModel || fallbackModel === model) return undefined
   let route: UpstreamRoute
   try {
@@ -39,12 +73,12 @@ function resolveVertexFallback(
   }
   if (route.style !== 'vertex-generate-content' || route.baseUrl !== base || route.key !== key)
     return undefined
+  const bodyObj = buildVertexBody(withDefaultThinking(request, fallbackModel), route.imageSizes)
   return {
     model: fallbackModel,
     url: `${base}/models/${encodeURIComponent(fallbackModel)}:generateContent`,
-    body: JSON.stringify(
-      buildVertexBody(withDefaultThinking(request, fallbackModel), route.imageSizes),
-    ),
+    body: JSON.stringify(bodyObj),
+    imageSize: readBodyImageSize(bodyObj, request.image_size),
     concurrency: route.concurrency,
   }
 }
@@ -71,10 +105,11 @@ export const geminiImageExecutor: UpstreamExecutor = {
     const url = `${base}/models/${encodeURIComponent(model)}:generateContent`
     // Vertex 直连认 Google 自家的 x-goog-api-key；通用网关（sub2api）认 x-api-key。
     const vertex = style === 'vertex-generate-content'
-    const headers = {
+    const buildHeaders = (apiKey: string) => ({
       'content-type': 'application/json',
-      ...(key ? { [vertex ? 'x-goog-api-key' : 'x-api-key']: key } : {}),
-    }
+      ...(apiKey ? { [vertex ? 'x-goog-api-key' : 'x-api-key']: apiKey } : {}),
+    })
+
     const dispatched = planDispatchedImage({
       provider,
       model,
@@ -89,23 +124,18 @@ export const geminiImageExecutor: UpstreamExecutor = {
       directOn: gptDirectConfigured(model),
     })
     if (!dispatched?.plan.calls[0]) throw new Error(`no image adapter for ${model}`)
-    const body = JSON.stringify(dispatched.plan.freshBody?.() ?? dispatched.plan.calls[0].body)
+    const primaryBodyObj = (dispatched.plan.freshBody?.() ??
+      dispatched.plan.calls[0].body) as Record<string, unknown>
+    const body = JSON.stringify(primaryBodyObj)
+    const usePool = vertex && hasGeminiDirectPool()
 
-    // Gemini image generation 不支持 candidateCount>1（"Only one candidate is
-    // supported for audio or image response"），n>1 时本层 fan-out 成 N 条单张请求
-    // 并把 candidates 合并到一个 payload，对 task-runner / 前端透明。声明了 maxConcurrency
-    // （Vertex 按模型各配 2）时，每条请求先排「渠道/模型」或渠道级的队再发。
-    const sendVia = async (
-      target: {
-        model: string
-        url: string
-        body: string
-        concurrency: UpstreamRoute['concurrency']
-      },
-      /** 原模型的总时限：到点不再排队、不再退避，抛 {@link VertexTimeCapError} 交给回落。 */
+    const executeSingleFetch = async (
+      target: GeminiTarget,
+      apiKey: string,
       capAt?: number,
-    ) => {
-      // 剩余时间只读一次：检查和建定时器之间跨过时限也不会给 AbortSignal.timeout 传负数。
+      withRetry = vertex,
+      onRateLimit?: () => Promise<void>,
+    ): Promise<UpstreamCallResult> => {
       const capLeftMs = capAt === undefined ? undefined : capAt - Date.now()
       if (capLeftMs !== undefined && capLeftMs <= 0) throw new VertexTimeCapError()
       const queueSignal =
@@ -116,25 +146,30 @@ export const geminiImageExecutor: UpstreamExecutor = {
         ? await concurrencyGate
             .acquire(target.concurrency.channelId, target.concurrency.limit, queueSignal)
             .catch((error: unknown) => {
-              // 排队时就超时：这条请求没发出去，确定未执行，不是「结果未知」。
               if (session.deadline.timedOut) throw session.queueTimeoutError()
               if (capAt !== undefined && !session.deadline.signal.aborted && Date.now() >= capAt)
                 throw new VertexTimeCapError()
               throw error
             })
         : undefined
-      const send = async () =>
-        await session.parseResponse(
-          await session.performFetch(
-            target.url,
-            { method: 'POST', headers, body: target.body },
-            true,
-            target.model,
-          ),
-        )
+      const headers = buildHeaders(apiKey)
+      const send = async () => {
+        try {
+          return await session.parseResponse(
+            await session.performFetch(
+              target.url,
+              { method: 'POST', headers, body: target.body },
+              true,
+              target.model,
+            ),
+          )
+        } catch (error) {
+          if (isRateLimited(error) && onRateLimit) await onRateLimit()
+          throw error
+        }
+      }
       try {
-        // Vertex 的 429 是按模型的到达速率限流：先在这条请求里退避重发，一单多张里已出的图不必重来。
-        return vertex
+        return withRetry
           ? await withVertexRateLimitRetry(
               send,
               session.deadline.signal,
@@ -151,7 +186,164 @@ export const geminiImageExecutor: UpstreamExecutor = {
       }
     }
 
-    const primary = { model, url, body, concurrency }
+    const sendViaPool = async (
+      target: GeminiTarget,
+      capAt?: number,
+    ): Promise<UpstreamCallResult> => {
+      const estimate = estimateGeminiCostMicroUsd(target.model, target.imageSize, 1)
+      const exclude = new Set<string>()
+      let lastError: unknown
+
+      while (!session.deadline.signal.aborted) {
+        let reserved = await reserveGeminiDirectKey({ estimateMicroUsd: estimate, exclude })
+        let usedCooldownFallback = false
+        if (!reserved && exclude.size === 0) {
+          // 所有未超预算且未停用的 key 都在 429 冷却中时，挑一把继续走退避重试与模型回落，
+          // 而不是因为瞬时冷却把整单直接硬拒；若全部超预算/停用则依然返回 null 报错。
+          reserved = await reserveGeminiDirectKey({
+            estimateMicroUsd: estimate,
+            exclude,
+            allowCooldown: true,
+          })
+          usedCooldownFallback = reserved !== null
+        }
+        if (!reserved) {
+          if (lastError !== undefined) throw lastError
+          throw new GeminiDirectKeysExhaustedError()
+        }
+        const { key: activeKey, reservationId } = reserved
+        exclude.add(activeKey.fingerprint)
+
+        const another = usedCooldownFallback
+          ? null
+          : await selectGeminiDirectKey({ estimateMicroUsd: estimate, exclude })
+        const hasNextKey = another !== null
+
+        let reservationSettled = false
+        try {
+          const result = await executeSingleFetch(
+            target,
+            activeKey.secret,
+            capAt,
+            !hasNextKey,
+            hasNextKey
+              ? undefined
+              : async () => {
+                  await markGeminiKeyCooldown(activeKey, { upstreamStatus: 429 })
+                  await recordGeminiUsage({
+                    ...(params.taskId ? { taskId: params.taskId } : {}),
+                    model: target.model,
+                    ...(target.imageSize ? { imageSize: target.imageSize } : {}),
+                    images: 0,
+                    status: 'rate_limited',
+                    upstreamStatus: 429,
+                    keyFingerprint: activeKey.fingerprint,
+                  })
+                },
+          )
+          reservationSettled = true
+          await recordGeminiUsage({
+            ...(params.taskId ? { taskId: params.taskId } : {}),
+            model: target.model,
+            ...(target.imageSize ? { imageSize: target.imageSize } : {}),
+            images: 1,
+            status: 'ok',
+            upstreamStatus: 200,
+            keyFingerprint: activeKey.fingerprint,
+            payload: result.payload,
+            reservationId,
+          })
+          return result
+        } catch (error) {
+          lastError = error
+          const failure = classifyGeminiKeyFailure(error)
+          const status = upstreamStatusOf(error)
+          if (failure === 'cooldown' && hasNextKey) {
+            await markGeminiKeyCooldown(activeKey, error)
+            reservationSettled = true
+            await recordGeminiUsage({
+              ...(params.taskId ? { taskId: params.taskId } : {}),
+              model: target.model,
+              ...(target.imageSize ? { imageSize: target.imageSize } : {}),
+              images: 0,
+              status: 'rate_limited',
+              ...(status !== undefined ? { upstreamStatus: status } : {}),
+              keyFingerprint: activeKey.fingerprint,
+              reservationId,
+            })
+            log.warn(
+              {
+                event: 'gemini.direct_key_cooldown_switch',
+                fingerprint: activeKey.label,
+                model: target.model,
+              },
+              'gemini direct key hit 429, switching to next key',
+            )
+            continue
+          }
+          if (failure === 'invalid' || failure === 'quota') {
+            await markGeminiKeyDisabled(activeKey, failure, error)
+            reservationSettled = true
+            await recordGeminiUsage({
+              ...(params.taskId ? { taskId: params.taskId } : {}),
+              model: target.model,
+              ...(target.imageSize ? { imageSize: target.imageSize } : {}),
+              images: 0,
+              status: 'error',
+              ...(status !== undefined ? { upstreamStatus: status } : {}),
+              keyFingerprint: activeKey.fingerprint,
+              reservationId,
+            })
+            log.warn(
+              {
+                event: 'gemini.direct_key_disabled_switch',
+                fingerprint: activeKey.label,
+                reason: failure,
+                model: target.model,
+              },
+              'gemini direct key disabled, trying next key',
+            )
+            continue
+          }
+          // 429 在 !hasNextKey 分支已由 onRateLimit 记过 rate_limited，这里只释放预占；
+          // 其它错误（非 429、非 VertexTimeCapError）记一次 error 并释放预占。
+          if (!reservationSettled) {
+            reservationSettled = true
+            if (isRateLimited(error) || error instanceof VertexTimeCapError) {
+              await releaseGeminiReservation(reservationId)
+            } else {
+              await recordGeminiUsage({
+                ...(params.taskId ? { taskId: params.taskId } : {}),
+                model: target.model,
+                ...(target.imageSize ? { imageSize: target.imageSize } : {}),
+                images: 0,
+                status: 'error',
+                ...(status !== undefined ? { upstreamStatus: status } : {}),
+                keyFingerprint: activeKey.fingerprint,
+                reservationId,
+              })
+            }
+          }
+          throw error
+        } finally {
+          if (!reservationSettled) {
+            await releaseGeminiReservation(reservationId)
+          }
+        }
+      }
+      throw lastError ?? new GeminiDirectKeysExhaustedError()
+    }
+
+    const sendVia = (target: GeminiTarget, capAt?: number) =>
+      usePool ? sendViaPool(target, capAt) : executeSingleFetch(target, key, capAt, vertex)
+
+    const primary: GeminiTarget = {
+      model,
+      url,
+      body,
+      imageSize: readBodyImageSize(primaryBodyObj, request.image_size),
+      concurrency,
+    }
     const fallback = vertex
       ? resolveVertexFallback(model, params.rateLimitFallbackModel, request, base, key)
       : undefined
@@ -173,8 +365,6 @@ export const geminiImageExecutor: UpstreamExecutor = {
         try {
           return await sendVia(primary, capAt)
         } catch (error) {
-          // 退避用完仍 429、或原模型到了总时限：这一张换回落模型补上（它有自己的排队位与退避）；
-          // 别的错误照原样抛。
           const capped = error instanceof VertexTimeCapError
           if (!fallback || !(capped || isRateLimited(error)) || session.deadline.signal.aborted)
             throw error
@@ -196,7 +386,6 @@ export const geminiImageExecutor: UpstreamExecutor = {
       params.reconciliationRequired,
       session.cancelled,
     ).then((merged) =>
-      // 单张请求（n=1）不经过 merge：回落出的那张也要记下实际模型。
       (request.n ?? 1) <= 1 && fallback && fallbackImages > 0 ? merge([merged]) : merged,
     )
     return stampReceipt(result, dispatched.plan)
