@@ -1273,7 +1273,11 @@ export default function AgentMaskProposalCard({
           {inverted
             ? t('maskProposal.invertHint')
             : tool === 'point'
-              ? t('maskProposal.pointHint')
+              ? t(
+                  typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)').matches
+                    ? 'maskProposal.pointHintTouch'
+                    : 'maskProposal.pointHint',
+                )
               : tool === 'brush' || tool === 'eraser'
                 ? t('maskProposal.brushHint')
                 : t('maskProposal.edgeHint')}

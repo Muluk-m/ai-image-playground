@@ -190,6 +190,10 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
               setSearch(event.target.value)
               setVisibleCounts(INITIAL_VISIBLE)
             }}
+            onClear={() => {
+              setSearch('')
+              setVisibleCounts(INITIAL_VISIBLE)
+            }}
             placeholder={t('navigation.search')}
             aria-label={t('navigation.search')}
             className="max-w-none shrink-0"

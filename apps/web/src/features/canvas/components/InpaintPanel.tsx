@@ -125,7 +125,8 @@ export default function InpaintPanel({
               key={tool}
               type="button"
               size="sm"
-              variant={session.tool === tool ? 'default' : 'outline'}
+              variant={session.tool === tool ? 'secondary' : 'outline'}
+              className={session.tool === tool ? 'border-primary/50 text-primary' : undefined}
               role="radio"
               aria-checked={session.tool === tool}
               onClick={() => session.setTool(tool)}
@@ -239,8 +240,20 @@ export default function InpaintPanel({
               regionPrompt.hasMissing ||
               (!erasing && !regionPrompt.hasProse)
             }
+            title={
+              !image
+                ? t('inpaint.sourceGone')
+                : !painted
+                  ? t(erasing ? 'erase.paintFirst' : 'inpaint.paintFirst')
+                  : regionPrompt.hasMissing
+                    ? t('inpaint.missingMarker')
+                    : !erasing && !regionPrompt.hasProse
+                      ? t('inpaint.enterPrompt')
+                      : undefined
+            }
             onClick={() => void submit()}
           >
+            {pending && <Icon name="loading" className="animate-spin" />}
             {t('imageToolbar.sendToAgent')}
           </Button>
         </div>

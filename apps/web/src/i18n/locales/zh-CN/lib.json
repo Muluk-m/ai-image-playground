@@ -86,13 +86,13 @@
   },
   "transparent": {
     "pixelSizeMismatch": "透明背景像素数据尺寸不匹配",
-    "unsupportedKeyColor": "不支持的透明背景 key color：{{keyColor}}"
+    "unsupportedKeyColor": "不支持的背景透明底色：{{keyColor}}"
   },
   "clipboard": {
     "iframeDenied": "复制失败：内嵌页面未授予剪贴板权限"
   },
   "storage": {
-    "adoptTxAborted": "认领历史的 {{store}} 事务被中止"
+    "adoptTxAborted": "同步本地历史记录中断（{{store}}），请刷新后重试"
   },
   "mention": {
     "imageLabel": "@图{{n}}",
