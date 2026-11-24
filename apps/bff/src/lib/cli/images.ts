@@ -40,7 +40,7 @@ import { isCapabilityEnabled } from '../capabilities'
 import { declaredImageSizes, getDiscoveredChannels, resolveQueueModel } from '../channels'
 import { meteringDecisionOrDenied } from '../metering-decision'
 import { refreshInactiveModels, withoutInactiveModels } from '../model-availability'
-import { loadPrivateBffOverlay } from '../private-overlay'
+import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
 import { gptImage26DirectListed, gptImage26Enabled } from '../upstream/gpt-direct-availability'
 import { gptDirectConfigured, gptImage26DirectKey } from '../upstream/gpt-routing'
 import { CliRequestError } from './envelope'
@@ -669,9 +669,45 @@ async function specialFormatCapabilities(
 }
 
 /**
- * 账号相关的能力清单。非会员的 GPT 列到 2K、不含高画质；4K 与高画质，以及其他模型的 4K，
- * 只对能严格提交的账号列出。直连没开时 GPT 的 2K 兑现不了，清单里也不出现。
+ * 该账号在这个模型上能严格提交的档位。非会员的 GPT 到 2K；4K（GPT 还有高画质）只给能严格提交的账号；
+ * 直连没开时 GPT 的 2K 兑现不了。空数组表示这个账号用不了这个模型。
  */
+async function submittableTiers(tx: BffTransaction, userId: string, model: CliImageModel) {
+  const gpt = isGptDirectModel(model.id)
+  const memberTier = await strictImageRequestAllowed(tx, userId, model.provider, model.id, {
+    prompt: '',
+    ...(gpt ? { size: '3840x2160', quality: 'high' } : { image_size: '4K' }),
+  })
+  const direct = !gpt || gptDirectConfigured(model.id)
+  const tiers = model.image.tiers
+    .map((tier) => tier.id)
+    .filter((id) => {
+      if (id === '4K') return memberTier
+      if (gpt && id !== '1K') return direct
+      return true
+    })
+  return { tiers, memberTier }
+}
+
+/**
+ * 不指定模型时提交的模型：该账号能提交的第一个，与能力清单的 `default_model` 同一个判断。
+ * 一个都提交不了时退回清单第一个，由后续校验给出明确的拒绝原因。
+ */
+export async function defaultImageModelId(
+  userId: string,
+  models: readonly CliImageModel[],
+): Promise<string | undefined> {
+  if (models.length === 0) return undefined
+  const found = await db.transaction(async (tx) => {
+    for (const model of models) {
+      if ((await submittableTiers(tx, userId, model)).tiers.length) return model.id
+    }
+    return undefined
+  })
+  return found ?? models[0]!.id
+}
+
+/** 账号相关的能力清单：只列该账号能提交的档位与画质，一个档位都提交不了的模型不列。 */
 export async function imageCapabilities(userId: string) {
   const models = await availableImageModels()
   const hooks = (await loadPrivateBffOverlay()).taskHooks
@@ -682,19 +718,8 @@ export async function imageCapabilities(userId: string) {
       const gpt = isGptDirectModel(model.id)
       const image26 = isGptImage26Model(model.id)
       const image26Direct = image26 && gptImage26DirectListed()
-      const memberTier = await strictImageRequestAllowed(tx, userId, model.provider, model.id, {
-        prompt: '',
-        ...(gpt ? { size: '3840x2160', quality: 'high' } : { image_size: '4K' }),
-      })
-      const direct = !gpt || gptDirectConfigured(model.id)
-      const tiers = caps.tiers
-        .map((tier) => tier.id)
-        .filter((id) => {
-          if (id === '4K') return memberTier
-          if (gpt && id !== '1K') return direct
-          return true
-        })
-      // 该账号一个档位都提交不了的模型不列出，免得被当成默认模型。
+      const { tiers, memberTier } = await submittableTiers(tx, userId, model)
+      // 与 defaultImageModelId 同一判断：第一个列出的就是不指定模型时提交的那个。
       if (tiers.length === 0) continue
       const quote = await quoteCliCredits(tx, hooks, userId, model.id, 1)
       listed.push({

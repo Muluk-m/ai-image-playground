@@ -1190,6 +1190,55 @@ describe('capabilities and dry-run', () => {
     expect(member.json.data.models[0].image_sizes).toEqual(['1K', '2K', '4K'])
   })
 
+  it('submits the default model the capabilities list when the first model is out of reach', async () => {
+    // GPT Image 2.5 goes first and only offers 2K, which needs the direct route; with that route
+    // off the account cannot submit any of its tiers, so the list skips it. (2.6 routes on its own.)
+    const gptOnly2K = CHANNELS.filter((channel) => channel.id === 'openai-images').map(
+      (channel): (typeof CHANNELS)[number] => ({
+        ...channel,
+        models: channel.models
+          .filter((model) => model.id === 'gpt-image-2.5-flare')
+          .map((model) => ({ ...model, imageSizes: ['2K' as const] })),
+      }),
+    )
+    _setChannelsForTesting([
+      ...gptOnly2K,
+      ...CHANNELS.filter((channel) => channel.id !== 'openai-images'),
+    ])
+    process.env.GPT_DIRECT_ENABLED = 'false'
+    const user = await createUser('default-model')
+    const { access_token } = await connect(user)
+    const caps = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
+    expect(caps.json.data.default_model).toBe('gemini-3-pro-image')
+    expect(caps.json.data.models.map((model: { id: string }) => model.id)).toEqual([
+      'gemini-3-pro-image',
+    ])
+
+    const preview = await call('POST', '/v1/image-jobs/validate', {
+      body: imageJob(),
+      headers: bearer(access_token),
+    })
+    expect(preview.status).toBe(200)
+    expect(preview.json.data.normalized.model).toBe(caps.json.data.default_model)
+    const created = await call('POST', '/v1/image-jobs', {
+      body: imageJob(),
+      headers: bearer(access_token),
+    })
+    expect(created.status).toBe(200)
+    const [task] = await db.select().from(schema.tasks)
+    expect(task?.model).toBe(caps.json.data.default_model)
+
+    // With the direct route back, GPT 2K is submittable and the first model is the default again.
+    process.env.GPT_DIRECT_ENABLED = 'true'
+    const direct = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
+    expect(direct.json.data.default_model).toBe('gpt-image-2.5-flare')
+    const again = await call('POST', '/v1/image-jobs/validate', {
+      body: imageJob(),
+      headers: bearer(access_token),
+    })
+    expect(again.json.data.normalized.model).toBe('gpt-image-2.5-flare')
+  })
+
   it('quotes without creating a task or holding credits, and agrees with submit on the hash', async () => {
     const user = await createUser('dry-run')
     const { access_token } = await connect(user)
