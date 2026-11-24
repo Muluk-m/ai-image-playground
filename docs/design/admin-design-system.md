@@ -216,6 +216,7 @@ spacing:
 - **对齐**：一律左对齐；数字右对齐；状态与徽标居中。后台没有居中排版的英雄区。
 - **响应式**：断点沿用 Tailwind 默认。`<lg` 导航收成图标栏，抽屉转全屏；表格改为卡片列表。后台以桌面为主，但必须在 iPad 宽度可用。
 - **深浅色**：跟随系统 `prefers-color-scheme`，不提供切换开关——与主站现有行为一致。
+- **动效语言**：与主站共享同一组物理曲线（`--ease-out` / `--ease-in-out` / `--ease-in` / `--ease-spring`）与五档节奏（`--motion-instant` 100ms / `--motion-fast` 160ms / `--motion-normal` 220ms / `--motion-slow` 300ms / `--motion-ambient` 1800ms），抽屉与侧栏禁用 `ease-linear`；按钮 hover 只换底色不位移，按下走共享 `.motion-press` 轻缩放；`prefers-reduced-motion: reduce` 下统一收敛为瞬时完成。
 - **底部留白**：原型期底部 80px 被切换条占据；正式实现里该区域留给抽屉动作条。
 
 ## 6. 使用约定
