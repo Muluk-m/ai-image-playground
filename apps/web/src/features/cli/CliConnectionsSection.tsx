@@ -149,7 +149,7 @@ export default function CliConnectionsSection({
             id="cli-connections-title"
             className={
               standalone
-                ? 'text-title-sm font-semibold text-foreground'
+                ? 'text-title font-semibold text-foreground'
                 : 'text-body-sm font-medium text-foreground'
             }
           >
@@ -193,7 +193,7 @@ export default function CliConnectionsSection({
         </div>
       ) : connections.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/80 bg-background/40 px-4 py-8 text-center">
-          <Icon name="terminal" size="md" className="text-muted-foreground/60" />
+          <Icon name="terminal" size="md" className="text-muted-foreground" />
           <p className="text-body-sm text-muted-foreground">{t('cliConnections.empty')}</p>
         </div>
       ) : (
@@ -213,7 +213,7 @@ export default function CliConnectionsSection({
                   ) : (
                     <span
                       title={new Date(connection.last_used_at).toLocaleString(i18n.language)}
-                      className={active ? 'text-foreground/85' : undefined}
+                      className={active ? 'text-foreground' : undefined}
                     >
                       {t('cliConnections.lastUsedAt', {
                         date: formatRecentActivity(connection.last_used_at, now, i18n.language),
@@ -228,9 +228,7 @@ export default function CliConnectionsSection({
                 key: 'jobs',
                 node: (
                   <span
-                    className={
-                      connection.job_count > 0 ? 'font-medium text-foreground/85' : undefined
-                    }
+                    className={connection.job_count > 0 ? 'font-medium text-foreground' : undefined}
                   >
                     {t('cliConnections.jobCount', { count: connection.job_count })}
                   </span>
@@ -275,7 +273,7 @@ export default function CliConnectionsSection({
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex min-w-0 items-start gap-3">
                     {standalone ? (
-                      <div className="relative mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-secondary/60 text-foreground/80">
+                      <div className="relative mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-secondary/60 text-foreground">
                         <Icon name="terminal" size="sm" />
                         <span
                           aria-hidden="true"
@@ -305,12 +303,12 @@ export default function CliConnectionsSection({
                           </span>
                         ) : null}
                         {parsed.platform ? (
-                          <span className="rounded-md bg-secondary px-1.5 py-0.5 text-label-sm leading-none text-foreground/85">
+                          <span className="rounded-md bg-secondary px-1.5 py-0.5 text-label-sm leading-none text-foreground">
                             {parsed.platform}
                           </span>
                         ) : null}
                         <span
-                          className="font-mono text-label-sm text-muted-foreground/80"
+                          className="font-mono text-label-sm text-muted-foreground"
                           title={connection.id}
                         >
                           {shortConnectionId(connection.id)}

@@ -788,7 +788,8 @@ export async function resolveCliConnection(
     .limit(1)
   if (!row || row.user.status !== 'active') return null
   const touchTime = row.lastUsedAt === null || now - row.lastUsedAt > LAST_USED_TOUCH_MS
-  const updateUserAgent = Boolean(userAgent) && row.userAgent !== userAgent
+  const updateUserAgent =
+    Boolean(userAgent) && row.userAgent !== userAgent && (row.userAgent === null || touchTime)
   if (touchTime || updateUserAgent) {
     db.update(schema.cli_connections)
       .set({
@@ -816,16 +817,6 @@ export interface CliConnectionSummary {
 
 /** 账号设置与接入页的「已连接的插件」：只列仍然有效的连接，按最近活跃时间倒序。 */
 export async function listCliConnections(userId: string): Promise<CliConnectionSummary[]> {
-  const jobCounts = db
-    .select({
-      connectionId: schema.cli_jobs.connection_id,
-      count: sql<number>`count(*)::int`.as('job_count'),
-    })
-    .from(schema.cli_jobs)
-    .where(and(eq(schema.cli_jobs.user_id, userId), isNotNull(schema.cli_jobs.connection_id)))
-    .groupBy(schema.cli_jobs.connection_id)
-    .as('cli_connection_job_counts')
-
   const rows = await db
     .select({
       id: schema.cli_connections.id,
@@ -835,11 +826,9 @@ export async function listCliConnections(userId: string): Promise<CliConnectionS
       expiresAt: schema.cli_connections.refresh_expires_at,
       scopes: schema.cli_connections.scopes,
       userAgent: schema.cli_connections.user_agent,
-      jobCount: sql<number>`coalesce(${jobCounts.count}, 0)::int`,
     })
     .from(schema.cli_connections)
     .innerJoin(schema.oauth_clients, eq(schema.oauth_clients.id, schema.cli_connections.client_id))
-    .leftJoin(jobCounts, eq(jobCounts.connectionId, schema.cli_connections.id))
     .where(
       and(
         eq(schema.cli_connections.user_id, userId),
@@ -853,6 +842,27 @@ export async function listCliConnections(userId: string): Promise<CliConnectionS
       ),
       desc(schema.cli_connections.created_at),
     )
+  if (rows.length === 0) return []
+
+  const counts = await db
+    .select({
+      connectionId: schema.cli_jobs.connection_id,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(schema.cli_jobs)
+    .where(
+      inArray(
+        schema.cli_jobs.connection_id,
+        rows.map((row) => row.id),
+      ),
+    )
+    .groupBy(schema.cli_jobs.connection_id)
+  const countByConnection = new Map(
+    counts
+      .filter((item): item is { connectionId: string; count: number } => item.connectionId !== null)
+      .map((item) => [item.connectionId, Number(item.count ?? 0)]),
+  )
+
   return rows.map((row) => ({
     id: row.id,
     client_name: row.clientName,
@@ -861,7 +871,7 @@ export async function listCliConnections(userId: string): Promise<CliConnectionS
     expires_at: row.expiresAt,
     scopes: row.scopes.split(' ').filter(Boolean),
     user_agent: row.userAgent,
-    job_count: Number(row.jobCount ?? 0),
+    job_count: countByConnection.get(row.id) ?? 0,
   }))
 }
 

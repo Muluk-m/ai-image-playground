@@ -31,11 +31,12 @@ describe('cliConnectionMeta', () => {
 
   it('derives short connection fingerprints and semantic capability tags', () => {
     expect(shortConnectionId('8f2a1c90-1234-4567-89ab-cdef01234567')).toBe('#8f2a1c')
-    expect(connectionCapabilities(['images:read', 'images:write', 'media:read'])).toEqual([
+    expect(connectionCapabilities(['images:read', 'images:write', 'media:write'])).toEqual([
       'generate',
       'reference',
       'jobs',
     ])
+    expect(connectionCapabilities(['media:read'])).toEqual(['jobs'])
     expect(connectionCapabilities(['images:read'])).toEqual(['jobs'])
     expect(connectionCapabilities(undefined)).toEqual([])
   })

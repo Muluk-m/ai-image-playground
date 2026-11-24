@@ -65,8 +65,8 @@ export function connectionCapabilities(scopes: readonly string[] | undefined): C
   const set = new Set(scopes)
   const tags: CliCapabilityTag[] = []
   if (set.has('images:write')) tags.push('generate')
-  if (set.has('media:read') || set.has('media:write')) tags.push('reference')
-  if (set.has('images:read')) tags.push('jobs')
+  if (set.has('media:write')) tags.push('reference')
+  if (set.has('images:read') || set.has('media:read')) tags.push('jobs')
   return tags
 }
 

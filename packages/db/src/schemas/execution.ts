@@ -240,7 +240,12 @@ export const cli_jobs = pgTable(
     }),
     created_at: epochMs('created_at').notNull(),
   },
-  (t) => [index('idx_cli_jobs_user_created').on(t.user_id, t.created_at)],
+  (t) => [
+    index('idx_cli_jobs_user_created').on(t.user_id, t.created_at),
+    index('idx_cli_jobs_connection_id')
+      .on(t.connection_id)
+      .where(sql`${t.connection_id} IS NOT NULL`),
+  ],
 )
 
 export type Task = typeof tasks.$inferSelect

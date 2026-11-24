@@ -100,6 +100,7 @@ export const EXPECTED_INDEXES = [
   'idx_device_authorizations_authorization_code_hash',
   'cli_jobs_pkey',
   'idx_cli_jobs_user_created',
+  'idx_cli_jobs_connection_id',
   'cli_reference_media_pkey',
   'idx_cli_reference_media_user_created',
   'idx_device_authorizations_device_code_hash',
