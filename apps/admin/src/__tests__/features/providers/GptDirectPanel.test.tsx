@@ -102,4 +102,38 @@ describe('GptDirectPanel', () => {
     fireEvent.click(saveBtn)
     await waitFor(() => expect(state.update).toHaveBeenCalledWith('key-1', { budgetUsd: 350 }))
   })
+
+  it('submits updated key monthly budget on form submit (Enter) and ignores unchanged or invalid values', async () => {
+    let resolveUpdate: ((value: GptDirectAdminView) => void) | undefined
+    state.update.mockImplementation(
+      () =>
+        new Promise<GptDirectAdminView>((resolve) => {
+          resolveUpdate = resolve
+        }),
+    )
+    render(<GptDirectPanel view={view} />)
+
+    const input = screen.getByLabelText('abcd1234 · 6789 月预算')
+    const form = input.closest('form')
+    expect(form).not.toBeNull()
+
+    // Unchanged value does not submit
+    fireEvent.submit(form!)
+    expect(state.update).not.toHaveBeenCalled()
+
+    // Invalid value does not submit
+    fireEvent.change(input, { target: { value: '0' } })
+    fireEvent.submit(form!)
+    expect(state.update).not.toHaveBeenCalled()
+
+    // Valid changed value submits on Enter/form submit and shows saving feedback
+    fireEvent.change(input, { target: { value: '57' } })
+    fireEvent.submit(form!)
+
+    await waitFor(() => expect(state.update).toHaveBeenCalledWith('key-1', { budgetUsd: 57 }))
+    expect(screen.getByRole('button', { name: '保存中' })).toBeDisabled()
+
+    resolveUpdate?.(view)
+    await waitFor(() => expect(screen.getByRole('button', { name: '保存' })).toBeInTheDocument())
+  })
 })

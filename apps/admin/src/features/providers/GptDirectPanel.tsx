@@ -430,6 +430,8 @@ function KeyRow({
   const parsedBudget = Number(budget)
   const budgetValid = Number.isInteger(parsedBudget) && parsedBudget > 0
   const budgetChanged = parsedBudget !== row.budget_usd
+  const canSaveBudget = writable && pending === null && budgetChanged && budgetValid
+  const savingBudget = row.id !== null && pending === `budget-${row.id}`
 
   return (
     <TableRow>
@@ -481,9 +483,16 @@ function KeyRow({
           />
         </div>
       </TableCell>
-      <TableCell className="w-[152px] py-2.5">
+      <TableCell className="min-w-[164px] py-2.5">
         {admin ? (
-          <div className="flex items-center gap-1.5">
+          <form
+            className="flex items-center gap-1.5"
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (!canSaveBudget) return
+              onBudget(parsedBudget)
+            }}
+          >
             <Input
               type="number"
               min={1}
@@ -494,18 +503,15 @@ function KeyRow({
               onChange={(event) => setBudget(event.target.value)}
             />
             <Button
-              type="button"
+              type="submit"
               size="xs"
-              variant={budgetChanged ? 'default' : 'outline'}
-              disabled={!writable || pending !== null || !budgetChanged || !budgetValid}
-              onClick={() => {
-                if (!budgetValid) return
-                onBudget(parsedBudget)
-              }}
+              className="shrink-0 whitespace-nowrap"
+              variant={budgetChanged && budgetValid ? 'default' : 'outline'}
+              disabled={!canSaveBudget}
             >
-              保存
+              {savingBudget ? '保存中' : '保存'}
             </Button>
-          </div>
+          </form>
         ) : (
           <span className="font-mono text-xs tabular-nums text-muted-foreground">
             ${row.budget_usd}
