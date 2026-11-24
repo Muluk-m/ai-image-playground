@@ -2430,9 +2430,9 @@ func transferApp(t *testing.T, f *fakeServer) *App {
 	app := newApp(t, f, t.TempDir())
 	login(t, app)
 	short := *f.server.Client()
-	short.Timeout = 300 * time.Millisecond
+	short.Timeout = 1500 * time.Millisecond
 	app.HTTP = &short
-	app.TransferIdle = 200 * time.Millisecond
+	app.TransferIdle = time.Second
 	return app
 }
 
@@ -2442,7 +2442,7 @@ func TestSlowDownloadThatKeepsMovingFinishes(t *testing.T) {
 		for _, b := range []byte("PNGDATA-SLOW") {
 			_, _ = w.Write([]byte{b})
 			w.(http.Flusher).Flush()
-			time.Sleep(60 * time.Millisecond) // ~720ms in total, past the 300ms API timeout
+			time.Sleep(150 * time.Millisecond) // ~1.8s in total, past the 1.5s API timeout
 		}
 	}
 	app := transferApp(t, f)
@@ -2491,7 +2491,7 @@ func TestSlowUploadThatKeepsMovingFinishes(t *testing.T) {
 	f.serveFile = func(w http.ResponseWriter, r *http.Request) {
 		buf := make([]byte, 8<<10)
 		for {
-			time.Sleep(60 * time.Millisecond) // 8 reads, ~480ms in total
+			time.Sleep(250 * time.Millisecond) // 8-10 reads, past the 1.5s API timeout
 			if _, err := r.Body.Read(buf); err != nil {
 				break
 			}
@@ -2513,7 +2513,7 @@ func TestStalledUploadIsATemporaryFailure(t *testing.T) {
 	}
 	app := transferApp(t, f)
 	r := execute(t, app, "media", "upload", writeUpload(t))
-	if r.code != ExitTemporary || !strings.Contains(r.stdout, "Upload stalled") {
+	if r.code != ExitTemporary || !strings.Contains(r.stdout, "Upload stalled: nothing moved for 4s") {
 		t.Fatalf("stalled upload = %d %s", r.code, r.stdout)
 	}
 }

@@ -222,7 +222,8 @@ func (a *App) downloadTo(ctx context.Context, c *client.HTTPClient, path, target
 	}
 	size, present, err := writeNew(target, fetch.track(resp.Body))
 	if err != nil {
-		if fetch.stalled() {
+		// Only a failed read can mean a stall; FILE_EXISTS and local file errors stand as they are.
+		if asFailure(err).Code == "NETWORK_ERROR" && fetch.stalled() {
 			return download{}, fetch.stalledFailure("Download")
 		}
 		return download{}, err

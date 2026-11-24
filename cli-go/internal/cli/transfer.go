@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -12,19 +13,24 @@ import (
 // Transfers have no total limit: a slow link that keeps moving data finishes.
 const defaultTransferIdle = 30 * time.Second
 
-// responseWaitFactor stretches the idle limit once an upload body has been fully read.
+// responseWaitFactor stretches the idle limit once an upload body has been fully read: the
+// kernel still has to put the buffered tail on the wire, and storage answers only after that.
 const responseWaitFactor = 4
 
 var errTransferStalled = errors.New("transfer stalled")
 
 // transfer bounds one upload or download by idleness instead of a total timeout. Wrap the
-// bytes that move with track; the context is cancelled once none have moved for the idle
-// limit, and stalled reports whether that is why it ended. Call stop when done.
+// bytes that move with track; the context is cancelled once none have moved for the current
+// window, and stalled reports whether that is why it ended. Call stop when done.
 type transfer struct {
-	ctx   context.Context
-	idle  time.Duration
-	timer *time.Timer
-	stop  func()
+	ctx    context.Context
+	idle   time.Duration
+	cancel context.CancelCauseFunc
+	timer  *time.Timer
+
+	mu      sync.Mutex
+	window  time.Duration
+	stopped bool
 }
 
 func (a *App) startTransfer(ctx context.Context) *transfer {
@@ -33,11 +39,28 @@ func (a *App) startTransfer(ctx context.Context) *transfer {
 		idle = defaultTransferIdle
 	}
 	ctx, cancel := context.WithCancelCause(ctx)
-	timer := time.AfterFunc(idle, func() { cancel(errTransferStalled) })
-	return &transfer{ctx: ctx, idle: idle, timer: timer, stop: func() {
-		timer.Stop()
-		cancel(nil)
-	}}
+	t := &transfer{ctx: ctx, idle: idle, cancel: cancel, window: idle}
+	t.timer = time.AfterFunc(idle, func() { cancel(errTransferStalled) })
+	return t
+}
+
+func (t *transfer) stop() {
+	t.mu.Lock()
+	t.stopped = true
+	t.mu.Unlock()
+	t.timer.Stop()
+	t.cancel(nil)
+}
+
+// extend restarts the idle clock with the given window, unless the transfer already ended.
+func (t *transfer) extend(window time.Duration) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.stopped {
+		return
+	}
+	t.window = window
+	t.timer.Reset(window)
 }
 
 func (t *transfer) track(r io.Reader) io.Reader { return &progressReader{r: r, t: t} }
@@ -45,7 +68,10 @@ func (t *transfer) track(r io.Reader) io.Reader { return &progressReader{r: r, t
 func (t *transfer) stalled() bool { return errors.Is(context.Cause(t.ctx), errTransferStalled) }
 
 func (t *transfer) stalledFailure(what string) error {
-	return fail("NETWORK_ERROR", "%s stalled: no data moved for %s; retry", what, t.idle)
+	t.mu.Lock()
+	window := t.window
+	t.mu.Unlock()
+	return fail("NETWORK_ERROR", "%s stalled: nothing moved for %s; retry", what, window)
 }
 
 type progressReader struct {
@@ -57,11 +83,9 @@ func (p *progressReader) Read(b []byte) (int, error) {
 	n, err := p.r.Read(b)
 	switch {
 	case err == io.EOF:
-		// An upload body is fully handed to the kernel long before it is on the wire, and the
-		// storage answers only after receiving it all: allow longer for that last stretch.
-		p.t.timer.Reset(p.t.idle * responseWaitFactor)
+		p.t.extend(p.t.idle * responseWaitFactor)
 	case n > 0:
-		p.t.timer.Reset(p.t.idle)
+		p.t.extend(p.t.idle)
 	}
 	return n, err
 }
