@@ -77,16 +77,16 @@ Phase 5–6 已合入 `main` 的改动全部遵守零停机 Expand / Switch-Read
    DATABASE_URL=<prod-direct-url> bun run scripts/backfill-task-payloads.ts --repair
    DATABASE_URL=<prod-direct-url> bun run scripts/backfill-task-payloads.ts --verify-only
    ```
-   确认输出 `missing = 0` 且 `mismatched = 0`。
+   确认退出码为 `0`，且 JSON 输出中 `missingCount = 0`、`mismatchCount = 0`。
 2. **回填并校验统一媒体账本**：
    ```bash
    DATABASE_URL=<prod-direct-url> bun run scripts/backfill-asset-media.ts
    DATABASE_URL=<prod-direct-url> bun run scripts/backfill-asset-media.ts --verify-only
    ```
-   确认 `user_asset_objects` 与 `media_objects` / `media_references` 差异为 `0`。
-3. **（可选）启用共享 PgBouncer 事务连接池**：按 [PgBouncer 连接池手册](../deploy/pgbouncer.md) 依次执行 `provision-pooler` / `up-pooler`，先在 `test.json` 开启 `database.pooler: true` 验收，再切 `prod.json`。
+   确认退出码为 `0`，且 JSON 输出中 5 项差异计数（`missingAssetMediaCount`、`missingAssetRefCount`、`missingLookRefCount`、`missingCliRefCount`、`staleSyncedRefCount`）均为 `0`。
+3. **（可选）启用共享 PgBouncer 事务连接池**：按 [PgBouncer 连接池手册](../deploy/pgbouncer.md) 先在宿主机 `infra.env` 配置 `PGBOUNCER_AUTH_PASSWORD`，依次执行 `scripts/infra-compose.sh provision`（确保既有 `app_user` 具备角色级默认超时 GUC）、`provision-pooler` 与 `up-pooler`，再先后在 `deploy/deployments/test.json`、`prod.json` 开启 `database.pooler: true` 验收。
 4. **分独立 Contract PR 执行破坏性清理（仅在上述发布排空与回填验收全部通过后合并）**：
    - 在 `apps/bff/src/index.ts` 接入 `reclaimUnreferencedAssetMedia` 周期回收；
-   - **Contract 1（`tasks` 瘦身）**：移除应用层旧列双写与兼容视图，新增迁移删除同步触发器及 `tasks` 5 个冷列（`request_payload`、`result_payload`、`archive_payload`、`metering`、`upstream_body`）；
+   - **Contract 1（`tasks` 瘦身）**：移除应用层旧列双写与 `packages/db/src/task-payload-fallback.ts` 回落逻辑，并让任务写入路径显式写入 `tasks.device_id`；迁移中先执行 `ALTER TABLE tasks ALTER COLUMN device_id DROP EXPRESSION`（解除生成列对 `request_payload` 的依赖，避免 `DROP COLUMN` 被拒或误用 `CASCADE` 误删 `device_id`/索引），通过 `CREATE OR REPLACE VIEW public.queue_tasks` 改写为直接读取 `task_payloads` 对应列（移除 `ELSE t.<col>` 回落、保留 `queue_tasks` 常驻视图与授权），再删除 5 个同步触发器、`public.sync_task_payload_column_from_tasks_update()` 函数以及 `tasks` 的 5 个冷列（`request_payload`、`result_payload`、`archive_payload`、`metering`、`upstream_body`）；
    - **Contract 2（退场 `user_asset_objects`）**：移除应用层双写兜底，新增迁移删除 `user_asset_objects` 表；
-   - **Contract 3（退场 `server_logs`）**：将 Admin 测试夹具（`apps/admin/src/__tests__/server/helpers/table-log-source.ts`、`apps/admin/src/__tests__/server/routes/today.test.ts`）迁离 PG 表，再新增迁移删除 `packages/db/src/schemas/ops.ts` 中的 `server_logs` 表。
+   - **Contract 3（退场 `server_logs`）**：将 Admin 测试夹具（`apps/admin/src/__tests__/server/helpers/table-log-source.ts`、`apps/admin/src/__tests__/server/routes/today.test.ts`、`apps/admin/src/__tests__/server/routes/overview-window.test.ts`）迁离 PG 表，再新增迁移删除 `packages/db/src/schemas/ops.ts` 中的 `server_logs` 表，并同步移除 `packages/db/src/verify-schema.ts` 与 `packages/db/src/__tests__/migrate.test.ts` 中的 `server_logs` 校验。

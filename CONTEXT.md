@@ -216,8 +216,7 @@ _Avoid_: 案例库、素材（那是用户自己上传的参考图，见「素�
 
 ## 积分与套餐（credits & subscriptions）
 
-经营部署的计费模型只存在于私有树，公开树只提供能力门禁、提交事务 hook 与 UI
-插槽。以下术语是私有模块与调用接缝共用的契约：
+经营部署的计费模型已按 [ADR 0034](docs/adr/0034-modular-monolith-and-single-repo.md) 并入公开单仓，默认关闭并由 `operator-config` 能力门禁（`billing:credits`）按需启用，经计费窄端口与任务生命周期总线接入提交与结算主流程。以下术语是计费模块与调用接缝共用的契约：
 
 **积分账户（credit account）**：
 每个用户唯一，包含两个余额桶。`subscription`（套餐积分）按月发放并到期清零；
