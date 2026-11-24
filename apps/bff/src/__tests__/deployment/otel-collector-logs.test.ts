@@ -24,8 +24,15 @@ function extractOtelLogStatements(): string[] {
   return otel.processors['transform/logs'].log_statements.flatMap((block) => block.statements)
 }
 
-function unescapeOttlString(raw: string): string {
-  return JSON.parse(`"${raw}"`) as string
+function parseOttlQuotedString(token: string): string {
+  if (!token.startsWith('"') || !token.endsWith('"')) {
+    throw new Error(`Expected OTTL double-quoted string literal, got: ${token}`)
+  }
+  const parsed: unknown = JSON.parse(token)
+  if (typeof parsed !== 'string') {
+    throw new Error(`Expected OTTL string literal, got: ${token}`)
+  }
+  return parsed
 }
 
 function splitTopLevelAnd(cond: string): string[] {
@@ -88,11 +95,12 @@ function evaluatePlainTextSeverity(
     }
 
     if (stmt.startsWith('replace_pattern(attributes["service"], ')) {
-      const serviceMatch =
-        /^replace_pattern\(attributes\["service"\],\s*"((?:\\.|[^"])*)",\s*"\$1"\)$/.exec(stmt)
-      expect(serviceMatch).not.toBeNull()
+      const prefix = 'replace_pattern(attributes["service"], '
+      const suffix = ', "$1")'
+      expect(stmt.endsWith(suffix)).toBe(true)
+      const pattern = parseOttlQuotedString(stmt.slice(prefix.length, -suffix.length).trim())
       if (service !== undefined) {
-        service = service.replace(new RegExp(unescapeOttlString(serviceMatch![1]!)), '$1')
+        service = service.replace(new RegExp(pattern), '$1')
       }
       continue
     }
@@ -119,19 +127,19 @@ function evaluatePlainTextSeverity(
         if (severity !== undefined) matched = false
         continue
       }
-      const serviceEq = /^attributes\["service"\] == "((?:\\.|[^"])*)"$/.exec(clause)
-      if (serviceEq) {
-        if (service !== unescapeOttlString(serviceEq[1]!)) matched = false
+      if (clause.startsWith('attributes["service"] == ')) {
+        const expected = parseOttlQuotedString(clause.slice('attributes["service"] == '.length))
+        if (service !== expected) matched = false
         continue
       }
-      const sourceEq = /^attributes\["source"\] == "((?:\\.|[^"])*)"$/.exec(clause)
-      if (sourceEq) {
-        if (source !== unescapeOttlString(sourceEq[1]!)) matched = false
+      if (clause.startsWith('attributes["source"] == ')) {
+        const expected = parseOttlQuotedString(clause.slice('attributes["source"] == '.length))
+        if (source !== expected) matched = false
         continue
       }
-      const bodyMatch = /^IsMatch\(body, "((?:\\.|[^"])*)"\)$/.exec(clause)
-      if (bodyMatch) {
-        if (!new RegExp(unescapeOttlString(bodyMatch[1]!)).test(body)) matched = false
+      if (clause.startsWith('IsMatch(body, ') && clause.endsWith(')')) {
+        const pattern = parseOttlQuotedString(clause.slice('IsMatch(body, '.length, -1))
+        if (!new RegExp(pattern).test(body)) matched = false
         continue
       }
       throw new Error(`Unsupported OTTL severity predicate "${clause}" in: ${stmt}`)
