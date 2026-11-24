@@ -600,7 +600,9 @@ async function runCliRefsBatch(
               AND m.user_id = crm.user_id
               AND m.status <> 'deleting'
             WHERE crm.user_id = ${userId}
-              AND crm.media_id = ANY(${mediaIds})
+              AND crm.media_id IN (
+                SELECT jsonb_array_elements_text(${JSON.stringify(mediaIds)}::jsonb)
+              )
               AND NOT EXISTS (
                 SELECT 1 FROM media_references r
                 WHERE r.user_id = crm.user_id
