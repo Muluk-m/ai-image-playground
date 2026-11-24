@@ -23,6 +23,9 @@ import type {
 } from '@image-playground/shared'
 
 export type AgentTurnStatus = 'idle' | 'running' | 'failed'
+
+/** 停止后退回的消息没能补回输入框的原因；面板按它出提示。 */
+export type ReturnedMessagesErrorCode = 'stop_failed' | 'return_handoff_failed' | 'fallback'
 export type AgentDeliveryStatus = 'pending' | 'placed' | 'unavailable' | 'failed'
 
 export interface AgentTextReference {
