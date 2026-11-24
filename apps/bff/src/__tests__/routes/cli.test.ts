@@ -1134,7 +1134,7 @@ describe('capabilities and dry-run', () => {
   it('submits the default model the capabilities list when the first model is out of reach', async () => {
     // The first model only offers 4K, which a non-member cannot submit, so the list skips it.
     _setChannelsForTesting(
-      CHANNELS.map((channel) =>
+      CHANNELS.map((channel): (typeof CHANNELS)[number] =>
         channel.id === 'gemini-direct'
           ? {
               ...channel,
