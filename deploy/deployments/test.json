@@ -1,0 +1,126 @@
+{
+  "$schema": "./deployment.schema.json",
+  "name": "test",
+  "legacy": {
+    "composeProject": "image-playground-test",
+    "opsName": "test"
+  },
+  "web": {
+    "primary": "https://test.muvloom.online",
+    "origins": {
+      "https://test.muvloom.online": {
+        "login": {
+          "password": true,
+          "registration": true,
+          "providers": [
+            "google"
+          ]
+        }
+      },
+      "https://muvloom-test.pages.dev": {}
+    }
+  },
+  "api": {
+    "primary": "https://test-api.muvloom.online",
+    "aliases": []
+  },
+  "admin": {},
+  "segmenter": true,
+  "auth": {
+    "emailFrom": "Muvloom <login@auth.muvloom.online>",
+    "googleClientId": "625095863041-3sfl6p13pkhjcuoe5gpa2iujaehhf991.apps.googleusercontent.com",
+    "feishuClientId": "cli_a81054e5b13ed013"
+  },
+  "database": {
+    "name": "aip_test",
+    "users": {
+      "app": "aip_test_app",
+      "admin": "aip_test_admin",
+      "migrator": "aip_test_migrator"
+    },
+    "extraSchemas": [
+      "private_billing"
+    ]
+  },
+  "storage": {
+    "bucket": "muvloom-test",
+    "keyPrefix": ""
+  },
+  "ops": {
+    "hostAlerts": false
+  },
+  "tunables": {
+    "AGENT_CHAT_MODEL": "gpt-6-luna",
+    "AGENT_CHAT_CONTEXT_WINDOW": 40000,
+    "AGENT_CHAT_MAX_TOKENS": 8000,
+    "AGENT_SUMMARY_MODEL": "gpt-6-luna",
+    "AGENT_FOLLOWUP_MODEL": "claude-haiku-5-5",
+    "AGENT_IMAGE_MODEL": "gpt-image-2.5-flare",
+    "AGENT_VIDEO_MODEL": "grok-imagine-video",
+    "WORKER_POLL_INTERVAL_MS": 1000,
+    "WORKER_HEALTH_STALE_AFTER_MS": 10000,
+    "WORKER_IDLE_CONCURRENCY_ENABLED": true,
+    "WORKER_OPENAI_CONCURRENCY": 3,
+    "WORKER_GEMINI_CONCURRENCY": 3,
+    "WORKER_DRAIN_TIMEOUT_MS": 55000,
+    "UPSTREAM_ASYNC_IMAGE_TASKS": true,
+    "GPT_DIRECT_ENABLED": true,
+    "GPT_DIRECT_MONTHLY_BUDGET_USD": 5,
+    "GPT_IMAGE_26_ENABLED": true
+  },
+  "operator": {
+    "capabilities": {
+      "accounts:email-verification": true,
+      "accounts:login": true,
+      "accounts:self-register": true,
+      "accounts:sync": true,
+      "agent:attachments": true,
+      "agent:batch-analysis": true,
+      "agent:batch-execution": true,
+      "agent:batch-item-cancel": true,
+      "agent:batch-plans": true,
+      "agent:bulk-attachments": true,
+      "agent:chat": true,
+      "agent:edit-region": true,
+      "agent:production": true,
+      "billing:chat-free": true,
+      "billing:credits": true,
+      "canvas:nodes": true,
+      "cli:api": true,
+      "generation:byok": false,
+      "generation:storyboard": true,
+      "generation:video": true,
+      "matte:server": true,
+      "operator:console": true,
+      "quota:daily": false,
+      "remix:analyze": true,
+      "remix:listing": true
+    },
+    "quotas": {
+      "agent:analysis-concurrency": 1,
+      "agent:attachment-image-bytes": 52428800,
+      "agent:attachment-image-pixels": 1000000000,
+      "agent:attachment-logical-references": 100,
+      "agent:attachment-upload-concurrency": 4,
+      "agent:batch-dispatch-window": 1,
+      "agent:batch-max-items": 100,
+      "agent:batch-source-versions": 4,
+      "agent:compaction-buffer-tokens": 8000,
+      "agent:compaction-cooldown-minutes": 60,
+      "agent:compaction-failure-threshold": 3,
+      "agent:compaction-keep-tokens": 6000,
+      "agent:compaction-max-folds": 5,
+      "agent:compaction-output-reserve-tokens": 8000,
+      "agent:compaction-verbatim-tokens": 6000,
+      "agent:turn-model-parallelism": 3,
+      "agent:turns-per-device-minute": 10,
+      "agent:turns-per-ip-hour": 200,
+      "agent:visual-prepare-concurrency": 1,
+      "agent:visual-prepare-queue": 100,
+      "generation:daily-images": 0,
+      "sync:asset-image-bytes": 52428800,
+      "sync:attachment-lease-seconds": 3600,
+      "sync:user-asset-bytes": 524288000
+    }
+  }
+}

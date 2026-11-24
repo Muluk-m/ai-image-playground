@@ -1,0 +1,125 @@
+import { describe, expect, it } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import {
+  catalogProblems,
+  type Deployment,
+  formatEnvFile,
+  parseDeployment,
+  renderDeployment,
+  SECRETS,
+} from '../deploy-config'
+
+const descriptor = (name: 'prod' | 'test'): Deployment =>
+  parseDeployment(
+    JSON.parse(
+      readFileSync(join(import.meta.dir, `../../../../deploy/deployments/${name}.json`), 'utf8'),
+    ),
+  )
+
+/** 每个已登记的密钥都给一个可辨认的假值。 */
+function fakeSecrets(deployment: Deployment): Record<string, string> {
+  const values: Record<string, string> = {}
+  for (const one of SECRETS) {
+    if (!one.required(deployment)) continue
+    values[one.name] = `fake-${one.name.toLowerCase()}`
+  }
+  values.TUNNEL_CREDENTIALS = JSON.stringify({ AccountTag: 'a', TunnelID: 't', TunnelSecret: 's' })
+  values.POSTGRES_APP_PASSWORD = 'p@ss/word'
+  return values
+}
+
+describe('deploy config catalog', () => {
+  it('is consistent and both deployments validate', () => {
+    expect(catalogProblems()).toEqual([])
+    expect(descriptor('prod').name).toBe('prod')
+    expect(descriptor('test').name).toBe('test')
+  })
+
+  it('gives each service only what it declared, so the log store password never reaches the app', () => {
+    const prod = descriptor('prod')
+    const { rendered, problems } = renderDeployment(prod, fakeSecrets(prod))
+    expect(problems).toEqual([])
+    expect(rendered.env.openobserve?.ZO_ROOT_USER_PASSWORD).toBe('fake-obs_root_password')
+    for (const service of [
+      'bff',
+      'worker',
+      'admin',
+      'web',
+      'migrate',
+      'dependency-check',
+    ] as const) {
+      const env = rendered.env[service] ?? {}
+      expect(env.OBS_ROOT_PASSWORD).toBeUndefined()
+      expect(env.OBS_S3_SECRET_ACCESS_KEY).toBeUndefined()
+    }
+    expect(rendered.env.bff?.ADMIN_COOKIE_SECRET).toBeUndefined()
+    expect(rendered.env.admin?.S3_SECRET_ACCESS_KEY).toBeUndefined()
+    expect(rendered.env.web).toEqual({
+      APP_ROLE: 'web',
+      BFF_BASE_URL: 'https://api.muvloom.online',
+      BFF_ENABLED: 'true',
+      RUNTIME_CONFIG_FILE: '/usr/share/nginx/html/runtime-config.json',
+    })
+  })
+
+  it('derives every origin from the web, api and admin sections', () => {
+    const prod = descriptor('prod')
+    const bff = renderDeployment(prod, fakeSecrets(prod)).rendered.env.bff ?? {}
+    expect(bff.CORS_ALLOWED_ORIGINS?.split(',')).toContain(
+      'https://image-playground.qiliangjia.one',
+    )
+    expect(bff.AUTH_FRONTEND_ORIGINS).toBe(bff.CORS_ALLOWED_ORIGINS)
+    expect(bff.AUTH_PUBLIC_ORIGINS).toBe(
+      'https://api.muvloom.online,https://image-api.qiliangjia.one,https://api.nainma.online',
+    )
+    expect(JSON.parse(bff.AUTH_LOGIN_METHODS_BY_ORIGIN ?? '')).toMatchObject({
+      'https://image-playground.qiliangjia.one': { password: false, providers: ['feishu'] },
+    })
+  })
+
+  it('builds connection strings from role names and escaped passwords', () => {
+    const test = descriptor('test')
+    const { rendered } = renderDeployment(test, fakeSecrets(test))
+    expect(rendered.env.bff?.APP_DATABASE_URL).toBe(
+      'postgresql://aip_test_app:p%40ss%2Fword@postgres:5432/aip_test',
+    )
+    expect(rendered.env.migrate?.MIGRATOR_DATABASE_URL).toBe(
+      'postgresql://aip_test_migrator:fake-postgres_migrator_password@postgres:5432/aip_test',
+    )
+    // 没开可观测性的部署不生成那三个服务。
+    expect(rendered.env.openobserve).toBeUndefined()
+    expect(rendered.files['cloudflared/credentials.json']).toContain('TunnelSecret')
+  })
+
+  it('refuses to render without a required secret, without echoing any value', () => {
+    const prod = descriptor('prod')
+    const secrets = fakeSecrets(prod)
+    delete secrets.S3_SECRET_ACCESS_KEY
+    secrets.TYPO_KEY = 'fake-typo'
+    secrets.TUNNEL_CREDENTIALS = 'not json fake-tunnel'
+    const { problems } = renderDeployment(prod, secrets)
+    expect(problems.join('\n')).toContain('S3_SECRET_ACCESS_KEY is required')
+    expect(problems.join('\n')).toContain('TYPO_KEY is not in the catalog')
+    expect(problems.join('\n')).not.toContain('fake-')
+  })
+
+  it('rejects unknown tunables and descriptor fields', () => {
+    const prod = descriptor('prod')
+    const { problems } = renderDeployment(
+      { ...prod, tunables: { AGENT_CHAT_MODLE: 'x' } },
+      fakeSecrets(prod),
+    )
+    expect(problems).toContain('tunables.AGENT_CHAT_MODLE is not a registered tunable')
+    expect(() => parseDeployment({ ...prod, extra: true })).toThrow(
+      'must not have additional properties',
+    )
+    expect(() =>
+      parseDeployment({ ...prod, web: { ...prod.web, primary: 'https://elsewhere.example' } }),
+    ).toThrow('/web/primary')
+  })
+
+  it('writes env files that docker reads literally', () => {
+    expect(formatEnvFile({ A: 'x=y', B: '$HOME "quoted"' })).toBe('A=x=y\nB=$HOME "quoted"\n')
+  })
+})

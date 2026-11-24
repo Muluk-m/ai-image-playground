@@ -8,6 +8,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./model-catalog": "./src/model-catalog/index.ts",
+    "./deploy-config": "./src/deploy-config/index.ts",
     "./support-contact": "./src/support-contact.ts"
   },
   "scripts": {

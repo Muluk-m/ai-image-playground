@@ -1,0 +1,350 @@
+{
+  "type": "object",
+  "required": [
+    "name",
+    "legacy",
+    "web",
+    "api",
+    "admin",
+    "segmenter",
+    "auth",
+    "database",
+    "storage",
+    "ops",
+    "tunables",
+    "operator"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "name": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "prod"
+        },
+        {
+          "type": "string",
+          "const": "test"
+        }
+      ]
+    },
+    "legacy": {
+      "type": "object",
+      "required": [
+        "composeProject",
+        "opsName"
+      ],
+      "properties": {
+        "composeProject": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+        },
+        "opsName": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "web": {
+      "type": "object",
+      "required": [
+        "primary",
+        "origins"
+      ],
+      "properties": {
+        "primary": {
+          "type": "string",
+          "pattern": "^https?://[^/\\s]+$",
+          "description": "不带路径和结尾斜杠的 origin"
+        },
+        "origins": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "type": "object",
+              "properties": {
+                "api": {
+                  "type": "string",
+                  "pattern": "^https?://[^/\\s]+$",
+                  "description": "不带路径和结尾斜杠的 origin"
+                },
+                "login": {
+                  "type": "object",
+                  "required": [
+                    "password",
+                    "registration",
+                    "providers"
+                  ],
+                  "properties": {
+                    "password": {
+                      "type": "boolean"
+                    },
+                    "registration": {
+                      "type": "boolean"
+                    },
+                    "providers": {
+                      "type": "array",
+                      "items": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "const": "google"
+                          },
+                          {
+                            "type": "string",
+                            "const": "feishu"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "api": {
+      "type": "object",
+      "required": [
+        "primary",
+        "aliases"
+      ],
+      "properties": {
+        "primary": {
+          "type": "string",
+          "pattern": "^https?://[^/\\s]+$",
+          "description": "不带路径和结尾斜杠的 origin"
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^https?://[^/\\s]+$",
+            "description": "不带路径和结尾斜杠的 origin"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "admin": {
+      "type": "object",
+      "properties": {
+        "frontend": {
+          "type": "string",
+          "pattern": "^https?://[^/\\s]+$",
+          "description": "不带路径和结尾斜杠的 origin"
+        },
+        "api": {
+          "type": "string",
+          "pattern": "^https?://[^/\\s]+$",
+          "description": "不带路径和结尾斜杠的 origin"
+        },
+        "googleClientId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "segmenter": {
+      "type": "boolean"
+    },
+    "auth": {
+      "type": "object",
+      "required": [
+        "emailFrom"
+      ],
+      "properties": {
+        "emailFrom": {
+          "type": "string",
+          "minLength": 1
+        },
+        "googleClientId": {
+          "type": "string"
+        },
+        "feishuClientId": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "database": {
+      "type": "object",
+      "required": [
+        "name",
+        "users",
+        "extraSchemas"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z_][a-z0-9_]*$"
+        },
+        "users": {
+          "type": "object",
+          "required": [
+            "app",
+            "admin",
+            "migrator"
+          ],
+          "properties": {
+            "app": {
+              "type": "string",
+              "pattern": "^[a-z_][a-z0-9_]*$"
+            },
+            "admin": {
+              "type": "string",
+              "pattern": "^[a-z_][a-z0-9_]*$"
+            },
+            "migrator": {
+              "type": "string",
+              "pattern": "^[a-z_][a-z0-9_]*$"
+            }
+          },
+          "additionalProperties": false
+        },
+        "extraSchemas": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z_][a-z0-9_]*$"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "storage": {
+      "type": "object",
+      "required": [
+        "bucket",
+        "keyPrefix"
+      ],
+      "properties": {
+        "bucket": {
+          "type": "string",
+          "minLength": 1
+        },
+        "keyPrefix": {
+          "type": "string"
+        },
+        "publicAssets": {
+          "type": "object",
+          "required": [
+            "bucket",
+            "baseUrl"
+          ],
+          "properties": {
+            "bucket": {
+              "type": "string"
+            },
+            "baseUrl": {
+              "type": "string",
+              "pattern": "^https?://[^/\\s]+$",
+              "description": "不带路径和结尾斜杠的 origin"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "observability": {
+      "type": "object",
+      "required": [
+        "retentionDays",
+        "bucket",
+        "prefix",
+        "uiHostPort",
+        "proxyHostPort"
+      ],
+      "properties": {
+        "retentionDays": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "bucket": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prefix": {
+          "type": "string"
+        },
+        "uiHostPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "proxyHostPort": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      },
+      "additionalProperties": false
+    },
+    "ops": {
+      "type": "object",
+      "required": [
+        "hostAlerts"
+      ],
+      "properties": {
+        "hostAlerts": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "tunables": {
+      "type": "object",
+      "patternProperties": {
+        "^[A-Z][A-Z0-9_]*$": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ]
+        }
+      }
+    },
+    "operator": {
+      "type": "object",
+      "required": [
+        "capabilities",
+        "quotas"
+      ],
+      "properties": {
+        "capabilities": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "type": "boolean"
+            }
+          }
+        },
+        "quotas": {
+          "type": "object",
+          "patternProperties": {
+            "^.*$": {
+              "type": "number"
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
