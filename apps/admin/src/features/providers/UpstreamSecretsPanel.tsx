@@ -260,7 +260,7 @@ function SecretCard({ secret, writable }: { secret: UpstreamSecretView; writable
                 size="sm"
                 variant="ghost"
                 disabled={pending !== null}
-                className="text-muted-foreground hover:text-destructive"
+                className="text-muted-foreground hover:text-danger"
                 onClick={() => void clear()}
               >
                 {pending === 'clear' ? '清除中' : '清除'}

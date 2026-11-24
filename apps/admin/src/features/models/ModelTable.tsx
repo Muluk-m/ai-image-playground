@@ -254,8 +254,8 @@ function ModelTableRow({
         <div className="font-medium text-foreground">{model.label}</div>
         <div className="mt-0.5 font-mono text-xs text-muted-foreground">{model.id}</div>
       </TableCell>
-      <TableCell className="min-w-[156px] py-3 align-middle">
-        <div className="flex flex-wrap items-center gap-1.5">
+      <TableCell className="min-w-[176px] py-3 align-middle">
+        <div className="flex items-center gap-1.5 whitespace-nowrap">
           <Badge variant="outline" className="px-2 py-0 text-xs font-medium">
             {KIND_LABELS[model.kind]}
           </Badge>

@@ -549,7 +549,7 @@ function KeyRow({
                 type="button"
                 size="xs"
                 variant="ghost"
-                className="text-muted-foreground hover:text-destructive"
+                className="text-muted-foreground hover:text-danger"
                 disabled={!writable || pending !== null}
                 onClick={onDelete}
               >

@@ -24,7 +24,7 @@ export const SHORT_UNIT_LABELS: Record<ModelPrice['unit'], string> = {
 export const CHAT_PRICE_LABELS = {
   outputAmount: '输出（积分/千tok）',
   reserveTokens: '输出预留（token）',
-  cachedInputPercent: '缓存折扣（%）',
+  cachedInputPercent: '缓存计价（%原价）',
 }
 
 export function isChatPrice(price: ModelPrice): boolean {

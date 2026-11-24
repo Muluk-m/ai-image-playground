@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import type { Catalog, ModelPrice } from '@image-playground/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { apiClient } from '../../lib/private-host'
@@ -22,7 +22,6 @@ import {
   isChatPrice,
   type ModelPriceForm,
   type ModelPriceKind,
-  modelPriceFormValues,
   modelPriceRequest,
   SHORT_UNIT_LABELS,
   UNIT_LABELS,
@@ -92,14 +91,33 @@ function PriceEditor({
 }) {
   const queryClient = useQueryClient()
   const chat = isChatPrice(price)
-  const values = useMemo(() => modelPriceFormValues(price), [price])
+  const {
+    credits_per_image: creditsPerImage,
+    output_credits_per_unit: outputCreditsPerUnit,
+    output_reserve_tokens: outputReserveTokens,
+    cached_input_price_percent: cachedInputPricePercent,
+  } = price
+  const values = useMemo<ModelPriceForm>(
+    () => ({
+      amount: String(creditsPerImage),
+      outputAmount: outputCreditsPerUnit === null ? '' : String(outputCreditsPerUnit),
+      reserveTokens: outputReserveTokens === null ? '' : String(outputReserveTokens),
+      cachedInputPercent: String(cachedInputPricePercent ?? 0),
+    }),
+    [creditsPerImage, outputCreditsPerUnit, outputReserveTokens, cachedInputPricePercent],
+  )
   const form = useForm<ModelPriceForm>({
     resolver: zodResolver(chat ? chatPriceSchema : modelPriceSchema),
     defaultValues: values,
   })
 
+  const isDirtyRef = useRef(false)
+  isDirtyRef.current = form.formState.isDirty
+
   useEffect(() => {
-    form.reset(values)
+    if (!isDirtyRef.current) {
+      form.reset(values)
+    }
   }, [form, values])
 
   const watchedAmount = Number(form.watch('amount'))
@@ -126,78 +144,82 @@ function PriceEditor({
   return (
     <Form {...form}>
       <form
-        className="space-y-3"
         noValidate
         onChange={() => {
           if (mutation.isSuccess || mutation.isError) mutation.reset()
         }}
         onSubmit={form.handleSubmit((input) => mutation.mutate(input))}
       >
-        {isNew ? (
-          <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
-            尚未配置积分单价，确认建价后立即生效。
-          </p>
-        ) : null}
-
-        <div className={chat ? 'grid grid-cols-2 gap-3' : 'max-w-[240px]'}>
-          <PriceField name="amount" label={UNIT_LABELS[price.unit]} />
-          {chat ? (
-            <>
-              <PriceField name="outputAmount" label={CHAT_PRICE_LABELS.outputAmount} />
-              <PriceField
-                name="cachedInputPercent"
-                label={CHAT_PRICE_LABELS.cachedInputPercent}
-                max={100}
-              />
-              <PriceField name="reserveTokens" label={CHAT_PRICE_LABELS.reserveTokens} />
-            </>
+        <fieldset disabled={mutation.isPending} className="space-y-3">
+          {isNew ? (
+            <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+              尚未配置积分单价，确认建价后立即生效。
+            </p>
           ) : null}
-        </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-          <span className="font-mono text-xs tabular-nums text-muted-foreground">
-            {inYuan
-              ? chat && outYuan
-                ? `折合输入 ≈ ${inYuan}/千tok · 输出 ≈ ${outYuan}/千tok`
-                : `折合单价 ≈ ${inYuan}`
-              : '按整数积分结算'}
-          </span>
-          <div className="flex items-center gap-2">
-            <SaveStatus
-              pending={mutation.isPending}
-              success={mutation.isSuccess}
-              error={mutation.error}
-            />
-            {onClose ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                disabled={mutation.isPending}
-                onClick={onClose}
-              >
-                取消
-              </Button>
-            ) : form.formState.isDirty ? (
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                disabled={mutation.isPending}
-                onClick={() => form.reset(values)}
-              >
-                重置
-              </Button>
+          <div className={chat ? 'grid grid-cols-2 gap-3' : 'max-w-[240px]'}>
+            <PriceField name="amount" label={UNIT_LABELS[price.unit]} />
+            {chat ? (
+              <>
+                <PriceField name="outputAmount" label={CHAT_PRICE_LABELS.outputAmount} />
+                <PriceField
+                  name="cachedInputPercent"
+                  label={CHAT_PRICE_LABELS.cachedInputPercent}
+                  max={100}
+                />
+                <PriceField name="reserveTokens" label={CHAT_PRICE_LABELS.reserveTokens} />
+              </>
             ) : null}
-            <Button
-              type="submit"
-              size="sm"
-              disabled={(!isNew && !form.formState.isDirty) || mutation.isPending}
-            >
-              {isNew ? '确认建价' : '保存定价'}
-            </Button>
           </div>
-        </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+            <span className="font-mono text-xs tabular-nums text-muted-foreground">
+              {inYuan
+                ? chat && outYuan
+                  ? `折合输入 ≈ ${inYuan}/千tok · 输出 ≈ ${outYuan}/千tok`
+                  : `折合单价 ≈ ${inYuan}`
+                : '按整数积分结算'}
+            </span>
+            <div className="flex items-center gap-2">
+              <SaveStatus
+                pending={mutation.isPending}
+                success={mutation.isSuccess}
+                error={mutation.error}
+              />
+              {onClose ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={mutation.isPending}
+                  onClick={onClose}
+                >
+                  取消
+                </Button>
+              ) : form.formState.isDirty ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={mutation.isPending}
+                  onClick={() => {
+                    mutation.reset()
+                    form.reset(values)
+                  }}
+                >
+                  重置
+                </Button>
+              ) : null}
+              <Button
+                type="submit"
+                size="sm"
+                disabled={(!isNew && !form.formState.isDirty) || mutation.isPending}
+              >
+                {isNew ? '确认建价' : '保存定价'}
+              </Button>
+            </div>
+          </div>
+        </fieldset>
       </form>
     </Form>
   )

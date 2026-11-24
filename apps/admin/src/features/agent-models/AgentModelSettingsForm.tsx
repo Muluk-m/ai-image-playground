@@ -737,6 +737,18 @@ function ProviderEditor({
     setExpandedModels((current) => ({ ...current, [index]: !current[index] }))
   }
 
+  function removeExpandedModel(removedIndex: number) {
+    setExpandedModels((current) => {
+      const next: Record<number, boolean> = {}
+      for (const [rawKey, isOpen] of Object.entries(current)) {
+        const key = Number(rawKey)
+        if (!isOpen || key === removedIndex) continue
+        next[key > removedIndex ? key - 1 : key] = true
+      }
+      return next
+    })
+  }
+
   return (
     <div className="space-y-3 rounded-xl border bg-background p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -891,7 +903,7 @@ function ProviderEditor({
               </p>
             ) : (
               provider.models.map((model, index) => {
-                const expanded = Boolean(expandedModels[index]) || !model.id.trim()
+                const expanded = Boolean(expandedModels[index])
                 return (
                   <div key={`${index}-${provider.id}`} className="bg-background">
                     <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
@@ -943,7 +955,7 @@ function ProviderEditor({
                           variant="ghost"
                           size="icon-xs"
                           onClick={() => {
-                            setExpandedModels({})
+                            removeExpandedModel(index)
                             onChange({
                               ...provider,
                               models: provider.models.filter((_, i) => i !== index),
