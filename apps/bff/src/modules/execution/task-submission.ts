@@ -40,6 +40,7 @@ import {
   strictImage26Refusal,
 } from './submission-tier'
 import type { ExecutionTransaction } from './task-lifecycle-bus'
+import { syncTaskPayloads } from './task-payloads'
 import {
   assertTaskSubmissionPluginRegistered,
   type CreateQueueTaskInput,
@@ -238,6 +239,7 @@ async function submitQueueTask(
       .returning({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
 
     if (inserted.length === 0) return { kind: 'idempotency_conflict' as const }
+    await syncTaskPayloads(tx, [id])
     // 提交链路上记下任务 ID：从任务反查提交 trace、从提交 trace 找到任务，两个方向都能查。
     trace.getActiveSpan()?.setAttribute('task.id', id)
 

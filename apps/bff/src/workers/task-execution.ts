@@ -23,6 +23,7 @@ import {
   requeueTask,
   requeueTaskArchive,
   saveArchiveCheckpoint,
+  syncTaskPayloads,
   type TerminalTaskUpdate,
 } from '../modules/execution'
 import { checkIdleSlot, lockIdleSlotClaims, providerConcurrencyLimit } from './idle-concurrency'
@@ -213,12 +214,16 @@ class TaskExecutionHandle implements TaskExecution {
     kind: string
     fields: readonly { field: string; from?: string; to?: string }[]
   }): Promise<void> {
-    await db
-      .update(schema.tasks)
-      .set({
-        request_payload: sql`${schema.tasks.request_payload} || ${JSON.stringify({ image26_degrade: record })}::jsonb`,
-      })
-      .where(this.#own())
+    await db.transaction(async (tx) => {
+      const updated = await tx
+        .update(schema.tasks)
+        .set({
+          request_payload: sql`${schema.tasks.request_payload} || ${JSON.stringify({ image26_degrade: record })}::jsonb`,
+        })
+        .where(this.#own())
+        .returning({ id: schema.tasks.id })
+      if (updated.length > 0) await syncTaskPayloads(tx, [this.taskId])
+    })
   }
 
   async recordGptRoute(route: 'direct' | 'sub2api'): Promise<void> {
@@ -341,12 +346,16 @@ class TaskExecutionHandle implements TaskExecution {
 
   async preserveInputs(request: PersistedSubmitRequest): Promise<PersistedSubmitRequest | null> {
     const next = await durableGenerationInputs(request)
-    const updated = await db
-      .update(schema.tasks)
-      .set({ request_payload: next })
-      .where(this.#own())
-      .returning({ id: schema.tasks.id })
-    return updated.length > 0 ? next : null
+    return db.transaction(async (tx) => {
+      const updated = await tx
+        .update(schema.tasks)
+        .set({ request_payload: next })
+        .where(this.#own())
+        .returning({ id: schema.tasks.id })
+      if (updated.length === 0) return null
+      await syncTaskPayloads(tx, [this.taskId])
+      return next
+    })
   }
 
   saveCheckpoint(payload: TaskRow['archive_payload']): Promise<boolean> {
