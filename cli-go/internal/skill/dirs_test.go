@@ -113,6 +113,30 @@ func TestDirInstallIntoAHostSkillsDirectoryStaysThatHostsInstall(t *testing.T) {
 	}
 }
 
+func TestDirInstallIntoAnotherProjectsHostDirectoryIsThatProjectsInstall(t *testing.T) {
+	t.Setenv("MUVLOOM_CONFIG_DIR", t.TempDir())
+	home, here, other := t.TempDir(), t.TempDir(), t.TempDir()
+	for _, root := range []string{here, other} {
+		if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := Install(InstallOptions{Dir: filepath.Join(other, ".claude", "skills"), Home: home, CWD: here})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Host != "claude-code" || res.Scope != "project" {
+		t.Fatalf("--dir into another project's .claude/skills = %+v", res)
+	}
+	if dirs := RegisteredDirs(); len(dirs) != 0 {
+		t.Fatalf("a project host directory must not be registered as custom: %v", dirs)
+	}
+	installed, _ := Installed(home, other)
+	if len(installed) != 1 || installed[0].Scope != "project" || !installed[0].Current {
+		t.Fatalf("status in that project = %+v", installed)
+	}
+}
+
 func TestReinstallCommandNamesTheDirectoryForACustomCopy(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "skills")
 	custom := Installation{Host: customHost, Scope: customScope, Path: filepath.Join(dir, "muvloom")}

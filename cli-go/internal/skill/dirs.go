@@ -114,8 +114,12 @@ func installDir(opts InstallOptions) (Result, error) {
 	}
 	// A host's own skills directory stays that host's install, so status, refresh and hot
 	// updates keep treating it as one.
-	if host, scope, ok := knownHostDir(parent, opts.Home, opts.CWD); ok {
-		return Install(InstallOptions{Host: host, Scope: scope, Home: opts.Home, CWD: opts.CWD, onlyIf: opts.onlyIf})
+	if host, scope, project, ok := knownHostDir(parent, opts.Home, opts.CWD); ok {
+		cwd := opts.CWD
+		if project != "" {
+			cwd = project // another project's host directory: install it as that project's copy
+		}
+		return Install(InstallOptions{Host: host, Scope: scope, Home: opts.Home, CWD: cwd, onlyIf: opts.onlyIf})
 	}
 	destination := filepath.Join(parent, "muvloom")
 	if err := os.MkdirAll(parent, 0o755); err != nil {
@@ -198,8 +202,10 @@ func Content() (string, error) {
 }
 
 // knownHostDir reports whether dir is the skills directory a --host install uses: a host's
-// user-scope directory, or its project-scope directory in the current project.
-func knownHostDir(dir, home, cwd string) (string, string, bool) {
+// user-scope directory, or its project-scope directory in the current project or in any other
+// project (which status finds when run there). For a project directory it also returns that
+// project's root.
+func knownHostDir(dir, home, cwd string) (string, string, string, bool) {
 	if home == "" {
 		home, _ = os.UserHomeDir()
 	}
@@ -221,13 +227,21 @@ func knownHostDir(dir, home, cwd string) (string, string, bool) {
 	}
 	for _, host := range hosts {
 		if home != "" && same(dir, filepath.Join(home, filepath.FromSlash(host.userDir), "skills")) {
-			return host.name, "user", true
+			return host.name, "user", "", true
 		}
 		if project != "" && same(dir, filepath.Join(project, filepath.FromSlash(host.projectDir), "skills")) {
-			return host.name, "project", true
+			return host.name, "project", project, true
+		}
+		// <root>/<projectDir>/skills where <root> is itself a project root.
+		suffix := string(filepath.Separator) + filepath.Join(filepath.FromSlash(host.projectDir), "skills")
+		clean := filepath.Clean(dir)
+		if root, ok := strings.CutSuffix(clean, suffix); ok && root != "" {
+			if found, err := findProjectRoot(root); err == nil && same(found, root) {
+				return host.name, "project", root, true
+			}
 		}
 	}
-	return "", "", false
+	return "", "", "", false
 }
 
 // shellQuote quotes a path as one literal argument: single quotes in POSIX shells (nothing
