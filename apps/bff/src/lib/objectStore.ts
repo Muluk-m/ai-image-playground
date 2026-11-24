@@ -31,7 +31,7 @@ export interface ObjectStore {
   listEntries(prefix: string): Promise<ObjectEntry[]>
   deletePrefix(prefix: string): Promise<void>
   /** 按精确键删单个对象，避免 `img-1` 前缀误伤 `img-10`。 */
-  deleteObject?(key: string): Promise<void>
+  deleteObject(key: string): Promise<void>
 }
 
 /** Metadata rejects oversized objects before any body is requested; the stream remains capped too. */

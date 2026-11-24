@@ -150,7 +150,7 @@ async function runAssetObjectsBatch(
                 NULL,
                 b.created_at,
                 b.created_at,
-                b.created_at
+                NOW()
               FROM batch b
               ON CONFLICT DO NOTHING
               RETURNING id
@@ -223,7 +223,7 @@ async function runAssetObjectsBatch(
                 NULL,
                 b.created_at,
                 b.created_at,
-                b.created_at
+                NOW()
               FROM batch b
               ON CONFLICT DO NOTHING
               RETURNING id
@@ -597,18 +597,28 @@ async function runCliRefsBatch(
   })
 }
 
+interface PruneStaleCursor {
+  userId: string
+  inclusive: boolean
+}
+
 /**
  * 清理在在线回填与同步并发窗口中可能回插的过期 `asset`/`look` 引用边：
- * 按受影响用户串行加 `users FOR NO KEY UPDATE`（与 BFF 全局锁序一致）复核后删除，
- * 并刷新对应 `media_objects.updated_at` 保留完整宽限期。
+ * 按受影响用户串行加 `users FOR NO KEY UPDATE`（与 BFF 全局锁序一致）分片复核后删除，
+ * 单批总删除行数严格不超过 `batchSize`（单个大户分多事务释放锁），并刷新对应 `media_objects.updated_at`。
  */
 async function runPruneStaleSyncedRefsBatch(
   client: SQL,
-  lastUserId: string | null,
+  cursor: PruneStaleCursor | null,
   batchSize: number,
-): Promise<{ scanned: number; deleted: number; lastUserId: string | null }> {
+): Promise<{
+  scanned: number
+  deleted: number
+  hasMore: boolean
+  nextCursor: PruneStaleCursor | null
+}> {
   const candidates =
-    lastUserId === null
+    cursor === null
       ? await client<{ user_id: string }[]>`
           SELECT DISTINCT r.user_id
           FROM media_references r
@@ -648,52 +658,100 @@ async function runPruneStaleSyncedRefsBatch(
           ORDER BY r.user_id ASC
           LIMIT ${batchSize}
         `
-      : await client<{ user_id: string }[]>`
-          SELECT DISTINCT r.user_id
-          FROM media_references r
-          JOIN media_objects m ON m.id = r.media_id
-          WHERE r.user_id > ${lastUserId}
-            AND (
-              (
-                r.owner_kind = 'asset'
-                AND NOT EXISTS (
-                  SELECT 1
-                  FROM user_assets ua
-                  WHERE ua.user_id = r.user_id
-                    AND ua.id = r.owner_id
-                    AND ua.deleted_at IS NULL
-                    AND (
-                      ua.image_id = m.asset_image_id
-                      OR EXISTS (
-                        SELECT 1
-                        FROM jsonb_array_elements(COALESCE(ua.views, '[]'::jsonb)) AS v
-                        WHERE v->>'imageId' = m.asset_image_id
+      : cursor.inclusive
+        ? await client<{ user_id: string }[]>`
+            SELECT DISTINCT r.user_id
+            FROM media_references r
+            JOIN media_objects m ON m.id = r.media_id
+            WHERE r.user_id >= ${cursor.userId}
+              AND (
+                (
+                  r.owner_kind = 'asset'
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM user_assets ua
+                    WHERE ua.user_id = r.user_id
+                      AND ua.id = r.owner_id
+                      AND ua.deleted_at IS NULL
+                      AND (
+                        ua.image_id = m.asset_image_id
+                        OR EXISTS (
+                          SELECT 1
+                          FROM jsonb_array_elements(COALESCE(ua.views, '[]'::jsonb)) AS v
+                          WHERE v->>'imageId' = m.asset_image_id
+                        )
                       )
-                    )
+                  )
+                )
+                OR (
+                  r.owner_kind = 'look'
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM user_looks ul
+                    WHERE ul.user_id = r.user_id
+                      AND ul.id = r.owner_id
+                      AND ul.deleted_at IS NULL
+                      AND (
+                        ul.cover_image_id = m.asset_image_id
+                        OR COALESCE(ul.reference_image_ids, '[]'::jsonb) ? m.asset_image_id
+                      )
+                  )
                 )
               )
-              OR (
-                r.owner_kind = 'look'
-                AND NOT EXISTS (
-                  SELECT 1
-                  FROM user_looks ul
-                  WHERE ul.user_id = r.user_id
-                    AND ul.id = r.owner_id
-                    AND ul.deleted_at IS NULL
-                    AND (
-                      ul.cover_image_id = m.asset_image_id
-                      OR COALESCE(ul.reference_image_ids, '[]'::jsonb) ? m.asset_image_id
-                    )
+            ORDER BY r.user_id ASC
+            LIMIT ${batchSize}
+          `
+        : await client<{ user_id: string }[]>`
+            SELECT DISTINCT r.user_id
+            FROM media_references r
+            JOIN media_objects m ON m.id = r.media_id
+            WHERE r.user_id > ${cursor.userId}
+              AND (
+                (
+                  r.owner_kind = 'asset'
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM user_assets ua
+                    WHERE ua.user_id = r.user_id
+                      AND ua.id = r.owner_id
+                      AND ua.deleted_at IS NULL
+                      AND (
+                        ua.image_id = m.asset_image_id
+                        OR EXISTS (
+                          SELECT 1
+                          FROM jsonb_array_elements(COALESCE(ua.views, '[]'::jsonb)) AS v
+                          WHERE v->>'imageId' = m.asset_image_id
+                        )
+                      )
+                  )
+                )
+                OR (
+                  r.owner_kind = 'look'
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM user_looks ul
+                    WHERE ul.user_id = r.user_id
+                      AND ul.id = r.owner_id
+                      AND ul.deleted_at IS NULL
+                      AND (
+                        ul.cover_image_id = m.asset_image_id
+                        OR COALESCE(ul.reference_image_ids, '[]'::jsonb) ? m.asset_image_id
+                      )
+                  )
                 )
               )
-            )
-          ORDER BY r.user_id ASC
-          LIMIT ${batchSize}
-        `
-  if (!candidates.length) return { scanned: 0, deleted: 0, lastUserId: null }
+            ORDER BY r.user_id ASC
+            LIMIT ${batchSize}
+          `
+  if (!candidates.length) return { scanned: 0, deleted: 0, hasMore: false, nextCursor: null }
 
+  let scanned = 0
   let deleted = 0
-  for (const { user_id: userId } of candidates) {
+  let remaining = batchSize
+  for (let i = 0; i < candidates.length && remaining > 0; i++) {
+    const userId = candidates[i]!.user_id
+    scanned++
+    const limitForUser = remaining
     const count = await client.begin(async (tx) => {
       // Lock the user row first (matching lockMediaOwner) so concurrent POST /api/sync serializes cleanly.
       const [owner] = await tx<{ id: string }[]>`
@@ -740,6 +798,8 @@ async function runPruneStaleSyncedRefsBatch(
                 )
               )
             )
+          ORDER BY r.owner_kind ASC, r.owner_id ASC, r.media_id ASC
+          LIMIT ${limitForUser}
         ),
         removed AS (
           DELETE FROM media_references r
@@ -762,11 +822,24 @@ async function runPruneStaleSyncedRefsBatch(
       return row?.removed ?? 0
     })
     deleted += count
+    remaining -= count
+    if (remaining === 0) {
+      // Filled this batch's row budget on `userId`; keep cursor inclusive so any remaining stale
+      // references for this user (and subsequent users) are picked up on the next batch.
+      return {
+        scanned,
+        deleted,
+        hasMore: true,
+        nextCursor: { userId, inclusive: true },
+      }
+    }
   }
+  const lastUserId = candidates.at(-1)?.user_id ?? null
   return {
-    scanned: candidates.length,
+    scanned,
     deleted,
-    lastUserId: candidates.at(-1)?.user_id ?? null,
+    hasMore: candidates.length >= batchSize && lastUserId !== null,
+    nextCursor: lastUserId ? { userId: lastUserId, inclusive: false } : null,
   }
 }
 
@@ -905,7 +978,7 @@ export async function backfillAssetMedia(
   }
 
   // Phase 5: prune any stale synced asset/look references left by concurrent tombstones/edits
-  let staleUserCursor: string | null = null
+  let staleUserCursor: PruneStaleCursor | null = null
   while (true) {
     if (!canContinue()) return makeResult(false)
     const pruned = await runPruneStaleSyncedRefsBatch(client, staleUserCursor, batchSize)
@@ -918,8 +991,8 @@ export async function backfillAssetMedia(
       scanned: pruned.scanned,
       written: pruned.deleted,
     })
-    if (pruned.scanned < batchSize || !pruned.lastUserId) break
-    staleUserCursor = pruned.lastUserId
+    if (!pruned.hasMore || !pruned.nextCursor) break
+    staleUserCursor = pruned.nextCursor
     await throttle()
   }
 

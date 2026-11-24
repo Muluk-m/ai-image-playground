@@ -89,7 +89,13 @@ export async function mediaUsage(tx: BffTransaction, userId: string, now = Date.
          WHERE a.user_id = ${userId}
            AND NOT EXISTS (
              SELECT 1 FROM media_objects m
-             WHERE m.user_id = a.user_id AND m.asset_image_id = a.image_id
+             WHERE m.user_id = a.user_id
+               AND m.asset_image_id = a.image_id
+               AND (
+                 m.attachment_managed = true
+                 OR m.status = 'ready'
+                 OR m.expires_at > ${new Date(now)}
+               )
            )),
         0
       )
@@ -809,9 +815,7 @@ export async function finishDeletingMedia(
         const key =
           row.objectKey ?? (row.assetImageId ? `users/${userId}/assets/${row.assetImageId}` : null)
         if (key) {
-          const store = objectStore()
-          if (store.deleteObject) await store.deleteObject(key)
-          else await store.deletePrefix(key)
+          await objectStore().deleteObject(key)
         }
       } else {
         const store = durableMediaStore()
@@ -855,14 +859,34 @@ export async function finishDeletingMedia(
   })
 }
 
+/**
+ * 锁住用户的同步版本行（与旧代 `POST /api/sync` 共用同一把行锁），必须在 `lockMediaOwner` 之后获取，
+ * 使回收与同步（含未感知 `lockMediaOwner` 的旧代 BFF 同步）严格串行且不产生死锁。
+ */
+async function lockUserSyncState(tx: BffTransaction, userId: string): Promise<void> {
+  await tx
+    .insert(schema.user_sync_state)
+    .values({ user_id: userId, version: 0 })
+    .onConflictDoNothing()
+  await tx
+    .select({ version: schema.user_sync_state.version })
+    .from(schema.user_sync_state)
+    .where(eq(schema.user_sync_state.user_id, userId))
+    .for('update')
+}
+
 /** 未被任何活跃实体引用的素材图片在宽限期后自动回收（解决 #222 墓碑长期占额度问题）。 */
 export const ASSET_RECLAIM_GRACE_MS = 24 * 60 * 60 * 1000
 
 /**
- * 回收宽限期满且不再被任何 `media_references`、活跃素材、活跃模板、导演台文档、未确认草稿或在途任务/执行引用的
- * 同步素材图片（`asset_image_id IS NOT NULL`）。全程在用户媒体锁内复核、删对象并同步删掉 `media_objects` 与
- * `user_asset_objects` 行；若对象删除临时失败则事务回滚保持 `ready` 留待下轮重试，不向旧代 BFF 暴露
- * `storage_scope = 'object'` 的 `deleting` 中间态，也杜绝与 `storeAssetImage` 并发 PUT/DELETE 同一 R2 键。
+ * 回收宽限期满且不再被任何 `media_references`、活跃素材、活跃模板、导演台文档、生成草稿（含已确认历史）、
+ * 引用该素材的在途任务或运行中智能体执行引用的同步素材图片（`asset_image_id IS NOT NULL`）。
+ * 采用两阶段可恢复删除协议：
+ * 1. 事务 1 按 `lockMediaOwner -> lockUserSyncState -> media_objects FOR UPDATE` 顺序持锁，再用独立查询在最新快照
+ *    复核全部保护条件，通过后先持久化 `status = 'deleting'` 提交；
+ * 2. 事务外执行对象存储精确单键删除（`deleteObject`）；
+ * 3. 事务 2 在 `lockMediaOwner` 内删除 `status = 'deleting'` 的 `media_objects` 与 `user_asset_objects`。
+ * 若步骤 2/3 中途失败或进程崩溃，行停留在 `deleting`（绝不回滚为已丢字节的 `ready`），由 `purgeDeletingUnreferencedMedia` 重试收尾。
  */
 export async function reclaimUnreferencedAssetMedia(
   now = Date.now(),
@@ -941,7 +965,6 @@ export async function reclaimUnreferencedAssetMedia(
         .where(
           and(
             eq(schema.agent_conversations.user_id, media.user_id),
-            isNull(schema.agent_generation_drafts.task_id),
             sql`POSITION(${media.asset_image_id} IN ${schema.agent_generation_drafts.submission}::text) > 0`,
           ),
         ),
@@ -950,10 +973,15 @@ export async function reclaimUnreferencedAssetMedia(
       db
         .select({ id: schema.tasks.id })
         .from(schema.tasks)
+        .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
         .where(
           and(
             eq(schema.tasks.user_id, media.user_id),
             notInArray(schema.tasks.status, ['completed', 'failed', 'cancelled']),
+            sql`(
+              POSITION(${media.asset_image_id} IN COALESCE(${schema.task_payloads.request_payload}, ${schema.tasks.request_payload})::text) > 0
+              OR POSITION(${media.id} IN COALESCE(${schema.task_payloads.request_payload}, ${schema.tasks.request_payload})::text) > 0
+            )`,
           ),
         ),
     ),
@@ -984,49 +1012,65 @@ export async function reclaimUnreferencedAssetMedia(
   for (const candidate of candidates) {
     if (signal?.aborted) break
     try {
-      const deleted = await db.transaction(async (tx) => {
+      const claimed = await db.transaction(async (tx) => {
         await lockMediaOwner(tx, candidate.userId)
-        const [row] = await tx
-          .select({
+        await lockUserSyncState(tx, candidate.userId)
+        const [locked] = await tx
+          .select({ id: media.id })
+          .from(media)
+          .where(and(eq(media.id, candidate.id), eligible))
+          .for('update')
+          .limit(1)
+        if (!locked) return null
+        // 持锁后用独立语句在最新 READ COMMITTED 快照复核全部保护条件，避免与并发引用提交交错。
+        const [stillEligible] = await tx
+          .select({ id: media.id })
+          .from(media)
+          .where(and(eq(media.id, locked.id), eligible, not(protection)))
+          .limit(1)
+        if (!stillEligible) return null
+        const [marked] = await tx
+          .update(media)
+          .set({ status: 'deleting', updated_at: now })
+          .where(and(eq(media.id, locked.id), eq(media.status, 'ready')))
+          .returning({
             id: media.id,
             stagingKey: media.staging_key,
             objectKey: media.object_key,
             storageScope: media.storage_scope,
             assetImageId: media.asset_image_id,
           })
-          .from(media)
-          .where(and(eq(media.id, candidate.id), eligible, not(protection)))
-          .for('update')
-          .limit(1)
-        if (!row) return false
-        if (row.storageScope === 'object') {
-          const key =
-            row.objectKey ??
-            (row.assetImageId ? `users/${candidate.userId}/assets/${row.assetImageId}` : null)
-          if (key) {
-            const store = objectStore()
-            if (store.deleteObject) await store.deleteObject(key)
-            else await store.deletePrefix(key)
-          }
-        } else {
-          const store = durableMediaStore()
-          await store.deletePrefix(`objects/${candidate.userId}/${row.id}/`)
-          await store.deletePrefix(row.stagingKey)
-          if (row.objectKey) await store.deletePrefix(row.objectKey)
+        return marked ?? null
+      })
+      if (!claimed) continue
+
+      if (claimed.storageScope === 'object') {
+        const key =
+          claimed.objectKey ??
+          (claimed.assetImageId ? `users/${candidate.userId}/assets/${claimed.assetImageId}` : null)
+        if (key) {
+          await objectStore().deleteObject(key)
         }
-        // 已持 lockMediaOwner + 目标行 FOR UPDATE 锁，不会有新引用或同步并发落库；
-        // 对象存储删除一旦成功必须无条件清理账本行，避免无关 tasks/agent_executions 写入使 DB 滞留 ready。
+      } else {
+        const store = durableMediaStore()
+        await store.deletePrefix(`objects/${candidate.userId}/${claimed.id}/`)
+        await store.deletePrefix(claimed.stagingKey)
+        if (claimed.objectKey) await store.deletePrefix(claimed.objectKey)
+      }
+
+      const deleted = await db.transaction(async (tx) => {
+        await lockMediaOwner(tx, candidate.userId)
         const removedRows = await tx
           .delete(media)
-          .where(eq(media.id, row.id))
+          .where(and(eq(media.id, claimed.id), eq(media.status, 'deleting')))
           .returning({ id: media.id })
-        if (removedRows.length > 0 && row.assetImageId) {
+        if (removedRows.length > 0 && claimed.assetImageId) {
           await tx
             .delete(schema.user_asset_objects)
             .where(
               and(
                 eq(schema.user_asset_objects.user_id, candidate.userId),
-                eq(schema.user_asset_objects.image_id, row.assetImageId),
+                eq(schema.user_asset_objects.image_id, claimed.assetImageId),
               ),
             )
         }
@@ -1036,7 +1080,7 @@ export async function reclaimUnreferencedAssetMedia(
     } catch (error) {
       log.warn(
         { event: 'media.asset_reclaim_failed', mediaId: candidate.id, err: String(error) },
-        'unreferenced asset reclamation failed; kept ready for the next sweep',
+        'unreferenced asset reclamation failed; kept deleting for the next sweep',
       )
     }
   }

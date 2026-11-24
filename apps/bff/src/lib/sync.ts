@@ -295,6 +295,8 @@ async function syncOwnerMediaReferences(
   const touchRemovedLegacy = async () => {
     const uniqueRemoved = [...new Set(removedImageIds.filter((id) => id.length > 0))]
     if (!uniqueRemoved.length) return
+    // 尚未回填的旧图片摘引时先惰性物化，再把 updated_at 刷到当前时间，确保享有完整 24 小时宽限期。
+    await ensureAssetMediaIds(tx, userId, uniqueRemoved)
     await tx
       .update(schema.media_objects)
       .set({ updated_at: now })
@@ -302,6 +304,7 @@ async function syncOwnerMediaReferences(
         and(
           eq(schema.media_objects.user_id, userId),
           inArray(schema.media_objects.asset_image_id, uniqueRemoved),
+          eq(schema.media_objects.status, 'ready'),
         ),
       )
   }

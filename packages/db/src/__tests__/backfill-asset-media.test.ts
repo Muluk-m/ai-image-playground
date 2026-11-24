@@ -279,4 +279,81 @@ describe('backfillAssetMedia & verifyAssetMediaConsistency', () => {
     const report = await verifyAssetMediaConsistency(connection.client)
     expect(report.missingAssetMediaCount).toBe(0)
   })
+
+  it('starts a fresh updated_at grace window on backfill while preserving created_at, and bounds stale ref pruning per user to batchSize', async () => {
+    const oldTime = new Date(Date.now() - 48 * 60 * 60 * 1000)
+    const beforeBackfill = Date.now() - 5_000
+    await connection.client`
+      INSERT INTO users (id, username, password_hash, status, created_at, updated_at)
+      VALUES ('u-heavy', 'u-heavy', 'hash', 'active', ${oldTime}, ${oldTime})
+    `
+    for (let i = 1; i <= 5; i++) {
+      await connection.client`
+        INSERT INTO user_asset_objects (user_id, image_id, bytes, content_type, created_at)
+        VALUES ('u-heavy', ${`old-img-${i}`}, 100, 'image/png', ${oldTime})
+      `
+      await connection.client`
+        INSERT INTO user_assets (user_id, id, name, image_id, views, created_at, updated_at, version)
+        VALUES ('u-heavy', ${`heavy-asset-${i}`}, ${`Asset ${i}`}, ${`old-img-${i}`}, '[]'::jsonb, ${oldTime}, ${oldTime}, ${i})
+      `
+    }
+
+    const first = await backfillAssetMedia(connection.client, { batchSize: 10, delayMs: 0 })
+    expect(first.completed).toBe(true)
+    expect(first.objectsWritten).toBe(5)
+    expect(first.assetRefsWritten).toBe(5)
+
+    // Backfilled rows preserve historical created_at while initializing updated_at to backfill time.
+    const timestamps = await connection.client<
+      { asset_image_id: string; created_ms: string; updated_ms: string }[]
+    >`
+      SELECT
+        asset_image_id,
+        (EXTRACT(EPOCH FROM created_at) * 1000)::bigint::text AS created_ms,
+        (EXTRACT(EPOCH FROM updated_at) * 1000)::bigint::text AS updated_ms
+      FROM media_objects
+      WHERE user_id = 'u-heavy'
+      ORDER BY asset_image_id ASC
+    `
+    expect(timestamps).toHaveLength(5)
+    for (const row of timestamps) {
+      expect(Number(row.created_ms)).toBeLessThan(beforeBackfill - 24 * 60 * 60 * 1000)
+      expect(Number(row.updated_ms)).toBeGreaterThanOrEqual(beforeBackfill)
+    }
+
+    // Tombstone all 5 assets directly (simulating stale refs from concurrent tombstones)
+    // and prune with batchSize=2, maxBatches=1: each slice must prune at most 2 rows and never skip the rest.
+    await connection.client`
+      UPDATE user_assets
+      SET deleted_at = NOW(), name = NULL, image_id = NULL, views = NULL, created_at = NULL
+      WHERE user_id = 'u-heavy'
+    `
+    expect((await verifyAssetMediaConsistency(connection.client)).staleSyncedRefCount).toBe(5)
+
+    const p1 = await backfillAssetMedia(connection.client, {
+      batchSize: 2,
+      delayMs: 0,
+      maxBatches: 1,
+    })
+    expect(p1.staleRefsPruned).toBe(2)
+    expect(p1.completed).toBe(false)
+
+    const p2 = await backfillAssetMedia(connection.client, {
+      batchSize: 2,
+      delayMs: 0,
+      maxBatches: 1,
+    })
+    expect(p2.staleRefsPruned).toBe(2)
+    expect(p2.completed).toBe(false)
+
+    const p3 = await backfillAssetMedia(connection.client, {
+      batchSize: 2,
+      delayMs: 0,
+      maxBatches: 1,
+    })
+    expect(p3.staleRefsPruned).toBe(1)
+    expect(p3.completed).toBe(true)
+
+    expect((await verifyAssetMediaConsistency(connection.client)).staleSyncedRefCount).toBe(0)
+  })
 })

@@ -1,5 +1,5 @@
 import { OAUTH_ONLY_PASSWORD_HASH, schema } from '@image-playground/db'
-import { and, eq, notExists, sql } from 'drizzle-orm'
+import { and, eq, ne, notExists, sql } from 'drizzle-orm'
 import {
   decodeCursor,
   encodeCursor,
@@ -51,6 +51,7 @@ export async function readUnmigratedUserAssetBytes(
               and(
                 eq(schema.media_objects.user_id, schema.user_asset_objects.user_id),
                 eq(schema.media_objects.asset_image_id, schema.user_asset_objects.image_id),
+                ne(schema.media_objects.status, 'deleting'),
               ),
             ),
         ),
@@ -84,7 +85,9 @@ export async function readUserAssetBytes(
          WHERE a.user_id = ${userId}
            AND NOT EXISTS (
              SELECT 1 FROM media_objects m
-             WHERE m.user_id = a.user_id AND m.asset_image_id = a.image_id
+             WHERE m.user_id = a.user_id
+               AND m.asset_image_id = a.image_id
+               AND m.status <> 'deleting'
            )),
         0
       )
@@ -177,7 +180,9 @@ const SYNC_FOOTPRINT = sql`
        WHERE a.user_id = u.id
          AND NOT EXISTS (
            SELECT 1 FROM media_objects m
-           WHERE m.user_id = a.user_id AND m.asset_image_id = a.image_id
+           WHERE m.user_id = a.user_id
+             AND m.asset_image_id = a.image_id
+             AND m.status <> 'deleting'
          )),
       0
     )

@@ -1,29 +1,58 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { resolve } from 'node:path'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { OAUTH_ONLY_PASSWORD_HASH } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { readUnmigratedUserAssetBytes, readUserAssetBytes } from '@image-playground/read-models'
 import { and, eq } from 'drizzle-orm'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
 const TEST_DB = await resetTestDatabase('bff_media_ledger_unification')
+const tempDir = await mkdtemp(join(tmpdir(), 'media-ledger-unification-'))
+const operatorConfigPath = join(tempDir, 'operator.json')
+await writeFile(
+  operatorConfigPath,
+  JSON.stringify({
+    capabilities: {
+      'accounts:login': true,
+      'accounts:sync': true,
+      'agent:chat': true,
+      'agent:production': true,
+    },
+  }),
+)
 
 process.env.PORT = '0'
 process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 process.env.DATABASE_URL = TEST_DB
-process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../projects-operator-config.json')
+process.env.OPERATOR_CONFIG_FILE = operatorConfigPath
+process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
+process.env.UPSTREAM_API_KEY = 'fixture-key'
+process.env.AGENT_CHAT_MODEL = 'fixture-agent-model'
 
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
+const { deleteOwnAccount } = await import('../../lib/account-profile')
 const { reserveReferenceMedia } = await import('../../lib/cli/media')
 const { resolveMediaInputs } = await import('../../lib/mediaInputs')
-const { accessMedia, lockMediaOwner, MediaError, mediaUsage, reclaimUnreferencedAssetMedia } =
-  await import('../../lib/projectMedia')
+const {
+  accessMedia,
+  lockMediaOwner,
+  MediaError,
+  mediaUsage,
+  purgeDeletingUnreferencedMedia,
+  reclaimUnreferencedAssetMedia,
+} = await import('../../lib/projectMedia')
 const { serveMediaContent } = await import('../../lib/projectVideoMedia')
 const { synchronize } = await import('../../lib/sync')
 const { assetObjectKey, findAssetImageMeta, readAssetImage, storeAssetImage } = await import(
   '../../lib/sync-assets'
+)
+const { ProductionError, writeProduction } = await import(
+  '../../modules/agent/orchestration/production/production'
 )
 
 class DurableTestStore extends InMemoryObjectStore {
@@ -70,6 +99,7 @@ afterEach(() => {
 
 afterAll(async () => {
   await closeDb()
+  await rm(tempDir, { recursive: true, force: true })
 })
 
 describe('unified media ledger (PR-5.4a)', () => {
@@ -301,9 +331,11 @@ describe('unified media ledger (PR-5.4a)', () => {
     ).toEqual([{ imageId: 'img-10' }])
   })
 
-  it('protects assets in production documents & pending drafts, and keeps rows ready on transient R2 delete failure', async () => {
+  it('protects confirmed drafts & asset-referencing tasks, allows reclaim despite unrelated tasks, and recovers two-phase deleting rows', async () => {
     await storeAssetImage('ledger-user', 'img-prod', new Uint8Array(16), 'image/png')
     await storeAssetImage('ledger-user', 'img-draft', new Uint8Array(16), 'image/png')
+    await storeAssetImage('ledger-user', 'img-confirmed-draft', new Uint8Array(16), 'image/png')
+    await storeAssetImage('ledger-user', 'img-task-ref', new Uint8Array(16), 'image/png')
     const now = Date.now()
     await db.insert(schema.agent_conversations).values({
       id: 'conv-prod',
@@ -319,27 +351,72 @@ describe('unified media ledger (PR-5.4a)', () => {
       created_at: now,
       updated_at: now,
     })
-    await db.insert(schema.agent_generation_drafts).values({
-      id: 'draft-msg-1',
-      conversation_id: 'conv-prod',
-      turn_id: 'turn-1',
-      tool_call_id: 'call-1',
-      tool_name: 'generateImage',
-      media: 'image',
-      provider: 'openai-compat',
-      model: 'gpt-image-2',
-      prompt: 'test',
-      request: { prompt: 'test' },
-      submission: {
-        productionReferences: [{ kind: 'asset', imageId: 'img-draft' }],
-      } as unknown as (typeof schema.agent_generation_drafts.$inferInsert)['submission'],
-      created_at: now,
-    })
+    await db.insert(schema.agent_generation_drafts).values([
+      {
+        id: 'draft-msg-1',
+        conversation_id: 'conv-prod',
+        turn_id: 'turn-1',
+        tool_call_id: 'call-1',
+        tool_name: 'generateImage',
+        media: 'image',
+        provider: 'openai-compat',
+        model: 'gpt-image-2',
+        prompt: 'test',
+        request: { prompt: 'test' },
+        submission: {
+          productionReferences: [{ kind: 'asset', imageId: 'img-draft' }],
+        } as unknown as (typeof schema.agent_generation_drafts.$inferInsert)['submission'],
+        created_at: now,
+      },
+      {
+        id: 'draft-msg-confirmed',
+        conversation_id: 'conv-prod',
+        turn_id: 'turn-2',
+        tool_call_id: 'call-2',
+        tool_name: 'generateImage',
+        media: 'image',
+        provider: 'openai-compat',
+        model: 'gpt-image-2',
+        prompt: 'confirmed',
+        request: { prompt: 'confirmed' },
+        submission: {
+          productionReferences: [{ kind: 'asset', imageId: 'img-confirmed-draft' }],
+        } as unknown as (typeof schema.agent_generation_drafts.$inferInsert)['submission'],
+        task_id: 'confirmed-task-1',
+        created_at: now,
+      },
+    ])
+    await db.insert(schema.tasks).values([
+      {
+        id: 'queued-unrelated-task',
+        user_id: 'ledger-user',
+        provider: 'openai-compat',
+        model: 'gpt-image-2',
+        status: 'queued',
+        request_payload: { prompt: 'unrelated work' },
+        submitted_at: now,
+      },
+      {
+        id: 'queued-referencing-task',
+        user_id: 'ledger-user',
+        provider: 'openai-compat',
+        model: 'gpt-image-2',
+        status: 'queued',
+        request_payload: {
+          prompt: 'uses asset',
+          input_images: [{ object: 'users/ledger-user/assets/img-task-ref', mime: 'image/png' }],
+        } as unknown as (typeof schema.tasks.$inferInsert)['request_payload'],
+        submitted_at: now,
+      },
+    ])
 
-    // Both production JSON and unconfirmed draft protect their assets.
+    // Production JSON, pending draft, confirmed draft, and task referencing img-task-ref all protect their assets.
     expect(await reclaimUnreferencedAssetMedia(now + 100_000, 0)).toBe(0)
 
-    // On transient R2 delete failure, reclaim rolls back cleanly (row stays ready, never stuck in deleting).
+    // An unrelated queued task must NOT block reclamation of another unreferenced asset.
+    // On transient R2 delete failure, two-phase reclaim commits status='deleting' (never leaving ready with missing bytes),
+    // keeps legacy bytes counted in quota, blocks concurrent PUT with 409 asset_media_deleting,
+    // and purgeDeletingUnreferencedMedia finishes exact deletion cleanly on retry.
     await storeAssetImage('ledger-user', 'img-retry', new Uint8Array(16), 'image/png')
     objectStorage.deleteFailuresRemaining = 1
     expect(await reclaimUnreferencedAssetMedia(now + 100_000, 0)).toBe(0)
@@ -352,40 +429,159 @@ describe('unified media ledger (PR-5.4a)', () => {
           eq(schema.media_objects.asset_image_id, 'img-retry'),
         ),
       )
-    expect(afterFail?.status).toBe('ready')
+    expect(afterFail?.status).toBe('deleting')
+    expect(await readUserAssetBytes(db, 'ledger-user')).toBe(80)
+    expect(
+      await storeAssetImage('ledger-user', 'img-retry', new Uint8Array(16), 'image/png'),
+    ).toEqual({ ok: false, error: 'asset_media_deleting' })
 
-    // Next sweep succeeds cleanly even if an unrelated task is inserted mid-deleteObject.
-    objectStorage.beforeDeletePrefix = async () => {
-      objectStorage.beforeDeletePrefix = undefined
-      await db.insert(schema.tasks).values({
-        id: 'concurrent-unrelated-task',
-        user_id: 'ledger-user',
-        provider: 'openai-compat',
-        model: 'gpt-image-2',
-        status: 'queued',
-        request_payload: { prompt: 'concurrent' },
-        submitted_at: Date.now(),
-      })
-    }
-    expect(await reclaimUnreferencedAssetMedia(now + 100_000, 0)).toBe(1)
+    // Next deleting sweep completes exact deletion and frees the quota.
+    expect(await purgeDeletingUnreferencedMedia()).toBe(1)
     expect(objectStorage.objects.has(assetObjectKey('ledger-user', 'img-retry'))).toBe(false)
     expect(await findAssetImageMeta(db, 'ledger-user', 'img-retry')).toBeNull()
-    await db.delete(schema.tasks).where(eq(schema.tasks.id, 'concurrent-unrelated-task'))
+    expect(await readUserAssetBytes(db, 'ledger-user')).toBe(64)
 
-    // If a row is explicitly marked deleting, storeAssetImage refuses concurrent PUT (409 asset_media_deleting).
-    await storeAssetImage('ledger-user', 'img-del-lock', new Uint8Array(16), 'image/png')
+    await db.delete(schema.tasks).where(eq(schema.tasks.user_id, 'ledger-user'))
+  })
+
+  it('materializes legacy assets with fresh grace on re-upload & tombstone, serializes production vs reclaim, and handles cross-user references on account deletion', async () => {
+    const oldTime = Date.now() - 48 * 60 * 60 * 1000
+
+    // 1. Legacy-only asset > 24h old re-uploaded: materialized with fresh updated_at, not immediately reclaimed.
+    await objectStorage.write(
+      assetObjectKey('ledger-user', 'legacy-reupload'),
+      TINY_PNG,
+      'image/png',
+    )
+    await db.insert(schema.user_asset_objects).values({
+      user_id: 'ledger-user',
+      image_id: 'legacy-reupload',
+      bytes: TINY_PNG.byteLength,
+      content_type: 'image/png',
+      created_at: oldTime,
+    })
+    const reuploaded = await storeAssetImage(
+      'ledger-user',
+      'legacy-reupload',
+      TINY_PNG,
+      'image/png',
+    )
+    expect(reuploaded.ok).toBe(true)
+    expect(await reclaimUnreferencedAssetMedia(Date.now(), 60_000)).toBe(0)
+
+    // 2. Legacy-only asset > 24h old tombstoned via sync: materialized with fresh updated_at, preserves 24h grace.
+    await objectStorage.write(assetObjectKey('ledger-user', 'legacy-tomb'), TINY_PNG, 'image/png')
+    await db.insert(schema.user_asset_objects).values({
+      user_id: 'ledger-user',
+      image_id: 'legacy-tomb',
+      bytes: TINY_PNG.byteLength,
+      content_type: 'image/png',
+      created_at: oldTime,
+    })
+    await db.insert(schema.user_assets).values({
+      user_id: 'ledger-user',
+      id: 'asset-legacy-tomb',
+      name: 'Old',
+      image_id: 'legacy-tomb',
+      views: [],
+      created_at: oldTime,
+      updated_at: oldTime,
+      version: 1,
+    })
+    await db
+      .insert(schema.user_sync_state)
+      .values({ user_id: 'ledger-user', version: 1 })
+      .onConflictDoNothing()
+    await synchronize('ledger-user', {
+      version: 1,
+      assets: [{ id: 'asset-legacy-tomb', updatedAt: Date.now(), deletedAt: Date.now() }],
+    })
+    expect(await reclaimUnreferencedAssetMedia(Date.now(), 60_000)).toBe(0)
+
+    // 3. Concurrent writeProduction referencing an expired unreferenced asset vs reclaimUnreferencedAssetMedia:
+    // serialized by lockMediaOwner so either production keeps intact bytes OR reclaim removes it and production rejects.
+    await storeAssetImage('ledger-user', 'img-race-prod', TINY_PNG, 'image/png')
     await db
       .update(schema.media_objects)
-      .set({ status: 'deleting' })
+      .set({ updated_at: oldTime })
       .where(
         and(
           eq(schema.media_objects.user_id, 'ledger-user'),
-          eq(schema.media_objects.asset_image_id, 'img-del-lock'),
+          eq(schema.media_objects.asset_image_id, 'img-race-prod'),
         ),
       )
-    expect(
-      await storeAssetImage('ledger-user', 'img-del-lock', new Uint8Array(16), 'image/png'),
-    ).toEqual({ ok: false, error: 'asset_media_deleting' })
+    await db.insert(schema.agent_conversations).values({
+      id: 'conv-race',
+      user_id: 'ledger-user',
+      title: 'Race',
+      created_at: oldTime,
+      updated_at: oldTime,
+    })
+    const [prodOutcome, reclaimOutcome] = await Promise.allSettled([
+      writeProduction(
+        'conv-race',
+        'ledger-user',
+        {
+          operationId: 'op-race-1',
+          baseRevision: 0,
+          content: {
+            title: 'Race',
+            setting: 'Studio',
+            outline: 'Race test',
+            characters: [],
+            locations: [
+              {
+                id: 'loc-race',
+                name: 'Hall',
+                description: 'Main hall',
+                reference: { kind: 'asset', imageId: 'img-race-prod' },
+              },
+            ],
+            scenes: [],
+          },
+        },
+        'user',
+      ),
+      reclaimUnreferencedAssetMedia(Date.now(), 60_000),
+    ])
+    if (prodOutcome.status === 'fulfilled') {
+      // Production won: object bytes and ready row must remain intact.
+      expect(objectStorage.objects.has(assetObjectKey('ledger-user', 'img-race-prod'))).toBe(true)
+      expect(await findAssetImageMeta(db, 'ledger-user', 'img-race-prod')).not.toBeNull()
+    } else {
+      // Reclaim won: production must reject cleanly with production_invalid, and bytes are deleted.
+      expect(prodOutcome.reason).toBeInstanceOf(ProductionError)
+      expect((prodOutcome.reason as InstanceType<typeof ProductionError>).code).toBe(
+        'production_invalid',
+      )
+      expect(reclaimOutcome.status).toBe('fulfilled')
+      expect(objectStorage.objects.has(assetObjectKey('ledger-user', 'img-race-prod'))).toBe(false)
+    }
+
+    // 4. Cross-user media_references pointing to ledger-user's media_objects must not block account deletion.
+    await createUser('other-user')
+    await storeAssetImage('ledger-user', 'img-cross-ref', TINY_PNG, 'image/png')
+    const [crossMedia] = await db
+      .select({ id: schema.media_objects.id })
+      .from(schema.media_objects)
+      .where(
+        and(
+          eq(schema.media_objects.user_id, 'ledger-user'),
+          eq(schema.media_objects.asset_image_id, 'img-cross-ref'),
+        ),
+      )
+    await db.insert(schema.media_references).values({
+      user_id: 'other-user',
+      media_id: crossMedia!.id,
+      owner_kind: 'asset',
+      owner_id: 'dirty-cross-ref',
+      created_at: Date.now(),
+    })
+    await db
+      .update(schema.users)
+      .set({ password_hash: OAUTH_ONLY_PASSWORD_HASH })
+      .where(eq(schema.users.id, 'ledger-user'))
+    await expect(deleteOwnAccount('ledger-user')).resolves.toBeUndefined()
   })
 
   it('registers cli_reference in media_references when reserving CLI reference media', async () => {

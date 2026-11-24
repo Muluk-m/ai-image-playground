@@ -304,7 +304,7 @@ describe('@image-playground/read-models', () => {
         created_at: now,
         updated_at: now,
       },
-      // Deleting asset (999 B): excluded from both totals.
+      // Deleting asset without legacy row (999 B): excluded from both totals.
       {
         id: 'rm-media-img-del',
         user_id: 'rm-user-1',
@@ -323,13 +323,40 @@ describe('@image-playground/read-models', () => {
         created_at: now,
         updated_at: now,
       },
+      // Deleting asset whose legacy user_asset_objects row (777 B) has not yet been removed:
+      // still counted via user_asset_objects until physical cleanup removes the legacy row.
+      {
+        id: 'rm-media-img-del-dual',
+        user_id: 'rm-user-1',
+        sha256: 'asset:img-del-dual',
+        bytes: 777,
+        content_type: 'image/png',
+        status: 'deleting',
+        attachment_managed: false,
+        reserved_bytes: 0,
+        staging_key: 'users/rm-user-1/assets/img-del-dual',
+        object_key: 'users/rm-user-1/assets/img-del-dual',
+        preview_bytes: 0,
+        asset_image_id: 'img-del-dual',
+        storage_scope: 'object',
+        expires_at: now,
+        created_at: now,
+        updated_at: now,
+      },
     ])
+    await handle.db.insert(schema.user_asset_objects).values({
+      user_id: 'rm-user-1',
+      image_id: 'img-del-dual',
+      bytes: 777,
+      content_type: 'image/png',
+      created_at: now,
+    })
 
-    // Only img-2 (3400 B) remains unmigrated in user_asset_objects.
-    expect(await readUnmigratedUserAssetBytes(handle.db, 'rm-user-1')).toBe(3400)
-    // Total = img-1 (1200) + img-2 (3400) + img-3 (500) = 5100.
-    expect(await readUserAssetBytes(handle.db, 'rm-user-1')).toBe(5100)
+    // img-2 (3400 B) + img-del-dual (777 B, deleting in media_objects) remain counted via legacy fallback.
+    expect(await readUnmigratedUserAssetBytes(handle.db, 'rm-user-1')).toBe(4177)
+    // Total = img-1 (1200) + img-2 (3400) + img-3 (500) + img-del-dual (777) = 5877.
+    expect(await readUserAssetBytes(handle.db, 'rm-user-1')).toBe(5877)
     const detail = await getUserDetail(handle, 'rm-user-1', false)
-    expect(detail?.asset_bytes).toBe(5100)
+    expect(detail?.asset_bytes).toBe(5877)
   })
 })

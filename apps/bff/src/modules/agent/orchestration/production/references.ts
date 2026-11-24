@@ -4,12 +4,13 @@ import {
   type ProductionMediaReference,
   parseProjectArtifactId,
 } from '@image-playground/shared'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { db, schema } from '../../../../db/client'
 import { resolveImageBytesRef } from '../../../../lib/extractImages'
 import type { BffTransaction } from '../../../../lib/private-overlay'
+import { lockMediaOwner } from '../../../../lib/projectMedia'
 import { asQueueProvider } from '../../../../lib/queueProvider'
-import { findAssetImageMeta } from '../../../../lib/sync-assets'
+import { ensureAssetMediaIds, findAssetImageMeta } from '../../../../lib/sync-assets'
 import { taskAccessWhere } from '../../../../lib/task-access'
 import { productionMediaReferences, productionReferenceKey } from './asset-validation'
 
@@ -89,6 +90,9 @@ export async function reconcileProductionReferences(
   const references = productionMediaReferences(next).filter(
     (reference) => !existing.has(productionReferenceKey(reference)),
   )
+  if (references.some((reference) => reference.kind === 'asset' || reference.kind === 'media')) {
+    await lockMediaOwner(tx, userId)
+  }
   if (!(await validateProductionMediaReferences(conversationId, userId, references, tx)))
     return false
   const assetImageIds = [
@@ -97,18 +101,7 @@ export async function reconcileProductionReferences(
     ),
   ]
   const unifiedAssetMediaIds = assetImageIds.length
-    ? (
-        await tx
-          .select({ id: schema.media_objects.id })
-          .from(schema.media_objects)
-          .where(
-            and(
-              eq(schema.media_objects.user_id, userId),
-              inArray(schema.media_objects.asset_image_id, assetImageIds),
-              eq(schema.media_objects.status, 'ready'),
-            ),
-          )
-      ).map((row) => row.id)
+    ? [...(await ensureAssetMediaIds(tx, userId, assetImageIds)).values()]
     : []
   const mediaIds = [
     ...new Set([

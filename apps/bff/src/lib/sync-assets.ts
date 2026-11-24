@@ -183,6 +183,21 @@ export async function storeAssetImage(
         return { ok: true, result: { imageId, bytes: existingMedia.bytes, totalBytes: used } }
       }
       if (!existingMedia && existingLegacy) {
+        // 迁移期重传命中尚未回填的旧账本行：在用户锁内惰性物化为统一行并续期 updated_at，
+        // 避免随后在线回填或回收在 POST /api/sync 到达前误删。
+        if (existingLegacy.bytes > 0) {
+          await ensureAssetMediaIds(tx, userId, [imageId])
+          await tx
+            .update(schema.media_objects)
+            .set({ updated_at: Date.now() })
+            .where(
+              and(
+                eq(schema.media_objects.user_id, userId),
+                eq(schema.media_objects.asset_image_id, imageId),
+                eq(schema.media_objects.status, 'ready'),
+              ),
+            )
+        }
         return { ok: true, result: { imageId, bytes: existingLegacy.bytes, totalBytes: used } }
       }
 
@@ -358,6 +373,7 @@ export async function ensureAssetMediaIds(
   const validLegacyRows = legacyRows.filter((row) => row.bytes > 0)
   if (!validLegacyRows.length) return resolved
 
+  const now = Date.now()
   await tx
     .insert(schema.media_objects)
     .values(
@@ -383,7 +399,7 @@ export async function ensureAssetMediaIds(
           height: null,
           expires_at: row.createdAt,
           created_at: row.createdAt,
-          updated_at: row.createdAt,
+          updated_at: now,
         }
       }),
     )

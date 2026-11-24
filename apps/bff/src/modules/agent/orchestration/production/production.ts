@@ -16,6 +16,7 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { db, schema } from '../../../../db/client'
 import { isCapabilityEnabled } from '../../../../lib/capabilities'
 import type { BffTransaction } from '../../../../lib/private-overlay'
+import { lockMediaOwner } from '../../../../lib/projectMedia'
 import { productionMediaReferences, validateProductionAssets } from './asset-validation'
 import { hasValidProductionClipReferences, validateProductionClips } from './clips'
 import { normalizeProductionDependencies, type ProductionRefreshTarget } from './dependencies'
@@ -97,6 +98,8 @@ export async function writeProduction(
 ): Promise<ProductionRecord> {
   assertEnabled()
   return db.transaction(async (tx) => {
+    // 遵循全局锁序：先拿用户媒体锁，再锁会话行，避免与素材回收竞态或死锁。
+    await lockMediaOwner(tx, userId)
     const [row] = await tx
       .select({ production: schema.agent_conversations.production })
       .from(schema.agent_conversations)
@@ -353,6 +356,8 @@ export async function updateProductionRecord(
 ): Promise<ProductionRecord> {
   assertEnabled()
   return db.transaction(async (tx) => {
+    // 遵循全局锁序：先拿用户媒体锁，再锁会话行，避免与素材回收竞态或死锁。
+    await lockMediaOwner(tx, userId)
     const [row] = await tx
       .select({ production: schema.agent_conversations.production })
       .from(schema.agent_conversations)
