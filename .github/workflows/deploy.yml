@@ -4,7 +4,7 @@
 # Runbook, secrets and break-glass manual release: docs/deploy/image-release.md.
 name: Deploy production
 # 按需发布：合并 main 不会自动上线，由 Nain 决定何时发（Actions 页面 Run workflow，或
-# `gh workflow run deploy.yml --ref main`）。只发当时 origin/main 的 tip，且该提交在 main 上的
+# `gh workflow run deploy.yml --ref main`）。发触发时 main 的提交，且该提交在 main 上的
 # `Web checks` 必须已成功。默认 incremental，只发自上次以来有改动的那几部分；full 全部重发（不回退）。
 on:
   workflow_dispatch:
@@ -32,7 +32,6 @@ defaults:
 jobs:
   target:
     name: Pick the commit
-    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -45,6 +44,11 @@ jobs:
       deploy_web: ${{ steps.decide.outputs.deploy_web }}
       deploy_admin: ${{ steps.decide.outputs.deploy_admin }}
     steps:
+      - name: Require main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          [ "$REF" = refs/heads/main ] || { echo "::error::Production releases run on main only, not $REF."; exit 1; }
       - name: Require secrets
         env:
           PAGES_ENV: ${{ secrets.PAGES_ENV }}
@@ -56,10 +60,12 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           persist-credentials: false
-      # 发 checkout 当下 main 的 tip：排队期间 main 前进了，就发更新的那个。
+      # 发触发时 main 的提交，即 Nain 决定发的那个；排队期间 main 前进了也不换成更新的提交。
       - id: sha
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      # 只发 `Web checks` 已在 main 上成功的 tip；没跑完或失败直接报错，等检查通过后重新触发。
+        env:
+          EVENT_SHA: ${{ github.sha }}
+        run: echo "sha=$EVENT_SHA" >> "$GITHUB_OUTPUT"
+      # 只发 `Web checks` 已在 main 上成功的提交；没跑完或失败直接报错，等检查通过后重新触发。
       - name: Require Web checks on main
         env:
           GH_TOKEN: ${{ github.token }}
@@ -81,6 +87,7 @@ jobs:
           SHA: ${{ steps.sha.outputs.sha }}
           MODE: ${{ inputs.mode || 'incremental' }}
         run: |
+          umask 077
           printf '%s\n' "$PAGES_ENV" > "$RUNNER_TEMP/pages.env"
           # shellcheck source=/dev/null
           . "$RUNNER_TEMP/pages.env"
@@ -96,19 +103,21 @@ jobs:
           API: ${{ steps.decide.outputs.deploy_api }}
           WEB: ${{ steps.decide.outputs.deploy_web }}
           ADMIN: ${{ steps.decide.outputs.deploy_admin }}
+        # Runs before any side moves, so each side's list is what this run puts live there.
         run: |
-          previous=$(git describe --tags --abbrev=0 --match 'v*' "$SHA^" 2>/dev/null || true)
           {
             echo "### 生产发布"
             echo "- 提交：\`$SHA\`（$MODE），触发人：$ACTOR"
             [ -z "$REASON" ] || echo "- 说明：$REASON"
             echo "- 发布：API=$API，muvloom 前端=$WEB，Admin=$ADMIN"
-            if [ -n "$previous" ]; then
-              echo
-              echo "#### 自 $previous 以来的提交"
-              git log --no-merges --format='- %s' "$previous..$SHA"
-            fi
+            echo
+            echo '#### 各部分线上版本到本次提交之间的改动'
+            echo '```'
+            PAGES_ENV_FILE="$RUNNER_TEMP/pages.env" RELEASE_STATUS_FETCH=0 scripts/release-status.sh "$SHA" ||
+              echo "(release-status.sh failed; see the step log)"
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          rm -f "$RUNNER_TEMP/pages.env"
 
   release:
     name: Tag the release

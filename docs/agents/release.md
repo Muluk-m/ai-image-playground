@@ -62,13 +62,16 @@ git push origin HEAD:test
 合并 `main` 不会上线。合并后的改动处于「待发布」，什么时候发由 Nain 决定：
 
 ```sh
-scripts/release-status.sh                                   # 只读：API、前端、Admin 各落后 main 哪些提交
-gh workflow run deploy.yml --ref main                       # Nain 说发布后：默认 incremental
-gh workflow run deploy.yml --ref main -f mode=full -f reason='…'   # 全部重发
-gh run watch "$(gh run list --workflow deploy.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
+scripts/release-status.sh                                        # 只读：API、前端、Admin 各落后 main 哪些提交
+gh workflow run deploy.yml --ref main                            # Nain 说发布后：默认 incremental
+gh workflow run deploy.yml --ref main -f mode=full -f reason='…'  # 全部重发
+gh run list --workflow deploy.yml --event workflow_dispatch --limit 3 --json databaseId,createdAt,status
+gh run watch <databaseId>
 ```
 
-1. `.github/workflows/deploy.yml`（Deploy production）只有手动触发（`workflow_dispatch`）。只发运行时 `origin/main` 的 tip，且该提交在 main 上的 `Web checks` 必须已成功，未完成或失败直接报错，等检查通过后再触发；同一时间只跑一单（并发组 `production-deploy`）。运行摘要列出自上一个 `v*` 标签以来的提交，冒烟按这份清单逐项核对。
+`gh workflow run` 返回后要过几秒 run 才出现，先用 `gh run list` 确认 `createdAt` 是刚才那次，再 watch；直接取第一条可能拿到上一单。
+
+1. `.github/workflows/deploy.yml`（Deploy production）只有手动触发（`workflow_dispatch`）。发触发时 main 的提交（排队期间 main 前进也不换），该提交在 main 上的 `Web checks` 必须已成功，未完成或失败直接报错，等检查通过后再触发；同一时间只跑一单（并发组 `production-deploy`）。运行摘要在切换前按各部分线上实际版本列出本次带上的提交，冒烟按这份清单逐项核对。
 2. `target` 判定哪些部分要发（共享 muvloom API、muvloom Pages 项目、Admin）；产品前端扫描 `PAID_PUBLIC_ORIGIN`，同一项目的全部产品域名随之更新。已在跑后代提交的部分不回退；`release` 打 `vMAJOR.MINOR.PATCH` 标签。
 3. **后端只构建和发布 muvloom runtime。** `backend` 在 Actions 用 `build-vps-release.sh paid` 构建单仓发布镜像，以及 backup、segmenter 配套镜像，经 SSH 受限命令执行 `deploy <id> paid <run>`；`rollout-runtime.sh` 先跑兼容迁移，再做新旧两代排空切换。生产目标只有 `paid`，隔离测试目标为 `test`。
 4. `pages-muvloom`（显示名 `Pages (muvloom project, every product domain)`）只发布一个 muvloom Pages 项目：一个项目、多个域名（`muvloom.online`、`image.nainma.online`、企业域名 `image-playground.qiliangjia.one`）。`pages-release.sh muvloom` 把 `ENTERPRISE_PUBLIC_ORIGIN → ENTERPRISE_BFF_BASE_URL` 并入 `baseUrlsByOrigin`，并给企业域名加 host 级 `X-Robots-Tag: noindex`。API 本次发布时，先等共享 muvloom API 与企业 API hostname `/health` 报出新版本，再发布并跑 Chromium 验收；企业域名在 muvloom 项目的 Cloudflare 自定义域名列表中时同样验收且失败即失败，未绑定只告警，不能据此宣称企业站已交付。`admin-pages` 保留对 `pages-muvloom` 的成功 / 跳过依赖。

@@ -134,10 +134,18 @@ describe('ci-deploy-target.sh', () => {
     expect(run.stderr).toContain("Unknown mode 'schedule'")
   })
 
-  it('skips a commit that is no longer the tip of main', () => {
-    const { decision, log } = decide(commits[1])
+  it('deploys the commit it was triggered for even after main moved on', () => {
+    serveSides({ api: commits[0], web: commits[0], admin: commits[0] })
+    expect(decide(commits[1]).decision).toBe(everything)
+  })
+
+  it('skips a commit that is not on main', () => {
+    git('checkout', '-q', '-b', 'side', commits[1])
+    git('commit', '-q', '--allow-empty', '-m', 'side')
+    const side = git('rev-parse', 'HEAD')
+    const { decision, log } = decide(side)
     expect(decision).toBe(nothing)
-    expect(log).toContain(`::notice::${commits[1]} is not the tip of origin/main (${commits[2]})`)
+    expect(log).toContain(`::notice::${side} is not on origin/main`)
   })
 
   it('never moves an API back to an ancestor of what it runs', () => {

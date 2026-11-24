@@ -9,7 +9,7 @@ set -eu
 # behind every product domain),
 # deploy_admin (Admin site) and deploy (true when anything ships) to $GITHUB_OUTPUT (stdout without it).
 # A skip is not a failure:
-# - only the current tip of origin/main is deployed, so a queued older run never overtakes a newer;
+# - only a commit on origin/main is deployed (the one the release was triggered for);
 # - nothing already running a descendant of <sha> is moved back, and the other sides stay put with it;
 # - each side is compared with the commit it serves itself: the APIs from /health, the sites from
 #   /version.json. A side skipped by an earlier run keeps its older commit, so a later run still sees
@@ -82,8 +82,7 @@ api_tree_changed() {
     lock_changed "$1" . apps/bff apps/admin packages/db packages/node-kit packages/shared
 }
 
-tip=$(git rev-parse origin/main)
-[ "$target" = "$tip" ] || skip "$target is not the tip of origin/main ($tip)"
+git merge-base --is-ancestor "$target" origin/main 2>/dev/null || skip "$target is not on origin/main"
 
 # scan <api|site> <url>...: reads what each copy serves. Sets scan_base (the commit every copy
 # serves when they agree), scan_unknown (some copy cannot be compared) and scan_current (every copy

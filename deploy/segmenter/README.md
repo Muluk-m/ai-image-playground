@@ -31,7 +31,7 @@ component with its own version, `deploy/segmenter/VERSION` (a whole number), and
 an app release:
 - Only production releases carry its image (`ai-image-playground:segmenter-<VERSION>-<commit>`,
   built with its own layer cache), and production releases are built from main only
-  (`deploy.yml`: after Web checks on main, or a manual run on main). Test releases never build it,
+  (`deploy.yml`: a manual run on main, after its Web checks passed). Test releases never build it,
   and the receiver refuses a test release that carries it, so pushing a branch to test cannot
   change it.
 - `scripts/segmenter-deploy.sh up <image> <VERSION>` does nothing when the running container

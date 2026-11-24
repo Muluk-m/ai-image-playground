@@ -3,7 +3,8 @@
 // release gets 404 for chunks it has not loaded yet. Before upload, copy the hashed files of every
 // release from the last KEEP_DAYS days from the live site into this dist and record them in
 // assets-manifest.json. Releases are kept by age, not by count, so how often production is
-// released does not shorten how long an open tab stays safe.
+// released does not shorten how long an open tab stays safe. Downloads go newest release first;
+// past MAX_TOTAL_BYTES the oldest files are skipped and fall back to the one-time reload.
 //
 // Usage: node scripts/retain-pages-assets.mjs <dist-dir> <live-origin>
 //
@@ -16,7 +17,7 @@ import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const MANIFEST = 'assets-manifest.json'
-export const KEEP_DAYS = 7
+export const KEEP_DAYS = 14
 /** Pages allows 20,000 files per deployment; older releases are dropped above this. */
 export const MAX_FILES = 15_000
 /** Pages rejects larger files, so a bigger response is not a real asset. */
