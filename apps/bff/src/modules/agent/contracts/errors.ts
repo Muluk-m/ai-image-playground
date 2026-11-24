@@ -1,0 +1,88 @@
+import type { AgentToolErrorCode } from '@image-playground/shared'
+import type { CreateQueueTaskOutcome } from '../../execution'
+
+/**
+ * 带分类的工具失败。消息照旧是给模型读的那句话；`code` 是给界面的——界面只认它（ADR 0006）。
+ * pi 接住工具抛的错时只留下文字（`createErrorToolResult`），所以分类要在 pi 之外记一份，
+ * 见 {@link createToolFailureLog}。
+ *
+ * 批次执行没开放时，这句话只给模型：不要重试，改走已经有的逐图结果。
+ */
+export const BATCH_EXECUTION_UNAVAILABLE_MESSAGE =
+  '批次执行当前没有开放。不要重试这个工具。如果已经有逐图核查结果，就按那些结果拟一份生成计划，交给用户确认；不要依赖联合核查。'
+
+export class AgentToolError extends Error {
+  constructor(
+    readonly code: AgentToolErrorCode,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'AgentToolError'
+  }
+}
+
+/** 提交被拒的那几种结局各归哪一类。 */
+export function queueRefusalCode(kind: CreateQueueTaskOutcome['kind']): AgentToolErrorCode {
+  switch (kind) {
+    case 'insufficient_credits':
+      return 'insufficient_credits'
+    case 'quota_exceeded':
+      return 'quota_exceeded'
+    case 'authentication_required':
+      return 'authentication_required'
+    case 'invalid_input_image':
+    case 'invalid_prompt':
+    case 'invalid_image_request':
+    // 4K 需要会员：换一个更小的尺寸能成，原样重试不会。
+    case 'private_billing_denied':
+      return 'invalid_params'
+    // 没有价格即这个模型不在售：与模型下线同样是「换一个做法」，不是再试一次。
+    case 'price_unavailable':
+    case 'model_unavailable':
+      return 'model_unavailable'
+    default:
+      return 'upstream_error'
+  }
+}
+
+/**
+ * 一轮里每次工具调用的失败分类。工具执行被包了一层（`agentTurnTools`），抛出去之前在这里
+ * 记下分类；轮在 `tool_execution_end` 时来取。
+ */
+export interface ToolFailureLog {
+  started(toolCallId: string): void
+  failed(toolCallId: string, thrown: unknown, aborted: boolean): void
+  /** 取走这次调用的分类。 */
+  take(toolCallId: string, aborted: boolean): AgentToolErrorCode
+}
+
+function recordedFailureCode(thrown: unknown, aborted: boolean): AgentToolErrorCode {
+  if (thrown instanceof AgentToolError) return thrown.code
+  // 批次开关关掉时抛的不是 AgentToolError，但模型需要一个明确的码，而不是 unknown。
+  if (thrown instanceof Error && 'code' in thrown && thrown.code === 'batch_execution_unavailable')
+    return 'service_unavailable'
+  return aborted ? 'cancelled' : 'unknown'
+}
+
+export function createToolFailureLog(): ToolFailureLog {
+  const started = new Set<string>()
+  const codes = new Map<string, AgentToolErrorCode>()
+  return {
+    started(toolCallId) {
+      started.add(toolCallId)
+    },
+    failed(toolCallId, thrown, aborted) {
+      codes.set(toolCallId, recordedFailureCode(thrown, aborted))
+    },
+    take(toolCallId, aborted) {
+      const code = codes.get(toolCallId)
+      const ran = started.has(toolCallId)
+      codes.delete(toolCallId)
+      started.delete(toolCallId)
+      if (code) return code
+      if (aborted) return 'cancelled'
+      // 工具根本没被调起：pi 在执行前校验参数就失败了（张数越界、缺必填项）。
+      return ran ? 'unknown' : 'invalid_params'
+    },
+  }
+}
