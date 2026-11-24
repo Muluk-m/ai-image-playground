@@ -138,10 +138,12 @@ function scanAllSpecifiers(file: string, text: string): string[] {
       specifiers.add(node.moduleSpecifier.text)
     } else if (
       ts.isCallExpression(node) &&
-      node.arguments.length === 1 &&
-      ts.isStringLiteral(node.arguments[0]!) &&
+      node.arguments.length >= 1 &&
+      ts.isStringLiteralLike(node.arguments[0]!) &&
       (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-        (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
+        (ts.isIdentifier(node.expression) &&
+          node.expression.text === 'require' &&
+          node.arguments.length === 1))
     ) {
       specifiers.add(node.arguments[0]!.text)
     } else if (
@@ -446,6 +448,8 @@ export async function checkReadModelsBoundaries(rootDir: string): Promise<string
       ) {
         if (!node.exportClause) {
           forbiddenDbPoolReason = 'wildcard re-export from @image-playground/db'
+        } else if (ts.isNamespaceExport(node.exportClause)) {
+          forbiddenDbPoolReason = 'namespace re-export from @image-playground/db'
         } else if (ts.isNamedExports(node.exportClause)) {
           for (const el of node.exportClause.elements) {
             const exported = (el.propertyName ?? el.name).text
@@ -457,11 +461,13 @@ export async function checkReadModelsBoundaries(rootDir: string): Promise<string
         }
       } else if (
         ts.isCallExpression(node) &&
-        node.arguments.length === 1 &&
-        ts.isStringLiteral(node.arguments[0]!) &&
+        node.arguments.length >= 1 &&
+        ts.isStringLiteralLike(node.arguments[0]!) &&
         isDbPackage(node.arguments[0]!.text) &&
         (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-          (ts.isIdentifier(node.expression) && node.expression.text === 'require'))
+          (ts.isIdentifier(node.expression) &&
+            node.expression.text === 'require' &&
+            node.arguments.length === 1))
       ) {
         forbiddenDbPoolReason = 'dynamic import/require of @image-playground/db'
       } else if (

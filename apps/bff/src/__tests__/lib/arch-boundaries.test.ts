@@ -214,7 +214,9 @@ describe('check-arch-boundaries', () => {
       'bad-postgres.ts': "import postgres from 'postgres'\nexport const p = postgres\n",
       'bad-ns.ts': "import * as dbPkg from '@image-playground/db'\nexport const n = dbPkg\n",
       'bad-dyn.ts': "export const load = () => import('@image-playground/db')\n",
+      'bad-dyn-opts.ts': "export const loadOpts = () => import('@image-playground/db', {})\n",
       'bad-reexport.ts': "export { createDb } from '@image-playground/db'\n",
+      'bad-ns-reexport.ts': "export * as db from '@image-playground/db'\n",
       'bad-star-reexport.ts': "export * from '@image-playground/db'\n",
       'ok.ts':
         "import { OAUTH_ONLY_PASSWORD_HASH, type DbHandle } from '@image-playground/db'\nexport type H = DbHandle\nexport const h = OAUTH_ONLY_PASSWORD_HASH\n",
@@ -231,13 +233,19 @@ describe('check-arch-boundaries', () => {
     expect(violations.some((v) => v.includes('bad-dyn.ts forbidden dynamic import/require'))).toBe(
       true,
     )
+    expect(
+      violations.some((v) => v.includes('bad-dyn-opts.ts forbidden dynamic import/require')),
+    ).toBe(true)
     expect(violations.some((v) => v.includes('bad-reexport.ts forbidden createDb re-export'))).toBe(
       true,
     )
     expect(
+      violations.some((v) => v.includes('bad-ns-reexport.ts forbidden namespace re-export')),
+    ).toBe(true)
+    expect(
       violations.some((v) => v.includes('bad-star-reexport.ts forbidden wildcard re-export')),
     ).toBe(true)
     expect(violations.some((v) => v.includes('ok.ts'))).toBe(false)
-    expect(violations).toHaveLength(8)
+    expect(violations).toHaveLength(10)
   })
 })
