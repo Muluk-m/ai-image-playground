@@ -18,6 +18,13 @@ import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, sql } from 'drizzle-o
 import { drizzle } from 'drizzle-orm/bun-sql'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
+import type { AgentToolAudience, AgentToolContext } from '../../modules/agent'
+import {
+  AgentToolError,
+  BATCH_EXECUTION_UNAVAILABLE_MESSAGE,
+  queueArtifacts,
+  resolveAgentModel,
+} from '../../modules/agent'
 import { queueTaskOutcome } from '../../modules/execution'
 import { quoteAnalysisTask } from '../analysis-tasks'
 import { type BffTransaction, loadMeteringPort, nonBillingPriceSnapshot } from '../billing-ports'
@@ -31,9 +38,6 @@ import { cancelledBatchDependents, readFrozenDependencyTargets } from './batch-d
 import { batchItem, batchItemValues } from './batch-items'
 import { updatePendingBatchPhase } from './batch-phase-edit'
 import { lockConversation } from './confirmations'
-import { AgentToolError, BATCH_EXECUTION_UNAVAILABLE_MESSAGE } from './tools/errors'
-import { queueArtifacts, resolveAgentModel } from './tools/queueTask'
-import type { AgentToolAudience, AgentToolContext } from './tools/types'
 
 export function batchPlansAvailable(audience?: AgentToolAudience): boolean {
   return (

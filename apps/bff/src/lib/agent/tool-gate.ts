@@ -1,7 +1,7 @@
 import type { BeforeToolCallContext, BeforeToolCallResult } from '@earendil-works/pi-agent-core'
 import type { AgentMessageView, AgentTurnParams } from '@image-playground/shared'
-import { confirmedSubmissionText } from './tools/queueTask'
-import type { AgentToolGateView } from './tools/types'
+import type { AgentToolGateView } from '../../modules/agent'
+import { confirmedSubmissionText } from '../../modules/agent'
 import type { AgentTurnContinuation } from './turn-input'
 
 /**

@@ -4,6 +4,7 @@ import type { AgentBatchItem, AgentBatchUpdate } from '@image-playground/shared'
 import { and, asc, eq, inArray } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
+import { resolveAgentModel } from '../../modules/agent'
 import { isCapabilityEnabled } from '../capabilities'
 import { prepareBatchAnalysis } from './batch-analysis-preparation'
 import { readBatchSourceItems } from './batch-analysis-sources'
@@ -11,7 +12,6 @@ import { lockOwnedBatch } from './batch-execution'
 import { batchItem } from './batch-items'
 import { saveBatchRevision } from './batch-plan-revision'
 import { BatchPlanError, sameArchivedReference } from './batch-plans'
-import { resolveAgentModel } from './tools/queueTask'
 
 /** Editing pending work creates a new approval; accepted attempts retain their exact inputs and prompts. */
 export async function updatePendingBatchPhase(

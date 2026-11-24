@@ -14,6 +14,8 @@ import { and, desc, eq, isNull } from 'drizzle-orm'
 import sharp from 'sharp'
 import { Type } from 'typebox'
 import { db, schema } from '../../db/client'
+import type { AgentToolContext } from '../../modules/agent'
+import { AgentToolError, asPiTool, piToolResult } from '../../modules/agent'
 import { modelLabel, resolveQueueModel, strictMaskModels } from '../channels'
 import { storeMedia } from '../projectMedia'
 import { WHOLE_IMAGE_EDIT_NUDGE } from './edit-intent'
@@ -26,9 +28,6 @@ import {
   segmenterKey,
   segmentProposal,
 } from './segmentation'
-import { asPiTool, piToolResult } from './tools/adapter'
-import { AgentToolError } from './tools/errors'
-import type { AgentToolContext } from './tools/types'
 import { visualPixelLimit } from './visual-resources'
 
 export const AGENT_MASK_PROPOSAL_TOOL = 'proposeEditRegion'

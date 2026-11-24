@@ -11,10 +11,10 @@ import {
   videoSupportForCapabilities,
 } from '@image-playground/shared'
 import { config } from '../../config'
+import type { QueueTarget } from '../../modules/agent'
 import { isCapabilityEnabled } from '../capabilities'
 import { getChannels, resolveQueueModel } from '../channels'
 import { knownInactiveModels } from '../model-availability'
-import type { QueueTarget } from './tools/queueTask'
 
 export interface AgentVideoModel {
   readonly target: QueueTarget

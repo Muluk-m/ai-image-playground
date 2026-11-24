@@ -8,6 +8,7 @@ import type {
   SubmitRequest,
 } from '@image-playground/shared'
 import { AGENT_AUTO_SUBMIT_MAX_PER_TURN, shapeQueuePrompt } from '@image-playground/shared'
+import { type AgentAutoSubmitBudget, queueRefusalCode } from '../../modules/agent'
 import {
   type CreateQueueTaskInput,
   type CreateQueueTaskOutcome,
@@ -15,8 +16,9 @@ import {
 } from '../../modules/execution'
 import { modelCapabilities } from '../channels'
 import { recentlyRateLimitedLocked } from './rate-limit-resend'
-import { queueRefusalCode } from './tools/errors'
 import { agentVideoRequestError } from './video-models'
+
+export type { AgentAutoSubmitBudget }
 
 /**
  * 出图模式：生成工具拟好稿当场提交，不停在「等待确认」。
@@ -28,12 +30,6 @@ import { agentVideoRequestError } from './video-models'
  * 两条路的差别只有三件事：草稿不落 `agent_generation_drafts`（材料没有等待期，直接进任务）、
  * 卡片直接是 `submitted`、以及这一轮不会因为「拟过稿」而收尾，模型可以接着出下一张。
  */
-
-/** 一轮里还能自动提交几次。额度是这一轮唯一的刹车，见 {@link AGENT_AUTO_SUBMIT_MAX_PER_TURN}。 */
-export interface AgentAutoSubmitBudget {
-  /** 领一次额度：`true` 才自动提交，`false` 表示这一轮领完了，调用方退回拟稿。 */
-  take(): boolean
-}
 
 export function createAutoSubmitBudget(): AgentAutoSubmitBudget {
   let left = AGENT_AUTO_SUBMIT_MAX_PER_TURN

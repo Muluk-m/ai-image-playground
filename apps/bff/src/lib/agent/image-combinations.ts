@@ -1,5 +1,7 @@
 import type { AgentClarificationBlock, AgentMessageView } from '@image-playground/shared'
-import { AgentToolError } from './tools/errors'
+import { AgentToolError, type ImageCombinationGuard } from '../../modules/agent'
+
+export type { ImageCombinationGuard }
 
 type Combination = NonNullable<AgentClarificationBlock['imageCombination']>
 
@@ -25,7 +27,7 @@ export function createImageCombinationGuard(input: {
   readonly references: readonly { readonly imageId: string }[]
   readonly text: string
   readonly hasNewReferences: boolean
-}) {
+}): ImageCombinationGuard {
   let pending: AgentClarificationBlock | undefined
   let approved: { combination: Combination; separate: boolean } | undefined
   const replies = []
@@ -117,5 +119,3 @@ export function createImageCombinationGuard(input: {
     },
   }
 }
-
-export type ImageCombinationGuard = ReturnType<typeof createImageCombinationGuard>

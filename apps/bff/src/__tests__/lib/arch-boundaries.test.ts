@@ -93,6 +93,12 @@ describe('check-arch-boundaries', () => {
         "import { mediaSecret } from '../modules/media/internal'\nexport const c = mediaSecret\n",
       'modules/agent/index.ts': 'export interface AgentFacade { ok: boolean }\n',
       'modules/agent/contracts/types.ts': 'export const tag = "a"\n',
+      'modules/agent/contracts/bad-legacy.ts':
+        "import type { Legacy } from '../../../lib/agent/legacy'\nexport type BadLegacy = Legacy\n",
+      'lib/agent/legacy.ts': 'export interface Legacy { id: string }\n',
+      'lib/agent/core-bad.ts':
+        "import { helper } from './tools/helper'\nexport const badToolDep = helper\n",
+      'lib/agent/tools/helper.ts': 'export const helper = 1\n',
       'modules/agent/conversation/bad.ts':
         "import type { RuntimeState } from '../runtime/exec'\nexport type C = RuntimeState\n",
       'modules/agent/runtime/exec.ts':
@@ -154,7 +160,19 @@ describe('check-arch-boundaries', () => {
         ),
       ),
     ).toBe(true)
-    expect(violations).toHaveLength(8)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-contracts -> legacy-agent] modules/agent/contracts/bad-legacy.ts -> lib/agent/legacy.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes('[agent-core -> tools] lib/agent/core-bad.ts -> lib/agent/tools/helper.ts'),
+      ),
+    ).toBe(true)
+    expect(violations).toHaveLength(10)
     expect(violations.some((v) => v.includes('modules/execution/ok.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('modules/agent/runtime/exec.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('bootstrap/container.ts ->'))).toBe(false)
