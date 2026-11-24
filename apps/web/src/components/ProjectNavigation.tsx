@@ -182,6 +182,17 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
           sideOffset={6}
           collisionPadding={12}
           aria-label={t('navigation.switchTitle')}
+          onEscapeKeyDown={(event) => {
+            if (event.isComposing || event.keyCode === 229) {
+              event.preventDefault()
+              return
+            }
+            if (search.length > 0) {
+              event.preventDefault()
+              setSearch('')
+              setVisibleCounts(INITIAL_VISIBLE)
+            }
+          }}
           className="z-[600] flex max-h-[min(36rem,var(--radix-popover-content-available-height))] w-80 max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-2xl p-2 shadow-popover"
         >
           <SearchField
