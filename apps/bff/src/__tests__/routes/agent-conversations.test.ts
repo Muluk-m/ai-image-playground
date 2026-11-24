@@ -619,3 +619,182 @@ describe('DELETE /api/agent/conversations/:id', () => {
     expect(await listConversations()).toEqual([])
   })
 })
+
+describe('cursor pagination on conversations and messages', () => {
+  it('pages conversations deterministically with keyset cursor including updated_at ties', async () => {
+    const a = await startConversation()
+    const b = await startConversation()
+    const c = await startConversation()
+    // b 与 c 共享相同的 updated_at，验证按 (updated_at DESC, id DESC) 不丢不重。
+    await stampUpdatedAt(a, 1_000)
+    await stampUpdatedAt(b, 2_000)
+    await stampUpdatedAt(c, 2_000)
+    const expectedOrder = [b, c].sort((left, right) => (left > right ? -1 : 1)).concat(a)
+
+    const page1 = await request('GET', '/api/agent/conversations?limit=2', { deviceId: DEVICE })
+    expect(page1.status).toBe(200)
+    const body1 = page1.json as {
+      conversations: AgentConversationView[]
+      nextCursor: string | null
+    }
+    expect(body1.conversations.map((item) => item.id)).toEqual(expectedOrder.slice(0, 2))
+    expect(body1.nextCursor).toBeTypeOf('string')
+
+    const page2 = await request(
+      'GET',
+      `/api/agent/conversations?limit=2&cursor=${encodeURIComponent(body1.nextCursor!)}`,
+      { deviceId: DEVICE },
+    )
+    expect(page2.status).toBe(200)
+    const body2 = page2.json as {
+      conversations: AgentConversationView[]
+      nextCursor: string | null
+    }
+    expect(body2.conversations.map((item) => item.id)).toEqual(expectedOrder.slice(2))
+    expect(body2.nextCursor).toBeNull()
+
+    expect(
+      (await request('GET', '/api/agent/conversations?limit=0', { deviceId: DEVICE })).status,
+    ).toBe(400)
+    expect(
+      (await request('GET', '/api/agent/conversations?limit=201', { deviceId: DEVICE })).status,
+    ).toBe(400)
+    expect(
+      (await request('GET', '/api/agent/conversations?cursor=not-a-cursor', { deviceId: DEVICE }))
+        .status,
+    ).toBe(400)
+    expect(
+      (
+        await request('GET', '/api/agent/conversations?cursor=9000000000000000:abc', {
+          deviceId: DEVICE,
+        })
+      ).status,
+    ).toBe(400)
+    expect(
+      (
+        await request('GET', '/api/agent/conversations?cursor=253402300800000:abc', {
+          deviceId: DEVICE,
+        })
+      ).status,
+    ).toBe(400)
+    expect(
+      (await request('GET', '/api/agent/conversations?cursor=1000:abc%00def', { deviceId: DEVICE }))
+        .status,
+    ).toBe(400)
+  })
+
+  it('pages conversation messages backwards by beforeSeq in chronological order', async () => {
+    const conversationId = await startConversation()
+    await runTurn(conversationId, '第一轮')
+    await runTurn(conversationId, '第二轮')
+    await runTurn(conversationId, '第三轮')
+
+    // 三轮共 6 条消息（每轮 user + assistant），按每页 2 条从新到旧倒翻再拼回完整序列。
+    const full = await request('GET', `/api/agent/conversations/${conversationId}/messages`, {
+      deviceId: DEVICE,
+    })
+    expect(full.status).toBe(200)
+    const fullBody = full.json as {
+      messages: Array<{ id: string }>
+      nextBeforeSeq: number | null
+    }
+    expect(fullBody.messages).toHaveLength(6)
+    expect(fullBody.nextBeforeSeq).toBeNull()
+
+    const collected: string[][] = []
+    let beforeSeq: number | null | undefined
+    for (let guard = 0; guard < 5; guard += 1) {
+      const qs =
+        beforeSeq !== undefined && beforeSeq !== null
+          ? `?limit=2&beforeSeq=${beforeSeq}`
+          : '?limit=2'
+      const res = await request('GET', `/api/agent/conversations/${conversationId}/messages${qs}`, {
+        deviceId: DEVICE,
+      })
+      expect(res.status).toBe(200)
+      const body = res.json as {
+        messages: Array<{ id: string }>
+        turns: unknown[]
+        activeTurn: unknown
+        nextBeforeSeq: number | null
+      }
+      if (beforeSeq !== undefined && beforeSeq !== null) {
+        expect(body.turns).toEqual([])
+        expect(body.activeTurn).toBeNull()
+      }
+      collected.unshift(body.messages.map((message) => message.id))
+      if (body.nextBeforeSeq === null) break
+      beforeSeq = body.nextBeforeSeq
+    }
+    expect(collected.flat()).toEqual(fullBody.messages.map((message) => message.id))
+
+    expect(
+      (
+        await request('GET', `/api/agent/conversations/${conversationId}/messages?limit=0`, {
+          deviceId: DEVICE,
+        })
+      ).status,
+    ).toBe(400)
+    expect(
+      (
+        await request('GET', `/api/agent/conversations/${conversationId}/messages?beforeSeq=bad`, {
+          deviceId: DEVICE,
+        })
+      ).status,
+    ).toBe(400)
+    expect(
+      (
+        await request(
+          'GET',
+          `/api/agent/conversations/${conversationId}/messages?beforeSeq=999999999999`,
+          { deviceId: DEVICE },
+        )
+      ).status,
+    ).toBe(400)
+  })
+
+  it('preserves conversation-level reply script allowlist when user prompt and assistant reply span pages', async () => {
+    const conversationId = await startConversation()
+    const now = Date.now()
+    await db.insert(schema.agent_messages).values([
+      {
+        conversation_id: conversationId,
+        id: 'cyrillic-user',
+        turn_id: 'turn-cyrillic',
+        seq: 1,
+        role: 'user',
+        content: [{ type: 'text', text: 'Привет, сделай постер' }],
+        created_at: now,
+      },
+      {
+        conversation_id: conversationId,
+        id: 'cyrillic-assistant',
+        turn_id: 'turn-cyrillic',
+        seq: 2,
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Готово! Вот ваш постер.' }],
+        created_at: now + 1,
+      },
+    ])
+
+    // limit=1 时最新页只含俄文助手回复、不含俄文用户消息，仍应依据整段会话用户语种完整保留正文。
+    const res = await request(
+      'GET',
+      `/api/agent/conversations/${conversationId}/messages?limit=1`,
+      {
+        deviceId: DEVICE,
+      },
+    )
+    expect(res.status).toBe(200)
+    const body = res.json as {
+      messages: Array<{ id: string; content: Array<{ type: string; text?: string }> }>
+      nextBeforeSeq: number | null
+    }
+    expect(body.nextBeforeSeq).toBe(2)
+    expect(body.messages).toHaveLength(1)
+    expect(body.messages[0]!.content[0]).toEqual({
+      type: 'text',
+      text: 'Готово! Вот ваш постер.',
+    })
+  })
+})

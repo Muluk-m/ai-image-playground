@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
-import { checkBffBoundaries, checkDirAcyclic } from '../../../../../scripts/check-arch-boundaries'
+import {
+  checkBffBoundaries,
+  checkDirAcyclic,
+  checkReadModelsBoundaries,
+} from '../../../../../scripts/check-arch-boundaries'
 
 const repoRoot = resolve(import.meta.dir, '../../../../..')
 const tempDirs: string[] = []
@@ -26,12 +30,14 @@ afterEach(() => {
 
 describe('check-arch-boundaries', () => {
   it('passes against the current repository baseline', async () => {
-    const [bffViolations, dbViolations] = await Promise.all([
+    const [bffViolations, dbViolations, readModelsViolations] = await Promise.all([
       checkBffBoundaries(resolve(repoRoot, 'apps/bff/src')),
       checkDirAcyclic(resolve(repoRoot, 'packages/db/src'), 'packages/db/src'),
+      checkReadModelsBoundaries(resolve(repoRoot, 'packages/read-models/src')),
     ])
     expect(bffViolations).toEqual([])
     expect(dbViolations).toEqual([])
+    expect(readModelsViolations).toEqual([])
   })
 
   it('rejects new routes -> db, db -> non-db, and workers -> agent imports (including .js specifiers and relative rootDir)', async () => {
@@ -197,5 +203,49 @@ describe('check-arch-boundaries', () => {
     expect(violations).toEqual([
       '[import-cycle] runtime cycle in packages/db/src: schema.ts <-> schemas/execution.ts',
     ])
+  })
+
+  it('enforces read-models pool ban, acyclicity, and browser-safe types.ts allowlist', async () => {
+    const dir = createTempTree({
+      'types.ts':
+        "import type { TaskStatus } from '@image-playground/shared'\nimport { helper } from './sql-helpers'\nimport { createHash } from 'node:crypto'\nexport type X = TaskStatus\nexport const y = [helper, createHash]\n",
+      'sql-helpers.ts': 'export const helper = 1\n',
+      'bad-bun-sql.ts': "import { SQL } from 'bun:sql'\nexport const s = SQL\n",
+      'bad-postgres.ts': "import postgres from 'postgres'\nexport const p = postgres\n",
+      'bad-ns.ts': "import * as dbPkg from '@image-playground/db'\nexport const n = dbPkg\n",
+      'bad-dyn.ts': "export const load = () => import('@image-playground/db')\n",
+      'bad-dyn-opts.ts': "export const loadOpts = () => import('@image-playground/db', {})\n",
+      'bad-reexport.ts': "export { createDb } from '@image-playground/db'\n",
+      'bad-ns-reexport.ts': "export * as db from '@image-playground/db'\n",
+      'bad-star-reexport.ts': "export * from '@image-playground/db'\n",
+      'ok.ts':
+        "import { OAUTH_ONLY_PASSWORD_HASH, type DbHandle } from '@image-playground/db'\nexport type H = DbHandle\nexport const h = OAUTH_ONLY_PASSWORD_HASH\n",
+    })
+
+    const violations = await checkReadModelsBoundaries(dir)
+    expect(violations.some((v) => v.includes('types.ts must not import ./sql-helpers'))).toBe(true)
+    expect(violations.some((v) => v.includes('types.ts must not import node:crypto'))).toBe(true)
+    expect(violations.some((v) => v.includes('bad-bun-sql.ts must not import bun:sql'))).toBe(true)
+    expect(violations.some((v) => v.includes('bad-postgres.ts must not import postgres'))).toBe(
+      true,
+    )
+    expect(violations.some((v) => v.includes('bad-ns.ts forbidden namespace import'))).toBe(true)
+    expect(violations.some((v) => v.includes('bad-dyn.ts forbidden dynamic import/require'))).toBe(
+      true,
+    )
+    expect(
+      violations.some((v) => v.includes('bad-dyn-opts.ts forbidden dynamic import/require')),
+    ).toBe(true)
+    expect(violations.some((v) => v.includes('bad-reexport.ts forbidden createDb re-export'))).toBe(
+      true,
+    )
+    expect(
+      violations.some((v) => v.includes('bad-ns-reexport.ts forbidden namespace re-export')),
+    ).toBe(true)
+    expect(
+      violations.some((v) => v.includes('bad-star-reexport.ts forbidden wildcard re-export')),
+    ).toBe(true)
+    expect(violations.some((v) => v.includes('ok.ts'))).toBe(false)
+    expect(violations).toHaveLength(10)
   })
 })

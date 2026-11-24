@@ -115,7 +115,8 @@ var examples = map[string][]string{
 	"jobs list":          {"muvloom jobs list --idempotency-key KEY   # find a job whose submit response was lost"},
 	"artifacts download": {"muvloom artifacts download ARTIFACT_ID --output ./out/cat"},
 	"setup":              {"muvloom setup --origin https://muvloom.online", "muvloom setup --origin https://muvloom.online --timeout 15", "MUVLOOM_NO_BROWSER=1 muvloom setup --origin https://muvloom.online --no-wait"},
-	"skill install":      {"muvloom skill install --host auto", "muvloom skill install --host workbuddy", "muvloom skill install --host claude-code", "muvloom skill install --host cursor", "muvloom skill install --host codex --scope project", "muvloom skill install --host generic --output ./skill-pack"},
+	"skill install":      {"muvloom skill install --host auto", "muvloom skill install --host workbuddy", "muvloom skill install --host claude-code", "muvloom skill install --host cursor", "muvloom skill install --host codex --scope project", "muvloom skill install --host generic --output ./skill-pack", "muvloom skill install --dir ~/.my-agent/skills"},
+	"skill show":         {"muvloom skill show"},
 	"update self":        {"muvloom update self", "muvloom update self --check", "muvloom update self --auto off"},
 	"update skill":       {"muvloom update skill", "muvloom update skill --check", "muvloom update skill --auto off"},
 }
@@ -128,7 +129,8 @@ var notes = map[string]string{
 	"auth login": "Opens the approval page in the system default browser and waits. Run it again after a timeout: it resumes the same sign-in. In a remote or cloud host with no browser control, set MUVLOOM_NO_BROWSER=1 and use --no-wait, then give the user verification_uri_complete to open in their default browser.\n" +
 		"Do not launch a specific browser such as Chrome.",
 	"setup": "Installs the Skill (--host auto by default; pass --host none to skip), connects your Muvloom account (opening the system default browser if needed), reads live capabilities, and runs a zero-cost `images validate` smoke check.",
-	"skill install": "auto detects the calling agent host or existing host directories. claude-code, codex, workbuddy, cursor, windsurf, cline, and openclaw write to that host's skill directory. generic writes ./muvloom (or --output) for you to upload to any other host. There is no --host doubao.",
+	"skill install": "auto detects the calling agent host or existing host directories. claude-code, codex, workbuddy, cursor, windsurf, cline, and openclaw write to that host's skill directory. generic writes ./muvloom (or --output) for you to upload to any other host. --dir installs into any host's skills directory and records it, so skill status and CLI upgrades keep that copy current. There is no --host doubao.",
+	"skill show": "prints SKILL.md and its references as one text, for a host that cannot install a Skill: have the agent read it at the start of a session.",
 }
 
 func commandHelp(cmd command, fs *flag.FlagSet) string {

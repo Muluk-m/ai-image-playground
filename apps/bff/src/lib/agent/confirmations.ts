@@ -27,6 +27,7 @@ import { log } from '../logger'
 import { objectStore } from '../objectStore'
 import type { BffTransaction } from '../private-overlay'
 import { lockMediaOwner } from '../projectMedia'
+import { settleSubmittedTaskIfTerminal } from './background-jobs'
 import type { AgentOwner } from './conversations'
 import { writtenPrompt } from './design-intent'
 import { enqueueAgentResume, gateResumeLive, userMessageAfterTurn } from './inbox'
@@ -297,6 +298,17 @@ export async function confirmAgentGeneration(
   )
   // 任务已经把输入图归档到自己名下，草稿那一份不必再留。删不掉只是个孤儿，由 bucket lifecycle 收。
   if (outcome.draftId) await discardDraftInputs(outcome.draftId)
+  if (outcome.kind === 'created' || outcome.kind === 'replayed') {
+    for (const block of outcome.message.content) {
+      if (block.type === 'toolResult' && block.status === 'submitted' && block.job) {
+        await settleSubmittedTaskIfTerminal(
+          input.conversationId,
+          block.job.taskId,
+          outcome.message.turnId,
+        )
+      }
+    }
+  }
   const { draftId: _draftId, ...result } = outcome
   return result
 }

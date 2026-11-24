@@ -1,6 +1,5 @@
 import type { AgentToolResult } from '@earendil-works/pi-agent-core'
 import type {
-  AgentToolArtifact,
   AgentToolName,
   ChannelMedia,
   ImagePresetRatio,
@@ -8,10 +7,9 @@ import type {
   QueueProvider,
   VideoGenerationRecord,
 } from '@image-playground/shared'
-import { productionClipVideo, projectArtifactId } from '@image-playground/shared'
+import { productionClipVideo } from '@image-playground/shared'
 import { config } from '../../../config'
 import { resolveQueueModel } from '../../channels'
-import type { ExtractedResult } from '../../extractImages'
 import { knownInactiveModels } from '../../model-availability'
 import { submitAgentGeneration } from '../auto-submit'
 import { saveGenerationDraft } from '../confirmations'
@@ -141,22 +139,7 @@ export function resolveAgentModel(
 }
 
 /** 一条跑完的队列任务落成的产物。同步等结果与后台任务结算走同一个算式。 */
-export function queueArtifacts(
-  taskId: string,
-  media: ChannelMedia,
-  result: ExtractedResult,
-): AgentToolArtifact[] {
-  return result.images.map((output) => ({
-    // 画布对象与结果卡共用这个 id，点卡才能定位到同一个对象。
-    artifactId: projectArtifactId(taskId, output.index),
-    media,
-    taskId,
-    outputIndex: output.index,
-    mime: output.mime,
-    ...(output.width !== undefined ? { width: output.width } : {}),
-    ...(output.height !== undefined ? { height: output.height } : {}),
-  }))
-}
+export { queueArtifacts } from '../job-artifacts'
 
 /** 没有可用模型时的那一句；工具的可用性判定与执行都从这里拿，两处不会各说各的。 */
 export function noModelMessage(media: ChannelMedia): string {

@@ -4,6 +4,7 @@ Read `muvloom capabilities` first. A model whose `output_formats` includes `gif`
 generates a real animated GIF in one job; one that includes `svg` generates an SVG
 vector file. Prefer this native output whenever a listed model supports the
 request: it is one generation, with no local tools.
+Without `--model`, `--output-format gif` or `svg` picks a model that can produce it.
 
 ## Native GIF
 

@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it, spyOn } from 'bun:test'
 import { createDb } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import type { AlertMessage } from '@image-playground/shared'
+import { type AlertMessage, OPS_THRESHOLDS } from '@image-playground/shared'
 import { eq, inArray } from 'drizzle-orm'
 import { OpsStorageError } from '../../lib/ops-storage-error'
 
@@ -12,6 +12,7 @@ const writer = createDb(databaseUrl)
 const { createAppAlerting, latestObsLogReader, observeApp, upstreamStatsReader } = await import(
   '../../ops/app-alerts'
 )
+const { log } = await import('../../lib/logger')
 const { close } = await import('../../db/client')
 
 afterAll(async () => {
@@ -510,6 +511,121 @@ describe('createAppAlerting', () => {
     })
     await check(now)
     await check(now + 5 * minute)
+    expect(attempts).toBe(2)
+  })
+
+  it('emits a log pipeline heartbeat every 5 minutes when observability is enabled, keeping quiet deployments green until delivery actually stops', async () => {
+    let clock = now
+    let latestLogAt = now
+    let delivering = true
+    const heartbeats: number[] = []
+    const sent: AlertMessage[] = []
+    const check = createAppAlerting({
+      send: async (messages) => {
+        sent.push(...messages.filter((message) => message.rule === 'server-logs'))
+      },
+      readBackups: async () => ({ latest: null, previous: null }),
+      readRestoreDrill: async () => null,
+      readLatestLogAt: async () => latestLogAt,
+      emitLogHeartbeat: () => {
+        heartbeats.push(clock)
+        if (delivering) latestLogAt = clock
+      },
+    })
+
+    // 模拟低流量静默 15 分钟：含节流缓存边界（4m50s 缓存旧值、5m 发新心跳、5m40s 复用缓存、5m50s 刷新），
+    // 不误报断流；且同一间隔内高频 10 秒轮询不会重复打心跳。
+    for (const elapsed of [
+      0,
+      10_000,
+      4 * minute + 50_000,
+      5 * minute,
+      5 * minute + 40_000,
+      5 * minute + 50_000,
+      10 * minute,
+      15 * minute,
+    ]) {
+      clock = now + elapsed
+      await check(clock)
+    }
+    expect(heartbeats).toEqual([now, now + 5 * minute, now + 10 * minute, now + 15 * minute])
+    expect(sent).toEqual([])
+
+    // 模拟采集管道真的断了（心跳不再送达 OpenObserve）：超过 10 分钟线照常告警。
+    delivering = false
+    for (const elapsed of [20 * minute, 25 * minute, 25 * minute + 10_000]) {
+      clock = now + elapsed
+      await check(clock)
+    }
+    expect(heartbeats).toEqual([
+      now,
+      now + 5 * minute,
+      now + 10 * minute,
+      now + 15 * minute,
+      now + 20 * minute,
+      now + 25 * minute,
+    ])
+    expect(sent.map((message) => `${message.kind}:${message.rule}`)).toEqual(['firing:server-logs'])
+  })
+
+  it('skips the log pipeline heartbeat when observability is disabled', async () => {
+    let heartbeats = 0
+    const check = createAppAlerting({
+      send: async () => {},
+      readBackups: async () => ({ latest: null, previous: null }),
+      readRestoreDrill: async () => null,
+      readLatestLogAt: null,
+      emitLogHeartbeat: () => {
+        heartbeats++
+      },
+    })
+    await check(now)
+    await check(now + OPS_THRESHOLDS.SERVER_LOGS_HEARTBEAT_INTERVAL_MS)
+    expect(heartbeats).toBe(0)
+  })
+
+  it('logs ops.log_pipeline_heartbeat by default and survives emitter failures', async () => {
+    const infoSpy = spyOn(log, 'info').mockImplementation(() => {})
+    try {
+      const check = createAppAlerting({
+        send: async () => {},
+        readBackups: async () => ({ latest: null, previous: null }),
+        readRestoreDrill: async () => null,
+        readLatestLogAt: async () => now,
+      })
+      await check(now)
+      await check(now + 4 * minute)
+      await check(now + 5 * minute)
+      const calls = infoSpy.mock.calls.filter(
+        ([fields]) =>
+          typeof fields === 'object' &&
+          fields !== null &&
+          (fields as { event?: string }).event === 'ops.log_pipeline_heartbeat',
+      )
+      expect(calls.length).toBe(2)
+      expect(calls[0]?.[1]).toBe('log pipeline heartbeat')
+    } finally {
+      infoSpy.mockRestore()
+    }
+
+    let attempts = 0
+    const sent: AlertMessage[] = []
+    const checkWithFaultyHeartbeat = createAppAlerting({
+      send: async (messages) => {
+        sent.push(...messages.filter((message) => message.rule === 'server-logs'))
+      },
+      readBackups: async () => ({ latest: null, previous: null }),
+      readRestoreDrill: async () => null,
+      readLatestLogAt: async () => now - 11 * minute,
+      emitLogHeartbeat: () => {
+        attempts++
+        if (attempts === 1) throw new Error('stdout broken')
+      },
+    })
+    await checkWithFaultyHeartbeat(now)
+    // 首次失败不能挡住告警，且不推进心跳时间戳，下一轮立即重试。
+    expect(sent.map((message) => `${message.kind}:${message.rule}`)).toEqual(['firing:server-logs'])
+    await checkWithFaultyHeartbeat(now + 10_000)
     expect(attempts).toBe(2)
   })
 })

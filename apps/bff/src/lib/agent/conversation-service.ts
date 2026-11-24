@@ -92,12 +92,17 @@ export async function deleteAgentConversationCascade(
   conversationId: string,
   owner: AgentOwner,
 ): Promise<void> {
+  const postCommitHooks: Array<() => Promise<void>> = []
   await db.transaction(async (tx) => {
     await lockConversation(tx, conversationId, owner.kind === 'user' ? owner.userId : null)
     await discardConversationBatchDrafts(conversationId, tx)
     await softDeleteAgentConversation(conversationId, owner, tx)
     await detachConversationBatches(conversationId, tx)
     // 删掉的会话不该接着花钱：没结束的后台任务一并取消，按原桶退回。
-    await cancelAgentConversationJobs(conversationId, tx)
+    await cancelAgentConversationJobs(conversationId, {
+      tx,
+      onCommit: (hook) => postCommitHooks.push(hook),
+    })
   })
+  for (const hook of postCommitHooks) await hook()
 }

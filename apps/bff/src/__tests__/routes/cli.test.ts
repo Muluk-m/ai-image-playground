@@ -1093,6 +1093,40 @@ describe('native GIF and SVG', () => {
     expect(JSON.stringify(task)).toContain('"size":"768x768"')
   })
 
+  it('picks a model that can make the requested GIF or SVG when none is named', async () => {
+    const user = await createUser('format-default')
+    const { access_token } = await connect(user)
+    for (const format of ['gif', 'svg']) {
+      const preview = await call('POST', '/v1/image-jobs/validate', {
+        body: imageJob({ output_format: format }),
+        headers: bearer(access_token),
+      })
+      expect(preview.status).toBe(200)
+      expect(preview.json.data.normalized).toMatchObject({ model: IMAGE_26, output_format: format })
+    }
+    // A plain image, png included, keeps the listed default and the same hash.
+    const plain = await call('POST', '/v1/image-jobs/validate', {
+      body: imageJob({ prompt: 'same' }),
+      headers: bearer(access_token),
+    })
+    expect(plain.json.data.normalized.model).toBe('gemini-3-pro-image')
+    const png = await call('POST', '/v1/image-jobs/validate', {
+      body: imageJob({ prompt: 'same', output_format: 'png' }),
+      headers: bearer(access_token),
+    })
+    expect(png.json.data.normalized.model).toBe('gemini-3-pro-image')
+    expect(png.json.data.request_hash).toBe(plain.json.data.request_hash)
+
+    // With the direct route off, the GIF model is still the one picked, and it says why it
+    // cannot take the order instead of claiming the default model lacks GIF.
+    process.env.GPT_DIRECT_ENABLED = 'false'
+    const offline = await call('POST', '/v1/image-jobs/validate', {
+      body: imageJob({ output_format: 'gif' }),
+      headers: bearer(access_token),
+    })
+    expect(offline.json.error.code).toBe('MODEL_UNAVAILABLE')
+  })
+
   it('treats png as a regular image, keeping the request hash', async () => {
     const user = await createUser('png-alias')
     const { access_token } = await connect(user)

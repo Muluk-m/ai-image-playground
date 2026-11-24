@@ -953,6 +953,7 @@ export async function cancelAgentBatchItem(
   id: string,
   itemKey: string,
 ): Promise<boolean> {
+  const postCommitHooks: Array<() => Promise<void>> = []
   const cancelled = await db.transaction(async (tx) => {
     const batch = await lockOwnedBatch(tx, userId, id)
     if (!batch.confirmed_version) return []
@@ -989,9 +990,10 @@ export async function cancelAgentBatchItem(
         eq(schema.tasks.status, 'queued'),
         eq(schema.tasks.upstream_invocation_count, 0),
       )!,
-      { tx },
+      { tx, onCommit: (hook) => postCommitHooks.push(hook) },
     )
   })
+  for (const hook of postCommitHooks) await hook()
   if (!cancelled.length) return false
   void cancelUpstreamOfCancelledTasks(cancelled.map((row) => row.id))
   await reconcileAgentBatchProgress(id)

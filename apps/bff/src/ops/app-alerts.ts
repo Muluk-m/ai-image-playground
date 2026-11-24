@@ -43,7 +43,8 @@ const LATEST_LOG_INTERVAL_MS = 60_000
 
 /**
  * 日志管道的新鲜度从 OpenObserve 读（ADR 0033 P3）：容器日志经 Fluent Bit → Collector 写进
- * `app` 流，这里取最新一条的时间。宿主机采样、备份等周期日志保证低流量部署也每分钟有新行。
+ * `app` 流，这里取最新一条的时间。开启观测时 worker 按 `SERVER_LOGS_HEARTBEAT_INTERVAL_MS`
+ * 定期发一条心跳日志，保证低流量部署也有稳定探针走完整条采集链路。
  */
 export function latestObsLogReader(client: ObsClient): (now: number) => Promise<number | null> {
   return async (now) => {
@@ -527,6 +528,10 @@ interface AppAlertingOptions {
   backupWatchIntervalMs?: number
   readLatestLogAt?: LatestLogReader
   readUpstream?: UpstreamReader
+  /** 开启日志断流观测时定期写一条日志作为端到端探针；默认写 `ops.log_pipeline_heartbeat`。 */
+  emitLogHeartbeat?: () => void
+  /** 日志管道心跳间隔；默认 `OPS_THRESHOLDS.SERVER_LOGS_HEARTBEAT_INTERVAL_MS`（5 分钟）。 */
+  logHeartbeatIntervalMs?: number
 }
 
 /**
@@ -537,9 +542,17 @@ export function createAppAlerting(options: AppAlertingOptions): (now?: number) =
   let state: AlertState = {}
   let pending = false
   let again = false
+  let lastHeartbeatAt: number | undefined
   const blindRounds = new Map<string, number>()
   const latestLogReader =
     options.readLatestLogAt === undefined ? latestLogReaderFromEnv() : options.readLatestLogAt
+  const emitLogHeartbeat =
+    options.emitLogHeartbeat ??
+    (() => {
+      log.info({ event: 'ops.log_pipeline_heartbeat' }, 'log pipeline heartbeat')
+    })
+  const logHeartbeatIntervalMs =
+    options.logHeartbeatIntervalMs ?? OPS_THRESHOLDS.SERVER_LOGS_HEARTBEAT_INTERVAL_MS
   // 维护循环每 10 秒扫一次告警；OpenObserve 的聚合每分钟查一次就够，间隔内复用上次成功的读数，
   // 年龄仍按当前时间算。
   const readLatestLogAt = latestLogReader
@@ -567,6 +580,19 @@ export function createAppAlerting(options: AppAlertingOptions): (now?: number) =
       let roundNow = now
       do {
         again = false
+        if (
+          latestLogReader &&
+          (lastHeartbeatAt === undefined ||
+            roundNow < lastHeartbeatAt ||
+            roundNow - lastHeartbeatAt >= logHeartbeatIntervalMs)
+        ) {
+          try {
+            emitLogHeartbeat()
+            lastHeartbeatAt = roundNow
+          } catch {
+            // 心跳日志失败不能阻断告警扫描；不推进时间戳，下一轮再试。
+          }
+        }
         const missed = new Set<string>()
         const attempted = new Set<string>()
         const observation = await observeApp({

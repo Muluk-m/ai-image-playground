@@ -17,7 +17,7 @@ import { bffDrain } from '../drain'
 import { log } from '../logger'
 import type { BffTransaction, TaskOutcome } from '../private-overlay'
 import { createAutoSubmitBudget } from './auto-submit'
-import { cancelStoppedTurnJobs } from './background-jobs'
+import { cancelStoppedTurnJobs, settleSubmittedTaskIfTerminal } from './background-jobs'
 import { AGENT_CLARIFICATION_TOOL, clarificationFromResult } from './clarification'
 import { compactionSettings } from './compaction-settings'
 import { createCompactionTransform } from './compaction-transform'
@@ -598,6 +598,10 @@ export async function startAgentTurn(prepared: PreparedAgentTurn): Promise<Runni
     write(async (executor) => {
       await append(executor, messageId, 'assistant', [block])
       storedAny = true
+    }).then(() => {
+      if (block.type === 'toolResult' && block.status === 'submitted' && block.job) {
+        return settleSubmittedTaskIfTerminal(conversationId, block.job.taskId, turnId)
+      }
     })
 
   const store = (message: OpenAssistantMessage) =>

@@ -93,10 +93,13 @@ const formClient = t.Object(
   { additionalProperties: true },
 )
 
-/** 不带 model 时按该账号能提交的第一个模型补上，与 `/v1/capabilities` 的 `default_model` 一致。 */
+/**
+ * 不带 model 时按该账号能提交的第一个模型补上，与 `/v1/capabilities` 的 `default_model` 一致；
+ * 要了 GIF / SVG 时挑第一个能直出该格式的。
+ */
 async function prepareImageRequest(userId: string, body: CliImageRequestBody) {
   const models = await availableImageModels()
-  const model = body.model ?? (await defaultImageModelId(userId, models))
+  const model = body.model ?? (await defaultImageModelId(userId, models, body.output_format))
   return normalizeImageRequest(model === undefined ? body : { ...body, model }, models)
 }
 

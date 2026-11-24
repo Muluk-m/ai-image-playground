@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test'
+import { OPS_THRESHOLDS } from '../ops'
 import {
   type AgentFailurePattern,
   type AlertObservation,
@@ -116,6 +117,13 @@ describe('服务端日志静默', () => {
         [T0 + 3 * minute, { serverLogs: { latest_at: T0 + 3 * minute } }],
       ]),
     ).toEqual([['firing:server-logs'], [], [], ['resolved:server-logs']])
+  })
+
+  it('日志管道心跳间隔远小于断流告警线，给 1 分钟查询节流与落盘留足余量', () => {
+    expect(OPS_THRESHOLDS.SERVER_LOGS_HEARTBEAT_INTERVAL_MS).toBeGreaterThan(0)
+    expect(OPS_THRESHOLDS.SERVER_LOGS_HEARTBEAT_INTERVAL_MS + 2 * minute).toBeLessThan(
+      OPS_THRESHOLDS.SERVER_LOGS_MAX_AGE_MS,
+    )
   })
 })
 

@@ -18,7 +18,9 @@ import {
   type ExecutionTaskUsage,
   type ExecutionTransaction,
   emitTaskFinished,
+  emitTaskFinishedAfterCommit,
   emitTasksCancelled,
+  emitTasksCancelledAfterCommit,
   type GenerationMediaLink,
   prepareTaskLifecycleStage,
   type TaskFinishedEvent,
@@ -243,13 +245,20 @@ export function gptSettledUsage(
  * 返回是否真的改到了行。
  * worker 一律经执行句柄（`workers/task-execution`）调它；回收扫描与对话轮结算自己给 fence。
  */
+export interface ExternalExecutionTransaction {
+  readonly tx: ExecutionTransaction
+  /** 外部事务调用方必须登记并在事务提交后执行提交后钩子，防止静默跳过终态投影。 */
+  readonly onCommit: (hook: () => Promise<void>) => void
+}
+
 export async function finishTask(
   id: string,
   update: TerminalTaskUpdate,
   fence: SQL,
-  reconciliation?: { tx: ExecutionTransaction },
+  reconciliation?: ExternalExecutionTransaction,
 ): Promise<boolean> {
   await prepareTaskLifecycleStage('settlement')
+  let committedEvent: TaskFinishedEvent | null = null
   const finish = async (tx: ExecutionTransaction) => {
     const status = queueTerminalStatus(update.status)
     const [finished] = await tx
@@ -278,6 +287,9 @@ export async function finishTask(
       )
       .returning({
         id: schema.tasks.id,
+        kind: schema.tasks.kind,
+        agentConversationId: schema.tasks.agent_conversation_id,
+        agentTurnId: schema.tasks.agent_turn_id,
         userId: schema.tasks.user_id,
         model: schema.tasks.model,
         metering: schema.tasks.metering,
@@ -289,6 +301,9 @@ export async function finishTask(
     const meteringMode = finished.metering?.mode === 'none' ? 'none' : 'credits'
     const event: TaskFinishedEvent = {
       taskId: finished.id,
+      taskKind: finished.kind,
+      agentConversationId: finished.agentConversationId,
+      agentTurnId: finished.agentTurnId,
       userId: finished.userId,
       model: finished.model,
       status,
@@ -308,22 +323,41 @@ export async function finishTask(
     }
     await emitTaskFinished(tx, 'after-settlement', event)
     await publishGenerations(tx, [finished.id])
+    committedEvent = event
     return true
   }
-  return reconciliation ? finish(reconciliation.tx) : db.transaction(finish)
+  if (reconciliation) {
+    const written = await finish(reconciliation.tx)
+    if (written && committedEvent) {
+      const event = committedEvent
+      reconciliation.onCommit(() => emitTaskFinishedAfterCommit(event))
+    }
+    return written
+  }
+  const written = await db.transaction(finish)
+  if (written && committedEvent) {
+    await emitTaskFinishedAfterCommit(committedEvent)
+  }
+  return written
 }
+
+export type CancelTasksOptions =
+  | {
+      readonly failedAs?: AgentToolErrorCode
+      readonly tx?: undefined
+      readonly onCommit?: undefined
+    }
+  | ({ readonly failedAs?: AgentToolErrorCode } & ExternalExecutionTransaction)
 
 /**
  * 取消状态和积分退回必须在同一事务中提交；调用方提供任务归属范围。
  * `failedAs`：这次撤回在用户看来是一次失败（智能体等不到结果撤掉的任务算超时），项目里预留的
  * 位置留作带这个码的失败占位；缺席即用户主动取消，预留位置直接收掉。
- * `tx`：调用方已经开了事务（删会话时取消要与墓碑同一次提交），给出时就在它上面做。
+ * `tx`：调用方已经开了事务（删会话、CLI 取消等）时必须同步传入 `onCommit`，由外层在事务提交后执行提交后钩子。
  */
-export async function cancelTasks(
-  access: SQL,
-  options: { failedAs?: AgentToolErrorCode; tx?: ExecutionTransaction } = {},
-) {
+export async function cancelTasks(access: SQL, options: CancelTasksOptions = {}) {
   await prepareTaskLifecycleStage('settlement')
+  let committedEvent: TasksCancelledEvent | null = null
   const cancel = async (tx: ExecutionTransaction) => {
     // Serialize cancellation with the dispatch-intent write; no request can slip between them.
     await tx
@@ -340,6 +374,9 @@ export async function cancelTasks(
       .where(and(access, inArray(schema.tasks.status, ['queued', 'in_progress'])))
       .returning({
         id: schema.tasks.id,
+        kind: schema.tasks.kind,
+        agentConversationId: schema.tasks.agent_conversation_id,
+        agentTurnId: schema.tasks.agent_turn_id,
         userId: schema.tasks.user_id,
         metering: schema.tasks.metering,
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
@@ -347,6 +384,9 @@ export async function cancelTasks(
     const event: TasksCancelledEvent = {
       tasks: rows.map((row) => ({
         taskId: row.id,
+        taskKind: row.kind,
+        agentConversationId: row.agentConversationId,
+        agentTurnId: row.agentTurnId,
         userId: row.userId,
         meteringMode: row.metering?.mode === 'none' ? 'none' : 'credits',
         upstreamInvocationCount: row.upstreamInvocationCount,
@@ -361,6 +401,7 @@ export async function cancelTasks(
         await emitTasksCancelled(tx, 'settlement', event)
       }
       await emitTasksCancelled(tx, 'after-settlement', event)
+      committedEvent = event
     }
     await publishGenerations(
       tx,
@@ -368,5 +409,17 @@ export async function cancelTasks(
     )
     return rows
   }
-  return options.tx ? cancel(options.tx) : db.transaction(cancel)
+  if (options.tx) {
+    const rows = await cancel(options.tx)
+    if (committedEvent) {
+      const event = committedEvent
+      options.onCommit(() => emitTasksCancelledAfterCommit(event))
+    }
+    return rows
+  }
+  const rows = await db.transaction(cancel)
+  if (committedEvent) {
+    await emitTasksCancelledAfterCommit(committedEvent)
+  }
+  return rows
 }

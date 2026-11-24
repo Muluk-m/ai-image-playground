@@ -24,10 +24,13 @@ import (
 
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/auth"
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/client"
+	"github.com/Muluk-m/ai-image-playground/cli-go/internal/skill"
 )
 
-// Version is overridden at release time with -ldflags "-X .../cli.Version=x.y.z".
-var Version = "0.2.7"
+// Version is the bundled Skill's BundleVersion, the CLI's one version source; a release build
+// sets the same value with -ldflags "-X .../cli.Version=x.y.z" (scripts/check-cli-version.mjs and
+// the release check keep them equal).
+var Version = skill.BundleVersion
 
 const (
 	DefaultAPIURL  = "https://api.muvloom.online"
@@ -226,8 +229,9 @@ var commandList = []struct {
 	}},
 	{"SETUP", []command{
 		{"setup", "[--origin URL] [--host auto|...] [--no-wait] [--timeout SECONDS] [--switch-service]", "Install the Skill, connect your account and verify readiness in one step", cmdSetup},
-		{"skill install", "--host auto|claude-code|codex|workbuddy|cursor|windsurf|cline|openclaw|generic [--scope user|project]", "Install the bundled agent Skill", cmdSkillInstall},
+		{"skill install", "--host auto|claude-code|codex|workbuddy|cursor|windsurf|cline|openclaw|generic [--scope user|project] | --dir <skills dir>", "Install the bundled agent Skill", cmdSkillInstall},
 		{"skill status", "", "Where the agent Skill is installed and its version", cmdSkillStatus},
+		{"skill show", "", "Print the bundled agent Skill for hosts that cannot install one", cmdSkillShow},
 		{"update check", "", "Check for a newer CLI release (cached for the day)", cmdUpdateCheck},
 		{"update self", "[--check] [--auto on|off]", "Check or self-update the muvloom CLI binary", cmdUpdateSelf},
 		{"update skill", "[--check] [--auto on|off]", "Check or update installed agent Skills from Muvloom", cmdUpdateSkill},

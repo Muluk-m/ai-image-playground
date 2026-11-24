@@ -373,17 +373,17 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 	for _, installed := range skills {
 		switch {
 		case installed.Unverifiable:
-			a.progress("The muvloom Skill at %s is incomplete or has unexpected files. To reinstall it: muvloom skill install --host %s --scope %s",
-				installed.Path, installed.Host, installed.Scope)
+			a.progress("The muvloom Skill at %s is incomplete or has unexpected files. To reinstall it: %s",
+				installed.Path, skill.ReinstallCommand(installed))
 		case !installed.Intact:
-			a.progress("The muvloom Skill at %s was edited or is incomplete, so it is not updated automatically. To replace it: muvloom skill install --host %s --scope %s",
-				installed.Path, installed.Host, installed.Scope)
+			a.progress("The muvloom Skill at %s was edited or is incomplete, so it is not updated automatically. To replace it: %s",
+				installed.Path, skill.ReinstallCommand(installed))
 		}
 	}
 	var refreshFailures []map[string]string
 	for _, item := range failed {
-		a.progress("Could not update the muvloom Skill at %s to %s (%s). To retry: muvloom skill install --host %s --scope %s",
-			item.Path, skill.SkillVersion, skillFailure(item.Err), item.Host, item.Scope)
+		a.progress("Could not update the muvloom Skill at %s to %s (%s). To retry: %s",
+			item.Path, skill.SkillVersion, skillFailure(item.Err), skill.ReinstallCommand(item.Installation))
 		refreshFailures = append(refreshFailures, map[string]string{"path": item.Path, "reason": skillFailure(item.Err)})
 	}
 	status := map[string]any{

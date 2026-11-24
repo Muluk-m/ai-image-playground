@@ -24,6 +24,7 @@
     "@elysiajs/cors": "^1.4.0",
     "@image-playground/db": "workspace:*",
     "@image-playground/node-kit": "workspace:*",
+    "@image-playground/read-models": "workspace:*",
     "@image-playground/shared": "workspace:*",
     "@opentelemetry/api": "1.10.0",
     "@opentelemetry/context-async-hooks": "3.1.1",
