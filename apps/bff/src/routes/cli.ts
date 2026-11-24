@@ -29,6 +29,8 @@ import {
   assertReferenceMedia,
   availableImageModels,
   CLI_PROMPT_MAX_CHARS,
+  type CliImageRequestBody,
+  defaultImageModelId,
   imageCapabilities,
   isMembershipUpgradeableRejection,
   normalizeImageRequest,
@@ -90,6 +92,13 @@ const formClient = t.Object(
   { client_id: t.String({ maxLength: 64 }) },
   { additionalProperties: true },
 )
+
+/** 不带 model 时按该账号能提交的第一个模型补上，与 `/v1/capabilities` 的 `default_model` 一致。 */
+async function prepareImageRequest(userId: string, body: CliImageRequestBody) {
+  const models = await availableImageModels()
+  const model = body.model ?? (await defaultImageModelId(userId, models))
+  return normalizeImageRequest(model === undefined ? body : { ...body, model }, models)
+}
 
 /**
  * RFC 8628 设备授权与 RFC 6749/7009 令牌端点。放在 /v1/oauth 下是为了走 API 错误处理，
@@ -356,7 +365,7 @@ export const cliApiRoutes = new Elysia()
     '/v1/image-jobs/validate',
     async ({ cli, body, request }) => {
       requireScope(cli, 'images:write')
-      const prepared = normalizeImageRequest(body, await availableImageModels())
+      const prepared = await prepareImageRequest(cli.user.id, body)
       await assertReferenceMedia(cli.user.id, prepared.normalized.reference_media_ids)
       const submit = toSubmitRequest(prepared)
       const preview = await previewImageRequest(cli.user.id, prepared, submit)
@@ -399,7 +408,7 @@ export const cliApiRoutes = new Elysia()
     '/v1/image-jobs',
     async ({ cli, body, request }) => {
       requireScope(cli, 'images:write')
-      const prepared = normalizeImageRequest(body, await availableImageModels())
+      const prepared = await prepareImageRequest(cli.user.id, body)
       await assertReferenceMedia(cli.user.id, prepared.normalized.reference_media_ids)
       const submit = toSubmitRequest(prepared)
       const inputImages = await withMediaErrors(() =>

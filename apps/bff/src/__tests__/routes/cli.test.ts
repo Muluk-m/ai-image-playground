@@ -1131,6 +1131,46 @@ describe('capabilities and dry-run', () => {
     expect(member.json.data.models[0].image_sizes).toEqual(['1K', '2K', '4K'])
   })
 
+  it('submits the default model the capabilities list when the first model is out of reach', async () => {
+    // The first model only offers 4K, which a non-member cannot submit, so the list skips it.
+    _setChannelsForTesting(
+      CHANNELS.map((channel) =>
+        channel.id === 'gemini-direct'
+          ? {
+              ...channel,
+              models: channel.models.map((model) => ({ ...model, imageSizes: ['4K' as const] })),
+            }
+          : channel,
+      ),
+    )
+    const user = await createUser('default-model')
+    const { access_token } = await connect(user)
+    const caps = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
+    expect(caps.json.data.default_model).toBe('gpt-image-2.5-flare')
+    expect(caps.json.data.models.map((model: { id: string }) => model.id)).not.toContain(
+      'gemini-3-pro-image',
+    )
+
+    const preview = await call('POST', '/v1/image-jobs/validate', {
+      body: imageJob(),
+      headers: bearer(access_token),
+    })
+    expect(preview.status).toBe(200)
+    expect(preview.json.data.normalized.model).toBe(caps.json.data.default_model)
+    const created = await call('POST', '/v1/image-jobs', {
+      body: imageJob(),
+      headers: bearer(access_token),
+    })
+    expect(created.status).toBe(200)
+    const [task] = await db.select().from(schema.tasks)
+    expect(task?.model).toBe(caps.json.data.default_model)
+
+    // A member can submit 4K, so the first model is the default again for them.
+    billing.members.add(user.id)
+    const member = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
+    expect(member.json.data.default_model).toBe('gemini-3-pro-image')
+  })
+
   it('quotes without creating a task or holding credits, and agrees with submit on the hash', async () => {
     const user = await createUser('dry-run')
     const { access_token } = await connect(user)
