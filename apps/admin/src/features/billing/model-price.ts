@@ -12,7 +12,7 @@ export interface ModelPriceForm {
 export const UNIT_LABELS: Record<ModelPrice['unit'], string> = {
   image: '积分 / 张',
   second: '积分 / 秒',
-  kilo_token: '输入 · 积分 / 千 token',
+  kilo_token: '输入（积分/千tok）',
 }
 
 export const SHORT_UNIT_LABELS: Record<ModelPrice['unit'], string> = {
@@ -22,9 +22,9 @@ export const SHORT_UNIT_LABELS: Record<ModelPrice['unit'], string> = {
 }
 
 export const CHAT_PRICE_LABELS = {
-  outputAmount: '输出 · 积分 / 千 token',
-  reserveTokens: '输出预留 · token',
-  cachedInputPercent: '缓存输入 · 普通输入价格 %',
+  outputAmount: '输出（积分/千tok）',
+  reserveTokens: '输出预留（token）',
+  cachedInputPercent: '缓存计价（%原价）',
 }
 
 export function isChatPrice(price: ModelPrice): boolean {

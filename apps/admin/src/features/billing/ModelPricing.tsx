@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import type { Catalog, ModelPrice } from '@image-playground/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
 import { apiClient } from '../../lib/private-host'
@@ -22,7 +22,6 @@ import {
   isChatPrice,
   type ModelPriceForm,
   type ModelPriceKind,
-  modelPriceFormValues,
   modelPriceRequest,
   SHORT_UNIT_LABELS,
   UNIT_LABELS,
@@ -58,15 +57,17 @@ function PriceField({
     <FormField
       name={name}
       render={({ field }) => (
-        <FormItem className="w-36 space-y-1">
-          <FormLabel className="text-xs text-muted-foreground">{label}</FormLabel>
+        <FormItem className="space-y-1.5">
+          <FormLabel className="block whitespace-nowrap text-xs font-medium text-muted-foreground">
+            {label}
+          </FormLabel>
           <FormControl>
             <Input
               type="number"
               min={name === 'cachedInputPercent' ? 0 : 1}
               max={max}
               step="1"
-              className="h-8 font-mono text-xs"
+              className="h-9 font-mono text-sm tabular-nums"
               {...field}
             />
           </FormControl>
@@ -86,15 +87,44 @@ function PriceEditor({
   price: ModelPrice
   isNew: boolean
   creditsPerYuan?: number
-  onClose: () => void
+  onClose?: () => void
 }) {
   const queryClient = useQueryClient()
   const chat = isChatPrice(price)
-  const values = modelPriceFormValues(price)
+  const {
+    credits_per_image: creditsPerImage,
+    output_credits_per_unit: outputCreditsPerUnit,
+    output_reserve_tokens: outputReserveTokens,
+    cached_input_price_percent: cachedInputPricePercent,
+    updated_at: updatedAt,
+  } = price
+  const serverVersion = `${isNew ? 'new' : 'saved'}:${updatedAt}`
+  const [baselineVersion, setBaselineVersion] = useState(serverVersion)
+  const values = useMemo<ModelPriceForm>(
+    () => ({
+      amount: String(creditsPerImage),
+      outputAmount: outputCreditsPerUnit === null ? '' : String(outputCreditsPerUnit),
+      reserveTokens: outputReserveTokens === null ? '' : String(outputReserveTokens),
+      cachedInputPercent: String(cachedInputPricePercent ?? 0),
+    }),
+    [creditsPerImage, outputCreditsPerUnit, outputReserveTokens, cachedInputPricePercent],
+  )
   const form = useForm<ModelPriceForm>({
     resolver: zodResolver(chat ? chatPriceSchema : modelPriceSchema),
     defaultValues: values,
   })
+
+  const isDirty = form.formState.isDirty
+
+  useEffect(() => {
+    if (!isDirty && serverVersion !== baselineVersion) {
+      setBaselineVersion(serverVersion)
+      form.reset(values)
+    }
+  }, [baselineVersion, form, isDirty, serverVersion, values])
+
+  const hasConflict = serverVersion !== baselineVersion && isDirty
+
   const watchedAmount = Number(form.watch('amount'))
   const watchedOut = Number(form.watch('outputAmount'))
   const inYuan = formatCreditsAsYuan(watchedAmount, creditsPerYuan)
@@ -106,77 +136,139 @@ function PriceEditor({
         `/api/private/billing/models/${encodeURIComponent(price.model)}`,
         modelPriceRequest(price, input),
       ),
-    onSuccess: async () => {
+    onSuccess: async (_data, submitted) => {
+      form.reset(submitted)
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: catalogKey }),
         queryClient.invalidateQueries({ queryKey: ['private-billing', 'account'] }),
       ])
-      onClose()
+      onClose?.()
     },
   })
 
   return (
     <Form {...form}>
       <form
-        className="space-y-2.5 rounded-lg border bg-muted/30 p-3"
         noValidate
-        onChange={() => mutation.reset()}
-        onSubmit={form.handleSubmit((input) => mutation.mutate(input))}
+        onChange={() => {
+          if (mutation.isSuccess || mutation.isError) mutation.reset()
+        }}
+        onSubmit={form.handleSubmit((input) => {
+          if (hasConflict) return
+          mutation.mutate(input)
+        })}
       >
-        <div className="flex flex-wrap items-end gap-2.5">
-          <PriceField name="amount" label={UNIT_LABELS[price.unit]} />
-          {chat ? (
-            <>
-              <PriceField name="outputAmount" label={CHAT_PRICE_LABELS.outputAmount} />
-              <PriceField
-                name="cachedInputPercent"
-                label={CHAT_PRICE_LABELS.cachedInputPercent}
-                max={100}
-              />
-              <PriceField name="reserveTokens" label={CHAT_PRICE_LABELS.reserveTokens} />
-            </>
+        <fieldset disabled={mutation.isPending} className="space-y-3">
+          {hasConflict ? (
+            <p
+              role="status"
+              className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
+            >
+              服务端单价已有新版本，当前草稿已保留。请先载入最新单价后再重新修改。
+            </p>
+          ) : isNew ? (
+            <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
+              尚未配置积分单价，确认建价后立即生效。
+            </p>
           ) : null}
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-          <span className="font-mono text-xs text-muted-foreground">
-            {inYuan
-              ? chat && outYuan
-                ? `折合输入 ≈ ${inYuan}/千tok · 输出 ≈ ${outYuan}/千tok`
-                : `折合单价 ≈ ${inYuan}`
-              : '按整数积分结算'}
-          </span>
-          <div className="flex items-center gap-2">
-            <SaveStatus
-              pending={mutation.isPending}
-              success={mutation.isSuccess}
-              error={mutation.error}
-            />
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              disabled={mutation.isPending}
-              onClick={onClose}
-            >
-              取消
-            </Button>
-            <Button
-              type="submit"
-              size="sm"
-              disabled={(!isNew && !form.formState.isDirty) || mutation.isPending}
-            >
-              {isNew ? '确认建价' : '保存'}
-            </Button>
+
+          <div className={chat ? 'grid grid-cols-2 gap-3' : 'max-w-[240px]'}>
+            <PriceField name="amount" label={UNIT_LABELS[price.unit]} />
+            {chat ? (
+              <>
+                <PriceField name="outputAmount" label={CHAT_PRICE_LABELS.outputAmount} />
+                <PriceField
+                  name="cachedInputPercent"
+                  label={CHAT_PRICE_LABELS.cachedInputPercent}
+                  max={100}
+                />
+                <PriceField name="reserveTokens" label={CHAT_PRICE_LABELS.reserveTokens} />
+              </>
+            ) : null}
           </div>
-        </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+            <span className="font-mono text-xs tabular-nums text-muted-foreground">
+              {inYuan
+                ? chat && outYuan
+                  ? `折合输入 ≈ ${inYuan}/千tok · 输出 ≈ ${outYuan}/千tok`
+                  : `折合单价 ≈ ${inYuan}`
+                : '按整数积分结算'}
+            </span>
+            <div className="flex items-center gap-2">
+              <SaveStatus
+                pending={mutation.isPending}
+                success={mutation.isSuccess}
+                error={mutation.error}
+              />
+              {hasConflict ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={mutation.isPending}
+                  onClick={() => {
+                    mutation.reset()
+                    setBaselineVersion(serverVersion)
+                    form.reset(values)
+                  }}
+                >
+                  载入最新
+                </Button>
+              ) : null}
+              {onClose ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={mutation.isPending}
+                  onClick={onClose}
+                >
+                  取消
+                </Button>
+              ) : !hasConflict && form.formState.isDirty ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={mutation.isPending}
+                  onClick={() => {
+                    mutation.reset()
+                    setBaselineVersion(serverVersion)
+                    form.reset(values)
+                  }}
+                >
+                  重置
+                </Button>
+              ) : null}
+              <Button
+                type="submit"
+                size="sm"
+                disabled={hasConflict || (!isNew && !form.formState.isDirty) || mutation.isPending}
+              >
+                {isNew ? '确认建价' : '保存定价'}
+              </Button>
+            </div>
+          </div>
+        </fieldset>
       </form>
     </Form>
   )
 }
 
-/** 「模型与定价」每一行的单价摘要与编辑；支持为尚未入库的新模型初始化积分单价。 */
-export function ModelPricing({ model, kind = 'image' }: { model: string; kind?: ModelPriceKind }) {
-  const [editing, setEditing] = useState(false)
+/** 「模型与定价」每一行的单价摘要，或在检视抽屉内直接编辑定价。 */
+export function ModelPricing({
+  model,
+  kind = 'image',
+  mode = 'summary',
+  onEdit,
+}: {
+  model: string
+  kind?: ModelPriceKind
+  mode?: 'summary' | 'editor'
+  onEdit?: () => void
+}) {
+  const [inlineEditing, setInlineEditing] = useState(false)
   const fallbackPrice = useMemo(() => defaultModelPriceForKind(model, kind), [model, kind])
   const catalog = useQuery({
     queryKey: catalogKey,
@@ -188,29 +280,56 @@ export function ModelPricing({ model, kind = 'image' }: { model: string; kind?: 
 
   const creditsPerYuan = catalog.data.recharge_pricing?.credits_per_yuan
   const price = catalog.data.model_prices.find((entry) => entry.model === model)
+  const activePrice = price ?? fallbackPrice
 
-  if (editing) {
-    const activePrice = price ?? fallbackPrice
+  if (mode === 'editor') {
     return (
       <PriceEditor
-        key={`${model}:${kind}:${price ? price.updated_at : 'new'}`}
+        key={`${model}:${kind}`}
         price={activePrice}
         isNew={!price}
         creditsPerYuan={creditsPerYuan}
-        onClose={() => setEditing(false)}
       />
     )
   }
 
+  if (inlineEditing && !onEdit) {
+    return (
+      <div className="rounded-lg border bg-muted/30 p-3">
+        <PriceEditor
+          key={`${model}:${kind}:${price ? price.updated_at : 'new'}`}
+          price={activePrice}
+          isNew={!price}
+          creditsPerYuan={creditsPerYuan}
+          onClose={() => setInlineEditing(false)}
+        />
+      </div>
+    )
+  }
+
+  const triggerEdit = () => {
+    if (onEdit) onEdit()
+    else setInlineEditing(true)
+  }
+
   if (!price) {
     return (
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="inline-flex items-center gap-1.5 text-xs text-warning">
-          <span className="size-2 rounded-full bg-warning" aria-hidden />
+      <div className="flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-warning">
+          <span className="size-2 shrink-0 rounded-full bg-warning" aria-hidden />
           未定价
         </span>
-        <Button type="button" size="sm" variant="outline" onClick={() => setEditing(true)}>
-          初始化定价
+        <Button
+          type="button"
+          size="xs"
+          variant="outline"
+          className="shrink-0"
+          onClick={(event) => {
+            event.stopPropagation()
+            triggerEdit()
+          }}
+        >
+          定价
         </Button>
       </div>
     )
@@ -220,25 +339,34 @@ export function ModelPricing({ model, kind = 'image' }: { model: string; kind?: 
     const inYuan = formatCreditsAsYuan(price.credits_per_image, creditsPerYuan)
     const outYuan = formatCreditsAsYuan(price.output_credits_per_unit ?? 0, creditsPerYuan)
     return (
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="space-y-0.5">
-          <div className="font-mono text-xs">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 space-y-0.5">
+          <div className="whitespace-nowrap font-mono text-xs tabular-nums">
             <span className="font-medium text-foreground">
               入 {price.credits_per_image} · 出 {price.output_credits_per_unit ?? '—'}
             </span>{' '}
             <span className="font-sans text-muted-foreground">积分/千tok</span>
           </div>
-          <div className="text-xs text-muted-foreground">
+          <div className="truncate text-xs text-muted-foreground">
             缓存 {price.cached_input_price_percent ?? 0}% · 预留{' '}
-            <span className="font-mono">{price.output_reserve_tokens ?? 0}</span>
+            <span className="font-mono tabular-nums">{price.output_reserve_tokens ?? 0}</span>
             {inYuan && outYuan ? (
-              <span className="ml-1.5 font-mono">
-                · ≈ {inYuan}/{outYuan}
+              <span className="ml-1 font-mono tabular-nums">
+                · {inYuan}/{outYuan}
               </span>
             ) : null}
           </div>
         </div>
-        <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(true)}>
+        <Button
+          type="button"
+          size="xs"
+          variant="ghost"
+          className="shrink-0"
+          onClick={(event) => {
+            event.stopPropagation()
+            triggerEdit()
+          }}
+        >
           改价
         </Button>
       </div>
@@ -247,15 +375,26 @@ export function ModelPricing({ model, kind = 'image' }: { model: string; kind?: 
 
   const yuan = formatCreditsAsYuan(price.credits_per_image, creditsPerYuan)
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <div className="space-y-0.5">
-        <div className="font-mono text-xs">
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0 space-y-0.5">
+        <div className="whitespace-nowrap font-mono text-xs tabular-nums">
           <span className="font-medium text-foreground">{price.credits_per_image}</span>{' '}
           <span className="font-sans text-muted-foreground">{SHORT_UNIT_LABELS[price.unit]}</span>
         </div>
-        {yuan ? <div className="font-mono text-xs text-muted-foreground">≈ {yuan}</div> : null}
+        {yuan ? (
+          <div className="font-mono text-xs tabular-nums text-muted-foreground">≈ {yuan}</div>
+        ) : null}
       </div>
-      <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(true)}>
+      <Button
+        type="button"
+        size="xs"
+        variant="ghost"
+        className="shrink-0"
+        onClick={(event) => {
+          event.stopPropagation()
+          triggerEdit()
+        }}
+      >
         改价
       </Button>
     </div>

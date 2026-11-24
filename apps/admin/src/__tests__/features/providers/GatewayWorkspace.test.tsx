@@ -6,8 +6,23 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('../../../lib/private-overlay', () => ({
-  PrivateAdminModelPricing: ({ model }: { model: string }) => (
-    <span data-testid={`pricing-${model}`}>100 积分/张</span>
+  PrivateAdminModelPricing: ({
+    model,
+    mode = 'summary',
+    onEdit,
+  }: {
+    model: string
+    mode?: 'summary' | 'editor'
+    onEdit?: () => void
+  }) => (
+    <div data-testid={`pricing-${mode}-${model}`}>
+      <span>100 积分/张</span>
+      {onEdit ? (
+        <button type="button" onClick={onEdit}>
+          改价 {model}
+        </button>
+      ) : null}
+    </div>
   ),
   usePrivateAdminOverlayEnabled: () => true,
 }))
@@ -111,17 +126,18 @@ describe('ModelCatalogWorkspace & ChannelTopologyPanel', () => {
     expect(screen.getByText('GPT 6 Sol')).toBeInTheDocument()
     expect(screen.getByText('Nano Banana 2.1')).toBeInTheDocument()
     expect(screen.getByText('Veo 3.1 Fast')).toBeInTheDocument()
-    expect(screen.getByTestId('pricing-gpt-6-sol')).toBeInTheDocument()
+    expect(screen.getByTestId('pricing-summary-gpt-6-sol')).toBeInTheDocument()
 
     // Filter to chat only
     fireEvent.click(screen.getByRole('radio', { name: '对话 (1)' }))
     expect(screen.getByText('GPT 6 Sol')).toBeInTheDocument()
     expect(screen.queryByText('Nano Banana 2.1')).not.toBeInTheDocument()
 
-    // Open right-hand inspector sheet
-    fireEvent.click(screen.getByRole('button', { name: '检视 GPT 6 Sol' }))
+    // Clicking price edit opens right-hand inspector sheet directly in editor mode
+    fireEvent.click(screen.getByRole('button', { name: '改价 gpt-6-sol' }))
     expect(screen.getByText('上游归属与密钥状态')).toBeInTheDocument()
     expect(screen.getByText('商业计费')).toBeInTheDocument()
+    expect(screen.getByTestId('pricing-editor-gpt-6-sol')).toBeInTheDocument()
   })
 
   it('renders upstream channel topology with secret readiness and disabled state', () => {
