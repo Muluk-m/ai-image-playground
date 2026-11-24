@@ -1,15 +1,7 @@
 import type { ImageContent } from '@earendil-works/pi-ai'
 import type { ResolvedAgentImage } from '../contracts'
-import {
-  type EvidenceListing,
-  evidenceManifest,
-  referenceEvidence,
-} from '../conversation/selection-preview'
-import {
-  assertVisualBytes,
-  visualMetadata,
-  withVisualPreparation,
-} from '../conversation/visual-resources'
+import { type EvidenceListing, evidenceManifest, referenceEvidence } from './selection-preview'
+import { assertVisualBytes, visualMetadata, withVisualPreparation } from './visual-resources'
 
 export type VisualEvidence = import('@image-playground/shared').AgentVisualEvidence
 export type VisualEvidenceSource = string | ((image: ResolvedAgentImage) => string)
