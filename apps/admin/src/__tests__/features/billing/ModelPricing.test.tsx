@@ -21,7 +21,7 @@ import { ModelPricing } from '../../../features/billing/ModelPricing'
 
 function makeCatalog(updatedAt: number, outputCredits: number): Catalog {
   return {
-    recharge_pricing: { credits_per_yuan: 400, packs: [10, 50, 100] },
+    recharge_pricing: { credits_per_yuan: 400, amounts_yuan: [10, 50, 100] },
     plans: [],
     model_prices: [
       {
