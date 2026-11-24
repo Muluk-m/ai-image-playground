@@ -35,7 +35,7 @@ CLI 版本只有一个来源：`cli-go/internal/skill/install.go` 的 `BundleVer
    - `.github/workflows/cli-checks.yml` 的 `release-tag` 默认值改成 `cli-vX.Y.Z`；
    - 本文示例命令里的 `--version`。
 2. PR 检查和评审齐了就合并，在合并提交上打 `cli-vX.Y.Z` 标签。Release workflow 构建并发布到 GitHub。
-3. 发一次生产前端（Deploy production）：网站同源 CDN 上的二进制和 `/cli/skill-manifest.json` 由前端构建按 `BundleVersion` 生成，已安装的 CLI 靠它们静默自升级。
+3. 发一次生产前端（Deploy production，按 [发布手册](release.md) 审批表，需 Nain 说发布）：网站同源 CDN 上的二进制和 `/cli/skill-manifest.json` 由前端构建按 `BundleVersion` 生成，已安装的 CLI 要等这次发布后才会静默自升级。
 4. 用官方安装脚本装到临时目录，确认 `muvloom version` 是 `X.Y.Z`。
 
 服务端最低 CLI 版本是 `apps/bff/src/routes/cli.ts` 的 `CLI_MIN_VERSION`：低于它的 CLI 在 `auth status` 里被要求升级。只有服务端不再兼容旧 CLI（删掉或改坏了旧版本依赖的接口或字段）时才提高它，而且要在包含对应 CLI 版本的发版完成之后、单独开 PR 提高。平常发版不动它。

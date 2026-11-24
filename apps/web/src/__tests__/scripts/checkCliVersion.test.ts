@@ -21,6 +21,17 @@ describe('check-cli-version', () => {
     expect(versionProblems(files())).toEqual([])
   })
 
+  it('reads a quoted or commented release-tag default', () => {
+    const yml = (line: string) =>
+      files({
+        '.github/workflows/cli-checks.yml': `      release-tag:\n        # passed by cli-release\n        type: string\n${line}\n`,
+      })
+    expect(versionProblems(yml('        default: "cli-v0.2.8"'))).toEqual([])
+    expect(versionProblems(yml('        default: cli-v0.2.8 # bump with BundleVersion'))).toEqual(
+      [],
+    )
+  })
+
   it('flags each copy that drifts', () => {
     const problems = versionProblems(
       files({

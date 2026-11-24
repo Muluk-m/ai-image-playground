@@ -28,7 +28,8 @@ export function versionProblems(read) {
   if (!/^var Version = skill\.BundleVersion$/m.test(read(APP_GO)))
     problems.push(`${APP_GO}: Version must default to skill.BundleVersion, not a literal`)
 
-  const tag = read(CHECKS_YML).match(/release-tag:\s*\n(?:\s+\w+:.*\n)*?\s+default:\s*(\S+)/)?.[1]
+  // cli-checks.yml has one input, release-tag, and so one `default:`.
+  const tag = read(CHECKS_YML).match(/^\s*default:\s*['"]?(cli-v[^'"\s]+)['"]?\s*(?:#.*)?$/m)?.[1]
   if (tag !== `cli-v${bundle}`)
     problems.push(`${CHECKS_YML}: release-tag default ${tag ?? 'none'} must be cli-v${bundle}`)
 
