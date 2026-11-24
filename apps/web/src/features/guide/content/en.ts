@@ -45,7 +45,7 @@ const overview: GuidePage = {
         p('After sign-in, Create is `/image`. You do not start by creating a project.'),
         steps(
           '**Sidebar**: Create, Explore, Assets, Toolbox, Plugin. Recent chats and canvases sit below. [[+]] starts a new one.',
-          '**Mode**: bottom-left of the composer, labelled Choose a creation mode. The options are Agent, Image generation, Video generation and Canvas.',
+          '**Mode**: bottom-left of the composer, labelled Choose a creation mode. The options are Agent, Image generation, Batch, Video generation and Canvas.',
           '**Model**: the current name, for example Image 2.5 Flare. The menu groups GPT, Banana, Grok and Agnes.',
           '**Settings**: a chip such as 1 or 3:4 · 1K · 1. Only changed values appear; Auto ratio is left out. Ratio, count, quality and format live here.',
           '**Send**: the round button. Its accessible name is Generate. Shortcut {{Ctrl}}{{Enter}}. On a new canvas it reads Start creating.',
@@ -153,7 +153,7 @@ const firstImage: GuidePage = {
 const modes: GuidePage = {
   id: 'modes',
   title: 'Creation modes',
-  summary: 'Agent, image, video and canvas send the same sentence to different places.',
+  summary: 'Agent, image, batch, video and canvas send the same sentence to different places.',
   meta: {
     title: 'Creation modes - Muvloom guide',
     description: 'What each creation mode does after you press Generate.',
@@ -161,25 +161,27 @@ const modes: GuidePage = {
   updated,
   intro: [
     p(
-      'The old label Quick generate is now Image generation. Switching mode keeps the text and reference images already in the composer.',
+      'The old label Quick generate is now Image generation, and per-image batching is now its own Batch mode. Switching mode keeps the text and reference images already in the composer.',
     ),
   ],
   sections: [
     {
       id: 'choose-mode',
-      title: 'Four destinations',
+      title: 'Five destinations',
       blocks: [
         table(
           ['Mode', 'After submit', 'Use when'],
           ['Image generation', 'A still in My work', 'The sentence is already specific'],
+          [
+            'Batch',
+            'One task per source image (with optional shared refs), grouped as a batch card',
+            'Run one prompt across many source files or swap one hero product across posters',
+          ],
           ['Agent', 'A chat, sometimes a plan first', 'Count, style or a set is still open'],
           ['Video generation', 'A new canvas project', 'You want motion'],
           ['Canvas', 'A new canvas, first still on the board', 'You will mask or compare'],
         ),
-        still('zh', 'modes', 'The creation-mode menu'),
-        note(
-          'On 2026-11-10 the test environment menu had Agent, Image generation and Canvas only. Video generation was absent. Do not record another model and call it video.',
-        ),
+        still('zh', 'modes', 'The creation-mode menu including Batch'),
       ],
     },
     {
@@ -188,6 +190,7 @@ const modes: GuidePage = {
       blocks: [
         list(
           'One product still: Image generation.',
+          'Many source images with one unified edit (plus optional shared refs): Batch.',
           'Two covers and titles you have not written: Agent.',
           'Camera move: Video generation, when that option exists.',
           'Change only the glaze: Canvas, then inpaint.',
@@ -196,7 +199,7 @@ const modes: GuidePage = {
       ],
     },
   ],
-  related: ['start/first-image', 'create/agent', 'canvas/basics'],
+  related: ['start/first-image', 'create/batch', 'create/agent', 'canvas/basics'],
 }
 
 const composer: GuidePage = {
@@ -228,7 +231,7 @@ const composer: GuidePage = {
           '把 @图1 的杯子放在干净的浅色石台上，柔和棚拍光，保留杯身纹理与比例，3:4',
         ),
         tip(
-          'A template locks reference slots. Per-image batch is hidden while a template is attached.',
+          'A template locks reference slots. Batch mode does not run while a template is attached; sending submits a single template job.',
         ),
       ],
     },
@@ -239,7 +242,7 @@ const composer: GuidePage = {
         steps(
           'Add reference, then Add image. You can also drop or paste.',
           'Each file must be under 50 MB. A bad file is marked. Remove unusable images before sending.',
-          'Two or more images show Merge references and Per image. Merge is one job. Per image is one job per file.',
+          'Image generation combines uploaded references into one job. To run one sentence per file (with optional shared refs), switch the bottom-left mode to Batch. See [Batch generation](/guide/en/create/batch/).',
         ),
         p('GIF and SVG cannot take a reference. A reference on Image 2.6 disables those formats.'),
         still('zh', 'reference', 'Reference thumbnails above the composer'),
@@ -298,7 +301,7 @@ const settings: GuidePage = {
           ['Control', 'Effect', 'Limit'],
           ['Ratio', '3:4, 1:1, 16:9, or custom', 'Do not reuse a custom pixel size for GIF'],
           ['Resolution', '1K, 2K, and 4K for members', 'Non-members stop at 2K'],
-          ['Count', 'How many stills', 'Per-image batch ignores this and uses the file count'],
+          ['Count', 'How many stills', 'Batch mode ignores this and uses the source image count'],
           ['Quality', 'Low, Medium, High, Auto', 'High is locked without a membership'],
           [
             'Format',
@@ -543,6 +546,8 @@ const batch: GuidePage = {
           'Open Examples in the toolbar to insert a sample prompt or inspect the live task breakdown.',
           'Press send. My work shows one batch card—open it to inspect or download each result.',
         ),
+        still('zh', 'batch-select', 'Batch mode dual zones: Source images and Shared refs'),
+        still('zh', 'batch-results', 'Batch result card in My work'),
       ],
     },
     {

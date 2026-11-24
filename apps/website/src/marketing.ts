@@ -133,7 +133,7 @@ const zh: MarketingCopy = {
   features: {
     title: '功能',
     rows: [
-      ['批量', '一次最多 16\u00a0张'],
+      ['批量', '一次最多 50\u00a0张，支持搭配共用参考图'],
       ['改图', '局部重绘、擦除、抠图、扩图、裁剪'],
       ['视频', '5–15\u00a0秒，最高 1080p，可以用图片作首帧'],
       ['画布', '参考图和每一版结果放在同一张画布上'],
@@ -217,7 +217,7 @@ const en: MarketingCopy = {
   features: {
     title: 'Features',
     rows: [
-      ['Batch', 'Up to 16 images at a time'],
+      ['Batch', 'Up to 50 source images at a time, with optional shared references'],
       ['Editing', 'Inpaint, erase, cut out, expand and crop'],
       ['Video', '5–15 seconds, up to 1080p, with an image as the first frame if you like'],
       ['Canvas', 'References and every version of the result on one canvas'],
