@@ -20,7 +20,7 @@ This codebase is yours: what it's for and how it's built are your call, and you'
 - **测试环境**：推 `test` 分支由 `.github/workflows/deploy-test.yml` 先发布独立测试后端（`image-playground-test`，独立数据库与 R2 桶），再发布 https://test.muvloom.online；前端固定连 `https://test-api.muvloom.online`，不读写生产数据。前后端使用同一主仓提交。test 落后 main 会直接失败，把 main 合进 test 再推；别在 `test` 上直接改代码。细节见[测试环境手册](docs/deploy/test-environment.md)。
 - 前端发布只用 `scripts/pages-release.sh muvloom|test|admin`（企业域名与 muvloom 同属 muvloom 项目，一个项目、多个域名）；各目标的 Pages 项目与域名写在仓库外的 `pages.env`（默认 `$XDG_CONFIG_HOME/ai-image-playground/pages.env`，可用 `PAGES_ENV_FILE` 覆盖）。现存 `PAID_*` 配置键和 VPS `paid` 目标连接共享生产资源；企业域名使用 `ENTERPRISE_PUBLIC_ORIGIN` / `ENTERPRISE_BFF_BASE_URL`，配置切换与 VPS 受限入口更新见[部署手册](docs/deploy/image-release.md#产品与现存标识)。不要直接调底层 `scripts/pages-deploy.sh`——漏掉分支参数曾把未合并分支发到生产。
 - 灵感库（探索页素材流）批量下架、新增、回滚与验收按[灵感库维护手册](docs/deploy/inspiration-maintenance.md)；灵感图只传 `cms-r2.deepclick.com`。
-- **Agent 发布按[发布手册](docs/agents/release.md)**：合并前检查、`test` 只用 fetch 加快进推送、生产与私有 overlay 发布、上线核对和回滚。开 PR、跑检查、评论 `/review` 与 `@codex review` 之后，**合并 main、合并私有 overlay、打 CLI 发布标签都要等 Nain 明确确认**，不要自己 squash merge。Nain 确认后的部署由 workflow 在下一个窗口自动跑，会话跟进结果，发布完成后冒烟。绕过流水线、手工改生产服务器或生产数据同样要 Nain 批准，表格见该手册。查生产问题默认只读，能做和禁止的操作见[生产只读排查](docs/agents/prod-readonly.md)。
+- **Agent 发布按[发布手册](docs/agents/release.md)**：合并前检查、`test` 只用 fetch 加快进推送、生产发布、上线核对和回滚。经流水线上线的 PR 合并、数据库迁移、CLI 发布与常规回滚，在 CI 全绿、评审意见处理完毕且确认没问题后**直接 squash merge 推进，不用等 Nain 确认**；合并后的部署由 workflow 在下一个窗口自动跑，会话跟进结果，发布完成后冒烟。只有绕过流水线、手工改生产服务器或生产数据要 Nain 批准，表格见该手册。查生产问题默认只读，能做和禁止的操作见[生产只读排查](docs/agents/prod-readonly.md)。
 - 灾备采用[R2 按需冷恢复](docs/deploy/cold-recovery.md)；macmini2 旧备用已停止。固定 API 切换和跨机器单写者保护尚未上线，恢复演练或同库发布排空都不算完整灾备。
 
 ## 项目概况
@@ -76,7 +76,7 @@ CI（`.github/workflows/web.yml`，PR 以及 push 到 main 和 test 都跑）把
 
 `main` 由 ruleset 保护：只能经 PR squash 合并，上述 Web checks job 为必需检查。`scripts/check-migrations.mjs`（在 `pnpm lint` 里）要求 `packages/db/drizzle` 相对 main 只追加，且新迁移的 `when` 晚于 main 上时间戳最大的一条（`migrate.ts` 中审计过的 supersession `original` 除外）。
 
-**默认把改动做成可以上生产的 PR。** 代码修改通过检查后，继续创建 PR、等 CI，并处理评审；**不要自行合并 `main`**。合并（含 squash merge）必须等 Nain 明确说可以合，即使用户只说「按最优方案来」或检查已经全绿也不行。Nain 确认后由部署 workflow 自动发布，会话不手动发布，只跟进该 workflow 结果并核验线上版本和行为。用户明确要求仅本地修改或暂不合并时照办。
+**默认把改动做成可以上生产的 PR 并直接合入。** 代码修改通过检查后，继续创建 PR、等 CI 全绿，并处理评审；确认没问题后直接 squash merge 到 `main`，不用等 Nain 确认。合并后由部署 workflow 在下一个发布窗口自动发布，会话不手动发布，只跟进该 workflow 结果并核验线上版本和行为。用户明确要求仅本地修改或暂不合并时照办。
 
 **交付不能停在本地。** 用户指定测试环境或明确暂不上生产时，完成改动后自动走测试环境发布：工作分支提交 → 远端检查 → 将最新 `main` 与工作分支合入 `test` → 跟进 Deploy test → 核对线上版本并实测变更。不再次询问是否部署，不把已提交、已推送或 workflow 已触发当作交付完成；失败继续处理，外部阻塞明确报告且待办保持阻塞状态。测试验收不代表获准上生产。
 
@@ -98,11 +98,11 @@ CI（`.github/workflows/web.yml`，PR 以及 push 到 main 和 test 都跑）把
 
 **评审。** 怎么评、什么算严重、哪些文件可跳过、输出格式，见 [REVIEW.md](REVIEW.md)。作者 Agent 与 Codex 最多来回 3 轮：第 2 轮起只看新增改动、不重复已提过的问题；3 轮后仍有严重问题就停下，重新想方案或交给 Nain。规则细节见 REVIEW.md「评审轮次上限」。每轮怎么处理的写进 PR 的「评审处理记录」。
 
-**合并需 Nain 确认；上线后冒烟。** 合并 `main` 或私有 overlay 必须等 Nain 明确确认。Nain 确认并合并后，等下一个发布窗口（紧急修复走手动 `workflow_dispatch`）的部署 workflow 完成，核对线上版本，再实测改到的功能：接口用只读请求，界面在浏览器里看，关键流程用测试账号；结果写进 PR 评论。冒烟不过就开修复或回滚 PR，回滚同样要 Nain 确认，并在汇报里说明。
+**检查齐了直接合并；上线后冒烟。** CI 全绿、评审有效意见处理完毕且确认没问题后，由 Agent 直接 squash merge 到 `main`，不用等 Nain 确认。合并后等下一个发布窗口（紧急修复走手动 `workflow_dispatch`）的部署 workflow 完成，核对线上版本，再实测改到的功能：接口用只读请求，界面在浏览器里看，关键流程用测试账号；结果写进 PR 评论。冒烟不过就开修复或回滚 PR 直接处理，并在汇报里说明。
 
 **关键流程证据。** 改到注册/登录、支付/计费、生成（出图、出视频）流程的 PR，必须附测试账号在测试环境（https://test.muvloom.online）走通该流程的截图或录屏，写明账号类型、环境（test.muvloom.online）和提交 SHA；`PR rules` 按 `scripts/pr-rules.mjs` 的 `CRITICAL_FLOWS` 路径核对，只改类型或重构、流程行为不变的，勾「不涉及」并写明理由（至少 10 个字，「不涉及」「无」这类套话不算；降为警告，由评审确认）。路径清单外的流程改动同样要附。证据里不能出现密码、验证码、token 或真实用户数据。`scripts/agent-smoke.ts`（[智能体上线手册](docs/deploy/agent-rollout.md)第七节）、`scripts/pages-browser-smoke.sh`（[部署手册](docs/deploy/image-release.md)「前端启动验收」）和[云端测试](docs/agents/cloud-tests.md)只能作补充：它们不走真实登录、付款或生成，不能代替证据。
 
-**成本与影响说明。** 改到模型调用、模型/供应商切换、定价、额度、计费，或任何会改变推理成本的改动（更贵的默认模型、更多调用次数、更长上下文、更大输出、放宽限额），必须在 PR 描述的「成本与影响」和给 Nain 的汇报里写清楚改了什么、对成本的影响；涉及结算或扣费的还要在标题或正文标明「涉及结算，需 Nain 亲自审」。`PR rules` 按 `scripts/cost-impact.mjs` 的路径清单检查：命中时打 `cost-impact` 标签，「成本与影响」只写「不涉及」「无」「N/A」这类套话会失败（写明为什么不涉及即可）；清单外的成本改动同样要写、同样要标出来。未写清成本影响、未标出结算改动的，不要请 Nain 合并。
+**成本与影响说明。** 改到模型调用、模型/供应商切换、定价、额度、计费，或任何会改变推理成本的改动（更贵的默认模型、更多调用次数、更长上下文、更大输出、放宽限额），必须在 PR 描述的「成本与影响」和给 Nain 的汇报里写清楚改了什么、对成本的影响；涉及结算或扣费的还要在标题或正文标明「涉及结算」并在汇报里重点提示。`PR rules` 按 `scripts/cost-impact.mjs` 的路径清单检查：命中时打 `cost-impact` 标签，「成本与影响」只写「不涉及」「无」「N/A」这类套话会失败（写明为什么不涉及即可）；清单外的成本改动同样要写、同样要标出来。未写清成本影响、未标出结算改动的，不要合并。
 
 **安全扫描（已定，2026-10-27）。** CodeQL（`.github/workflows/codeql.yml`）只报告、不拦合并；落在本 PR 改动上的高危告警按 REVIEW.md 当严重问题处理。不用 Dependabot（2026-11-16 起连版本更新也停用，不开 security updates）；第三方 action 仍按 commit SHA 固定，需要升级时手动开 PR。这是决定，不是待办。
 

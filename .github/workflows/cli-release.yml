@@ -1,6 +1,6 @@
 name: CLI release
 
-# 打 cli-vX.Y.Z 标签前必须另获用户批准。PR 只构建 Actions artifacts，不建标签或 Release。
+# PR 只构建 Actions artifacts，不建标签或 Release；检查齐了可按 docs/agents/release.md 打 cli-vX.Y.Z 标签发布。
 # 与 PR 共用 Go 测试、五平台原生安装冒烟和真实 skills-ref 校验，再上传校验过的同一批产物。
 # 构建作业只读、不持久化令牌；只有发布作业拿得到写 Release 的权限，且不执行仓库代码。
 on:
