@@ -399,4 +399,53 @@ describe('backfillAssetMedia & verifyAssetMediaConsistency', () => {
     expect(report.missingLookRefCount).toBe(1)
     expect(report.sampleMissingAssetImages).toEqual(['u-drift:img-deleting'])
   })
+
+  it('accepts pending CLI reference media as valid while skipping deleting CLI media during backfill', async () => {
+    const now = new Date('2026-11-24T00:00:00.000Z')
+    await connection.client`
+      INSERT INTO users (id, username, password_hash, status, created_at, updated_at)
+      VALUES ('u-cli', 'u-cli', 'hash', 'active', ${now}, ${now})
+    `
+    await connection.client`
+      INSERT INTO media_objects (
+        id, user_id, sha256, bytes, content_type, status, attachment_managed,
+        reserved_bytes, staging_key, object_key, preview_key, preview_bytes,
+        storage_scope, expires_at, created_at, updated_at
+      )
+      VALUES
+        (
+          'cli-pending', 'u-cli', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          256, 'image/png', 'pending', false,
+          256, 'staging/u-cli/p', NULL, NULL, 0,
+          'durable', ${now}, ${now}, ${now}
+        ),
+        (
+          'cli-deleting', 'u-cli', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          256, 'image/png', 'deleting', false,
+          0, 'staging/u-cli/d', NULL, NULL, 0,
+          'durable', ${now}, ${now}, ${now}
+        )
+    `
+    await connection.client`
+      INSERT INTO cli_reference_media (media_id, user_id, created_at)
+      VALUES
+        ('cli-pending', 'u-cli', ${now}),
+        ('cli-deleting', 'u-cli', ${now})
+    `
+
+    const result = await backfillAssetMedia(connection.client, { batchSize: 10, delayMs: 0 })
+    expect(result.completed).toBe(true)
+    // Only cli-pending gets backfilled; cli-deleting must NOT receive a media_references row.
+    expect(result.cliRefsWritten).toBe(1)
+
+    const refs = await connection.client<{ media_id: string }[]>`
+      SELECT media_id FROM media_references WHERE user_id = 'u-cli' AND owner_kind = 'cli_reference'
+    `
+    expect(refs).toEqual([{ media_id: 'cli-pending' }])
+
+    // Remove the deleting cli_reference_media row and verify pending CLI media alone passes consistency cleanly.
+    await connection.client`DELETE FROM cli_reference_media WHERE media_id = 'cli-deleting'`
+    const report = await verifyAssetMediaConsistency(connection.client)
+    expect(report.missingCliRefCount).toBe(0)
+  })
 })

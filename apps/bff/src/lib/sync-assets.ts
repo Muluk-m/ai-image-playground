@@ -1,6 +1,6 @@
 import { readUserAssetBytes } from '@image-playground/read-models'
 import type { SyncAssetQuotaError, SyncAssetUploadResult } from '@image-playground/shared'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, gt, inArray } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { durableMediaStore } from './durableMediaStore'
@@ -305,6 +305,7 @@ export async function uploadedImageIds(
         and(
           eq(schema.user_asset_objects.user_id, userId),
           inArray(schema.user_asset_objects.image_id, unique),
+          gt(schema.user_asset_objects.bytes, 0),
         ),
       ),
   ])

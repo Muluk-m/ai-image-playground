@@ -581,7 +581,34 @@ describe('unified media ledger (PR-5.4a)', () => {
       .update(schema.users)
       .set({ password_hash: OAUTH_ONLY_PASSWORD_HASH })
       .where(eq(schema.users.id, 'ledger-user'))
-    await expect(deleteOwnAccount('ledger-user')).resolves.toBeUndefined()
+    await expect(deleteOwnAccount('ledger-user', undefined)).resolves.toBeUndefined()
+  })
+
+  it('rejects historical zero-byte user_asset_objects rows during sync as asset_image_missing', async () => {
+    const now = Date.now()
+    await db.insert(schema.user_asset_objects).values({
+      user_id: 'ledger-user',
+      image_id: 'legacy-zero-byte',
+      bytes: 0,
+      content_type: 'image/png',
+      created_at: now,
+    })
+    const res = await synchronize('ledger-user', {
+      version: 0,
+      assets: [
+        {
+          id: 'asset-zero',
+          name: 'Corrupt',
+          imageId: 'legacy-zero-byte',
+          createdAt: now,
+          updatedAt: now,
+          lastUsedAt: now,
+        },
+      ],
+    })
+    expect(res.rejected).toEqual([
+      { collection: 'assets', id: 'asset-zero', reason: 'asset_image_missing' },
+    ])
   })
 
   it('prevents old-BFF sync binding and protects re-uploaded bytes when purgeDeletingUnreferencedMedia interleaves after claim', async () => {

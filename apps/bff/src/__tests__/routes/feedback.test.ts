@@ -70,6 +70,9 @@ setDurableMediaStoreForTesting({
       if (key.startsWith(prefix)) storedObjects.delete(key)
     }
   },
+  async deleteObject(key) {
+    storedObjects.delete(key)
+  },
   sign(key) {
     return `https://signed.example/${key}`
   },

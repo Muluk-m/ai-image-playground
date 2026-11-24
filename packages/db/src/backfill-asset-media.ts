@@ -536,64 +536,92 @@ async function runCliRefsBatch(
   batchSize: number,
 ): Promise<SingleBatchRow> {
   return withFkRetry(async () => {
-    const [row] =
+    const candidates =
       lastId === null
-        ? await client<SingleBatchRow[]>`
-            WITH batch AS (
-              SELECT crm.media_id, crm.user_id, crm.created_at
-              FROM cli_reference_media crm
-              JOIN media_objects m ON m.id = crm.media_id AND m.user_id = crm.user_id
-              WHERE NOT EXISTS (
+        ? await client<{ media_id: string; user_id: string; created_at: Date }[]>`
+            SELECT crm.media_id, crm.user_id, crm.created_at
+            FROM cli_reference_media crm
+            JOIN media_objects m
+              ON m.id = crm.media_id
+              AND m.user_id = crm.user_id
+              AND m.status <> 'deleting'
+            WHERE NOT EXISTS (
+              SELECT 1 FROM media_references r
+              WHERE r.user_id = crm.user_id
+                AND r.owner_kind = 'cli_reference'
+                AND r.owner_id = crm.media_id
+                AND r.media_id = crm.media_id
+            )
+            ORDER BY crm.media_id ASC
+            LIMIT ${batchSize}
+          `
+        : await client<{ media_id: string; user_id: string; created_at: Date }[]>`
+            SELECT crm.media_id, crm.user_id, crm.created_at
+            FROM cli_reference_media crm
+            JOIN media_objects m
+              ON m.id = crm.media_id
+              AND m.user_id = crm.user_id
+              AND m.status <> 'deleting'
+            WHERE crm.media_id > ${lastId}
+              AND NOT EXISTS (
                 SELECT 1 FROM media_references r
                 WHERE r.user_id = crm.user_id
                   AND r.owner_kind = 'cli_reference'
                   AND r.owner_id = crm.media_id
                   AND r.media_id = crm.media_id
               )
-              ORDER BY crm.media_id ASC
-              LIMIT ${batchSize}
-            ),
-            inserted AS (
-              INSERT INTO media_references (user_id, media_id, owner_kind, owner_id, created_at)
-              SELECT b.user_id, b.media_id, 'cli_reference', b.media_id, b.created_at
-              FROM batch b
-              ON CONFLICT DO NOTHING
-              RETURNING media_id
-            )
-            SELECT
-              (SELECT count(*)::int FROM batch) AS scanned,
-              (SELECT count(*)::int FROM inserted) AS written,
-              (SELECT max(media_id) FROM batch) AS last_id
+            ORDER BY crm.media_id ASC
+            LIMIT ${batchSize}
           `
-        : await client<SingleBatchRow[]>`
-            WITH batch AS (
-              SELECT crm.media_id, crm.user_id, crm.created_at
-              FROM cli_reference_media crm
-              JOIN media_objects m ON m.id = crm.media_id AND m.user_id = crm.user_id
-              WHERE crm.media_id > ${lastId}
-                AND NOT EXISTS (
-                  SELECT 1 FROM media_references r
-                  WHERE r.user_id = crm.user_id
-                    AND r.owner_kind = 'cli_reference'
-                    AND r.owner_id = crm.media_id
-                    AND r.media_id = crm.media_id
-                )
-              ORDER BY crm.media_id ASC
-              LIMIT ${batchSize}
-            ),
-            inserted AS (
-              INSERT INTO media_references (user_id, media_id, owner_kind, owner_id, created_at)
-              SELECT b.user_id, b.media_id, 'cli_reference', b.media_id, b.created_at
-              FROM batch b
-              ON CONFLICT DO NOTHING
-              RETURNING media_id
-            )
-            SELECT
-              (SELECT count(*)::int FROM batch) AS scanned,
-              (SELECT count(*)::int FROM inserted) AS written,
-              (SELECT max(media_id) FROM batch) AS last_id
-          `
-    return row ?? { scanned: 0, written: 0, last_id: null }
+    if (!candidates.length) return { scanned: 0, written: 0, last_id: null }
+
+    // 按用户分组并在 users FOR NO KEY UPDATE（与 lockMediaOwner 同锁）内复核状态后写入引用，
+    // 防止与并发 finishDeletingMedia 删除无引用 CLI 媒体产生竞态。
+    const byUser = new Map<string, string[]>()
+    for (const row of candidates) {
+      const list = byUser.get(row.user_id) ?? []
+      list.push(row.media_id)
+      byUser.set(row.user_id, list)
+    }
+    let written = 0
+    for (const [userId, mediaIds] of byUser) {
+      const count = await client.begin(async (tx) => {
+        const [owner] = await tx<{ id: string }[]>`
+          SELECT id FROM users WHERE id = ${userId} FOR NO KEY UPDATE
+        `
+        if (!owner) return 0
+        const [inserted] = await tx<{ written: number }[]>`
+          WITH inserted AS (
+            INSERT INTO media_references (user_id, media_id, owner_kind, owner_id, created_at)
+            SELECT crm.user_id, crm.media_id, 'cli_reference', crm.media_id, crm.created_at
+            FROM cli_reference_media crm
+            JOIN media_objects m
+              ON m.id = crm.media_id
+              AND m.user_id = crm.user_id
+              AND m.status <> 'deleting'
+            WHERE crm.user_id = ${userId}
+              AND crm.media_id = ANY(${mediaIds})
+              AND NOT EXISTS (
+                SELECT 1 FROM media_references r
+                WHERE r.user_id = crm.user_id
+                  AND r.owner_kind = 'cli_reference'
+                  AND r.owner_id = crm.media_id
+                  AND r.media_id = crm.media_id
+              )
+            ON CONFLICT DO NOTHING
+            RETURNING media_id
+          )
+          SELECT count(*)::int AS written FROM inserted
+        `
+        return inserted?.written ?? 0
+      })
+      written += count
+    }
+    return {
+      scanned: candidates.length,
+      written,
+      last_id: candidates.at(-1)?.media_id ?? null,
+    }
   })
 }
 
@@ -1106,7 +1134,7 @@ export async function verifyAssetMediaConsistency(
           LEFT JOIN media_objects m
             ON m.id = crm.media_id
             AND m.user_id = crm.user_id
-            AND m.status = 'ready'
+            AND m.status <> 'deleting'
           WHERE m.id IS NULL
             OR NOT EXISTS (
               SELECT 1 FROM media_references r
