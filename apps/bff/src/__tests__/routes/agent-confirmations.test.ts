@@ -457,6 +457,17 @@ describe('生成前确认', () => {
       await workerSettles(task!.id, { status: 'completed', resultPayload: TEST_RESULT_PAYLOAD }),
     ).toBe(true)
 
+    // 终态提交后监听已经落库写回结果卡，读路径无需再改写数据库。
+    const [persistedBeforeRead] = await db
+      .select({ content: schema.agent_messages.content })
+      .from(schema.agent_messages)
+      .where(eq(schema.agent_messages.id, pending.messageId))
+    expect(persistedBeforeRead!.content[0]).toMatchObject({
+      type: 'toolResult',
+      status: 'succeeded',
+      job: { taskId: task!.id, chargedCredits: 100 },
+    })
+
     const [settled] = toolCards(await readMessages(conversationId))
     expect(settled!.block).toMatchObject({
       status: 'succeeded',
@@ -464,7 +475,7 @@ describe('生成前确认', () => {
     })
     expect(toolCards(await readMessages(conversationId))[0]!.block.job?.chargedCredits).toBe(100)
 
-    // 旧版本留下的终局卡没有金额：只要任务账还在，历史读取就补上并持久化。
+    // 旧版本留下的终局卡没有金额：读路径纯内存投影出实扣，不产生 DB 写副作用。
     const [row] = await db
       .select({ content: schema.agent_messages.content })
       .from(schema.agent_messages)
@@ -480,6 +491,134 @@ describe('生成前确认', () => {
       })
       .where(eq(schema.agent_messages.id, pending.messageId))
     expect(toolCards(await readMessages(conversationId))[0]!.block.job?.chargedCredits).toBe(100)
+    const [afterRead] = await db
+      .select({ content: schema.agent_messages.content })
+      .from(schema.agent_messages)
+      .where(eq(schema.agent_messages.id, pending.messageId))
+    const cardAfterRead = afterRead!.content[0]
+    expect(
+      cardAfterRead?.type === 'toolResult' ? cardAfterRead.job?.chargedCredits : 'unexpected',
+    ).toBeUndefined()
+  })
+
+  it('同消息多任务并发结算通过 CAS 重试完整合并，且先终态后写卡的竞态窗口可即时落库', async () => {
+    const conversationId = await startConversation()
+    const turnId = 'turn-concurrent-cas'
+    const now = Date.now()
+    const taskA = 'task-cas-a'
+    const taskB = 'task-cas-b'
+    const taskFast = 'task-fast-race'
+    await db.insert(schema.tasks).values([
+      {
+        id: taskA,
+        provider: 'openai-compat',
+        model: 'gpt-image-2',
+        status: 'completed',
+        request_payload: { prompt: 'A', device_id: DEVICE },
+        result_payload: TEST_RESULT_PAYLOAD,
+        submitted_at: now,
+        completed_at: now,
+        agent_conversation_id: conversationId,
+        agent_turn_id: turnId,
+      },
+      {
+        id: taskB,
+        provider: 'openai-compat',
+        model: 'gpt-image-2',
+        status: 'completed',
+        request_payload: { prompt: 'B', device_id: DEVICE },
+        result_payload: TEST_RESULT_PAYLOAD,
+        submitted_at: now,
+        completed_at: now,
+        agent_conversation_id: conversationId,
+        agent_turn_id: turnId,
+      },
+      {
+        id: taskFast,
+        provider: 'openai-compat',
+        model: 'gpt-image-2',
+        status: 'completed',
+        request_payload: { prompt: 'Fast', device_id: DEVICE },
+        result_payload: TEST_RESULT_PAYLOAD,
+        submitted_at: now,
+        completed_at: now,
+        agent_conversation_id: conversationId,
+        agent_turn_id: 'turn-fast-race',
+      },
+    ])
+    const sharedMessageId = 'msg-shared-two-jobs'
+    await db.insert(schema.agent_messages).values({
+      conversation_id: conversationId,
+      id: sharedMessageId,
+      turn_id: turnId,
+      seq: 1,
+      role: 'assistant',
+      created_at: now,
+      content: [
+        {
+          type: 'toolResult',
+          toolCallId: 'call-a',
+          toolName: 'generateImage',
+          status: 'submitted',
+          title: 'A',
+          job: { taskId: taskA, media: 'image' },
+        },
+        {
+          type: 'toolResult',
+          toolCallId: 'call-b',
+          toolName: 'generateImage',
+          status: 'submitted',
+          title: 'B',
+          job: { taskId: taskB, media: 'image' },
+        },
+      ],
+    })
+    const { settleAgentJobsForTasks, settleSubmittedTaskIfTerminal } = await import(
+      '../../lib/agent/background-jobs'
+    )
+    await Promise.all([
+      settleAgentJobsForTasks(conversationId, [{ taskId: taskA, turnId }]),
+      settleAgentJobsForTasks(conversationId, [{ taskId: taskB, turnId }]),
+    ])
+    const [merged] = await db
+      .select({ content: schema.agent_messages.content })
+      .from(schema.agent_messages)
+      .where(eq(schema.agent_messages.id, sharedMessageId))
+    expect(merged!.content).toMatchObject([
+      { type: 'toolResult', toolCallId: 'call-a', status: 'succeeded' },
+      { type: 'toolResult', toolCallId: 'call-b', status: 'succeeded' },
+    ])
+
+    // 任务先到终态，之后才写结果卡：写卡后调 settleSubmittedTaskIfTerminal 立即补写落库。
+    const fastMessageId = 'msg-fast-race'
+    await db.insert(schema.agent_messages).values({
+      conversation_id: conversationId,
+      id: fastMessageId,
+      turn_id: 'turn-fast-race',
+      seq: 2,
+      role: 'assistant',
+      created_at: now,
+      content: [
+        {
+          type: 'toolResult',
+          toolCallId: 'call-fast',
+          toolName: 'generateImage',
+          status: 'submitted',
+          title: 'Fast',
+          job: { taskId: taskFast, media: 'image' },
+        },
+      ],
+    })
+    await settleSubmittedTaskIfTerminal(conversationId, taskFast, 'turn-fast-race')
+    const [fastPersisted] = await db
+      .select({ content: schema.agent_messages.content })
+      .from(schema.agent_messages)
+      .where(eq(schema.agent_messages.id, fastMessageId))
+    expect(fastPersisted!.content[0]).toMatchObject({
+      type: 'toolResult',
+      toolCallId: 'call-fast',
+      status: 'succeeded',
+    })
   })
 
   it('清理任务前取不到实扣时保留任务行供下次补账', async () => {
@@ -490,9 +629,6 @@ describe('生成前确认', () => {
     const pending = await pendingCard(conversationId)
     await confirm(conversationId, pending.messageId, WHITE_PROMPT)
     const [task] = await generationTasks(conversationId)
-    expect(
-      await workerSettles(task!.id, { status: 'completed', resultPayload: TEST_RESULT_PAYLOAD }),
-    ).toBe(true)
 
     const overlay = await loadPrivateBffOverlay()
     _setPrivateBffOverlayForTesting({
@@ -505,6 +641,9 @@ describe('生成前确认', () => {
       },
     })
     try {
+      expect(
+        await workerSettles(task!.id, { status: 'completed', resultPayload: TEST_RESULT_PAYLOAD }),
+      ).toBe(true)
       const { purgeOldTasks } = await import('../../db/maintenance')
       await purgeOldTasks(-1)
       expect(

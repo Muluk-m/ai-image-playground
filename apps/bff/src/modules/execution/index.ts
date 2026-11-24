@@ -28,7 +28,9 @@ export {
   type ExecutionTaskUsage,
   type ExecutionTransaction,
   emitTaskFinished,
+  emitTaskFinishedAfterCommit,
   emitTasksCancelled,
+  emitTasksCancelledAfterCommit,
   type GenerationMediaLink,
   listTaskLifecycleListenerIds,
   MissingTaskLifecycleListenerError,
@@ -73,7 +75,9 @@ export {
   type TaskSubmissionPlugin,
 } from './task-submission-plugins'
 export {
+  type CancelTasksOptions,
   cancelTasks,
+  type ExternalExecutionTransaction,
   finishTask,
   gptSettledUsage,
   heldBy,

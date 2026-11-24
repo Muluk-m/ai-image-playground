@@ -19,6 +19,9 @@ export interface ExecutionTaskUsage {
 
 export interface TaskFinishedEvent {
   readonly taskId: string
+  readonly taskKind?: string
+  readonly agentConversationId?: string | null
+  readonly agentTurnId?: string | null
   readonly userId: string | null
   readonly model: string
   readonly status: TerminalTaskStatus
@@ -34,6 +37,9 @@ export interface TaskFinishedEvent {
 
 export interface CancelledTaskRecord {
   readonly taskId: string
+  readonly taskKind?: string
+  readonly agentConversationId?: string | null
+  readonly agentTurnId?: string | null
   readonly userId: string | null
   readonly meteringMode: 'credits' | 'none'
   readonly upstreamInvocationCount: number
@@ -69,6 +75,12 @@ export interface TaskLifecycleListener {
   prepare?(): Promise<void>
   onTaskFinished?(tx: ExecutionTransaction, event: TaskFinishedEvent): Promise<void>
   onTasksCancelled?(tx: ExecutionTransaction, event: TasksCancelledEvent): Promise<void>
+  /**
+   * 终态事务提交后执行的异步投影钩子（例如把任务结局与已提交实扣写回 `agent_messages`）。
+   * 异常会被捕获隔离，绝不反向影响已经提交的任务终态。
+   */
+  afterTaskFinished?(event: TaskFinishedEvent): Promise<void>
+  afterTasksCancelled?(event: TasksCancelledEvent): Promise<void>
 }
 
 const listenersById = new Map<string, TaskLifecycleListener>()
@@ -137,6 +149,48 @@ export async function emitTasksCancelled(
 ): Promise<void> {
   for (const listener of [...listenersByStage[stage]]) {
     await listener.onTasksCancelled?.(tx, event)
+  }
+}
+
+const STAGE_ORDER: readonly TaskLifecycleStage[] = [
+  'before-settlement',
+  'settlement',
+  'after-settlement',
+]
+
+/**
+ * 终态事务提交之后按阶段顺序派发提交后投影钩子。
+ * 单个监听器的异常由调用方回调记录并隔离，不阻断后续监听器或破坏已提交的终态结果。
+ */
+export async function emitTaskFinishedAfterCommit(
+  event: TaskFinishedEvent,
+  onError?: (listenerId: string, error: unknown) => void,
+): Promise<void> {
+  for (const stage of STAGE_ORDER) {
+    for (const listener of [...listenersByStage[stage]]) {
+      if (!listener.afterTaskFinished) continue
+      try {
+        await listener.afterTaskFinished(event)
+      } catch (error) {
+        onError?.(listener.id, error)
+      }
+    }
+  }
+}
+
+export async function emitTasksCancelledAfterCommit(
+  event: TasksCancelledEvent,
+  onError?: (listenerId: string, error: unknown) => void,
+): Promise<void> {
+  for (const stage of STAGE_ORDER) {
+    for (const listener of [...listenersByStage[stage]]) {
+      if (!listener.afterTasksCancelled) continue
+      try {
+        await listener.afterTasksCancelled(event)
+      } catch (error) {
+        onError?.(listener.id, error)
+      }
+    }
   }
 }
 

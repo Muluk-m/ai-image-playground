@@ -101,6 +101,11 @@ const GIF_DEFAULT_FRAMES = GPT_IMAGE_26_GIF_DEFAULT_FRAMES
 const GIF_DEFAULT_SIZE = GPT_IMAGE_26_GIF_DEFAULT_SIZE
 const OUTPUT_FORMAT_VALUES = ['image', 'png', 'gif', 'svg'] as const
 
+/** 请求的格式里只有 GIF / SVG 要特定模型；省略、image、png 都是普通图片，非法值交给校验报错。 */
+function specialOutputFormat(value: string | undefined): 'gif' | 'svg' | undefined {
+  return value === 'gif' || value === 'svg' ? value : undefined
+}
+
 /**
  * 与网站一致：只有 GPT Image 2.6 能直出 GIF / SVG。直连接不了单时仍列出，
  * 提交会降级成静态图，能力清单用 `degraded` 标明。
@@ -691,20 +696,27 @@ async function submittableTiers(tx: BffTransaction, userId: string, model: CliIm
 
 /**
  * 不指定模型时提交的模型：该账号能提交的第一个，与能力清单的 `default_model` 同一个判断。
+ * 要了 GIF / SVG 时只在能直出该格式的模型（能力清单 `output_formats`）里挑。
  * 一个都提交不了时退回清单第一个，由后续校验给出明确的拒绝原因。
  */
 export async function defaultImageModelId(
   userId: string,
   models: readonly CliImageModel[],
+  outputFormat?: string,
 ): Promise<string | undefined> {
   if (models.length === 0) return undefined
+  const special = specialOutputFormat(outputFormat)
+  const candidates = special
+    ? models.filter((model) => outputFormatsFor(model.id).includes(special))
+    : models
   const found = await db.transaction(async (tx) => {
-    for (const model of models) {
+    for (const model of candidates) {
       if ((await submittableTiers(tx, userId, model)).tiers.length) return model.id
     }
     return undefined
   })
-  return found ?? models[0]!.id
+  // 没有能提交的：退回能出该格式的第一个，让后续校验说出它为什么不可用。
+  return found ?? candidates[0]?.id ?? models[0]!.id
 }
 
 /** 账号相关的能力清单：只列该账号能提交的档位与画质，一个档位都提交不了的模型不列。 */
@@ -719,7 +731,7 @@ export async function imageCapabilities(userId: string) {
       const image26 = isGptImage26Model(model.id)
       const image26Direct = image26 && gptImage26DirectListed()
       const { tiers, memberTier } = await submittableTiers(tx, userId, model)
-      // 与 defaultImageModelId 同一判断：第一个列出的就是不指定模型时提交的那个。
+      // 与 defaultImageModelId 同一判断：第一个列出的就是不指定模型、要普通图片时提交的那个。
       if (tiers.length === 0) continue
       const quote = await quoteCliCredits(tx, hooks, userId, model.id, 1)
       listed.push({

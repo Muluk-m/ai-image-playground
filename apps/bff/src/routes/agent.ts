@@ -53,11 +53,15 @@ import {
   readUserMessageContent,
 } from '../lib/agent/conversation-service'
 import {
+  AGENT_CONVERSATIONS_MAX_LIMIT,
+  AGENT_MESSAGES_MAX_LIMIT,
   type AgentOwner,
   createAgentConversation,
   findAgentConversation,
-  listAgentConversations,
+  listAgentConversationsPage,
   listAgentMessages,
+  listAgentMessagesPage,
+  parseAgentConversationCursor,
 } from '../lib/agent/conversations'
 import {
   isSealLease,
@@ -404,6 +408,17 @@ async function conversationBusy(conversationId: string): Promise<boolean> {
   return !(await agentTurnSettled(conversationId, execution.turn_id))
 }
 
+const MAX_PG_INT4 = 2_147_483_647
+
+function parsePositiveIntQuery(raw: string | undefined, max?: number): number | undefined | null {
+  if (raw === undefined) return undefined
+  if (!/^[1-9]\d*$/.test(raw)) return null
+  const value = Number(raw)
+  if (!Number.isSafeInteger(value) || value <= 0) return null
+  if (max !== undefined && value > max) return null
+  return value
+}
+
 export const agentRoutes = new Elysia()
   .use(agentBatchRoutes)
   .use(badRequestOnValidation())
@@ -420,10 +435,26 @@ export const agentRoutes = new Elysia()
   )
   .get(
     '/api/agent/conversations/:id/messages',
-    async ({ params, headers, authUser, status, request }) => {
+    async ({ params, headers, query, authUser, status, request }) => {
+      const limit = parsePositiveIntQuery(query.limit, AGENT_MESSAGES_MAX_LIMIT)
+      const beforeSeq = parsePositiveIntQuery(query.beforeSeq, MAX_PG_INT4)
+      if (limit === null || beforeSeq === null) {
+        return status(400, { error: 'invalid_pagination' })
+      }
       const owner = ownerOf(authUser, headers[DEVICE_ID_HEADER])
       const conversation = await findAgentConversation(params.id, owner)
       if (!conversation) return status(404, NOT_FOUND)
+      // 向前翻历史页只需单次按 (conversation_id, seq) 索引拉取老消息，不重查整份轮摘要/队列/执行态，避免长会话翻页总成本退化为平方级。
+      if (beforeSeq !== undefined) {
+        const page = await listAgentMessagesPage(conversation.id, owner, { limit, beforeSeq })
+        const snapshot: AgentConversationSnapshot = {
+          messages: page.messages,
+          turns: [],
+          activeTurn: null,
+          nextBeforeSeq: page.nextBeforeSeq,
+        }
+        return snapshot
+      }
       const forwarded = await forwardActiveTurn(conversation.id, request)
       if (forwarded) return forwarded
       const local = runningTurn(conversation.id)
@@ -442,24 +473,32 @@ export const agentRoutes = new Elysia()
       const cursor = remote
         ? undefined
         : (liveBase ?? (await lastConversationEventSeq(conversation.id)))
-      const [messages, turns, queue] = await Promise.all([
-        listAgentMessages(conversation.id, owner),
+      const [page, turns, queue] = await Promise.all([
+        listAgentMessagesPage(conversation.id, owner, { limit }),
         listAgentTurnSummaries(conversation.id),
         queuedAgentMessages(conversation.id),
       ])
       // 没有谁在跑：队里还有人等着就接着开轮，客户端再看一次快照就挂得上。
       if (!execution) await pickUpIdleConversation(conversation.id, queue)
       const snapshot: AgentConversationSnapshot = {
-        messages,
+        messages: page.messages,
         turns,
         // 刷新后的页面据此挂回仍在进行的那一轮。
         activeTurn: active ? { turnId: active.turnId } : null,
         ...(cursor === undefined ? {} : { cursor }),
         queue,
+        nextBeforeSeq: page.nextBeforeSeq,
       }
       return snapshot
     },
-    { params: t.Object({ id: t.String() }), headers: deviceIdHeaderSchema() },
+    {
+      params: t.Object({ id: t.String() }),
+      headers: deviceIdHeaderSchema(),
+      query: t.Object({
+        limit: t.Optional(t.String({ maxLength: 16 })),
+        beforeSeq: t.Optional(t.String({ maxLength: 24 })),
+      }),
+    },
   )
   // 自建分割服务的状态（部署后核对用）；`?probe=1` 再量一次真实往返，至多每 30 秒一次。
   .get(
@@ -1086,10 +1125,25 @@ export const agentRoutes = new Elysia()
   )
   .get(
     '/api/agent/conversations',
-    async ({ headers, authUser }) => ({
-      conversations: await listAgentConversations(ownerOf(authUser, headers[DEVICE_ID_HEADER])),
-    }),
-    { headers: deviceIdHeaderSchema() },
+    async ({ headers, query, authUser, status }) => {
+      const limit = parsePositiveIntQuery(query.limit, AGENT_CONVERSATIONS_MAX_LIMIT)
+      const cursor =
+        query.cursor === undefined ? undefined : parseAgentConversationCursor(query.cursor)
+      if (limit === null || cursor === null) {
+        return status(400, { error: 'invalid_pagination' })
+      }
+      return listAgentConversationsPage(ownerOf(authUser, headers[DEVICE_ID_HEADER]), {
+        limit,
+        cursor,
+      })
+    },
+    {
+      headers: deviceIdHeaderSchema(),
+      query: t.Object({
+        limit: t.Optional(t.String({ maxLength: 16 })),
+        cursor: t.Optional(t.String({ maxLength: 160 })),
+      }),
+    },
   )
   .delete(
     '/api/agent/conversations/:id',

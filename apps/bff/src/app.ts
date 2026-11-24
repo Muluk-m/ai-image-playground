@@ -44,7 +44,6 @@ import { internalOpsRoutes } from './routes/internal-ops'
 import { internalTaskReconciliationRoutes } from './routes/internal-task-reconciliation'
 import { internalUpstreamSecretRoutes } from './routes/internal-upstream-secrets'
 import { internalUserRoutes } from './routes/internal-users'
-import { lookRoutes } from './routes/looks'
 import { mediaRoutes } from './routes/media'
 import { oauthRoutes } from './routes/oauth'
 import { productionRoutes } from './routes/production'
@@ -299,7 +298,6 @@ export const app = new Elysia()
   .use(syncRoutes)
   .use(projectRoutes)
   .use(canvasSyncRoutes)
-  .use(lookRoutes)
   .use(mediaRoutes)
   .use(publicInspirationRoutes)
   .use(publicAnnouncementRoutes)

@@ -196,6 +196,6 @@ describe('overview today window', () => {
           new Request('http://localhost/api/overview/errors', { headers: { cookie } }),
         )
       ).status,
-    ).toBe(200)
+    ).toBe(404)
   })
 })

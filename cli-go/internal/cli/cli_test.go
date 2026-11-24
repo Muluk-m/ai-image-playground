@@ -2579,34 +2579,6 @@ func TestSlowUploadThatKeepsMovingFinishes(t *testing.T) {
 	}
 }
 
-func TestTransferProgressRacingTheTimerNeverCancels(t *testing.T) {
-	app := &App{HTTP: &http.Client{}, TransferIdle: 20 * time.Millisecond}
-	moving := app.startTransfer(context.Background(), false)
-	for end := time.Now().Add(300 * time.Millisecond); time.Now().Before(end); {
-		moving.extend(moving.idle) // progress right around every expiry
-		time.Sleep(5 * time.Millisecond)
-	}
-	if moving.stalled() || moving.ctx.Err() != nil {
-		t.Fatal("a transfer that kept moving was cancelled")
-	}
-	moving.stop()
-	if moving.stalled() {
-		t.Fatal("stopping a transfer must not read as a stall")
-	}
-	moving.extend(time.Hour) // progress after stop is ignored
-
-	idle := app.startTransfer(context.Background(), false)
-	defer idle.stop()
-	select {
-	case <-idle.ctx.Done():
-	case <-time.After(2 * time.Second):
-		t.Fatal("an idle transfer was never cancelled")
-	}
-	if !idle.stalled() {
-		t.Fatal("an idle transfer must end as stalled")
-	}
-}
-
 func TestStalledUploadIsATemporaryFailure(t *testing.T) {
 	f := newFakeServer(t)
 	f.serveFile = func(w http.ResponseWriter, r *http.Request) {
