@@ -79,6 +79,63 @@ describe('agentClient 的设备标识传输位置', () => {
     expect(calls[0]!.url).toBe('https://bff.test/api/agent/conversations/conv-1/messages')
     expect(headerOf(calls[0]!.init, DEVICE_ID_HEADER)).toBe(DEVICE)
   })
+
+  it('列会话跟随 nextCursor 翻页并去重，首请求不带多余查询参数', async () => {
+    const calls: Call[] = []
+    const fetcher = (url: string, init?: RequestInit) => {
+      calls.push({ url, init })
+      if (calls.length === 1) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              conversations: [
+                { id: 'c-2', title: '二', createdAt: 2, updatedAt: 200 },
+                { id: 'c-1', title: '一', createdAt: 1, updatedAt: 100 },
+              ],
+              nextCursor: '100:c-1',
+            }),
+            { status: 200 },
+          ),
+        )
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            conversations: [
+              { id: 'c-1', title: '一', createdAt: 1, updatedAt: 100 },
+              { id: 'c-0', title: '零', createdAt: 0, updatedAt: 50 },
+            ],
+            nextCursor: null,
+          }),
+          { status: 200 },
+        ),
+      )
+    }
+
+    const list = await fetchConversations(fetcher)
+
+    expect(calls.map((call) => call.url)).toEqual([
+      'https://bff.test/api/agent/conversations',
+      'https://bff.test/api/agent/conversations?cursor=100%3Ac-1',
+    ])
+    expect(list.map((item) => item.id)).toEqual(['c-2', 'c-1', 'c-0'])
+  })
+
+  it('读消息支持显式传入 limit 与 beforeSeq 游标参数', async () => {
+    const { calls, fetcher } = recordingFetcher({
+      messages: [],
+      turns: [],
+      activeTurn: null,
+      nextBeforeSeq: 12,
+    })
+
+    const state = await fetchMessages('conv-1', fetcher, undefined, { limit: 50, beforeSeq: 62 })
+
+    expect(calls[0]!.url).toBe(
+      'https://bff.test/api/agent/conversations/conv-1/messages?limit=50&beforeSeq=62',
+    )
+    expect(state.nextBeforeSeq).toBe(12)
+  })
 })
 
 describe('插话请求', () => {

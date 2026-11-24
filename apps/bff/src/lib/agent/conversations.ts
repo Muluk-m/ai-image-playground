@@ -7,7 +7,21 @@ import type {
   AgentToolCallSnapshot,
 } from '@image-playground/shared'
 import { agentConversationTitle, restoreQueuePrompt } from '@image-playground/shared'
-import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, type SQL, sql } from 'drizzle-orm'
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  lte,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
 import { projectSettledAgentJobs, settleAgentJobs } from './background-jobs'
@@ -103,9 +117,60 @@ export async function findAgentConversation(
   return row ? conversationView(row) : null
 }
 
-export async function listAgentConversations(owner: AgentOwner): Promise<AgentConversationView[]> {
+export const AGENT_CONVERSATIONS_DEFAULT_LIMIT = 200
+export const AGENT_CONVERSATIONS_MAX_LIMIT = 200
+export const AGENT_MESSAGES_DEFAULT_LIMIT = 500
+export const AGENT_MESSAGES_MAX_LIMIT = 500
+
+export interface AgentConversationCursor {
+  readonly updatedAt: number
+  readonly id: string
+}
+
+export interface AgentConversationsPage {
+  readonly conversations: AgentConversationView[]
+  readonly nextCursor: string | null
+}
+
+export interface AgentMessagesPage {
+  readonly messages: AgentMessageView[]
+  readonly nextBeforeSeq: number | null
+}
+
+export function encodeAgentConversationCursor(cursor: AgentConversationCursor): string {
+  return `${cursor.updatedAt}:${cursor.id}`
+}
+
+export function parseAgentConversationCursor(raw: string): AgentConversationCursor | null {
+  const sep = raw.indexOf(':')
+  if (sep <= 0 || sep === raw.length - 1) return null
+  const updatedAtRaw = raw.slice(0, sep)
+  const id = raw.slice(sep + 1)
+  if (!/^\d+$/.test(updatedAtRaw) || id.length > 128 || /\s/.test(id)) return null
+  const updatedAt = Number(updatedAtRaw)
+  if (!Number.isSafeInteger(updatedAt)) return null
+  return { updatedAt, id }
+}
+
+export async function listAgentConversationsPage(
+  owner: AgentOwner,
+  options: { readonly limit?: number; readonly cursor?: AgentConversationCursor } = {},
+): Promise<AgentConversationsPage> {
+  const limit = Math.min(
+    Math.max(1, Math.trunc(options.limit ?? AGENT_CONVERSATIONS_DEFAULT_LIMIT)),
+    AGENT_CONVERSATIONS_MAX_LIMIT,
+  )
+  const cursorPredicate = options.cursor
+    ? or(
+        lt(schema.agent_conversations.updated_at, options.cursor.updatedAt),
+        and(
+          eq(schema.agent_conversations.updated_at, options.cursor.updatedAt),
+          lt(schema.agent_conversations.id, options.cursor.id),
+        ),
+      )
+    : undefined
   // 显式列：整行会把会话上的压缩摘要一起拉回来，那是服务端私有状态，列表用不到。
-  const rows = await db
+  const fetched = await db
     .select({
       id: schema.agent_conversations.id,
       title: schema.agent_conversations.title,
@@ -113,8 +178,16 @@ export async function listAgentConversations(owner: AgentOwner): Promise<AgentCo
       updated_at: schema.agent_conversations.updated_at,
     })
     .from(schema.agent_conversations)
-    .where(and(ownerWhere(owner), isNull(schema.agent_conversations.deleted_at)))
-    .orderBy(desc(schema.agent_conversations.updated_at))
+    .where(and(ownerWhere(owner), isNull(schema.agent_conversations.deleted_at), cursorPredicate))
+    .orderBy(desc(schema.agent_conversations.updated_at), desc(schema.agent_conversations.id))
+    .limit(limit + 1)
+  const hasMore = fetched.length > limit
+  const rows = hasMore ? fetched.slice(0, limit) : fetched
+  const last = rows.at(-1)
+  const nextCursor =
+    hasMore && last
+      ? encodeAgentConversationCursor({ updatedAt: last.updated_at, id: last.id })
+      : null
   // Older conversations may have missed first-turn naming. Recover a display title from
   // their first user message in one query; empty drafts and existing titles stay intact.
   const unnamed = rows.filter((row) => !row.title.trim()).map((row) => row.id)
@@ -146,7 +219,7 @@ export async function listAgentConversations(owner: AgentOwner): Promise<AgentCo
     owner,
     rows.map((row) => row.id),
   )
-  return rows.map((row) => {
+  const conversations = rows.map((row) => {
     const view = conversationView({
       ...row,
       title: row.title.trim() ? row.title : (recovered.get(row.id) ?? row.title),
@@ -154,6 +227,11 @@ export async function listAgentConversations(owner: AgentOwner): Promise<AgentCo
     const coverMediaId = covers.get(row.id)
     return coverMediaId ? { ...view, coverMediaId } : view
   })
+  return { conversations, nextCursor }
+}
+
+export async function listAgentConversations(owner: AgentOwner): Promise<AgentConversationView[]> {
+  return (await listAgentConversationsPage(owner)).conversations
 }
 
 export async function setAgentConversationTitle(
@@ -324,38 +402,16 @@ export async function settleAgentConversationJobs(conversationId: string): Promi
   await settleAgentJobs(conversationId, rows.map(messageView), { requireCharges: true })
 }
 
-/**
- * 三条读路径共用的一条：`scope` 划出这一次要读的那一段，之外的部分三边完全一样。
- * 归属只长在会话表上——消息表没有归属列，不 join 过去就认不出这一段该不该交给这个调用方。
- */
-async function readAgentMessages(
+async function hydrateAgentMessages(
   conversationId: string,
-  owner: AgentOwner,
-  scope?: SQL,
+  rows: readonly {
+    id: string
+    turn_id: string
+    role: AgentMessageRole
+    content: AgentContentBlock[]
+    created_at: number
+  }[],
 ): Promise<AgentMessageView[]> {
-  const rows = await db
-    .select({
-      id: schema.agent_messages.id,
-      turn_id: schema.agent_messages.turn_id,
-      role: schema.agent_messages.role,
-      content: schema.agent_messages.content,
-      created_at: schema.agent_messages.created_at,
-    })
-    .from(schema.agent_messages)
-    .innerJoin(
-      schema.agent_conversations,
-      eq(schema.agent_conversations.id, schema.agent_messages.conversation_id),
-    )
-    .where(
-      and(
-        eq(schema.agent_messages.conversation_id, conversationId),
-        ownerWhere(owner),
-        isNull(schema.agent_messages.deleted_at),
-        isNull(schema.agent_conversations.deleted_at),
-        scope,
-      ),
-    )
-    .orderBy(asc(schema.agent_messages.seq))
   // 终态由 TaskLifecycleBus 提交后监听落库；读路径只做纯内存只读投影，不触发 DB 写入。
   const messages = await projectSettledAgentJobs(conversationId, rows.map(messageView))
   const taskIds = [
@@ -400,7 +456,91 @@ async function readAgentMessages(
   )
 }
 
-/** 面板要的是整段历史：会话快照与任务列表里翻得到的每一条都得在，这里不按压缩收窄。 */
+/**
+ * 三条读路径共用的一条：`scope` 划出这一次要读的那一段，之外的部分三边完全一样。
+ * 归属只长在会话表上——消息表没有归属列，不 join 过去就认不出这一段该不该交给这个调用方。
+ */
+async function readAgentMessages(
+  conversationId: string,
+  owner: AgentOwner,
+  scope?: SQL,
+): Promise<AgentMessageView[]> {
+  const rows = await db
+    .select({
+      id: schema.agent_messages.id,
+      turn_id: schema.agent_messages.turn_id,
+      role: schema.agent_messages.role,
+      content: schema.agent_messages.content,
+      created_at: schema.agent_messages.created_at,
+    })
+    .from(schema.agent_messages)
+    .innerJoin(
+      schema.agent_conversations,
+      eq(schema.agent_conversations.id, schema.agent_messages.conversation_id),
+    )
+    .where(
+      and(
+        eq(schema.agent_messages.conversation_id, conversationId),
+        ownerWhere(owner),
+        isNull(schema.agent_messages.deleted_at),
+        isNull(schema.agent_conversations.deleted_at),
+        scope,
+      ),
+    )
+    .orderBy(asc(schema.agent_messages.seq))
+  return hydrateAgentMessages(conversationId, rows)
+}
+
+/**
+ * 面板消息游标分页读取：按 `(conversation_id, seq)` 索引倒序截取最近 `limit` 条再翻正为升序，
+ * 有更早历史时返回 `nextBeforeSeq`（当前页最旧消息的 `seq`），避免超长会话单次无上限拉爆内存。
+ */
+export async function listAgentMessagesPage(
+  conversationId: string,
+  owner: AgentOwner,
+  options: { readonly limit?: number; readonly beforeSeq?: number } = {},
+): Promise<AgentMessagesPage> {
+  const limit = Math.min(
+    Math.max(1, Math.trunc(options.limit ?? AGENT_MESSAGES_DEFAULT_LIMIT)),
+    AGENT_MESSAGES_MAX_LIMIT,
+  )
+  const fetched = await db
+    .select({
+      seq: schema.agent_messages.seq,
+      id: schema.agent_messages.id,
+      turn_id: schema.agent_messages.turn_id,
+      role: schema.agent_messages.role,
+      content: schema.agent_messages.content,
+      created_at: schema.agent_messages.created_at,
+    })
+    .from(schema.agent_messages)
+    .innerJoin(
+      schema.agent_conversations,
+      eq(schema.agent_conversations.id, schema.agent_messages.conversation_id),
+    )
+    .where(
+      and(
+        eq(schema.agent_messages.conversation_id, conversationId),
+        ownerWhere(owner),
+        isNull(schema.agent_messages.deleted_at),
+        isNull(schema.agent_conversations.deleted_at),
+        options.beforeSeq !== undefined
+          ? lt(schema.agent_messages.seq, options.beforeSeq)
+          : undefined,
+      ),
+    )
+    .orderBy(desc(schema.agent_messages.seq))
+    .limit(limit + 1)
+  const hasMore = fetched.length > limit
+  const pageRows = (hasMore ? fetched.slice(0, limit) : fetched).reverse()
+  const nextBeforeSeq = hasMore && pageRows[0] ? pageRows[0].seq : null
+  const hydrated = await hydrateAgentMessages(conversationId, pageRows)
+  const messages =
+    owner.kind === 'user' ? await withArtifactMedia(owner.userId, hydrated) : hydrated
+  return { messages, nextBeforeSeq }
+}
+
+/** 内部全量消息读取（任务列表、生产草稿谱系等），面板 HTTP 端点走 {@link listAgentMessagesPage}。 */
 export async function listAgentMessages(
   conversationId: string,
   owner: AgentOwner,

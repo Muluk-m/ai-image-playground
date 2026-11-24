@@ -163,15 +163,38 @@ export async function createConversation(
   return ((await response.json()) as { conversation: AgentConversationView }).conversation
 }
 
+const MAX_CONVERSATION_PAGES = 25
+
 export async function fetchConversations(
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<AgentConversationView[]> {
-  const response = await fetcher(url('/conversations'), {
-    headers: deviceHeaders(),
-    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
-  })
-  if (!response.ok) throw await requestError(response)
-  return ((await response.json()) as { conversations: AgentConversationView[] }).conversations
+  const seen = new Set<string>()
+  const collected: AgentConversationView[] = []
+  let cursor: string | null = null
+  for (let page = 0; page < MAX_CONVERSATION_PAGES; page += 1) {
+    const endpoint =
+      cursor === null
+        ? url('/conversations')
+        : url(`/conversations?cursor=${encodeURIComponent(cursor)}`)
+    const response = await fetcher(endpoint, {
+      headers: deviceHeaders(),
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    })
+    if (!response.ok) throw await requestError(response)
+    const body = (await response.json()) as {
+      conversations: AgentConversationView[]
+      nextCursor?: string | null
+    }
+    for (const conversation of body.conversations) {
+      if (seen.has(conversation.id)) continue
+      seen.add(conversation.id)
+      collected.push(conversation)
+    }
+    const next = typeof body.nextCursor === 'string' && body.nextCursor ? body.nextCursor : null
+    if (!next || next === cursor) break
+    cursor = next
+  }
+  return collected
 }
 
 export async function removeConversation(
@@ -193,18 +216,30 @@ export interface AgentConversationState {
   readonly cursor?: number
   /** 还排着的消息；老服务端没有这一项。 */
   readonly queue?: readonly AgentQueuedMessageView[]
+  /** 还有更早的历史消息时给出当前页最旧一条的序号；null 表示已到开头。 */
+  readonly nextBeforeSeq?: number | null
+}
+
+export interface AgentMessagesPageOptions {
+  readonly limit?: number
+  readonly beforeSeq?: number
 }
 
 export async function fetchMessages(
   conversationId: string,
   fetcher: Fetcher = authenticatedBffFetch,
   cancellation?: AbortSignal,
+  page?: AgentMessagesPageOptions,
 ): Promise<AgentConversationState> {
   const timeout = AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS)
   const signal = cancellation ? AbortSignal.any([cancellation, timeout]) : timeout
   signal.throwIfAborted()
+  const params = new URLSearchParams()
+  if (page?.limit !== undefined) params.set('limit', String(page.limit))
+  if (page?.beforeSeq !== undefined) params.set('beforeSeq', String(page.beforeSeq))
+  const suffix = params.size > 0 ? `?${params.toString()}` : ''
   const response = await withSignal(
-    fetcher(url(`/conversations/${conversationId}/messages`), {
+    fetcher(url(`/conversations/${conversationId}/messages${suffix}`), {
       headers: deviceHeaders(),
       signal,
       ...(cancellation ? { priority: 'low' as const } : {}),

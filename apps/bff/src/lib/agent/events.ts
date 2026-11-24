@@ -7,7 +7,7 @@ import { and, asc, desc, eq, gt, inArray, lt, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { log } from '../logger'
 import { claimConversation, releaseConversation } from './execution'
-import { agentResumeQueued, enqueueAgentResume } from './inbox'
+import { enqueueAgentResume, queuedAgentResumeTurnIds } from './inbox'
 
 /** 落库攒批的窗口。进程被强杀时最多丢这么久的事件，实时那条路走内存缓冲不受影响。 */
 const PERSIST_DEBOUNCE_MS = 50
@@ -363,6 +363,10 @@ async function writeSeals(conversationId: string, turns: readonly UnterminatedTu
         )
     ).map((row) => [row.turn_id, row]),
   )
+  const failedSummaryTurnIds = turns
+    .filter((turn) => summaries.get(turn.turnId)?.stop_reason === 'failed')
+    .map((turn) => turn.turnId)
+  const queuedResumes = await queuedAgentResumeTurnIds(conversationId, failedSummaryTurnIds)
   for (const turn of turns) {
     const summary = summaries.get(turn.turnId)
     const durationMs = summary?.duration_ms ?? Math.max(turn.lastAt - turn.firstAt, 0)
@@ -376,7 +380,7 @@ async function writeSeals(conversationId: string, turns: readonly UnterminatedTu
     // 排上了续跑的轮按「已中断」收尾：界面凭这个错误码不把它报成失败（ADR 0006）。页脚先落、
     // 终帧后补的那种（进程死在两步之间）照收件箱里有没有它的续跑认。
     const interrupted = summary
-      ? summary.stop_reason === 'failed' && (await agentResumeQueued(conversationId, turn.turnId))
+      ? summary.stop_reason === 'failed' && queuedResumes.has(turn.turnId)
       : recovery?.resume != null
     const event: AgentTurnEndEvent = summary
       ? {
