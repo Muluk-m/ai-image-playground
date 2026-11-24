@@ -5,7 +5,7 @@ import {
 } from '@earendil-works/pi-ai'
 import { and, eq, sql } from 'drizzle-orm'
 import { db, schema } from '../db/client'
-import { finishTask, heldBy } from '../modules/execution'
+import { finishTask, heldBy, syncTaskPayloads } from '../modules/execution'
 import { type ChatTaskPricing, chatTaskPricing, chatTurnsBilled } from './agent/chat-task'
 import { compactionSettings } from './agent/compaction-settings'
 import { agentStreamFn } from './agent/model'
@@ -170,6 +170,7 @@ export async function generateCanvasText(
         execution_token: token,
         lease_expires_at: now + 120_000,
       })
+      await syncTaskPayloads(tx, [id])
       if (unmetered && userId && hooks.consumeUnmeteredQuota) {
         const quota = await hooks.consumeUnmeteredQuota({
           tx,

@@ -1,7 +1,7 @@
 import type { AgentTurnCost, AgentTurnUsage } from '@image-playground/shared'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import { finishTask, heldBy } from '../../modules/execution'
+import { finishTask, heldBy, syncTaskPayloads } from '../../modules/execution'
 import {
   type BffTransaction,
   type ChatPricing,
@@ -156,6 +156,7 @@ async function insertChatTask(
     execution_token: agentExecutionToken(input.taskId),
     lease_expires_at: now + AGENT_EXECUTION_LEASE_MS,
   })
+  await syncTaskPayloads(tx, [input.taskId])
 }
 
 /** 工具任务各自独立计费，只用轮 id 关联，所以本轮的账要从任务表反查再归集。 */

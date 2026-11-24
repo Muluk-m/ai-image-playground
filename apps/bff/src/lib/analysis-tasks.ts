@@ -10,7 +10,7 @@ import { and, asc, eq, gt, inArray, isNull, lte } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { AgentToolError } from '../modules/agent/contracts'
-import { heldBy } from '../modules/execution'
+import { heldBy, syncTaskPayloads } from '../modules/execution'
 import { compactionSettings } from './agent/compaction-settings'
 import { resolveOwnedMediaImages } from './agent/images'
 import {
@@ -268,6 +268,7 @@ export async function reserveAnalysisTask(
     agent_turn_id: null,
     submitted_at: now,
   })
+  await syncTaskPayloads(tx, [input.taskId])
   if (accountUnmetered && taskHooks.consumeUnmeteredQuota) {
     const quota = await taskHooks.consumeUnmeteredQuota({
       tx,
@@ -499,6 +500,7 @@ export async function finalizeAnalysisTask(
         error_message: status === 'failed' ? '分析未取得覆盖完整输入的有效结论' : null,
       })
       .where(eq(schema.tasks.id, taskId))
+    await syncTaskPayloads(tx, [taskId])
     await tx
       .update(schema.analysis_tasks)
       .set({

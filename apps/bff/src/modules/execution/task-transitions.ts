@@ -27,6 +27,7 @@ import {
   type TasksCancelledEvent,
   type TerminalTaskStatus,
 } from './task-lifecycle-bus'
+import { syncTaskPayloads } from './task-payloads'
 
 /**
  * 「这一行还归这个执行者」：令牌对得上，租约还没过。过期的执行者可以跑完一次 fetch，
@@ -77,10 +78,9 @@ export async function requeueTask(
       .set({ ...CLEARED_ON_REQUEUE, attempt_count: attemptJustFailed, next_retry_at: nextRetryAt })
       .where(stillRunning(id, fence))
       .returning({ id: schema.tasks.id })
-    await publishGenerations(
-      tx,
-      updated.map((row) => row.id),
-    )
+    const ids = updated.map((row) => row.id)
+    await syncTaskPayloads(tx, ids)
+    await publishGenerations(tx, ids)
     return updated.length > 0
   })
 }
@@ -97,10 +97,9 @@ export async function requeueTasksForPolling(ids: readonly string[], fence: SQL)
       .set({ ...CLEARED_ON_REQUEUE, next_retry_at: null })
       .where(and(inArray(schema.tasks.id, [...ids]), eq(schema.tasks.status, 'in_progress'), fence))
       .returning({ id: schema.tasks.id })
-    await publishGenerations(
-      tx,
-      updated.map((row) => row.id),
-    )
+    const updatedIds = updated.map((row) => row.id)
+    await syncTaskPayloads(tx, updatedIds)
+    await publishGenerations(tx, updatedIds)
     return updated.length
   })
 }
@@ -119,10 +118,9 @@ export async function saveArchiveCheckpoint(
       })
       .where(stillRunning(id, fence))
       .returning({ id: schema.tasks.id })
-    await publishGenerations(
-      tx,
-      updated.map((row) => row.id),
-    )
+    const ids = updated.map((row) => row.id)
+    await syncTaskPayloads(tx, ids)
+    await publishGenerations(tx, ids)
     return updated.length > 0
   })
 }
@@ -147,10 +145,9 @@ export async function requeueTaskArchive(
       })
       .where(stillRunning(id, fence))
       .returning({ id: schema.tasks.id })
-    await publishGenerations(
-      tx,
-      updated.map((row) => row.id),
-    )
+    const ids = updated.map((row) => row.id)
+    await syncTaskPayloads(tx, ids)
+    await publishGenerations(tx, ids)
     return updated.length > 0
   })
 }
@@ -298,6 +295,7 @@ export async function finishTask(
         gptRoute: schema.tasks.gpt_route,
       })
     if (!finished) return false
+    await syncTaskPayloads(tx, [finished.id])
     const meteringMode = finished.metering?.mode === 'none' ? 'none' : 'credits'
     const event: TaskFinishedEvent = {
       taskId: finished.id,

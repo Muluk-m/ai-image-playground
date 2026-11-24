@@ -2,6 +2,7 @@ import type { GenerationDetail, PersistedSubmitRequest } from '@image-playground
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { publishGenerations } from '../db/generation-events'
+import { syncTaskPayloads } from '../modules/execution'
 import {
   archiveCandidateSelection,
   CandidateExpiredError,
@@ -93,6 +94,7 @@ export async function promoteCanvasCandidate(
           request_payload: { ...locked.request, output_retention: 'canvas' },
         })
         .where(eq(schema.tasks.id, taskId))
+      await syncTaskPayloads(tx, [taskId])
       await publishGenerations(tx, [taskId])
       if (!linked) {
         const links = await archiveCandidateSelection(
@@ -173,6 +175,7 @@ async function markCanvas(userId: string, taskId: string): Promise<void> {
       .update(schema.tasks)
       .set({ request_payload: { ...locked.request, output_retention: 'canvas' } })
       .where(eq(schema.tasks.id, taskId))
+    await syncTaskPayloads(tx, [taskId])
     await publishGenerations(tx, [taskId])
     await tx
       .update(schema.generation_records)
