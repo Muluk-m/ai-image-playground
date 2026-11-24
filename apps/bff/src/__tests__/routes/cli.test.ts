@@ -1132,12 +1132,14 @@ describe('capabilities and dry-run', () => {
   })
 
   it('submits the default model the capabilities list when the first model is out of reach', async () => {
-    // GPT goes first and only offers 2K, which needs the direct route; with that route off the
-    // account cannot submit any GPT tier, so the list skips GPT.
+    // GPT Image 2.5 goes first and only offers 2K, which needs the direct route; with that route
+    // off the account cannot submit any of its tiers, so the list skips it. (2.6 routes on its own.)
     const gptOnly2K = CHANNELS.filter((channel) => channel.id === 'openai-images').map(
       (channel): (typeof CHANNELS)[number] => ({
         ...channel,
-        models: channel.models.map((model) => ({ ...model, imageSizes: ['2K' as const] })),
+        models: channel.models
+          .filter((model) => model.id === 'gpt-image-2.5-flare')
+          .map((model) => ({ ...model, imageSizes: ['2K' as const] })),
       }),
     )
     _setChannelsForTesting([
