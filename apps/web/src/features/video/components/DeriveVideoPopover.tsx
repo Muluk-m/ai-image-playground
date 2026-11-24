@@ -1,11 +1,12 @@
 import { type VideoDeriveMode, videoRateMultiplier } from '@image-playground/shared'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
 import { SettingsChoice } from '../../../components/composer/SettingsPanel'
 import { LABEL, PANEL_SECTION } from '../../../components/panelStyles'
 import Dialog from '../../../components/patterns/Dialog'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
@@ -56,18 +57,37 @@ export default function DeriveVideoPopover({
     unitMultiplier: videoRateMultiplier(modelId, DERIVE_RESOLUTION),
   })
 
+  const [submitting, setSubmitting] = useState(false)
+  const submittingRef = useRef(false)
+
   const submit = async () => {
-    if (!(await onSubmit({ mode, prompt, seconds }))) return
-    useStore.getState().showToast(t('derive.submitted', { label }), 'success')
-    onClose()
+    if (submittingRef.current || guard.blocked || !prompt.trim()) return
+    submittingRef.current = true
+    setSubmitting(true)
+    try {
+      if (!(await onSubmit({ mode, prompt, seconds }))) return
+      useStore.getState().showToast(t('derive.submitted', { label }), 'success')
+      onClose()
+    } finally {
+      submittingRef.current = false
+      setSubmitting(false)
+    }
   }
 
   return (
     <Dialog onClose={onClose} tier={tier} title={title} className="max-w-sm">
       <div className={`${LABEL} mb-1.5`}>{t('field.description')}</div>
       <Textarea
+        autoFocus
+        disabled={submitting}
         value={prompt}
         onChange={(event) => setPrompt(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault()
+            void submit()
+          }
+        }}
         rows={3}
         aria-label={t('field.description')}
         placeholder={placeholder}
@@ -106,11 +126,12 @@ export default function DeriveVideoPopover({
         <Button
           size="sm"
           type="button"
-          disabled={guard.blocked || !prompt.trim()}
+          disabled={submitting || guard.blocked || !prompt.trim()}
           title={guard.disabledReason}
           onClick={() => void submit()}
           className="w-full"
         >
+          {submitting && <Icon name="loading" size="xs" className="animate-spin" />}
           {guard.estimatedCredits === undefined ? (
             label
           ) : (

@@ -246,6 +246,8 @@ export default function CliConnectPage() {
                 ))}
                 <a
                   href={`${GUIDE_PATHS[currentLocale()]}plugins/cli/`}
+                  target="_blank"
+                  rel="noopener"
                   className="ml-auto inline-flex items-center gap-1 rounded-xs text-xs font-medium text-muted-foreground underline-offset-4 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {t('cliConnect.tutorial')}

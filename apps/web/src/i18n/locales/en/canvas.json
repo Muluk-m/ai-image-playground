@@ -97,7 +97,7 @@
     "stale": "Task expired",
     "noImages": "Finished without returning an image",
     "unconfirmed": "Task unconfirmed, retry manually",
-    "byokUnrecoverable": "BYOK tasks can't resume across sessions, please retry",
+    "byokUnrecoverable": "This task can't resume across sessions, please retry",
     "failedHint": "This one didn't come out. Try again.",
     "copyError": "Copy error details",
     "errorCopied": "Error details copied",

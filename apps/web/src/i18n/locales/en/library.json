@@ -94,6 +94,7 @@
     "needsRetune": "Needs retuning",
     "deleteTitle": "Delete template",
     "deleteMessage": "Delete the template “{{name}}”?",
+    "saveFailed": "Could not save the template. Try again.",
     "viewDetail": "View details",
     "more": "More templates",
     "applied": "Switched to {{model}} · {{size}}",

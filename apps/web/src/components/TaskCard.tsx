@@ -581,45 +581,46 @@ export default function TaskCard({
                     <Icon name="reuse" size="xs" />
                   </Button>
                 </Hint>
-                <Hint tooltip={t('action.editOutput')}>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={onEditOutputs}
-                    className="text-muted-foreground"
-                    aria-label={t('action.editOutput')}
-                    disabled={!task.outputImages?.length}
-                  >
-                    <Icon name="edit" size="xs" />
-                  </Button>
-                </Hint>
-                <Hint tooltip={t('action.sendToCanvasTitle')}>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={onSendToCanvas}
-                    className="text-muted-foreground"
-                    aria-label={t('action.sendToCanvasTitle')}
-                    disabled={!task.outputImages?.length}
-                  >
-                    <Icon name="sendToCanvas" size="xs" />
-                  </Button>
-                </Hint>
-                <Hint tooltip={exportLabel}>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-xs"
-                    onClick={handleExport}
-                    className="text-muted-foreground"
-                    aria-label={exportLabel}
-                    disabled={!task.outputImages?.length}
-                  >
-                    <Icon name="download" size="xs" />
-                  </Button>
-                </Hint>
+                {Boolean(task.outputImages?.length) && (
+                  <>
+                    <Hint tooltip={t('action.editOutput')}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={onEditOutputs}
+                        className="text-muted-foreground"
+                        aria-label={t('action.editOutput')}
+                      >
+                        <Icon name="edit" size="xs" />
+                      </Button>
+                    </Hint>
+                    <Hint tooltip={t('action.sendToCanvasTitle')}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={onSendToCanvas}
+                        className="text-muted-foreground"
+                        aria-label={t('action.sendToCanvasTitle')}
+                      >
+                        <Icon name="sendToCanvas" size="xs" />
+                      </Button>
+                    </Hint>
+                    <Hint tooltip={exportLabel}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-xs"
+                        onClick={handleExport}
+                        className="text-muted-foreground"
+                        aria-label={exportLabel}
+                      >
+                        <Icon name="download" size="xs" />
+                      </Button>
+                    </Hint>
+                  </>
+                )}
                 {/* 删除收进更多菜单：手机上按钮挤在一排，别和导出挨着误点。 */}
                 <Popover open={moreOpen} onOpenChange={setMoreOpen}>
                   <Hint tooltip={t('action.more')}>

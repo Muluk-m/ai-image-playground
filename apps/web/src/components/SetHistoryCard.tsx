@@ -298,7 +298,21 @@ export default function SetHistoryCard({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {listed && doneTasks.length > 1 && (
+          {batch && failedTasks.length > 1 && (
+            <Button
+              variant="ghost"
+              size="xs"
+              type="button"
+              onClick={() => {
+                for (const failedTask of failedTasks) void retryTask(failedTask)
+              }}
+              className="text-muted-foreground"
+            >
+              <Icon name="refresh" size="xs" />
+              {t('set.retryAllFailed')}
+            </Button>
+          )}
+          {batch && doneTasks.length > 1 && (
             <Button
               variant="ghost"
               size="xs"
@@ -357,9 +371,15 @@ export default function SetHistoryCard({
             />
           ))}
           {hiddenTiles > 0 && (
-            <div className="flex aspect-square items-center justify-center rounded-lg border border-border bg-muted/60 text-xs text-muted-foreground">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={onToggle}
+              aria-label={t('set.expandMore', { count: hiddenTiles })}
+              className="flex h-auto aspect-square items-center justify-center rounded-lg border border-border bg-muted/60 p-0 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
               +{hiddenTiles}
-            </div>
+            </Button>
           )}
         </div>
       )}

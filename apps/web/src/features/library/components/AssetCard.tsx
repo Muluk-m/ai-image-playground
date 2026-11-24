@@ -175,12 +175,17 @@ export default function AssetCard({
           />
         ) : (
           <Input
+            autoFocus
             value={draftName}
             onChange={(e) => setDraftName(e.target.value)}
             onBlur={commitRename}
             onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing) return
               if (e.key === 'Enter') commitRename()
-              if (e.key === 'Escape') setDraftName(null)
+              if (e.key === 'Escape') {
+                e.preventDefault()
+                setDraftName(null)
+              }
             }}
             maxLength={40}
             className="h-7 min-w-0 flex-1 border-primary bg-card px-1.5 py-0.5 text-xs"

@@ -108,9 +108,16 @@ export default function InspirationDetail() {
     const large = inspirationImageUrl(outputUrl, 1400)
     setImageSrc(small)
     if (small === large) return
+    let cancelled = false
     const image = new Image()
-    image.onload = () => setImageSrc(large)
+    image.onload = () => {
+      if (!cancelled) setImageSrc(large)
+    }
     image.src = large
+    return () => {
+      cancelled = true
+      image.onload = null
+    }
   }, [item, outputUrl])
 
   useEffect(() => {

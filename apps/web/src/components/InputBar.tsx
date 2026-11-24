@@ -641,14 +641,27 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     credits: batchTotalCredits.toLocaleString(),
                   })
               : generateLabel
+  const submitShortcut = (() => {
+    const coarse =
+      typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches ?? false)
+    if (coarse) return null
+    if (settings.enterSubmit) return 'Enter'
+    const isMac =
+      typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform ?? '')
+    return isMac ? '⌘+Enter' : 'Ctrl+Enter'
+  })()
   const submitTitle =
     submissionGuard.disabledReason ??
     (toCanvas
       ? t('submit.startCanvas')
       : hasSubmitApiConfig
-        ? maskDraft
-          ? t('submit.maskEditShortcut')
-          : t('submit.generateShortcut')
+        ? submitShortcut
+          ? maskDraft
+            ? t('submit.maskEditShortcut', { shortcut: submitShortcut })
+            : t('submit.generateShortcut', { shortcut: submitShortcut })
+          : maskDraft
+            ? t('submit.maskEdit')
+            : generateLabel
         : t('submit.noModel'))
   // 参考图入口按附图那条准入规则显隐：认不认参考图、条还放不放得下，由 `lib/referenceDraft`
   // 判一次，附图与禁用态不会各说各话。首屏「画布」档附的图是交给画布第一轮的，那一轮用哪个
@@ -758,7 +771,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       const isModifier = event.ctrlKey || event.metaKey
       if (settings.enterSubmit) {
         if (event.shiftKey) promptEditor.insertText('\n')
-        else if (!isModifier && submitReady) submit()
+        else if (submitReady) submit()
         return
       }
       if (isModifier) {
@@ -1884,8 +1897,36 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   onAddShared={(event) => openAttachMenu(event, 'shared')}
                   onRemoveLoop={(idx) => useStore.getState().removeInputImage(idx)}
                   onRemoveShared={(idx) => useStore.getState().removeBatchSharedImage(idx)}
-                  onClearLoop={() => useStore.getState().clearInputImages()}
-                  onClearShared={() => useStore.getState().clearBatchSharedImages()}
+                  onClearLoop={() => {
+                    const before = useStore.getState()
+                    const count = before.inputImages.length
+                    if (count === 0) return
+                    const snapshot = {
+                      prompt: before.prompt,
+                      inputImages: [...before.inputImages],
+                      batchSharedImages: [...before.batchSharedImages],
+                    }
+                    before.clearInputImages()
+                    useStore.getState().setBatchZoneNotice({
+                      message: t('batch.clearedLoopNotice', { count }),
+                      snapshot,
+                    })
+                  }}
+                  onClearShared={() => {
+                    const before = useStore.getState()
+                    const count = before.batchSharedImages.length
+                    if (count === 0) return
+                    const snapshot = {
+                      prompt: before.prompt,
+                      inputImages: [...before.inputImages],
+                      batchSharedImages: [...before.batchSharedImages],
+                    }
+                    before.clearBatchSharedImages()
+                    useStore.getState().setBatchZoneNotice({
+                      message: t('batch.clearedSharedNotice', { count }),
+                      snapshot,
+                    })
+                  }}
                   onInsertCurrentMention={() => insertImageMentionAtCursor(0)}
                   onInsertSharedMention={(sharedIdx) => insertImageMentionAtCursor(sharedIdx + 1)}
                   onPromoteLoopToShared={handlePromoteLoopToShared}
@@ -2105,7 +2146,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     busy={batchSending}
                     onClick={onSubmitClick}
                     disabled={submitDisabled}
-                    title={submitTitle}
                     aria-label={submitLabel}
                   />
                 </span>

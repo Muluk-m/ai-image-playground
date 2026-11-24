@@ -72,7 +72,7 @@ export default function ProjectGrid({
   const showFilter = !recent && !experience
   const scoped = projectCatalog(projects, cloudCatalog).filter(
     (project) =>
-      project.name.toLowerCase().includes(search.trim().toLowerCase()) &&
+      projectEntryName(project).toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()) &&
       (!recent || project.hasContent || project.workspaceOpened) &&
       (!experience || projectExperience(project) === experience),
   )

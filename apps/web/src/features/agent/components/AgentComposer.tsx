@@ -359,6 +359,8 @@ export default function AgentComposer({
   )
   const running = useAgentStore((state) => state.turn === 'running')
   const stopping = useAgentStore((state) => state.stopping)
+  const autoSubmit = useAgentStore((state) => state.autoSubmit)
+  const enterSubmit = useStore((state) => state.settings.enterSubmit)
   const messages = useAgentStore(
     useShallow((state) =>
       state.messages.filter(
@@ -844,11 +846,20 @@ export default function AgentComposer({
         return
       }
       if (event.key !== 'Enter') return
-      if (event.shiftKey) {
-        promptEditor.insertText('\n')
+      const isModifier = event.ctrlKey || event.metaKey
+      if (enterSubmit) {
+        if (event.shiftKey) {
+          promptEditor.insertText('\n')
+          return
+        }
+        submit()
         return
       }
-      submit()
+      if (isModifier) {
+        submit()
+        return
+      }
+      promptEditor.insertText('\n')
     },
     onPaste: (event) => {
       const files = [...event.clipboardData.files]
@@ -1316,7 +1327,12 @@ export default function AgentComposer({
                     variant="ghost"
                     className="creation-add"
                     aria-label={t('composer.attachAria')}
-                    title={t('composer.attachTitle', { count: API_MAX_IMAGES, mb: MAX_IMAGE_MB })}
+                    title={t('composer.attachTitle', {
+                      count: getAttachmentLimits()?.logicalReferences ?? API_MAX_IMAGES,
+                      mb:
+                        Math.round(referenceImageLimit().imageBytes / (1024 * 1024)) ||
+                        MAX_IMAGE_MB,
+                    })}
                     aria-haspopup="menu"
                     aria-expanded={attachMenu !== null}
                     disabled={loading}
@@ -1570,10 +1586,19 @@ export default function AgentComposer({
                     : submitting
                       ? t('composer.sending')
                       : uploadsBlocked
-                        ? (referenceStatus ?? t('composer.sendAndCreate'))
+                        ? (referenceStatus ??
+                          t(
+                            !autoSubmit && creationMode !== 'image'
+                              ? 'composer.sendAndCreate'
+                              : 'composer.send',
+                          ))
                         : running
                           ? t('composer.queue')
-                          : t('composer.sendAndCreate')
+                          : t(
+                              !autoSubmit && creationMode !== 'image'
+                                ? 'composer.sendAndCreate'
+                                : 'composer.send',
+                            )
                 }
                 title={
                   stopMode
@@ -1582,7 +1607,9 @@ export default function AgentComposer({
                       ? referenceStatus
                       : running
                         ? t('composer.queue')
-                        : t('composer.sendAndCreateTitle')
+                        : !autoSubmit && creationMode !== 'image'
+                          ? t('composer.sendAndCreateTitle')
+                          : undefined
                 }
                 disabled={
                   stopMode

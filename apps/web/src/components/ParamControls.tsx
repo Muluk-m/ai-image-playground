@@ -586,7 +586,10 @@ export function ImageSettings({
             </SettingsSection>
           )}
         {outputs && (
-          <SettingsSection title={t('param.format')}>
+          <SettingsSection
+            title={t('param.format')}
+            hint={image26 && editing ? t('settings.stillOnlyWithReferenceHint') : undefined}
+          >
             <SettingsSegmented
               label={t('param.format')}
               options={
@@ -662,7 +665,6 @@ export function ImageSettings({
             {transparentVisible && (
               <SettingsToggle
                 label={t('param.transparent')}
-                description={t('settings.transparentHint')}
                 checked={params.transparent_output}
                 onChange={(on) => setParams({ transparent_output: on, output_compression: null })}
               />
@@ -670,7 +672,6 @@ export function ImageSettings({
             {noRewriteVisible && (
               <SettingsToggle
                 label={t('param.noRewrite')}
-                description={t('settings.noRewriteHint')}
                 checked={params.no_rewrite}
                 onChange={(on) => setParams({ no_rewrite: on })}
               />

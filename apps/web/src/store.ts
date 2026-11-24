@@ -852,7 +852,6 @@ export const useStore = create<AppState>()(
         }),
       clearInputImages: () =>
         set((s) => {
-          for (const img of s.inputImages) imageCache.delete(img.id)
           if (s.createTarget === 'batch') {
             return {
               inputImages: [],
@@ -861,6 +860,7 @@ export const useStore = create<AppState>()(
               batchZoneNotice: null,
             }
           }
+          for (const img of s.inputImages) imageCache.delete(img.id)
           return {
             inputImages: [],
             prompt: replaceReferences({ prompt: s.prompt, references: s.inputImages }, []).prompt,
@@ -901,7 +901,6 @@ export const useStore = create<AppState>()(
         }),
       clearBatchSharedImages: () =>
         set((s) => {
-          for (const img of s.batchSharedImages) imageCache.delete(img.id)
           return {
             batchSharedImages: [],
             prompt: clearBatchSharedImagesFromDraft(s.prompt),

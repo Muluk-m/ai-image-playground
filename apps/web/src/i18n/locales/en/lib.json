@@ -25,7 +25,7 @@
     "compressed_other": "Compressed {{count}} oversized images"
   },
   "imageFetch": {
-    "corsHint": " Use the link button to copy the result URL, or turn on “Return base64 image data” to avoid this.",
+    "corsHint": " Copy the image link and open it in a new tab to save it.",
     "corsBlocked": "The image was generated, but the provider does not allow cross-origin requests, so downloading it failed.{{hint}}",
     "offline": "Image download failed (no network).{{hint}}",
     "failed": "Image download failed (cross-origin restriction, expired link, or network error).{{hint}}",

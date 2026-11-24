@@ -557,7 +557,7 @@
       "generating": "生成中",
       "reconnecting": "重新连接中",
       "confirming": "保存结果中",
-      "reconciling": "结果确认中（已提交给上游，正在核对，不会重复扣费）",
+      "reconciling": "结果确认中（已提交，正在核对，不会重复扣费）",
       "reconcilingLate": "结果确认超时，已通知处理，你可以先重新生成；若原任务最终失败会自动退款",
       "delivering": "载入结果"
     },
@@ -578,7 +578,6 @@
     },
     "inbox": {
       "title": "生成任务",
-      "subtitle": "查看本次会话的生成任务状态",
       "tabRunning": "进行中",
       "tabFinished": "已完成",
       "groupProcessing": "处理中",

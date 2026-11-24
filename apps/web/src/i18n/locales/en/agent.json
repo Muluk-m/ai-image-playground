@@ -584,7 +584,7 @@
       "generating": "Generating",
       "reconnecting": "Reconnecting",
       "confirming": "Saving result",
-      "reconciling": "Checking the result (already sent upstream; this does not charge again)",
+      "reconciling": "Checking the result (already submitted; this does not charge again)",
       "reconcilingLate": "Result check timed out and operators were notified. You can generate again; a failed original task is refunded automatically",
       "delivering": "Loading results"
     },
@@ -605,7 +605,6 @@
     },
     "inbox": {
       "title": "Generation jobs",
-      "subtitle": "Background jobs from this conversation",
       "tabRunning": "Running",
       "tabFinished": "Finished",
       "groupProcessing": "Processing",
