@@ -2146,6 +2146,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     busy={batchSending}
                     onClick={onSubmitClick}
                     disabled={submitDisabled}
+                    aria-description={submitTitle !== submitLabel ? submitTitle : undefined}
                     aria-label={submitLabel}
                   />
                 </span>

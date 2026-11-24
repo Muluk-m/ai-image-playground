@@ -619,7 +619,7 @@ it.each([
     const clickSend = async () => {
       const button = await vi.waitFor(async () => {
         await act(async () => {})
-        const current = host.querySelector<HTMLButtonElement>('button[aria-label="发送并拟提示词"]')
+        const current = host.querySelector<HTMLButtonElement>('button[aria-label="发送"]')
         expect(current).not.toBeNull()
         expect(current?.disabled).toBe(false)
         return current!

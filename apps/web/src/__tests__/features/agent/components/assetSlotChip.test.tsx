@@ -283,7 +283,7 @@ describe('项目输入框里的素材位', () => {
     await settle()
   })
 
-  const sendTurn = () => click(host.querySelector('button[aria-label="发送并拟提示词"]')!)
+  const sendTurn = () => click(host.querySelector('button[aria-label="发送"]')!)
 
   it('起手句的位是空着的虚线胶囊；空着也能发，位名作普通文字发出', async () => {
     pickStarter()
@@ -639,7 +639,7 @@ describe('空项目欢迎页的场景引导', () => {
     expect(agentDraft(null, PROJECT_ID).getSnapshot().draft.prompt).toContain('白底主图')
 
     await pickAsset('红色马克杯')
-    click(host.querySelector('button[aria-label="发送并拟提示词"]')!)
+    click(host.querySelector('button[aria-label="发送"]')!)
     expect(send).toHaveBeenCalledWith(
       '/product-main-image 为 [image 1] 出一张白底主图',
       [{ imageId: 'mug-front', dataUrl: FRONT, name: '红色马克杯' }],

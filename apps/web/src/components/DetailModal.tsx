@@ -945,8 +945,8 @@ export default function DetailModal() {
                   size="icon"
                   onClick={handleExport}
                   className="col-span-2 w-full text-muted-foreground hover:text-foreground sm:w-9"
-                  title={t(outputLen > 1 ? 'action.exportImages' : 'action.exportImage')}
-                  aria-label={t(outputLen > 1 ? 'action.exportImages' : 'action.exportImage')}
+                  title={t('download.export')}
+                  aria-label={t('download.export')}
                 >
                   <Icon name="download" />
                 </Button>

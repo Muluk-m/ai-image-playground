@@ -215,7 +215,7 @@ describe('attention for a user-submitted work card', () => {
 
     expect(host.querySelectorAll('.task-card-wrapper')).toHaveLength(2)
     expect(host.querySelector('[data-task-id="third"]')).toBeNull()
-    expect(host.textContent).toContain('查看全部作品')
+    expect(host.textContent).toContain('查看全部')
   })
 
   it('highlights every card from one send and focuses the first', async () => {

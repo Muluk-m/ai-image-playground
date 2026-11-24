@@ -171,7 +171,7 @@ describe('recoverCanvasTasks 恢复分支判定（决策 7）', () => {
     expect(updatePlaceholder).toHaveBeenCalledTimes(1)
     const patch = updatePlaceholder.mock.calls[0][1] as { status: string; message: string }
     expect(patch.status).toBe('stale')
-    expect(patch.message).toContain('BYOK')
+    expect(patch.message).toContain('无法跨会话恢复')
   })
 
   it('智能体占的位 → 直接删掉，不当成可续的画布任务', () => {
