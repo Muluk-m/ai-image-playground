@@ -66,6 +66,7 @@ beforeAll(async () => {
     },
   ])
 
+  type TaskInsert = typeof handle.schema.tasks.$inferInsert
   await handle.db.insert(handle.schema.tasks).values([
     {
       id: 'rm-task-1',
@@ -79,7 +80,7 @@ beforeAll(async () => {
         apiKey: 'sk-secret-value',
         data: 'data:image/png;base64,AAAA',
         n: 2,
-      },
+      } as unknown as TaskInsert['request_payload'],
       result_payload: { _image_meta: [{ index: 0, mime: 'image/png' }] },
       submitted_at: now - 60_000,
       started_at: now - 55_000,
@@ -99,14 +100,14 @@ beforeAll(async () => {
       request_payload: {
         device_id: 'rm-dev-1',
         contents: [{ parts: [{ text: 'sunset beach' }] }],
-      },
+      } as unknown as TaskInsert['request_payload'],
       submitted_at: now - 30_000,
       started_at: now - 25_000,
       completed_at: now - 20_000,
       attempt_count: 2,
       upstream_invocation_count: 2,
     },
-  ])
+  ] satisfies TaskInsert[])
 
   await handle.db.insert(handle.schema.operator_audits).values([
     {
