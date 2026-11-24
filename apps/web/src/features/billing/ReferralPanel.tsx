@@ -4,7 +4,15 @@ import type {
   ReferralTransferResult,
 } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
-import { authenticatedBffFetch, Button, bffBaseUrl, Input, Label } from '../../lib/privateHost'
+import { copyTextToClipboard } from '../../lib/clipboardText'
+import {
+  authenticatedBffFetch,
+  Button,
+  bffBaseUrl,
+  Icon,
+  Input,
+  Label,
+} from '../../lib/privateHost'
 import {
   formatCredits,
   formatDate,
@@ -122,10 +130,26 @@ export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
     }
   }
 
-  async function copy(value: string) {
+  const [copiedTarget, setCopiedTarget] = useState<'link' | 'code' | null>(null)
+  const copyTimerRef = useRef<number | null>(null)
+  useEffect(
+    () => () => {
+      if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current)
+    },
+    [],
+  )
+
+  async function copy(value: string, target: 'link' | 'code') {
     try {
-      await navigator.clipboard.writeText(value)
+      await copyTextToClipboard(value)
+      setError(null)
+      setCopiedTarget(target)
       setNotice(tBilling('referral.copied'))
+      if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = window.setTimeout(() => {
+        setCopiedTarget(null)
+        setNotice((current) => (current === tBilling('referral.copied') ? null : current))
+      }, 1800)
     } catch {
       setError(tBilling('referral.copyFailed'))
     }
@@ -185,9 +209,12 @@ export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
                 variant="outline"
                 size="default"
                 type="button"
-                onClick={() => void copy(new URL(summary.share_path, window.location.origin).href)}
+                onClick={() =>
+                  void copy(new URL(summary.share_path, window.location.origin).href, 'link')
+                }
               >
-                {tBilling('referral.copyLink')}
+                {copiedTarget === 'link' ? <Icon name="check" size="xs" /> : null}
+                {tBilling(copiedTarget === 'link' ? 'referral.copied' : 'referral.copyLink')}
               </Button>
             </div>
             <div className="flex items-center justify-between gap-3">
@@ -201,9 +228,10 @@ export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
                 variant="outline"
                 size="sm"
                 type="button"
-                onClick={() => void copy(summary.code)}
+                onClick={() => void copy(summary.code, 'code')}
               >
-                {tBilling('referral.copyCode')}
+                {copiedTarget === 'code' ? <Icon name="check" size="xs" /> : null}
+                {tBilling(copiedTarget === 'code' ? 'referral.copied' : 'referral.copyCode')}
               </Button>
             </div>
           </div>

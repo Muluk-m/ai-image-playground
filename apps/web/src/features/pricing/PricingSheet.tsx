@@ -15,11 +15,10 @@ export default function PricingSheet() {
       layout="fill"
       role="none"
       label={t('nav.pricing')}
+      className="flex h-dvh w-full bg-black/50 sm:p-3 md:p-6"
     >
-      <div className="flex h-dvh w-full bg-black/50 sm:p-3 md:p-6">
-        <div className="pricing-surface relative mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col overflow-hidden sm:rounded-3xl sm:ring-1 sm:ring-white/10">
-          <PricingPage presentation="sheet" />
-        </div>
+      <div className="pricing-surface relative mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col overflow-hidden sm:rounded-3xl sm:ring-1 sm:ring-white/10">
+        <PricingPage presentation="sheet" />
       </div>
     </Overlay>
   )

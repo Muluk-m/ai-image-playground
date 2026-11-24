@@ -132,6 +132,59 @@ function deviceLine(sessions: LoginSession[] | null, failed: boolean): string {
   })
 }
 
+function PasswordField({
+  autoComplete,
+  ariaLabel,
+  placeholder,
+  value,
+  maxLength,
+  disabled,
+  className,
+  onChange,
+  onKeyDown,
+}: {
+  autoComplete: string
+  ariaLabel: string
+  placeholder: string
+  value: string
+  maxLength: number
+  disabled?: boolean
+  className?: string
+  onChange: (value: string) => void
+  onKeyDown?: React.KeyboardEventHandler<HTMLInputElement>
+}) {
+  const [visible, setVisible] = useState(false)
+  return (
+    <div className={`relative ${className ?? ''}`}>
+      <Input
+        type={visible ? 'text' : 'password'}
+        autoComplete={autoComplete}
+        aria-label={ariaLabel}
+        placeholder={placeholder}
+        value={value}
+        maxLength={maxLength}
+        disabled={disabled}
+        className="pr-9"
+        onChange={(event) => onChange(event.currentTarget.value)}
+        onKeyDown={onKeyDown}
+      />
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        autoTooltip={false}
+        disabled={disabled}
+        aria-label={tBilling(visible ? 'settings.hidePassword' : 'settings.showPassword')}
+        aria-pressed={visible}
+        className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+        onClick={() => setVisible((current) => !current)}
+      >
+        <Icon name={visible ? 'hidden' : 'visible'} size="xs" />
+      </Button>
+    </div>
+  )
+}
+
 export function AccountSettings({
   username,
   preview,
@@ -167,6 +220,7 @@ export function AccountSettings({
   const [confirmPassword, setConfirmPassword] = useState('')
   const [passwordError, setPasswordError] = useState<string | null>(null)
   const [cropUrl, setCropUrl] = useState<string | null>(preview === 'crop' ? PREVIEW_AVATAR : null)
+  const [cropError, setCropError] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [confirmUnlink, setConfirmUnlink] = useState(false)
   const [deletePassword, setDeletePassword] = useState('')
@@ -253,6 +307,7 @@ export function AccountSettings({
   function closeCrop(): void {
     if (cropUrl?.startsWith('blob:')) URL.revokeObjectURL(cropUrl)
     setCropUrl(null)
+    setCropError(null)
   }
 
   function applyProfile(next: AccountProfile): void {
@@ -272,6 +327,7 @@ export function AccountSettings({
       return
     }
     setAvatarIssue(null)
+    setCropError(null)
     if (cropUrl?.startsWith('blob:')) URL.revokeObjectURL(cropUrl)
     setCropUrl(URL.createObjectURL(file))
   }
@@ -401,6 +457,7 @@ export function AccountSettings({
     if (!profile || pending) return
     setPending('avatar')
     setAlert(null)
+    setCropError(null)
     try {
       const updated = await uploadAvatar(blob)
       applyProfile(updated.userId ? updated : { ...updated, avatarUrl: profile.avatarUrl })
@@ -408,7 +465,7 @@ export function AccountSettings({
       setNotice(tBilling('settings.toastAvatar'))
       closeCrop()
     } catch (error) {
-      setAlert(failureMessage(requestCode(error)))
+      setCropError(failureMessage(requestCode(error)))
     } finally {
       setPending(null)
     }
@@ -419,10 +476,11 @@ export function AccountSettings({
     ? {
         imageUrl: cropUrl,
         saving: cropSaving,
+        error: cropError,
         onClose: closeCrop,
         onReselect: () => fileRef.current?.click(),
         onConfirm: (blob: Blob) => void onCropped(blob),
-        onError: () => setAlert(tBilling('settings.avatarExportFailed')),
+        onError: () => setCropError(tBilling('settings.avatarExportFailed')),
       }
     : null
 
@@ -522,6 +580,7 @@ export function AccountSettings({
                 {editor === 'nickname' ? (
                   <div className="mt-2">
                     <Input
+                      autoFocus
                       aria-label={tBilling('settings.nickname')}
                       aria-invalid={shownNicknameError ? true : undefined}
                       value={nicknameDraft}
@@ -531,6 +590,18 @@ export function AccountSettings({
                       onChange={(event) => {
                         setNicknameDraft(event.currentTarget.value)
                         setNicknameServerError(null)
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.nativeEvent.isComposing || event.keyCode === 229) return
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          void saveNickname()
+                        } else if (event.key === 'Escape') {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          setEditor(null)
+                          setNicknameServerError(null)
+                        }
                       }}
                     />
                     {shownNicknameError ? (
@@ -721,36 +792,42 @@ export function AccountSettings({
                   }}
                 >
                   {methods.password ? (
-                    <Input
-                      type="password"
+                    <PasswordField
                       autoComplete="current-password"
-                      aria-label={tBilling('settings.currentPassword')}
+                      ariaLabel={tBilling('settings.currentPassword')}
                       placeholder={tBilling('settings.currentPassword')}
                       value={currentPassword}
                       maxLength={PASSWORD_MAX_LENGTH}
                       disabled={pending === 'password'}
-                      onChange={(event) => setCurrentPassword(event.currentTarget.value)}
+                      onChange={(next) => {
+                        setCurrentPassword(next)
+                        setPasswordError(null)
+                      }}
                     />
                   ) : null}
-                  <Input
-                    type="password"
+                  <PasswordField
                     autoComplete="new-password"
-                    aria-label={tBilling('settings.newPassword')}
+                    ariaLabel={tBilling('settings.newPassword')}
                     placeholder={tBilling('settings.newPassword')}
                     value={newPassword}
                     maxLength={PASSWORD_MAX_LENGTH}
                     disabled={pending === 'password'}
-                    onChange={(event) => setNewPassword(event.currentTarget.value)}
+                    onChange={(next) => {
+                      setNewPassword(next)
+                      setPasswordError(null)
+                    }}
                   />
-                  <Input
-                    type="password"
+                  <PasswordField
                     autoComplete="new-password"
-                    aria-label={tBilling('settings.confirmPassword')}
+                    ariaLabel={tBilling('settings.confirmPassword')}
                     placeholder={tBilling('settings.confirmPassword')}
                     value={confirmPassword}
                     maxLength={PASSWORD_MAX_LENGTH}
                     disabled={pending === 'password'}
-                    onChange={(event) => setConfirmPassword(event.currentTarget.value)}
+                    onChange={(next) => {
+                      setConfirmPassword(next)
+                      setPasswordError(null)
+                    }}
                   />
                   {passwordError ? (
                     <p role="alert" className="text-xs text-destructive">
@@ -854,18 +931,24 @@ export function AccountSettings({
         >
           <p className="text-sm text-muted-foreground">{tBilling('settings.deleteBody')}</p>
           {methods?.password ? (
-            <Input
-              type="password"
+            <PasswordField
               autoComplete="current-password"
-              aria-label={tBilling('settings.currentPassword')}
+              ariaLabel={tBilling('settings.currentPassword')}
               placeholder={tBilling('settings.currentPassword')}
               value={deletePassword}
               maxLength={PASSWORD_MAX_LENGTH}
               disabled={pending === 'delete'}
-              className={`mt-3 ${deleteError ? 'border-destructive' : ''}`}
-              onChange={(event) => {
-                setDeletePassword(event.currentTarget.value)
+              className={`mt-3 ${deleteError ? '[&_input]:border-destructive' : ''}`}
+              onChange={(next) => {
+                setDeletePassword(next)
                 setDeleteError(null)
+              }}
+              onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing || event.keyCode === 229) return
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  void onDelete()
+                }
               }}
             />
           ) : null}

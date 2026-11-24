@@ -316,10 +316,14 @@ export function OrderHistory({
   onClose: () => void
 }) {
   useTranslation()
-  const [orders, setOrders] = useState<PurchaseOrder[] | null>(null),
-    [error, setError] = useState(false)
+  const [orders, setOrders] = useState<PurchaseOrder[] | null>(null)
+  const [error, setError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   useEffect(() => {
+    void reloadKey
     let alive = true
+    setError(false)
+    setOrders(null)
     orderRequest<PurchaseOrder[]>()
       .then((rows) => {
         if (alive) setOrders(rows)
@@ -330,11 +334,24 @@ export function OrderHistory({
     return () => {
       alive = false
     }
-  }, [])
+  }, [reloadKey])
   return (
     <Dialog title={tBilling('orders.history')} onClose={onClose} className="max-w-xl">
       {error ? (
-        <p role="alert">{tBilling('orders.failed')}</p>
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+        >
+          <span>{tBilling('orders.failed')}</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setReloadKey((k) => k + 1)}
+          >
+            {tBilling('action.retry')}
+          </Button>
+        </div>
       ) : orders === null ? (
         <p className="py-8">{tBilling('pricing.loading')}</p>
       ) : orders.length === 0 ? (

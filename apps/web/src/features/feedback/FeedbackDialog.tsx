@@ -23,6 +23,7 @@ import { Icon } from '../../components/ui/icon'
 import { Textarea } from '../../components/ui/textarea'
 import { useTranslation } from '../../i18n'
 import { cn } from '../../lib/utils'
+import { useStore } from '../../store'
 import {
   FeedbackClientError,
   fetchFeedbackAttachmentBlobUrl,
@@ -142,6 +143,7 @@ export default function FeedbackDialog({
   const [loadError, setLoadError] = useState(false)
   const [draft, setDraft] = useState('')
   const [attachment, setAttachment] = useState<File | null>(null)
+  const [attachmentPreviewUrl, setAttachmentPreviewUrl] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [errorText, setErrorText] = useState<string | null>(null)
   const [reload, setReload] = useState(0)
@@ -149,6 +151,16 @@ export default function FeedbackDialog({
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const listEndRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!attachment) {
+      setAttachmentPreviewUrl(null)
+      return
+    }
+    const url = URL.createObjectURL(attachment)
+    setAttachmentPreviewUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [attachment])
 
   useEffect(() => {
     if (!canUseInApp) return
@@ -340,10 +352,25 @@ export default function FeedbackDialog({
   const canSend =
     (draft.trim().length > 0 || attachment !== null) && !submitting && !loading && !loadError
 
+  const hasUnsentDraft = draft.trim().length > 0 || attachment !== null
+  const requestClose = () => {
+    if (submitting) return
+    if (!hasUnsentDraft) {
+      onClose()
+      return
+    }
+    useStore.getState().setConfirmDialog({
+      title: t('header.feedback.discardTitle'),
+      message: t('header.feedback.discardMessage'),
+      tone: 'danger',
+      action: onClose,
+    })
+  }
+
   return (
     <>
       <Dialog
-        onClose={onClose}
+        onClose={requestClose}
         tier="artifact"
         title={t('header.feedback.label')}
         className="max-w-xl"
@@ -495,7 +522,15 @@ export default function FeedbackDialog({
 
                 {attachment ? (
                   <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-2">
-                    <Icon name="imageAdd" className="shrink-0 text-muted-foreground" />
+                    {attachmentPreviewUrl ? (
+                      <img
+                        src={attachmentPreviewUrl}
+                        alt={attachment.name}
+                        className="size-10 shrink-0 rounded-lg border border-border object-cover"
+                      />
+                    ) : (
+                      <Icon name="imageAdd" className="shrink-0 text-muted-foreground" />
+                    )}
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-xs font-medium text-foreground">
                         {attachment.name}
