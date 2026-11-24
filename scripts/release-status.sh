@@ -7,6 +7,9 @@ set -eu
 # RELEASE_STATUS_FETCH=0 skips `git fetch` (CI already has the history).
 # Release with: gh workflow run deploy.yml --ref main [-f mode=full] [-f reason=...]
 
+# shellcheck source=scripts/lib/release-paths.sh
+. "$(dirname "$0")/lib/release-paths.sh"
+
 env_file=${PAGES_ENV_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/pages.env}
 if [ -f "$env_file" ]; then
   # shellcheck source=/dev/null
@@ -20,7 +23,17 @@ admin=${RELEASE_ADMIN:-${ADMIN_PUBLIC_ORIGIN:-https://admin.muvloom.online}}
 target=$(git rev-parse --verify "${1:-origin/main}^{commit}")
 echo "target: $(git log -1 --format='%h %s' "$target")"
 
-# served <label> <url> <api|site>
+# touching <paths regex> <range>: the commits in range (newest first) that change a path of that
+# side, or pnpm-lock.yaml.
+touching() {
+  git rev-list --no-merges "$2" | while read -r commit; do
+    if git diff-tree --no-commit-id --name-only -r --root "$commit" | grep -Eq "$1|^pnpm-lock\.yaml$"; then
+      echo "$commit"
+    fi
+  done
+}
+
+# served <label> <url> <api|site> <paths regex>
 served() {
   echo
   if [ "$3" = api ]; then endpoint=${2%/}/health; else endpoint=${2%/}/version.json; fi
@@ -48,11 +61,17 @@ served() {
   elif ! git merge-base --is-ancestor "$deployed" "$target"; then
     echo "$1: serves $short, which is not an ancestor of the target"
   else
-    echo "$1: serves $short; $(git rev-list --count "$deployed..$target") commit(s) to ship:"
-    git log --no-merges --format='  - %h %s' "$deployed..$target"
+    behind=$(git rev-list --count "$deployed..$target")
+    relevant=$(touching "$4" "$deployed..$target")
+    if [ -z "$relevant" ]; then
+      echo "$1: serves $short; nothing to ship ($behind newer commit(s) do not touch it)"
+      return 0
+    fi
+    echo "$1: serves $short; $(printf '%s\n' "$relevant" | wc -l | tr -d ' ') commit(s) to ship:"
+    printf '%s\n' "$relevant" | while read -r commit; do git log -1 --format='  - %h %s' "$commit"; done
   fi
 }
 
-served API "$api" api
-served "muvloom 前端" "$web" site
-served Admin "$admin" site
+served API "$api" api "$RELEASE_API_PATHS"
+served "muvloom 前端" "$web" site "$RELEASE_WEB_PATHS"
+served Admin "$admin" site "$RELEASE_ADMIN_PATHS"

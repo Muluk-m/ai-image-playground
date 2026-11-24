@@ -60,11 +60,21 @@ beforeEach(() => {
   mkdirSync(join(root, 'bin'))
   git('init', '-q')
   commits = []
-  for (const n of [1, 2, 3]) {
-    git('commit', '-q', '--allow-empty', '-m', `c${n}`)
+  // Each commit touches one side: c1 the API, c2 the site, c3 Admin (which the API image also
+  // builds from), c4 only docs.
+  for (const [n, file] of [
+    [1, 'apps/bff/a.ts'],
+    [2, 'apps/web/b.ts'],
+    [3, 'apps/admin/c.ts'],
+    [4, 'docs/d.md'],
+  ] as const) {
+    mkdirSync(join(repo, file, '..'), { recursive: true })
+    writeFileSync(join(repo, file), `${n}\n`)
+    git('add', file)
+    git('commit', '-q', '-m', `c${n}`)
     commits.push(git('rev-parse', 'HEAD'))
   }
-  git('update-ref', 'refs/remotes/origin/main', commits[2])
+  git('update-ref', 'refs/remotes/origin/main', commits[3])
   env = {
     ...isolatedGitEnv,
     PATH: `${join(root, 'bin')}:${process.env.PATH}`,
@@ -80,17 +90,24 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 
 describe('release-status.sh', () => {
-  it('lists the commits each side still lacks, and says when a side is current', () => {
+  it('lists only the commits that touch each side, and says when a side is current', () => {
     serve({
       [`${api}/health`]: health(commits[0]),
-      [`${web}/version.json`]: site(`${commits[2].slice(0, 7)}-20261124T024019Z`),
-      [`${admin}/version.json`]: site(`${commits[1].slice(0, 7)}-20261124T024330Z`),
+      [`${web}/version.json`]: site(`${commits[1].slice(0, 7)}-20261124T024019Z`),
+      [`${admin}/version.json`]: site(`${commits[0].slice(0, 7)}-20261124T024330Z`),
     })
     const out = status()
-    expect(out).toContain('API: serves')
-    expect(out).toContain('2 commit(s) to ship:')
-    expect(out).toContain(`muvloom 前端: up to date (${commits[2].slice(0, 7)})`)
-    expect(out).toMatch(/Admin: serves \w+; 1 commit\(s\) to ship:\n {2}- \w+ c3/)
+    // c2 is a site change and c4 only docs: neither ships the API.
+    expect(out).toMatch(/API: serves \w+; 1 commit\(s\) to ship:\n {2}- \w+ c3\n/)
+    expect(out).toContain(
+      `muvloom 前端: serves ${commits[1].slice(0, 7)}; nothing to ship (2 newer commit(s) do not touch it)`,
+    )
+    expect(out).toMatch(/Admin: serves \w+; 1 commit\(s\) to ship:\n {2}- \w+ c3\n/)
+  })
+
+  it('says a side is up to date when it serves the target', () => {
+    serve({ [`${web}/version.json`]: site(`${commits[3].slice(0, 7)}-20261124T024019Z`) })
+    expect(status()).toContain(`muvloom 前端: up to date (${commits[3].slice(0, 7)})`)
   })
 
   it('does not read a build-time-only version as a commit', () => {
