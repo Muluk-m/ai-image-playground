@@ -53,7 +53,7 @@ func bindImageFlags(fs *flag.FlagSet) *imageFlags {
 	f := &imageFlags{}
 	fs.StringVar(&f.prompt, "prompt", "", "What to generate")
 	fs.StringVar(&f.promptFile, "prompt-file", "", "Read the prompt from a UTF-8 file (long or multi-line prompts)")
-	fs.StringVar(&f.model, "model", "", "Model id from `muvloom capabilities`; omitted: the default model")
+	fs.StringVar(&f.model, "model", "", "Model id from `muvloom capabilities`; omitted: the default model, or for gif/svg the first model that can make it")
 	fs.StringVar(&f.aspectRatio, "aspect-ratio", "", "Aspect ratio the model lists, e.g. 1:1, 16:9, auto")
 	fs.StringVar(&f.imageSize, "image-size", "", "Image size the model lists, e.g. 1K, 2K, 4K")
 	fs.StringVar(&f.quality, "quality", "", "Quality the model lists, e.g. low, medium, high")

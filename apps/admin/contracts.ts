@@ -892,51 +892,7 @@ export interface GenerationTasksResult {
   facets?: GenerationTasksFacets
 }
 
-export type ErrorRecoveryState = 'unresolved' | 'recovered' | 'unknown'
-
-export interface ErrorRecovery {
-  state: ErrorRecoveryState
-  reason: string
-  recoveredAt: number | null
-}
-
-export interface ErrorRecoveryGroup {
-  total: number
-  entries: TodayErrorItem[]
-}
-
-export interface TodayErrorItem {
-  recovery?: ErrorRecovery
-  route?: string | null
-  status?: number | null
-  errorCode?: string | null
-  reason?: string | null
-  instance?: string | null
-  source: 'server' | 'client'
-  id: string
-  at: number
-  service: string
-  message: string
-  task_id: string | null
-  request_id: string | null
-  group: string | null
-  stack: string | null
-}
-
-export interface ErrorWindow {
-  window: TimeWindow
-  total: number
-  entries: TodayErrorItem[]
-  recovery?: Record<ErrorRecoveryState, ErrorRecoveryGroup>
-}
-
 export type ServerLogAvailability = 'complete' | 'truncated' | 'unavailable' | 'off'
-
-export interface TodayErrorsResult extends ErrorWindow {
-  recent?: ErrorWindow
-  /** 同 OverviewActivityResult.server.availability。 */
-  serverLogs?: ServerLogAvailability
-}
 
 export type AgentPromptStatus = 'awaiting' | 'running' | 'completed' | 'failed'
 export interface AgentPromptFilters extends TimeWindow {

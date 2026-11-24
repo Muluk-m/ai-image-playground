@@ -239,6 +239,7 @@ export async function listJobs(
  */
 export async function cancelJob(userId: string, jobId: string): Promise<CliJob> {
   const access = ownedJob(userId, jobId)
+  const postCommitHooks: Array<() => Promise<void>> = []
   const cancelled = await db.transaction(async (tx) => {
     const [row] = await tx.select(jobColumns).from(schema.tasks).where(access).for('update')
     if (!row) throw new CliRequestError('NOT_FOUND')
@@ -247,8 +248,12 @@ export async function cancelJob(userId: string, jobId: string): Promise<CliJob> 
       throw new CliRequestError('JOB_NOT_CANCELLABLE', {
         details: { status: statusOf(row) },
       })
-    return cancelTasks(and(access, isNull(schema.tasks.archive_payload))!, { tx })
+    return cancelTasks(and(access, isNull(schema.tasks.archive_payload))!, {
+      tx,
+      onCommit: (hook) => postCommitHooks.push(hook),
+    })
   })
+  for (const hook of postCommitHooks) await hook()
   if (cancelled.length) void cancelUpstreamOfCancelledTasks(cancelled.map((row) => row.id))
   return getJob(userId, jobId)
 }

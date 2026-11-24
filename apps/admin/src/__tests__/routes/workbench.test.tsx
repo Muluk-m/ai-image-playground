@@ -9,12 +9,6 @@ const session = vi.hoisted(() => ({
   accountsLogin: true,
   accountsSync: true,
   failToday: false,
-  showError: false,
-  recoveryScenario: false,
-  errorRequest: true,
-  recentAvailable: true,
-  errorCode: 'media_processing_busy',
-  errorReason: 'object_lock_timeout' as string | null,
   taskAt: undefined as number | undefined,
   completedAt: undefined as number | undefined,
 }))
@@ -48,64 +42,6 @@ vi.mock('../../lib/api-client', () => {
         accounts_sync: session.accountsSync,
       }
     }
-    if (url === '/api/extensions') return { navigation: [], user_links: [] }
-    if (url.startsWith('/api/overview/errors') && session.recoveryScenario) {
-      const recovered = {
-        source: 'server',
-        id: 'restored',
-        at: window.from,
-        service: 'cloudflared',
-        instance: 'tunnel-1',
-        message: 'rpc: connection closed',
-        task_id: null,
-        request_id: null,
-        group: null,
-        stack: null,
-        recovery: {
-          state: 'recovered',
-          reason: '同一隧道连接已重新注册成功',
-          recoveredAt: window.from + 100,
-        },
-      }
-      return {
-        window,
-        total: 12,
-        entries: [recovered],
-        recovery: {
-          unresolved: { total: 0, entries: [] },
-          unknown: { total: 0, entries: [] },
-          recovered: { total: 12, entries: [recovered] },
-        },
-      }
-    }
-    if (url.startsWith('/api/overview/errors'))
-      return {
-        window,
-        total: session.showError ? 24 : 0,
-        recent: session.recentAvailable
-          ? { window: { from: window.to - 900_000, to: window.to }, total: 0, entries: [] }
-          : undefined,
-        entries: session.showError
-          ? [
-              {
-                source: 'server',
-                id: 'error-1',
-                route: 'POST /api/media/:id/complete',
-                status: 503,
-                errorCode: session.errorCode,
-                reason: session.errorReason,
-                at: Date.now(),
-                service: 'worker',
-                message: '上游请求失败',
-                stack: '    at callProvider (worker.ts:42)\n    at run (queue.ts:12)',
-                instance: 'worker-1',
-                task_id: null,
-                request_id: session.errorRequest ? 'request-1' : null,
-                group: 'generation.failed',
-              },
-            ]
-          : [],
-      }
     if (url.startsWith('/api/overview/generation')) {
       if (session.failToday) throw new Error('generation unavailable')
       const params = new URLSearchParams(url.split('?')[1])
@@ -382,15 +318,9 @@ function renderAt(path: string) {
 }
 
 beforeEach(() => {
-  session.errorCode = 'media_processing_busy'
-  session.errorReason = 'object_lock_timeout'
-  session.recentAvailable = true
   patch.mockClear()
   requests.length = 0
   session.failToday = false
-  session.recoveryScenario = false
-  session.showError = false
-  session.errorRequest = true
   session.taskAt = undefined
   session.completedAt = undefined
   session.accountsLogin = true

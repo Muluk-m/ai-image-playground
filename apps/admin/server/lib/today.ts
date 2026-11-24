@@ -1,8 +1,5 @@
-import { CLIENT_ERROR_RECOVERY_OPERATIONS } from '@image-playground/shared'
 import { sql } from 'drizzle-orm'
 import {
-  type ErrorRecoveryState,
-  type ErrorWindow,
   type GenerationActor,
   type GenerationTaskFilters,
   type GenerationTasksFacetOption,
@@ -13,17 +10,14 @@ import {
   type OverviewActivityResult,
   type TaskStatus,
   type TimeWindow,
-  type TodayErrorItem,
-  type TodayErrorsResult,
   type TodayModelFailure,
   type TodayModelStat,
   type TodayOverviewResult,
   todayWindow,
 } from '../../contracts'
 import { getDbHandle } from './db'
-import { errorRecoveryJoins, tunnelRecoveryEvents } from './error-recovery'
 import { mapTaskListItem } from './queries'
-import { type LegacyLogRow, mergeRows, serverLogSource, serverLogsCte } from './server-log-source'
+import { serverLogSource, serverLogsCte } from './server-log-source'
 import { effectiveLogLevel } from './server-logs'
 import { taskSourceSql } from './task-source'
 
@@ -159,170 +153,6 @@ export async function getGenerationUsers(window: TimeWindow): Promise<Generation
         last_submitted_at: epoch(row.last_submitted_at),
       }),
     ),
-  }
-}
-
-function logText(fields: unknown, key: string): string | null {
-  if (!fields || typeof fields !== 'object') return null
-  const value = (fields as Record<string, unknown>)[key]
-  return typeof value === 'string' && value.trim() ? value : null
-}
-
-function logReason(fields: unknown): string | null {
-  if (!fields || typeof fields !== 'object') return null
-  const value = fields as Record<string, unknown>
-  if (value.operation === 'project.catalog' && Array.isArray(value.causes)) {
-    const cause = value.causes.at(-1)
-    const message = logText(cause, 'message')
-    if (message) return [logText(cause, 'name'), message].filter(Boolean).join(': ')
-  }
-  return (
-    logText(fields, 'reason') ??
-    logText(fields, 'err') ??
-    logText(value.err, 'message') ??
-    logText(fields, 'error') ??
-    logText(value.error, 'message')
-  )
-}
-
-export async function getTodayErrors(now = Date.now()): Promise<TodayErrorsResult> {
-  const window = todayWindow(now)
-  const recentWindow = { from: now - 15 * 60_000, to: now }
-  const scanFrom = new Date(Math.min(window.from, recentWindow.from))
-  // 日志在 OpenObserve：取出分类要用的行，以 server_logs 之名交给下面的 SQL。前后各多取一分钟，
-  // 关联请求原因的 ±1 分钟窗口才完整。
-  const source = serverLogSource()
-  const logFrom = scanFrom.getTime() - 60_000
-  const logTo = now + 60_000
-  const batch = await source.logs(logFrom, logTo)
-  const classify = async (logs: readonly LegacyLogRow[]) =>
-    (await getDbHandle().db.execute(sql`
-    WITH ${serverLogsCte(logs)}, ${tunnelRecoveryEvents(scanFrom, now)}, errors AS (
-      SELECT 'server' AS source, id, at, service, instance, event, message, task_id, request_id, group_key AS "group",
-        COALESCE(fields->>'stack', fields->'err'->>'stack') AS stack, fields, NULL::text AS device_id, NULL::text AS user_id
-      FROM server_logs
-      WHERE at >= ${scanFrom} AND at <= ${new Date(now)}
-        AND ${effectiveLogLevel} IN ('error', 'fatal')
-      UNION ALL
-      SELECT 'client' AS source, id, received_at AS at, '前端' AS service, NULL::text AS instance, NULL::text AS event,
-        CASE WHEN name IS NULL THEN message ELSE name || ': ' || message END AS message,
-        NULL::text AS task_id, NULL::text AS request_id, fingerprint AS "group", stack, COALESCE(context, '{}'::jsonb) AS fields, device_id, user_id
-      FROM client_errors
-      WHERE received_at >= ${scanFrom} AND received_at <= ${new Date(now)}
-    ), classified AS (
-      SELECT errors.*,
-        CASE WHEN client_recovered.at IS NOT NULL OR reconnected.at IS NOT NULL OR task.status = 'completed' THEN 'recovered'
-          WHEN task.status = 'failed' THEN 'unresolved' ELSE 'unknown' END AS recovery_state,
-        CASE WHEN client_recovered.at IS NOT NULL THEN '同一页面、账号的同一操作重试已成功（浏览器上报）'
-          WHEN reconnected.at IS NOT NULL THEN '同一隧道连接已重新注册成功'
-          WHEN task.status = 'completed' THEN '关联任务已完成'
-          WHEN task.status = 'failed' THEN '关联任务仍为失败状态'
-          WHEN errors.service = 'cloudflared' THEN '尚无可准确关联的重连成功记录'
-          WHEN errors.source = 'client' AND errors.fields->>'incidentId' IS NULL THEN '此条前端错误未记录恢复标识，无法自动确认'
-          ELSE '暂无可关联的恢复证据' END AS recovery_reason,
-        COALESCE(CASE WHEN client_recovered.at IS NOT NULL THEN GREATEST(client_recovered.at, errors.at) END, reconnected.at, CASE WHEN task.status = 'completed' THEN task.completed_at END) AS recovered_at
-      FROM errors
-      ${errorRecoveryJoins(now)}
-      LEFT JOIN LATERAL (
-        SELECT MIN(recovery.received_at) AS at FROM client_error_recoveries recovery
-        WHERE errors.source = 'client'
-          AND recovery.incident_id = errors.fields->>'incidentId'
-          AND recovery.operation IN (${sql.join(
-            CLIENT_ERROR_RECOVERY_OPERATIONS.map((operation) => sql`${operation}`),
-            sql`, `,
-          )})
-          AND errors.fields->>'operation' = recovery.operation
-          AND recovery.device_id = errors.device_id
-          AND recovery.user_id IS NOT DISTINCT FROM errors.user_id
-          AND recovery.received_at <= ${new Date(now)}
-      ) client_recovered ON true
-    ), ranked AS (
-      SELECT *, COUNT(*) FILTER (WHERE at >= ${new Date(window.from)}) OVER() AS total,
-        COUNT(*) FILTER (WHERE at >= ${new Date(recentWindow.from)}) OVER() AS recent_total,
-        COUNT(*) FILTER (WHERE at >= ${new Date(window.from)}) OVER (PARTITION BY recovery_state) AS state_total,
-        COUNT(*) FILTER (WHERE at >= ${new Date(recentWindow.from)}) OVER (PARTITION BY recovery_state) AS state_recent_total,
-        ROW_NUMBER() OVER (ORDER BY at DESC, source, id DESC) AS rank,
-        ROW_NUMBER() OVER (PARTITION BY recovery_state ORDER BY at DESC, source, id DESC) AS state_rank
-      FROM classified
-    ), latest AS (
-      SELECT * FROM ranked WHERE rank <= 10 OR state_rank <= 10
-    )
-    SELECT latest.*, cause.fields AS cause_fields FROM latest
-    LEFT JOIN LATERAL (
-      SELECT fields FROM server_logs related
-      WHERE latest.source = 'server' AND latest.request_id IS NOT NULL
-        AND related.request_id = latest.request_id AND related.id <> latest.id
-        AND related.service = latest.service AND related.instance = latest.instance
-        AND related.at BETWEEN latest.at - interval '1 minute' AND latest.at + interval '1 minute'
-        AND related.at <= ${new Date(now)}
-        AND (fields ? 'errorCode' OR fields ? 'reason' OR fields ? 'err' OR fields ? 'error')
-      ORDER BY (fields ? 'reason') DESC, (fields ? 'errorCode') DESC, at DESC, id DESC LIMIT 1
-    ) cause ON true
-    ORDER BY latest.at DESC, latest.source, latest.id DESC
-  `)) as unknown as Row[]
-  // 先分类，定下各分组实际展示的条目，再只给这些条目的请求补查原因行，补上后重新算一遍。
-  let rows = await classify(batch.rows)
-  const shownRequests = [
-    ...new Set(
-      rows
-        .filter((row) => row.source === 'server' && row.request_id != null)
-        .map((row) => String(row.request_id)),
-    ),
-  ]
-  if (shownRequests.length > 0) {
-    const causes = await source.causes(shownRequests, logFrom, logTo)
-    if (causes.length > 0) rows = await classify(mergeRows(batch.rows, causes))
-  }
-  const entries = rows.map((row): TodayErrorItem => {
-    const fields = row.fields as Record<string, unknown> | null
-    const status = Number(fields?.status)
-    return {
-      recovery: {
-        state: row.recovery_state as ErrorRecoveryState,
-        reason: String(row.recovery_reason),
-        recoveredAt: row.recovered_at == null ? null : epoch(row.recovered_at),
-      },
-      source: row.source as TodayErrorItem['source'],
-      id: String(row.id),
-      at: epoch(row.at),
-      service: String(row.service),
-      instance: nullableText(row.instance),
-      message: String(row.message),
-      task_id: nullableText(row.task_id),
-      request_id: nullableText(row.request_id),
-      group: nullableText(row.group),
-      stack: nullableText(row.stack),
-      route: logText(fields, 'route'),
-      status: Number.isInteger(status) && status >= 100 && status <= 599 ? status : null,
-      errorCode: logText(fields, 'errorCode') ?? logText(row.cause_fields, 'errorCode'),
-      reason: logReason(fields) ?? logReason(row.cause_fields),
-    }
-  })
-  const resultWindow = (window: TimeWindow, recent: boolean): ErrorWindow => {
-    const inWindow = entries.filter((entry) => entry.at >= window.from)
-    const group = (state: ErrorRecoveryState) => ({
-      total: Number(
-        rows.find((row) => row.recovery_state === state)?.[
-          recent ? 'state_recent_total' : 'state_total'
-        ] ?? 0,
-      ),
-      entries: inWindow.filter((entry) => entry.recovery?.state === state).slice(0, 10),
-    })
-    return {
-      window,
-      total: Number(rows[0]?.[recent ? 'recent_total' : 'total'] ?? 0),
-      entries: inWindow.slice(0, 10),
-      recovery: {
-        unresolved: group('unresolved'),
-        unknown: group('unknown'),
-        recovered: group('recovered'),
-      },
-    }
-  }
-  return {
-    ...resultWindow(window, false),
-    recent: resultWindow(recentWindow, true),
-    serverLogs: batch.availability,
   }
 }
 

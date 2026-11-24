@@ -2,12 +2,7 @@ import { Elysia, t } from 'elysia'
 import { parseRange, parseTimeWindow } from '../../contracts'
 import { requireAuth } from '../lib/middleware'
 import { getOverview } from '../lib/queries'
-import {
-  getGenerationUsers,
-  getOverviewActivity,
-  getTodayErrors,
-  getTodayOverview,
-} from '../lib/today'
+import { getGenerationUsers, getOverviewActivity, getTodayOverview } from '../lib/today'
 
 export const overviewRoutes = new Elysia()
   .use(requireAuth)
@@ -41,4 +36,3 @@ export const overviewRoutes = new Elysia()
     },
     { query: t.Object({ from: t.String(), to: t.String() }) },
   )
-  .get('/api/overview/errors', () => getTodayErrors())

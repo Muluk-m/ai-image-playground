@@ -70,17 +70,17 @@ func (a *App) uploadMedia(ctx context.Context, c *client.HTTPClient, path string
 	}
 	a.progress("Uploading %s (%d bytes)", filepath.Base(path), size)
 	upload := a.startTransfer(ctx, true)
-	defer upload.stop()
-	req, err := http.NewRequestWithContext(upload.ctx, http.MethodPut, reserved.UploadURL, file)
+	defer upload.Stop()
+	req, err := http.NewRequestWithContext(upload.Ctx, http.MethodPut, reserved.UploadURL, file)
 	if err != nil {
 		return media{}, err
 	}
 	req.ContentLength = size
 	req.Header.Set("Content-Type", contentType)
-	resp, err := upload.http.Do(req)
+	resp, err := upload.Client.Do(req)
 	if err != nil {
-		if upload.stalled() {
-			return media{}, upload.stalledFailure("Upload")
+		if upload.Stalled() {
+			return media{}, stalledFailure(upload, "Upload")
 		}
 		return media{}, fail("NETWORK_ERROR", "Upload failed: could not reach storage")
 	}
@@ -204,15 +204,15 @@ func (a *App) downloadTo(ctx context.Context, c *client.HTTPClient, path, target
 		return download{}, err
 	}
 	fetch := a.startTransfer(ctx, false)
-	defer fetch.stop()
-	req, err := http.NewRequestWithContext(fetch.ctx, http.MethodGet, signed.DownloadURL, nil)
+	defer fetch.Stop()
+	req, err := http.NewRequestWithContext(fetch.Ctx, http.MethodGet, signed.DownloadURL, nil)
 	if err != nil {
 		return download{}, err
 	}
-	resp, err := fetch.http.Do(req)
+	resp, err := fetch.Client.Do(req)
 	if err != nil {
-		if fetch.stalled() {
-			return download{}, fetch.stalledFailure("Download")
+		if fetch.Stalled() {
+			return download{}, stalledFailure(fetch, "Download")
 		}
 		return download{}, fail("NETWORK_ERROR", "Download failed: could not reach storage")
 	}
@@ -223,8 +223,8 @@ func (a *App) downloadTo(ctx context.Context, c *client.HTTPClient, path, target
 	size, present, err := writeNew(target, resp.Body)
 	if err != nil {
 		// Only a failed read can mean a stall; FILE_EXISTS and local file errors stand as they are.
-		if asFailure(err).Code == "NETWORK_ERROR" && fetch.stalled() {
-			return download{}, fetch.stalledFailure("Download")
+		if asFailure(err).Code == "NETWORK_ERROR" && fetch.Stalled() {
+			return download{}, stalledFailure(fetch, "Download")
 		}
 		return download{}, err
 	}

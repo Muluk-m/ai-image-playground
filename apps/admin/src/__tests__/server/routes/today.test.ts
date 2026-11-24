@@ -1,7 +1,6 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import { CLIENT_ERROR_RECOVERY_OPERATIONS } from '@image-playground/shared'
 import { todayWindow } from '../../../../contracts'
 import { useTableLogSource } from '../helpers/table-log-source'
 
@@ -150,9 +149,7 @@ await writer.db.insert(writer.schema.client_errors).values({
   received_at: from + 3000,
 })
 const { app } = await import('../../../../server/app')
-const { getTodayOverview, getGenerationTasks, getTodayErrors } = await import(
-  '../../../../server/lib/today'
-)
+const { getTodayOverview, getGenerationTasks } = await import('../../../../server/lib/today')
 afterAll(() => writer.close())
 const login = await app.handle(
   new Request('http://localhost/api/login', {
@@ -355,142 +352,8 @@ describe('today generation overview', () => {
     expect(byName.tasks.every((task) => task.username === 'alice')).toBe(true)
   })
 
-  it('lists error and fatal server logs alongside frontend errors, excluding warnings and yesterday', async () => {
-    const data = await getTodayErrors(to)
-    expect(data.total).toBe(4)
-    expect(data.entries[0]?.source).toBe('client')
-    expect(data.entries.find((entry) => entry.id === 'error')).toMatchObject({
-      task_id: 'today-failed',
-      stack: 'redacted stack',
-    })
-    expect(data.entries.map((entry) => entry.id)).not.toContain('warn')
-    expect(data.entries.map((entry) => entry.id)).not.toContain('legacy-stack')
-    expect(data.entries.find((entry) => entry.id === 'full-terminal-error')).toMatchObject({
-      instance: 'instance',
-      message: 'TypeError: broken\n    at call (app.ts:1:2)',
-    })
-  })
-
-  it('counts the full recent window before limiting rows and correlates request reasons without counting warnings', async () => {
-    const now = to + 86400_000
-    const failure = {
-      ...log,
-      service: 'bff' as const,
-      event: 'http.request',
-      message: 'API request failed',
-      task_id: null,
-      request_id: 'media-request',
-      fields: { route: 'POST /api/media/:id/complete', status: 503 },
-    }
-    await writer.db.insert(writer.schema.server_logs).values([
-      { ...failure, id: 'media-http', at: now - 20, level: 'error' },
-      {
-        ...failure,
-        id: 'media-cause',
-        at: now - 21,
-        level: 'warn',
-        event: 'media.request_rejected',
-        fields: { errorCode: 'media_processing_busy', reason: 'object_lock_timeout' },
-      },
-      {
-        ...failure,
-        id: 'other-instance',
-        instance: 'other',
-        at: now - 19,
-        level: 'warn',
-        fields: { errorCode: 'wrong_instance', reason: 'wrong_instance' },
-      },
-      {
-        ...failure,
-        id: 'future-cause',
-        at: now + 1,
-        level: 'warn',
-        fields: { errorCode: 'future_cause', reason: 'future_cause' },
-      },
-      { ...log, id: 'earlier-today', at: now - 3600_000 + 1000, level: 'error' },
-      ...Array.from({ length: 12 }, (_, i) => ({
-        ...log,
-        id: `recent-${i}`,
-        at: now - 100 - i,
-        level: 'error' as const,
-      })),
-    ])
-    const data = await getTodayErrors(now)
-    expect(data.total).toBe(14)
-    expect(data.recent?.total).toBe(13)
-    expect(data.entries).toHaveLength(10)
-    expect(data.recent?.entries).toHaveLength(10)
-    expect(data.entries[0]).toMatchObject({
-      id: 'media-http',
-      route: 'POST /api/media/:id/complete',
-      status: 503,
-      errorCode: 'media_processing_busy',
-      reason: 'object_lock_timeout',
-    })
-    expect(JSON.stringify(data)).not.toContain('wrong_instance')
-    expect(JSON.stringify(data)).not.toContain('future_cause')
-  })
-
-  it('keeps recent errors from the previous day after midnight while today is empty', async () => {
-    const midnight = from + 2 * 86400_000
-    await writer.db.insert(writer.schema.client_errors).values({
-      id: 'before-midnight',
-      fingerprint: 'bbbbbbbbbbbbbbbb',
-      kind: 'boot',
-      message: 'timeout',
-      received_at: midnight - 1,
-    })
-    const data = await getTodayErrors(midnight + 5 * 60_000)
-    expect(data.total).toBe(0)
-    expect(data.entries).toEqual([])
-    expect(data.recent?.total).toBe(1)
-    expect(data.recent?.entries[0]?.id).toBe('before-midnight')
-    expect(data.recent?.window).toEqual({ from: midnight - 10 * 60_000, to: midnight + 5 * 60_000 })
-    const empty = await getTodayErrors(midnight + 16 * 60_000)
-    expect(empty.recent?.total).toBe(0)
-    expect(empty.recent?.entries).toEqual([])
-  })
-
-  it('extracts string err from both the failure itself and correlated request logs', async () => {
-    const now = to + 3 * 86400_000
-    await writer.db.insert(writer.schema.server_logs).values([
-      {
-        ...log,
-        id: 'batch-error-string',
-        at: now - 1,
-        level: 'error',
-        message: 'batch dispatch failed',
-        fields: { err: 'Dispatch connection closed' },
-      },
-      {
-        ...log,
-        id: 'http-error-string',
-        at: now - 2,
-        level: 'error',
-        message: 'API request failed',
-        request_id: 'string-err-request',
-        fields: { route: 'POST /api/agent', status: 500 },
-      },
-      {
-        ...log,
-        id: 'string-err-cause',
-        at: now - 3,
-        level: 'warn',
-        request_id: 'string-err-request',
-        fields: { err: 'Agent dispatch unavailable' },
-      },
-    ])
-    const data = await getTodayErrors(now)
-    expect(data.entries.find((entry) => entry.id === 'batch-error-string')?.reason).toBe(
-      'Dispatch connection closed',
-    )
-    expect(data.entries.find((entry) => entry.id === 'http-error-string')?.reason).toBe(
-      'Agent dispatch unavailable',
-    )
-  })
-
   it('requires authentication and rejects malformed time, identity, status and pagination filters', async () => {
-    for (const path of ['/api/overview/today', '/api/overview/errors', '/api/tasks'])
+    for (const path of ['/api/overview/today', '/api/tasks'])
       expect((await app.handle(new Request(`http://localhost${path}`))).status).toBe(401)
     for (const suffix of [
       'from=bad&to=1',
@@ -517,7 +380,6 @@ describe('today generation overview', () => {
       (await request(`/api/tasks?from=${from}&to=${to}&userId=today-user&status=failed`)).status,
     ).toBe(200)
     expect((await request('/api/overview/today')).status).toBe(200)
-    expect((await request('/api/overview/errors')).status).toBe(200)
   })
 
   it('supports rich multi-facet filtering, sorting, summary percentiles, and window facets', async () => {
@@ -731,60 +593,4 @@ describe('today generation overview', () => {
       ).tasks.map((item) => item.id),
     ).toEqual(['rich-reconciling'])
   })
-})
-
-it.each([
-  ...CLIENT_ERROR_RECOVERY_OPERATIONS,
-])('only marks the exact device/account/%s incident recovered, regardless of beacon order', async (operation) => {
-  const now = to + (8 + CLIENT_ERROR_RECOVERY_OPERATIONS.indexOf(operation)) * 86400_000
-  const id = (suffix: string) => `${operation}-${suffix}`
-  const incidentId = crypto.randomUUID()
-  const failure = {
-    kind: 'error' as const,
-    message: 'Project catalog unavailable',
-    fingerprint: 'catalog-test',
-    received_at: now - 1000,
-    device_id: 'catalog-device',
-    user_id: 'today-user',
-    context: { incidentId, operation },
-  }
-  await writer.db.insert(writer.schema.client_errors).values([
-    { ...failure, id: id('match') },
-    { ...failure, id: id('other-device'), device_id: 'other-device' },
-    { ...failure, id: id('other-account'), user_id: null },
-    {
-      ...failure,
-      id: id('other-incident'),
-      context: { incidentId: crypto.randomUUID(), operation },
-    },
-    {
-      ...failure,
-      id: id('other-operation'),
-      context: {
-        incidentId,
-        operation: CLIENT_ERROR_RECOVERY_OPERATIONS.find((other) => other !== operation),
-      },
-    },
-    { ...failure, id: id('legacy'), context: null },
-  ])
-  await writer.db.insert(writer.schema.client_error_recoveries).values({
-    id: crypto.randomUUID(),
-    incident_id: incidentId,
-    operation,
-    device_id: 'catalog-device',
-    user_id: 'today-user',
-    received_at: now - 2000,
-  })
-  const result = await getTodayErrors(now)
-  expect(result.total).toBe(6)
-  expect(result.entries.find((e) => e.id === id('match'))?.recovery).toMatchObject({
-    state: 'recovered',
-    reason: '同一页面、账号的同一操作重试已成功（浏览器上报）',
-    recoveredAt: now - 1000,
-  })
-  for (const entry of result.entries.filter((e) => e.id !== id('match')))
-    expect(entry.recovery?.state).toBe('unknown')
-  expect(result.entries.find((e) => e.id === id('legacy'))?.recovery?.reason).toContain(
-    '未记录恢复标识',
-  )
 })

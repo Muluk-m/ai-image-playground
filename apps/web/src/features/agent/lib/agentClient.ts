@@ -166,12 +166,35 @@ export async function createConversation(
 export async function fetchConversations(
   fetcher: Fetcher = authenticatedBffFetch,
 ): Promise<AgentConversationView[]> {
-  const response = await fetcher(url('/conversations'), {
-    headers: deviceHeaders(),
-    signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
-  })
-  if (!response.ok) throw await requestError(response)
-  return ((await response.json()) as { conversations: AgentConversationView[] }).conversations
+  const seen = new Set<string>()
+  const seenCursors = new Set<string>()
+  const collected: AgentConversationView[] = []
+  let cursor: string | null = null
+  for (;;) {
+    const endpoint =
+      cursor === null
+        ? url('/conversations')
+        : url(`/conversations?cursor=${encodeURIComponent(cursor)}`)
+    const response = await fetcher(endpoint, {
+      headers: deviceHeaders(),
+      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+    })
+    if (!response.ok) throw await requestError(response)
+    const body = (await response.json()) as {
+      conversations: AgentConversationView[]
+      nextCursor?: string | null
+    }
+    for (const conversation of body.conversations) {
+      if (seen.has(conversation.id)) continue
+      seen.add(conversation.id)
+      collected.push(conversation)
+    }
+    const next = typeof body.nextCursor === 'string' && body.nextCursor ? body.nextCursor : null
+    if (!next || seenCursors.has(next)) break
+    seenCursors.add(next)
+    cursor = next
+  }
+  return collected
 }
 
 export async function removeConversation(
@@ -193,18 +216,30 @@ export interface AgentConversationState {
   readonly cursor?: number
   /** 还排着的消息；老服务端没有这一项。 */
   readonly queue?: readonly AgentQueuedMessageView[]
+  /** 还有更早的历史消息时给出当前页最旧一条的序号；null 表示已到开头。 */
+  readonly nextBeforeSeq?: number | null
 }
 
-export async function fetchMessages(
+export interface AgentMessagesPageOptions {
+  readonly limit?: number
+  readonly beforeSeq?: number
+}
+
+async function fetchMessagesPage(
   conversationId: string,
-  fetcher: Fetcher = authenticatedBffFetch,
-  cancellation?: AbortSignal,
+  fetcher: Fetcher,
+  cancellation: AbortSignal | undefined,
+  page?: AgentMessagesPageOptions,
 ): Promise<AgentConversationState> {
   const timeout = AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS)
   const signal = cancellation ? AbortSignal.any([cancellation, timeout]) : timeout
   signal.throwIfAborted()
+  const params = new URLSearchParams()
+  if (page?.limit !== undefined) params.set('limit', String(page.limit))
+  if (page?.beforeSeq !== undefined) params.set('beforeSeq', String(page.beforeSeq))
+  const suffix = params.size > 0 ? `?${params.toString()}` : ''
   const response = await withSignal(
-    fetcher(url(`/conversations/${conversationId}/messages`), {
+    fetcher(url(`/conversations/${conversationId}/messages${suffix}`), {
       headers: deviceHeaders(),
       signal,
       ...(cancellation ? { priority: 'low' as const } : {}),
@@ -213,6 +248,47 @@ export async function fetchMessages(
   )
   if (!response.ok) throw await withSignal(requestError(response), signal)
   return (await withSignal(response.json(), signal)) as AgentConversationState
+}
+
+export async function fetchMessages(
+  conversationId: string,
+  fetcher: Fetcher = authenticatedBffFetch,
+  cancellation?: AbortSignal,
+  page?: AgentMessagesPageOptions,
+): Promise<AgentConversationState> {
+  if (page !== undefined) {
+    return fetchMessagesPage(conversationId, fetcher, cancellation, page)
+  }
+  const latest = await fetchMessagesPage(conversationId, fetcher, cancellation)
+  let beforeSeq =
+    typeof latest.nextBeforeSeq === 'number' && latest.nextBeforeSeq > 0
+      ? latest.nextBeforeSeq
+      : null
+  if (beforeSeq === null) return latest
+  const pages: AgentMessageView[][] = [latest.messages]
+  const seenBeforeSeq = new Set<number>([beforeSeq])
+  while (beforeSeq !== null) {
+    const older = await fetchMessagesPage(conversationId, fetcher, cancellation, { beforeSeq })
+    if (older.messages.length === 0) break
+    pages.unshift(older.messages)
+    const next =
+      typeof older.nextBeforeSeq === 'number' && older.nextBeforeSeq > 0
+        ? older.nextBeforeSeq
+        : null
+    if (next === null || seenBeforeSeq.has(next)) break
+    seenBeforeSeq.add(next)
+    beforeSeq = next
+  }
+  const seenIds = new Set<string>()
+  const merged: AgentMessageView[] = []
+  for (const chunk of pages) {
+    for (const message of chunk) {
+      if (seenIds.has(message.id)) continue
+      seenIds.add(message.id)
+      merged.push(message)
+    }
+  }
+  return { ...latest, messages: merged, nextBeforeSeq: null }
 }
 
 /**
