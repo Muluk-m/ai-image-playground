@@ -268,7 +268,7 @@ export default function PricingPage({
             ) : (
               <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
                 type="button"
-                onClick={enter}
+                onClick={() => enter('workspace')}
                 className="h-9 rounded-full bg-white px-4 text-sm font-semibold text-[var(--pricing-ink)] hover:bg-[var(--pricing-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
               >
                 {auth.enabled && !auth.user ? t('nav.login') : t('nav.workspace')}
