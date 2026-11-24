@@ -41,20 +41,34 @@ case "$command" in
     fi
     compose --profile provision run --rm postgres-provision
     ;;
+  provision-pooler)
+    if [ "$#" -ne 0 ]; then
+      echo "Usage: $0 provision-pooler" >&2
+      exit 2
+    fi
+    compose --profile pooler-provision run --rm pgbouncer-provision
+    ;;
+  up-pooler)
+    if [ "$#" -ne 0 ]; then
+      echo "Usage: $0 up-pooler" >&2
+      exit 2
+    fi
+    compose --profile pooler up --detach --wait pgbouncer
+    ;;
   down)
-    compose down "$@"
+    compose --profile pooler down "$@"
     ;;
   status)
-    compose ps "$@"
+    compose --profile pooler ps "$@"
     ;;
   logs)
-    compose logs "$@"
+    compose --profile pooler logs "$@"
     ;;
   compose)
     compose "$@"
     ;;
   *)
-    echo "Usage: $0 {up|provision|down|status|logs|compose}" >&2
+    echo "Usage: $0 {up|provision|provision-pooler|up-pooler|down|status|logs|compose}" >&2
     exit 2
     ;;
 esac

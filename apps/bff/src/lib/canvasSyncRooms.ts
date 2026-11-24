@@ -1,7 +1,7 @@
 import { CANVAS_SYNC_SESSION_EXPIRED_CODE, canvasSyncUpdate } from '@image-playground/shared'
 import postgres from 'postgres'
 import * as Y from 'yjs'
-import { config } from '../config'
+import { resolveDirectDatabaseUrl } from '../db/client'
 import { accessCanvasDocument } from './canvasSyncStore'
 
 export interface CanvasPeer {
@@ -24,7 +24,8 @@ export class CanvasSyncRooms {
   private timer: ReturnType<typeof setInterval> | undefined
   private ensureListening() {
     if (this.listening) return this.listening
-    this.listener = postgres(process.env.DATABASE_URL?.trim() || config.databaseUrl, {
+    // LISTEN/NOTIFY 依赖长会话，必须经直连地址绕过 PgBouncer 事务连接池。
+    this.listener = postgres(resolveDirectDatabaseUrl(), {
       max: 1,
       connection: { application_name: 'bff-canvas-listener' },
     })

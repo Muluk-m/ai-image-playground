@@ -248,7 +248,7 @@ const secret = (name: string) => {
 const list = (values: readonly string[]) => values.join(',')
 const webOrigins = (d: Deployment) => Object.keys(d.web.origins)
 
-function databaseUrl(role: 'app' | 'admin' | 'migrator') {
+function databaseUrl(role: 'app' | 'admin' | 'migrator', options?: { directOnly?: boolean }) {
   const passwordName = {
     app: 'POSTGRES_APP_PASSWORD',
     admin: 'POSTGRES_ADMIN_PASSWORD',
@@ -257,8 +257,10 @@ function databaseUrl(role: 'app' | 'admin' | 'migrator') {
   return (ctx: RenderContext) => {
     const password = ctx.secret(passwordName)
     if (password === undefined) return undefined
-    const { name, users } = ctx.deployment.database
-    return `postgresql://${users[role]}:${encodeURIComponent(password)}@postgres:5432/${name}`
+    const { name, users, pooler } = ctx.deployment.database
+    const hostPort =
+      !options?.directOnly && role === 'app' && pooler ? 'pgbouncer:6432' : 'postgres:5432'
+    return `postgresql://${users[role]}:${encodeURIComponent(password)}@${hostPort}/${name}`
   }
 }
 
@@ -356,24 +358,31 @@ const BASE_SETTINGS: SettingDef[] = [
     value: fixed('21600'),
   },
 
-  // 数据库：entrypoint 按角色把这些映射成 DATABASE_URL。
+  // 数据库：entrypoint 按角色把这些映射成 DATABASE_URL（启用 PgBouncer 时额外映射 DIRECT_DATABASE_URL）。
   {
     env: 'APP_DATABASE_URL',
     services: [...APP, 'dependency-check'],
-    doc: '读写角色',
+    doc: '读写角色（启用 database.pooler 时走 pgbouncer:6432）',
     value: databaseUrl('app'),
+  },
+  {
+    env: 'APP_DIRECT_DATABASE_URL',
+    services: APP,
+    doc: '读写角色直连地址（仅启用 database.pooler 时下发，绕过 PgBouncer 供 session advisory lock 使用）',
+    value: (ctx) =>
+      ctx.deployment.database.pooler ? databaseUrl('app', { directOnly: true })(ctx) : undefined,
   },
   {
     env: 'ADMIN_DATABASE_URL',
     services: ['admin', 'pg-backup'],
-    doc: '只读角色',
-    value: databaseUrl('admin'),
+    doc: '只读角色（直连 postgres:5432，兼容 pg_dump）',
+    value: databaseUrl('admin', { directOnly: true }),
   },
   {
     env: 'MIGRATOR_DATABASE_URL',
     services: ['migrate'],
-    doc: '迁移角色',
-    value: databaseUrl('migrator'),
+    doc: '迁移角色（直连 postgres:5432，DDL 与 advisory lock 绕过连接池）',
+    value: databaseUrl('migrator', { directOnly: true }),
   },
 
   // 域名：全部由 web / api / admin 三段推导。
@@ -821,9 +830,13 @@ export const NOT_DEPLOYMENT_CONFIG: Readonly<Record<string, string>> = {
   APP_RELEASE: '镜像构建参数',
   NODE_ENV: '运行时',
   DATABASE_URL: 'docker-entrypoint.sh 按角色从 *_DATABASE_URL 映射',
+  DIRECT_DATABASE_URL:
+    'docker-entrypoint.sh 按角色从 APP_DIRECT_DATABASE_URL 映射（可选，绕过 PgBouncer 供 session advisory lock 与迁移使用）',
   DATABASE_IDLE_TIMEOUT_SECONDS: '连接池默认值，部署不覆盖',
   DATABASE_STATEMENT_TIMEOUT_MS: '连接池默认值，部署不覆盖',
   DATABASE_LOCK_TIMEOUT_MS: '连接池默认值，部署不覆盖',
+  DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS: '连接池默认值，部署不覆盖',
+  DATABASE_PREPARE: '连接池 prepared statement 开关，部署按需覆盖',
   TEST_DATABASE_URL: '测试',
   WORKER_ACTIVATION_FILE: 'rollout-runtime.sh 按代次传入',
   WORKER_START_PAUSED: 'rollout-runtime.sh 按代次传入',

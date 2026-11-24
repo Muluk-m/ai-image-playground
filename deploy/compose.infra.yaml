@@ -67,6 +67,9 @@ services:
         SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'app_user', :'app_password')
         WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'app_user') \gexec
         SELECT format('ALTER ROLE %I LOGIN PASSWORD %L', :'app_user', :'app_password') \gexec
+        SELECT format('ALTER ROLE %I SET statement_timeout = ''60s''', :'app_user') \gexec
+        SELECT format('ALTER ROLE %I SET lock_timeout = ''10s''', :'app_user') \gexec
+        SELECT format('ALTER ROLE %I SET idle_in_transaction_session_timeout = ''60s''', :'app_user') \gexec
         SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', :'admin_user', :'admin_password')
         WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = :'admin_user') \gexec
         SELECT format('ALTER ROLE %I LOGIN PASSWORD %L', :'admin_user', :'admin_password') \gexec
@@ -174,6 +177,56 @@ services:
         SQL
     networks:
       - application-infra
+
+  pgbouncer-provision:
+    image: postgres:17.6-alpine3.22
+    profiles:
+      - pooler-provision
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      PGBOUNCER_AUTH_PASSWORD: ${PGBOUNCER_AUTH_PASSWORD:-}
+    volumes:
+      - ./pgbouncer/provision.sh:/usr/local/bin/pgbouncer-provision.sh:ro
+    entrypoint:
+      - /bin/sh
+      - /usr/local/bin/pgbouncer-provision.sh
+    networks:
+      - application-infra
+
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.24.1-p1
+    profiles:
+      - pooler
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGBOUNCER_AUTH_PASSWORD: ${PGBOUNCER_AUTH_PASSWORD:-}
+    volumes:
+      - ./pgbouncer/pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+      - ./pgbouncer/entrypoint.sh:/usr/local/bin/pgbouncer-entrypoint.sh:ro
+      - ./pgbouncer/healthcheck.sh:/usr/local/bin/pgbouncer-healthcheck.sh:ro
+    entrypoint:
+      - /bin/sh
+      - /usr/local/bin/pgbouncer-entrypoint.sh
+    networks:
+      - application-infra
+    healthcheck:
+      test:
+        - CMD
+        - /bin/sh
+        - /usr/local/bin/pgbouncer-healthcheck.sh
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    stop_grace_period: 20s
 
 volumes:
   postgres-data:

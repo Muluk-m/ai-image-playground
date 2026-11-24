@@ -108,6 +108,12 @@ export const DeploymentSchema = Type.Object(
           { additionalProperties: false },
         ),
         extraSchemas: Type.Array(Type.String({ pattern: '^[a-z_][a-z0-9_]*$' })),
+        pooler: Type.Optional(
+          Type.Boolean({
+            description:
+              '启用 PgBouncer 事务连接池：APP_DATABASE_URL 指向 pgbouncer:6432，并下发 APP_DIRECT_DATABASE_URL 指向 postgres:5432 供 session advisory lock 使用。',
+          }),
+        ),
       },
       { additionalProperties: false },
     ),

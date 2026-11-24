@@ -55,10 +55,18 @@ case "$mode" in
     for name in APP_DATABASE_URL ADMIN_DATABASE_URL; do
       setting=$(value "$input/app.env" "$name")
       case "$name:$setting" in
-        APP_DATABASE_URL:postgresql://aip_test_app:*@postgres:5432/aip_test|ADMIN_DATABASE_URL:postgresql://aip_test_admin:*@postgres:5432/aip_test) ;;
+        APP_DATABASE_URL:postgresql://aip_test_app:*@postgres:5432/aip_test|APP_DATABASE_URL:postgresql://aip_test_app:*@pgbouncer:6432/aip_test|ADMIN_DATABASE_URL:postgresql://aip_test_admin:*@postgres:5432/aip_test) ;;
         *) reject "$name must name dedicated test role/database" ;;
       esac
     done
+    direct_setting=$(value "$input/app.env" APP_DIRECT_DATABASE_URL)
+    if [ -n "$direct_setting" ]; then
+      case "$direct_setting" in
+        postgresql://aip_test_app:*@postgres:5432/aip_test) ;;
+        *) reject 'APP_DIRECT_DATABASE_URL must name dedicated test role/database on direct postgres' ;;
+      esac
+    fi
+    [ -z "$(value "$input/app.env" DIRECT_DATABASE_URL)" ] || reject 'DIRECT_DATABASE_URL must not be set directly in app.env; use APP_DIRECT_DATABASE_URL'
     setting=$(value "$input/migrate.env" MIGRATOR_DATABASE_URL)
     case "$setting" in postgresql://aip_test_migrator:*@postgres:5432/aip_test) ;; *) reject 'dedicated test migrator required' ;; esac
     [ "$(value "$input/app.env" OPERATOR_CONFIG_FILE)" = /run/operator/operator-config.json ] || reject 'dedicated mounted operator configuration required'

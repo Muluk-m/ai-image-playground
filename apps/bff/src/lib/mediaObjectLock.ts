@@ -1,12 +1,16 @@
 import { type BunSQLDatabase, drizzle } from 'drizzle-orm/bun-sql'
-import { db, schema } from '../db/client'
+import { directSql, schema } from '../db/client'
 
-/** Object I/O and reclamation share a session lock, without holding a transaction or owner row. */
+/**
+ * Object I/O and reclamation share a session advisory lock, without holding a transaction or owner row.
+ * Uses `directSql()` so lock/unlock always stay on the same PostgreSQL backend session even when
+ * `DATABASE_URL` routes regular traffic through PgBouncer transaction pooling.
+ */
 export async function withMediaObjectLock<T>(
   mediaId: string,
   work: (database: BunSQLDatabase<typeof schema>) => Promise<T>,
 ): Promise<T | undefined> {
-  const connection = await db.$client.reserve()
+  const connection = await directSql().reserve()
   const identity = `attachment-media:${mediaId}`
   let locked = false
   try {
