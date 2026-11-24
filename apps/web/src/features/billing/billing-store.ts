@@ -229,15 +229,58 @@ export function useBilling(): BillingSnapshot {
   return value
 }
 
-let pendingBillingModal: 'pricing' | 'recharge' | null = null
+type BillingModalIntent = 'pricing' | 'recharge'
+const PENDING_BILLING_MODAL_KEY = 'muvloom:pending-billing-modal'
+const PENDING_BILLING_MODAL_TTL_MS = 10 * 60 * 1000
+let pendingBillingModal: BillingModalIntent | null = null
 
-export function queueBillingModal(modal: 'pricing' | 'recharge'): void {
-  pendingBillingModal = modal
+function readStoredBillingModal(): BillingModalIntent | null {
+  try {
+    const raw = window.sessionStorage.getItem(PENDING_BILLING_MODAL_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as { modal?: unknown; expiresAt?: unknown }
+    if (
+      (parsed.modal === 'pricing' || parsed.modal === 'recharge') &&
+      typeof parsed.expiresAt === 'number' &&
+      parsed.expiresAt > Date.now()
+    ) {
+      return parsed.modal
+    }
+    window.sessionStorage.removeItem(PENDING_BILLING_MODAL_KEY)
+  } catch {
+    // sessionStorage 不可用时退回内存状态。
+  }
+  return null
 }
 
-export function consumePendingBillingModal(): 'pricing' | 'recharge' | null {
-  const next = pendingBillingModal
+function clearStoredBillingModal(): void {
   pendingBillingModal = null
+  try {
+    window.sessionStorage.removeItem(PENDING_BILLING_MODAL_KEY)
+  } catch {
+    // 忽略存储异常。
+  }
+}
+
+export function queueBillingModal(modal: BillingModalIntent): void {
+  pendingBillingModal = modal
+  try {
+    window.sessionStorage.setItem(
+      PENDING_BILLING_MODAL_KEY,
+      JSON.stringify({ modal, expiresAt: Date.now() + PENDING_BILLING_MODAL_TTL_MS }),
+    )
+  } catch {
+    // 忽略存储异常，内存态仍可用。
+  }
+}
+
+export function hasPendingBillingModal(): boolean {
+  return (pendingBillingModal ?? readStoredBillingModal()) !== null
+}
+
+export function consumePendingBillingModal(): BillingModalIntent | null {
+  const next = pendingBillingModal ?? readStoredBillingModal()
+  clearStoredBillingModal()
   return next
 }
 
@@ -246,12 +289,12 @@ export function openBilling(): void {
 }
 
 export function openPricing(): void {
-  pendingBillingModal = null
+  clearStoredBillingModal()
   window.dispatchEvent(new Event(OPEN_PRICING_EVENT))
 }
 
 export function openRecharge(): void {
-  pendingBillingModal = null
+  clearStoredBillingModal()
   window.dispatchEvent(new Event(OPEN_RECHARGE_EVENT))
 }
 
