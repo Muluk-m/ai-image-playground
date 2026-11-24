@@ -47,6 +47,15 @@ export {
   queueTaskOutcome,
   setQueueTaskPollingForTesting,
 } from './task-outcome'
+export {
+  findAccessibleTaskInput,
+  findAccessibleTaskOutput,
+  findAccessibleTaskResult,
+  findAccessibleTaskSourceVideo,
+  findAccessibleTaskState,
+  findAccessibleTaskStatus,
+  taskAccessWhere,
+} from './task-queries'
 export { createQueueTask, submitPrepared } from './task-submission'
 export {
   _resetTaskSubmissionPluginsForTesting,

@@ -5,15 +5,14 @@ import {
   type TaskErrorType,
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
-import { db, schema } from '../db/client'
 import { extractMeta } from '../lib/extractImages'
 import { readGeneration } from '../lib/generations'
 import { publicTaskErrorMessage } from '../lib/public-task-error'
 import { asQueueProvider } from '../lib/queueProvider'
-import { taskAccessWhere } from '../lib/task-access'
 import { taskProgressPhase } from '../lib/task-progress'
 import { partialFailureField } from '../lib/upstream/partial'
 import { requireUserOrService } from '../lib/user-auth'
+import { findAccessibleTaskStatus } from '../modules/execution'
 
 /**
  * GET /v1/queue/requests/:id/status
@@ -25,25 +24,7 @@ import { requireUserOrService } from '../lib/user-auth'
 export const statusRoutes = new Elysia().use(requireUserOrService).get(
   '/v1/queue/requests/:id/status',
   async ({ params, status, authUser, serviceIdentity }) => {
-    const [task] = await db
-      .select({
-        id: schema.tasks.id,
-        status: schema.tasks.status,
-        submitted_at: schema.tasks.submitted_at,
-        started_at: schema.tasks.started_at,
-        completed_at: schema.tasks.completed_at,
-        error_message: schema.tasks.error_message,
-        error_type: schema.tasks.error_type,
-        provider: schema.tasks.provider,
-        request_payload: schema.tasks.request_payload,
-        result_payload: schema.tasks.result_payload,
-        archive_payload: schema.tasks.archive_payload,
-        upstream_task_ids: schema.tasks.upstream_task_ids,
-        lease_expires_at: schema.tasks.lease_expires_at,
-      })
-      .from(schema.tasks)
-      .where(taskAccessWhere(params.id, authUser?.id ?? null, serviceIdentity))
-      .limit(1)
+    const task = await findAccessibleTaskStatus(params.id, authUser?.id ?? null, serviceIdentity)
 
     if (!task) {
       const generation = authUser && (await readGeneration(authUser.id, params.id))

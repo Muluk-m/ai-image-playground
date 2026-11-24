@@ -292,3 +292,29 @@ export async function deleteGenerationOutput(
     return 'generation_deleted'
   })
 }
+
+export async function readCompletedGenerationOutputImage(
+  generationId: string,
+  userId: string,
+  position: number,
+): Promise<{ key: string; mime: string } | null> {
+  const [image] = await db
+    .select({ key: schema.media_objects.object_key, mime: schema.media_objects.content_type })
+    .from(schema.generation_images)
+    .innerJoin(schema.media_objects, eq(schema.generation_images.media_id, schema.media_objects.id))
+    .innerJoin(
+      schema.generation_records,
+      eq(schema.generation_images.generation_id, schema.generation_records.id),
+    )
+    .where(
+      and(
+        eq(schema.generation_records.id, generationId),
+        eq(schema.generation_records.user_id, userId),
+        eq(schema.generation_records.status, 'completed'),
+        eq(schema.media_objects.user_id, userId),
+        eq(schema.generation_images.role, 'output'),
+        eq(schema.generation_images.position, position),
+      ),
+    )
+  return image ?? null
+}

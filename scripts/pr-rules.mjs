@@ -11,7 +11,7 @@ import { costFiles } from './cost-impact.mjs'
 export const CRITICAL_FLOWS = {
   注册登录: [
     /^apps\/bff\/src\/routes\/(auth|oauth|account|cli)\.ts$/,
-    /^apps\/bff\/src\/lib\/(auth-origin-config|auth-origin-policy|password-reset|registration-verification|user-auth|user-session)\.ts$/,
+    /^apps\/bff\/src\/lib\/(auth-origin-config|auth-origin-policy|password-reset|registration-verification|user-auth|user-login|user-session)\.ts$/,
     /^apps\/bff\/src\/lib\/oauth\//,
     /^apps\/bff\/src\/modules\/identity\//,
     /^apps\/web\/src\/lib\/(authClient|authScope|sessionRefreshJournal)\.ts$/,

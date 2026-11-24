@@ -14,18 +14,7 @@ const tsTranspiler = new Bun.Transpiler({ loader: 'ts' })
 const tsxTranspiler = new Bun.Transpiler({ loader: 'tsx' })
 const sourceGlob = new Bun.Glob('**/*.{ts,tsx}')
 
-const ALLOWED_ROUTE_TO_DB = new Set([
-  'routes/agent-batches.ts -> db/client.ts',
-  'routes/agent.ts -> db/client.ts',
-  'routes/auth.ts -> db/client.ts',
-  'routes/cancel.ts -> db/client.ts',
-  'routes/canvasSync.ts -> db/client.ts',
-  'routes/internal-ops.ts -> db/client.ts',
-  'routes/looks.ts -> db/client.ts',
-  'routes/result.ts -> db/client.ts',
-  'routes/status.ts -> db/client.ts',
-  'routes/submit.ts -> db/client.ts',
-])
+const ALLOWED_ROUTE_TO_DB = new Set<string>([])
 
 const ALLOWED_DB_TO_OUTSIDE = new Set([
   'db/client.ts -> config.ts',

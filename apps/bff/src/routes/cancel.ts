@@ -1,10 +1,8 @@
 import { Elysia, t } from 'elysia'
-import { db, schema } from '../db/client'
 import { log } from '../lib/logger'
-import { taskAccessWhere } from '../lib/task-access'
 import { cancelUpstreamOfCancelledTasks } from '../lib/upstream-cancel'
 import { requireUser } from '../lib/user-auth'
-import { cancelTasks } from '../modules/execution'
+import { cancelTasks, findAccessibleTaskState, taskAccessWhere } from '../modules/execution'
 
 /**
  * PUT /v1/queue/requests/:id/cancel
@@ -16,7 +14,8 @@ import { cancelTasks } from '../modules/execution'
 export const cancelRoutes = new Elysia().use(requireUser).put(
   '/v1/queue/requests/:id/cancel',
   async ({ params, status, authUser }) => {
-    const access = taskAccessWhere(params.id, authUser?.id ?? null)
+    const userId = authUser?.id ?? null
+    const access = taskAccessWhere(params.id, userId)
     const cancelled = await cancelTasks(access!)
 
     if (cancelled.length > 0) {
@@ -25,12 +24,7 @@ export const cancelRoutes = new Elysia().use(requireUser).put(
       return { request_id: params.id, status: 'cancelled' as const }
     }
 
-    const [existing] = await db
-      .select({ id: schema.tasks.id, status: schema.tasks.status })
-      .from(schema.tasks)
-      .where(access)
-      .limit(1)
-
+    const existing = await findAccessibleTaskState(params.id, userId)
     if (!existing) return status(404, { error: 'task_not_found' })
     return { request_id: existing.id, status: existing.status }
   },

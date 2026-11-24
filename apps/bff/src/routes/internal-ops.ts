@@ -1,7 +1,7 @@
 import type { ContainerSample, HostSample } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
-import { db, schema } from '../db/client'
 import { readBackups } from '../lib/ops-backups'
+import { recordHostSample } from '../lib/ops-host-samples'
 import { requireInternalService } from '../lib/user-auth'
 
 /** 采集方的时钟允许的超前量；再往后的读数只可能是坏数据。 */
@@ -58,17 +58,7 @@ export const internalOpsRoutes = new Elysia({ prefix: '/internal/admin/ops' })
     '/host-samples',
     async ({ body, status }) => {
       if (!isPlausibleHostSample(body)) return status(400, { error: 'invalid_host_sample' })
-      const { containers = [], ...host } = body
-      // 采集方重试时会带着同一个 sampled_at 再来一次；那是同一次读数，不是新的一行。
-      await db.transaction(async (tx) => {
-        await tx.insert(schema.host_samples).values(host).onConflictDoNothing()
-        if (containers.length > 0) {
-          await tx
-            .insert(schema.container_samples)
-            .values(containers.map((one) => ({ ...one, sampled_at: host.sampled_at })))
-            .onConflictDoNothing()
-        }
-      })
+      await recordHostSample(body)
       return status(204)
     },
     {

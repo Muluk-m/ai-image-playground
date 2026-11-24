@@ -4,21 +4,23 @@ import {
   type ResultResponse,
   type TaskErrorType,
 } from '@image-playground/shared'
-import { and, eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
-import { db, schema } from '../db/client'
 import { durableMediaStore } from '../lib/durableMediaStore'
 import { extractMeta, resolveImageBytesRef } from '../lib/extractImages'
-import { readGeneration } from '../lib/generations'
+import { readCompletedGenerationOutputImage, readGeneration } from '../lib/generations'
 import { jsonResponse } from '../lib/gzipResponse'
 import { isStoredImageRef } from '../lib/imageArchive'
 import { objectStore } from '../lib/objectStore'
 import { publicTaskErrorMessage } from '../lib/public-task-error'
 import { asQueueProvider } from '../lib/queueProvider'
 import { parseByteRange, rangeStreamResponse } from '../lib/rangeResponse'
-import { taskAccessWhere } from '../lib/task-access'
 import { partialFailureField } from '../lib/upstream/partial'
 import { requireUserOrService } from '../lib/user-auth'
+import {
+  findAccessibleTaskInput,
+  findAccessibleTaskOutput,
+  findAccessibleTaskResult,
+} from '../modules/execution'
 
 const outputRouteOptions = {
   params: t.Object({
@@ -33,19 +35,7 @@ export const resultRoutes = new Elysia()
   .get(
     '/v1/queue/requests/:id',
     async ({ params, status, request, authUser, serviceIdentity }) => {
-      const [task] = await db
-        .select({
-          id: schema.tasks.id,
-          status: schema.tasks.status,
-          provider: schema.tasks.provider,
-          request_payload: schema.tasks.request_payload,
-          result_payload: schema.tasks.result_payload,
-          error_message: schema.tasks.error_message,
-          error_type: schema.tasks.error_type,
-        })
-        .from(schema.tasks)
-        .where(taskAccessWhere(params.id, authUser?.id ?? null, serviceIdentity))
-        .limit(1)
+      const task = await findAccessibleTaskResult(params.id, authUser?.id ?? null, serviceIdentity)
 
       if (!task) {
         const generation = authUser && (await readGeneration(authUser.id, params.id))
@@ -119,15 +109,7 @@ export const resultRoutes = new Elysia()
   .get(
     '/v1/queue/requests/:id/input-image/:index',
     async ({ params, status, authUser, serviceIdentity }) => {
-      const [task] = await db
-        .select({
-          provider: schema.tasks.provider,
-          request_payload: schema.tasks.request_payload,
-          user_id: schema.tasks.user_id,
-        })
-        .from(schema.tasks)
-        .where(taskAccessWhere(params.id, authUser?.id ?? null, serviceIdentity))
-        .limit(1)
+      const task = await findAccessibleTaskInput(params.id, authUser?.id ?? null, serviceIdentity)
       if (!task) return status(404, { error: 'task_not_found' })
 
       const idx = Number(params.index)
@@ -165,42 +147,12 @@ async function serveOutput(
   userId: string | null,
   serviceIdentity: boolean | undefined,
 ): Promise<Response> {
-  const [task] = await db
-    .select({
-      id: schema.tasks.id,
-      status: schema.tasks.status,
-      provider: schema.tasks.provider,
-      result_payload: schema.tasks.result_payload,
-      user_id: schema.tasks.user_id,
-    })
-    .from(schema.tasks)
-    .where(taskAccessWhere(params.id, userId, serviceIdentity))
-    .limit(1)
+  const task = await findAccessibleTaskOutput(params.id, userId, serviceIdentity)
   if (userId) {
     const index = Number(params.index)
     if (!Number.isInteger(index) || index < 0)
       return Response.json({ error: 'bad_index' }, { status: 400 })
-    const [image] = await db
-      .select({ key: schema.media_objects.object_key, mime: schema.media_objects.content_type })
-      .from(schema.generation_images)
-      .innerJoin(
-        schema.media_objects,
-        eq(schema.generation_images.media_id, schema.media_objects.id),
-      )
-      .innerJoin(
-        schema.generation_records,
-        eq(schema.generation_images.generation_id, schema.generation_records.id),
-      )
-      .where(
-        and(
-          eq(schema.generation_records.id, params.id),
-          eq(schema.generation_records.user_id, userId),
-          eq(schema.generation_records.status, 'completed'),
-          eq(schema.media_objects.user_id, userId),
-          eq(schema.generation_images.role, 'output'),
-          eq(schema.generation_images.position, index),
-        ),
-      )
+    const image = await readCompletedGenerationOutputImage(params.id, userId, index)
     if (image?.key) {
       try {
         // 图片整份读回。按对象大小做 Range 时，SVG 的 stat 会报成 1 字节，下载只剩一个 `<`，
