@@ -9,8 +9,8 @@
  * 见 ADR 0035），或者 `--secrets-file`（`NAME=value`，不带部署前缀，只用于迁移和应急）。
  * 输出目录先写到同级临时目录再整体换上去；任何一项校验不过就不动现有目录。不回显任何值。
  */
-import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { chmod, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { basename, dirname, join, resolve } from 'node:path'
 import {
   catalogProblems,
   DEPLOYMENT_NAMES,
@@ -46,7 +46,7 @@ export async function loadDeployment(
 /** `NAME=value` 一行一个；`#` 开头和空行跳过；值按字面，不去引号。 */
 export function parseSecretsFile(text: string): Record<string, string> {
   const values: Record<string, string> = {}
-  for (const [index, line] of text.split('\n').entries()) {
+  for (const [index, line] of text.split(/\r?\n/).entries()) {
     if (!line.trim() || line.trimStart().startsWith('#')) continue
     const at = line.indexOf('=')
     if (at <= 0) throw new Error(`secrets file line ${index + 1} is not NAME=value`)
@@ -101,6 +101,12 @@ async function fetchSecrets(name: Scope, bootstrapFile: string): Promise<Record<
  * 原子替换：写到本次调用独有的 `<out>.next-<pid>`，再把旧目录挪开换上新的。
  * `<out>.lock` 是互斥锁（mkdir 原子），两个 render 同时写同一目录时后来者直接失败，不会互相删暂存。
  */
+const exists = (path: string) =>
+  stat(path).then(
+    () => true,
+    () => false,
+  )
+
 async function writeRendered(out: string, files: Record<string, string>) {
   const lock = `${out}.lock`
   await mkdir(dirname(out), { recursive: true, mode: 0o700 })
@@ -119,6 +125,15 @@ async function writeRendered(out: string, files: Record<string, string>) {
 }
 
 async function replaceRendered(out: string, files: Record<string, string>) {
+  // 上一次在「旧目录挪开、新目录还没就位」之间被杀：先把挪开的旧目录放回去。
+  if (!(await exists(out))) {
+    const parent = dirname(out)
+    const leftovers = (await readdir(parent))
+      .filter((name) => name.startsWith(`${basename(out)}.prev-`))
+      .sort()
+    const last = leftovers.at(-1)
+    if (last) await rename(join(parent, last), out)
+  }
   const next = `${out}.next-${process.pid}`
   const prev = `${out}.prev-${process.pid}`
   await rm(next, { recursive: true, force: true })
@@ -194,11 +209,16 @@ export function secretsFromLegacy(input: {
 /** 旧 env 文件：允许 `export ` 前缀和成对引号。 */
 function parseLegacyEnv(text: string): Record<string, string> {
   const values: Record<string, string> = {}
-  for (const line of text.split('\n')) {
+  for (const line of text.split(/\r?\n/)) {
     const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line)
     if (!match) continue
     let value = match[2]!
-    if (/^(['"]).*\1$/.test(value)) value = value.slice(1, -1)
+    if (/^'.*'$/.test(value)) value = value.slice(1, -1)
+    else if (/^".*"$/.test(value)) {
+      // 按 compose 默认 env_file 的规则解码双引号里的转义，迁移后的值与旧容器里看到的一致。
+      const escapes: Record<string, string> = { n: '\n', r: '\r', t: '\t', '"': '"', '\\': '\\' }
+      value = value.slice(1, -1).replace(/\\(.)/g, (whole, char: string) => escapes[char] ?? whole)
+    }
     values[match[1]!] = value
   }
   return values

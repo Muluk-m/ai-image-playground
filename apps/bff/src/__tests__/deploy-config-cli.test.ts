@@ -9,6 +9,19 @@ describe('deploy-config-cli', () => {
     })
     expect(() => parseSecretsFile('A_KEY=1\nA_KEY=2\n')).toThrow('A_KEY appears twice')
     expect(() => parseSecretsFile('lower=1\n')).toThrow('bad name')
+    // CRLF 只去掉行尾，值里的空格保留。
+    expect(parseSecretsFile('A_KEY= spaced \r\nB_KEY=x\r\n')).toEqual({
+      A_KEY: ' spaced ',
+      B_KEY: 'x',
+    })
+  })
+
+  it('decodes legacy values the way compose read them, CRLF files included', () => {
+    const { secrets } = secretsFromLegacy({
+      appEnv: 'S3_SECRET_ACCESS_KEY="ab\\"cd\\\\e"\r\nRESEND_API_KEY=\'lit\\eral\'\r\n',
+      migrateEnv: '',
+    })
+    expect(secrets).toEqual({ S3_SECRET_ACCESS_KEY: 'ab"cd\\e', RESEND_API_KEY: 'lit\\eral' })
   })
 
   it('pulls the catalog secrets out of the legacy layout, database passwords included', () => {

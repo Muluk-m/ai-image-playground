@@ -154,7 +154,11 @@ export const DeploymentSchema = Type.Object(
     operator: Type.Object(
       {
         capabilities: Type.Record(Type.String(), Type.Boolean()),
-        quotas: Type.Record(Type.String(), Type.Number()),
+        // 与 bff 的 parseQuotas 一致：非负安全整数。
+        quotas: Type.Record(
+          Type.String(),
+          Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }),
+        ),
       },
       { additionalProperties: false },
     ),
@@ -167,6 +171,21 @@ export type DeploymentName = Deployment['name']
 export const DEPLOYMENT_NAMES = ['prod', 'test'] as const satisfies readonly DeploymentName[]
 
 /** 校验部署描述，返回全部问题；空数组表示通过。 */
+/** 与 bff 的 bareOrigin 一致：http(s)、只有主机和端口，没有路径、查询、片段和账号。 */
+function isBareOrigin(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return (
+      (url.protocol === 'https:' || url.protocol === 'http:') &&
+      url.origin === value &&
+      !url.username &&
+      !url.password
+    )
+  } catch {
+    return false
+  }
+}
+
 export function deploymentProblems(raw: unknown): string[] {
   if (!Value.Check(DeploymentSchema, raw)) {
     return Value.Errors(DeploymentSchema, raw).map(
@@ -175,9 +194,26 @@ export function deploymentProblems(raw: unknown): string[] {
   }
   const problems: string[] = []
   const origins = Object.keys(raw.web.origins)
-  for (const origin of origins) {
-    if (!/^https?:\/\/[^/\s]+$/.test(origin))
-      problems.push(`/web/origins: ${origin} is not a bare origin`)
+  const named: Array<[string, string | undefined]> = [
+    ...origins.map((origin): [string, string] => ['/web/origins', origin]),
+    ['/web/primary', raw.web.primary],
+    ['/api/primary', raw.api.primary],
+    ...raw.api.aliases.map((alias): [string, string] => ['/api/aliases', alias]),
+    ['/admin/frontend', raw.admin.frontend],
+    ['/admin/api', raw.admin.api],
+    ...Object.entries(raw.web.origins).map(([origin, entry]): [string, string | undefined] => [
+      `/web/origins/${origin}/api`,
+      entry.api,
+    ]),
+  ]
+  for (const [where, value] of named) {
+    if (value !== undefined && !isBareOrigin(value))
+      problems.push(`${where}: ${value} is not a bare origin`)
+  }
+  const roles = Object.values(raw.database.users)
+  if (new Set(roles).size !== roles.length) {
+    // app、admin、migrator 同名会互相覆盖密码，Admin 还会拿到 app 的写权限。
+    problems.push('/database/users: app, admin and migrator must be different roles')
   }
   if (!origins.includes(raw.web.primary)) {
     problems.push(`/web/primary: ${raw.web.primary} must be one of /web/origins`)

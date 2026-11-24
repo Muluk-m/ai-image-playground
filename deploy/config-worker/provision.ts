@@ -11,7 +11,7 @@
  *
  * 任何时候都不打印密钥值。
  */
-import { open, readFile, writeFile } from 'node:fs/promises'
+import { open, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 export const HOSTNAME = 'config.nainma.online'
@@ -94,6 +94,12 @@ async function pushSecrets(scope: Scope, file: string) {
   const store = await storeId()
   const existing = new Map((await listSecrets(store)).map((one) => [one.name, one.id]))
   const entries = parseEnvFile(await readFile(file, 'utf8'))
+  // 先查重名再写：同名出现两次会在第二次 POST 时失败，留下推了一半的状态。
+  const seen = new Set<string>()
+  for (const [name] of entries) {
+    if (seen.has(name)) throw new Error(`secrets file names ${name} twice; nothing was written`)
+    seen.add(name)
+  }
   let created = 0
   let updated = 0
   for (const [name, value] of entries) {
@@ -137,19 +143,33 @@ async function ensureAccess(deployment: 'prod' | 'test' | 'host', tokenOut: stri
     if (!tokenOut) throw new Error(`${tokenName} does not exist yet; pass --token-out <file> to create it`)
     // client_secret 只在创建时返回一次：先占住输出文件，写不了就不创建。
     const file = await open(tokenOut, 'wx', 0o600)
+    let created: ServiceToken
     try {
-      serviceToken = await api<ServiceToken>('POST', '/access/service_tokens', {
+      created = await api<ServiceToken>('POST', '/access/service_tokens', {
         name: tokenName,
         duration: 'forever',
       })
+    } catch (error) {
+      // 远端没建成：放掉占位文件，修好原因后可以原样重试。
+      await file.close()
+      await rm(tokenOut, { force: true })
+      throw error
+    }
+    try {
       // 键名与 bootstrap.env 一致（deploy-config-cli.ts 的 bootstrapFor）。
       const prefix = (deployment === 'host' ? 'prod' : deployment).toUpperCase()
       await file.writeFile(
-        `${prefix}_CONFIG_ACCESS_CLIENT_ID=${serviceToken.client_id}\n${prefix}_CONFIG_ACCESS_CLIENT_SECRET=${serviceToken.client_secret}\n`,
+        `${prefix}_CONFIG_ACCESS_CLIENT_ID=${created.client_id}\n${prefix}_CONFIG_ACCESS_CLIENT_SECRET=${created.client_secret}\n`,
       )
-    } finally {
       await file.close()
+    } catch (error) {
+      // client_secret 只返回这一次，存不下来这个 token 就没用了：删掉远端 token，重试时重新建。
+      await file.close().catch(() => undefined)
+      await rm(tokenOut, { force: true })
+      await api('DELETE', `/access/service_tokens/${created.id}`).catch(() => undefined)
+      throw error
     }
+    serviceToken = created
     console.log(`created service token ${tokenName}; credentials written to ${tokenOut}`)
   } else {
     console.log(`service token ${tokenName} exists`)

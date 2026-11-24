@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import {
   catalogProblems,
   type Deployment,
+  deploymentProblems,
   descriptorProblems,
   formatEnvFile,
   type Host,
@@ -101,6 +102,30 @@ describe('deploy config catalog', () => {
       GHCR_PULL_TOKEN: 'token',
     })
     expect(host_.problems).toEqual(['host secret POSTGRES_PASSWORD contains a line break'])
+  })
+
+  it('rejects shared database roles, non-bare origins and quotas the loader would refuse', () => {
+    const test = descriptor('test')
+    const problems = deploymentProblems({
+      ...test,
+      api: { ...test.api, primary: 'https://api.example.com?x=1' },
+      database: {
+        ...test.database,
+        users: { ...test.database.users, admin: test.database.users.app },
+      },
+      operator: { ...test.operator, quotas: { 'generation:daily-images': -1 } },
+    })
+    expect(problems.join('\n')).toContain('/operator/quotas/generation:daily-images')
+    const shapeOk = deploymentProblems({
+      ...test,
+      api: { ...test.api, primary: 'https://user@api.example.com' },
+      database: {
+        ...test.database,
+        users: { ...test.database.users, admin: test.database.users.app },
+      },
+    })
+    expect(shapeOk).toContain('/api/primary: https://user@api.example.com is not a bare origin')
+    expect(shapeOk).toContain('/database/users: app, admin and migrator must be different roles')
   })
 
   it('rejects retired or unknown operator keys and misspelled tunables', () => {
