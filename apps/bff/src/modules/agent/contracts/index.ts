@@ -6,6 +6,7 @@ export {
 export {
   AgentToolError,
   BATCH_EXECUTION_UNAVAILABLE_MESSAGE,
+  BatchAnalysisLimit,
   createToolFailureLog,
   queueRefusalCode,
   type ToolFailureLog,
