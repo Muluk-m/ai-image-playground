@@ -108,10 +108,10 @@ func (a *App) writeText(data any) error {
 	case "auth status":
 		o, _ := value.(object)
 		writeValue(&b, reorder(o, "state", "api_url", "api_url_source", "connection_api_url", "account", "credits", "member",
-			"pending_login", "error", "cli_version", "cli_updated_from", "min_cli_version", "update_required"), "")
+			"pending_login", "error", "cli_version", "cli_updated_to", "min_cli_version", "update_required"), "")
 	case "setup":
 		o, _ := value.(object)
-		writeValue(&b, reorder(o, "state", "api_url", "cli_version", "cli_updated_from", "credential_store",
+		writeValue(&b, reorder(o, "state", "api_url", "cli_version", "cli_updated_to", "credential_store",
 			"account", "credits", "member", "default_model", "skills", "pending_login", "smoke_validate", "models"), "")
 	case "media list":
 		writeList(&b, value, "media", []string{"media_id", "content_type", "width", "height", "bytes", "created_at"}, "uploaded images")
@@ -451,8 +451,8 @@ var hints = map[string]string{
 	"RATE_LIMITED":                "Wait a moment and retry.",
 	"NETWORK_ERROR":               "Check the network and retry.",
 	"TEMPORARILY_UNAVAILABLE":     "Retry in a moment.",
-	"UNSUPPORTED_VERSION":         "This CLI is too old: run `muvloom update check` and install the latest release.",
-	"UPGRADE_REQUIRED":            "This CLI is too old: run `muvloom update check` and install the latest release.",
+	"UNSUPPORTED_VERSION":         "This CLI is too old: run `muvloom update self`.",
+	"UPGRADE_REQUIRED":            "This CLI is too old: run `muvloom update self`.",
 	"CREDENTIAL_STORE_UNWRITABLE": "Make the muvloom config directory writable (or set MUVLOOM_CONFIG_DIR), then run `muvloom auth login` again.",
 }
 

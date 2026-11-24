@@ -7,7 +7,7 @@ import type {
 } from '@image-playground/shared'
 import { INSPIRATION_KINDS } from '@image-playground/shared'
 import { Loader2, Trash2 } from 'lucide-react'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 import { ErrorState, PendingState } from '@/components/Page'
 import { Badge } from '@/components/ui/badge'
@@ -73,12 +73,26 @@ export function InspirationDrawer({
   onCreated,
 }: InspirationDrawerProps) {
   const detail = useInspiration(creating ? null : itemId)
+  const [createdNotice, setCreatedNotice] = useState<{ id: string; text: string } | null>(null)
+  const open = creating || itemId !== null
+
+  useEffect(() => {
+    if (!open) setCreatedNotice(null)
+  }, [open])
+
+  const handleCreated = (id: string, notice?: string) => {
+    setCreatedNotice(notice ? { id, text: notice } : null)
+    onCreated(id)
+  }
 
   return (
     <Sheet
-      open={creating || itemId !== null}
+      open={open}
       onOpenChange={(next) => {
-        if (!next) onClose()
+        if (!next) {
+          setCreatedNotice(null)
+          onClose()
+        }
       }}
     >
       <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-2xl">
@@ -86,14 +100,16 @@ export function InspirationDrawer({
           <SheetTitle>
             {creating ? '新建灵感条目' : (detail.data?.title ?? '编辑灵感条目')}
           </SheetTitle>
-          <SheetDescription>关掉抽屉会回到列表，筛选和滚动位置都还在。</SheetDescription>
+          <SheetDescription className="sr-only">
+            {creating ? '新建灵感条目' : '编辑灵感条目'}
+          </SheetDescription>
         </SheetHeader>
         {creating ? (
           <InspirationEditor
             item={null}
             categories={categories}
             onClose={onClose}
-            onCreated={onCreated}
+            onCreated={handleCreated}
           />
         ) : detail.isPending ? (
           <PendingState label="加载条目" />
@@ -103,9 +119,10 @@ export function InspirationDrawer({
           <InspirationEditor
             key={detail.data.id}
             item={detail.data}
+            initialNotice={createdNotice?.id === detail.data.id ? createdNotice.text : null}
             categories={categories}
             onClose={onClose}
-            onCreated={onCreated}
+            onCreated={handleCreated}
           />
         )}
       </SheetContent>
@@ -136,20 +153,24 @@ const CONFIRM_COPY: Record<PendingConfirm, { title: string; description: string;
 
 function InspirationEditor({
   item,
+  initialNotice = null,
   categories,
   onClose,
   onCreated,
 }: {
   item: InspirationAdminItem | null
+  initialNotice?: string | null
   categories: InspirationCategory[]
   onClose: () => void
-  onCreated: (id: string) => void
+  onCreated: (id: string, notice?: string) => void
 }) {
   const [draft, setDraft] = useState<InspirationWriteInput>(() =>
     item ? toWriteInput(item) : emptyDraft(categories[0]?.id ?? ''),
   )
   const [tagsText, setTagsText] = useState(() => (item?.tags ?? []).join(', '))
   const [error, setError] = useState<string | null>(null)
+  const [savedNotice, setSavedNotice] = useState<string | null>(initialNotice)
+  const draftRevisionRef = useRef(0)
   const [confirming, setConfirming] = useState<PendingConfirm | null>(null)
   // 新建成功后先别急着换抽屉：紧跟着的发布校验可能被拒，错误得有地方显示。
   // 等这一轮动作整个做完才 onCreated（它会改 URL 并按新 id 重挂编辑器）。
@@ -166,10 +187,14 @@ function InspirationEditor({
   const savedStatus = item?.status ?? (createdId ? 'draft' : null)
 
   function patch(next: Partial<InspirationWriteInput>): void {
+    draftRevisionRef.current += 1
+    setSavedNotice(null)
     setDraft((current) => ({ ...current, ...next }))
   }
 
   function patchParams(next: Partial<InspirationParams>): void {
+    draftRevisionRef.current += 1
+    setSavedNotice(null)
     setDraft((current) => ({ ...current, params: { ...current.params, ...next } }))
   }
 
@@ -191,6 +216,8 @@ function InspirationEditor({
   }
 
   async function saveAsDraft(): Promise<void> {
+    const rev = draftRevisionRef.current
+    setSavedNotice(null)
     const id = await save()
     if (!id) return
     // 新建出来就是草稿；已发布 / 已下架的条目点「存草稿」才需要再退一次状态。
@@ -202,7 +229,9 @@ function InspirationEditor({
         return
       }
     }
-    if (!item) onCreated(id)
+    const unchanged = draftRevisionRef.current === rev
+    if (unchanged) setSavedNotice('已保存草稿')
+    if (!item) onCreated(id, unchanged ? '已保存草稿' : undefined)
   }
 
   async function runConfirmed(): Promise<void> {
@@ -210,6 +239,7 @@ function InspirationEditor({
     setConfirming(null)
     if (!action) return
     setError(null)
+    setSavedNotice(null)
     try {
       if (action === 'publish') {
         const id = await save()
@@ -552,6 +582,11 @@ function InspirationEditor({
 
       <div className="border-t px-4 py-3 sm:px-6">
         {error ? <p className="mb-2 text-sm text-destructive">{error}</p> : null}
+        {savedNotice ? (
+          <p role="status" className="mb-2 text-sm text-success">
+            {savedNotice}
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Button
             variant="ghost"
@@ -577,7 +612,12 @@ function InspirationEditor({
             >
               下架
             </Button>
-            <Button size="sm" disabled={busy} onClick={() => setConfirming('publish')}>
+            <Button
+              variant="brand"
+              size="sm"
+              disabled={busy}
+              onClick={() => setConfirming('publish')}
+            >
               发布到主站
             </Button>
           </div>

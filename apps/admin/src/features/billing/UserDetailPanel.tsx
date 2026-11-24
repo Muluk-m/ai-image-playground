@@ -862,7 +862,6 @@ function UserDetailPanel({
         localStorage.removeItem(paymentStorageKey)
         setPaymentRecovery({ key: paymentStorageKey, payment: null, error: null })
       }
-      window.alert('操作成功，已记录。')
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['users'] }),
         queryClient.invalidateQueries({ queryKey: ['private-billing', 'account', userId] }),
@@ -986,6 +985,14 @@ function UserDetailPanel({
               <ErrorText
                 error={paymentRecovery?.key === paymentStorageKey ? paymentRecovery.error : null}
               />
+              {mutation.isSuccess ? (
+                <p
+                  role="status"
+                  className="mb-4 rounded-md border border-success/30 bg-success/10 px-3 py-2 text-sm text-success"
+                >
+                  操作成功，已记录。
+                </p>
+              ) : null}
               <div
                 className="grid grid-cols-[repeat(auto-fit,minmax(16rem,1fr))] gap-4"
                 onChange={resetMutation}
