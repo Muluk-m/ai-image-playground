@@ -15,7 +15,7 @@ body { margin: 0; background: hsl(var(--background)); color: hsl(var(--foregroun
 .site-nav { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 88px; padding: 24px 5%; z-index: 10; }
 .site-nav-links, .site-nav-actions { display: flex; align-items: center; gap: 24px; font-size: theme('fontSize.xs'); }
 :where(.site-nav-links) a { position: relative; }
-:where(.site-nav-links) a::after { content: ''; position: absolute; bottom: -5px; left: 0; right: 0; height: 1px; background: hsl(var(--primary)); transform: scaleX(0); transform-origin: left; transition: transform .25s; }
+:where(.site-nav-links) a::after { content: ''; position: absolute; bottom: -5px; left: 0; right: 0; height: 1px; background: hsl(var(--primary)); transform: scaleX(0); transform-origin: left; transition: transform var(--motion-normal) var(--ease-out); }
 :where(.site-nav-links) a:hover::after { transform: scaleX(1); }
 .site-scroll-story { height: 176svh; position: relative; }
 .site-hero { --morph: 0; --out: 0; --caption: 0; --mx: 0; --my: 0; position: sticky; top: 0; height: 100svh; min-height: 540px; overflow: hidden; color: hsl(var(--on-media)); }
@@ -89,7 +89,7 @@ body { margin: 0; background: hsl(var(--background)); color: hsl(var(--foregroun
 :where(.guide-tree) details a { padding-left: 24px; }
 :where(.guide-tree) summary { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-radius: 8px; cursor: pointer; list-style: none; font-weight: 500; color: hsl(var(--foreground)); }
 :where(.guide-tree) summary::-webkit-details-marker { display: none; }
-:where(.guide-tree) summary svg { width: 14px; height: 14px; color: hsl(var(--muted-foreground)); transform: rotate(-90deg); transition: transform .15s; }
+:where(.guide-tree) summary svg { width: 14px; height: 14px; color: hsl(var(--muted-foreground)); transform: rotate(-90deg); transition: transform var(--motion-fast) var(--ease-out); }
 :where(.guide-tree) details[open] summary svg { transform: none; }
 :where(.guide-tree, .guide-results) a:hover, :where(.guide-tree) summary:hover { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
 :where(.guide-tree) a[aria-current='page'] { background: hsl(var(--accent)); color: hsl(var(--primary)); }

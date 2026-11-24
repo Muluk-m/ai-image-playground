@@ -21,7 +21,7 @@
 .auth-surface .auth-form-heading { margin-bottom: 24px; }
 .auth-surface .auth-divider { margin-block: 22px; }
 .auth-surface .auth-terms { color: hsl(var(--muted-foreground)); font-size: theme('fontSize.label-sm'); line-height: 1.8; text-align: center; margin-top: 16px; }
-.auth-surface .auth-error { color: hsl(var(--destructive)); font-size: theme('fontSize.xs'); }
+.auth-surface .auth-error { color: hsl(var(--destructive)); font-size: theme('fontSize.xs'); animation: error-in var(--motion-fast) var(--ease-out) backwards; }
 .auth-page { position: relative; display: grid; grid-template-columns: 54fr 46fr; gap: 20px; padding: 18px; min-height: 100svh; color: hsl(var(--foreground)); background: hsl(var(--background)); }
 .auth-page .auth-panel { display: grid; align-items: center; }
 .auth-page .auth-panel-content { width: min(100%, 420px); margin: auto; padding-block: 64px; }
@@ -49,6 +49,6 @@
 .auth-provider-generic { color: hsl(var(--muted-foreground)); font-weight: 600; }
 .auth-referral { margin-top: 24px; padding-top: 16px; border-top: 1px solid hsl(var(--border)); }
 :where(.auth-registration) input[name='verificationCode'] { text-align: center; font-size: theme('fontSize.xl'); font-variant-numeric: tabular-nums; letter-spacing: .28em; }
-.auth-surface.auth-dialog { animation: auth-enter .24s cubic-bezier(.2,.8,.2,1); }
-@keyframes auth-enter { from { opacity: 0; transform: translateY(12px) scale(.985); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .auth-surface.auth-dialog { animation: none; } }
+.auth-surface.auth-dialog { animation: auth-enter var(--motion-normal) var(--ease-out) backwards; }
+@keyframes auth-enter { from { opacity: 0; transform: translateY(8px) scale(.96); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .auth-surface.auth-dialog, .auth-surface .auth-error { animation: none; } }

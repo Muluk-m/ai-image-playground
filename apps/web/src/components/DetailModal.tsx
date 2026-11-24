@@ -434,11 +434,12 @@ export default function DetailModal() {
             {task.status === 'done' && outputLen > 0 && outputDisplaySrc && (
               <>
                 <img
+                  key={currentOutputImageId}
                   ref={mainImageRef}
                   src={outputDisplaySrc}
                   data-image-id={currentOutputImageId}
                   decoding="async"
-                  className="saveable-image max-w-[calc(100%-2rem)] max-h-[calc(100%-2rem)] object-contain cursor-pointer"
+                  className="saveable-image animate-fade-in max-w-[calc(100%-2rem)] max-h-[calc(100%-2rem)] object-contain cursor-pointer"
                   onLoad={() => {
                     const panel = imagePanelRef.current
                     const image = mainImageRef.current

@@ -1,4 +1,9 @@
-import type { MouseEvent } from 'react'
+import { type MouseEvent, useEffect, useRef, useState } from 'react'
+import {
+  iconSwap,
+  iconSwapIn,
+  iconSwapOut,
+} from '../../../components/assistant-ui/elements/surfaces'
 import { compactModelName } from '../../../components/ModelIdentity'
 import Badge from '../../../components/patterns/Badge'
 import { Button } from '../../../components/ui/button'
@@ -40,6 +45,15 @@ export default function InspirationCard({
   const togglePin = useStore((s) => s.toggleInspirationPin)
   const showToast = useStore((s) => s.showToast)
   const { t } = useTranslation('inspiration')
+  const [copied, setCopied] = useState(false)
+  const [pinPopSeq, setPinPopSeq] = useState(0)
+  const copyTimerRef = useRef<number | null>(null)
+  useEffect(
+    () => () => {
+      if (copyTimerRef.current != null) window.clearTimeout(copyTimerRef.current)
+    },
+    [],
+  )
   const hasReference = (item.referenceImages?.length ?? 0) > 0
   const category = t(`group.${groupOf(item.category)}`)
   const modelName = compactModelName(
@@ -66,6 +80,9 @@ export default function InspirationCard({
     stop(event)
     try {
       await copyTextToClipboard(plainPrompt(item.prompt))
+      setCopied(true)
+      if (copyTimerRef.current != null) window.clearTimeout(copyTimerRef.current)
+      copyTimerRef.current = window.setTimeout(() => setCopied(false), 1600)
       showToast(t('detail.promptCopied'), 'success')
     } catch (error) {
       showToast(getClipboardFailureMessage(t('detail.copyFailed'), error), 'error')
@@ -74,6 +91,7 @@ export default function InspirationCard({
 
   const handlePin = (event: MouseEvent<HTMLButtonElement>) => {
     stop(event)
+    if (!pinned) setPinPopSeq((n) => n + 1)
     togglePin(item.id)
   }
 
@@ -93,7 +111,7 @@ export default function InspirationCard({
             src={inspirationImageUrl(item.thumbnailUrl, 480)}
             alt=""
             loading="lazy"
-            className="h-full w-full object-cover transition-transform duration-500 ease-out group-hover:scale-[1.03] group-focus-within:scale-[1.03]"
+            className="h-full w-full object-cover transition-transform duration-slow ease-motion-out group-hover:scale-[1.03] group-focus-within:scale-[1.03] motion-reduce:transition-none motion-reduce:group-hover:scale-100"
             onLoad={(event) => {
               const image = event.currentTarget
               if (image.naturalWidth <= 0 || image.naturalHeight <= 0) return
@@ -101,7 +119,7 @@ export default function InspirationCard({
               onMeasured?.(image.naturalWidth, image.naturalHeight)
             }}
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 max-md:hidden" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 opacity-0 transition-opacity duration-fast ease-motion-out group-hover:opacity-100 group-focus-within:opacity-100 max-md:hidden" />
           {hasReference ? (
             <Badge tone="overlay" className="absolute left-2 top-2">
               {t('card.imageEdit')}
@@ -112,7 +130,7 @@ export default function InspirationCard({
               <Icon name="favorite" filled />
             </span>
           ) : null}
-          <div className="pointer-events-auto absolute inset-x-2 bottom-2 hidden items-center gap-1.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100 md:flex">
+          <div className="pointer-events-auto absolute inset-x-2 bottom-2 hidden translate-y-1 items-center gap-1.5 opacity-0 transition-[opacity,transform] duration-fast ease-motion-out group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100 motion-reduce:translate-y-0 motion-reduce:transition-none md:flex">
             <Button
               type="button"
               size="xs"
@@ -129,9 +147,11 @@ export default function InspirationCard({
               variant="secondary"
               autoTooltip={false}
               aria-label={t('detail.copyPrompt')}
+              className="grid place-items-center"
               onClick={handleCopy}
             >
-              <Icon name="copy" />
+              <Icon name="copy" className={`${iconSwap} ${copied ? iconSwapOut : iconSwapIn}`} />
+              <Icon name="check" className={`${iconSwap} ${copied ? iconSwapIn : iconSwapOut}`} />
             </Button>
             <Button
               type="button"
@@ -142,7 +162,12 @@ export default function InspirationCard({
               aria-label={pinned ? t('card.unpin') : t('card.pin')}
               onClick={handlePin}
             >
-              <Icon name="favorite" filled={pinned} />
+              <Icon
+                key={pinPopSeq}
+                name="favorite"
+                filled={pinned}
+                className={pinPopSeq > 0 && pinned ? 'animate-pop-confirm' : undefined}
+              />
             </Button>
           </div>
         </div>

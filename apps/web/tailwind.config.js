@@ -62,6 +62,18 @@ export default {
         display: '38px',
       },
       boxShadow: { popover: 'var(--shadow-popover)', dialog: 'var(--shadow-dialog)' },
+      transitionDuration: {
+        instant: 'var(--motion-instant)',
+        fast: 'var(--motion-fast)',
+        normal: 'var(--motion-normal)',
+        slow: 'var(--motion-slow)',
+      },
+      transitionTimingFunction: {
+        'motion-out': 'var(--ease-out)',
+        'motion-in-out': 'var(--ease-in-out)',
+        'motion-in': 'var(--ease-in)',
+        'motion-spring': 'var(--ease-spring)',
+      },
       borderRadius: { lg: 'var(--radius)', md: 'calc(var(--radius) - 2px)', sm: 'calc(var(--radius) - 4px)' },
       fontFamily: {
         sans: ['var(--font-ui-sans)'],

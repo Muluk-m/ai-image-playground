@@ -73,12 +73,16 @@ export default function AgentActivityTrail({
         <Icon
           name="chevronRight"
           className={cn(
-            'size-3.5 opacity-60 transition-transform motion-reduce:transition-none',
+            'size-3.5 opacity-60 transition-transform duration-fast ease-motion-out motion-reduce:transition-none',
             expanded && 'rotate-90',
           )}
         />
       </Button>
-      <div id={id} hidden={!expanded} className="ml-1.5 border-l border-border pl-2.5">
+      <div
+        id={id}
+        hidden={!expanded}
+        className={cn('ml-1.5 border-l border-border pl-2.5', expanded && 'animate-reveal-down')}
+      >
         {expanded && <Steps steps={steps} />}
       </div>
     </div>

@@ -345,6 +345,14 @@ PC 端（≥768px）的骨架固定为：左侧 208px 导航栏 + 右侧内容�
   节点画布的侧栏容器最多占可用内容区的 60%，不再以 42% 的上限提前压缩默认宽度。
   默认宽度与拖拽下限分开；用户已经拖过的宽度优先，不因默认值更新被覆盖。移动端沿用全宽抽屉。
 
+## Motion
+
+全站动效只用同一套物理曲线与节奏（定义在 `src/styles/theme.css`，与 `apps/admin` 同步）；组件不各自发明曲线或写超过 300ms 的交互动画：
+
+- **曲线**：`--ease-out`（`cubic-bezier(0.22, 1, 0.36, 1)`，进入 / 展开 / 揭示）、`--ease-in-out`（`cubic-bezier(0.32, 0.72, 0, 1)`，位移 / 滑块指示器 / 抽屉与侧栏推拉）、`--ease-in`（`cubic-bezier(0.4, 0, 1, 1)`，退出 / 收起）、`--ease-spring`（`cubic-bezier(0.2, 0.9, 0.3, 1.08)`，仅用于 ≤24px 的勾选、收藏、开关拇指微确认）。
+- **节奏**：`--motion-instant`（100ms，高频按下与微悬停）、`--motion-fast`（160ms，弹层、菜单、选项与图标切换）、`--motion-normal`（220ms，对话框、Toast、折叠区、侧栏、视图切入）、`--motion-slow`（300ms，抽屉与全屏查看器）、`--motion-ambient`（1800ms，进行中脉冲与流光）。
+- **原则**：动效只用来交代空间与状态因果（从哪来、到哪去、是否生效）；拖动与调宽期间关闭过渡保持 1:1 跟手；按下缩放用独立 CSS `scale`（`.motion-press`），不覆盖 `transform`；只过渡合成属性，不用 `transition-all`；`prefers-reduced-motion: reduce` 下所有过渡与交互动画收敛为瞬时完成（`0.01ms`）并停掉装饰性循环动画。
+
 ## Elevation & Depth
 
 层次靠**明度分层 + 1px 描边**：background → surface → surface-raised。浮层外缘的发丝线

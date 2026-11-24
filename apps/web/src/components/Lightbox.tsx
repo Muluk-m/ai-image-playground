@@ -644,15 +644,16 @@ function LightboxInner({
             className="relative flex items-center justify-center"
             style={{
               transform: `translate(${tx}px, ${ty}px) scale(${s})`,
-              transition: isDragging ? 'none' : 'transform 0.2s ease-out',
+              transition: isDragging ? 'none' : 'transform var(--motion-normal) var(--ease-out)',
               willChange: 'transform',
             }}
           >
             <img
+              key={imageId || src}
               src={src}
               data-image-id={imageId}
               data-image-preview-only={originalUnavailable || undefined}
-              className={`${originalUnavailable ? '' : 'saveable-image '}max-w-[85vw] max-h-[85vh] object-contain rounded-lg shadow-2xl`}
+              className={`${originalUnavailable ? '' : 'saveable-image '}animate-fade-in max-w-[85vw] max-h-[85vh] object-contain rounded-lg shadow-2xl`}
               onDragStart={(e) => e.preventDefault()}
               alt=""
             />
@@ -763,15 +764,15 @@ function LightboxInner({
 
         {/* 底部指示器 */}
         {showZoomBadge && isZoomed && zoomPercent !== 100 && (
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none">
-            <span className="px-3 py-1.5 bg-black/55 text-white text-xs rounded-full backdrop-blur-sm transition-opacity duration-500">
+          <div className="animate-fade-in absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none">
+            <span className="px-3 py-1.5 bg-black/55 text-white text-xs rounded-full backdrop-blur-sm tabular-nums">
               {zoomPercent}%
             </span>
           </div>
         )}
         {showNav && !isZoomed && (
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none">
-            <span className="px-3 py-1.5 bg-black/55 text-white text-xs rounded-full backdrop-blur-sm">
+          <div className="animate-fade-in absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none">
+            <span className="px-3 py-1.5 bg-black/55 text-white text-xs rounded-full backdrop-blur-sm tabular-nums">
               {currentIndex + 1} / {total}
             </span>
           </div>
