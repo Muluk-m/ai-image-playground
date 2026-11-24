@@ -21,6 +21,12 @@ export {
   type TurnEventLog,
 } from './events'
 export {
+  getInterruptedTurnRecoverer,
+  type InterruptedTurnRecoverer,
+  type InterruptedTurnRecovery,
+  registerInterruptedTurnRecoverer,
+} from './interrupted-recovery'
+export {
   AGENT_IMAGE_FALLBACK_MODEL,
   confirmedSubmissionText,
   noModelMessage,
