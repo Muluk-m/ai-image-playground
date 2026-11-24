@@ -584,6 +584,69 @@ describe('unified media ledger (PR-5.4a)', () => {
     await expect(deleteOwnAccount('ledger-user')).resolves.toBeUndefined()
   })
 
+  it('prevents old-BFF sync binding and protects re-uploaded bytes when purgeDeletingUnreferencedMedia interleaves after claim', async () => {
+    const oldBytes = new Uint8Array([1, 2, 3, 4])
+    const newBytes = new Uint8Array([9, 8, 7, 6, 5])
+    await storeAssetImage('ledger-user', 'img-interleave', oldBytes, 'image/png')
+    const oldTime = Date.now() - 48 * 60 * 60 * 1000
+    await db
+      .update(schema.media_objects)
+      .set({ updated_at: oldTime })
+      .where(
+        and(
+          eq(schema.media_objects.user_id, 'ledger-user'),
+          eq(schema.media_objects.asset_image_id, 'img-interleave'),
+        ),
+      )
+
+    let claimedMediaId: string | null = null
+    let legacyVisibleAfterClaim = -1
+    const reclaimed = await reclaimUnreferencedAssetMedia(Date.now(), 60_000, undefined, {
+      afterClaim: async (mediaId) => {
+        claimedMediaId = mediaId
+        // 1. Legacy user_asset_objects row was already removed in the claim tx under user_sync_state lock,
+        // so a pre-5.4a BFF POST /api/sync cannot see or bind img-interleave during the deleting window.
+        const legacyRows = await db
+          .select({ imageId: schema.user_asset_objects.image_id })
+          .from(schema.user_asset_objects)
+          .where(
+            and(
+              eq(schema.user_asset_objects.user_id, 'ledger-user'),
+              eq(schema.user_asset_objects.image_id, 'img-interleave'),
+            ),
+          )
+        legacyVisibleAfterClaim = legacyRows.length
+
+        // 2. Another sweeper finishes deleting the claimed row and its bytes.
+        expect(await purgeDeletingUnreferencedMedia()).toBe(1)
+        expect(objectStorage.objects.has(assetObjectKey('ledger-user', 'img-interleave'))).toBe(
+          false,
+        )
+
+        // 3. The user re-uploads the exact same imageId (new media_objects.id, same deterministic R2 key).
+        const reuploaded = await storeAssetImage(
+          'ledger-user',
+          'img-interleave',
+          newBytes,
+          'image/png',
+        )
+        expect(reuploaded.ok).toBe(true)
+      },
+    })
+
+    // The paused reclaimer resumes for the obsolete claimedMediaId and MUST NOT delete the newly uploaded bytes.
+    expect(claimedMediaId).not.toBeNull()
+    expect(legacyVisibleAfterClaim).toBe(0)
+    expect(reclaimed).toBe(0)
+    expect(await objectStorage.read(assetObjectKey('ledger-user', 'img-interleave'))).toEqual(
+      newBytes,
+    )
+    const activeMeta = await findAssetImageMeta(db, 'ledger-user', 'img-interleave')
+    expect(activeMeta).not.toBeNull()
+    expect(activeMeta?.bytes).toBe(newBytes.byteLength)
+    expect(activeMeta?.mediaId).not.toBe(claimedMediaId)
+  })
+
   it('registers cli_reference in media_references when reserving CLI reference media', async () => {
     const payload = new Uint8Array(12).fill(5)
     const sha256 = createHash('sha256').update(payload).digest('hex')

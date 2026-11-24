@@ -79,6 +79,7 @@ export async function mediaUsage(tx: BffTransaction, userId: string, now = Date.
          WHERE m.user_id = ${userId}
            AND (
              m.attachment_managed = true
+             OR m.asset_image_id IS NOT NULL
              OR m.status = 'ready'
              OR m.expires_at > ${new Date(now)}
            )),
@@ -91,11 +92,6 @@ export async function mediaUsage(tx: BffTransaction, userId: string, now = Date.
              SELECT 1 FROM media_objects m
              WHERE m.user_id = a.user_id
                AND m.asset_image_id = a.image_id
-               AND (
-                 m.attachment_managed = true
-                 OR m.status = 'ready'
-                 OR m.expires_at > ${new Date(now)}
-               )
            )),
         0
       )
@@ -783,7 +779,14 @@ export async function finishDeletingMedia(
       await tx
         .update(media)
         .set({ status: 'ready', updated_at: Date.now() })
-        .where(and(eq(media.id, id), eq(media.user_id, userId), eq(media.status, 'deleting')))
+        .where(
+          and(
+            eq(media.id, id),
+            eq(media.user_id, userId),
+            eq(media.status, 'deleting'),
+            eq(media.storage_scope, 'durable'),
+          ),
+        )
       return false
     }
     const [row] = await tx
@@ -881,17 +884,20 @@ export const ASSET_RECLAIM_GRACE_MS = 24 * 60 * 60 * 1000
 /**
  * 回收宽限期满且不再被任何 `media_references`、活跃素材、活跃模板、导演台文档、生成草稿（含已确认历史）、
  * 引用该素材的在途任务或运行中智能体执行引用的同步素材图片（`asset_image_id IS NOT NULL`）。
- * 采用两阶段可恢复删除协议：
- * 1. 事务 1 按 `lockMediaOwner -> lockUserSyncState -> media_objects FOR UPDATE` 顺序持锁，再用独立查询在最新快照
- *    复核全部保护条件，通过后先持久化 `status = 'deleting'` 提交；
- * 2. 事务外执行对象存储精确单键删除（`deleteObject`）；
- * 3. 事务 2 在 `lockMediaOwner` 内删除 `status = 'deleting'` 的 `media_objects` 与 `user_asset_objects`。
- * 若步骤 2/3 中途失败或进程崩溃，行停留在 `deleting`（绝不回滚为已丢字节的 `ready`），由 `purgeDeletingUnreferencedMedia` 重试收尾。
+ * 采用两阶段排他可恢复删除协议：
+ * 1. 事务 1 按 `lockMediaOwner -> lockUserSyncState -> media_objects FOR UPDATE` 持锁，用独立查询在最新快照
+ *    复核全部保护条件，通过后在同一事务内把 `media_objects.status` 置为 `'deleting'` 并立即删除 `user_asset_objects`
+ *    旧账本行（使滚动发布期间的旧代 `POST /api/sync` 在整个删除窗口内都无法重新绑定该图）；
+ * 2. 委托 `finishDeletingMedia(userId, mediaId, { requireDeleting: true })` 在 `lockMediaOwner` 排他锁内按
+ *    精确 `media.id` 校验行仍处于 `deleting` 后执行 `deleteObject` 并删除账本行。若步骤 1 与步骤 2 之间已被另一
+ *    `purgeDeletingUnreferencedMedia` 清扫且同 `imageId` 被重新上传成新行，旧 `media.id` 已不存在，绝不误删新对象；
+ *    若对象存储删除临时失败，行停留在 `deleting`（绝不回滚成已丢字节的 `ready`），由下轮清扫重试收尾。
  */
 export async function reclaimUnreferencedAssetMedia(
   now = Date.now(),
   graceMs = ASSET_RECLAIM_GRACE_MS,
   signal?: AbortSignal,
+  hooks?: { readonly afterClaim?: (mediaId: string) => Promise<void> | void },
 ): Promise<number> {
   if (signal?.aborted) return 0
   const cutoff = now - graceMs
@@ -1035,48 +1041,28 @@ export async function reclaimUnreferencedAssetMedia(
           .where(and(eq(media.id, locked.id), eq(media.status, 'ready')))
           .returning({
             id: media.id,
-            stagingKey: media.staging_key,
-            objectKey: media.object_key,
-            storageScope: media.storage_scope,
             assetImageId: media.asset_image_id,
           })
-        return marked ?? null
-      })
-      if (!claimed) continue
-
-      if (claimed.storageScope === 'object') {
-        const key =
-          claimed.objectKey ??
-          (claimed.assetImageId ? `users/${candidate.userId}/assets/${claimed.assetImageId}` : null)
-        if (key) {
-          await objectStore().deleteObject(key)
-        }
-      } else {
-        const store = durableMediaStore()
-        await store.deletePrefix(`objects/${candidate.userId}/${claimed.id}/`)
-        await store.deletePrefix(claimed.stagingKey)
-        if (claimed.objectKey) await store.deletePrefix(claimed.objectKey)
-      }
-
-      const deleted = await db.transaction(async (tx) => {
-        await lockMediaOwner(tx, candidate.userId)
-        const removedRows = await tx
-          .delete(media)
-          .where(and(eq(media.id, claimed.id), eq(media.status, 'deleting')))
-          .returning({ id: media.id })
-        if (removedRows.length > 0 && claimed.assetImageId) {
+        if (!marked) return null
+        // 仍持有 user_sync_state 行锁时同步撤下旧账本行，封堵滚动发布期旧代 POST /api/sync 复用该图。
+        if (marked.assetImageId) {
           await tx
             .delete(schema.user_asset_objects)
             .where(
               and(
                 eq(schema.user_asset_objects.user_id, candidate.userId),
-                eq(schema.user_asset_objects.image_id, claimed.assetImageId),
+                eq(schema.user_asset_objects.image_id, marked.assetImageId),
               ),
             )
         }
-        return removedRows.length > 0
+        return marked
       })
-      if (deleted) removed += 1
+      if (!claimed) continue
+      await hooks?.afterClaim?.(claimed.id)
+      // 统一经 finishDeletingMedia(requireDeleting: true) 在 lockMediaOwner 下排他完成对象删除与账本清理。
+      if (await finishDeletingMedia(candidate.userId, claimed.id, { requireDeleting: true })) {
+        removed += 1
+      }
     } catch (error) {
       log.warn(
         { event: 'media.asset_reclaim_failed', mediaId: candidate.id, err: String(error) },

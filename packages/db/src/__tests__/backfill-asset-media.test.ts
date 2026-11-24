@@ -93,8 +93,8 @@ describe('backfillAssetMedia & verifyAssetMediaConsistency', () => {
       totalLegacyAssets: 5,
       totalUnifiedAssetMedia: 0,
       missingAssetMediaCount: 5,
-      missingAssetRefCount: 0,
-      missingLookRefCount: 0,
+      missingAssetRefCount: 2,
+      missingLookRefCount: 2,
       missingCliRefCount: 1,
       staleSyncedRefCount: 0,
       sampleMissingAssetImages: ['u1:img-1', 'u1:img-2', 'u1:img-3', 'u1:img-orphan', 'u2:img-1'],
@@ -355,5 +355,48 @@ describe('backfillAssetMedia & verifyAssetMediaConsistency', () => {
     expect(p3.completed).toBe(true)
 
     expect((await verifyAssetMediaConsistency(connection.client)).staleSyncedRefCount).toBe(0)
+  })
+
+  it('reports drift when a live asset or look only has a deleting media_objects row without references', async () => {
+    const now = new Date('2026-11-24T00:00:00.000Z')
+    await connection.client`
+      INSERT INTO users (id, username, password_hash, status, created_at, updated_at)
+      VALUES ('u-drift', 'u-drift', 'hash', 'active', ${now}, ${now})
+    `
+    await connection.client`
+      INSERT INTO user_asset_objects (user_id, image_id, bytes, content_type, created_at)
+      VALUES ('u-drift', 'img-deleting', 120, 'image/png', ${now})
+    `
+    await connection.client`
+      INSERT INTO media_objects (
+        id, user_id, sha256, bytes, content_type, status, attachment_managed,
+        reserved_bytes, staging_key, object_key, preview_key, preview_bytes,
+        asset_image_id, storage_scope, expires_at, created_at, updated_at
+      )
+      VALUES (
+        'media-deleting-1', 'u-drift', 'asset:img-deleting', 120, 'image/png', 'deleting', false,
+        0, 'users/u-drift/assets/img-deleting', 'users/u-drift/assets/img-deleting', NULL, 0,
+        'img-deleting', 'object', ${now}, ${now}, ${now}
+      )
+    `
+    await connection.client`
+      INSERT INTO user_assets (user_id, id, name, image_id, views, created_at, updated_at, version)
+      VALUES ('u-drift', 'asset-deleting', 'Broken', 'img-deleting', '[]'::jsonb, ${now}, ${now}, 1)
+    `
+    await connection.client`
+      INSERT INTO user_looks (
+        user_id, id, name, description, purpose, body, model, size, slot_count,
+        reference_image_ids, cover_image_id, created_at, updated_at, version
+      )
+      VALUES (
+        'u-drift', 'look-deleting', 'Broken Look', 'd', 'hero', 'b', 'gpt-image-2', '1024x1024', 1,
+        '["img-deleting"]'::jsonb, 'img-deleting', ${now}, ${now}, 2
+      )
+    `
+    const report = await verifyAssetMediaConsistency(connection.client)
+    expect(report.missingAssetMediaCount).toBe(1)
+    expect(report.missingAssetRefCount).toBe(1)
+    expect(report.missingLookRefCount).toBe(1)
+    expect(report.sampleMissingAssetImages).toEqual(['u-drift:img-deleting'])
   })
 })

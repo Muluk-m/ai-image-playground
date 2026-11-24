@@ -1027,7 +1027,7 @@ export async function verifyAssetMediaConsistency(
         (
           SELECT count(*)::int
           FROM media_objects
-          WHERE asset_image_id IS NOT NULL AND status <> 'deleting'
+          WHERE asset_image_id IS NOT NULL AND status = 'ready'
         ) AS total_unified_asset_media,
         (
           SELECT count(*)::int
@@ -1035,13 +1035,15 @@ export async function verifyAssetMediaConsistency(
           WHERE u.bytes > 0
             AND NOT EXISTS (
               SELECT 1 FROM media_objects m
-              WHERE m.user_id = u.user_id AND m.asset_image_id = u.image_id
+              WHERE m.user_id = u.user_id
+                AND m.asset_image_id = u.image_id
+                AND m.status = 'ready'
             )
         ) AS missing_asset_media_count,
         (
           SELECT count(*)::int
           FROM (
-            SELECT DISTINCT ua.user_id, ua.id AS owner_id, m.id AS media_id
+            SELECT DISTINCT ua.user_id, ua.id AS owner_id, img.image_id
             FROM user_assets ua
             CROSS JOIN LATERAL (
               SELECT ua.image_id AS image_id
@@ -1051,24 +1053,27 @@ export async function verifyAssetMediaConsistency(
               FROM jsonb_array_elements(COALESCE(ua.views, '[]'::jsonb)) AS v
               WHERE v->>'imageId' IS NOT NULL AND v->>'imageId' <> ''
             ) img
-            JOIN media_objects m
+            LEFT JOIN media_objects m
               ON m.user_id = ua.user_id
               AND m.asset_image_id = img.image_id
-              AND m.status <> 'deleting'
+              AND m.status = 'ready'
             WHERE ua.deleted_at IS NULL
-              AND NOT EXISTS (
-                SELECT 1 FROM media_references r
-                WHERE r.user_id = ua.user_id
-                  AND r.owner_kind = 'asset'
-                  AND r.owner_id = ua.id
-                  AND r.media_id = m.id
+              AND (
+                m.id IS NULL
+                OR NOT EXISTS (
+                  SELECT 1 FROM media_references r
+                  WHERE r.user_id = ua.user_id
+                    AND r.owner_kind = 'asset'
+                    AND r.owner_id = ua.id
+                    AND r.media_id = m.id
+                )
               )
           ) missing_asset_refs
         ) AS missing_asset_ref_count,
         (
           SELECT count(*)::int
           FROM (
-            SELECT DISTINCT ul.user_id, ul.id AS owner_id, m.id AS media_id
+            SELECT DISTINCT ul.user_id, ul.id AS owner_id, img.image_id
             FROM user_looks ul
             CROSS JOIN LATERAL (
               SELECT ul.cover_image_id AS image_id
@@ -1078,31 +1083,38 @@ export async function verifyAssetMediaConsistency(
               FROM jsonb_array_elements_text(COALESCE(ul.reference_image_ids, '[]'::jsonb)) AS r
               WHERE r <> ''
             ) img
-            JOIN media_objects m
+            LEFT JOIN media_objects m
               ON m.user_id = ul.user_id
               AND m.asset_image_id = img.image_id
-              AND m.status <> 'deleting'
+              AND m.status = 'ready'
             WHERE ul.deleted_at IS NULL
-              AND NOT EXISTS (
-                SELECT 1 FROM media_references r
-                WHERE r.user_id = ul.user_id
-                  AND r.owner_kind = 'look'
-                  AND r.owner_id = ul.id
-                  AND r.media_id = m.id
+              AND (
+                m.id IS NULL
+                OR NOT EXISTS (
+                  SELECT 1 FROM media_references r
+                  WHERE r.user_id = ul.user_id
+                    AND r.owner_kind = 'look'
+                    AND r.owner_id = ul.id
+                    AND r.media_id = m.id
+                )
               )
           ) missing_look_refs
         ) AS missing_look_ref_count,
         (
           SELECT count(*)::int
           FROM cli_reference_media crm
-          JOIN media_objects m ON m.id = crm.media_id AND m.user_id = crm.user_id
-          WHERE NOT EXISTS (
-            SELECT 1 FROM media_references r
-            WHERE r.user_id = crm.user_id
-              AND r.owner_kind = 'cli_reference'
-              AND r.owner_id = crm.media_id
-              AND r.media_id = crm.media_id
-          )
+          LEFT JOIN media_objects m
+            ON m.id = crm.media_id
+            AND m.user_id = crm.user_id
+            AND m.status = 'ready'
+          WHERE m.id IS NULL
+            OR NOT EXISTS (
+              SELECT 1 FROM media_references r
+              WHERE r.user_id = crm.user_id
+                AND r.owner_kind = 'cli_reference'
+                AND r.owner_id = crm.media_id
+                AND r.media_id = crm.media_id
+            )
         ) AS missing_cli_ref_count,
         (
           SELECT count(*)::int
@@ -1151,7 +1163,9 @@ export async function verifyAssetMediaConsistency(
             WHERE u.bytes > 0
               AND NOT EXISTS (
                 SELECT 1 FROM media_objects m
-                WHERE m.user_id = u.user_id AND m.asset_image_id = u.image_id
+                WHERE m.user_id = u.user_id
+                  AND m.asset_image_id = u.image_id
+                  AND m.status = 'ready'
               )
             ORDER BY u.user_id ASC, u.image_id ASC
             LIMIT ${sampleLimit}
