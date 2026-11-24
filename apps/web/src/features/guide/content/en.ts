@@ -486,15 +486,17 @@ const gpt26: GuidePage = {
 const batch: GuidePage = {
   id: 'batch',
   title: 'Batch generation',
-  summary: 'Merge several references into one job, or run the same sentence on each file.',
+  summary:
+    'Run one sentence across up to 50 source images, with optional shared references attached to every job.',
   meta: {
     title: 'Batch generation - Muvloom guide',
-    description: 'Merge references versus per-image generation in Muvloom.',
+    description:
+      'Image generation versus Batch mode with dual zones (Source images and Shared refs) in Muvloom.',
   },
   updated,
   intro: [
     p(
-      'With two or more references, the strip offers Merge references and Per image. Merge is one generation that sees every file. Per image runs the same sentence once per file. The count equals the file count.',
+      'Switch the bottom-left creation mode to Batch to split the reference area into two zones: Source images on the left (up to 50 files, each runs its own job) and optional Shared refs on the right (attached to every job alongside the current source image).',
     ),
     demo('06-batch-each', 'Two mug photos, each placed on white', ui),
   ],
@@ -505,11 +507,15 @@ const batch: GuidePage = {
       blocks: [
         table(
           ['Mode', 'Result', 'Prompt'],
-          ['Merge', 'One generation sees every file', 'You may describe how the files relate'],
           [
-            'Per image',
-            'One new still per file',
-            'Describe only the current file. Do not say “put image 2 on image 1”',
+            'Image generation',
+            'One generation sees every reference together',
+            'Describe how the files relate',
+          ],
+          [
+            'Batch',
+            'One new still per source image (with all shared refs attached)',
+            'Use @Current for the active source file and @Ref 1 for shared refs',
           ],
         ),
       ],
@@ -519,26 +525,24 @@ const batch: GuidePage = {
       title: 'Which to pick',
       blocks: [
         list(
-          'Same product, new background, keep each original: Per image.',
-          'Combine two pictures into one frame: Merge, and name each role.',
-          'Over the merge limit: Merge is disabled and the limit is written next to it.',
-          'A template hides this switch. Fill its slots instead.',
+          'Same product, new background, keep each original: switch to Batch and add files to Source images.',
+          'Swap the hero product across many posters: add posters to Source images and the product photo to Shared refs, then cite @Current and @Ref 1.',
+          'Combine two pictures into one frame: stay in Image generation and name each role.',
+          'Over the single-request reference limit in Image generation: click Switch to Batch to continue.',
         ),
       ],
     },
     {
       id: 'batch-start',
-      title: 'Run per image',
+      title: 'Run Batch mode',
       blocks: [
         steps(
-          'Image generation, a GPT model that accepts references, such as Image 2.5 Flare.',
-          'Add image, and select the files together.',
-          'Choose Per image. Leave Merge unselected.',
-          'Write a sentence about the current picture only.',
-          'The button reads Generate N per image. Press it.',
-          'My work shows one batch card. Open it to see each still.',
+          'Pick Batch from the bottom-left mode selector, with a model that accepts references (such as Image 2.5 Flare).',
+          'Add files (or a folder) to Source images on the left, and optional fixed references to Shared refs on the right. Drag thumbnails between zones anytime.',
+          'Write the prompt using @Current and @Ref 1. Clicking @ on a source thumbnail moves it into Shared refs automatically.',
+          'Open Examples in the toolbar to insert a sample prompt or inspect the live task breakdown.',
+          'Press send. My work shows one batch card—open it to inspect or download each result.',
         ),
-        still('zh', 'batch-select', 'Merge and per-image controls'),
       ],
     },
     {
@@ -546,7 +550,7 @@ const batch: GuidePage = {
       title: 'Before you send',
       blocks: [
         p(
-          'The summary count must equal the number of files. A file over the size limit has to be removed or the batch will not match. Credits are price times count. The button may show the total. That number is the quote for the batch, not a decoration.',
+          'Check the parameter summary and the live breakdown in Examples to verify total tasks (source images × prompt slot combinations) and that 1 + shared refs stays within the model limit. Remove any oversized or unreadable files before sending. Credits are quoted as unit price × total tasks.',
         ),
       ],
     },

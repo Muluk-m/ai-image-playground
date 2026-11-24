@@ -276,13 +276,14 @@
       "outputLabel": "1 per source",
       "dragTip": "Drag between zones · @ auto-moves to shared refs",
       "fillPrompt": "Use prompt",
+      "needSharedRef": "Add 1 shared reference on the right first",
       "liveEmpty": "Add source images to preview each per-image task here",
       "liveSummary": "Will submit {{count}} independent tasks",
       "liveSummaryCredits": "Will submit {{count}} tasks · est. {{credits}} credits",
       "liveLoopItem": "Source {{n}}",
       "liveSharedMany": "{{count}} shared refs",
       "liveOutputItem": "Output {{n}}",
-      "liveMore": "{{count}} more images queued"
+      "liveMore": "{{count}} more tasks queued"
     }
   },
   "multiScene": {

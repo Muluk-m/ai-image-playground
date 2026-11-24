@@ -89,6 +89,7 @@ describe('批量生图双分区（遍历原图 + 共用参考）', () => {
       mergeLimit: 16,
     })
 
+    expect(split.ok).toBe(true)
     expect(split.inputImages).toEqual([poster])
     expect(split.batchSharedImages).toEqual([tub])
     expect(split.promotedImages).toEqual([tub])
@@ -99,6 +100,21 @@ describe('批量生图双分区（遍历原图 + 共用参考）', () => {
     expect(replaceImageMentionsForApi(split.prompt, 2)).toBe(
       '把图中文字优化一下，把商品主图换成 [image 2]',
     )
+  })
+
+  it('切入批量生图时，若已引用图片数超出共用参考上限则拒绝切入并不破坏提示词', () => {
+    const prompt = `${getSelectedImageMentionLabel(0)} ${getSelectedImageMentionLabel(1)}`
+    const split = splitDraftForBatchMode({
+      prompt,
+      inputImages: [img('a'), img('b')],
+      batchSharedImages: [],
+      mergeLimit: 2,
+    })
+
+    expect(split.ok).toBe(false)
+    expect(split.prompt).toBe(prompt)
+    expect(split.inputImages.map((i) => i.id)).toEqual(['a', 'b'])
+    expect(split.batchSharedImages).toEqual([])
   })
 
   it('离开批量生图时把共用参考合并回普通参考条，保留引用语义', () => {

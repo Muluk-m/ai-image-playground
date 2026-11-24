@@ -728,6 +728,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       return images
     },
     imageName: (image) => assetNames[image.id],
+    // 批量生图采用「0=当前图，1..k=共用参考」双区坐标系，禁止普通单区素材位写入覆盖。
+    accepting: () => useStore.getState().createTarget !== 'batch',
   })
 
   const promptEditor = usePromptEditor({
@@ -742,7 +744,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     commandChip: skillInvocation && <AgentSkillBadge skill={skillInvocation.skill} />,
     parseCommand: getSlashTemplateQuery,
     renderMention: isBatchMode ? renderBatchMention : undefined,
-    renderSlot,
+    renderSlot: isBatchMode ? undefined : renderSlot,
     onEdit: () => menusRef.current.open(),
     onKeyDown: (event) => {
       if (menusRef.current.handleKeyDown(event)) return
@@ -2118,6 +2120,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     loopImages={inputImages}
                     sharedImages={batchSharedImages}
                     mergeLimit={batchMergeLimit}
+                    taskCount={batchImageCount}
+                    slotVariants={getSubmissionImageCount(prompt, slotValues, 1)}
                     totalCredits={batchImageCount > 0 ? batchTotalCredits : undefined}
                     onApplyPrompt={(nextPrompt) => {
                       setPrompt(nextPrompt)

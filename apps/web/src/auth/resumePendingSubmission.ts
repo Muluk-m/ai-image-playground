@@ -71,12 +71,15 @@ export async function resumePendingSubmission(): Promise<void> {
       context.dispose()
     }
     if (!context.isCurrent()) return
+    const current = useStore.getState()
     if (
       ids.length === 0 &&
-      !useStore.getState().prompt.trim() &&
-      useStore.getState().inputImages === start.inputImages &&
-      useStore.getState().params === start.params &&
-      useStore.getState().slotValues === start.slotValues
+      !current.prompt.trim() &&
+      current.inputImages === start.inputImages &&
+      current.batchSharedImages === start.batchSharedImages &&
+      start.batchSharedImages.length === 0 &&
+      current.params === start.params &&
+      current.slotValues === start.slotValues
     ) {
       const { prompt, inputImages, params, slotValues, eachImage, sharedImages } = pending.input
       useStore.setState({

@@ -70,10 +70,28 @@ export function batchMentionReferenceIds(sharedImages: readonly InputImage[]): s
   return [BATCH_CURRENT_REFERENCE_ID, ...sharedImages.map((img) => img.id)]
 }
 
+export type SplitDraftForBatchResult =
+  | {
+      readonly ok: true
+      readonly prompt: string
+      readonly inputImages: InputImage[]
+      readonly batchSharedImages: InputImage[]
+      readonly promotedImages: InputImage[]
+    }
+  | {
+      readonly ok: false
+      readonly reason: 'overflow'
+      readonly maxShared: number
+      readonly prompt: string
+      readonly inputImages: InputImage[]
+      readonly batchSharedImages: InputImage[]
+      readonly promotedImages: []
+    }
+
 /**
- * 从「图片生成」等单区模式切入「批量生图」时：
  * 提示词里已被 `@图N` 引用的图片自动归入「共用参考」区（在单次上限内），
  * 未被引用的图片留在「遍历原图」队列，并同步把提示词里的引用重映射到批量坐标系（`@参考1..k`）。
+ * 若被引用的图片数超出共用参考上限，拒绝静默丢弃引用并返回 `ok: false`。
  */
 export function splitDraftForBatchMode({
   prompt,
@@ -85,15 +103,11 @@ export function splitDraftForBatchMode({
   inputImages: readonly InputImage[]
   batchSharedImages: readonly InputImage[]
   mergeLimit: number
-}): {
-  readonly prompt: string
-  readonly inputImages: InputImage[]
-  readonly batchSharedImages: InputImage[]
-  readonly promotedImages: InputImage[]
-} {
+}): SplitDraftForBatchResult {
   const mentioned = getMentionedImageIndexes(prompt)
   if (mentioned.length === 0) {
     return {
+      ok: true,
       prompt,
       inputImages: [...inputImages],
       batchSharedImages: [...batchSharedImages],
@@ -119,7 +133,17 @@ export function splitDraftForBatchMode({
       }
       continue
     }
-    if (nextShared.length >= maxShared) continue
+    if (nextShared.length >= maxShared) {
+      return {
+        ok: false,
+        reason: 'overflow',
+        maxShared,
+        prompt,
+        inputImages: [...inputImages],
+        batchSharedImages: [...batchSharedImages],
+        promotedImages: [],
+      }
+    }
     nextShared.push(img)
     existingSharedIds.add(img.id)
     promotedIndexes.add(oldIndex)
@@ -136,6 +160,7 @@ export function splitDraftForBatchMode({
   })
 
   return {
+    ok: true,
     prompt: nextPrompt,
     inputImages: nextLoop,
     batchSharedImages: nextShared,

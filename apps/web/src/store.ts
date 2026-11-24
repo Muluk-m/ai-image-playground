@@ -949,19 +949,21 @@ export const useStore = create<AppState>()(
       },
       batchZoneNotice: null,
       setBatchZoneNotice: (batchZoneNotice) => set({ batchZoneNotice }),
-      undoBatchZoneNotice: () =>
-        set((s) => {
-          if (!s.batchZoneNotice) return s
-          const { prompt, inputImages, batchSharedImages, createTarget } =
-            s.batchZoneNotice.snapshot
-          return {
-            prompt,
-            inputImages: [...inputImages],
-            batchSharedImages: [...batchSharedImages],
-            ...(createTarget ? { createTarget } : {}),
-            batchZoneNotice: null,
-          }
-        }),
+      undoBatchZoneNotice: () => {
+        const current = get()
+        if (!current.batchZoneNotice) return
+        const { prompt, inputImages, batchSharedImages, createTarget } =
+          current.batchZoneNotice.snapshot
+        if (createTarget && createTarget !== current.createTarget) {
+          get().setCreateTarget(createTarget)
+        }
+        set({
+          prompt,
+          inputImages: [...inputImages],
+          batchSharedImages: [...batchSharedImages],
+          batchZoneNotice: null,
+        })
+      },
       replaceInputImages: (imgs, options) =>
         set((s) => {
           if (s.createTarget === 'batch' && options?.prompt === undefined) {
@@ -1005,6 +1007,10 @@ export const useStore = create<AppState>()(
       maskDraft: null,
       setMaskDraft: (maskDraft) => {
         pendingPersistedMaskDraft = null
+        // 遮罩编辑只面向普通单次生图坐标系：批量模式下创建遮罩时先切回普通模式并合并两区。
+        if (maskDraft && get().createTarget === 'batch') {
+          get().setCreateTarget('generate')
+        }
         set((s) => {
           const draft = replaceReferences(
             { prompt: s.prompt, references: s.inputImages },
@@ -1031,6 +1037,9 @@ export const useStore = create<AppState>()(
       },
       maskEditorImageId: null,
       setMaskEditorImageId: (maskEditorImageId) => {
+        if (maskEditorImageId && get().createTarget === 'batch') {
+          get().setCreateTarget('generate')
+        }
         // 这是 composer 的入口：会话一律换成 composer 自己那份，否则保存会写到别人那里去。
         set({
           maskEditorImageId,
@@ -1155,13 +1164,17 @@ export const useStore = create<AppState>()(
         // 离开「批量生图」：把共用参考合并回普通参考图条，保持引用不丢。
         let draftPatch: Partial<AppState> = { batchZoneNotice: null }
         if (createTarget === 'batch') {
-          markFeatureSeen('composer.batchMode')
           const split = splitDraftForBatchMode({
             prompt: state.prompt,
             inputImages: state.inputImages,
             batchSharedImages: state.batchSharedImages,
             mergeLimit: referenceAdmission(profile).limit,
           })
+          if (!split.ok) {
+            state.showToast(referenceRefusalMessage('overflow', split.maxShared), 'error')
+            return
+          }
+          markFeatureSeen('composer.batchMode')
           draftPatch = {
             prompt: split.prompt,
             inputImages: split.inputImages,
@@ -2033,30 +2046,32 @@ export async function submitTask(options: { holdClear?: Promise<unknown> } = {})
         },
       },
     )
-  } finally {
-    context.dispose()
-  }
-  if (createdTaskIds.length === 0) return
-  await acknowledged
+    if (createdTaskIds.length === 0) return
+    await acknowledged
 
-  // 新卡在输入框下方。滚不滚、高亮和焦点由作品网格在卡片挂上之后做；这里只标记「这次是用户主动发送」。
-  noteUserSubmittedTasks(createdTaskIds)
+    // 新卡在输入框下方。滚不滚、高亮和焦点由作品网格在卡片挂上之后做；这里只标记「这次是用户主动发送」。
+    noteUserSubmittedTasks(createdTaskIds)
 
-  // 发送按钮的转圈要先让人看见，输入框再清空。转圈期间用户又改了提示词或参考图，就不清，免得吞掉新输入。
-  if (options.holdClear) {
-    await options.holdClear
+    // 发送按钮的转圈要先让人看见，输入框再清空。转圈期间用户又改了提示词、参考图或切换了创作模式，就不清，免得吞掉新输入。
+    if (options.holdClear) {
+      await options.holdClear
+    }
+    if (!context.isCurrent()) return
     const now = useStore.getState()
+    if (now.createTarget !== createTarget) return
     const sameImages =
       now.inputImages.length === inputImages.length &&
       now.inputImages.every((img, i) => img.id === inputImages[i]?.id) &&
       now.batchSharedImages.length === sharedImages.length &&
       now.batchSharedImages.every((img, i) => img.id === sharedImages[i]?.id)
-    if (now.prompt !== prompt || !sameImages) return
-  }
-  if (settings.clearInputAfterSubmit) {
-    useStore.getState().setPrompt('')
-    useStore.getState().clearInputImages()
-    if (isBatchMode) useStore.getState().clearBatchSharedImages()
+    if (options.holdClear && (now.prompt !== prompt || !sameImages)) return
+    if (settings.clearInputAfterSubmit) {
+      useStore.getState().setPrompt('')
+      useStore.getState().clearInputImages()
+      if (isBatchMode) useStore.getState().clearBatchSharedImages()
+    }
+  } finally {
+    context.dispose()
   }
 }
 
@@ -2806,6 +2821,9 @@ async function reuseLocalConfig(task: TaskRecord) {
  * 遮罩——那条规则写在 `lib/referenceDraft` 的准入里，被拒的理由由附图那一步提示。
  */
 export function editImageInComposer(image: InputImage): boolean {
+  if (useStore.getState().createTarget === 'batch') {
+    useStore.getState().setCreateTarget('generate')
+  }
   const { settings, attachInputImages, setMaskEditorImageId } = useStore.getState()
   if (!attachInputImages([image], referenceAdmission(getActiveApiProfile(settings), 'edit'))) {
     return false

@@ -3653,4 +3653,20 @@ describe('batch dual-zone mode draft and submitTask guards', () => {
     expect(persisted.inputImages?.map((i) => i.id)).toEqual(['batch-a', 'batch-b'])
     expect(persisted.prompt).toBe(`参考 ${getSelectedImageMentionLabel(1)}`)
   })
+
+  it('exits batch mode and merges zones when opening mask editor or setting maskDraft', () => {
+    useStore.setState({
+      createTarget: 'batch',
+      prompt: `把 ${getSelectedImageMentionLabel(0)} 换成 ${getSelectedImageMentionLabel(1)}`,
+      inputImages: [imgA],
+      batchSharedImages: [imgB],
+    })
+
+    useStore.getState().setMaskEditorImageId(imgA.id)
+    const state = useStore.getState()
+    expect(state.createTarget).toBe('generate')
+    expect(state.batchSharedImages).toEqual([])
+    expect(state.inputImages.map((i) => i.id)).toEqual(['batch-a', 'batch-b'])
+    expect(state.maskEditorImageId).toBe(imgA.id)
+  })
 })

@@ -269,13 +269,14 @@
       "outputLabel": "逐张出图",
       "dragTip": "两区缩略图可互拖 · @ 选中自动转参考",
       "fillPrompt": "填入提示词",
+      "needSharedRef": "请先在右侧添加 1 张共用参考",
       "liveEmpty": "添加遍历原图后，此处实时预览每条任务的配对拆解",
       "liveSummary": "将发出 {{count}} 条独立任务",
       "liveSummaryCredits": "将发出 {{count}} 条独立任务 · 预估 {{credits}} 积分",
       "liveLoopItem": "原图 {{n}}",
       "liveSharedMany": "共用参考 {{count}} 张",
       "liveOutputItem": "出图 {{n}}",
-      "liveMore": "其余 {{count}} 张依次生成"
+      "liveMore": "其余 {{count}} 条任务依次生成"
     }
   },
   "multiScene": {

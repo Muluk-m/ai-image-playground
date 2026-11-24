@@ -20,12 +20,16 @@ export function BatchExamplesPopover({
   loopImages,
   sharedImages,
   mergeLimit,
+  taskCount,
+  slotVariants = 1,
   totalCredits,
   onApplyPrompt,
 }: {
   loopImages: readonly InputImage[]
   sharedImages: readonly InputImage[]
   mergeLimit: number
+  taskCount?: number
+  slotVariants?: number
   totalCredits?: number
   onApplyPrompt: (prompt: string) => void
 }) {
@@ -37,6 +41,23 @@ export function BatchExamplesPopover({
 
   const loopCount = loopImages.length
   const sharedCount = sharedImages.length
+  const variants = Math.max(1, slotVariants)
+  const effectiveTaskCount = taskCount ?? loopCount * variants
+  const needsSharedForExample = exampleId === 'replaceProduct' && sharedCount === 0
+
+  // 按与 submitPrepared 相同的展开顺序（先原图、再槽位变体）构建前 3 条任务预览。
+  const previewRows: { key: string; taskNo: number; loopNo: number; image: InputImage }[] = []
+  for (let loopIdx = 0; loopIdx < loopImages.length && previewRows.length < 3; loopIdx += 1) {
+    const img = loopImages[loopIdx]!
+    for (let variantIdx = 0; variantIdx < variants && previewRows.length < 3; variantIdx += 1) {
+      previewRows.push({
+        key: `${img.id}-${variantIdx}`,
+        taskNo: loopIdx * variants + variantIdx + 1,
+        loopNo: loopIdx + 1,
+        image: img,
+      })
+    }
+  }
 
   const handleOpenChange = (next: boolean) => {
     setOpen(next)
@@ -46,13 +67,14 @@ export function BatchExamplesPopover({
   }
 
   const handleApply = (id: ExampleId) => {
+    if (id === 'replaceProduct' && sharedCount === 0) return
     const current = getSelectedImageMentionLabel(0)
     const ref1 = getSelectedImageMentionLabel(1)
     const template =
       id === 'replaceProduct'
         ? t('batch.examples.replaceProductPrompt', {
             current,
-            ref: sharedCount > 0 ? ref1 : t('batch.sharedMention', { n: 1 }),
+            ref: ref1,
           })
         : t('batch.examples.whiteBgPrompt', { current })
     suppressFocusReturnRef.current = true
@@ -122,8 +144,8 @@ export function BatchExamplesPopover({
               )}
               onClick={() => setTab('live')}
             >
-              {loopCount > 0
-                ? t('batch.examples.tabLiveCount', { count: loopCount })
+              {effectiveTaskCount > 0
+                ? t('batch.examples.tabLiveCount', { count: effectiveTaskCount })
                 : t('batch.examples.tabLive')}
             </Button>
           </div>
@@ -224,12 +246,15 @@ export function BatchExamplesPopover({
 
             <div className="flex items-center justify-between gap-2 border-t border-border/70 pt-2.5">
               <span className="text-label-sm text-muted-foreground">
-                {t('batch.examples.dragTip')}
+                {needsSharedForExample
+                  ? t('batch.examples.needSharedRef')
+                  : t('batch.examples.dragTip')}
               </span>
               <Button
                 type="button"
                 variant="ghost"
                 size="xs"
+                disabled={needsSharedForExample}
                 className="shrink-0 rounded-lg bg-primary/15 px-2.5 text-xs font-medium text-primary hover:bg-primary/20 hover:text-primary"
                 onClick={() => handleApply(exampleId)}
               >
@@ -247,31 +272,31 @@ export function BatchExamplesPopover({
               <span>
                 {totalCredits !== undefined
                   ? t('batch.examples.liveSummaryCredits', {
-                      count: loopCount,
+                      count: effectiveTaskCount,
                       credits: totalCredits.toLocaleString(),
                     })
-                  : t('batch.examples.liveSummary', { count: loopCount })}
+                  : t('batch.examples.liveSummary', { count: effectiveTaskCount })}
               </span>
               <span className="font-mono tabular-nums">
                 {1 + sharedCount}/{mergeLimit}
               </span>
             </div>
             <div className="space-y-1.5">
-              {loopImages.slice(0, 3).map((img, idx) => (
+              {previewRows.map((row) => (
                 <div
-                  key={img.id}
+                  key={row.key}
                   className="flex items-center gap-2 rounded-lg border border-border/70 bg-secondary/50 px-2.5 py-1.5 text-label-sm"
                 >
                   <span className="w-6 shrink-0 font-mono tabular-nums text-muted-foreground">
-                    #{idx + 1}
+                    #{row.taskNo}
                   </span>
                   <span className="inline-flex items-center gap-1.5 text-foreground">
                     <MediaImage
-                      src={img.dataUrl}
+                      src={row.image.dataUrl}
                       alt=""
                       className="h-6 w-5 shrink-0 rounded-sm object-cover"
                     />
-                    <span>{t('batch.examples.liveLoopItem', { n: idx + 1 })}</span>
+                    <span>{t('batch.examples.liveLoopItem', { n: row.loopNo })}</span>
                   </span>
                   {sharedCount > 0 && sharedImages[0] && (
                     <>
@@ -294,13 +319,13 @@ export function BatchExamplesPopover({
                   )}
                   <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-muted-foreground">
                     <Icon name="chevronRight" size="xs" />
-                    <span>{t('batch.examples.liveOutputItem', { n: idx + 1 })}</span>
+                    <span>{t('batch.examples.liveOutputItem', { n: row.taskNo })}</span>
                   </span>
                 </div>
               ))}
-              {loopCount > 3 && (
+              {effectiveTaskCount > previewRows.length && (
                 <div className="pl-1 text-label-sm text-muted-foreground">
-                  {t('batch.examples.liveMore', { count: loopCount - 3 })}
+                  {t('batch.examples.liveMore', { count: effectiveTaskCount - previewRows.length })}
                 </div>
               )}
             </div>
