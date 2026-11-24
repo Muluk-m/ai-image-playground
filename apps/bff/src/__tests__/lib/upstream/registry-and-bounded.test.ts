@@ -128,6 +128,10 @@ describe('ConcurrencyGate port', () => {
     expect(order).toEqual(['second'])
     releaseSecond()
     expect(gate.gateCount()).toBe(0)
+
+    const aborted = AbortSignal.abort(new Error('already aborted'))
+    await expect(gate.acquire('vertex/pre-aborted', 1, aborted)).rejects.toThrow('already aborted')
+    expect(gate.gateCount()).toBe(0)
   })
 
   it('injects custom ConcurrencyGate into geminiImageExecutor and releases on upstream error', async () => {

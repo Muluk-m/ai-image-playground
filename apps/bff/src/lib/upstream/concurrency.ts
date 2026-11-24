@@ -28,13 +28,13 @@ export class InMemoryConcurrencyGate implements ConcurrencyGate {
   private readonly gates = new Map<string, Gate>()
 
   async acquire(channelId: string, limit: number, signal?: AbortSignal): Promise<() => void> {
+    if (signal?.aborted) throw abortReason(signal)
     let gate = this.gates.get(channelId)
     if (!gate) {
       gate = { active: 0, waiting: [] }
       this.gates.set(channelId, gate)
     }
     const current = gate
-    if (signal?.aborted) throw abortReason(signal)
     if (current.active < limit) {
       current.active += 1
     } else {
@@ -104,12 +104,18 @@ function abortReason(signal: AbortSignal): unknown {
   return signal.reason ?? new DOMException('Upstream request aborted', 'AbortError')
 }
 
+function activeInMemoryGate(): InMemoryConcurrencyGate {
+  return activeConcurrencyGate instanceof InMemoryConcurrencyGate
+    ? activeConcurrencyGate
+    : defaultConcurrencyGate
+}
+
 /** 测试用：看某个渠道当前占了几个位、排了几个。 */
 export function channelSlotStateForTesting(channelId: string): { active: number; waiting: number } {
-  return defaultConcurrencyGate.stateFor(channelId)
+  return activeInMemoryGate().stateFor(channelId)
 }
 
 /** 测试用：当前还留着 gate 的渠道数（闲下来的渠道不该留）。 */
 export function channelGateCountForTesting(): number {
-  return defaultConcurrencyGate.gateCount()
+  return activeInMemoryGate().gateCount()
 }
