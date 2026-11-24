@@ -27,8 +27,9 @@ echo "target: $(git log -1 --format='%h %s' "$target")"
 # touching <paths regex> <range>: the commits in range (newest first) that change a path of that
 # side, or pnpm-lock.yaml.
 touching() {
-  git rev-list --no-merges "$2" | while read -r commit; do
-    if git diff-tree --no-commit-id --name-only -r --root "$commit" | grep -Eq "$1|^pnpm-lock\.yaml$"; then
+  # A merge counts with what it changed against its first parent (conflict resolutions included).
+  git rev-list "$2" | while read -r commit; do
+    if git show --first-parent -m --name-only --format= "$commit" | grep -Eq "$1|^pnpm-lock\.yaml$"; then
       echo "$commit"
     fi
   done

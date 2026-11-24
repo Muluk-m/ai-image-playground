@@ -123,6 +123,21 @@ describe('release-status.sh', () => {
       )
   })
 
+  it('counts what a merge commit itself changed', () => {
+    git('checkout', '-q', '-b', 'side', commits[3])
+    writeFileSync(join(repo, 'docs/e.md'), 'side\n')
+    git('add', 'docs/e.md')
+    git('commit', '-q', '-m', 'side docs')
+    git('checkout', '-q', '-')
+    git('merge', '-q', '--no-ff', '--no-commit', 'side')
+    writeFileSync(join(repo, 'apps/bff/a.ts'), 'resolved\n')
+    git('add', 'apps/bff/a.ts')
+    git('commit', '-q', '-m', 'merge side')
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD')
+    serve({ [`${api}/health`]: health(commits[3]) })
+    expect(status()).toMatch(/API: serves \w+; 1 commit\(s\) to ship:\n {2}- \w+ merge side\n/)
+  })
+
   it('does not claim an unchanged tree needs nothing', () => {
     git('commit', '-q', '--allow-empty', '-m', 'empty')
     git('update-ref', 'refs/remotes/origin/main', 'HEAD')
