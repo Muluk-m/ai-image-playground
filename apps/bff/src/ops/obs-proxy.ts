@@ -19,7 +19,6 @@ export interface ObsProxyOptions {
   readonly timeoutMs?: number
 }
 
-/** 查询语句和 trace 查询都很小；再大就是误用。 */
 /** 慢于这个时长的成功查询仍记一行访问日志，用来发现拖慢 Admin 的查询。 */
 export const OBS_PROXY_SLOW_MS = 3000
 
@@ -32,6 +31,7 @@ export function shouldLogObsProxyRequest(path: string, status: number, elapsedMs
   return status >= 400 || elapsedMs >= OBS_PROXY_SLOW_MS
 }
 
+/** 查询语句和 trace 查询都很小；再大就是误用。 */
 export const OBS_PROXY_MAX_BODY_BYTES = 64 * 1024
 
 type Rule = { readonly method: 'GET' | 'POST'; readonly pattern: RegExp }

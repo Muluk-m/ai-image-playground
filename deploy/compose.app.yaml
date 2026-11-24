@@ -24,8 +24,10 @@ x-log-forward: &log-forward
 
 # OpenObserve's own account and its R2 bucket keys sit in app.env only so the observability
 # services below can interpolate them; no application process reads them. Every service that loads
-# app.env whole blanks them, so a compromised or misbehaving app container cannot read or delete
-# the log store. scripts/rollout-runtime.sh blanks the same names for the containers it creates.
+# app.env whole blanks them in its environment (scripts/rollout-runtime.sh does the same for the
+# containers it creates). This is not an isolation boundary for bff, worker and migrate: they mount
+# the config directory at /run/operator, app.env included. Admin, web and dependency-check do not.
+# Moving the keys to a file of their own would close that too.
 x-observability-secrets-blank: &observability-secrets-blank
   OBS_ROOT_PASSWORD: ""
   OBS_S3_ACCESS_KEY_ID: ""
