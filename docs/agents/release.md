@@ -10,16 +10,17 @@ Agent 从 PR 到上线的完整链路，以及每一步谁能拍板。命令与�
 
 ## 谁拍板
 
-经发布流水线上线的步骤由 Agent 自己推进，**不用等 Nain 确认**（2026-11-24 Nain 决定）：检查齐了、判断没问题就直接合并，合并后跟进部署，**上线后必须冒烟**（见「四、上线核对」）；冒烟不过就修复或按「五、回滚」直接处理，并在汇报里说明。只有绕过流水线、直接动生产服务器或生产数据的手工操作仍要 Nain 批准，因为它们没有检查、也没有自动回滚。
+经发布流水线上线的步骤由 Agent 自己推进，**不用等 Nain 确认**（2026-11-24 Nain 决定）：检查齐了、判断没问题就直接合并。合并不等于上线：生产发布按需手动，Nain 说发布后由 Agent 触发并跟进（回滚除外，见下表），**上线后必须冒烟**（见「四、上线核对」）；冒烟不过就修复或按「五、回滚」直接处理，并在汇报里说明。只有绕过流水线、直接动生产服务器或生产数据的手工操作仍要 Nain 批准，因为它们没有检查、也没有自动回滚。
 
 | 步骤 | 谁拍板 | 说明 |
 | --- | --- | --- |
-| 修 bug、功能或行为变更的 PR 合并 main（下一个窗口发生产） | Agent，检查齐了即可 | 检查见「合并前检查」；确认没问题即可直接 squash merge。涉及成本或结算的要在描述和汇报里写清并标出影响 |
+| 修 bug、功能或行为变更的 PR 合并 main（合并后待发布，不自动上线） | Agent，检查齐了即可 | 检查见「合并前检查」；确认没问题即可直接 squash merge。涉及成本或结算的要在描述和汇报里写清并标出影响 |
 | 带数据库迁移的 PR 合并 main | Agent，检查齐了即可 | 迁移必须兼容新旧两代后端并带回滚 SQL；改编号前按 AGENTS.md 先查两个库已跑过的迁移 |
 | 发布 CLI（打 `cli-vX.Y.Z` 标签） | Agent，检查齐了即可 | 见 [CLI 发布](cli-release.md)；发布后先用官方安装脚本试装，确认安装与版本正常 |
-| 生产常规回滚（revert PR） | Agent | 冒烟不过或出事故时直接开 revert PR 合并（走流水线，紧急可配合 `workflow_dispatch`），事后在汇报里写清现象、影响和回滚目标 |
+| 生产常规回滚（revert PR） | Agent | 冒烟不过或出事故时直接开 revert PR 合并，并触发 Deploy production 发出；事后在汇报里写清现象、影响和回滚目标 |
+| 触发 Deploy production（发布当前 main） | **需 Nain 说发布**（回滚除外） | 默认 `mode=incremental`；`full` 全部重发。Nain 说了发布，Agent 直接触发并跟进，不再另行确认 |
 | 重跑失败的 Deploy production job | Agent | 只按失败 job 重跑，不重跑整单 |
-| 绕过流水线手动发布 / 手工前端回滚（`scripts/pages-release.sh`） | **需 Nain 批准** | 正常路径是合并 main、窗口自动发布；紧急修复用 `workflow_dispatch` 并填 `reason` |
+| 绕过流水线手动发布 / 手工前端回滚（`scripts/pages-release.sh`） | **需 Nain 批准** | 正常路径是 Deploy production workflow；绕过它（macmini2 构建、手工上传）没有检查和自动回滚 |
 | 改服务器上的 `app.env` / `operator-config.json` | **需 Nain 批准** | 手工改，先备份，见下文 |
 | 重启、重建、停止生产容器 | **需 Nain 批准** | 包括 `app-compose.sh up` |
 | 共享 segmenter 的 `up` / `rollback` / `detach` | **需 Nain 批准** | 全部部署共用一个实例 |
@@ -56,11 +57,21 @@ git push origin HEAD:test
 
 跟进 Deploy test 跑完，再核对测试站的版本并实测改动，见下面的「上线核对」。测试环境用真实供应商 key，生成照样花钱，冒烟控制在最小用量。测试通过不代表可以上生产。
 
-## 三、生产发布（合并 main）
+## 三、生产发布（按需）
 
-合并 `main` 后在下一个发布窗口上生产，不需要也不应该再手动发布：
+合并 `main` 不会上线。合并后的改动处于「待发布」，什么时候发由 Nain 决定：
 
-1. `.github/workflows/deploy.yml`（Deploy production）按窗口 `schedule` 自动开始：北京时间 12:30、18:30、23:30 之后。GitHub schedule 不保证准时（实测常晚 2–7 小时，个别窗口不触发），跟进以实际运行为准，急的修复走紧急通道。只发当时 `origin/main` 的 tip，且该提交在 main 上的 `Web checks` 必须已成功（未完成或失败则跳过本窗口）；同一时间只跑一单（并发组 `production-deploy`）。
+```sh
+scripts/release-status.sh                                        # 只读：API、前端、Admin 各落后 main 哪些提交
+gh workflow run deploy.yml --ref main                            # Nain 说发布后：默认 incremental
+gh workflow run deploy.yml --ref main -f mode=full -f reason='…'  # 全部重发
+gh run list --workflow deploy.yml --event workflow_dispatch --limit 3 --json databaseId,createdAt,status
+gh run watch <databaseId>
+```
+
+`gh workflow run` 返回后要过几秒 run 才出现，先用 `gh run list` 确认 `createdAt` 是刚才那次，再 watch；直接取第一条可能拿到上一单。
+
+1. `.github/workflows/deploy.yml`（Deploy production）只有手动触发（`workflow_dispatch`）。发触发时 main 的提交（排队期间 main 前进也不换），该提交在 main 上的 `Web checks` 必须已成功，未完成或失败直接报错，等检查通过后再触发；同一时间只跑一单（并发组 `production-deploy`）。运行摘要在切换前按各部分线上实际版本列出本次带上的提交，冒烟按这份清单逐项核对。
 2. `target` 判定哪些部分要发（共享 muvloom API、muvloom Pages 项目、Admin）；产品前端扫描 `PAID_PUBLIC_ORIGIN`，同一项目的全部产品域名随之更新。已在跑后代提交的部分不回退；`release` 打 `vMAJOR.MINOR.PATCH` 标签。
 3. **后端只构建和发布 muvloom runtime。** `backend` 在 Actions 用 `build-vps-release.sh paid` 构建单仓发布镜像，以及 backup、segmenter 配套镜像，经 SSH 受限命令执行 `deploy <id> paid <run>`；`rollout-runtime.sh` 先跑兼容迁移，再做新旧两代排空切换。生产目标只有 `paid`，隔离测试目标为 `test`。
 4. `pages-muvloom`（显示名 `Pages (muvloom project, every product domain)`）只发布一个 muvloom Pages 项目：一个项目、多个域名（`muvloom.online`、`image.nainma.online`、企业域名 `image-playground.qiliangjia.one`）。`pages-release.sh muvloom` 把 `ENTERPRISE_PUBLIC_ORIGIN → ENTERPRISE_BFF_BASE_URL` 并入 `baseUrlsByOrigin`，并给企业域名加 host 级 `X-Robots-Tag: noindex`。API 本次发布时，先等共享 muvloom API 与企业 API hostname `/health` 报出新版本，再发布并跑 Chromium 验收；企业域名在 muvloom 项目的 Cloudflare 自定义域名列表中时同样验收且失败即失败，未绑定只告警，不能据此宣称企业站已交付。`admin-pages` 保留对 `pages-muvloom` 的成功 / 跳过依赖。
@@ -68,11 +79,11 @@ git push origin HEAD:test
    - 只改前端时，`pages-muvloom` 允许 backend job 跳过；只改后端时，backend 直接发布共享 muvloom API。Pages 与 Admin 都使用 muvloom 令牌。GitHub `PAGES_ENV`、仓库外 `pages.env` 的企业键名，以及 VPS 固定 receiver 必须配套更新（`paid` 与 `test` 的部署脚本均随发布从 main 自动解出，不需手工同步），见[部署手册](../deploy/image-release.md#仓库外更新前提)。域名与 API 别名的维护及真实登录验收见[企业域名与 API 别名](../deploy/image-release.md#企业域名与-api-别名)。浏览器启动冒烟不替代真实登录与业务验收。
    - 失败后的重跑：同一发布 ID 已接收后只能按失败 job 重跑，不能重跑整单，避免同一发布目录冲突。
 
-合并后 Agent 等下一个窗口的 workflow 跑完，冒烟在发布完成后做；失败就看日志处理（可按失败 job 重跑），不手动补发。**紧急修复**可直接手动 `workflow_dispatch` Deploy production，必填 `reason`（写入 job summary），该入口全量重发。走绕过流水线的应急手动发布要 Nain 批准。
+合并后 Agent 在汇报里列出待发布的改动；Nain 说发布后触发 workflow、跟进到跑完，冒烟在发布完成后做。失败就看日志处理（可按失败 job 重跑），不绕过 workflow 补发。一次带上的改动越多，出问题越难定位：有关键流程或数据库迁移的改动，建议单独发布、单独冒烟。
 
 ### 计费与企业能力发布
 
-双仓私有 overlay 机制已收口为单仓（见 [private-overlay.md](private-overlay.md)），计费与飞书身份模块随主仓一同通过 PR 审核、CI 门禁并在下一个生产窗口发布，按 `operator-config.json` 的能力开关启用（`billing:credits` 等），不再维护独立的私有仓同步或 `overlay-bump.yml`。
+双仓私有 overlay 机制已收口为单仓（见 [private-overlay.md](private-overlay.md)），计费与飞书身份模块随主仓一同通过 PR 审核、CI 门禁，随下一次生产发布上线，按 `operator-config.json` 的能力开关启用（`billing:credits` 等），不再维护独立的私有仓同步或 `overlay-bump.yml`。
 
 ## 四、上线核对
 
@@ -95,7 +106,7 @@ curl -fsS https://test.muvloom.online/version.json
 
 ## 五、回滚
 
-冒烟不过或出事故时由 Agent 直接开 revert PR 回滚（走正常流水线，紧急可配合 `workflow_dispatch`），事后在汇报里写清现象、影响范围和回滚到的提交或镜像。绕过流水线或需要在服务器上手工操作的（改 `operator-config.json`、`app-compose.sh up`、VPS 上的镜像回滚、手工重跑 `scripts/pages-release.sh` 做前端回滚）仍要 Nain 批准。
+冒烟不过或出事故时由 Agent 直接开 revert PR 回滚（合并后触发 Deploy production 发出），事后在汇报里写清现象、影响范围和回滚到的提交或镜像。绕过流水线或需要在服务器上手工操作的（改 `operator-config.json`、`app-compose.sh up`、VPS 上的镜像回滚、手工重跑 `scripts/pages-release.sh` 做前端回滚）仍要 Nain 批准。
 
 **先止血，再回滚。** 出问题的是单个功能或单个模型时，先关掉它，往往比回滚整个版本更快、波及更小：
 

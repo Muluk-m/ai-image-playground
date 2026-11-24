@@ -3,24 +3,31 @@ set -eu
 # Decides whether the deploy workflow ships <sha>. Run inside a checkout with origin/main fetched
 # and enough history to compare commits.
 #   WEB_ORIGINS="<muvloom site origin> ..." ADMIN_ORIGIN=<admin origin> \
-#     scripts/ci-deploy-target.sh <sha> <schedule|workflow_dispatch> <muvloom-api-base-url>
+#     scripts/ci-deploy-target.sh <sha> <incremental|full> <muvloom-api-base-url>
 #
 # Writes deploy_api, deploy_pages (either Pages side), deploy_web (the one muvloom Pages project
 # behind every product domain),
 # deploy_admin (Admin site) and deploy (true when anything ships) to $GITHUB_OUTPUT (stdout without it).
 # A skip is not a failure:
-# - only the current tip of origin/main is deployed, so a queued older run never overtakes a newer;
+# - only a commit on origin/main is deployed (the one the release was triggered for);
 # - nothing already running a descendant of <sha> is moved back, and the other sides stay put with it;
 # - each side is compared with the commit it serves itself: the APIs from /health, the sites from
 #   /version.json. A side skipped by an earlier run keeps its older commit, so a later run still sees
 #   the changes it never shipped, and a side that already shipped them is not shipped again;
 # - a side ships when its own paths changed since that commit, and nothing ships when every side
-#   already serves <sha>. A scheduled window is incremental; a manual run (the emergency lane)
-#   redeploys everything.
+#   already serves <sha>. That is the default (incremental) mode; full redeploys every side, still
+#   never moving one back.
 # A side whose version cannot be read, or whose copies disagree, ships.
 
 target=${1:?target commit required}
-event=${2:?event name required}
+mode=${2:?mode required (incremental or full)}
+case $mode in
+  incremental | full) ;;
+  *)
+    echo "Unknown mode '$mode'; expected incremental or full." >&2
+    exit 2
+    ;;
+esac
 shift 2
 output=${GITHUB_OUTPUT:-/dev/stdout}
 
@@ -75,8 +82,7 @@ api_tree_changed() {
     lock_changed "$1" . apps/bff apps/admin packages/db packages/node-kit packages/shared
 }
 
-tip=$(git rev-parse origin/main)
-[ "$target" = "$tip" ] || skip "$target is not the tip of origin/main ($tip)"
+git merge-base --is-ancestor "$target" origin/main 2>/dev/null || skip "$target is not on origin/main"
 
 # scan <api|site> <url>...: reads what each copy serves. Sets scan_base (the commit every copy
 # serves when they agree), scan_unknown (some copy cannot be compared) and scan_current (every copy
@@ -176,8 +182,8 @@ admin_current=$scan_current
 decide "admin bundle (Admin site)" admin_bundle_changed
 admin=$decision
 
-# A manual run republishes whatever is already current. Rollback was already refused above.
-if [ "$event" = workflow_dispatch ]; then
+# Full mode republishes whatever is already current. Rollback was already refused above.
+if [ "$mode" = full ]; then
   finish true true true
 fi
 if [ "$api_current" = true ] && [ "$web_current" = true ] && [ "$admin_current" = true ]; then

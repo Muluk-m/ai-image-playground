@@ -1,7 +1,10 @@
 #!/usr/bin/env node
 // Pages serves only the latest deployment on a custom domain, so a tab opened on the previous
-// release gets 404 for chunks it has not loaded yet. Before upload, copy the hashed files of the
-// last few releases from the live site into this dist and record them in assets-manifest.json.
+// release gets 404 for chunks it has not loaded yet. Before upload, copy the hashed files of every
+// release from the last KEEP_DAYS days from the live site into this dist and record them in
+// assets-manifest.json. Releases are kept by age, not by count, so how often production is
+// released does not shorten how long an open tab stays safe. Downloads go newest release first;
+// past MAX_TOTAL_BYTES the oldest files are skipped and fall back to the one-time reload.
 //
 // Usage: node scripts/retain-pages-assets.mjs <dist-dir> <live-origin>
 //
@@ -14,7 +17,6 @@ import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const MANIFEST = 'assets-manifest.json'
-export const KEEP_RELEASES = 5
 export const KEEP_DAYS = 14
 /** Pages allows 20,000 files per deployment; older releases are dropped above this. */
 export const MAX_FILES = 15_000
@@ -22,6 +24,8 @@ export const MAX_FILES = 15_000
 export const MAX_FILE_BYTES = 25 * 1024 * 1024
 export const MAX_TOTAL_BYTES = 200 * 1024 * 1024
 const MAX_MANIFEST_BYTES = 5 * 1024 * 1024
+/** Releases are kept by age, so cap the written manifest well below what the next release reads. */
+export const MAX_WRITTEN_MANIFEST_BYTES = MAX_MANIFEST_BYTES / 2
 const ROOTS = ['assets', 'website-assets']
 /** Vite's default `[name]-[hash].[ext]`: 8 url-safe base64 characters. */
 const HASHED = /-[A-Za-z0-9_-]{8}\.[A-Za-z0-9]+$/
@@ -160,7 +164,6 @@ export function selectReleases(releases, now) {
   return releases
     .filter((release) => Date.parse(release.publishedAt) >= cutoff)
     .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt))
-    .slice(0, KEEP_RELEASES - 1)
 }
 
 async function mapPool(items, limit, fn) {
@@ -178,6 +181,7 @@ export async function retainPagesAssets({
   now = new Date(),
   retryDelayMs = 1000,
   maxFiles = MAX_FILES,
+  maxManifestBytes = MAX_WRITTEN_MANIFEST_BYTES,
   log = console.log,
 }) {
   const current = await listHashedFiles(distDir)
@@ -239,15 +243,21 @@ export async function retainPagesAssets({
 
   const releases = [
     { publishedAt: now.toISOString(), files: current },
-    ...kept.map((release) => ({
-      publishedAt: release.publishedAt,
-      files: release.files.filter((file) => present.has(file) || (wanted.has(file) && !missing.has(file))),
-    })),
+    ...kept
+      .map((release) => ({
+        publishedAt: release.publishedAt,
+        files: release.files.filter((file) => present.has(file) || (wanted.has(file) && !missing.has(file))),
+      }))
+      .filter((release) => release.files.length > 0),
   ]
-  await writeFile(
-    join(distDir, MANIFEST),
-    `${JSON.stringify({ version: 1, releases }, null, 2)}\n`,
-  )
+  // An oversized manifest would read as invalid next time and drop every older release at once.
+  let manifest = `${JSON.stringify({ version: 1, releases }, null, 2)}\n`
+  while (releases.length > 1 && Buffer.byteLength(manifest) > maxManifestBytes) {
+    const dropped = releases.pop()
+    log(`WARNING: dropping the release from ${dropped.publishedAt} to keep ${MANIFEST} under ${maxManifestBytes} bytes.`)
+    manifest = `${JSON.stringify({ version: 1, releases }, null, 2)}\n`
+  }
+  await writeFile(join(distDir, MANIFEST), manifest)
   if (bytes >= MAX_TOTAL_BYTES) {
     log(`WARNING: stopped downloading at ${MAX_TOTAL_BYTES} bytes; the rest is skipped.`)
   }
