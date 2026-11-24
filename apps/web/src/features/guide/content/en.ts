@@ -538,7 +538,7 @@ const batch: GuidePage = {
       blocks: [
         steps(
           'Pick Batch from the bottom-left mode selector, with a model that accepts references (such as Image 2.5 Flare).',
-          'Add files (or a folder) to Source images on the left, and optional fixed references to Shared refs on the right. Drag thumbnails between zones anytime.',
+          'Add images to Source images on the left (click + to pick multiple images or a folder, or drop image files), and add optional fixed references to Shared refs on the right. Drag thumbnails between zones anytime.',
           'Write the prompt using @Current and @Ref 1. Clicking @ on a source thumbnail moves it into Shared refs automatically.',
           'Open Examples in the toolbar to insert a sample prompt or inspect the live task breakdown.',
           'Press send. My work shows one batch card—open it to inspect or download each result.',
