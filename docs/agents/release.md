@@ -62,7 +62,7 @@ git push origin HEAD:test
 合并 `main` 不会上线。合并后的改动处于「待发布」，什么时候发由 Nain 决定：
 
 ```sh
-scripts/release-status.sh                                        # 只读：API、前端、Admin 各落后 main 哪些提交
+scripts/release-status.sh                                        # 只读：API、前端、Admin 各还差哪些改到自己的提交
 gh workflow run deploy.yml --ref main                            # Nain 说发布后：默认 incremental
 gh workflow run deploy.yml --ref main -f mode=full -f reason='…'  # 全部重发
 gh run list --workflow deploy.yml --event workflow_dispatch --limit 3 --json databaseId,createdAt,status

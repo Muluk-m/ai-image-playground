@@ -62,23 +62,21 @@ lock_changed() {
   node scripts/lock-closure-changed.mjs "$scan_base" "$target" "$@"
 }
 
-# The shared muvloom Pages project reads this; Admin reads its own list; the API reads the last.
-# admin.muvloom.online is the Pages build of apps/admin; the API image only serves admin-api.
+# shellcheck source=scripts/lib/release-paths.sh
+. "$(dirname "$0")/lib/release-paths.sh"
 # shellcheck disable=SC2329 # called through decide
 web_bundle_changed() {
-  printf '%s\n' "$1" | grep -Eq '^(apps/web/|apps/website/|cli-go/|scripts/build-cli-web-bins\.sh$|packages/shared/|pnpm-workspace\.yaml$)' ||
+  printf '%s\n' "$1" | grep -Eq "$RELEASE_WEB_PATHS" ||
     lock_changed "$1" . apps/web apps/website packages/shared
 }
 # shellcheck disable=SC2329 # called through decide
 admin_bundle_changed() {
-  printf '%s\n' "$1" | grep -Eq '^(apps/admin/|packages/read-models/|packages/shared/|pnpm-workspace\.yaml$)' ||
+  printf '%s\n' "$1" | grep -Eq "$RELEASE_ADMIN_PATHS" ||
     lock_changed "$1" . apps/admin packages/read-models packages/shared
 }
 # shellcheck disable=SC2329 # called through decide
 api_tree_changed() {
-  # Build and deployment protocol changes require a new release. Deployment code itself lives
-  # in the fixed VPS runtime and must be installed separately from the data-only release.
-  printf '%s\n' "$1" | grep -Eq '^(apps/bff/|apps/admin/|packages/|Dockerfile$|deploy/|pnpm-workspace\.yaml$|scripts/build-vps-release\.sh$|scripts/docker-entrypoint\.sh$|scripts/vps-deploy\.sh$|scripts/app-compose\.sh$|scripts/rollout-runtime\.sh$|scripts/check-test-isolation\.sh$|scripts/segmenter-deploy\.sh$|scripts/lib/deploy-common\.sh$)' ||
+  printf '%s\n' "$1" | grep -Eq "$RELEASE_API_PATHS" ||
     lock_changed "$1" . apps/bff apps/admin packages/db packages/node-kit packages/read-models packages/shared
 }
 

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/auth"
+	"github.com/Muluk-m/ai-image-playground/cli-go/internal/netidle"
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/client"
 )
 
@@ -35,7 +36,6 @@ const (
 	remoteCheckInterval    = 24 * time.Hour
 	staleCheckedPathAge    = 30 * 24 * time.Hour
 	remoteManifestTimeout  = 3 * time.Second
-	remoteArchiveTimeout   = 15 * time.Second
 	maxManifestBytes       = 256 * 1024
 	maxArchiveBytes        = 10 * 1024 * 1024
 	maxArchiveFiles        = 128
@@ -653,8 +653,12 @@ func safeHTTPClient(base *http.Client) *http.Client {
 	return cloned
 }
 
+// httpGetBytes fetches a small response; a positive timeout bounds the whole request.
 func httpGetBytes(ctx context.Context, httpClient *http.Client, targetURL string, timeout time.Duration, maxBytes int64) ([]byte, error) {
-	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	reqCtx, cancel := ctx, context.CancelFunc(func() {})
+	if timeout > 0 {
+		reqCtx, cancel = context.WithTimeout(ctx, timeout)
+	}
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, targetURL, nil)
 	if err != nil {
@@ -676,6 +680,20 @@ func httpGetBytes(ctx context.Context, httpClient *http.Client, targetURL string
 		return nil, fmt.Errorf("response exceeded %d byte limit", maxBytes)
 	}
 	return body, nil
+}
+
+// httpGetArchive downloads a Skill archive with no total limit, only an idle one: a slow link
+// that keeps moving bytes finishes. The automatic update still has its budget through ctx.
+func httpGetArchive(ctx context.Context, httpClient *http.Client, targetURL string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, remoteArchiveMaxTotal) // a floor for a trickling link
+	defer cancel()
+	fetch := netidle.Start(ctx, httpClient, remoteArchiveIdle, false)
+	defer fetch.Stop()
+	body, err := httpGetBytes(fetch.Ctx, fetch.Client, targetURL, 0, maxArchiveBytes)
+	if err != nil && fetch.Stalled() {
+		return nil, fmt.Errorf("%w: nothing moved for %s", netidle.ErrStalled, fetch.Window())
+	}
+	return body, err
 }
 
 // FetchManifest downloads and validates /cli/skill-manifest.json from a trusted origin
@@ -799,7 +817,7 @@ func isSafeRelativeSkillPath(rel string) bool {
 }
 
 func downloadArchiveBytes(ctx context.Context, httpClient *http.Client, origin, archive string) ([]byte, error) {
-	zipBytes, err := httpGetBytes(ctx, httpClient, origin+"/cli/"+archive, remoteArchiveTimeout, maxArchiveBytes)
+	zipBytes, err := httpGetArchive(ctx, httpClient, origin+"/cli/"+archive)
 	if err != nil {
 		return nil, fmt.Errorf("%w: download skill archive: %w", ErrRemoteUnavailable, err)
 	}
@@ -1456,3 +1474,9 @@ func writeSkillFileInPlace(target string, data []byte, perm os.FileMode) error {
 	}
 	return file.Close()
 }
+
+// remoteArchiveIdle: no bytes moved for this long ends an archive download. A variable so tests can shorten it.
+var remoteArchiveIdle = 15 * time.Second
+
+// remoteArchiveMaxTotal bounds an explicit Skill archive download that keeps trickling.
+const remoteArchiveMaxTotal = 5 * time.Minute
