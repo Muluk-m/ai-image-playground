@@ -29,7 +29,7 @@ func cmdSetup(ctx context.Context, a *App, args []string) (any, error) {
 	scope := fs.String("scope", "user", "user (every project) or project (this directory); ignored for generic/none")
 	output := fs.String("output", "", "For --host generic, directory that will receive muvloom/ (default: current directory)")
 	noWait := fs.Bool("no-wait", false, "Print the approval link and return without waiting (no browser)")
-	timeout := fs.Int("timeout", -1, "Seconds to wait for approval; omitted: as long as the code is valid")
+	timeout := fs.Int("timeout", -1, "Seconds to wait for approval; omitted: as long as the authorization link is valid")
 	switchService := fs.Bool("switch-service", false, "Sign in to the chosen service although this machine is signed in to another service")
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err

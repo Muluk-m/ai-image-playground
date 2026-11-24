@@ -420,7 +420,6 @@ func cmdAuthStatus(ctx context.Context, a *App, args []string) (any, error) {
 		syncStoreStatus()
 		if pending, pendErr := a.Store.LoadPending(); pendErr == nil && (time.Now().Before(pending.ExpiresAt) || pending.Redeemed && recoverable(pending)) && !completedLogin(a, pending) {
 			status["pending_login"] = map[string]any{
-				"user_code":                 pending.UserCode,
 				"verification_uri_complete": pending.VerificationURIComplete,
 				"expires_at":                pending.ExpiresAt,
 			}
@@ -480,11 +479,11 @@ type deviceAuthorization struct {
 }
 
 // cmdAuthLogin runs the RFC 8628 device flow. The device code stays on disk between
-// `--no-wait` and a later resume; only the user code and URL are ever printed.
+// `--no-wait` and a later resume; only the approval link is ever printed.
 func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 	fs := newFlags("auth login")
 	noWait := fs.Bool("no-wait", false, "Print the approval link and return without waiting (no browser)")
-	timeout := fs.Int("timeout", -1, "Seconds to wait for approval; omitted: as long as the code is valid")
+	timeout := fs.Int("timeout", -1, "Seconds to wait for approval; omitted: as long as the authorization link is valid")
 	switchService := fs.Bool("switch-service", false, "Sign in to MUVLOOM_API_URL although this machine is signed in to another service")
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
@@ -610,22 +609,21 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 	}
 	prompt := map[string]any{
 		"state":                     "pending",
-		"user_code":                 pending.UserCode,
 		"verification_uri_complete": pending.VerificationURIComplete,
 		"expires_at":                pending.ExpiresAt,
 	}
 	if !pending.Redeemed {
 		if *noWait {
-			a.progress("Open %s (code %s) in your browser and select Allow", pending.VerificationURIComplete, pending.UserCode)
+			a.progress("Open %s in your browser and select Allow", pending.VerificationURIComplete)
 			return prompt, nil
 		}
 		// A resumed login does not open another page: the one already open still works.
 		if resuming {
-			a.progress("Waiting for browser approval at %s (code %s)", pending.VerificationURIComplete, pending.UserCode)
+			a.progress("Waiting for browser approval at %s", pending.VerificationURIComplete)
 		} else if err := a.openBrowser(approvalURL(pending)); err == nil {
 			a.progress("Opened your browser to approve this connection. Select Allow to continue…")
 		} else {
-			a.progress("Open %s (code %s) in your browser and select Allow", pending.VerificationURIComplete, pending.UserCode)
+			a.progress("Open %s in your browser and select Allow", pending.VerificationURIComplete)
 		}
 	}
 	done := make(chan struct{})
@@ -716,10 +714,10 @@ func cmdAuthLogin(ctx context.Context, a *App, args []string) (any, error) {
 				return nil, fail("AUTH_DENIED", "The connection was denied in the browser")
 			case "invalid_grant":
 				_ = a.Store.ClearPendingIfMatch(pending.DeviceCode)
-				return nil, fail("AUTH_REQUIRED", "The login code is invalid or already used; check `muvloom auth status` before starting a new login")
+				return nil, fail("AUTH_REQUIRED", "The authorization link is invalid or already used; check `muvloom auth status` before starting a new login")
 			case "expired_token":
 				_ = a.Store.ClearPendingIfMatch(pending.DeviceCode)
-				return nil, fail("AUTH_EXPIRED", "The login code expired; run `muvloom auth login` again")
+				return nil, fail("AUTH_EXPIRED", "The authorization link expired; run `muvloom auth login` again")
 			default:
 				// A busy or rate-limited service is not an answer: keep waiting.
 				if oauthErr.Status < 500 && oauthErr.Status != http.StatusTooManyRequests {

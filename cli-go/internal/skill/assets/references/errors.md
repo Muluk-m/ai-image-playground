@@ -4,9 +4,9 @@ The code is the `(CODE)` at the end of the `Error:` line on stderr, or `error.co
 
 | Code | Meaning | Action |
 | --- | --- | --- |
-| `AUTH_REQUIRED`, `UNAUTHENTICATED` | No valid CLI connection, or login code invalid/already used | Check `auth status` after a permission interruption; keep a ready connection, otherwise follow the login flow in SKILL.md |
+| `AUTH_REQUIRED`, `UNAUTHENTICATED` | No valid CLI connection, or approval link invalid/already used | Check `auth status` after a permission interruption; keep a ready connection, otherwise follow the login flow in SKILL.md |
 | `SERVICE_MISMATCH` | `MUVLOOM_API_URL` names a different service than the stored connection; `details.api_url`, `details.connection_api_url` | Do not start a login. Unset `MUVLOOM_API_URL` to use the connection; use `auth login --switch-service` only if the user wants the other service |
-| `AUTH_EXPIRED` | The server reports the login code expired | Start a new login flow |
+| `AUTH_EXPIRED` | The server reports the approval link expired | Start a new login flow |
 | `AUTH_PENDING` | Browser approval not done yet | Keep waiting with `muvloom auth login`; ask the user to sign in and approve only if they have not yet been told |
 | `AUTH_DENIED` | User denied in the browser | Stop unless the user wants to retry |
 | `CREDENTIAL_STORE_UNWRITABLE` | The CLI cannot write its credential store (config directory or keychain). Login stops before the code is redeemed; if the code was already redeemed, the next login can usually finish it without a new approval | Tell the user the muvloom config directory must be writable (or set `MUVLOOM_CONFIG_DIR` to a writable one), then run the same `muvloom auth login` again; it asks for a new approval only if the service cannot repeat the last one |

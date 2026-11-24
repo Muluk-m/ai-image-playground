@@ -469,8 +469,8 @@ func TestDeviceLoginHandlesSlowDownAndKeepsSecretsOutOfOutput(t *testing.T) {
 	if r.code != ExitOK || r.out["data"].(map[string]any)["state"] != "ready" {
 		t.Fatalf("login = %d %s", r.code, r.stdout)
 	}
-	if !strings.Contains(r.stderr, "BCDF-GHJK") {
-		t.Fatalf("stderr should show the user code, got %q", r.stderr)
+	if !strings.Contains(r.stderr, f.server.URL+"/device?user_code=BCDF-GHJK") || strings.Contains(r.stderr, "(code ") {
+		t.Fatalf("stderr should show only the approval link without a separate code, got %q", r.stderr)
 	}
 	assertNoSecrets(t, r, secretDeviceCode, "access-1", "refresh-1")
 	if _, err := app.Store.LoadPending(); err != auth.ErrNotFound {
@@ -483,8 +483,11 @@ func TestLoginNoWaitThenResumeReusesTheSameCode(t *testing.T) {
 	app := newApp(t, f, t.TempDir())
 	r := execute(t, app, "auth", "login", "--no-wait")
 	data := r.out["data"].(map[string]any)
-	if r.code != ExitOK || data["state"] != "pending" || data["user_code"] != "BCDF-GHJK" {
+	if r.code != ExitOK || data["state"] != "pending" || data["verification_uri_complete"] != f.server.URL+"/device?user_code=BCDF-GHJK" {
 		t.Fatalf("no-wait = %d %s", r.code, r.stdout)
+	}
+	if _, hasCode := data["user_code"]; hasCode {
+		t.Fatalf("no-wait should not expose user_code separately: %s", r.stdout)
 	}
 	assertNoSecrets(t, r, secretDeviceCode)
 	login(t, app)

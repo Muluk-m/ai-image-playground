@@ -26,7 +26,7 @@ const BundleVersion = "0.2.7"
 // For prompt-only hot-updates shipped via Web deploy without a new CLI binary, bump
 // SkillVersion to a dotted patch (e.g. "0.2.7.1") so installed CLIs auto-update safely
 // without downgrading.
-const SkillVersion = "0.2.7.2"
+const SkillVersion = "0.2.7.3"
 
 //go:embed assets
 var bundled embed.FS

@@ -105,7 +105,8 @@
 `DELETE /api/me/cli-connections/:id` 撤销。请求携带现有浏览器会话，不展示或存储 CLI token。
 读取失败可刷新；撤销失败保留该行并允许重试；部署返回 `capability_unavailable` 时只隐藏此区块。
 
-`/device?user_code=…` 沿用现有登录框与 OAuth `return_to`，手动输入的授权码先写回当前地址，
-登录后仍回到同一码；浏览器前进/后退切码会取消旧请求，旧读取与旧决定都不能覆盖当前授权。
+`/device?user_code=…` 沿用现有登录框与 OAuth `return_to`，登录后仍回到原授权链接；
+无 `user_code` 参数时仅提示通过智能体提供的授权链接打开（不向用户暴露授权码概念或手动输入框）；
+浏览器前进/后退切换链接会取消旧请求，旧读取与旧决定都不能覆盖当前授权。
 组件回归见 `src/__tests__/features/cli/CliDevicePage.test.tsx` 与
 `src/__tests__/auth/LoginMethodsPanel.test.tsx`；客户端契约见 `src/__tests__/lib/authClient.test.ts`。

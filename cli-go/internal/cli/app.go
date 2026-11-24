@@ -2,8 +2,8 @@
 // with `--json` exactly one JSON envelope per invocation; progress, and failures in text
 // mode, go to stderr. Access and refresh
 // tokens, the secret device_code and signed upload URLs never reach either stream. The
-// user_code and its verification link are shown on purpose (RFC 8628 §3.3): approving
-// them only links a session to the account of whoever approves it.
+// verification link is shown on purpose (RFC 8628 §3.3): approving it only links a
+// session to the account of whoever approves it.
 package cli
 
 import (
