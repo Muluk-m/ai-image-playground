@@ -332,7 +332,8 @@ beforeEach(() => {
 describe('user notes', () => {
   it('opens the note editor from the user list and saves the note', async () => {
     renderAt('/users')
-    fireEvent.click(await screen.findByRole('button', { name: 'alice：添加备注' }))
+    const [addNoteButton] = await screen.findAllByRole('button', { name: 'alice：添加备注' })
+    fireEvent.click(addNoteButton)
     fireEvent.change(screen.getByRole('textbox', { name: '备注' }), {
       target: { value: '合作方' },
     })
