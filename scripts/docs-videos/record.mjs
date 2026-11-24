@@ -311,13 +311,17 @@ const shots = {
   },
   async '06'(page) {
     await goImage(page)
-    await pickTarget(page, '图片生成')
+    await pickTarget(page, '批量生图')
     await pickModel(page, 'Image 2.5 Flare')
-    await uploadReference(page, [mug1, mug2])
-    const each = page.getByRole('group', { name: '参考图用法' }).getByRole('button', { name: '逐张生成' })
-    await each.waitFor({ timeout: 15000 })
-    await click(page, each)
+    await page.locator('input[type="file"][aria-label="添加图片"]').setInputFiles([mug1, mug2])
+    await sleep(page, 900)
     await typeInto(page, promptBox(page), '保留当前图片中商品的外形、颜色、材质和标识，将背景替换为纯白色。商品居中、完整可见，添加自然接触阴影，不添加文字或其他物体。')
+    const examples = page.getByRole('button', { name: /查看示例/ }).first()
+    if (await examples.isVisible().catch(() => false)) {
+      await click(page, examples)
+      await sleep(page, 1400)
+      await click(page, examples)
+    }
     const before = await taskSnapshot(page)
     const send = page.getByRole('button', { name: /逐张生成/ }).last()
     await click(page, send)

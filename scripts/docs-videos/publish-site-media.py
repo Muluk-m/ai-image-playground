@@ -23,6 +23,8 @@ ACCOUNT = "4afe694ac3841dc3e433b6369c754346"
 BUCKET = "ai-images"
 FOLDERS = ("brand", "guide-assets", "og", "website-assets")
 NEW_CLIPS = {
+    "06-batch-each.mp4": "4ffc93f316b1168641e0a95d77fca8447dc7cb3d02cef659629bd999883276db",
+    "06-batch-each.webm": "9a62a1d784e2ad58137a9f4a5eeaa06cb63c8ef2fa69685e16c6f64c1428b166",
     "workbuddy-tutorial.mp4": "4e23ed5c4f95c5a32ae340620170b65aa0440424655e6210abc942a640d0c10a",
     "workbuddy-tutorial.webm": "0450c6e40878e498106bb93e2c7ad26cec427143e0f5da6cddc6ad6efb6acedb",
 }

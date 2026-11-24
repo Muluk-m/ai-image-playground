@@ -24,9 +24,9 @@ export const GUIDE_CLIP_URLS = {
   '05-gpt26-svg.webm':
     'https://store.kaleidonova.com/muvloom/site/clips/05-gpt26-svg-56d3fdf2fbc3.webm',
   '06-batch-each.mp4':
-    'https://store.kaleidonova.com/muvloom/site/clips/06-batch-each-09cbd6cf755d.mp4',
+    'https://store.kaleidonova.com/muvloom/site/clips/06-batch-each-4ffc93f316b1.mp4',
   '06-batch-each.webm':
-    'https://store.kaleidonova.com/muvloom/site/clips/06-batch-each-fa896917f7c6.webm',
+    'https://store.kaleidonova.com/muvloom/site/clips/06-batch-each-9a62a1d784e2.webm',
   '07-agent-chat.mp4':
     'https://store.kaleidonova.com/muvloom/site/clips/07-agent-chat-ad95ab534a0c.mp4',
   '07-agent-chat.webm':
