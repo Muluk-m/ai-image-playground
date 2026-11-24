@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'bun:test'
-import { createObsProxy, OBS_PROXY_MAX_BODY_BYTES } from '../../ops/obs-proxy'
+import {
+  createObsProxy,
+  OBS_PROXY_MAX_BODY_BYTES,
+  OBS_PROXY_SLOW_MS,
+  shouldLogObsProxyRequest,
+} from '../../ops/obs-proxy'
 
 const TOKEN = 't'.repeat(40)
 const AUTH = { authorization: `Bearer ${TOKEN}` }
@@ -158,5 +163,19 @@ describe('OpenObserve 只读代理', () => {
     )
     expect(unavailable.status).toBe(502)
     expect((await handle(new Request('http://obs/healthz'))).status).toBe(200)
+  })
+})
+
+describe('shouldLogObsProxyRequest', () => {
+  it('skips health checks and fast successful queries', () => {
+    expect(shouldLogObsProxyRequest('/healthz', 500, 10_000)).toBe(false)
+    expect(shouldLogObsProxyRequest('/api/default/_search', 200, 120)).toBe(false)
+    expect(shouldLogObsProxyRequest('/api/default/streams', 204, OBS_PROXY_SLOW_MS - 1)).toBe(false)
+  })
+
+  it('keeps failures and slow queries', () => {
+    expect(shouldLogObsProxyRequest('/api/default/_search', 401, 3)).toBe(true)
+    expect(shouldLogObsProxyRequest('/api/default/_search', 502, 3)).toBe(true)
+    expect(shouldLogObsProxyRequest('/api/default/_search', 200, OBS_PROXY_SLOW_MS)).toBe(true)
   })
 })

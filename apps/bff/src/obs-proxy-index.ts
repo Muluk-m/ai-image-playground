@@ -1,4 +1,4 @@
-import { createObsProxy, OBS_PROXY_MAX_BODY_BYTES } from './ops/obs-proxy'
+import { createObsProxy, OBS_PROXY_MAX_BODY_BYTES, shouldLogObsProxyRequest } from './ops/obs-proxy'
 
 /** OpenObserve 只读代理的进程入口（compose 服务 `obs-proxy`，APP_ROLE=obs-proxy）。 */
 
@@ -41,7 +41,8 @@ const server = Bun.serve({
     const startedAt = performance.now()
     const response = await handle(request)
     const path = new URL(request.url).pathname
-    if (path !== '/healthz')
+    const elapsedMs = Math.round(performance.now() - startedAt)
+    if (shouldLogObsProxyRequest(path, response.status, elapsedMs))
       // 只记路径和结果；查询语句里可能有用户 id，不进日志。
       console.log(
         JSON.stringify({
@@ -54,7 +55,7 @@ const server = Bun.serve({
           method: request.method,
           path,
           status: response.status,
-          elapsed_ms: Math.round(performance.now() - startedAt),
+          elapsed_ms: elapsedMs,
         }),
       )
     return response
