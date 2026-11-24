@@ -105,6 +105,31 @@ describe('release-status.sh', () => {
     expect(out).toMatch(/Admin: serves \w+; 1 commit\(s\) to ship:\n {2}- \w+ c3\n/)
   })
 
+  it('lists a lockfile change for every side', () => {
+    writeFileSync(join(repo, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n')
+    git('add', 'pnpm-lock.yaml')
+    git('commit', '-q', '-m', 'lock')
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD')
+    const served = site(`${commits[3].slice(0, 7)}-20261124T024019Z`)
+    serve({
+      [`${api}/health`]: health(commits[3]),
+      [`${web}/version.json`]: served,
+      [`${admin}/version.json`]: served,
+    })
+    const out = status()
+    for (const side of ['API', 'muvloom 前端', 'Admin'])
+      expect(out).toMatch(
+        new RegExp(`${side}: serves \\w+; 1 commit\\(s\\) to ship:\\n {2}- \\w+ lock`),
+      )
+  })
+
+  it('does not claim an unchanged tree needs nothing', () => {
+    git('commit', '-q', '--allow-empty', '-m', 'empty')
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD')
+    serve({ [`${web}/version.json`]: site(`${commits[3].slice(0, 7)}-20261124T024019Z`) })
+    expect(status()).toContain('leave the tree unchanged (a release still ships it)')
+  })
+
   it('says a side is up to date when it serves the target', () => {
     serve({ [`${web}/version.json`]: site(`${commits[3].slice(0, 7)}-20261124T024019Z`) })
     expect(status()).toContain(`muvloom 前端: up to date (${commits[3].slice(0, 7)})`)

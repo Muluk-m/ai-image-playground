@@ -1,6 +1,7 @@
 #!/bin/sh
 set -eu
-# Read-only: which commits each production side still lacks, compared with <target>.
+# Read-only: which commits each production side still lacks and that touch it (paths in
+# lib/release-paths.sh; a pnpm-lock.yaml edit counts for every side), compared with <target>.
 #   scripts/release-status.sh [<target commit, default origin/main>]
 # Endpoints come from pages.env (PAID_BFF_BASE_URL, PAID_PUBLIC_ORIGIN, ADMIN_PUBLIC_ORIGIN), the
 # same file pages-release.sh reads; RELEASE_API / RELEASE_WEB / RELEASE_ADMIN override them.
@@ -64,7 +65,12 @@ served() {
     behind=$(git rev-list --count "$deployed..$target")
     relevant=$(touching "$4" "$deployed..$target")
     if [ -z "$relevant" ]; then
-      echo "$1: serves $short; nothing to ship ($behind newer commit(s) do not touch it)"
+      if [ -z "$(git diff --name-only "$deployed" "$target")" ]; then
+        # ci-deploy-target.sh cannot prove an unchanged tree is safe to skip, so it ships the side.
+        echo "$1: serves $short; $behind newer commit(s) leave the tree unchanged (a release still ships it)"
+      else
+        echo "$1: serves $short; nothing to ship ($behind newer commit(s) do not touch it)"
+      fi
       return 0
     fi
     echo "$1: serves $short; $(printf '%s\n' "$relevant" | wc -l | tr -d ' ') commit(s) to ship:"
