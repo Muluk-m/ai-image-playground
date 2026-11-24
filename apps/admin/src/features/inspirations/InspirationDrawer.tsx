@@ -7,7 +7,7 @@ import type {
 } from '@image-playground/shared'
 import { INSPIRATION_KINDS } from '@image-playground/shared'
 import { Loader2, Trash2 } from 'lucide-react'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 
 import { ErrorState, PendingState } from '@/components/Page'
 import { Badge } from '@/components/ui/badge'
@@ -73,12 +73,26 @@ export function InspirationDrawer({
   onCreated,
 }: InspirationDrawerProps) {
   const detail = useInspiration(creating ? null : itemId)
+  const [createdNotice, setCreatedNotice] = useState<{ id: string; text: string } | null>(null)
+  const open = creating || itemId !== null
+
+  useEffect(() => {
+    if (!open) setCreatedNotice(null)
+  }, [open])
+
+  const handleCreated = (id: string, notice?: string) => {
+    setCreatedNotice(notice ? { id, text: notice } : null)
+    onCreated(id)
+  }
 
   return (
     <Sheet
-      open={creating || itemId !== null}
+      open={open}
       onOpenChange={(next) => {
-        if (!next) onClose()
+        if (!next) {
+          setCreatedNotice(null)
+          onClose()
+        }
       }}
     >
       <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-2xl">
@@ -95,7 +109,7 @@ export function InspirationDrawer({
             item={null}
             categories={categories}
             onClose={onClose}
-            onCreated={onCreated}
+            onCreated={handleCreated}
           />
         ) : detail.isPending ? (
           <PendingState label="加载条目" />
@@ -105,9 +119,10 @@ export function InspirationDrawer({
           <InspirationEditor
             key={detail.data.id}
             item={detail.data}
+            initialNotice={createdNotice?.id === detail.data.id ? createdNotice.text : null}
             categories={categories}
             onClose={onClose}
-            onCreated={onCreated}
+            onCreated={handleCreated}
           />
         )}
       </SheetContent>
@@ -138,21 +153,24 @@ const CONFIRM_COPY: Record<PendingConfirm, { title: string; description: string;
 
 function InspirationEditor({
   item,
+  initialNotice = null,
   categories,
   onClose,
   onCreated,
 }: {
   item: InspirationAdminItem | null
+  initialNotice?: string | null
   categories: InspirationCategory[]
   onClose: () => void
-  onCreated: (id: string) => void
+  onCreated: (id: string, notice?: string) => void
 }) {
   const [draft, setDraft] = useState<InspirationWriteInput>(() =>
     item ? toWriteInput(item) : emptyDraft(categories[0]?.id ?? ''),
   )
   const [tagsText, setTagsText] = useState(() => (item?.tags ?? []).join(', '))
   const [error, setError] = useState<string | null>(null)
-  const [savedNotice, setSavedNotice] = useState<string | null>(null)
+  const [savedNotice, setSavedNotice] = useState<string | null>(initialNotice)
+  const draftRevisionRef = useRef(0)
   const [confirming, setConfirming] = useState<PendingConfirm | null>(null)
   // 新建成功后先别急着换抽屉：紧跟着的发布校验可能被拒，错误得有地方显示。
   // 等这一轮动作整个做完才 onCreated（它会改 URL 并按新 id 重挂编辑器）。
@@ -169,11 +187,13 @@ function InspirationEditor({
   const savedStatus = item?.status ?? (createdId ? 'draft' : null)
 
   function patch(next: Partial<InspirationWriteInput>): void {
+    draftRevisionRef.current += 1
     setSavedNotice(null)
     setDraft((current) => ({ ...current, ...next }))
   }
 
   function patchParams(next: Partial<InspirationParams>): void {
+    draftRevisionRef.current += 1
     setSavedNotice(null)
     setDraft((current) => ({ ...current, params: { ...current.params, ...next } }))
   }
@@ -196,6 +216,7 @@ function InspirationEditor({
   }
 
   async function saveAsDraft(): Promise<void> {
+    const rev = draftRevisionRef.current
     setSavedNotice(null)
     const id = await save()
     if (!id) return
@@ -208,8 +229,9 @@ function InspirationEditor({
         return
       }
     }
-    setSavedNotice('已保存草稿')
-    if (!item) onCreated(id)
+    const unchanged = draftRevisionRef.current === rev
+    if (unchanged) setSavedNotice('已保存草稿')
+    if (!item) onCreated(id, unchanged ? '已保存草稿' : undefined)
   }
 
   async function runConfirmed(): Promise<void> {
@@ -217,6 +239,7 @@ function InspirationEditor({
     setConfirming(null)
     if (!action) return
     setError(null)
+    setSavedNotice(null)
     try {
       if (action === 'publish') {
         const id = await save()

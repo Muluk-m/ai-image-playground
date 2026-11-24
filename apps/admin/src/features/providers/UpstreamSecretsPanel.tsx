@@ -299,9 +299,15 @@ function SecretCard({ secret, writable }: { secret: UpstreamSecretView; writable
             <DialogTitle>清除 {secret.label} 后台密钥？</DialogTitle>
           </DialogHeader>
           <p className="text-sm leading-6 text-muted-foreground">
-            清除后将移除后台加密存储的密钥，回退到服务器环境变量{' '}
-            <code className="font-mono">{meta.env}</code>
-            （若未配置环境变量则该通道将不可用）。
+            清除后将移除后台加密存储的密钥，
+            {slotInfo ? (
+              <>
+                回退到服务器环境变量 <code className="font-mono">{slotInfo.env}</code>
+                （若未配置环境变量则该通道将不可用）。
+              </>
+            ) : (
+              '回退到服务器环境变量配置（若未配置环境变量则该通道将不可用）。'
+            )}
           </p>
           <DialogFooter>
             <Button

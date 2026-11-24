@@ -562,6 +562,7 @@ function OrderDetail({
   const [amount, setAmount] = useState<string | null>(null)
   const [code, setCode] = useState('')
   const [verified, setVerified] = useState(false)
+  const [confirmReject, setConfirmReject] = useState(false)
   const order = detail.data
 
   const mutation = useMutation({
@@ -602,7 +603,6 @@ function OrderDetail({
   const tier = resolveOrderTier(order, catalog)
   const version = order.payment_history.find((v) => v.id === code) ?? order.payment_code
   const canConfirm = order.status === 'review' || order.status === 'pending'
-  const [confirmReject, setConfirmReject] = useState(false)
   const review = (action: 'note' | 'reject' | 'reopen') => {
     setConfirmReject(false)
     mutation.mutate({ action: 'review', body: { action, note, rejection_message: rejection } })

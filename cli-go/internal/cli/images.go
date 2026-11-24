@@ -113,8 +113,11 @@ func (f *imageFlags) body(ctx context.Context, a *App, c *client.HTTPClient) (ma
 				ids = append(ids, media.MediaID)
 				continue
 			}
-			if errors.Is(err, os.ErrNotExist) && looksLikeLocalPath(ref) {
-				return nil, fail("INVALID_REQUEST", "Reference file not found: %s", ref)
+			if err != nil && looksLikeLocalPath(ref) {
+				if errors.Is(err, os.ErrNotExist) {
+					return nil, fail("INVALID_REQUEST", "Reference file not found: %s", ref)
+				}
+				return nil, fail("INVALID_REQUEST", "Cannot access reference file %s: %v", ref, err)
 			}
 			ids = append(ids, ref)
 		}
