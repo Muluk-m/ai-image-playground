@@ -78,6 +78,7 @@ export default function ToolboxHeader({
           <Button
             variant="ghost"
             size="sm"
+            disabled={busy}
             className="px-2 text-title font-medium text-muted-foreground"
             onClick={closeTool}
           >

@@ -43,11 +43,38 @@ export default function VideoPresetRows({
   onChange?: (patch: Partial<VideoDraft>) => void
 }) {
   const { t } = useTranslation('video')
-  const durations = videoDurationsForResolution(support, draft.resolution)
   const compactDurations = support.durations.length > 5
   const quickDurations = compactDurations
     ? support.durations.filter((duration) => [5, 8, 10, 15].includes(duration))
     : support.durations
+  const pickDuration = (duration: VideoDraft['duration']) => {
+    const allowedAtCurrent = videoDurationsForResolution(support, draft.resolution)
+    if (onChange) {
+      if (allowedAtCurrent.includes(duration)) {
+        onChange({ duration })
+      } else {
+        const compatibleResolution =
+          support.resolutions.find((res) =>
+            videoDurationsForResolution(support, res).includes(duration),
+          ) ?? draft.resolution
+        onChange({ duration, resolution: compatibleResolution })
+      }
+      return
+    }
+    useVideoStore.getState().setDuration(duration)
+  }
+  const pickResolution = (resolution: VideoDraft['resolution']) => {
+    const allowed = videoDurationsForResolution(support, resolution)
+    if (onChange) {
+      onChange(
+        allowed.includes(draft.duration)
+          ? { resolution }
+          : { resolution, duration: allowed[0] ?? draft.duration },
+      )
+      return
+    }
+    useVideoStore.getState().setResolution(resolution)
+  }
   return (
     <>
       <SettingsSection title={t('composer.durationLabel')}>
@@ -58,21 +85,17 @@ export default function VideoPresetRows({
               options={quickDurations.map((duration) => ({
                 value: duration,
                 label: t('shared.seconds', { seconds: duration }),
-                disabled: !durations.includes(duration),
               }))}
               value={draft.duration}
-              onChange={(duration) =>
-                onChange ? onChange({ duration }) : useVideoStore.getState().setDuration(duration)
-              }
+              onChange={pickDuration}
             />
           </div>
           {compactDurations && (
             <Select
               value={quickDurations.includes(draft.duration) ? '' : String(draft.duration)}
               onValueChange={(value) => {
-                const duration = durations.find((one) => String(one) === value)
-                if (duration !== undefined)
-                  onChange ? onChange({ duration }) : useVideoStore.getState().setDuration(duration)
+                const duration = support.durations.find((one) => String(one) === value)
+                if (duration !== undefined) pickDuration(duration)
               }}
             >
               <SelectTrigger
@@ -85,11 +108,7 @@ export default function VideoPresetRows({
                 {support.durations
                   .filter((duration) => !quickDurations.includes(duration))
                   .map((duration) => (
-                    <SelectItem
-                      key={duration}
-                      value={String(duration)}
-                      disabled={!durations.includes(duration)}
-                    >
+                    <SelectItem key={duration} value={String(duration)}>
                       {t('shared.seconds', { seconds: duration })}
                     </SelectItem>
                   ))}
@@ -125,12 +144,7 @@ export default function VideoPresetRows({
           const label = VIDEO_RESOLUTION_LABELS[resolution]
           return multiplier === 1 ? label : `${label} ×${multiplier}`
         }}
-        optionDisabled={(resolution) =>
-          !videoDurationsForResolution(support, resolution).includes(draft.duration)
-        }
-        onChange={(resolution) =>
-          onChange ? onChange({ resolution }) : useVideoStore.getState().setResolution(resolution)
-        }
+        onChange={pickResolution}
       />
       <VoiceChoices support={support} draft={draft} onChange={onChange} />
     </>

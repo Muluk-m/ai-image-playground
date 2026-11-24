@@ -192,6 +192,18 @@ function StoryboardEditor({
     shots.length > 0 &&
     shots.length <= PRODUCTION_SHOTS_MAX &&
     shots.every((shot) => shot.description.trim())
+  const finalizeReason = confirmed
+    ? t('storyboard.confirmed')
+    : shots.length === 0
+      ? t('storyboard.addShotFirst')
+      : !shots.every((shot) => shot.description.trim())
+        ? t('storyboard.fillAllShots')
+        : undefined
+  const productionReason = !ready
+    ? finalizeReason
+    : !confirmed
+      ? t('storyboard.finalizeFirst')
+      : undefined
   return (
     <Overlay onClose={close} layout="fill" backdrop="none" role="none">
       <section
@@ -230,6 +242,7 @@ function StoryboardEditor({
           <Button
             size="sm"
             disabled={!ready || confirmed}
+            title={finalizeReason}
             onClick={() => {
               setConfirmFingerprint(fingerprint)
               setConfirm(true)
@@ -242,6 +255,7 @@ function StoryboardEditor({
               canvas={canvas}
               id={node.id}
               ready={ready && confirmed}
+              disabledReason={productionReason}
               onRun={(ids) => {
                 close()
                 onRun(ids)

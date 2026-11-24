@@ -229,6 +229,7 @@ export default function NodeAssetsPanel({
             placeholder={t('assetsPanel.search')}
             aria-label={t('assetsPanel.search')}
             onChange={(event) => setQuery(event.target.value)}
+            onClear={() => setQuery('')}
           />
           <Button
             type="button"

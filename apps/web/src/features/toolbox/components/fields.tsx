@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '../../../components/ui/button'
 import { Input } from '../../../components/ui/input'
 import { Label } from '../../../components/ui/label'
@@ -51,7 +52,7 @@ export function Segmented<T extends string | number>({
   )
 }
 
-/** 带单位的正整数输入。清空或输入非法值时不回写，避免把 0 传进几何计算。 */
+/** 带单位的正整数输入。允许编辑时临时清空再输入，失焦时回填当前合法值，避免把 0 传进几何计算。 */
 export function NumberField({
   value,
   onChange,
@@ -65,17 +66,25 @@ export function NumberField({
   label: string
   min?: number
 }) {
+  const [draft, setDraft] = useState(String(value))
+  useEffect(() => {
+    setDraft(String(value))
+  }, [value])
   return (
     <div className="relative w-28">
       <Input
         type="number"
         min={min}
-        value={value}
+        value={draft}
         aria-label={label}
         onChange={(event) => {
-          const next = Math.round(Number(event.target.value))
+          const raw = event.target.value
+          setDraft(raw)
+          if (raw.trim() === '') return
+          const next = Math.round(Number(raw))
           if (Number.isFinite(next) && next >= min) onChange(next)
         }}
+        onBlur={() => setDraft(String(value))}
         className="pr-9"
       />
       <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">

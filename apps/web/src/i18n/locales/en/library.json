@@ -177,7 +177,8 @@
   "mention": {
     "headingImages": "References",
     "headingAssets": "Assets",
-    "assetsEmptyNote": "No assets yet — right-click a reference to save one"
+    "assetsEmptyNote": "No assets yet — right-click a reference to save one",
+    "assetsEmptyNoteTouch": "No assets yet — long-press a reference to save one"
   },
   "toast": {
     "assetSaved": "Saved as an asset",

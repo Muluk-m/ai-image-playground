@@ -37,8 +37,14 @@ export default memo(function NodeGroup({
               setEditing(false)
             }}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') event.currentTarget.blur()
+              if (event.nativeEvent.isComposing || event.keyCode === 229) return
+              if (event.key === 'Enter') {
+                event.stopPropagation()
+                event.currentTarget.blur()
+              }
               if (event.key === 'Escape') {
+                event.preventDefault()
+                event.stopPropagation()
                 setDraft(group.name)
                 setEditing(false)
               }

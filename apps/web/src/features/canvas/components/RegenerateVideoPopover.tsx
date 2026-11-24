@@ -6,6 +6,7 @@ import { Checkbox } from '../../../components/patterns/Checkbox'
 import Dialog from '../../../components/patterns/Dialog'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import {
   Select,
   SelectContent,
@@ -97,9 +98,12 @@ export default function RegenerateVideoPopover({
     }
   }
 
+  const canSubmit =
+    !guard.blocked && Boolean(prompt.trim()) && Boolean(option) && !inputRefusal && !submitting
+
   return (
     <Dialog
-      onClose={onClose}
+      onClose={submitting ? () => {} : onClose}
       tier="raised"
       title={t('videoToolbar.regenerateTitle')}
       footer={
@@ -116,12 +120,11 @@ export default function RegenerateVideoPopover({
             type="button"
             size="sm"
             className="w-full"
-            disabled={
-              guard.blocked || !prompt.trim() || !option || Boolean(inputRefusal) || submitting
-            }
+            disabled={!canSubmit}
             title={guard.disabledReason}
             onClick={() => void submit()}
           >
+            {submitting && <Icon name="loading" className="animate-spin" />}
             {guard.estimatedCredits === undefined ? (
               t('videoToolbar.regenerate')
             ) : (
@@ -152,8 +155,17 @@ export default function RegenerateVideoPopover({
 
       <div className={`${LABEL} mb-1.5`}>{t('video:field.description')}</div>
       <Textarea
+        autoFocus
+        disabled={submitting}
         value={prompt}
         onChange={(event) => setPrompt(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return
+          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+            event.preventDefault()
+            if (canSubmit) void submit()
+          }
+        }}
         rows={4}
         aria-label={t('video:field.description')}
         className="resize-none"

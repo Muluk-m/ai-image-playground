@@ -270,6 +270,20 @@ export default function VideoNodeComposer({
                               <Icon name="upload" />
                               {t('nodes.addUpload')}
                             </Button>
+                            {ref && (
+                              <Button
+                                variant="ghost"
+                                className="creation-menu-item text-destructive hover:text-destructive"
+                                disabled={busy}
+                                onClick={() => {
+                                  setFrameMenu(null)
+                                  setSlot(slot, '')
+                                }}
+                              >
+                                <Icon name="close" />
+                                {t('nodes.clearFrame')}
+                              </Button>
+                            )}
                           </PopoverContent>
                         </Popover>
                         <span className="text-xs text-muted-foreground">

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
 import Dialog from '../../../components/patterns/Dialog'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { useGptPremiumLocked } from '../../../lib/gptPremium'
@@ -107,7 +108,7 @@ export default function NodeBatchDialog({
   return (
     <Dialog
       title={t('nodeBatch.title')}
-      onClose={close}
+      onClose={status === 'running' ? () => {} : close}
       footer={
         <>
           <Button variant="outline" onClick={close}>
@@ -129,12 +130,13 @@ export default function NodeBatchDialog({
               }
               onClick={() => void start()}
             >
+              {membershipPending && <Icon name="loading" className="animate-spin" />}
               {t('nodeBatch.confirm')}
             </Button>
           )}
-          {status === 'ready' && changed && (
+          {(status === 'ready' && changed) || status === 'error' ? (
             <Button onClick={refresh}>{t('nodeBatch.refresh')}</Button>
-          )}
+          ) : null}
         </>
       }
     >
