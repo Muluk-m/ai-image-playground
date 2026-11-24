@@ -4,10 +4,10 @@ import ts from 'typescript'
 
 /**
  * 服务端架构边界棘轮（ADR 0034）：
- * 1. 锁死存量跨层反向依赖与运行时循环依赖边白名单——只许减少、禁止新增。
+ * 1. 锁死存量跨层反向依赖白名单——只许减少、禁止新增，并通过 `checkStaleAllowlist` 强制清除已消失条目防回流。
  * 2. 边界与模块封装校验覆盖值导入与类型导入（import/export type）；循环依赖校验仅看运行时图。
  * 3. 对新建的模块化单体目录（modules/<bc>/、delivery/http/）从第一天起执行零容忍硬规则。
- * 4. 保证 packages/db/src（含聚合入口 schema.ts 与全部 schemas/*）保持无环 DAG。
+ * 4. 保证 apps/bff/src、apps/admin/server、packages/db/src 与 packages/read-models/src 全部保持 0 运行时循环依赖。
  */
 
 const tsTranspiler = new Bun.Transpiler({ loader: 'ts' })
@@ -27,7 +27,6 @@ const ALLOWED_DB_TO_OUTSIDE = new Set([
   'db/maintenance.ts -> modules/agent/index.ts',
   'db/maintenance.ts -> modules/agent/orchestration/index.ts',
   'db/maintenance.ts -> modules/execution/index.ts',
-  'db/migrate.ts -> config.ts',
   'db/migrate.ts -> lib/capabilities.ts',
   'db/migrate.ts -> lib/private-overlay.ts',
 ])
@@ -379,10 +378,24 @@ function agentOrchestrationSubdomainOf(rest: string): string | null {
   return match ? match[1]! : null
 }
 
-export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
+export interface CheckBffBoundariesOptions {
+  /** 检查棘轮白名单中是否残留代码库已不再存在的陈旧条目（CLI 与主仓基线测试开启，临时合成夹具默认关闭）。 */
+  readonly checkStaleAllowlist?: boolean
+}
+
+export async function checkBffBoundaries(
+  bffRoot: string,
+  options?: CheckBffBoundariesOptions,
+): Promise<string[]> {
   const { files, runtimeAdjacency, allAdjacency, specifierCounts } =
     await buildImportGraphs(bffRoot)
   const violations: string[] = []
+  const seenRouteToDb = new Set<string>()
+  const seenDbToOutside = new Set<string>()
+  const seenExecutionToLegacyLib = new Set<string>()
+  const seenRuntimeCycleEdges = new Set<string>()
+  const seenAgentCoreToTools = new Set<string>()
+  const seenLegacyAgentToModuleTools = new Set<string>()
 
   for (const file of files) {
     const fromModule = moduleOf(file)
@@ -407,7 +420,9 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
         (file.startsWith('routes/') || file.startsWith('delivery/http/')) &&
         target.startsWith('db/')
       ) {
-        if (!ALLOWED_ROUTE_TO_DB.has(edge)) {
+        if (ALLOWED_ROUTE_TO_DB.has(edge)) {
+          seenRouteToDb.add(edge)
+        } else {
           violations.push(
             `[routes -> db] ${edge} is not allowed (move query/mutation into a module service or read-model)`,
           )
@@ -415,7 +430,9 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
       }
 
       if (file.startsWith('db/') && !target.startsWith('db/')) {
-        if (!ALLOWED_DB_TO_OUTSIDE.has(edge)) {
+        if (ALLOWED_DB_TO_OUTSIDE.has(edge)) {
+          seenDbToOutside.add(edge)
+        } else {
           violations.push(`[db -> non-db] ${edge} is not allowed (keep db/ free of upward deps)`)
         }
       }
@@ -475,14 +492,14 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
         violations.push(
           `[core -> legacy-agent] ${edge} violates ADR 0034 DAG (core platform must not depend on lib/agent)`,
         )
-      } else if (
-        fromModule?.name === 'execution' &&
-        target.startsWith('lib/') &&
-        !ALLOWED_EXECUTION_TO_LEGACY_LIB.has(edge)
-      ) {
-        violations.push(
-          `[execution -> legacy-lib] ${edge} is not allowed (invert upward/legacy dependency via TaskLifecycleBus or port)`,
-        )
+      } else if (fromModule?.name === 'execution' && target.startsWith('lib/')) {
+        if (ALLOWED_EXECUTION_TO_LEGACY_LIB.has(edge)) {
+          seenExecutionToLegacyLib.add(edge)
+        } else {
+          violations.push(
+            `[execution -> legacy-lib] ${edge} is not allowed (invert upward/legacy dependency via TaskLifecycleBus or port)`,
+          )
+        }
       }
 
       if (fromModule?.name === 'agent' && toModule?.name === 'agent') {
@@ -581,23 +598,29 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
       if (
         file.startsWith('lib/agent/') &&
         !file.startsWith('lib/agent/tools/') &&
-        target.startsWith('lib/agent/tools/') &&
-        !ALLOWED_AGENT_CORE_TO_TOOLS.has(edge)
+        target.startsWith('lib/agent/tools/')
       ) {
-        violations.push(
-          `[agent-core -> tools] ${edge} is not allowed (import shared contracts from modules/agent instead)`,
-        )
+        if (ALLOWED_AGENT_CORE_TO_TOOLS.has(edge)) {
+          seenAgentCoreToTools.add(edge)
+        } else {
+          violations.push(
+            `[agent-core -> tools] ${edge} is not allowed (import shared contracts from modules/agent instead)`,
+          )
+        }
       }
 
       if (
         file.startsWith('lib/agent/') &&
         !file.startsWith('lib/agent/tools/') &&
-        target.startsWith('modules/agent/tools/') &&
-        !ALLOWED_LEGACY_AGENT_TO_MODULE_TOOLS.has(edge)
+        target.startsWith('modules/agent/tools/')
       ) {
-        violations.push(
-          `[agent-core -> module-tools] ${edge} is not allowed (keep legacy lib/agent core decoupled from modules/agent/tools)`,
-        )
+        if (ALLOWED_LEGACY_AGENT_TO_MODULE_TOOLS.has(edge)) {
+          seenLegacyAgentToModuleTools.add(edge)
+        } else {
+          violations.push(
+            `[agent-core -> module-tools] ${edge} is not allowed (keep legacy lib/agent core decoupled from modules/agent/tools)`,
+          )
+        }
       }
     }
   }
@@ -609,7 +632,9 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
       for (const target of runtimeAdjacency.get(node) ?? []) {
         if (!members.has(target)) continue
         const edge = `${node} -> ${target}`
-        if (!ALLOWED_RUNTIME_CYCLE_EDGES.has(edge)) {
+        if (ALLOWED_RUNTIME_CYCLE_EDGES.has(edge)) {
+          seenRuntimeCycleEdges.add(edge)
+        } else {
           violations.push(`[import-cycle] new runtime cycle edge: ${edge} (in ${cycleLabel})`)
         }
       }
@@ -646,6 +671,34 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
         if (visited.has(next)) continue
         visited.add(next)
         queue.push({ node: next, via: current.via })
+      }
+    }
+  }
+
+  if (options?.checkStaleAllowlist) {
+    const allowlists: ReadonlyArray<readonly [string, ReadonlySet<string>, ReadonlySet<string>]> = [
+      ['ALLOWED_ROUTE_TO_DB', ALLOWED_ROUTE_TO_DB, seenRouteToDb],
+      ['ALLOWED_DB_TO_OUTSIDE', ALLOWED_DB_TO_OUTSIDE, seenDbToOutside],
+      [
+        'ALLOWED_EXECUTION_TO_LEGACY_LIB',
+        ALLOWED_EXECUTION_TO_LEGACY_LIB,
+        seenExecutionToLegacyLib,
+      ],
+      ['ALLOWED_RUNTIME_CYCLE_EDGES', ALLOWED_RUNTIME_CYCLE_EDGES, seenRuntimeCycleEdges],
+      ['ALLOWED_AGENT_CORE_TO_TOOLS', ALLOWED_AGENT_CORE_TO_TOOLS, seenAgentCoreToTools],
+      [
+        'ALLOWED_LEGACY_AGENT_TO_MODULE_TOOLS',
+        ALLOWED_LEGACY_AGENT_TO_MODULE_TOOLS,
+        seenLegacyAgentToModuleTools,
+      ],
+    ]
+    for (const [name, allowed, seen] of allowlists) {
+      for (const entry of allowed) {
+        if (!seen.has(entry)) {
+          violations.push(
+            `[stale-allowlist] ${name}: ${entry} no longer exists (remove from allowlist to lock ratchet)`,
+          )
+        }
       }
     }
   }
@@ -769,12 +822,19 @@ export async function checkReadModelsBoundaries(rootDir: string): Promise<string
 
 if (import.meta.main) {
   const repoRoot = resolve(import.meta.dir, '..')
-  const [bffViolations, dbViolations, readModelsViolations] = await Promise.all([
-    checkBffBoundaries(resolve(repoRoot, 'apps/bff/src')),
-    checkDirAcyclic(resolve(repoRoot, 'packages/db/src'), 'packages/db/src'),
-    checkReadModelsBoundaries(resolve(repoRoot, 'packages/read-models/src')),
-  ])
-  const allViolations = [...bffViolations, ...dbViolations, ...readModelsViolations]
+  const [bffViolations, adminServerViolations, dbViolations, readModelsViolations] =
+    await Promise.all([
+      checkBffBoundaries(resolve(repoRoot, 'apps/bff/src'), { checkStaleAllowlist: true }),
+      checkDirAcyclic(resolve(repoRoot, 'apps/admin/server'), 'apps/admin/server'),
+      checkDirAcyclic(resolve(repoRoot, 'packages/db/src'), 'packages/db/src'),
+      checkReadModelsBoundaries(resolve(repoRoot, 'packages/read-models/src')),
+    ])
+  const allViolations = [
+    ...bffViolations,
+    ...adminServerViolations,
+    ...dbViolations,
+    ...readModelsViolations,
+  ]
   if (allViolations.length > 0) {
     console.error(
       `Architecture boundary violations (${allViolations.length}):\n${allViolations.join('\n')}`,
