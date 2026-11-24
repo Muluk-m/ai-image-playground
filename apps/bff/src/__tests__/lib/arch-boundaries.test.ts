@@ -95,6 +95,11 @@ describe('check-arch-boundaries', () => {
       'modules/agent/contracts/types.ts': 'export const tag = "a"\n',
       'modules/agent/contracts/bad-legacy.ts':
         "import type { Legacy } from '../../../lib/agent/legacy'\nexport type BadLegacy = Legacy\n",
+      'modules/agent/contracts/bad-env.ts':
+        "import { readCfg } from '../../../lib/channels'\nexport const badEnv = readCfg\n",
+      'config.ts': 'export const config = {}\n',
+      'lib/channels.ts':
+        "import { config } from '../config'\nexport const readCfg = () => config\n",
       'lib/agent/legacy.ts': 'export interface Legacy { id: string }\n',
       'lib/agent/core-bad.ts':
         "import { helper } from './tools/helper'\nexport const badToolDep = helper\n",
@@ -169,10 +174,17 @@ describe('check-arch-boundaries', () => {
     ).toBe(true)
     expect(
       violations.some((v) =>
+        v.includes(
+          '[agent-contracts -> runtime-env] modules/agent/contracts/bad-env.ts -> config.ts (via lib/channels.ts)',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
         v.includes('[agent-core -> tools] lib/agent/core-bad.ts -> lib/agent/tools/helper.ts'),
       ),
     ).toBe(true)
-    expect(violations).toHaveLength(10)
+    expect(violations).toHaveLength(11)
     expect(violations.some((v) => v.includes('modules/execution/ok.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('modules/agent/runtime/exec.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('bootstrap/container.ts ->'))).toBe(false)

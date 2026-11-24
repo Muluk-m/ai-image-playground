@@ -4,12 +4,12 @@ import type { AgentBatchGenerationProposal, AgentBatchItem } from '@image-playgr
 import { and, eq, inArray, lte, or } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
-import { resolveAgentModel } from '../../modules/agent'
 import { analysisComparison } from '../analysis-comparison'
 import { readBatchSourceItems } from './batch-analysis-sources'
 import { batchExecutionAvailable, lockOwnedBatch } from './batch-execution'
 import { saveBatchRevision } from './batch-plan-revision'
 import { BatchPlanError, sameArchivedReference } from './batch-plans'
+import { resolveAgentModel } from './model-resolution'
 
 /** Real completed analysis attempts supply provenance; model text never changes an older authorization. */
 export async function proposeBatchGeneration(

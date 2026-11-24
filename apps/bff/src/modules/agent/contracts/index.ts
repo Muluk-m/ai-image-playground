@@ -24,7 +24,6 @@ export {
   type QueueTarget,
   type QueueTaskInput,
   queueArtifacts,
-  resolveAgentModel,
 } from './queue-model'
 export {
   agentImageCount,

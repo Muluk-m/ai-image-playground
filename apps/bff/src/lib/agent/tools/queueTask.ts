@@ -16,11 +16,11 @@ import {
   queueArtifacts,
   queueParamsFor,
   requestedImageCount,
-  resolveAgentModel,
   withAspectRatio,
 } from '../../../modules/agent'
 import { submitAgentGeneration } from '../auto-submit'
 import { saveGenerationDraft } from '../confirmations'
+import { resolveAgentModel } from '../model-resolution'
 import { bindProductionGeneration } from '../production-generation-binding'
 
 export {

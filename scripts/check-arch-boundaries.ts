@@ -407,6 +407,33 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
     }
   }
 
+  for (const file of files) {
+    const fromModule = moduleOf(file)
+    if (fromModule?.name !== 'agent' || agentLayerOf(fromModule.rest) !== 'contracts') continue
+    const visited = new Set<string>([file])
+    const queue: Array<{ node: string; via: string }> = []
+    for (const next of runtimeAdjacency.get(file) ?? []) {
+      if (visited.has(next)) continue
+      visited.add(next)
+      queue.push({ node: next, via: next })
+    }
+    while (queue.length > 0) {
+      const current = queue.shift()!
+      if (current.node === 'config.ts' || current.node.startsWith('db/')) {
+        const suffix = current.via === current.node ? '' : ` (via ${current.via})`
+        violations.push(
+          `[agent-contracts -> runtime-env] ${file} -> ${current.node}${suffix} is not allowed (contracts must stay import-safe without DATABASE_URL / config / db)`,
+        )
+        continue
+      }
+      for (const next of runtimeAdjacency.get(current.node) ?? []) {
+        if (visited.has(next)) continue
+        visited.add(next)
+        queue.push({ node: next, via: current.via })
+      }
+    }
+  }
+
   return violations
 }
 

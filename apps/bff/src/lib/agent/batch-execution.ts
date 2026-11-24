@@ -13,7 +13,7 @@ import {
 import { and, asc, eq, gt, inArray, isNotNull, isNull, or } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
-import { AgentToolError, queueParamsFor, resolveAgentModel } from '../../modules/agent'
+import { AgentToolError, queueParamsFor } from '../../modules/agent'
 import { type CreateQueueTaskInput, cancelTasks, submitPrepared } from '../../modules/execution'
 import {
   type AnalysisReservationResult,
@@ -38,6 +38,7 @@ import { pauseBatchForAnalysisAuthentication, reconcileAgentBatchProgress } from
 import { lockConversation } from './confirmations'
 import { type ResolvedAgentImage, readConversationMedia } from './images'
 import { prepareMaskedEdit } from './masked-edit'
+import { resolveAgentModel } from './model-resolution'
 import { editSourceByteLimit, toEditInputDataUrl } from './modelImage'
 import { imageSelection } from './selection-preview'
 import { visualByteLimit, visualMetadata, withVisualPreparation } from './visual-resources'
