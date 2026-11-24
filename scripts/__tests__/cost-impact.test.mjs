@@ -42,6 +42,7 @@ test('模型、供应商、定价、额度、扣费入口和计费模块的改�
     'apps/bff/src/modules/agent/orchestration/production/generation.ts',
     'apps/bff/src/modules/agent/orchestration/masked/masked-edit.config.json',
     'apps/bff/src/modules/agent/orchestration/masked/mask-proposal.ts',
+    'apps/bff/src/modules/agent/orchestration/masked/segment-rate-limit.ts',
     'apps/bff/src/modules/agent/orchestration/masked/segmentation.ts',
     'apps/bff/src/lib/agent/batch-analysis-preparation.ts',
     'apps/bff/src/lib/agent/batch-execution.ts',

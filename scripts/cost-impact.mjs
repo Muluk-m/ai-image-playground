@@ -30,7 +30,7 @@ export const COST_PATHS = [
   /^apps\/bff\/src\/modules\/agent\/tools\/(registry\.ts|generation\/(queue-task|generate-image|edit-image|generate-video|plan-image-batch|propose-batch-analysis|propose-batch-generation|production|production-assets|propose-storyboard)\.ts|canvas\/(node-stage|node-stage-quote)\.ts|web\/web-search\.ts)$/,
   /^apps\/bff\/src\/modules\/agent\/orchestration\/batch\//,
   /^apps\/bff\/src\/modules\/agent\/orchestration\/production\/(stage-authorizations|stage-runs|generation|generation-binding|generation-validation|assets|storyboard)\.ts$/,
-  /^apps\/bff\/src\/modules\/agent\/orchestration\/masked\/(mask-proposal|masked-edit|segmentation)\.ts$/,
+  /^apps\/bff\/src\/modules\/agent\/orchestration\/masked\/(mask-proposal|masked-edit|segment-rate-limit|segmentation)\.ts$/,
   // 批量分析与批量生成：模型解析、配额与任务派发
   /^apps\/bff\/src\/lib\/agent\/batch-[^/]*\.ts$/,
   // 任务提交、状态流转与计费模块

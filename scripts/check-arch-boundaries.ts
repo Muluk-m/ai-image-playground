@@ -569,7 +569,7 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
             `[agent-orchestration -> legacy-tools] ${edge} is not allowed (orchestration must not depend on lib/agent/tools)`,
           )
         } else if (
-          (layer === 'tools' || layer === 'orchestration') &&
+          (layer === 'runtime' || layer === 'tools' || layer === 'orchestration') &&
           LEGACY_AGENT_MIGRATED_SHIMS.has(target)
         ) {
           violations.push(

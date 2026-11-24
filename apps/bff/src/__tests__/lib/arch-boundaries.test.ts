@@ -194,8 +194,9 @@ describe('check-arch-boundaries', () => {
         "import { genTool } from '../../tools/generation/gen'\nexport const badOrchTools = genTool\n",
       'modules/agent/orchestration/production/bad-legacy.ts':
         "import { helper } from '../../../../lib/agent/tools/helper'\nimport { ev } from '../../../../lib/agent/events'\nexport const badOrchLegacy = [helper, ev]\n",
+      'lib/agent/batch-plans.ts': 'export const legacyBatchPlan = 1\n',
       'modules/agent/runtime/bad-orch.ts':
-        "import { prodVal } from '../orchestration/production/prod-ok'\nexport const badRtOrch = prodVal\n",
+        "import { prodVal } from '../orchestration/production/prod-ok'\nimport { legacyBatchPlan } from '../../../lib/agent/batch-plans'\nexport const badRtOrch = [prodVal, legacyBatchPlan]\n",
     })
 
     const violations = await checkBffBoundaries(dir)
@@ -477,11 +478,18 @@ describe('check-arch-boundaries', () => {
     expect(
       violations.some((v) =>
         v.includes(
+          '[agent-runtime -> legacy-agent-layer] modules/agent/runtime/bad-orch.ts -> lib/agent/batch-plans.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
           '[agent-masked-pure -> runtime-env] modules/agent/orchestration/masked/pure.ts -> config.ts (via lib/channels.ts)',
         ),
       ),
     ).toBe(true)
-    expect(violations).toHaveLength(42)
+    expect(violations).toHaveLength(43)
     expect(violations.some((v) => v.includes('lib/agent/pure-ok.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('lib/agent/interrupted.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('modules/agent/tools/canvas/ok.ts ->'))).toBe(false)
