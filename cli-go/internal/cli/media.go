@@ -159,7 +159,7 @@ func (a *App) getJSON(ctx context.Context, path string) (any, error) {
 
 func (a *App) downloadCommand(ctx context.Context, name, prefix string, args []string) (any, error) {
 	fs := newFlags(name)
-	output := fs.String("output", "", "File to create; omitted: ./ID plus the image's extension. Never overwrites")
+	output := fs.String("output", "", "File path or directory to save into; omitted: ./ID plus the image's extension. Never overwrites")
 	rest, err := parse(fs, args, 1)
 	if err != nil {
 		return nil, err
@@ -171,6 +171,10 @@ func (a *App) downloadCommand(ctx context.Context, name, prefix string, args []s
 	target := *output
 	if target == "" {
 		target = rest[0]
+	} else if strings.HasSuffix(target, "/") || strings.HasSuffix(target, string(os.PathSeparator)) {
+		target = filepath.Join(target, rest[0])
+	} else if info, statErr := os.Stat(target); statErr == nil && info.IsDir() {
+		target = filepath.Join(target, rest[0])
 	}
 	return a.downloadTo(ctx, c, prefix+url.PathEscape(rest[0])+"/download", target)
 }

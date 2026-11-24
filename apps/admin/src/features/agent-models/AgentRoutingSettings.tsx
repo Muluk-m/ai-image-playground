@@ -13,6 +13,53 @@ import { AgentModelSettingsForm } from './AgentModelSettingsForm'
 
 export const agentModelsQueryKey = ['agent-models']
 
+const SAFE_VALIDATION_MESSAGES = new Set([
+  '请填写原因',
+  '配置版本无效',
+  '模型设置无效',
+  '路由绑定无效',
+  '所选 Provider 不存在',
+  '未知档位',
+  '探测请求无效',
+])
+
+function formatSaveError(error: unknown): string | null {
+  if (!error) return null
+  if (error instanceof ApiError) {
+    if (error.status === 401 || error.status === 403) {
+      return '登录状态已失效或无操作权限，请重新登录'
+    }
+    if (error.status === 409) {
+      return '配置已被其他人更新，请刷新后重试'
+    }
+    const raw =
+      typeof error.body === 'object' &&
+      error.body &&
+      'error' in error.body &&
+      typeof error.body.error === 'string'
+        ? error.body.error.trim()
+        : ''
+    if (raw === 'stale_revision') return '配置已被其他人更新，请刷新后重试'
+    if (raw === 'forbidden' || raw === 'unauthorized') {
+      return '登录状态已失效或无操作权限，请重新登录'
+    }
+    if (raw === 'invalid_request' || raw === 'validation_error') {
+      return '配置项格式无效，请检查后重试'
+    }
+    const preflightMatch = /^档位\s+([a-z0-9_-]+)\s+预检失败/i.exec(raw)
+    if (preflightMatch) {
+      return `档位 ${preflightMatch[1]} 预检失败，请先使用「测试连接」检查模型与密钥配置`
+    }
+    if (SAFE_VALIDATION_MESSAGES.has(raw)) {
+      return raw
+    }
+    if (error.status === 400) {
+      return '配置项校验未通过，请检查各档位与 Provider 设置后重试'
+    }
+  }
+  return '保存失败，请稍后重试'
+}
+
 /** Pi Provider、模型与产品档位的映射。保存后对话模型清单可能变了，模型列表跟着重取。 */
 export function AgentRoutingSettings() {
   const client = useQueryClient()
@@ -48,15 +95,7 @@ export function AgentRoutingSettings() {
       setSaved(true)
     },
   })
-  const error =
-    update.error instanceof ApiError &&
-    typeof update.error.body === 'object' &&
-    update.error.body &&
-    'error' in update.error.body
-      ? String(update.error.body.error)
-      : update.error
-        ? '保存失败，请稍后重试'
-        : null
+  const error = formatSaveError(update.error)
   if (query.isPending) return <PendingState label="加载模型配置" />
   if (query.isError) return <ErrorState label="加载模型配置失败" error={query.error} />
   return (

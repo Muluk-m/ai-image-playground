@@ -11,7 +11,7 @@ import (
 func cmdSkillInstall(_ context.Context, a *App, args []string) (any, error) {
 	fs := newFlags("skill install")
 	supported := strings.Join(skill.SupportedHosts(), ", ")
-	host := fs.String("host", "", "Agent host: auto, "+supported+", or generic")
+	host := fs.String("host", "auto", "Agent host: auto, "+supported+", or generic")
 	scope := fs.String("scope", "user", "user (every project) or project (this directory); ignored for generic")
 	output := fs.String("output", "", "For --host generic, directory that will receive muvloom/ (default: current directory)")
 	dir := fs.String("dir", "", "A host's skills directory that will receive muvloom/; recorded so status and updates find it")
@@ -19,9 +19,17 @@ func cmdSkillInstall(_ context.Context, a *App, args []string) (any, error) {
 		return nil, err
 	}
 	if *dir != "" {
+		hostSet := false
 		scopeSet := false
-		fs.Visit(func(f *flag.Flag) { scopeSet = scopeSet || f.Name == "scope" })
-		if *host != "" || *output != "" || scopeSet {
+		fs.Visit(func(f *flag.Flag) {
+			if f.Name == "host" {
+				hostSet = true
+			}
+			if f.Name == "scope" {
+				scopeSet = true
+			}
+		})
+		if hostSet || *output != "" || scopeSet {
 			return nil, fail("USAGE", "--dir cannot be combined with --host, --scope or --output")
 		}
 		result, err := skill.Install(skill.InstallOptions{Dir: *dir, Home: a.Home, CWD: a.CWD})
