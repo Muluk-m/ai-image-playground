@@ -23,7 +23,7 @@ const Slider = React.forwardRef<
     <SliderPrimitive.Thumb
       aria-label={props['aria-label']}
       aria-labelledby={props['aria-labelledby']}
-      className="block h-4 w-4 rounded-full border border-primary/50 bg-background p-0 shadow transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+      className="block h-4 w-4 rounded-full border border-primary/50 bg-background p-0 shadow transition-[color,background-color,border-color,box-shadow,transform] duration-instant ease-motion-out hover:scale-110 active:scale-95 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 motion-reduce:transition-none motion-reduce:hover:scale-100 motion-reduce:active:scale-100"
     />
   </SliderPrimitive.Root>
 ))
