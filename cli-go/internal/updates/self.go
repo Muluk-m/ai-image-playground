@@ -18,6 +18,7 @@ import (
 
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/auth"
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/client"
+	"github.com/Muluk-m/ai-image-playground/cli-go/internal/netidle"
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/skill"
 )
 
@@ -27,7 +28,6 @@ const (
 	SelfAutoUpdateBudget = 8 * time.Second
 	selfAutoLockWait     = 500 * time.Millisecond
 	selfCheckInterval    = 24 * time.Hour
-	selfBinaryTimeout    = 30 * time.Second
 )
 
 var (
@@ -462,15 +462,17 @@ func downloadVerifiedBinary(ctx context.Context, base *http.Client, targetURL st
 	if base != nil {
 		httpClient.Transport = base.Transport
 	}
-	reqCtx, cancel := context.WithTimeout(ctx, selfBinaryTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, targetURL, nil)
+	// No total limit: a slow link that keeps moving bytes finishes. The automatic update in
+	// auth status still has its own budget through ctx.
+	fetch := netidle.Start(ctx, httpClient, selfBinaryIdle, false)
+	defer fetch.Stop()
+	req, err := http.NewRequestWithContext(fetch.Ctx, http.MethodGet, targetURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrSelfRemoteUnavailable, err)
 	}
-	resp, err := httpClient.Do(req)
+	resp, err := fetch.Client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrSelfRemoteUnavailable, err)
+		return nil, fmt.Errorf("%w: %w", ErrSelfRemoteUnavailable, stallCause(fetch, err))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
@@ -481,7 +483,7 @@ func downloadVerifiedBinary(ctx context.Context, base *http.Client, targetURL st
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, int64(expectedBytes)+1))
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrSelfRemoteUnavailable, err)
+		return nil, fmt.Errorf("%w: %w", ErrSelfRemoteUnavailable, stallCause(fetch, err))
 	}
 	if len(data) != expectedBytes {
 		return nil, fmt.Errorf("%w: binary byte count mismatch", ErrSelfInvalidBinary)
@@ -545,3 +547,14 @@ func replaceExecutableAtomically(exePath string, data []byte, goos string) error
 	renamed = true
 	return nil
 }
+
+// stallCause names a stall instead of the bare context error it caused.
+func stallCause(t *netidle.Transfer, err error) error {
+	if t.Stalled() {
+		return fmt.Errorf("%w: nothing moved for %s", netidle.ErrStalled, t.Window())
+	}
+	return err
+}
+
+// selfBinaryIdle: no bytes moved for this long ends the download. A variable so tests can shorten it.
+var selfBinaryIdle = 30 * time.Second
