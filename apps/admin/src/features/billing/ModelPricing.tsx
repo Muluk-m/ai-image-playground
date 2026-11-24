@@ -96,7 +96,10 @@ function PriceEditor({
     output_credits_per_unit: outputCreditsPerUnit,
     output_reserve_tokens: outputReserveTokens,
     cached_input_price_percent: cachedInputPricePercent,
+    updated_at: updatedAt,
   } = price
+  const serverVersion = `${isNew ? 'new' : 'saved'}:${updatedAt}`
+  const [baselineVersion, setBaselineVersion] = useState(serverVersion)
   const values = useMemo<ModelPriceForm>(
     () => ({
       amount: String(creditsPerImage),
@@ -116,9 +119,12 @@ function PriceEditor({
 
   useEffect(() => {
     if (!isDirtyRef.current) {
+      setBaselineVersion(serverVersion)
       form.reset(values)
     }
-  }, [form, values])
+  }, [form, serverVersion, values])
+
+  const hasConflict = serverVersion !== baselineVersion && form.formState.isDirty
 
   const watchedAmount = Number(form.watch('amount'))
   const watchedOut = Number(form.watch('outputAmount'))
@@ -148,10 +154,20 @@ function PriceEditor({
         onChange={() => {
           if (mutation.isSuccess || mutation.isError) mutation.reset()
         }}
-        onSubmit={form.handleSubmit((input) => mutation.mutate(input))}
+        onSubmit={form.handleSubmit((input) => {
+          if (hasConflict) return
+          mutation.mutate(input)
+        })}
       >
         <fieldset disabled={mutation.isPending} className="space-y-3">
-          {isNew ? (
+          {hasConflict ? (
+            <p
+              role="status"
+              className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning"
+            >
+              服务端单价已有新版本，当前草稿已保留。请先载入最新单价后再重新修改。
+            </p>
+          ) : isNew ? (
             <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning">
               尚未配置积分单价，确认建价后立即生效。
             </p>
@@ -186,6 +202,21 @@ function PriceEditor({
                 success={mutation.isSuccess}
                 error={mutation.error}
               />
+              {hasConflict ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={mutation.isPending}
+                  onClick={() => {
+                    mutation.reset()
+                    setBaselineVersion(serverVersion)
+                    form.reset(values)
+                  }}
+                >
+                  载入最新
+                </Button>
+              ) : null}
               {onClose ? (
                 <Button
                   type="button"
@@ -196,7 +227,7 @@ function PriceEditor({
                 >
                   取消
                 </Button>
-              ) : form.formState.isDirty ? (
+              ) : !hasConflict && form.formState.isDirty ? (
                 <Button
                   type="button"
                   size="sm"
@@ -204,6 +235,7 @@ function PriceEditor({
                   disabled={mutation.isPending}
                   onClick={() => {
                     mutation.reset()
+                    setBaselineVersion(serverVersion)
                     form.reset(values)
                   }}
                 >
@@ -213,7 +245,7 @@ function PriceEditor({
               <Button
                 type="submit"
                 size="sm"
-                disabled={(!isNew && !form.formState.isDirty) || mutation.isPending}
+                disabled={hasConflict || (!isNew && !form.formState.isDirty) || mutation.isPending}
               >
                 {isNew ? '确认建价' : '保存定价'}
               </Button>
@@ -314,7 +346,7 @@ export function ModelPricing({
             <span className="font-medium text-foreground">
               入 {price.credits_per_image} · 出 {price.output_credits_per_unit ?? '—'}
             </span>{' '}
-            <span className="font-sans text-muted-foreground">分/千tok</span>
+            <span className="font-sans text-muted-foreground">积分/千tok</span>
           </div>
           <div className="truncate text-xs text-muted-foreground">
             缓存 {price.cached_input_price_percent ?? 0}% · 预留{' '}
