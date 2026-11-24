@@ -94,11 +94,11 @@ const agentWakeListener: TaskLifecycleListener = {
   id: 'agent-wake',
   stage: 'after-settlement',
   async onTaskFinished(tx, event) {
-    const { agentJobsEnded } = await import('../lib/agent/wake')
+    const { agentJobsEnded } = await import('../modules/agent/inbox/wake')
     await agentJobsEnded(tx, [event.taskId], event.completedAt)
   },
   async onTasksCancelled(tx, event) {
-    const { agentJobsEnded } = await import('../lib/agent/wake')
+    const { agentJobsEnded } = await import('../modules/agent/inbox/wake')
     await agentJobsEnded(
       tx,
       event.tasks.map((task) => task.taskId),
@@ -113,7 +113,9 @@ const agentJobSettlementListener: TaskLifecycleListener = {
   async afterTaskFinished(event) {
     if (event.taskKind !== 'queue' || !event.agentConversationId) return
     try {
-      const { settleAgentJobsForTasks } = await import('../lib/agent/background-jobs')
+      const { settleAgentJobsForTasks } = await import(
+        '../modules/agent/conversation/background-jobs'
+      )
       await settleAgentJobsForTasks(event.agentConversationId, [
         { taskId: event.taskId, turnId: event.agentTurnId },
       ])
@@ -140,7 +142,9 @@ const agentJobSettlementListener: TaskLifecycleListener = {
       else byConversation.set(task.agentConversationId, [target])
     }
     if (byConversation.size === 0) return
-    const { settleAgentJobsForTasks } = await import('../lib/agent/background-jobs')
+    const { settleAgentJobsForTasks } = await import(
+      '../modules/agent/conversation/background-jobs'
+    )
     for (const [conversationId, targets] of byConversation) {
       try {
         await settleAgentJobsForTasks(conversationId, targets)

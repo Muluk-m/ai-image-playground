@@ -2,6 +2,17 @@ import type { Metadata } from 'sharp'
 
 export const MEDIA_IMAGE_MAX_PIXELS = 40_000_000
 export const MEDIA_UPLOAD_MAX_PIXELS = 1_000_000_000
+/**
+ * 预览的规格只写在这里。上传时 `projectMedia` 按它生成 `preview_key` 落库，读时对没有预留
+ * 预览的来源（工具产物、素材、本轮附图）按同一条现算——两处各缩各的，模型看到的「预览」
+ * 就会随来源而变。
+ */
+export const PREVIEW_RESIZE = {
+  width: 1024,
+  height: 1024,
+  fit: 'inside',
+  withoutEnlargement: true,
+} as const
 const MAX_EDGE = 32_768
 const DECODE_WORKING_SET_BYTES = 896 * 1024 * 1024
 
