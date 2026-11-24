@@ -49,7 +49,7 @@ async function readPayload(taskId: string) {
 describe('task_payloads same-transaction dual-write', () => {
   it('mirrors queue submission, degrade merge, archive checkpoint, requeue, and completion into task_payloads', async () => {
     const submitted = await createQueueTask({
-      entry: 'workbench',
+      entry: 'web-direct',
       provider: 'openai-compat',
       model: 'gpt-image-2',
       request: {
@@ -149,22 +149,20 @@ describe('task_payloads same-transaction dual-write', () => {
       },
     ])
 
-    expect(await saveArchiveCheckpoint('legacy-requeue-1', { step: 1 }, heldBy(TOKEN, now))).toBe(
-      true,
-    )
+    expect(await saveArchiveCheckpoint('legacy-requeue-1', { step: 1 }, heldBy(TOKEN))).toBe(true)
     expect(await readPayload('legacy-requeue-1')).toMatchObject({
       task_id: 'legacy-requeue-1',
       request_payload: { prompt: 'legacy one', device_id: 'legacy-dev' },
       archive_payload: { step: 1 },
     })
 
-    expect(await requeueTask('legacy-requeue-1', 1, now + 5_000, heldBy(TOKEN, now))).toBe(true)
+    expect(await requeueTask('legacy-requeue-1', 1, now + 5_000, heldBy(TOKEN))).toBe(true)
     expect(await readPayload('legacy-requeue-1')).toMatchObject({
       result_payload: null,
       upstream_body: null,
     })
 
-    expect(await requeueTasksForPolling(['legacy-poll-2'], heldBy(TOKEN, now))).toBe(1)
+    expect(await requeueTasksForPolling(['legacy-poll-2'], heldBy(TOKEN))).toBe(1)
     expect(await readPayload('legacy-poll-2')).toMatchObject({
       request_payload: { prompt: 'legacy two', device_id: 'legacy-dev' },
       upstream_body: null,
@@ -176,7 +174,7 @@ describe('task_payloads same-transaction dual-write', () => {
       .set({ status: 'in_progress', execution_token: TOKEN, lease_expires_at: now + 60_000 })
       .where(eq(schema.tasks.id, 'legacy-requeue-1'))
     expect(
-      await requeueTaskArchive('legacy-requeue-1', now + 5_000, { step: 2 }, heldBy(TOKEN, now)),
+      await requeueTaskArchive('legacy-requeue-1', now + 5_000, { step: 2 }, heldBy(TOKEN)),
     ).toBe(true)
     expect((await readPayload('legacy-requeue-1'))?.archive_payload).toEqual({ step: 2 })
 
@@ -193,7 +191,7 @@ describe('task_payloads same-transaction dual-write', () => {
           upstreamBody: 'upstream 500 body',
           preserveArchive: true,
         },
-        heldBy(TOKEN, now),
+        heldBy(TOKEN),
       ),
     ).toBe(true)
     expect(await readPayload('legacy-requeue-1')).toMatchObject({
