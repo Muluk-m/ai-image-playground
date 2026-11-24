@@ -16,7 +16,7 @@ export type InterruptedTurnRecoverer = (
 let defaultRecoverer: InterruptedTurnRecoverer | null = null
 
 /** 组合根注册中断轮恢复实现，避免 `runtime/stream-broker` 静态或动态依赖 `lib/agent/interrupted`。 */
-export function registerInterruptedTurnRecoverer(recoverer: InterruptedTurnRecoverer): void {
+export function registerInterruptedTurnRecoverer(recoverer: InterruptedTurnRecoverer | null): void {
   defaultRecoverer = recoverer
 }
 

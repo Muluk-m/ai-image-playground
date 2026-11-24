@@ -122,6 +122,23 @@ describe('check-arch-boundaries', () => {
         "import type { RuntimeState } from '../runtime/exec'\nexport type BadInboxUp = RuntimeState\n",
       'modules/agent/runtime/exec.ts':
         "import { tag } from '../contracts/types'\nexport interface RuntimeState { tag: string }\nexport const rt = tag\n",
+      'modules/agent/runtime/bad-tool.ts':
+        "import { helper } from '../../../lib/agent/tools/helper'\nexport const badTool = helper\n",
+      'modules/agent/runtime/bad-fanout.ts': [
+        "import { a } from 'pkg-1'",
+        "import { b } from 'pkg-2'",
+        "import { c } from 'pkg-3'",
+        "import { d } from 'pkg-4'",
+        "import { e } from 'pkg-5'",
+        "import { f } from 'pkg-6'",
+        "import { g } from 'pkg-7'",
+        "import { h } from 'pkg-8'",
+        "import { i } from 'pkg-9'",
+        "import { j } from 'pkg-10'",
+        "import { k } from 'pkg-11'",
+        "import { l } from 'pkg-12'",
+        'export const all = [a, b, c, d, e, f, g, h, i, j, k, l]',
+      ].join('\n'),
     })
 
     const violations = await checkBffBoundaries(dir)
@@ -228,10 +245,22 @@ describe('check-arch-boundaries', () => {
     ).toBe(true)
     expect(
       violations.some((v) =>
+        v.includes(
+          '[agent-runtime -> legacy-tools] modules/agent/runtime/bad-tool.ts -> lib/agent/tools/helper.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes('[agent-runtime-fanout] modules/agent/runtime/bad-fanout.ts imports 12 modules'),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
         v.includes('[agent-core -> tools] lib/agent/core-bad.ts -> lib/agent/tools/helper.ts'),
       ),
     ).toBe(true)
-    expect(violations).toHaveLength(16)
+    expect(violations).toHaveLength(18)
     expect(violations.some((v) => v.includes('lib/agent/pure-ok.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('modules/execution/ok.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('modules/agent/runtime/exec.ts ->'))).toBe(false)
