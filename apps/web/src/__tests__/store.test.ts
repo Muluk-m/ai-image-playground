@@ -200,6 +200,7 @@ import { taskCancelled } from '../lib/taskError'
 import { removeKeyedBackgroundFromDataUrl } from '../lib/transparentImage'
 import {
   addCompletedCanvasTask,
+  clearData,
   confirmDialogAsync,
   editOutputImage,
   getPersistedState,
@@ -3635,7 +3636,7 @@ describe('batch dual-zone mode draft and submitTask guards', () => {
     expect(useStore.getState().batchZoneNotice).toBeNull()
   })
 
-  it('merges batch loop + shared images into persisted inputImages when persistInputOnRestart is enabled', () => {
+  it('persists batch mode and both zones separately when persistInputOnRestart is enabled', () => {
     useStore.setState({
       settings: normalizeSettings({
         ...DEFAULT_SETTINGS,
@@ -3650,8 +3651,29 @@ describe('batch dual-zone mode draft and submitTask guards', () => {
     })
 
     const persisted = getPersistedState(useStore.getState())
-    expect(persisted.inputImages?.map((i) => i.id)).toEqual(['batch-a', 'batch-b'])
+    expect(persisted.createTarget).toBe('batch')
+    expect(persisted.inputImages?.map((i) => i.id)).toEqual(['batch-a'])
+    expect(persisted.batchSharedImages?.map((i) => i.id)).toEqual(['batch-b'])
     expect(persisted.prompt).toBe(`参考 ${getSelectedImageMentionLabel(1)}`)
+  })
+
+  it('clears both loop and shared batch zones plus undo notice in clearData', async () => {
+    useStore.setState({
+      createTarget: 'batch',
+      prompt: `参考 ${getSelectedImageMentionLabel(1)}`,
+      inputImages: [imgA],
+      batchSharedImages: [imgB],
+      batchZoneNotice: {
+        message: 'moved',
+        snapshot: { prompt: '', inputImages: [imgA], batchSharedImages: [] },
+      },
+    })
+
+    await clearData({ clearTasks: true, clearConfig: false })
+    const state = useStore.getState()
+    expect(state.inputImages).toEqual([])
+    expect(state.batchSharedImages).toEqual([])
+    expect(state.batchZoneNotice).toBeNull()
   })
 
   it('exits batch mode and merges zones when opening mask editor or setting maskDraft', () => {

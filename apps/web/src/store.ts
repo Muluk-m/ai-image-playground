@@ -507,23 +507,23 @@ function currentSidebarExperience(): 'chat' | 'canvas' | null {
 
 export function getPersistedState(state: AppState) {
   const settings = normalizeSettings(state.settings)
-  // 批量模式未持久化 createTarget，重启会回到图片生成：提前按普通坐标系合并两区，避免共用参考丢失与引用错绑。
-  const persistedDraft =
-    settings.persistInputOnRestart && state.createTarget === 'batch'
-      ? mergeDraftFromBatchMode({
-          prompt: state.prompt,
-          inputImages: state.inputImages,
-          batchSharedImages: state.batchSharedImages,
-        })
-      : { prompt: state.prompt, inputImages: state.inputImages }
   return {
     settings,
     params: state.params,
     ...(settings.persistInputOnRestart
       ? {
-          prompt: persistedDraft.prompt,
+          prompt: state.prompt,
           slotValues: state.slotValues,
-          inputImages: persistedDraft.inputImages.map((img) => ({ id: img.id, dataUrl: '' })),
+          inputImages: state.inputImages.map((img) => ({ id: img.id, dataUrl: '' })),
+          ...(state.createTarget === 'batch'
+            ? {
+                createTarget: 'batch' as const,
+                batchSharedImages: state.batchSharedImages.map((img) => ({
+                  id: img.id,
+                  dataUrl: '',
+                })),
+              }
+            : {}),
           maskDraft: persistedMaskDraft(state),
         }
       : {}),
@@ -601,6 +601,9 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     settings.persistInputOnRestart && Array.isArray(persisted.inputImages)
       ? persisted.inputImages
       : []
+  const persistedBatch = settings.persistInputOnRestart && persisted.createTarget === 'batch'
+  const batchSharedImages =
+    persistedBatch && Array.isArray(persisted.batchSharedImages) ? persisted.batchSharedImages : []
   const maskDraft = settings.persistInputOnRestart
     ? readPersistedMaskDraft(persisted.maskDraft)
     : null
@@ -627,11 +630,14 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     },
     // Navigation belongs to this session, not saved settings or another device.
     appMode: currentState.appMode,
+    createTarget: persistedBatch ? 'batch' : currentState.createTarget,
     prompt:
       settings.persistInputOnRestart && typeof persisted.prompt === 'string'
         ? persisted.prompt
         : '',
     inputImages,
+    batchSharedImages,
+    batchZoneNotice: null,
     slotValues: settings.persistInputOnRestart ? normalizeSlotValues(persisted.slotValues) : {},
     maskDraft: null,
   }
@@ -1587,6 +1593,7 @@ export async function initStore() {
 
   const referencedIds = await imageIdsInUse(tasks)
   const persistedInputImages = useStore.getState().inputImages
+  const persistedSharedImages = useStore.getState().batchSharedImages
 
   // 只枚举 key 清理孤立图片，避免启动时把所有 4K 原图读进内存。
   const imageIds = await getAllImageIds()
@@ -1600,24 +1607,36 @@ export async function initStore() {
   }
   scheduleThumbnailBackfill(referencedImageIds)
 
-  const restoredInputImages: InputImage[] = []
-  for (const img of persistedInputImages) {
-    if (img.dataUrl) {
-      restoredInputImages.push(img)
-      cacheImage(img.id, img.dataUrl)
-      continue
+  const hydrateList = async (list: readonly InputImage[]) => {
+    const restored: InputImage[] = []
+    for (const img of list) {
+      if (img.dataUrl) {
+        restored.push(img)
+        cacheImage(img.id, img.dataUrl)
+        continue
+      }
+      const storedImage = await getImage(img.id)
+      if (storedImage?.dataUrl) {
+        restored.push({ ...img, dataUrl: storedImage.dataUrl })
+        cacheImage(img.id, storedImage.dataUrl)
+      }
     }
-    const storedImage = await getImage(img.id)
-    if (storedImage?.dataUrl) {
-      restoredInputImages.push({ ...img, dataUrl: storedImage.dataUrl })
-      cacheImage(img.id, storedImage.dataUrl)
-    }
+    return restored
   }
+
+  const restoredInputImages = await hydrateList(persistedInputImages)
   if (
     restoredInputImages.length !== persistedInputImages.length ||
     restoredInputImages.some((img, index) => img.dataUrl !== persistedInputImages[index]?.dataUrl)
   ) {
     useStore.getState().replaceInputImages(restoredInputImages)
+  }
+  const restoredSharedImages = await hydrateList(persistedSharedImages)
+  if (
+    restoredSharedImages.length !== persistedSharedImages.length ||
+    restoredSharedImages.some((img, index) => img.dataUrl !== persistedSharedImages[index]?.dataUrl)
+  ) {
+    useStore.setState({ batchSharedImages: restoredSharedImages })
   }
   await restorePersistedMaskDraft(restoredInputImages)
 }
@@ -3245,8 +3264,16 @@ export interface ClearOptions {
 
 /** 清空数据 */
 export async function clearData(options: ClearOptions = { clearConfig: true, clearTasks: true }) {
-  const { setTasks, clearInputImages, clearMaskDraft, setSettings, setParams, showToast } =
-    useStore.getState()
+  const {
+    setTasks,
+    clearInputImages,
+    clearBatchSharedImages,
+    setBatchZoneNotice,
+    clearMaskDraft,
+    setSettings,
+    setParams,
+    showToast,
+  } = useStore.getState()
 
   if (options.clearTasks) {
     await dbClearTasks()
@@ -3256,6 +3283,8 @@ export async function clearData(options: ClearOptions = { clearConfig: true, cle
     thumbnailBackfillIds.clear()
     setTasks([])
     clearInputImages()
+    clearBatchSharedImages()
+    setBatchZoneNotice(null)
     clearMaskDraft()
   }
 

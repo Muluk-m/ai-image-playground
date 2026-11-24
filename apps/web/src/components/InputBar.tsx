@@ -315,6 +315,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const batchImageCount = batchActive
     ? inputImages.length * getSubmissionImageCount(prompt, slotValues, 1)
     : 0
+  const batchTaskCountOverflow = batchActive && batchImageCount > BATCH_GENERATE_MAX
+  const batchTaskOverflowNotice = batchTaskCountOverflow
+    ? referenceRefusalMessage('overflow', BATCH_GENERATE_MAX)
+    : null
   // GPT 直连按实际会执行的档计价。非会员，以及交给智能体的请求，服务端收到 ≤2K、非高画质。
   // Gemini 先按会员身份收口，再按渠道开放档位计价。
   const honorsSize = getParamCapabilities(activeProfile, params.output_format).size
@@ -525,6 +529,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       !generateOverflow &&
       !batchNoEditSupport &&
       !batchSharedOverflow &&
+      !batchTaskCountOverflow &&
       !batchNeedsLoopImages &&
       (lookCheck?.ok ?? true) &&
       oversizedIndexes.length === 0 &&
@@ -549,7 +554,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       : canSubmit && !skillNeedsCanvas)
   // 提交按钮悬停时说明为什么点不了；画布档不看出图的 API 配置，也就没有这些原因。
   const promptMissing = promptBlank && (toCanvas || !activeLook)
-  const batchBlockingNotice = batchNoEditNotice ?? batchSharedOverflowNotice
+  const batchBlockingNotice =
+    batchNoEditNotice ?? batchSharedOverflowNotice ?? batchTaskOverflowNotice
   const blockedByReferences =
     referenceNotice ?? sharedReferenceNotice ?? (uploadsBlocked ? uploadProgress : null)
   const submitBlockedTip =
