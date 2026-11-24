@@ -49,6 +49,24 @@ vi.mock('../../lib/queries', () => ({
                 },
                 created_at: Date.now(),
               },
+              {
+                id: 'audit-2',
+                operator_id: 'cli',
+                action: 'cli.device_authorization.created',
+                target_type: 'cli_device_authorization',
+                target_id: 'a27dd227-00f1-4f00-8888-1234567890ab',
+                details: { client_id: 'muvloom-cli' },
+                created_at: Date.now() - 3600_000,
+              },
+              {
+                id: 'audit-3',
+                operator_id: 'maqiqian0316',
+                action: 'billing.settings.update',
+                target_type: 'billing_settings',
+                target_id: 'default',
+                details: { guidance: '扫码付款' },
+                created_at: Date.now() - 7200_000,
+              },
             ],
           },
         ],
@@ -92,5 +110,10 @@ describe('audit filters', () => {
       })
     })
     expect(screen.getByRole('button', { name: '对比' })).toBeInTheDocument()
+    expect(screen.getByText('发起 CLI 授权')).toBeInTheDocument()
+    expect(screen.getByText('CLI 授权')).toBeInTheDocument()
+    expect(screen.getByText('更新计费设置')).toBeInTheDocument()
+    expect(screen.getByText('计费设置')).toBeInTheDocument()
+    expect(screen.getByText('时间')).toHaveClass('whitespace-nowrap')
   })
 })

@@ -12,7 +12,7 @@ export function SegmentedControl<T extends string>({
   label,
 }: {
   options: ReadonlyArray<SegmentedOption<T>>
-  value: T
+  value: T | ''
   onChange: (next: T) => void
   label: string
 }) {
