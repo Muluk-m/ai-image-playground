@@ -81,8 +81,15 @@ export const OPS_THRESHOLDS = {
   /** 心跳每 30 秒一次；超过这个时长没更新就当服务断了，也就是容忍连续丢 3 次。 */
   HEARTBEAT_MAX_AGE_MS: 2 * 60 * 1000,
   /**
+   * 开启 OpenObserve 观测时，worker 按这个间隔打一条心跳日志（`ops.log_pipeline_heartbeat`），
+   * 保证低流量部署也有稳定探针走完 Docker → Fluent Bit → OTel Collector → OpenObserve 链路。
+   * 设为告警线的一半，即使叠加 1 分钟读数节流缓存与短暂缓冲重试，正常最大静默也只有约 6 分钟。
+   */
+  SERVER_LOGS_HEARTBEAT_INTERVAL_MS: 5 * 60 * 1000,
+  /**
    * OpenObserve 超过这个时长没有新日志就是采集管道断了（2026-10-31 旧 compose 重建丢掉 fluentd
-   * 驱动，断流九小时才被发现）。低流量部署每分钟也有宿主机采样上报等周期日志，实测最大静默约 1 分钟。
+   * 驱动，断流九小时才被发现）。`/internal/*` 访问日志被过滤、宿主机采集器正常上报不记日志，
+   * 低流量部署依赖上面的 5 分钟心跳探针保活，10 分钟线留足缓存与短暂重试余量。
    */
   SERVER_LOGS_MAX_AGE_MS: 10 * 60 * 1000,
   /**
