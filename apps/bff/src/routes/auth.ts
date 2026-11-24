@@ -10,6 +10,7 @@ import {
   USERNAME_MAX_LENGTH,
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
+import { accountProfileView } from '../lib/account-profile-view'
 import { endStageAuthorizationsForUser } from '../lib/agent/stage-authorizations'
 import { passwordEntryAllowed, registrationEntryAllowed } from '../lib/auth-origin-policy'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
@@ -31,7 +32,6 @@ import { resolveAuthUser } from '../lib/user-auth'
 import { completePasswordLogin, findUserByUsername } from '../lib/user-login'
 import {
   clearUserSessionCookie,
-  issueUserSession,
   readAccessExpiry,
   reclaimSwitchedAccount,
   refreshWebSessionToken,

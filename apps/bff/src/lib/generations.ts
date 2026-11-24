@@ -316,5 +316,5 @@ export async function readCompletedGenerationOutputImage(
         eq(schema.generation_images.position, position),
       ),
     )
-  return image ?? null
+  return image?.key ? { key: image.key, mime: image.mime } : null
 }
