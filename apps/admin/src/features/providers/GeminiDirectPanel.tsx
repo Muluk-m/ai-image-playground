@@ -207,11 +207,17 @@ export function GeminiDirectPanel({
             ) : null}
 
             <form
+              noValidate
               className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 p-3"
               onSubmit={(event) => {
                 event.preventDefault()
+                if (!draftKey.trim()) return
                 const budgetUsd = Number(draftBudget)
-                if (!draftKey.trim() || !Number.isInteger(budgetUsd) || budgetUsd <= 0) return
+                if (!draftBudget.trim() || !Number.isInteger(budgetUsd) || budgetUsd <= 0) {
+                  setError('月预算请填写大于 0 的整数（美元）')
+                  return
+                }
+                setError(null)
                 void run('create', () =>
                   createGeminiDirectKey({ apiKey: draftKey.trim(), budgetUsd }),
                 )
@@ -322,7 +328,7 @@ export function GeminiDirectPanel({
             </div>
 
             {error ? (
-              <p role="status" className="text-xs text-danger">
+              <p role="alert" className="text-xs text-danger">
                 {error}
               </p>
             ) : null}

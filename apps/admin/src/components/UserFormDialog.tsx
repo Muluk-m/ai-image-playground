@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Eye, EyeOff } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { DangerConfirmDialog } from '@/components/DangerConfirmDialog'
@@ -40,6 +41,7 @@ export function UserFormDialog({ mode, user, open, onOpenChange }: UserFormDialo
   const queryClient = useQueryClient()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
 
@@ -47,7 +49,9 @@ export function UserFormDialog({ mode, user, open, onOpenChange }: UserFormDialo
     if (!open) return
     setUsername('')
     setPassword('')
+    setShowPassword(false)
     setError(null)
+    setConfirming(false)
   }, [open])
 
   const mutation = useMutation({
@@ -62,6 +66,7 @@ export function UserFormDialog({ mode, user, open, onOpenChange }: UserFormDialo
       })
     },
     onSuccess: async () => {
+      setConfirming(false)
       await queryClient.invalidateQueries({ queryKey: ['users'] })
       if (!user) await refreshUserKpis(queryClient)
       if (user) await queryClient.invalidateQueries({ queryKey: ['user', user.id] })
@@ -121,18 +126,35 @@ export function UserFormDialog({ mode, user, open, onOpenChange }: UserFormDialo
             <label htmlFor="managed-user-password" className="block font-medium">
               {mode === 'create' ? '初始密码' : '新密码'}
             </label>
-            <Input
-              id="managed-user-password"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.currentTarget.value)}
-              autoComplete="new-password"
-              minLength={8}
-              maxLength={128}
-              placeholder="至少 8 位"
-              autoFocus={mode === 'reset'}
-              disabled={mutation.isPending}
-            />
+            <div className="relative">
+              <Input
+                id="managed-user-password"
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(event) => {
+                  setPassword(event.currentTarget.value)
+                  if (error) setError(null)
+                }}
+                autoComplete="new-password"
+                minLength={8}
+                maxLength={128}
+                placeholder="至少 8 位"
+                autoFocus={mode === 'reset'}
+                disabled={mutation.isPending}
+                className="pr-9"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                className="absolute right-1.5 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                disabled={mutation.isPending}
+                onClick={() => setShowPassword((prev) => !prev)}
+              >
+                {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+              </Button>
+            </div>
           </div>
           {error ? (
             <p role="alert" className="text-sm text-destructive">
@@ -164,12 +186,19 @@ export function UserFormDialog({ mode, user, open, onOpenChange }: UserFormDialo
       {mode === 'reset' && user ? (
         <DangerConfirmDialog
           open={confirming}
-          onOpenChange={setConfirming}
+          onOpenChange={(nextOpen) => {
+            setConfirming(nextOpen)
+            if (!nextOpen) setError(null)
+          }}
           title={`重置 ${user.username} 的密码?`}
           impact="保存后该用户的所有现有登录会话会立即失效。"
           confirmLabel="确认重置"
           pending={mutation.isPending}
-          onConfirm={(reason) => mutation.mutate(reason)}
+          error={error}
+          onConfirm={(reason) => {
+            setError(null)
+            mutation.mutate(reason)
+          }}
         />
       ) : null}
     </Dialog>

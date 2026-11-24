@@ -20,6 +20,7 @@ export function DangerConfirmDialog({
   confirmLabel,
   destructive = true,
   pending = false,
+  error,
   onConfirm,
 }: {
   open: boolean
@@ -30,6 +31,7 @@ export function DangerConfirmDialog({
   confirmLabel: string
   destructive?: boolean
   pending?: boolean
+  error?: string | null
   onConfirm: (reason: string) => void
 }) {
   const [reason, setReason] = useState('')
@@ -38,7 +40,13 @@ export function DangerConfirmDialog({
   }, [open])
   const trimmed = reason.trim()
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && pending) return
+        onOpenChange(next)
+      }}
+    >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
@@ -71,6 +79,14 @@ export function DangerConfirmDialog({
             </span>
           </label>
           {versionNote ? <p className="text-xs text-muted-foreground">{versionNote}</p> : null}
+          {error ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+            >
+              {error}
+            </p>
+          ) : null}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>

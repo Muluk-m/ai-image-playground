@@ -570,6 +570,9 @@ function OrderDetail({
       apiClient.post(`/api/private/billing/orders/${id}/${action}`, body),
     onSuccess: async () => {
       setVerified(false)
+      setNote('')
+      setRejection('')
+      setConfirmReject(false)
       await Promise.all([
         client.invalidateQueries({ queryKey: ['private-orders'] }),
         client.invalidateQueries({ queryKey: ['private-order', id] }),
@@ -814,6 +817,11 @@ function OrderDetail({
                 >
                   取消
                 </Button>
+              ) : null}
+              {!note.trim() && rejection.trim() ? (
+                <p className="w-full text-xs text-muted-foreground">
+                  还需填写上方的「核对备注 / 处置原因」才能拒绝。
+                </p>
               ) : null}
             </div>
           ) : null}
