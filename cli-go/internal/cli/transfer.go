@@ -14,13 +14,16 @@ import (
 // long. Transfers have no total limit: a slow link that keeps moving data finishes.
 const defaultTransferIdle = 30 * time.Second
 
-// responseWaitFactor stretches the idle limit once an upload request is fully written: the
-// kernel still has to put its buffered tail on the wire, and storage answers only after that.
+// responseWaitFactor stretches the idle limit once an upload body is fully written: the kernel
+// still has to put its buffered tail on the wire, and storage answers only after that. A
+// download sends no body, so it keeps the plain idle limit while waiting for the response.
 const responseWaitFactor = 4
 
 // progressChunk caps one socket write, so progress is seen while a slow link drains a large
-// write instead of only when the whole write returns.
-const progressChunk = 8 << 10
+// write instead of only when the whole write returns. The kernel does not portably report how
+// much of a blocked write has left, so this is also the minimum rate: a link that cannot send
+// progressChunk bytes within the idle limit (about 68 B/s at the defaults) counts as stalled.
+const progressChunk = 2 << 10
 
 var errTransferStalled = errors.New("transfer stalled")
 
@@ -40,16 +43,23 @@ type transfer struct {
 	stopped  bool
 }
 
-func (a *App) startTransfer(ctx context.Context) *transfer {
+func (a *App) startTransfer(ctx context.Context, upload bool) *transfer {
 	idle := a.TransferIdle
 	if idle <= 0 {
 		idle = defaultTransferIdle
 	}
 	ctx, cancel := context.WithCancelCause(ctx)
 	t := &transfer{idle: idle, cancel: cancel, window: idle, deadline: time.Now().Add(idle)}
-	t.ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
-		WroteRequest: func(httptrace.WroteRequestInfo) { t.extend(idle * responseWaitFactor) },
-	})
+	t.ctx = ctx
+	if upload {
+		t.ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+			WroteRequest: func(info httptrace.WroteRequestInfo) {
+				if info.Err == nil {
+					t.extend(idle * responseWaitFactor)
+				}
+			},
+		})
+	}
 	t.http = a.transferClient(t)
 	t.timer = time.AfterFunc(idle, t.expire)
 	return t

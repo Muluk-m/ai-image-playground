@@ -69,7 +69,7 @@ func (a *App) uploadMedia(ctx context.Context, c *client.HTTPClient, path string
 		return media{}, err
 	}
 	a.progress("Uploading %s (%d bytes)", filepath.Base(path), size)
-	upload := a.startTransfer(ctx)
+	upload := a.startTransfer(ctx, true)
 	defer upload.stop()
 	req, err := http.NewRequestWithContext(upload.ctx, http.MethodPut, reserved.UploadURL, file)
 	if err != nil {
@@ -203,7 +203,7 @@ func (a *App) downloadTo(ctx context.Context, c *client.HTTPClient, path, target
 	if err := a.checkStorageURL(signed.DownloadURL); err != nil {
 		return download{}, err
 	}
-	fetch := a.startTransfer(ctx)
+	fetch := a.startTransfer(ctx, false)
 	defer fetch.stop()
 	req, err := http.NewRequestWithContext(fetch.ctx, http.MethodGet, signed.DownloadURL, nil)
 	if err != nil {

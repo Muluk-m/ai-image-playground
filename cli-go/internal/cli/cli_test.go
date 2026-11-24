@@ -2477,6 +2477,17 @@ func TestStalledDownloadIsATemporaryFailure(t *testing.T) {
 	}
 }
 
+func TestDownloadWithNoResponseStallsAfterThePlainIdleLimit(t *testing.T) {
+	f := newFakeServer(t)
+	f.serveFile = func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }
+	app := transferApp(t, f)
+	r := execute(t, app, "artifacts", "download", "art_job-1_0", "--output", filepath.Join(t.TempDir(), "x.png"))
+	// A download sends no body, so it must not get the upload's longer wait for the response.
+	if r.code != ExitTemporary || !strings.Contains(r.stdout, "Download stalled: nothing moved for 1s") {
+		t.Fatalf("download with no response = %d %s", r.code, r.stdout)
+	}
+}
+
 func writeUpload(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "ref.png")
@@ -2486,8 +2497,8 @@ func writeUpload(t *testing.T) string {
 	return path
 }
 
-// slowLink plays a slow uplink: each write sends at most 1 KiB and then takes 20ms, about
-// 50 KiB/s. A 32 KiB write therefore takes ~640ms, longer than the idle limit, while bytes keep
+// slowLink plays a slow uplink: each write sends at most 1 KiB and then takes 60ms, about
+// 17 KiB/s. An 8 KiB write therefore takes ~480ms, longer than the idle limit, while bytes keep
 // moving the whole time.
 type slowLink struct{ net.Conn }
 
@@ -2499,7 +2510,7 @@ func (c slowLink) Write(b []byte) (int, error) {
 		if err != nil {
 			return written, err
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(60 * time.Millisecond)
 	}
 	return written, nil
 }
@@ -2522,8 +2533,8 @@ func TestSlowUploadThatKeepsMovingFinishes(t *testing.T) {
 	}
 	app.HTTP.Transport = slow
 	path := filepath.Join(t.TempDir(), "ref.png")
-	// 128 KiB at ~50 KiB/s is ~2.6s, past the 1.5s API timeout.
-	if err := os.WriteFile(path, bytes.Repeat([]byte("P"), 128<<10), 0o644); err != nil {
+	// 40 KiB at ~17 KiB/s is ~2.4s, past the 1.5s API timeout.
+	if err := os.WriteFile(path, bytes.Repeat([]byte("P"), 40<<10), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	r := execute(t, app, "media", "upload", path)
@@ -2534,7 +2545,7 @@ func TestSlowUploadThatKeepsMovingFinishes(t *testing.T) {
 
 func TestTransferProgressRacingTheTimerNeverCancels(t *testing.T) {
 	app := &App{HTTP: &http.Client{}, TransferIdle: 20 * time.Millisecond}
-	moving := app.startTransfer(context.Background())
+	moving := app.startTransfer(context.Background(), false)
 	for end := time.Now().Add(300 * time.Millisecond); time.Now().Before(end); {
 		moving.extend(moving.idle) // progress right around every expiry
 		time.Sleep(5 * time.Millisecond)
@@ -2548,7 +2559,7 @@ func TestTransferProgressRacingTheTimerNeverCancels(t *testing.T) {
 	}
 	moving.extend(time.Hour) // progress after stop is ignored
 
-	idle := app.startTransfer(context.Background())
+	idle := app.startTransfer(context.Background(), false)
 	defer idle.stop()
 	select {
 	case <-idle.ctx.Done():
