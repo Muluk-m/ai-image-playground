@@ -9,6 +9,7 @@ import {
   type Host,
   parseDeployment,
   parseHost,
+  renderHost,
   renderDeployment as renderWithHost,
   SECRETS,
 } from '../deploy-config'
@@ -86,6 +87,20 @@ describe('deploy config catalog', () => {
       '  - hostname: image-api.qiliangjia.one\n    service: http://release-router:37377',
     )
     expect(rendered.deploy.OBS_PROXY_HOST_PORT).toBe('15090')
+  })
+
+  it('reports malformed tunnel credentials and multi-line host secrets as problems, without throwing', () => {
+    const test = descriptor('test')
+    const { problems } = renderDeployment(test, {
+      ...fakeSecrets(test),
+      TUNNEL_CREDENTIALS: 'null',
+    })
+    expect(problems).toContain('TUNNEL_CREDENTIALS is not valid JSON')
+    const host_ = renderHost(host, {
+      POSTGRES_PASSWORD: 'abc\nPOSTGRES_USER=other',
+      GHCR_PULL_TOKEN: 'token',
+    })
+    expect(host_.problems).toEqual(['host secret POSTGRES_PASSWORD contains a line break'])
   })
 
   it('rejects retired or unknown operator keys and misspelled tunables', () => {

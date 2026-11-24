@@ -11,7 +11,7 @@
  *
  * 任何时候都不打印密钥值。
  */
-import { readFile, writeFile } from 'node:fs/promises'
+import { open, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 export const HOSTNAME = 'config.nainma.online'
@@ -46,6 +46,16 @@ async function api<T>(method: string, path: string, body?: unknown): Promise<T> 
   return parsed.result
 }
 
+/** Access 的列表接口分页；按名字查找前取全。 */
+async function listAll<T>(path: string): Promise<T[]> {
+  const all: T[] = []
+  for (let page = 1; ; page += 1) {
+    const batch = await api<T[]>('GET', `${path}?per_page=100&page=${page}`)
+    all.push(...batch)
+    if (batch.length < 100) return all
+  }
+}
+
 async function storeId(): Promise<string> {
   const stores = await api<Array<{ id: string; name: string }>>('GET', '/secrets_store/stores')
   const store = stores[0]
@@ -70,7 +80,7 @@ async function listSecrets(store: string): Promise<StoredSecret[]> {
 /** `NAME=value`，一行一个，值按字面。 */
 function parseEnvFile(text: string): Array<[string, string]> {
   return text
-    .split('\n')
+    .split(/\r?\n/)
     .filter((line) => line.trim() && !line.trimStart().startsWith('#'))
     .map((line) => {
       const at = line.indexOf('=')
@@ -121,13 +131,25 @@ interface AccessApp {
 async function ensureAccess(deployment: 'prod' | 'test' | 'host', tokenOut: string | undefined) {
   // host 的密钥给 prod 的 token：管这台机器的就是生产部署。
   const tokenName = `aip-config-${deployment === 'host' ? 'prod' : deployment}`
-  const tokens = await api<ServiceToken[]>('GET', '/access/service_tokens')
+  const tokens = await listAll<ServiceToken>('/access/service_tokens')
   let serviceToken = tokens.find((one) => one.name === tokenName)
   if (!serviceToken) {
     if (!tokenOut) throw new Error(`${tokenName} does not exist yet; pass --token-out <file> to create it`)
-    serviceToken = await api<ServiceToken>('POST', '/access/service_tokens', { name: tokenName, duration: 'forever' })
-    const lines = `CONFIG_ACCESS_CLIENT_ID=${serviceToken.client_id}\nCONFIG_ACCESS_CLIENT_SECRET=${serviceToken.client_secret}\n`
-    await writeFile(tokenOut, lines, { mode: 0o600, flag: 'wx' })
+    // client_secret 只在创建时返回一次：先占住输出文件，写不了就不创建。
+    const file = await open(tokenOut, 'wx', 0o600)
+    try {
+      serviceToken = await api<ServiceToken>('POST', '/access/service_tokens', {
+        name: tokenName,
+        duration: 'forever',
+      })
+      // 键名与 bootstrap.env 一致（deploy-config-cli.ts 的 bootstrapFor）。
+      const prefix = (deployment === 'host' ? 'prod' : deployment).toUpperCase()
+      await file.writeFile(
+        `${prefix}_CONFIG_ACCESS_CLIENT_ID=${serviceToken.client_id}\n${prefix}_CONFIG_ACCESS_CLIENT_SECRET=${serviceToken.client_secret}\n`,
+      )
+    } finally {
+      await file.close()
+    }
     console.log(`created service token ${tokenName}; credentials written to ${tokenOut}`)
   } else {
     console.log(`service token ${tokenName} exists`)
@@ -142,7 +164,7 @@ async function ensureAccess(deployment: 'prod' | 'test' | 'host', tokenOut: stri
       precedence: 1,
     },
   ]
-  const apps = await api<AccessApp[]>('GET', '/access/apps')
+  const apps = await listAll<AccessApp>('/access/apps')
   const current = apps.find((one) => one.name === appName)
   const body = { name: appName, type: 'self_hosted', domain, session_duration: '5m', policies }
   const app = current
@@ -153,7 +175,7 @@ async function ensureAccess(deployment: 'prod' | 'test' | 'host', tokenOut: stri
 }
 
 async function audienceOf(deployment: 'prod' | 'test' | 'host'): Promise<string> {
-  const apps = await api<AccessApp[]>('GET', '/access/apps')
+  const apps = await listAll<AccessApp>('/access/apps')
   const app = apps.find((one) => one.name === `aip-config ${deployment}`)
   if (!app) throw new Error(`Access app for ${deployment} is missing; run access ${deployment} first`)
   return app.aud

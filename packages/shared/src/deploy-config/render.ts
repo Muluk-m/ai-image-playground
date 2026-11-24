@@ -118,7 +118,10 @@ export function renderDeployment(
     if (raw === undefined) continue
     let credentials: Record<string, unknown>
     try {
-      credentials = JSON.parse(raw) as Record<string, unknown>
+      const parsed: unknown = JSON.parse(raw)
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
+        throw new Error('not an object')
+      credentials = parsed as Record<string, unknown>
     } catch {
       // 不回显内容：里面就是密钥。
       problems.push(`${secretName} is not valid JSON`)
@@ -195,7 +198,9 @@ export function renderHost(
     if (!known.has(name)) problems.push(`host secret ${name} is not in the catalog`)
   }
   for (const one of HOST_SECRETS) {
-    if (!secrets[one.name]) problems.push(`host secret ${one.name} is required (${one.doc})`)
+    const value = secrets[one.name]
+    if (!value) problems.push(`host secret ${one.name} is required (${one.doc})`)
+    else if (/[\r\n]/.test(value)) problems.push(`host secret ${one.name} contains a line break`)
   }
   const postgres: Record<string, string> = {
     POSTGRES_DB: host.postgres.database,

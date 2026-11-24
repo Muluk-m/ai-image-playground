@@ -97,10 +97,30 @@ async function fetchSecrets(name: Scope, bootstrapFile: string): Promise<Record<
   return secrets as Record<string, string>
 }
 
-/** 原子替换：写到 `<out>.next`，校验通过后把旧目录挪到 `<out>.prev` 再换上。 */
+/**
+ * 原子替换：写到本次调用独有的 `<out>.next-<pid>`，再把旧目录挪开换上新的。
+ * `<out>.lock` 是互斥锁（mkdir 原子），两个 render 同时写同一目录时后来者直接失败，不会互相删暂存。
+ */
 async function writeRendered(out: string, files: Record<string, string>) {
-  const next = `${out}.next`
-  const prev = `${out}.prev`
+  const lock = `${out}.lock`
+  await mkdir(dirname(out), { recursive: true, mode: 0o700 })
+  try {
+    await mkdir(lock)
+  } catch {
+    throw new Error(
+      `${out} is being rendered by another process (remove ${lock} if none is running)`,
+    )
+  }
+  try {
+    await replaceRendered(out, files)
+  } finally {
+    await rm(lock, { recursive: true, force: true })
+  }
+}
+
+async function replaceRendered(out: string, files: Record<string, string>) {
+  const next = `${out}.next-${process.pid}`
+  const prev = `${out}.prev-${process.pid}`
   await rm(next, { recursive: true, force: true })
   await mkdir(next, { recursive: true, mode: 0o700 })
   for (const [relative, content] of Object.entries(files)) {
