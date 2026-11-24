@@ -28,14 +28,10 @@ _setPrivateBffOverlayForTesting()
 const { app } = await import('../../../app')
 const { close: closeDb, db, schema } = await import('../../../db/client')
 const { _setChannelsForTesting } = await import('../../../lib/channels')
-const {
-  ensureChatModelPrice,
-  getChatPricing,
-  getChatUsageSummary,
-  privateTaskHooks,
-  syncModelPricesFromChannels,
-  updateModelPrice,
-} = await import('../../../modules/billing/service')
+const { privateTaskHooks } = await import('../../../modules/billing/hooks')
+const { ensureChatModelPrice, getChatPricing, syncModelPricesFromChannels, updateModelPrice } =
+  await import('../../../modules/billing/pricing')
+const { getChatUsageSummary } = await import('../../../modules/billing/queries')
 
 const ALICE = 'a298-alice'
 const BOB = 'a298-bob'

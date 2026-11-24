@@ -121,6 +121,12 @@ it('lets operators add a model draft and retains edits when saving fails', () =>
   )
   fireEvent.click(screen.getByRole('button', { name: '添加自定义模型' }))
   expect(screen.getByRole('textbox', { name: 'example 模型 2 · 模型 ID' })).toHaveValue('')
+  // Existing saved model starts collapsed as a compact summary row until expanded
+  expect(
+    screen.queryByRole('textbox', { name: 'example 模型 1 · 模型 ID' }),
+  ).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '编辑' }))
+  expect(screen.getByRole('textbox', { name: 'example 模型 1 · 模型 ID' })).toHaveValue('model-a')
   fireEvent.change(screen.getByRole('textbox', { name: 'example · 密钥环境变量名' }), {
     target: { value: 'NEW_API_KEY' },
   })
@@ -176,4 +182,24 @@ it('identifies every broken depth after a provider template change and prevents 
   fireEvent.click(await screen.findByRole('option', { name: 'Anthropic' }))
   expect(screen.getByRole('alert')).toHaveTextContent('默认、快速、普通、深度')
   expect(screen.getByRole('button', { name: '保存配置' })).toBeDisabled()
+})
+
+it('keeps an expanded draft model open when deleting a preceding model and typing its ID', () => {
+  render(
+    <AgentModelSettingsForm
+      initial={fixture()}
+      save={async () => {}}
+      pending={false}
+      error={null}
+    />,
+  )
+  fireEvent.click(screen.getByRole('button', { name: '添加自定义模型' }))
+  expect(screen.getByRole('textbox', { name: 'example 模型 2 · 模型 ID' })).toHaveValue('')
+
+  fireEvent.click(screen.getByRole('button', { name: '删除 example 模型 1' }))
+  const shiftedInput = screen.getByRole('textbox', { name: 'example 模型 1 · 模型 ID' })
+  expect(shiftedInput).toHaveValue('')
+
+  fireEvent.change(shiftedInput, { target: { value: 'g' } })
+  expect(screen.getByRole('textbox', { name: 'example 模型 1 · 模型 ID' })).toHaveValue('g')
 })

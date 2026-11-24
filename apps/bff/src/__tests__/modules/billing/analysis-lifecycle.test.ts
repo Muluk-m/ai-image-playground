@@ -19,9 +19,9 @@ const { ensureBillingMigrations } = await import('@image-playground/db')
 await ensureBillingMigrations(databaseUrl)
 const { db, schema, close } = await import('../../../db/client')
 const { config } = await import('../../../config')
-const { privateTaskHooks, getChatPricing, getChatUsageSummary, getLedgerPage } = await import(
-  '../../../modules/billing/service'
-)
+const { privateTaskHooks } = await import('../../../modules/billing/hooks')
+const { getChatPricing } = await import('../../../modules/billing/pricing')
+const { getChatUsageSummary, getLedgerPage } = await import('../../../modules/billing/queries')
 const { EMPTY_PRIVATE_BFF_OVERLAY, _setPrivateBffOverlayForTesting } = await import(
   '../../../lib/private-overlay'
 )

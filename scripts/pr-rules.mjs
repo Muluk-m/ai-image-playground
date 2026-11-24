@@ -31,9 +31,9 @@ export const CRITICAL_FLOWS = {
     /^apps\/bff\/src\/routes\/(submit|cancel|result|generations|production-generations|agent-batches)\.ts$/,
     /^apps\/bff\/src\/lib\/generations\.ts$/,
     /^apps\/bff\/src\/lib\/agent\/production-generation\.ts$/,
-    /^apps\/bff\/src\/modules\/execution\/(task-lifecycle-bus|task-submission|task-outcome|submission-admission|submission-tier|submission-prepare|submission-idempotency|task-submission-plugins)\.ts$/,
-    /^apps\/bff\/src\/bootstrap\/(task-lifecycle|task-submission)\.ts$/,
-    /^apps\/bff\/src\/workers\/(task-execution|task-runner|task-scheduler|runnable-tasks)\.ts$/,
+    /^apps\/bff\/src\/modules\/execution\/(task-lifecycle-bus|task-submission|task-outcome|submission-admission|submission-tier|submission-prepare|submission-idempotency|task-submission-plugins|task-execution-hooks)\.ts$/,
+    /^apps\/bff\/src\/bootstrap\/(task-lifecycle|task-submission|task-execution)\.ts$/,
+    /^apps\/bff\/src\/workers\/(task-execution|task-runner|task-scheduler|agent-batch-loop|runnable-tasks)\.ts$/,
     /^apps\/web\/src\/lib\/(generationJob|batchGenerate|placeCloudGeneration)\.ts$/,
   ],
 }
@@ -167,7 +167,7 @@ export function evaluatePr({ files, body }) {
     const text = section(body, '成本与影响') ?? ''
     if (!explained(text)) {
       fails.push(
-        `改到可能影响成本的文件（${cost.length} 个，如 \`${cost[0]}\`），「成本与影响」需要写清改了什么、成本怎么变，不涉及也要写明为什么（至少 ${MIN_REASON} 个字）；涉及结算的在标题或正文标明「涉及结算，需 Nain 亲自审」。`,
+        `改到可能影响成本的文件（${cost.length} 个，如 \`${cost[0]}\`），「成本与影响」需要写清改了什么、成本怎么变，不涉及也要写明为什么（至少 ${MIN_REASON} 个字）；涉及结算的在标题或正文标明「涉及结算」并在汇报里重点提示。`,
       )
     }
   }

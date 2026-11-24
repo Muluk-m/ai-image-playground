@@ -9,8 +9,6 @@ import {
   type TaskErrorType,
 } from '@image-playground/shared'
 import { config } from '../config'
-import { cropMaskedUpstream } from '../lib/agent/masked-input'
-import { MaskedOutputError, protectMaskedOutput } from '../lib/agent/masked-output'
 import { isCapabilityEnabled } from '../lib/capabilities'
 import { describeEmptyResult, extractMeta, resolveImageBytesRef } from '../lib/extractImages'
 import {
@@ -48,7 +46,12 @@ import {
 import { GptImage26RouteUnavailableError, ImagePlanRequiredError } from '../lib/upstream/errors'
 import { gptDirectConfigured } from '../lib/upstream/gpt-routing'
 import { partialFailureOf } from '../lib/upstream/partial'
-import type { TerminalTaskUpdate } from '../modules/execution'
+import {
+  getMaskedEditExecutionHook,
+  type MaskedOutputTransform,
+  MissingTaskExecutionHookError,
+  type TerminalTaskUpdate,
+} from '../modules/execution'
 import { archivedGenerationOutcome } from './archivedGenerationOutcome'
 import { claimTaskExecution, type TaskExecution } from './task-execution'
 
@@ -168,7 +171,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
   )
   let archivePayload = task.archive_payload
   let receivedImages = false
-  let protectOutput: Awaited<ReturnType<typeof protectMaskedOutput>> | undefined
+  let protectOutput: MaskedOutputTransform | undefined
   let fallbackModel: string | undefined
   const fallbackAt = task.submitted_at + config.upstream.vertexFallbackAfterMs
   // 过了原模型总时限，没出的几张已经交给回落模型试过，失败就是终态，不再整单重跑。
@@ -191,6 +194,8 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       )
     return true
   }
+  const maskedHooks =
+    request.preserve_outside_mask || request.masked_crop ? getMaskedEditExecutionHook() : undefined
   try {
     if (await stopExpiredArchive()) return
     if ((cloudArchive || task.reconciliation_required) && !archivePayload) {
@@ -203,7 +208,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
     const hydratedRequest = await hydrateInputImages(request, { onObjectRead: known.rememberRead })
     // 老任务只有 preserve_outside_mask、没有 masked_original_size：那时不补边，交付时也不裁边。
     protectOutput = request.preserve_outside_mask
-      ? await protectMaskedOutput(
+      ? await maskedHooks!.protectMaskedOutput(
           hydratedRequest.input_images?.[0] ?? '',
           hydratedRequest.mask ?? '',
           request.masked_original_size,
@@ -265,7 +270,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       request: request.masked_crop
         ? {
             ...hydratedRequest,
-            ...(await cropMaskedUpstream(
+            ...(await maskedHooks!.cropMaskedUpstream(
               hydratedRequest,
               request.masked_crop,
               request.masked_original_size,
@@ -410,6 +415,7 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       'task completed',
     )
   } catch (err) {
+    if (err instanceof MissingTaskExecutionHookError) throw err
     // AbortError = cancel route 主动 abort。cancel.ts 已经写 status='cancelled'，
     // 下面的写入因句柄的 fence 与 status 守卫自然 no-op。
     // cancel route 已经写好 'cancelled'；停机 abort 由 worker-index 按 id 回收。
@@ -429,7 +435,8 @@ async function executeTask(execution: TaskExecution): Promise<void> {
       return
     }
     const rejectedMaskedOutput =
-      err instanceof MaskedOutputArchiveError && err.cause instanceof MaskedOutputError
+      err instanceof MaskedOutputArchiveError &&
+      Boolean(maskedHooks?.isMaskedOutputError(err.cause))
     if (archivePayload && !rejectedMaskedOutput) {
       if (await stopExpiredArchive(err)) return
       await execution.requeueArchive(Date.now() + 60_000, archivePayload)

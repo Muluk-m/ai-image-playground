@@ -1,3 +1,4 @@
+import '../../bootstrap/task-execution'
 import '../../bootstrap/task-submission'
 import { mock } from 'bun:test'
 import {

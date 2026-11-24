@@ -23,9 +23,9 @@ const { ensureBillingMigrations } = await import('@image-playground/db')
 await ensureBillingMigrations(TEST_DB)
 
 const { close: closeDb, db, schema } = await import('../../../db/client')
-const { getAccountSnapshot, getSpendActivity, privateTaskHooks, reconcileAccount } = await import(
-  '../../../modules/billing/service'
-)
+const { reconcileAccount } = await import('../../../modules/billing/entitlement')
+const { privateTaskHooks } = await import('../../../modules/billing/hooks')
+const { getAccountSnapshot, getSpendActivity } = await import('../../../modules/billing/queries')
 
 type LedgerShape = { bucket: string; entry_type: string; amount: number }
 

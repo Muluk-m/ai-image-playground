@@ -1,5 +1,6 @@
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import './bootstrap/billing'
+import './bootstrap/task-execution'
 import './bootstrap/task-lifecycle'
 import './bootstrap/task-submission'
 import { config } from './config'

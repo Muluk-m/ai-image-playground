@@ -12,7 +12,7 @@ import {
   MODEL_REASONING_LEVELS,
   type ModelReasoningLevel,
 } from '@image-playground/shared'
-import { Activity, ChevronDown, ChevronRight, Plus, Save, Trash2 } from 'lucide-react'
+import { Activity, Check, ChevronDown, ChevronRight, Plus, Save, Trash2 } from 'lucide-react'
 import { type SetStateAction, useEffect, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -36,10 +36,10 @@ const DEPTH_LABELS: Record<AgentProfileKey, string> = {
 }
 
 const DEPTH_HINTS: Record<AgentProfileKey, string> = {
-  default: '未指定档位时命中',
-  fast: '低延迟快速响应',
-  medium: '日常创作均衡档',
-  deep: '多步规划与深度审图',
+  default: '未指定档位',
+  fast: '低延迟',
+  medium: '日常均衡',
+  deep: '深度规划',
 }
 
 const EFFORT_LABELS: Record<ModelReasoningLevel, string> = {
@@ -50,6 +50,15 @@ const EFFORT_LABELS: Record<ModelReasoningLevel, string> = {
   high: '高（high）',
   xhigh: '更高（xhigh）',
   max: '最高（max）',
+}
+
+function formatCompactTokens(tokens: number): string {
+  if (tokens >= 1_000_000) {
+    const m = tokens / 1_000_000
+    return `${Number.isInteger(m) ? m : m.toFixed(1)}M`
+  }
+  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k`
+  return String(tokens)
 }
 
 /** 没选备用时不提交这个键，避免把空值写进配置。 */
@@ -73,6 +82,7 @@ function Choice({
   value,
   options,
   disabled = false,
+  compact = false,
   onChange,
 }: {
   label: string
@@ -80,13 +90,21 @@ function Choice({
   value: string
   options: { value: string; label: string }[]
   disabled?: boolean
+  compact?: boolean
   onChange: (value: string) => void
 }) {
   return (
-    <div className="space-y-1">
-      <p className="text-xs font-medium text-muted-foreground">{visibleLabel ?? label}</p>
+    <div className="min-w-0 space-y-1">
+      {visibleLabel !== '' ? (
+        <p className="truncate text-xs font-medium text-muted-foreground">
+          {visibleLabel ?? label}
+        </p>
+      ) : null}
       <Select value={value || undefined} onValueChange={onChange} disabled={disabled}>
-        <SelectTrigger aria-label={label}>
+        <SelectTrigger
+          aria-label={label}
+          className={cn('w-full min-w-0 [&>span]:truncate', compact && 'h-8 text-xs')}
+        >
           <SelectValue placeholder="请选择" />
         </SelectTrigger>
         <SelectContent>
@@ -123,8 +141,8 @@ function Field({
   mono?: boolean
 }) {
   return (
-    <label className="block space-y-1 text-xs font-medium text-muted-foreground">
-      <span>{visibleLabel ?? label}</span>
+    <label className="block min-w-0 space-y-1 text-xs font-medium text-muted-foreground">
+      <span className="block truncate">{visibleLabel ?? label}</span>
       <Input
         aria-label={label}
         type={type}
@@ -259,14 +277,14 @@ export function AgentModelSettingsForm({
 
   return (
     <form
-      className="space-y-6"
+      className="space-y-4"
       onSubmit={(event) => {
         event.preventDefault()
         void submit()
       }}
     >
-      <fieldset disabled={pending} className="space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-4">
+      <fieldset disabled={pending} className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className="font-mono">
               版本 #{baseline.revision}
@@ -274,7 +292,7 @@ export function AgentModelSettingsForm({
             {dirty ? (
               <Badge variant="warning">未保存草稿</Badge>
             ) : (
-              <span className="text-xs text-muted-foreground">与线上已生效配置一致</span>
+              <span className="text-xs text-muted-foreground">已同步线上配置</span>
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -331,14 +349,12 @@ export function AgentModelSettingsForm({
           </p>
         ) : null}
 
-        <section className="space-y-4 rounded-xl border bg-card p-4">
+        <section className="space-y-3 rounded-xl border bg-card p-4">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <div>
-              <h2 className="text-base font-semibold">产品思考档位路由矩阵</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                每档独立绑定主路由与推理强度；上游过载且尚未输出首包时自动切换至备用路由，只切换一次。
-              </p>
-            </div>
+            <h2 className="text-base font-semibold">思考档位路由</h2>
+            <span className="text-xs text-muted-foreground">
+              过载且未输出首包时自动切备用，只切换一次
+            </span>
           </div>
 
           <div className="grid gap-3 xl:grid-cols-2">
@@ -394,22 +410,22 @@ export function AgentModelSettingsForm({
                 <div
                   key={key}
                   className={cn(
-                    'flex flex-col justify-between rounded-xl border p-4',
-                    primaryInvalid && 'border-danger/50',
+                    'flex flex-col justify-between rounded-xl border bg-background p-4',
+                    primaryInvalid && 'border-danger/60',
                   )}
                 >
                   <div className="space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2.5">
                       <div className="flex items-center gap-2">
-                        <Badge variant="default" className="px-2 py-0.5">
+                        <Badge variant="secondary" className="px-2 py-0.5 font-semibold">
                           {DEPTH_LABELS[key]}
                         </Badge>
                         <span className="text-xs text-muted-foreground">{DEPTH_HINTS[key]}</span>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2.5">
                         {selected ? (
-                          <span className="font-mono text-xs text-muted-foreground">
-                            {Math.round(selected.contextWindow / 1000)}k ctx
+                          <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                            {formatCompactTokens(selected.contextWindow)} ctx
                           </span>
                         ) : null}
                         {primaryReady !== undefined ? (
@@ -456,7 +472,7 @@ export function AgentModelSettingsForm({
                       </div>
                     ) : null}
 
-                    <div className="grid gap-2.5 sm:grid-cols-3">
+                    <div className="grid gap-2.5 sm:grid-cols-[minmax(0,1.12fr)_minmax(0,1.58fr)_minmax(0,1.15fr)]">
                       <Choice
                         label={`${DEPTH_LABELS[key]} · Provider`}
                         visibleLabel="主 Provider"
@@ -502,111 +518,132 @@ export function AgentModelSettingsForm({
                       />
                     </div>
 
-                    <div className="rounded-lg bg-muted/40 p-3">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <span className="text-xs font-medium text-muted-foreground">
-                          ↳ 过载备用路由
-                        </span>
-                        <div className="flex items-center gap-2">
-                          {fallback ? (
-                            <>
-                              <Badge variant="secondary" className="px-1.5 py-0 text-[11px]">
-                                已开启备用
+                    <div className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2.5">
+                      {fallback ? (
+                        <div className="space-y-2.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-medium text-muted-foreground">
+                                过载备用
+                              </span>
+                              <Badge variant="outline" className="px-1.5 py-0 text-[11px]">
+                                已开启
                               </Badge>
-                              {probe ? (
-                                <Button
-                                  type="button"
-                                  size="xs"
-                                  variant="outline"
-                                  disabled={fallbackInvalid || probingKey !== null}
-                                  onClick={() => void runProbe(key, 'fallback')}
-                                >
-                                  <Activity className="size-3" />
-                                  {probingKey === `${key}:fallback` ? '探测中' : '探测备用'}
-                                </Button>
-                              ) : null}
-                            </>
-                          ) : (
-                            <span className="text-[11px] text-muted-foreground">不切换</span>
-                          )}
+                            </div>
+                            {probe ? (
+                              <Button
+                                type="button"
+                                size="xs"
+                                variant="outline"
+                                disabled={fallbackInvalid || probingKey !== null}
+                                onClick={() => void runProbe(key, 'fallback')}
+                              >
+                                <Activity className="size-3" />
+                                {probingKey === `${key}:fallback` ? '探测中' : '探测备用'}
+                              </Button>
+                            ) : null}
+                          </div>
+
+                          {fallbackProbe ? (
+                            <div
+                              className={cn(
+                                'rounded-md px-2.5 py-1.5 text-xs',
+                                fallbackProbe.ok
+                                  ? 'bg-success/10 text-success'
+                                  : fallbackProbe.status === 'unconfigured'
+                                    ? 'bg-warning/10 text-warning'
+                                    : 'bg-danger/10 text-danger',
+                              )}
+                            >
+                              {fallbackProbe.ok
+                                ? `备用路由连通正常 · ${fallbackProbe.latencyMs} ms`
+                                : (fallbackProbe.message ?? '探测未通过')}
+                            </div>
+                          ) : null}
+
+                          <div className="grid gap-2.5 sm:grid-cols-[minmax(0,1.12fr)_minmax(0,1.58fr)_minmax(0,1.15fr)]">
+                            <Choice
+                              label={`${DEPTH_LABELS[key]} · 过载备用 Provider`}
+                              visibleLabel="备用 Provider"
+                              value={fallback.providerId}
+                              options={[
+                                { value: '__none__', label: '不切换' },
+                                ...settings.providers.map((item) => ({
+                                  value: item.id,
+                                  label: item.name || item.id,
+                                })),
+                              ]}
+                              onChange={(providerId) => {
+                                if (providerId === '__none__') {
+                                  changeFallback(undefined)
+                                  return
+                                }
+                                changeFallback({ providerId, modelId: '', reasoning: 'off' })
+                              }}
+                            />
+                            <Choice
+                              label={`${DEPTH_LABELS[key]} · 过载备用模型`}
+                              visibleLabel="备用模型"
+                              value={fallback.modelId || '__unset__'}
+                              options={fallbackModels.map((item) => ({
+                                value: item.id,
+                                label: `${item.name} (${item.id})`,
+                              }))}
+                              onChange={(modelId) => {
+                                const levels = fallbackModels.find((item) => item.id === modelId)
+                                  ?.reasoningLevels ?? ['off']
+                                changeFallback({
+                                  ...fallback,
+                                  modelId,
+                                  reasoning: levels.includes(fallback.reasoning)
+                                    ? fallback.reasoning
+                                    : levels[0]!,
+                                })
+                              }}
+                            />
+                            <Choice
+                              label={`${DEPTH_LABELS[key]} · 过载备用推理强度`}
+                              visibleLabel="备用推理强度"
+                              value={fallback.reasoning || '__unset__'}
+                              options={(fallbackSelected?.reasoningLevels ?? []).map((level) => ({
+                                value: level,
+                                label: EFFORT_LABELS[level],
+                              }))}
+                              onChange={(reasoning) =>
+                                changeFallback({
+                                  ...fallback,
+                                  reasoning: reasoning as ModelReasoningLevel,
+                                })
+                              }
+                            />
+                          </div>
                         </div>
-                      </div>
-                      {fallbackProbe ? (
-                        <div
-                          className={cn(
-                            'mb-2.5 rounded-md px-2.5 py-1.5 text-xs',
-                            fallbackProbe.ok
-                              ? 'bg-success/10 text-success'
-                              : fallbackProbe.status === 'unconfigured'
-                                ? 'bg-warning/10 text-warning'
-                                : 'bg-danger/10 text-danger',
-                          )}
-                        >
-                          {fallbackProbe.ok
-                            ? `备用路由连通正常 · ${fallbackProbe.latencyMs} ms`
-                            : (fallbackProbe.message ?? '探测未通过')}
+                      ) : (
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs font-medium text-muted-foreground">
+                            过载备用
+                          </span>
+                          <div className="w-40">
+                            <Choice
+                              label={`${DEPTH_LABELS[key]} · 过载备用 Provider`}
+                              visibleLabel=""
+                              compact
+                              value="__none__"
+                              options={[
+                                { value: '__none__', label: '不切换' },
+                                ...settings.providers.map((item) => ({
+                                  value: item.id,
+                                  label: item.name || item.id,
+                                })),
+                              ]}
+                              onChange={(providerId) => {
+                                if (providerId === '__none__') return
+                                changeFallback({ providerId, modelId: '', reasoning: 'off' })
+                              }}
+                            />
+                          </div>
                         </div>
-                      ) : null}
-                      <div className="grid gap-2.5 sm:grid-cols-3">
-                        <Choice
-                          label={`${DEPTH_LABELS[key]} · 过载备用 Provider`}
-                          visibleLabel="备用 Provider"
-                          value={fallback?.providerId ?? '__none__'}
-                          options={[
-                            { value: '__none__', label: '不切换' },
-                            ...settings.providers.map((item) => ({
-                              value: item.id,
-                              label: item.name || item.id,
-                            })),
-                          ]}
-                          onChange={(providerId) => {
-                            if (providerId === '__none__') {
-                              changeFallback(undefined)
-                              return
-                            }
-                            changeFallback({ providerId, modelId: '', reasoning: 'off' })
-                          }}
-                        />
-                        <Choice
-                          label={`${DEPTH_LABELS[key]} · 过载备用模型`}
-                          visibleLabel="备用模型"
-                          value={fallback?.modelId || '__unset__'}
-                          disabled={!fallback}
-                          options={fallbackModels.map((item) => ({
-                            value: item.id,
-                            label: `${item.name} (${item.id})`,
-                          }))}
-                          onChange={(modelId) => {
-                            if (!fallback) return
-                            const levels = fallbackModels.find((item) => item.id === modelId)
-                              ?.reasoningLevels ?? ['off']
-                            changeFallback({
-                              ...fallback,
-                              modelId,
-                              reasoning: levels.includes(fallback.reasoning)
-                                ? fallback.reasoning
-                                : levels[0]!,
-                            })
-                          }}
-                        />
-                        <Choice
-                          label={`${DEPTH_LABELS[key]} · 过载备用推理强度`}
-                          visibleLabel="备用推理强度"
-                          value={fallback?.reasoning || '__unset__'}
-                          disabled={!fallback}
-                          options={(fallbackSelected?.reasoningLevels ?? []).map((level) => ({
-                            value: level,
-                            label: EFFORT_LABELS[level],
-                          }))}
-                          onChange={(reasoning) => {
-                            if (!fallback) return
-                            changeFallback({
-                              ...fallback,
-                              reasoning: reasoning as ModelReasoningLevel,
-                            })
-                          }}
-                        />
-                      </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -615,15 +652,9 @@ export function AgentModelSettingsForm({
           </div>
         </section>
 
-        <section className="space-y-4 rounded-xl border bg-card p-4">
+        <section className="space-y-3 rounded-xl border bg-card p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold">Agent Provider 接入实例</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                复用 Pi
-                厂商目录或挂载自定义兼容网关。真实密钥只存后端环境或「密钥池与预算」，此处仅声明环境变量名引用。
-              </p>
-            </div>
+            <h2 className="text-base font-semibold">Agent Provider 实例</h2>
             <Button
               type="button"
               size="sm"
@@ -652,7 +683,7 @@ export function AgentModelSettingsForm({
             </Button>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             {settings.providers.map((provider, index) => (
               <ProviderEditor
                 key={provider.id}
@@ -676,10 +707,6 @@ export function AgentModelSettingsForm({
             ))}
           </div>
         </section>
-
-        <p className="text-xs text-muted-foreground">
-          保存后从下一轮对话生效，进行中的对话轮保持原配置；模型上下架与积分单价在「模型与定价」页签统一管理。
-        </p>
       </fieldset>
     </form>
   )
@@ -704,9 +731,26 @@ function ProviderEditor({
   const [modelsOpen, setModelsOpen] = useState(
     () => provider.models.length > 0 || provider.template === 'custom',
   )
+  const [expandedModels, setExpandedModels] = useState<Record<number, boolean>>({})
+
+  function toggleModelExpanded(index: number) {
+    setExpandedModels((current) => ({ ...current, [index]: !current[index] }))
+  }
+
+  function removeExpandedModel(removedIndex: number) {
+    setExpandedModels((current) => {
+      const next: Record<number, boolean> = {}
+      for (const [rawKey, isOpen] of Object.entries(current)) {
+        const key = Number(rawKey)
+        if (!isOpen || key === removedIndex) continue
+        next[key > removedIndex ? key - 1 : key] = true
+      }
+      return next
+    })
+  }
 
   return (
-    <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
+    <div className="space-y-3 rounded-xl border bg-background p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-sm font-semibold">{provider.name}</h3>
@@ -725,16 +769,16 @@ function ProviderEditor({
               aria-hidden
             />
             {credentialReady === undefined
-              ? '待保存核验凭证'
+              ? '待核验凭证'
               : credentialReady
                 ? '凭证已配置'
-                : '未配置凭证'}
+                : '缺密钥'}
           </span>
         </div>
         <Button
           type="button"
           variant="ghost"
-          size="sm"
+          size="xs"
           disabled={inUse}
           onClick={onRemove}
           aria-label={`删除 ${provider.name}`}
@@ -754,7 +798,7 @@ function ProviderEditor({
         />
         <Choice
           label={`${provider.id} · Pi Provider`}
-          visibleLabel="Pi 厂商模板"
+          visibleLabel="厂商模板"
           value={provider.template}
           options={templates.map((item) => ({ value: item.id, label: item.name }))}
           onChange={(value) => {
@@ -764,7 +808,7 @@ function ProviderEditor({
         />
         <Field
           label={`${provider.id} · API 地址（留空使用厂商默认）`}
-          visibleLabel={`API 地址${template?.baseUrl ? `（默认 ${template.baseUrl}）` : '（自定义 HTTPS 地址）'}`}
+          visibleLabel={`API 地址${template?.baseUrl ? `（默认 ${template.baseUrl}）` : ''}`}
           value={provider.baseUrl}
           mono
           placeholder={template?.baseUrl || 'https://api.example.com/v1'}
@@ -784,27 +828,31 @@ function ProviderEditor({
             onChange={(secretRef) => onChange({ ...provider, secretRef })}
           />
           <div className="flex flex-wrap gap-1">
-            {AGENT_PROVIDER_SECRET_REFS.slice(0, 6).map((refName) => (
-              <button
-                key={refName}
-                type="button"
-                onClick={() => onChange({ ...provider, secretRef: refName })}
-                className={cn(
-                  'rounded border px-1.5 py-0.5 font-mono text-[11px] transition-colors',
-                  provider.secretRef === refName
-                    ? 'border-foreground bg-foreground text-background'
-                    : 'bg-background text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {refName}
-              </button>
-            ))}
+            {AGENT_PROVIDER_SECRET_REFS.slice(0, 6).map((refName) => {
+              const selected = provider.secretRef === refName
+              return (
+                <button
+                  key={refName}
+                  type="button"
+                  onClick={() => onChange({ ...provider, secretRef: refName })}
+                  className={cn(
+                    'inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-mono text-[11px] transition-colors',
+                    selected
+                      ? 'border-primary/50 bg-secondary font-medium text-foreground'
+                      : 'border-border bg-background text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {selected ? <Check className="size-3 text-success" /> : null}
+                  {refName}
+                </button>
+              )
+            })}
           </div>
         </div>
       </div>
 
-      <div className="rounded-lg border bg-background">
-        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
+      <div className="rounded-lg border">
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-muted/25 px-3 py-2">
           <button
             type="button"
             onClick={() => setModelsOpen((prev) => !prev)}
@@ -822,7 +870,9 @@ function ProviderEditor({
             size="xs"
             variant="outline"
             onClick={() => {
+              const nextIndex = provider.models.length
               setModelsOpen(true)
+              setExpandedModels((current) => ({ ...current, [nextIndex]: true }))
               onChange({
                 ...provider,
                 models: [
@@ -846,31 +896,95 @@ function ProviderEditor({
         </div>
 
         {modelsOpen ? (
-          <div className="space-y-3 border-t p-3">
+          <div className="divide-y border-t">
             {provider.models.length === 0 ? (
-              <p className="text-xs text-muted-foreground">
-                内置厂商目录的模型可直接在上方档位中选择；仅在目录缺失该模型或需覆盖上下文窗口时在此添加。
+              <p className="px-3 py-3 text-xs text-muted-foreground">
+                内置目录模型可直接在上方档位中选择，按需添加自定义覆盖。
               </p>
             ) : (
-              provider.models.map((model, index) => (
-                <ModelEditor
-                  key={`${index}-${provider.id}`}
-                  model={model}
-                  label={`${provider.id} 模型 ${index + 1}`}
-                  onChange={(next) =>
-                    onChange({
-                      ...provider,
-                      models: provider.models.map((item, i) => (i === index ? next : item)),
-                    })
-                  }
-                  onRemove={() =>
-                    onChange({
-                      ...provider,
-                      models: provider.models.filter((_, i) => i !== index),
-                    })
-                  }
-                />
-              ))
+              provider.models.map((model, index) => {
+                const expanded = Boolean(expandedModels[index])
+                return (
+                  <div key={`${index}-${provider.id}`} className="bg-background">
+                    <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
+                      <button
+                        type="button"
+                        onClick={() => toggleModelExpanded(index)}
+                        className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1 text-left"
+                      >
+                        {expanded ? (
+                          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+                        )}
+                        <span className="truncate text-xs font-medium text-foreground">
+                          {model.name || model.id || `模型 ${index + 1}`}
+                        </span>
+                        {model.id ? (
+                          <span className="font-mono text-xs text-muted-foreground">
+                            {model.id}
+                          </span>
+                        ) : (
+                          <Badge variant="warning" className="px-1.5 py-0 text-[11px]">
+                            待填 ID
+                          </Badge>
+                        )}
+                        <Badge variant="outline" className="px-1.5 py-0 font-mono text-[11px]">
+                          {model.api}
+                        </Badge>
+                        <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                          {formatCompactTokens(model.contextWindow)} ctx ·{' '}
+                          {formatCompactTokens(model.maxTokens)} out
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {model.imageInput ? '视觉' : '仅文本'} · {model.reasoningLevels.length}{' '}
+                          档推理
+                        </span>
+                      </button>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="xs"
+                          onClick={() => toggleModelExpanded(index)}
+                        >
+                          {expanded ? '收起' : '编辑'}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          onClick={() => {
+                            removeExpandedModel(index)
+                            onChange({
+                              ...provider,
+                              models: provider.models.filter((_, i) => i !== index),
+                            })
+                          }}
+                          aria-label={`删除 ${provider.id} 模型 ${index + 1}`}
+                        >
+                          <Trash2 />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {expanded ? (
+                      <div className="border-t bg-muted/20 p-3">
+                        <ModelEditor
+                          model={model}
+                          label={`${provider.id} 模型 ${index + 1}`}
+                          onChange={(next) =>
+                            onChange({
+                              ...provider,
+                              models: provider.models.map((item, i) => (i === index ? next : item)),
+                            })
+                          }
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })
             )}
           </div>
         ) : null}
@@ -883,28 +997,13 @@ function ModelEditor({
   model,
   label,
   onChange,
-  onRemove,
 }: {
   model: AgentConfiguredModel
   label: string
   onChange: (next: AgentConfiguredModel) => void
-  onRemove: () => void
 }) {
   return (
-    <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
-      <div className="flex items-center justify-between gap-2">
-        <span className="font-mono text-xs font-medium text-muted-foreground">{label}</span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          onClick={onRemove}
-          aria-label={`删除 ${label}`}
-        >
-          <Trash2 className="size-3" />
-          删除模型
-        </Button>
-      </div>
+    <div className="space-y-3">
       <div className="grid gap-3 md:grid-cols-3">
         <Field
           label={`${label} · 模型 ID`}
@@ -952,7 +1051,7 @@ function ModelEditor({
               onCheckedChange={(checked) => onChange({ ...model, imageInput: checked })}
             />
             <label htmlFor={`${label}-vision`} className="cursor-pointer text-xs font-medium">
-              支持图片输入（视觉）
+              支持图片输入
             </label>
           </div>
         </div>
@@ -971,8 +1070,8 @@ function ModelEditor({
                 className={cn(
                   'inline-flex cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors',
                   checked
-                    ? 'border-foreground bg-foreground text-background'
-                    : 'bg-background text-muted-foreground hover:text-foreground',
+                    ? 'border-primary/50 bg-secondary font-medium text-foreground'
+                    : 'border-border bg-background text-muted-foreground hover:text-foreground',
                 )}
               >
                 <input
@@ -989,6 +1088,7 @@ function ModelEditor({
                     })
                   }
                 />
+                {checked ? <Check className="size-3 text-success" /> : null}
                 <span>{EFFORT_LABELS[level]}</span>
               </label>
             )

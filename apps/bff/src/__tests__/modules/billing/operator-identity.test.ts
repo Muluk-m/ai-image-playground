@@ -89,7 +89,7 @@ describe('internal billing operator attribution', () => {
       payment: { operation_id: operationId, amount_cents: 100 },
     }
     const path = `/users/${userId}/recharge`
-    const { adjustRechargeCredits } = await import('../../../modules/billing/service')
+    const { adjustRechargeCredits } = await import('../../../modules/billing/ledger')
     await adjustRechargeCredits({
       userId,
       amount: body.amount,

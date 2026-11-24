@@ -24,14 +24,9 @@ export function ChannelTopologyPanel({ channels }: { channels: readonly ManagedC
 
   return (
     <Card>
-      <CardHeader className="flex-row flex-wrap items-baseline justify-between gap-3 space-y-0 pb-3">
-        <div>
-          <CardTitle className="text-base">生成渠道拓扑（channels.json）</CardTitle>
-          <p className="mt-1 text-xs text-muted-foreground">
-            图片与视频上游分发通道只读快照；渠道顺序决定默认兜底优先级，密钥值可在「密钥池与预算」热更新。
-          </p>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <CardHeader className="flex-row flex-wrap items-center justify-between gap-3 space-y-0 pb-3">
+        <CardTitle className="text-base">生成渠道拓扑（channels.json）</CardTitle>
+        <div className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
           <span>启用 {activeCount}</span>
           {unconfiguredCount > 0 ? <span>· 待配凭证 {unconfiguredCount}</span> : null}
           {disabledCount > 0 ? <span>· 已下线 {disabledCount}</span> : null}
@@ -45,12 +40,12 @@ export function ChannelTopologyPanel({ channels }: { channels: readonly ManagedC
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>渠道</TableHead>
+                  <TableHead className="pl-4">渠道</TableHead>
                   <TableHead>协议与调度</TableHead>
                   <TableHead>并发与超时</TableHead>
                   <TableHead>绑定密钥引用</TableHead>
                   <TableHead>状态</TableHead>
-                  <TableHead>承载模型</TableHead>
+                  <TableHead className="pr-4">承载模型</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -59,27 +54,27 @@ export function ChannelTopologyPanel({ channels }: { channels: readonly ManagedC
                     key={channel.id}
                     className={channel.status === 'disabled' ? 'opacity-65' : undefined}
                   >
-                    <TableCell className="min-w-[150px] align-top">
+                    <TableCell className="min-w-[150px] py-3 pl-4 align-middle">
                       <div className="font-medium">{channel.label}</div>
                       <div className="mt-0.5 font-mono text-xs text-muted-foreground">
                         {channel.id}
                       </div>
                     </TableCell>
-                    <TableCell className="min-w-[150px] align-top">
+                    <TableCell className="min-w-[150px] py-3 align-middle">
                       <div className="text-xs font-medium">{KIND_LABELS[channel.kind]}</div>
                       <div className="mt-0.5 text-xs text-muted-foreground">
                         {channel.dispatchMode === 'dual'
-                          ? '直连同步 / 网关异步双通道'
+                          ? '直连同步 / 网关异步'
                           : channel.dispatchMode === 'async' || channel.asyncTasks
-                            ? '异步任务轮询'
-                            : '同步流/响应'}{' '}
+                            ? '异步轮询'
+                            : '同步响应'}{' '}
                         · {channel.authType === 'bearer' ? 'Bearer' : 'Query Key'}
                       </div>
                     </TableCell>
-                    <TableCell className="min-w-[130px] align-top font-mono text-xs">
+                    <TableCell className="min-w-[128px] py-3 align-middle font-mono text-xs">
                       <div>
                         {channel.maxConcurrency !== undefined
-                          ? `渠道并发 ≤${channel.maxConcurrency}`
+                          ? `并发 ≤${channel.maxConcurrency}`
                           : '默认调度'}
                       </div>
                       {channel.timeoutSeconds ? (
@@ -88,7 +83,7 @@ export function ChannelTopologyPanel({ channels }: { channels: readonly ManagedC
                         </div>
                       ) : null}
                     </TableCell>
-                    <TableCell className="min-w-[160px] align-top">
+                    <TableCell className="min-w-[160px] py-3 align-middle">
                       <div className="font-mono text-xs">{channel.secretRef}</div>
                       <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
                         <span
@@ -101,7 +96,7 @@ export function ChannelTopologyPanel({ channels }: { channels: readonly ManagedC
                         <span>{channel.secretConfigured ? '密钥已就绪' : '缺少密钥'}</span>
                       </div>
                     </TableCell>
-                    <TableCell className="w-[110px] align-top">
+                    <TableCell className="w-[104px] py-3 align-middle">
                       {channel.status === 'active' ? (
                         <Badge variant="success">启用中</Badge>
                       ) : channel.status === 'unconfigured' ? (
@@ -110,7 +105,7 @@ export function ChannelTopologyPanel({ channels }: { channels: readonly ManagedC
                         <Badge variant="secondary">已下线</Badge>
                       )}
                     </TableCell>
-                    <TableCell className="min-w-[260px] align-top">
+                    <TableCell className="min-w-[240px] py-3 pr-4 align-middle">
                       <div className="flex flex-wrap gap-1.5">
                         {channel.models.map((model) => (
                           <div

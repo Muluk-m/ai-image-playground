@@ -30,8 +30,13 @@ export interface PrivateAdminOverlay {
   OverviewPanel: ComponentType
   SettingsPanel: ComponentType
   OrdersPanel?: ComponentType
-  /** 「模型」页每一行的单价编辑；上下架归公开侧，这里只管价格。缺席即不收费。 */
-  ModelPricing?: ComponentType<{ model: string; kind: ManagedModelKind }>
+  /** 「模型」页每一行的单价摘要与抽屉编辑；上下架归公开侧，这里只管价格。缺席即不收费。 */
+  ModelPricing?: ComponentType<{
+    model: string
+    kind: ManagedModelKind
+    mode?: 'summary' | 'editor'
+    onEdit?: () => void
+  }>
   userDetailProfile?: true
   UserDetailPanel: ComponentType<{
     userId: string
@@ -165,7 +170,12 @@ export function PrivateAdminOrdersPanel() {
   )
 }
 
-export function PrivateAdminModelPricing(props: { model: string; kind: ManagedModelKind }) {
+export function PrivateAdminModelPricing(props: {
+  model: string
+  kind: ManagedModelKind
+  mode?: 'summary' | 'editor'
+  onEdit?: () => void
+}) {
   const enabled = usePrivateAdminOverlayEnabled()
   const Component = overlay.ModelPricing
   if (!enabled || !Component) return null
