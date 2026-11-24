@@ -153,3 +153,41 @@ it('keeps looking up to now for a task that has not finished, so a late executio
   vi.useRealTimers()
   task.completed_at = Date.UTC(2026, 10, 24, 2, 0, 25)
 })
+
+it('keeps asking for traces while a just-finished task has not exported its spans yet', async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true })
+  task.completed_at = Date.now() - 5_000
+  get.mockReset()
+  let exported = false
+  get.mockImplementation(async (path: string) => {
+    if (path.includes('/traces?'))
+      return exported
+        ? { more: false, traces: [{ traceId: EXECUTE, startedAt: Date.now() - 30_000 }] }
+        : { more: false, traces: [] }
+    return {
+      entries: [
+        { id: 'log-1', at: Date.now(), level: 'info', message: 'task completed', fields: {} },
+      ],
+    }
+  })
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <TaskDetailSheet taskId="task-1" onOpenChange={() => {}} />
+    </QueryClientProvider>,
+  )
+  expect(await screen.findByRole('tab', { name: '服务端日志 1' })).toBeInTheDocument()
+  expect(screen.queryByRole('tab', { name: /^链路/ })).toBeNull()
+
+  // span 随后入库：抽屉一直开着，链路页签自己出现。
+  exported = true
+  await vi.advanceTimersByTimeAsync(10_000)
+  expect(await screen.findByRole('tab', { name: '链路 1' })).toBeInTheDocument()
+
+  // 过了收尾窗口就不再后台重取。
+  await vi.advanceTimersByTimeAsync(3 * 60_000)
+  const calls = get.mock.calls.length
+  await vi.advanceTimersByTimeAsync(60_000)
+  expect(get.mock.calls.length).toBe(calls)
+  vi.useRealTimers()
+  task.completed_at = Date.UTC(2026, 10, 24, 2, 0, 25)
+})
