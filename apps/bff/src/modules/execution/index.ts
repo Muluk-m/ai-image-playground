@@ -23,12 +23,16 @@ export {
 } from './task-execution-hooks'
 export {
   _resetTaskLifecycleListenersForTesting,
+  assertTaskLifecycleListenerRegistered,
   type CancelledTaskRecord,
+  type ExecutionTaskUsage,
   type ExecutionTransaction,
   emitTaskFinished,
   emitTasksCancelled,
   type GenerationMediaLink,
   listTaskLifecycleListenerIds,
+  MissingTaskLifecycleListenerError,
+  prepareTaskLifecycleStage,
   registerTaskLifecycleListener,
   type TaskFinishedEvent,
   type TaskLifecycleListener,

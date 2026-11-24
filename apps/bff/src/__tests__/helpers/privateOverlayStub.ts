@@ -1,3 +1,4 @@
+import '../../bootstrap/task-lifecycle'
 import {
   _setPrivateBffOverlayForTesting,
   type ChatPricing,

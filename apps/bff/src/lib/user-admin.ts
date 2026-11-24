@@ -11,10 +11,10 @@ import {
 } from '@image-playground/shared'
 import { and, asc, eq, inArray } from 'drizzle-orm'
 import { db, schema } from '../db/client'
+import { loadAccountLifecyclePort } from './billing-ports'
 import { isCapabilityEnabled } from './capabilities'
 import { oauthUsernameCandidates } from './oauth/username'
 import { revokePasswordResetTokens } from './password-reset'
-import { loadPrivateBffOverlay } from './private-overlay'
 import { consumeRegistrationVerification } from './registration-verification'
 import {
   type IssuedWebSession,
@@ -128,7 +128,7 @@ async function provisionUser(
 
   const now = Date.now()
   const id = randomUUID()
-  const taskHooks = (await loadPrivateBffOverlay()).taskHooks
+  const taskHooks = await loadAccountLifecyclePort()
   try {
     const result = await db.transaction(async (tx) => {
       let emailVerifiedAt: number | null = null
@@ -324,7 +324,7 @@ export async function loginWithOAuthIdentity(
   if (existingUserId) return loginExistingIdentity(identity, existingUserId, options.client)
   if (!options.allowRegistration) return { registrationClosed: true }
 
-  const taskHooks = (await loadPrivateBffOverlay()).taskHooks
+  const taskHooks = await loadAccountLifecyclePort()
   const candidates = await firstFreeUsernames(
     oauthUsernameCandidates({
       ...identity,
@@ -518,7 +518,7 @@ export async function unlinkOAuthIdentity(
       .where(eq(schema.user_identities.user_id, userId))
     const target = identities.find((row) => row.provider === provider)
     if (!target) return 'not_linked'
-    const unlinkPolicy = (await loadPrivateBffOverlay()).taskHooks.canUnlinkOAuthIdentity
+    const unlinkPolicy = (await loadAccountLifecyclePort()).canUnlinkOAuthIdentity
     if (unlinkPolicy) {
       const decision = await unlinkPolicy({ tx, userId, provider, subject: target.subject })
       if (!decision.allowed) return 'protected_identity'

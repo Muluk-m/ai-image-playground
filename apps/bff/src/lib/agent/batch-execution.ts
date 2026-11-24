@@ -21,16 +21,12 @@ import {
   quoteAnalysisTask,
   reserveAnalysisTask,
 } from '../analysis-tasks'
+import { type BffTransaction, loadMeteringPort, nonBillingPriceSnapshot } from '../billing-ports'
 import { isCapabilityEnabled } from '../capabilities'
 import { declaredImageSizes } from '../channels'
 import { isActiveMember } from '../gpt-membership'
 import { log } from '../logger'
 import { meteringDecisionOrDenied } from '../metering-decision'
-import {
-  type BffTransaction,
-  loadPrivateBffOverlay,
-  nonBillingPriceSnapshot,
-} from '../private-overlay'
 import { SafeFetchError } from '../safeFetch'
 import type { SubmissionRefusal } from '../submissionRefusal'
 import { cancelUpstreamOfCancelledTasks } from '../upstream-cancel'
@@ -300,7 +296,7 @@ async function quoteGenerationTask(
   model: string,
   unitMultiplier: number,
 ) {
-  const hooks = (await loadPrivateBffOverlay()).taskHooks
+  const hooks = await loadMeteringPort()
   const decision = meteringDecisionOrDenied(
     await hooks.meteringDecision?.({
       tx,
@@ -340,7 +336,7 @@ async function currentQuote(
     estimate?.status === 'available'
       ? estimate.snapshots.find((one) => one.itemKey === item.key)
       : undefined
-  const hooks = (await loadPrivateBffOverlay()).taskHooks
+  const hooks = await loadMeteringPort()
   const quote =
     item.kind === 'analysis'
       ? await quoteAnalysisTask(
@@ -608,7 +604,7 @@ async function dispatchPreparedBatch(
           submittedAt = Date.now()
           const reservation = await reserveAnalysisTask({
             tx,
-            taskHooks: (await loadPrivateBffOverlay()).taskHooks,
+            taskHooks: await loadMeteringPort(),
             taskId,
             userId,
             deviceId: current.device_id!,
@@ -823,7 +819,7 @@ export async function repriceAgentBatch(
       .select()
       .from(schema.agent_batch_attempts)
       .where(eq(schema.agent_batch_attempts.batch_id, id))
-    const hooks = (await loadPrivateBffOverlay()).taskHooks
+    const hooks = await loadMeteringPort()
     const member = items.some(
       (item) => item.kind === 'generation' && item.params.gemini_image_size === '4K',
     )

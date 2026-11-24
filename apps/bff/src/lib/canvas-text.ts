@@ -17,10 +17,10 @@ import {
   providerCredentialReady,
 } from './agent/provider-settings'
 import { assertRequestWithinBudget, requestInputTokens } from './agent/request-budget'
+import { loadMeteringPort, type TaskReservationFailure } from './billing-ports'
 import { bffDrain } from './drain'
 import { meteringDecisionOrDenied } from './metering-decision'
 import { modelUnavailable } from './model-availability'
-import { loadPrivateBffOverlay, type TaskReservationFailure } from './private-overlay'
 import { reservedTokenUsage, settledTokenUsage, type TokenUsage } from './token-pricing'
 
 export class CanvasTextError extends Error {
@@ -120,7 +120,7 @@ export async function generateCanvasText(
         },
       ],
     }
-    const hooks = (await loadPrivateBffOverlay()).taskHooks
+    const hooks = await loadMeteringPort()
     const billed = chatTurnsBilled()
     if (billed && !userId) throw new CanvasTextError('unauthorized', 401)
     const legacyPricing =

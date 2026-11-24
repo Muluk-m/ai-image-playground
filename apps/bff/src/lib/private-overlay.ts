@@ -5,10 +5,15 @@ import type { OAuthProviderDefinition } from './oauth/provider'
 import { getOAuthProviderDefinition, registerOAuthProviders } from './oauth/registry'
 
 export {
+  type AccountLifecyclePort,
   type BffTransaction,
+  type BillingPorts,
+  billingPortsFromTaskHooks,
   type ChatPricing,
+  type EntitlementPort,
   type MeteringDecision,
   type MeteringDecisionInput,
+  type MeteringPort,
   nonBillingPriceSnapshot,
   type PrivateTaskHooks,
   reservationFailureResponse,

@@ -14,13 +14,16 @@ import {
 import { and, asc, eq } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
+import {
+  type BffTransaction,
+  loadMeteringPort,
+  type TaskReservationFailure,
+} from '../billing-ports'
 import { isCapabilityEnabled } from '../capabilities'
 import { askChatModel } from '../chatCompletion'
 import { log } from '../logger'
 import { meteringDecisionOrDenied } from '../metering-decision'
 import { modelUnavailable, refreshInactiveModels } from '../model-availability'
-import type { BffTransaction, TaskReservationFailure } from '../private-overlay'
-import { loadPrivateBffOverlay } from '../private-overlay'
 import { isObject } from '../type-guards'
 import { clearAgentWakeSkippedForWakes } from './background-jobs'
 import { BATCH_WAKE_REVIEW_IMAGE_MAX, batchWakeContent } from './batch-wake'
@@ -237,8 +240,8 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
   await refreshInactiveModels()
   // 可能抛的那两件事先落定，再让来源去备内容：用户消息那一路会把参考图写进对象存储，跟它们
   // 并排跑的话，它们抛出时那些字节还没有任何东西指着，也没有谁去清。
-  const [overlay, loadedAudience, resolved, surface] = await Promise.all([
-    loadPrivateBffOverlay(),
+  const [metering, loadedAudience, resolved, surface] = await Promise.all([
+    loadMeteringPort(),
     // 技能与这个用户自建的模板一起取：两者都要进系统提示词，预扣也按它们算。
     ensureAgentSkills().then(() => loadAgentTurnAudience(userId)),
     loadAgentExperience(conversationId, userId, source),
@@ -288,9 +291,9 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
     // Older pinned overlays have no account policy and query prices outside the supplied transaction.
     // Resolve their price before holding a connection; account-aware overlays price only after authorization.
     let legacyPricing: ChatTaskPricing | null = null
-    if (!overlay.taskHooks.meteringDecision && userId && (billChat || waiveChat)) {
+    if (!metering.meteringDecision && userId && (billChat || waiveChat)) {
       try {
-        legacyPricing = await chatTaskPricing(overlay.taskHooks, selectedModel)
+        legacyPricing = await chatTaskPricing(metering, selectedModel)
       } catch (err) {
         if (billChat) throw err
         log.warn(
@@ -390,7 +393,7 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       let pricing: ChatTaskPricing | null = null
       if (userId) {
         const decision = meteringDecisionOrDenied(
-          await overlay.taskHooks.meteringDecision?.({
+          await metering.meteringDecision?.({
             tx,
             userId,
             model: selectedModel,
@@ -399,13 +402,13 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
             unitMultiplier: 1,
             inputEstimateTokens: withNote.estimatedInputTokens,
           }),
-          overlay.taskHooks.consumeUnmeteredQuota,
+          metering.consumeUnmeteredQuota,
         )
         if (decision?.kind === 'denied')
           throw new TurnStartRollback({ kind: 'access_denied', reason: decision.reason })
         unmetered = decision?.kind === 'unmetered'
-        if (unmetered && overlay.taskHooks.consumeUnmeteredQuota) {
-          const quota = await overlay.taskHooks.consumeUnmeteredQuota({
+        if (unmetered && metering.consumeUnmeteredQuota) {
+          const quota = await metering.consumeUnmeteredQuota({
             tx,
             userId,
             model: selectedModel,
@@ -419,10 +422,10 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
       }
       let chosen = withNote
       if (!unmetered && billChat && userId) {
-        pricing = legacyPricing ?? (await chatTaskPricing(overlay.taskHooks, selectedModel, tx))
+        pricing = legacyPricing ?? (await chatTaskPricing(metering, selectedModel, tx))
         const chatTask = {
           tx,
-          taskHooks: overlay.taskHooks,
+          taskHooks: metering,
           conversationId,
           turnId,
           userId,
@@ -445,8 +448,8 @@ export async function prepareAgentTurn(input: PrepareTurnInput): Promise<TurnPre
         reserved = reservation
       } else if (!unmetered && waiveChat && userId) {
         try {
-          pricing = overlay.taskHooks.meteringDecision
-            ? await chatTaskPricing(overlay.taskHooks, selectedModel, tx)
+          pricing = metering.meteringDecision
+            ? await chatTaskPricing(metering, selectedModel, tx)
             : legacyPricing
         } catch (err) {
           log.warn(

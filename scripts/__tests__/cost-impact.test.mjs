@@ -20,6 +20,8 @@ test('模型、供应商、定价、额度、扣费入口和计费模块的改�
     'apps/bff/src/lib/upstream/openai.ts',
     'apps/bff/src/lib/upstream.ts',
     'apps/bff/src/lib/token-pricing.ts',
+    'apps/bff/src/lib/billing-ports.ts',
+    'apps/bff/src/modules/execution/task-lifecycle-bus.ts',
     'apps/bff/src/modules/execution/task-submission.ts',
     'apps/bff/src/modules/execution/task-submission-plugins.ts',
     'apps/bff/src/modules/execution/task-execution-hooks.ts',

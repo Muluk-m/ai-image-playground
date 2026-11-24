@@ -21,17 +21,17 @@ import { AgentToolError } from './agent/tools/errors'
 import { prepareVisualEvidence, visualEvidenceOf } from './agent/visual-input'
 import { withVisualPreparation, withVisualSignal } from './agent/visual-resources'
 import { analysisComparison } from './analysis-comparison'
+import {
+  type BffTransaction,
+  loadMeteringPort,
+  type MeteringPort,
+  nonBillingPriceSnapshot,
+  type TaskReservationResult,
+} from './billing-ports'
 import { isCapabilityEnabled } from './capabilities'
 import { type ChatAttempt, extractJson } from './chatCompletion'
 import { meteringDecisionOrDenied } from './metering-decision'
 import { modelUnavailable } from './model-availability'
-import {
-  type BffTransaction,
-  loadPrivateBffOverlay,
-  nonBillingPriceSnapshot,
-  type PrivateTaskHooks,
-  type TaskReservationResult,
-} from './private-overlay'
 import { lockMediaOwner } from './projectMedia'
 import { reservedTokenUsage, settledTokenUsage } from './token-pricing'
 import { isObject } from './type-guards'
@@ -126,7 +126,7 @@ export async function prepareAnalysisTask(input: {
 
 export interface ReserveAnalysisTaskInput {
   tx: BffTransaction
-  taskHooks: PrivateTaskHooks
+  taskHooks: MeteringPort
   taskId: string
   userId: string
   deviceId: string
@@ -147,9 +147,9 @@ export async function quoteAnalysisTask(
     model: string
     estimatedInputTokens: number
   },
-  hooks?: PrivateTaskHooks,
+  hooks?: MeteringPort,
 ) {
-  const activeHooks = hooks ?? (await loadPrivateBffOverlay()).taskHooks
+  const activeHooks = hooks ?? (await loadMeteringPort())
   const decision = meteringDecisionOrDenied(
     await activeHooks.meteringDecision?.({
       tx: input.tx,
@@ -426,7 +426,7 @@ export async function finalizeAnalysisTask(
   token: string,
   options: { tx?: BffTransaction; confirmedNoResult?: boolean } = {},
 ): Promise<boolean> {
-  const hooks = (await loadPrivateBffOverlay()).taskHooks
+  const hooks = await loadMeteringPort()
   const finish = async (tx: BffTransaction) => {
     const [task] = await tx
       .select()
@@ -542,7 +542,7 @@ let analysisRecovery: Promise<void> | undefined
 /** Billing is authoritative even after capability changes or transient task cleanup. Missing is not zero. */
 export async function refreshAnalysisTaskCosts(taskIds?: readonly string[]): Promise<void> {
   if (taskIds && !taskIds.length) return
-  const hooks = (await loadPrivateBffOverlay()).taskHooks
+  const hooks = await loadMeteringPort()
   let afterId = taskIds ? undefined : analysisCostCursor
   for (;;) {
     const pending = await db
@@ -587,7 +587,7 @@ export async function recordAnalysisAttempt(
   attempt: ChatAttempt,
   cancelled: boolean,
 ): Promise<void> {
-  const hooks = (await loadPrivateBffOverlay()).taskHooks
+  const hooks = await loadMeteringPort()
   await db.transaction(async (tx) => {
     // Match cancel/finalize lock order; late evidence does not regain a lease.
     const [task] = await tx
@@ -748,7 +748,7 @@ export async function cancelAnalysisTasks(
   access: import('drizzle-orm').SQL,
   executor?: BffTransaction,
 ): Promise<number> {
-  const hooks = (await loadPrivateBffOverlay()).taskHooks
+  const hooks = await loadMeteringPort()
   const cancel = async (tx: BffTransaction) => {
     const rows = await tx
       .select({ id: schema.tasks.id })

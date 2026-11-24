@@ -21,9 +21,9 @@ import {
   videoModelSupportOf,
   videoRateMultiplier,
 } from '@image-playground/shared'
+import { type BffTransaction, loadEntitlementPort } from '../../lib/billing-ports'
 import { declaredImageSizes } from '../../lib/channels'
 import { isActiveMember } from '../../lib/gpt-membership'
-import { type BffTransaction, loadPrivateBffOverlay } from '../../lib/private-overlay'
 import { isObject } from '../../lib/type-guards'
 import { gptDirectConfigured, gptImage26DirectKey } from '../../lib/upstream/gpt-routing'
 import type {
@@ -91,7 +91,7 @@ export async function premiumRequestAllowed(
   model: string,
   request: Pick<SubmitRequest, 'image_size' | 'size'>,
 ): Promise<boolean> {
-  const { canSubmitTask } = (await loadPrivateBffOverlay()).taskHooks
+  const { canSubmitTask } = await loadEntitlementPort()
   if (!canSubmitTask) return true
   // image_size 归一成档位：OpenAI 兼容模型只有像素 size，钩子仍按同一个「4K」判断。
   return canSubmitTask({
@@ -130,7 +130,7 @@ export async function strictImageRequestAllowed(
     if (!gptDirectConfigured(model)) return false
     if (!requires.membership) return true
     // 4K 与高画质跟网站的 4K 用同一道订阅门。没有这道钩子的部署不能授权严格请求。
-    if (!(await loadPrivateBffOverlay()).taskHooks.canSubmitTask) return false
+    if (!(await loadEntitlementPort()).canSubmitTask) return false
     return premiumRequestAllowed(tx, userId, model, request)
   }
   return !requires.membership || (await premiumRequestAllowed(tx, userId, model, request))

@@ -9,10 +9,10 @@ import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
 import { ensureAgentSkills, findAgentSkill, readAgentSkillFileBytes } from '../lib/agent/skills'
+import { type BffTransaction, loadMeteringPort } from '../lib/billing-ports'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { resolveQueueModel } from '../lib/channels'
 import { deviceIdSchema } from '../lib/http'
-import { type BffTransaction, loadPrivateBffOverlay } from '../lib/private-overlay'
 import { type SubmissionRefusal, submissionRefusalResponse } from '../lib/submissionRefusal'
 import { readAssetImage } from '../lib/sync-assets'
 import { resolveAuthUser } from '../lib/user-auth'
@@ -154,7 +154,7 @@ async function batchShortfall(
   failure: Extract<BatchRefusal, { kind: 'insufficient_credits' }>,
   unitMultiplier: number,
 ): Promise<BatchRefusal> {
-  const { quoteTask } = (await loadPrivateBffOverlay()).taskHooks
+  const { quoteTask } = await loadMeteringPort()
   if (!quoteTask) return failure
   const quotes: number[] = []
   for (const quantity of counts) {

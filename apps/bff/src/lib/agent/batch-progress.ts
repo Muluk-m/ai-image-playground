@@ -8,8 +8,8 @@ import {
 import { and, asc, eq, inArray, isNull, lte, ne, or, type SQL, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { queueTaskOutcome } from '../../modules/execution'
+import { type BffTransaction, loadMeteringPort } from '../billing-ports'
 import { log } from '../logger'
-import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
 import { lockMediaOwner } from '../projectMedia'
 import { cancelledBatchDependents, readFrozenDependencyTargets } from './batch-dependencies'
 import { lockConversation } from './confirmations'
@@ -108,7 +108,7 @@ export async function reconcileAgentBatchProgress(batchId: string): Promise<void
       ),
     )
   const credits = rows.length
-    ? await (await loadPrivateBffOverlay()).taskHooks.taskCredits({
+    ? await (await loadMeteringPort()).taskCredits({
         taskIds: rows.map(({ task }) => task.id),
       })
     : {}

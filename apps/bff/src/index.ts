@@ -2,9 +2,10 @@ import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { MODEL_CATALOG } from '@image-playground/shared/model-catalog'
 import { config } from './config'
 import { close as closeDb, db, schema } from './db/client'
-import { purgeOldTasks, purgeOrphanedAssetObjects, runPrivateMaintenance } from './db/maintenance'
+import { purgeOldTasks, purgeOrphanedAssetObjects } from './db/maintenance'
 import { purgeOldAgentTurnEvents } from './lib/agent/events'
 import { expireStaleStageAuthorizations } from './lib/agent/stage-authorizations'
+import { loadAccountLifecyclePort } from './lib/billing-ports'
 import { canvasSyncRooms } from './lib/canvasSyncRooms'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels, refreshChannelsIfChanged } from './lib/channels'
@@ -107,8 +108,11 @@ await refreshOperatorConfig().catch((error) =>
 )
 // 开机清理在后台跑，不等它：过期任务一多要逐条删对象存储，曾用掉 3 分多钟，
 // 新实例迟迟不监听、过不了发布的健康检查。失败只记一条，定时清理会接着清。
+const runAccountLifecycleMaintenance = async () => {
+  await (await loadAccountLifecyclePort()).runMaintenance(Date.now())
+}
 const startupMaintenance = [
-  { event: 'startup.private_maintenance_failed', run: () => runPrivateMaintenance() },
+  { event: 'startup.private_maintenance_failed', run: runAccountLifecycleMaintenance },
   {
     event: 'startup.purge_tasks_failed',
     run: async (signal: AbortSignal) => {
@@ -127,7 +131,7 @@ const stopMaintenance = startPeriodicSteps(
         if (removed > 0) log.info({ event: 'periodic.purged', count: removed }, 'purged old tasks')
       },
     },
-    { event: 'periodic.private_maintenance_failed', run: () => runPrivateMaintenance() },
+    { event: 'periodic.private_maintenance_failed', run: runAccountLifecycleMaintenance },
     {
       event: 'periodic.purge_client_errors_failed',
       run: async () => {

@@ -17,6 +17,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, 'operator-config-cha
 process.env.WELCOME_CREDITS = '100000'
 const { ensureBillingMigrations } = await import('@image-playground/db')
 await ensureBillingMigrations(databaseUrl)
+await import('../../../bootstrap/task-lifecycle')
 const { db, schema, close } = await import('../../../db/client')
 const { config } = await import('../../../config')
 const { privateTaskHooks } = await import('../../../modules/billing/hooks')

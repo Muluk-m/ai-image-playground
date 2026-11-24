@@ -1,5 +1,11 @@
 import { db } from '../../db/client'
-import type { PrivateTaskHooks } from '../../lib/billing-hooks'
+import type {
+  AccountLifecyclePort,
+  BillingPorts,
+  EntitlementPort,
+  MeteringPort,
+  PrivateTaskHooks,
+} from '../../lib/billing-hooks'
 import { isCapabilityEnabled } from '../../lib/capabilities'
 import {
   accountConcurrencyEntitlement,
@@ -17,8 +23,20 @@ import { notifyNewOrders } from './order-notifications'
 import { getChatPricing, quoteTask, quoteTokenTask } from './pricing'
 import { getAccountSnapshot } from './queries'
 
-export const privateTaskHooks: PrivateTaskHooks = {
-  canUnlinkOAuthIdentity,
+export const billingMeteringPort: MeteringPort = Object.freeze({
+  meteringDecision,
+  consumeUnmeteredQuota,
+  quoteTask,
+  quoteTokenTask,
+  chatPricing: getChatPricing,
+  reserveTask,
+  finalizeTask,
+  taskCredits,
+})
+
+export const billingEntitlementPort: EntitlementPort = Object.freeze({
+  canSubmitTask,
+  isActiveMember,
   async accountSummary({ userId, now }) {
     if (!isCapabilityEnabled('billing:credits')) return null
     const snapshot = await getAccountSnapshot(userId, now)
@@ -30,19 +48,13 @@ export const privateTaskHooks: PrivateTaskHooks = {
       unmetered: snapshot.unmetered?.enabled === true,
     }
   },
-  meteringDecision,
-  consumeUnmeteredQuota,
-  canSubmitTask,
-  quoteTokenTask,
-  quoteTask,
-  reserveTask,
-  finalizeTask,
-  chatPricing: getChatPricing,
-  taskCredits,
-  isActiveMember,
   accountConcurrencyLimit,
   accountConcurrencyEntitlement,
+})
+
+export const billingAccountLifecyclePort: AccountLifecyclePort = Object.freeze({
   onUserCreated,
+  canUnlinkOAuthIdentity,
   async runMaintenance(now) {
     if (!isCapabilityEnabled('billing:credits')) return
     await scanDueAccounts(now)
@@ -51,4 +63,16 @@ export const privateTaskHooks: PrivateTaskHooks = {
     if (!isCapabilityEnabled('billing:credits')) return
     await notifyNewOrders(now)
   },
-}
+})
+
+export const billingPorts: BillingPorts = Object.freeze({
+  metering: billingMeteringPort,
+  entitlement: billingEntitlementPort,
+  accountLifecycle: billingAccountLifecyclePort,
+})
+
+export const privateTaskHooks: PrivateTaskHooks = Object.freeze({
+  ...billingMeteringPort,
+  ...billingEntitlementPort,
+  ...billingAccountLifecyclePort,
+})

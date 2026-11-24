@@ -35,12 +35,12 @@ import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { strictImageRequestAllowed } from '../../modules/execution'
 import { accountEffectiveConcurrencyLimit } from '../account-concurrency'
+import { type BffTransaction, loadMeteringPort, type MeteringPort } from '../billing-ports'
 import { canonicalJson } from '../canonicalJson'
 import { isCapabilityEnabled } from '../capabilities'
 import { declaredImageSizes, getDiscoveredChannels, resolveQueueModel } from '../channels'
 import { meteringDecisionOrDenied } from '../metering-decision'
 import { refreshInactiveModels, withoutInactiveModels } from '../model-availability'
-import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
 import { gptImage26DirectListed, gptImage26Enabled } from '../upstream/gpt-direct-availability'
 import { gptDirectConfigured, gptImage26DirectKey } from '../upstream/gpt-routing'
 import { CliRequestError } from './envelope'
@@ -429,7 +429,7 @@ async function assertCliImage26Available(model: string, request: SubmitRequest):
 
 async function resolveCliMeteringDecision(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
-  hooks: Awaited<ReturnType<typeof loadPrivateBffOverlay>>['taskHooks'],
+  hooks: MeteringPort,
   userId: string,
   model: string,
   unitMultiplier: number,
@@ -450,7 +450,7 @@ async function resolveCliMeteringDecision(
 
 async function quoteCliCredits(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
-  hooks: Awaited<ReturnType<typeof loadPrivateBffOverlay>>['taskHooks'],
+  hooks: MeteringPort,
   userId: string,
   model: string,
   unitMultiplier: number,
@@ -478,7 +478,7 @@ async function quoteCliCredits(
  */
 export async function probeAccountWalletAvailable(userId: string): Promise<boolean> {
   if (!isCapabilityEnabled('billing:credits')) return false
-  const hooks = (await loadPrivateBffOverlay()).taskHooks
+  const hooks = await loadMeteringPort()
   if (!hooks.meteringDecision) return true
   const models = await availableImageModels()
   const probeModel = models[0]?.id ?? 'gemini-3-pro-image'
@@ -519,7 +519,7 @@ export async function previewImageRequest(
   prepared: PreparedImageRequest,
   request: SubmitRequest,
 ): Promise<CliImagePreview> {
-  const hooks = (await loadPrivateBffOverlay()).taskHooks
+  const hooks = await loadMeteringPort()
   await assertCliImage26Available(prepared.model.id, request)
   const priced = request
   const unitMultiplier = imageRateMultiplier(
@@ -618,7 +618,7 @@ async function specialFormatCapabilities(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
   userId: string,
   model: string,
-  hooks: Awaited<ReturnType<typeof loadPrivateBffOverlay>>['taskHooks'],
+  hooks: MeteringPort,
 ): Promise<{ gif: CliGifCapability; svg: CliSvgCapability }> {
   const quote = async (request: SubmitRequest) => {
     const direct = !isGptImage26Model(model) || (await gptImage26DirectKey(model, request))
@@ -710,7 +710,7 @@ export async function defaultImageModelId(
 /** 账号相关的能力清单：只列该账号能提交的档位与画质，一个档位都提交不了的模型不列。 */
 export async function imageCapabilities(userId: string) {
   const models = await availableImageModels()
-  const hooks = (await loadPrivateBffOverlay()).taskHooks
+  const hooks = await loadMeteringPort()
   return db.transaction(async (tx) => {
     const listed: CliModelCapability[] = []
     for (const model of models) {

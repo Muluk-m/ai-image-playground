@@ -20,15 +20,11 @@ import { config } from '../../config'
 import { db, schema } from '../../db/client'
 import { queueTaskOutcome } from '../../modules/execution'
 import { quoteAnalysisTask } from '../analysis-tasks'
+import { type BffTransaction, loadMeteringPort, nonBillingPriceSnapshot } from '../billing-ports'
 import { isCapabilityEnabled } from '../capabilities'
 import { declaredImageSizes } from '../channels'
 import { isActiveMember } from '../gpt-membership'
 import { meteringDecisionOrDenied } from '../metering-decision'
-import {
-  type BffTransaction,
-  loadPrivateBffOverlay,
-  nonBillingPriceSnapshot,
-} from '../private-overlay'
 import { prepareBatchAnalysis } from './batch-analysis-preparation'
 import { readBatchAnalysisSummary, readBatchSourceSummary } from './batch-analysis-summary'
 import { cancelledBatchDependents, readFrozenDependencyTargets } from './batch-dependencies'
@@ -830,7 +826,7 @@ export async function readAgentBatchPlan(
   const pageCredits = new Map<string, number>()
   let actualCredits = 0
   let afterTaskId: string | undefined
-  const taskHooks = (await loadPrivateBffOverlay()).taskHooks
+  const taskHooks = await loadMeteringPort()
   for (;;) {
     const rows = await db
       .select({
@@ -1143,7 +1139,7 @@ export async function quoteBatchPlan(
   userId: string,
   items: readonly AgentBatchItem[],
 ): Promise<AgentBatchEstimates> {
-  const hooks = (await loadPrivateBffOverlay()).taskHooks
+  const hooks = await loadMeteringPort()
   const member = items.some(
     (item) => item.kind === 'generation' && item.params.gemini_image_size === '4K',
   )

@@ -22,6 +22,7 @@ const {
   finishTask,
   heldBy,
   listTaskLifecycleListenerIds,
+  MissingTaskLifecycleListenerError,
   registerTaskLifecycleListener,
 } = await import('../../../modules/execution')
 const { registerDefaultTaskLifecycleListeners } = await import('../../../bootstrap/task-lifecycle')
@@ -30,7 +31,11 @@ type TaskLifecycleListener = import('../../../modules/execution').TaskLifecycleL
 
 const WORKER_TOKEN = 'lifecycle-bus-worker'
 
-async function insertTask(id: string, status: 'queued' | 'in_progress') {
+async function insertTask(
+  id: string,
+  status: 'queued' | 'in_progress',
+  metering?: { mode: 'credits' | 'none'; model: string; quantity: number; unitMultiplier: number },
+) {
   await db.insert(schema.tasks).values({
     id,
     provider: 'openai-compat',
@@ -39,6 +44,7 @@ async function insertTask(id: string, status: 'queued' | 'in_progress') {
     ...(status === 'in_progress'
       ? { execution_token: WORKER_TOKEN, lease_expires_at: Date.now() + 60_000 }
       : {}),
+    ...(metering ? { metering } : {}),
     request_payload: { prompt: 'lifecycle fixture', device_id: 'lifecycle-device' },
     submitted_at: Date.now(),
     upstream_invocation_count: 1,
@@ -70,6 +76,7 @@ describe('TaskLifecycleBus registration', () => {
       'generation-media',
       'project-archive',
     ])
+    expect(listTaskLifecycleListenerIds('settlement')).toEqual(['billing-settlement'])
     expect(listTaskLifecycleListenerIds('after-settlement')).toEqual([
       'model-availability',
       'agent-wake',
@@ -95,7 +102,7 @@ describe('TaskLifecycleBus registration', () => {
 })
 
 describe('TaskLifecycleBus transactional execution', () => {
-  it('runs before-settlement listeners, finalizeTask, and after-settlement listeners in strict order on finishTask', async () => {
+  it('runs before-settlement, billing-settlement (finalizeTask), and after-settlement in strict order on finishTask', async () => {
     const order: string[] = []
     _setPrivateBffOverlayForTesting(
       Object.freeze({
@@ -109,6 +116,7 @@ describe('TaskLifecycleBus transactional execution', () => {
         },
       }),
     )
+    registerDefaultTaskLifecycleListeners()
     registerTaskLifecycleListener({
       id: 'first-before',
       stage: 'before-settlement',
@@ -147,7 +155,60 @@ describe('TaskLifecycleBus transactional execution', () => {
     ])
   })
 
+  it('fails closed and rolls back finishTask & cancelTasks when billing-settlement listener is missing', async () => {
+    await insertTask('bus-missing-finish', 'in_progress')
+    await expect(
+      finishTask(
+        'bus-missing-finish',
+        { status: 'completed', completedAt: Date.now() },
+        heldBy(WORKER_TOKEN),
+      ),
+    ).rejects.toThrow(MissingTaskLifecycleListenerError)
+
+    const [stillRunning] = await db
+      .select({ status: schema.tasks.status, completedAt: schema.tasks.completed_at })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, 'bus-missing-finish'))
+    expect(stillRunning).toEqual({ status: 'in_progress', completedAt: null })
+
+    await insertTask('bus-missing-cancel', 'queued')
+    await expect(cancelTasks(eq(schema.tasks.id, 'bus-missing-cancel'))).rejects.toThrow(
+      MissingTaskLifecycleListenerError,
+    )
+
+    const [stillQueued] = await db
+      .select({ status: schema.tasks.status })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, 'bus-missing-cancel'))
+    expect(stillQueued?.status).toBe('queued')
+  })
+
+  it('skips billing-settlement stage when task metering mode is none', async () => {
+    await insertTask('bus-unmetered-finish', 'in_progress', {
+      mode: 'none',
+      model: 'gpt-image-2',
+      quantity: 1,
+      unitMultiplier: 1,
+    })
+    const finished = await finishTask(
+      'bus-unmetered-finish',
+      { status: 'completed', completedAt: Date.now() },
+      heldBy(WORKER_TOKEN),
+    )
+    expect(finished).toBe(true)
+
+    await insertTask('bus-unmetered-cancel', 'queued', {
+      mode: 'none',
+      model: 'gpt-image-2',
+      quantity: 1,
+      unitMultiplier: 1,
+    })
+    const cancelled = await cancelTasks(eq(schema.tasks.id, 'bus-unmetered-cancel'))
+    expect(cancelled.map((row) => row.id)).toEqual(['bus-unmetered-cancel'])
+  })
+
   it('rolls back the entire finishTask transaction when any listener throws', async () => {
+    registerDefaultTaskLifecycleListeners()
     registerTaskLifecycleListener({
       id: 'failing-after',
       stage: 'after-settlement',
@@ -186,6 +247,7 @@ describe('TaskLifecycleBus transactional execution', () => {
         },
       }),
     )
+    registerDefaultTaskLifecycleListeners()
     registerTaskLifecycleListener({
       id: 'cancel-before',
       stage: 'before-settlement',
