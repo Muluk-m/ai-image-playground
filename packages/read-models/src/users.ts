@@ -23,7 +23,7 @@ import type {
   UserListOptions,
   UserTasksResult,
 } from './types'
-import { userSegmentFilters } from './user-segments'
+import { buildUserSegmentCountPlan, userSegmentFilters } from './user-segments'
 
 const PAGE_SIZE = 100
 // 用户详情按全量历史统计；只有趋势图固定看近 30 天，不由调用方决定。
@@ -63,14 +63,7 @@ function mapAdminUser(row: Row): AdminUserRow {
   }
 }
 
-const ADMIN_USER_PROJECTION = sql`
-  u.id,
-  u.username,
-  n.note,
-  u.status,
-  u.created_at,
-  u.updated_at,
-  u.last_login_at,
+const LOGIN_METHODS_SQL = sql`
   ARRAY(
     SELECT method
     FROM (
@@ -82,7 +75,18 @@ const ADMIN_USER_PROJECTION = sql`
       WHERE i.user_id = u.id
     ) methods
     ORDER BY sort, method
-  ) AS login_methods,
+  ) AS login_methods
+`
+
+const ADMIN_USER_PROJECTION = sql`
+  u.id,
+  u.username,
+  n.note,
+  u.status,
+  u.created_at,
+  u.updated_at,
+  u.last_login_at,
+  ${LOGIN_METHODS_SQL},
   task_stats.last_task_at,
   GREATEST(u.last_login_at, task_stats.last_task_at) AS last_activity_at,
   COALESCE(session_stats.active_sessions, 0) AS active_sessions,
@@ -133,12 +137,13 @@ export async function listUsers(
       : options.sort === 'login'
         ? sql`u.last_login_at ${direction} NULLS LAST, u.id ${direction}`
         : sql`last_activity_at ${direction} NULLS LAST, u.created_at DESC, u.id DESC`
-  const filters = [
-    sql`(${term} = ''
-       OR POSITION(${term} IN LOWER(u.username)) > 0
-       OR POSITION(${term} IN LOWER(u.id)) > 0
-       OR POSITION(${term} IN LOWER(COALESCE(n.note, ''))) > 0)`,
-  ]
+  const filters = term
+    ? [
+        sql`(POSITION(${term} IN LOWER(u.username)) > 0
+           OR POSITION(${term} IN LOWER(u.id)) > 0
+           OR POSITION(${term} IN LOWER(COALESCE(n.note, ''))) > 0)`,
+      ]
+    : [sql`TRUE`]
   if (options.status) filters.push(sql`u.status = ${options.status}`)
   if (options.registeredFrom !== undefined)
     filters.push(sql`u.created_at >= ${new Date(options.registeredFrom)}`)
@@ -161,39 +166,135 @@ export async function listUsers(
       )
     )`)
   const scope = sql.join(filters, sql` AND `)
+  const now = Date.now()
   const segments =
     options.segment || options.segments
-      ? await userSegmentFilters(db, { billingCreditsEnabled: options.billingCreditsEnabled })
+      ? await userSegmentFilters(db, {
+          billingCreditsEnabled: options.billingCreditsEnabled,
+          now,
+        })
       : null
   const segmentFilter = options.segment ? (segments?.get(options.segment) ?? sql`FALSE`) : sql`TRUE`
   const from = sql`FROM users u LEFT JOIN admin_user_notes n ON n.user_id = u.id`
+  const countFrom = term ? from : sql`FROM users u`
   const where = sql`${scope} AND ${segmentFilter}`
-  const userRowsPromise = db.execute(sql`
-    SELECT ${ADMIN_USER_PROJECTION}
-    ${from}
-    ${ACTIVE_SESSION_JOIN}
-    LEFT JOIN LATERAL (
-      SELECT COUNT(*) AS task_count, MAX(t.submitted_at) AS last_task_at
-      FROM queue_tasks t
-      WHERE t.user_id = u.id
-    ) task_stats ON TRUE
-    WHERE ${where}
-    ORDER BY ${orderBy}
-    LIMIT ${pageSize} OFFSET ${offset}
-  `)
-  const countColumns = options.segments
-    ? [...(segments ?? [])].map(
-        ([key, filter]) => sql`
-        COUNT(*) FILTER (WHERE ${filter})::int AS ${sql.identifier(key)}
-      `,
-      )
-    : []
-  const countPromise = db.execute(sql`
-    SELECT COUNT(*)::int AS "all"
-    ${countColumns.length ? sql`, ${sql.join(countColumns, sql`, `)}` : sql``}
-    ${from}
-    WHERE ${options.segments ? scope : where}
-  `)
+  // 先在分页内选出当前页用户，再对这至多 50/100 行补查在线会话和登录方式，避免全表逐行做 LATERAL 连接。
+  const userRowsPromise =
+    options.sort === 'created' || options.sort === 'login'
+      ? db.execute(sql`
+          WITH page_users AS (
+            SELECT
+              u.id,
+              u.username,
+              u.password_hash,
+              n.note,
+              u.status,
+              u.created_at,
+              u.updated_at,
+              u.last_login_at
+            ${from}
+            WHERE ${where}
+            ORDER BY ${orderBy}
+            LIMIT ${pageSize} OFFSET ${offset}
+          )
+          SELECT
+            u.id,
+            u.username,
+            u.note,
+            u.status,
+            u.created_at,
+            u.updated_at,
+            u.last_login_at,
+            ${LOGIN_METHODS_SQL},
+            task_stats.last_task_at,
+            GREATEST(u.last_login_at, task_stats.last_task_at) AS last_activity_at,
+            COALESCE(session_stats.active_sessions, 0) AS active_sessions,
+            COALESCE(task_stats.task_count, 0) AS task_count
+          FROM page_users u
+          ${ACTIVE_SESSION_JOIN}
+          LEFT JOIN LATERAL (
+            SELECT COUNT(*) AS task_count, MAX(t.submitted_at) AS last_task_at
+            FROM queue_tasks t
+            WHERE t.user_id = u.id
+          ) task_stats ON TRUE
+          ORDER BY ${orderBy}
+        `)
+      : db.execute(sql`
+          WITH filtered_users AS (
+            SELECT
+              u.id,
+              u.username,
+              u.password_hash,
+              n.note,
+              u.status,
+              u.created_at,
+              u.updated_at,
+              u.last_login_at
+            ${from}
+            WHERE ${where}
+          ),
+          task_summary AS (
+            SELECT
+              t.user_id,
+              COUNT(*)::bigint AS task_count,
+              MAX(t.submitted_at) AS last_task_at
+            FROM queue_tasks t
+            WHERE t.user_id IS NOT NULL
+              AND t.user_id IN (SELECT id FROM filtered_users)
+            GROUP BY t.user_id
+          ),
+          page_users AS (
+            SELECT
+              u.id,
+              u.username,
+              u.password_hash,
+              u.note,
+              u.status,
+              u.created_at,
+              u.updated_at,
+              u.last_login_at,
+              ts.last_task_at,
+              GREATEST(u.last_login_at, ts.last_task_at) AS last_activity_at,
+              COALESCE(ts.task_count, 0) AS task_count
+            FROM filtered_users u
+            LEFT JOIN task_summary ts ON ts.user_id = u.id
+            ORDER BY last_activity_at ${direction} NULLS LAST, u.created_at DESC, u.id DESC
+            LIMIT ${pageSize} OFFSET ${offset}
+          )
+          SELECT
+            u.id,
+            u.username,
+            u.note,
+            u.status,
+            u.created_at,
+            u.updated_at,
+            u.last_login_at,
+            ${LOGIN_METHODS_SQL},
+            u.last_task_at,
+            u.last_activity_at,
+            COALESCE(session_stats.active_sessions, 0) AS active_sessions,
+            u.task_count
+          FROM page_users u
+          ${ACTIVE_SESSION_JOIN}
+          ORDER BY u.last_activity_at ${direction} NULLS LAST, u.created_at DESC, u.id DESC
+        `)
+
+  const countPlan = options.segments && segments ? buildUserSegmentCountPlan(segments, now) : null
+  const countPromise = countPlan
+    ? db.execute(sql`
+        ${countPlan.ctes}
+        SELECT
+          COUNT(*)::int AS "all",
+          ${countPlan.columns}
+        ${countFrom}
+        ${countPlan.joins}
+        WHERE ${scope}
+      `)
+    : db.execute(sql`
+        SELECT COUNT(*)::int AS "all"
+        ${countFrom}
+        WHERE ${where}
+      `)
 
   const [userRowsRaw, [counts]] = await Promise.all([userRowsPromise, countPromise])
   const userRows = userRowsRaw as unknown as Row[]
@@ -240,11 +341,10 @@ export function resetUserKpiCacheForTesting(): void {
 async function loadUserKpis(handle: ReadModelsDbHandle): Promise<UserKpis> {
   const { db } = handle
   const rows = (await db.execute(sql`
-    WITH user_activity AS (
-      SELECT u.id, GREATEST(u.last_login_at, MAX(t.submitted_at)) AS last_activity_at
-      FROM users u
-      LEFT JOIN queue_tasks t ON t.user_id = u.id
-      GROUP BY u.id
+    WITH recent_task_users AS (
+      SELECT DISTINCT user_id
+      FROM queue_tasks
+      WHERE user_id IS NOT NULL AND submitted_at >= NOW() - INTERVAL '7 days'
     ),
     recent_tasks AS (
       SELECT
@@ -255,8 +355,12 @@ async function loadUserKpis(handle: ReadModelsDbHandle): Promise<UserKpis> {
     )
     SELECT
       (SELECT COUNT(*) FROM users) AS total_users,
-      (SELECT COUNT(*) FROM user_activity
-       WHERE last_activity_at >= NOW() - INTERVAL '7 days') AS active_users_7d,
+      (
+        SELECT COUNT(*)
+        FROM users u
+        LEFT JOIN recent_task_users rtu ON rtu.user_id = u.id
+        WHERE u.last_login_at >= NOW() - INTERVAL '7 days' OR rtu.user_id IS NOT NULL
+      ) AS active_users_7d,
       recent_tasks.submissions AS submissions_24h,
       CASE
         WHEN recent_tasks.submissions = 0 THEN 0

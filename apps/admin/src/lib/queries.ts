@@ -225,11 +225,12 @@ export function useUserTasks(userId: string, status: string) {
 }
 
 /** 看板默认 30 秒重拉；范围切换只改变宿主机趋势，其他实时块仍取同一份快照。 */
-export function useOps(range: OpsRange, refetchInterval = 30_000) {
+export function useOps(range: OpsRange, refetchInterval = 30_000, enabled = true) {
   return useQuery({
     queryKey: ['ops', { range }],
     queryFn: () => apiClient.get<OpsSnapshot>(`/api/ops?range=${range}`),
     refetchInterval,
+    enabled,
   })
 }
 

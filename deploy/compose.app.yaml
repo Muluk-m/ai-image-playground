@@ -93,8 +93,8 @@ services:
       APP_ROLE: bff
       PORT: "37377"
       # Per-process connection caps. Both deployments share one PostgreSQL (max_connections 100),
-      # and a rollout runs a second bff and worker beside the old pair: 2 x (6 + 4 + 3 + 1 + 1) = 30
-      # steady (including a single log connection per bff/worker), under 60 with both deployments mid-rollout plus migrate and pg-backup. Queries past
+      # and a rollout runs a second bff and worker beside the old pair: 2 x (6 + 4 + 6 + 1 + 1) = 36
+      # steady (including a single log connection per bff/worker), under 65 with both deployments mid-rollout plus migrate and pg-backup. Queries past
       # the cap wait for a free connection instead of failing. The BFF's work is short
       # transactions; its background sweeps (agent inbox pickup, retries, purge, heartbeat) each
       # hold one at a time, leaving most for requests. scripts/rollout-runtime.sh repeats the bff
@@ -184,8 +184,9 @@ services:
       <<: *observability-secrets-blank
       APP_ROLE: admin
       PORT: "37378"
-      # Operator traffic only; the operations board fans out a dozen short reads per load.
-      DATABASE_POOL_MAX: "3"
+      # Operator traffic only; ops snapshot fans out parallel reads alongside active page queries.
+      # 6 connections keeps paid+test+rollout well within PostgreSQL max_connections=100.
+      DATABASE_POOL_MAX: "6"
       # ADMIN_DIST_DIR is deliberately absent: app.env owns it. Empty there makes Admin
       # API-only (the frontend is its own Pages project); unset falls back to the image
       # default that still serves dist, which is the rollback path.
