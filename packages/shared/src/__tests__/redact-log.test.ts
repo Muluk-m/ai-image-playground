@@ -135,6 +135,91 @@ describe('malformed fragments', () => {
     redactLogText(value)
     expect(performance.now() - started).toBeLessThan(200)
   })
+
+  it('scrubs credentials, base64 payloads, NUL bytes and long private keys', () => {
+    const credentialLine = redactLogText(
+      'failed: Bearer private-credential https://user:pass@upstream.test/?token=secret-value api_key=secret-value',
+    )
+    for (const secret of ['private-credential', 'secret-value', 'user:pass'])
+      expect(credentialLine).not.toContain(secret)
+    expect(redactLogText('failed postgresql://app:db-password@db/app')).not.toContain('db-password')
+    expect(
+      redactLogText('upstream returned {"apiKey":"secret-value"} and data:image/png;base64,AAAA'),
+    ).not.toContain('secret-value')
+    expect(redactLogText('data:image/png;base64,AAAA')).toBe('[BINARY REDACTED]')
+    expect(redactLogText('x'.repeat(10_000))).toHaveLength(4000)
+    expect(redactLogText('{'.repeat(10_000))).toHaveLength(4000)
+    expect(redactLogText('{'.repeat(100_000))).toBe('[TRUNCATED LOG TEXT]')
+
+    const longKey = `${'x'.repeat(200)}token`
+    const sanitized = sanitizeLogValue({
+      [longKey]: 'unprefixed-secret-value',
+      'diag\u0000key': 'valid\u0000value',
+      err: { message: '{"content":"private message", "reason":"bad request"}' },
+    }) as Record<string, unknown>
+    const serialized = JSON.stringify(sanitized)
+    expect(serialized).not.toContain('unprefixed-secret-value')
+    expect(serialized).not.toContain('private message')
+    expect(serialized).not.toContain('\\u0000')
+    expect(sanitized['x'.repeat(200)]).toBe('[REDACTED]')
+    expect(sanitized.diagkey).toBe('validvalue')
+    expect(serialized).toContain('bad request')
+  })
+
+  it('scrubs multiple, quoted-brace, malformed JSON fragments and nonstandard arrays', () => {
+    const multiple = redactLogText(
+      'upstream {"responseBody":"private original", "headers":{"cookie":"session=private"}} {"code":"failed"}',
+    )
+    expect(multiple).not.toContain('private original')
+    expect(multiple).not.toContain('session=private')
+    expect(multiple).toContain('failed')
+
+    const broken = redactLogText(
+      'upstream {"ResponseBody":"private original", "HEADERS":{"Cookie":"private session"}',
+    )
+    expect(broken).not.toContain('private original')
+    expect(broken).not.toContain('private session')
+
+    // Braces inside quoted JSON strings must not split fragments.
+    const quoted = redactLogText(
+      'upstream {"prompt":"private } original", "reason":"brace { inside"} {"code":"failed"}',
+    )
+    expect(quoted).not.toContain('private } original')
+    expect(quoted).toContain('failed')
+
+    for (const message of [
+      '[worker] task failed',
+      'at handler [as run] (worker.ts:42)',
+      'request /items/[id failed: connection refused',
+      'ordinary {tag} diagnostic',
+    ])
+      expect(redactLogText(message)).toBe(message)
+
+    expect(redactLogText("upstream {'content':'hello } private user text'} next diagnostic")).toBe(
+      'upstream [REDACTED PAYLOAD]',
+    )
+    expect(redactLogText('upstream {"content":"private" invalid} private remainder')).toBe(
+      'upstream [REDACTED PAYLOAD]',
+    )
+    expect(redactLogText('body: ["private array content"] safe suffix')).not.toContain(
+      'private array content',
+    )
+    expect(redactLogText('Cookie: session=private-secret')).not.toContain('private-secret')
+
+    for (const fragment of [
+      '[undefined, "private prompt"]',
+      '[NaN, "private prompt"]',
+      '[Infinity, "private prompt"]',
+      '[arbitraryValue, "private prompt"]',
+      '[undefined]',
+      '[NaN]',
+      '[undefined, "private prompt"',
+    ]) {
+      const scrubbed = redactLogText(`upstream ${fragment} private remainder`)
+      expect(scrubbed).toBe('upstream [REDACTED PAYLOAD]')
+      expect(scrubbed).not.toContain('private')
+    }
+  })
 })
 
 /**
