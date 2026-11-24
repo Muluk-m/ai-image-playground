@@ -248,6 +248,8 @@ export const cli_connections = pgTable(
     refresh_expires_at: epochMs('refresh_expires_at').notNull(),
     created_at: epochMs('created_at').notNull(),
     last_used_at: epochMs('last_used_at'),
+    /** 签发与活跃请求时的 User-Agent（含 CLI 版本与 OS/架构），旧连接可为空。 */
+    user_agent: text('user_agent'),
     revoked_at: epochMs('revoked_at'),
   },
   (t) => [
