@@ -27,6 +27,15 @@ jobs:
       - name: Vet native CLI
         working-directory: cli-go
         run: go vet ./...
+      - name: Require the release tag to match BundleVersion
+        env:
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: |
+          bundle=$(sed -n 's/^const BundleVersion = "\([^"]*\)".*/\1/p' cli-go/internal/skill/install.go)
+          if [ "$RELEASE_TAG" != "cli-v$bundle" ]; then
+            echo "::error::Release tag $RELEASE_TAG does not match BundleVersion $bundle in cli-go/internal/skill/install.go; bump it in a PR first."
+            exit 1
+          fi
       - name: Build release-shaped distribution
         env:
           RELEASE_TAG: ${{ inputs.release-tag }}
