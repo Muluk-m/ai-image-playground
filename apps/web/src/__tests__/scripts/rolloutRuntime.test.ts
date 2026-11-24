@@ -628,6 +628,33 @@ describe('rollout-runtime.sh: release containers', () => {
     }
   })
 
+  it('keeps the log store credentials out of every container that loads app.env', () => {
+    const secrets = ['OBS_ROOT_PASSWORD', 'OBS_S3_ACCESS_KEY_ID', 'OBS_S3_SECRET_ACCESS_KEY']
+    currentGeneration()
+    const result = run()
+    expect(result.status).toBe(0)
+    const launches = result.log.filter((line) => /^(create|run) /.test(line))
+    expect(launches.length).toBeGreaterThan(0)
+    for (const line of launches)
+      for (const name of secrets) expect(line).toContain(`-e ${name}= `)
+
+    const compose = readFileSync(join(repo, 'deploy/compose.app.yaml'), 'utf8')
+    const blank = /\nx-observability-secrets-blank: &observability-secrets-blank\n((?: {2}.*\n)+)/.exec(
+      compose,
+    )?.[1]
+    for (const name of secrets) expect(blank).toContain(`  ${name}: ""\n`)
+    const services = compose.slice(compose.indexOf('\nservices:\n'))
+    const checked: string[] = []
+    for (const [, name, body] of services.matchAll(
+      /^ {2}([a-z][a-z-]*):\n((?: {4}.*\n|\n)+)/gm,
+    )) {
+      if (!body.includes('<<: *application-service')) continue
+      checked.push(name)
+      expect(body, name).toMatch(/\n {4}environment:\n {6}<<: \*observability-secrets-blank\n/)
+    }
+    expect(checked).toEqual(['dependency-check', 'migrate', 'bff', 'worker', 'admin', 'web'])
+  })
+
   it('gives release executors the pool sizes Compose gives the same roles', () => {
     currentGeneration()
     const result = run()
