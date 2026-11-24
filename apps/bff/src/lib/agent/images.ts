@@ -10,6 +10,15 @@ import { AGENT_TURN_ATTACHED_MEDIA_MAX, parseProjectArtifactId } from '@image-pl
 import { and, eq, exists, inArray, isNull, notExists, or, sql } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
+import {
+  type AgentImageRead,
+  type AgentImageReference,
+  type AgentImageRequest,
+  type AgentImageSource,
+  type AgentImageVariant,
+  AgentToolError,
+  type ResolvedAgentImage,
+} from '../../modules/agent'
 import { durableMediaStore } from '../durableMediaStore'
 import { resolveImageBytesRef } from '../extractImages'
 import { archiveInputImages, fetchSourceImage, hydrateInputImages } from '../imageArchive'
@@ -29,7 +38,6 @@ import {
   toPreviewDataUrl,
 } from './modelImage'
 import { InvalidSelectionError, imageSelection } from './selection-preview'
-import { AgentToolError } from './tools/errors'
 import {
   assertVisualBytes,
   previewSourceByteLimit,
@@ -37,61 +45,14 @@ import {
   withVisualPreparation,
 } from './visual-resources'
 
-export type AgentImageReference = AgentTurnReference | AgentStoredReference
-
-export interface ResolvedAgentImage {
-  readonly imageId: string
-  readonly dataUrl: string
-  readonly visualVariant?: AgentImageVariant | 'region'
-  /** 本轮附图或系统续作计划中的遮罩；普通历史引用只有原图。 */
-  readonly maskDataUrl?: string
-  readonly editAction?: import('@image-playground/shared').AgentImageEditAction
-  readonly regions?: readonly import('@image-playground/shared').AgentMarkedRegion[]
+export type {
+  AgentImageRead,
+  AgentImageReference,
+  AgentImageRequest,
+  AgentImageSource,
+  AgentImageVariant,
+  ResolvedAgentImage,
 }
-
-/**
- * 要原件还是要预览。画布媒体两份都存着（`object_key` / `preview_key`），看一眼判断「这是不是
- * 那张图」用预览就够，而原件一次就是几 MB 的 data URL——全都按原件发，长会话必然先撞出站硬闸。
- * 其余来源（本轮附图、工具产物、素材）只有一份字节，`preview` 对它们无意义，照常给原件。
- */
-export type AgentImageVariant = 'original' | 'preview'
-
-/**
- * 取图时可要的形态：除两种变体外，`edit` 是送进改图的原件——超大图先等比缩到最长边 4000
- * 再送（BUG-35）；带遮罩的仍原样，遮罩绑着原图像素。
- */
-export type AgentImageRead = AgentImageVariant | 'edit'
-
-/** 模型只会说图片 id，字节从哪来由这里决定。 */
-export interface AgentImageSource {
-  readonly references: readonly AgentImageReference[]
-  /**
-   * 当前请求作用域中是否有选区：本轮附图、未完成澄清链或已授权续作。
-   * 普通历史图片的选区不在作用域内，不能把之后的新请求锁在局部改图里。
-   */
-  readonly masked: boolean
-  /**
-   * 模型说的那个 id 对应的真 id（把 `image 2` 这类编号翻回去），不读字节。
-   * 工具起跑时要立刻把锚点告诉画布，那一刻等不起一次对象存储往返。
-   */
-  attach(references: readonly AgentTurnReference[]): void
-  identify(imageId: string): string
-  resolve(imageId: string, variant?: AgentImageRead): Promise<ResolvedAgentImage | null>
-  /** Freeze original identities without fetching pixels; null entries are not durable inputs. */
-  resolveMediaReferences(
-    imageIds: readonly string[],
-  ): Promise<readonly (AgentMediaReference | null)[]>
-  /** 记下工具刚产出的图，同一轮里下一个工具才能接着改它。视频不进这里：它取不出可编辑的位图。 */
-  note(artifacts: readonly AgentToolArtifact[]): void
-}
-
-/**
- * 按 id 取图时要哪一份字节。只给 id 即原件：工具拿到的图要送进上游改，缩过的那一份不行。
- * 只有「给模型看一眼」的场合才写成带 `variant` 的形状。
- */
-export type AgentImageRequest =
-  | string
-  | { readonly imageId: string; readonly variant: AgentImageRead }
 
 /** 按 id 取图，取不到就抛。工具共用这一句：模型换个 id 重试是它唯一的出路。 */
 export async function requireAgentImages(

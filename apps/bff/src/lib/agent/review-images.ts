@@ -1,5 +1,5 @@
+import { AgentToolError } from '../../modules/agent'
 import type { AgentImageSource, ResolvedAgentImage } from './images'
-import { AgentToolError } from './tools/errors'
 import { assertVisualBytes, visualByteLimit } from './visual-resources'
 
 /** 复核这一轮实际随输入附上的产物，以及因图片预算没能附上的那几张。 */

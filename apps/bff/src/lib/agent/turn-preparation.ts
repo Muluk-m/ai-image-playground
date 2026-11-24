@@ -67,6 +67,7 @@ import {
 import { resolveConfiguredAgentRuntime } from './model-settings-store'
 import type { ConfiguredAgentRuntime } from './provider-settings'
 import { shortConfirmationGuard } from './short-confirmation'
+import { replayedSkillTexts } from './skill-loader'
 import {
   type AgentTurnAudience,
   ensureAgentSkills,
@@ -76,7 +77,6 @@ import {
 import { stageRunWakeContent } from './stage-runs'
 import { agentToolGateActive, gateContinuation } from './tool-gate'
 import { createSubmissionReplay, resolveAgentMode } from './tools'
-import { replayedSkillTexts } from './tools/loadSkill'
 import type { PreparedAgentTurn } from './turn'
 import {
   type AgentTurnContinuation,

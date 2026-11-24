@@ -12,10 +12,10 @@ import { type AgentHistoryWindow, type AgentOwner, listAgentHistoryWindow } from
 import { ConversationExecutionLost } from './execution'
 import { rewriteInlineReasoning } from './inline-reasoning'
 import { agentInlineReasoningTags } from './model-limits'
+import { replayedSkillTexts } from './skill-loader'
 import { type AgentTurnAudience, visibleAgentSkills } from './skills'
 import { estimateMessageTokens } from './token-estimate'
 import { agentToolDeclarations } from './tools'
-import { replayedSkillTexts } from './tools/loadSkill'
 import { systemPrompt } from './turn-input'
 
 const MAX_BYTES = 8 * 1024 * 1024

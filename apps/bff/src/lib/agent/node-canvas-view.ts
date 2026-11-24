@@ -3,9 +3,9 @@ import { type CanvasNode, projectArtifactId, readCanvasDocument } from '@image-p
 import { and, eq, isNull } from 'drizzle-orm'
 import * as Y from 'yjs'
 import { db, schema } from '../../db/client'
+import type { AgentToolContext } from '../../modules/agent'
+import { AgentToolError } from '../../modules/agent'
 import { accessCanvasDocument } from '../canvasSyncStore'
-import { AgentToolError } from './tools/errors'
-import type { AgentToolContext } from './tools/types'
 
 export interface ReadNodeCanvasParams {
   query?: string

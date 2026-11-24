@@ -1,7 +1,13 @@
 import type { AgentMessageView } from '@image-playground/shared'
 import { agentClarificationSummary } from '@image-playground/shared'
-import type { AgentImageReference } from './images'
+import type {
+  AgentImageReference,
+  TurnAuthorization,
+  TurnAuthorizationText,
+} from '../../modules/agent'
 import { clarificationChainStart, replayTurnText, turnPromptText } from './turn-input'
+
+export type { TurnAuthorization, TurnAuthorizationText }
 
 /**
  * 「这一轮用户授权了什么」只由本模块回答：与 `turn-input.ts` 同一段历史，但只认末尾那条
@@ -31,19 +37,6 @@ export function turnAuthorizationText(
       ),
     turnPromptText(prompt, references, attached),
   ].join('\n')
-}
-
-/** 当前版本的授权原文。对象身份就是版本身份：工具取了快照，靠 `!==` 认出原文被改过。 */
-export interface TurnAuthorizationText {
-  readonly revision: number
-  readonly instructions: string
-}
-
-export interface TurnAuthorization {
-  /** 此刻的授权原文；同一版本每次拿到的是同一个对象。 */
-  current(): TurnAuthorizationText
-  /** 用户插话：那句原话连同它的引用清单追加成「用户补充」，版本加一。 */
-  amend(text: string, references: readonly AgentImageReference[], attached: boolean): void
 }
 
 /**

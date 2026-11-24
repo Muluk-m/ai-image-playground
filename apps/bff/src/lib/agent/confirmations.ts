@@ -20,6 +20,7 @@ import {
 } from '@image-playground/shared'
 import { and, eq, isNull, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
+import { AgentToolError, queueRefusalCode } from '../../modules/agent'
 import { createQueueTask } from '../../modules/execution'
 import { resolveQueueModel } from '../channels'
 import { archiveInputImages, hydrateInputImages, ObjectStorageError } from '../imageArchive'
@@ -41,7 +42,6 @@ import {
   pendingGateMessages,
   turnHasPendingGate,
 } from './tool-gate-records'
-import { AgentToolError, queueRefusalCode } from './tools/errors'
 import { agentVideoRequestError } from './video-models'
 
 /**

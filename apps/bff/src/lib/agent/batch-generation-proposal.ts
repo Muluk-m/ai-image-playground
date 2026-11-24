@@ -9,7 +9,7 @@ import { readBatchSourceItems } from './batch-analysis-sources'
 import { batchExecutionAvailable, lockOwnedBatch } from './batch-execution'
 import { saveBatchRevision } from './batch-plan-revision'
 import { BatchPlanError, sameArchivedReference } from './batch-plans'
-import { resolveAgentModel } from './tools/queueTask'
+import { resolveAgentModel } from './model-resolution'
 
 /** Real completed analysis attempts supply provenance; model text never changes an older authorization. */
 export async function proposeBatchGeneration(

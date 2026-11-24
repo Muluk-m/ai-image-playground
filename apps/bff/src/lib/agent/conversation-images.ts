@@ -1,7 +1,7 @@
 import type { AgentMediaReference } from '@image-playground/shared'
 import { and, desc, eq, ilike, inArray, or, sql } from 'drizzle-orm'
 import { db } from '../../db/client'
-import { AgentToolError } from './tools/errors'
+import { AgentToolError } from '../../modules/agent'
 
 interface ImageLookup {
   readonly conversationId: string

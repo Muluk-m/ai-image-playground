@@ -1,7 +1,7 @@
 import type { AgentTool, AgentToolResult } from '@earendil-works/pi-agent-core'
 import type { AgentClarificationBlock } from '@image-playground/shared'
 import { Type } from 'typebox'
-import { asPiTool, piToolResult } from './tools/adapter'
+import { asPiTool, piToolResult } from '../../modules/agent'
 
 export const AGENT_CLARIFICATION_TOOL = 'askClarification'
 

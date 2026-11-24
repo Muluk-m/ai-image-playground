@@ -1,8 +1,8 @@
 import { MAX_IMAGE_UPLOAD_BYTES } from '@image-playground/shared'
 import sharp, { type Metadata } from 'sharp'
 import { config } from '../../config'
+import { AgentToolError } from '../../modules/agent'
 import { assertMediaImageProcessingBudget, MEDIA_UPLOAD_MAX_PIXELS } from '../media-image-limits'
-import { AgentToolError } from './tools/errors'
 import {
   assertVisualBytes,
   previewSourceByteLimit,

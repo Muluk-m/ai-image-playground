@@ -2,6 +2,7 @@ import { parseProjectArtifactId } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
+import type { AgentToolContext } from '../../modules/agent'
 import { durableMediaStore } from '../durableMediaStore'
 import { resolveImageBytesRef } from '../extractImages'
 import { fetchSourceImage, SourceImageFetchError } from '../imageArchive'
@@ -10,7 +11,6 @@ import { objectStore, readObjectWithinLimit } from '../objectStore'
 import { asQueueProvider, isAbortError } from '../queueProvider'
 import { SafeFetchError } from '../safeFetch'
 import { taskAccessWhere } from '../task-access'
-import type { AgentToolContext } from './tools/types'
 
 const POSTER_ID = /^(?:aip-media:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
