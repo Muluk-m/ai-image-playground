@@ -175,6 +175,27 @@ describe('check-arch-boundaries', () => {
         "import { reg } from '../../modules/agent/tools'\nexport const okWhitelistedCaller = reg\n",
       'lib/agent/bad-tools-caller.ts':
         "import { reg } from '../../modules/agent/tools'\nexport const badCaller = reg\n",
+      'modules/agent/orchestration/index.ts': 'export const orchFacade = 1\n',
+      'modules/agent/orchestration/masked/mask-ok.ts': 'export const maskOk = 1\n',
+      'modules/agent/orchestration/masked/pure.ts':
+        "import { readCfg } from '../../../../lib/channels'\nexport const badPure = readCfg\n",
+      'modules/agent/orchestration/batch/ok.ts':
+        "import { maskOk } from '../masked/mask-ok'\nexport const okBatchMasked = maskOk\n",
+      'modules/agent/orchestration/batch/bad-prod.ts':
+        "import { prodVal } from '../production/prod-ok'\nexport const badBatchProd = prodVal\n",
+      'modules/agent/orchestration/batch/bad-facade.ts':
+        "import { orchFacade } from '..'\nexport const badOrchFacade = orchFacade\n",
+      'modules/agent/orchestration/production/prod-ok.ts': 'export const prodVal = 1\n',
+      'modules/agent/orchestration/production/bad-batch.ts':
+        "import { okBatchMasked } from '../batch/ok'\nexport const badProdBatch = okBatchMasked\n",
+      'modules/agent/orchestration/production/bad-runtime.ts':
+        "import { rt } from '../../runtime/exec'\nexport const badOrchRt = rt\n",
+      'modules/agent/orchestration/production/bad-tools.ts':
+        "import { genTool } from '../../tools/generation/gen'\nexport const badOrchTools = genTool\n",
+      'modules/agent/orchestration/production/bad-legacy.ts':
+        "import { helper } from '../../../../lib/agent/tools/helper'\nimport { ev } from '../../../../lib/agent/events'\nexport const badOrchLegacy = [helper, ev]\n",
+      'modules/agent/runtime/bad-orch.ts':
+        "import { prodVal } from '../orchestration/production/prod-ok'\nexport const badRtOrch = prodVal\n",
     })
 
     const violations = await checkBffBoundaries(dir)
@@ -397,45 +418,102 @@ describe('check-arch-boundaries', () => {
         ),
       ),
     ).toBe(true)
-    expect(violations).toHaveLength(33)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-orchestration -> subdomain] modules/agent/orchestration/batch/bad-prod.ts -> modules/agent/orchestration/production/prod-ok.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-orchestration -> facade] modules/agent/orchestration/batch/bad-facade.ts -> modules/agent/orchestration/index.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-orchestration -> subdomain] modules/agent/orchestration/production/bad-batch.ts -> modules/agent/orchestration/batch/ok.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-orchestration -> runtime] modules/agent/orchestration/production/bad-runtime.ts -> modules/agent/runtime/exec.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-layer] modules/agent/orchestration/production/bad-tools.ts -> modules/agent/tools/generation/gen.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-orchestration -> legacy-tools] modules/agent/orchestration/production/bad-legacy.ts -> lib/agent/tools/helper.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-orchestration -> legacy-agent-layer] modules/agent/orchestration/production/bad-legacy.ts -> lib/agent/events.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-layer] modules/agent/runtime/bad-orch.ts -> modules/agent/orchestration/production/prod-ok.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-masked-pure -> runtime-env] modules/agent/orchestration/masked/pure.ts -> config.ts (via lib/channels.ts)',
+        ),
+      ),
+    ).toBe(true)
+    expect(violations).toHaveLength(42)
     expect(violations.some((v) => v.includes('lib/agent/pure-ok.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('lib/agent/interrupted.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('modules/agent/tools/canvas/ok.ts ->'))).toBe(false)
+    expect(violations.some((v) => v.includes('modules/agent/orchestration/batch/ok.ts ->'))).toBe(
+      false,
+    )
     expect(violations.some((v) => v.includes('modules/execution/ok.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('modules/agent/runtime/exec.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('bootstrap/container.ts ->'))).toBe(false)
   })
 
-  it('ratchets runtime cycles at directed-edge granularity while ignoring type-only cycles and scanning TSX JSX cleanly', async () => {
-    // 1. Adding a new directed edge inside an existing SCC must fail even when member nodes stay identical.
-    const addedEdgeDir = createTempTree({
-      'lib/agent/batch-analysis-preparation.ts':
-        "import { p } from './batch-plans'\nimport { e } from './batch-execution'\nexport const prep = [p, e]\n",
-      'lib/agent/batch-execution.ts': "import { p } from './batch-plans'\nexport const e = p\n",
-      'lib/agent/batch-phase-edit.ts':
-        "import { prep } from './batch-analysis-preparation'\nimport { e } from './batch-execution'\nimport { r } from './batch-plan-revision'\nimport { p } from './batch-plans'\nexport const edit = [prep, e, r, p]\n",
-      'lib/agent/batch-plan-revision.ts': "import { p } from './batch-plans'\nexport const r = p\n",
-      'lib/agent/batch-plans.ts':
-        "import { prep } from './batch-analysis-preparation'\nimport { edit } from './batch-phase-edit'\nexport const p = [prep, edit]\n",
+  it('rejects any runtime import cycle (zero-cycle baseline) while ignoring type-only cycles and scanning TSX JSX cleanly', async () => {
+    const dir = createTempTree({
+      'lib/a.ts': "import { b } from './b'\nexport const a = b\n",
+      'lib/b.ts': "import { a } from './a'\nexport const b = a\n",
       'lib/t1.ts': "import type { T2 } from './t2'\nexport interface T1 { x?: T2 }\n",
       'lib/t2.ts': "import type { T1 } from './t1'\nexport interface T2 { y?: T1 }\n",
       'lib/view.tsx': 'export const View = () => <div />\n',
     })
 
-    const addedEdgeViolations = await checkBffBoundaries(addedEdgeDir)
-    expect(addedEdgeViolations).toHaveLength(1)
-    expect(addedEdgeViolations[0]).toContain(
-      '[import-cycle] new runtime cycle edge: lib/agent/batch-analysis-preparation.ts -> lib/agent/batch-execution.ts',
-    )
-
-    // 2. Shrinking an existing SCC by removing edges must pass (incremental cycle breaking).
-    const shrunkDir = createTempTree({
-      'lib/agent/batch-analysis-preparation.ts':
-        "import { p } from './batch-plans'\nexport const prep = p\n",
-      'lib/agent/batch-plans.ts':
-        "import { prep } from './batch-analysis-preparation'\nexport const p = prep\n",
-    })
-    expect(await checkBffBoundaries(shrunkDir)).toEqual([])
+    const violations = await checkBffBoundaries(dir)
+    expect(violations).toHaveLength(2)
+    expect(
+      violations.some((v) =>
+        v.includes('[import-cycle] new runtime cycle edge: lib/a.ts -> lib/b.ts'),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes('[import-cycle] new runtime cycle edge: lib/b.ts -> lib/a.ts'),
+      ),
+    ).toBe(true)
   })
 
   it('catches DB schema cycles routed back through the barrel schema.ts', async () => {

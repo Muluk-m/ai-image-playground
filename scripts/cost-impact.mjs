@@ -19,14 +19,18 @@ export const COST_PATHS = [
   /^apps\/bff\/operator-config\.example\.json$/,
   /^apps\/bff\/\.env\.example$/,
   /^apps\/bff\/src\/lib\/agent\/(models|masked-edit)\.config\.json$/,
+  /^apps\/bff\/src\/modules\/agent\/orchestration\/masked\/masked-edit\.config\.json$/,
   // 智能体的模型选择、供应商请求、上下文压缩与出站预算/限额
   /^apps\/bff\/src\/lib\/agent\/(model[^/]*|provider-[^/]*|video-models|web-search|outbound-budget|compaction[^/]*)\.ts$/,
   /^apps\/bff\/src\/lib\/agent\/[^/]*(limit|budget)[^/]*\.ts$/,
   // 智能体的预扣、结算、授权与批量执行（调用次数与扣费入口）
   /^apps\/bff\/src\/lib\/agent\/(chat-task|background-jobs|auto-submit|turn-preparation|turn-authorization|stage-authorizations)\.ts$/,
-  /^apps\/bff\/src\/modules\/agent\/conversation\/(background-jobs|model-image)\.ts$/,
+  /^apps\/bff\/src\/modules\/agent\/conversation\/(background-jobs|generation-drafts|model-image)\.ts$/,
   /^apps\/bff\/src\/modules\/agent\/runtime\/(compaction-transform|context-pipeline|turn-events|turn-executor|turn-guards|turn-settlement|turn-stream)\.ts$/,
   /^apps\/bff\/src\/modules\/agent\/tools\/(registry\.ts|generation\/(queue-task|generate-image|edit-image|generate-video|plan-image-batch|propose-batch-analysis|propose-batch-generation|production|production-assets|propose-storyboard)\.ts|canvas\/(node-stage|node-stage-quote)\.ts|web\/web-search\.ts)$/,
+  /^apps\/bff\/src\/modules\/agent\/orchestration\/batch\//,
+  /^apps\/bff\/src\/modules\/agent\/orchestration\/production\/(stage-authorizations|stage-runs|generation|generation-binding|generation-validation|assets|storyboard)\.ts$/,
+  /^apps\/bff\/src\/modules\/agent\/orchestration\/masked\/(mask-proposal|masked-edit|segmentation)\.ts$/,
   // 批量分析与批量生成：模型解析、配额与任务派发
   /^apps\/bff\/src\/lib\/agent\/batch-[^/]*\.ts$/,
   // 任务提交、状态流转与计费模块
