@@ -2,8 +2,6 @@ import type { AgentInboxResumePayload } from '@image-playground/db'
 import type { AgentToolEndEvent } from '@image-playground/shared'
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import { settleSubmittedTaskIfTerminal } from './background-jobs'
-import { appendAgentMessage, listAgentToolCalls } from './conversations'
 import {
   type AgentReplayedSubmission,
   agentSubmissionKey,
@@ -11,7 +9,9 @@ import {
   agentToolStartFromSnapshot,
   agentToolSubmittedBlock,
   isAgentToolName,
-} from './tools'
+} from '../../modules/agent/tools'
+import { settleSubmittedTaskIfTerminal } from './background-jobs'
+import { appendAgentMessage, listAgentToolCalls } from './conversations'
 
 /**
  * 中断续跑：服务重启或执行者被接管打断了一轮（它没有终帧、也没有页脚），补写终帧的一方在这里

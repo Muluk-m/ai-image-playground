@@ -3,7 +3,7 @@ import type { ImageContent, Message } from '@earendil-works/pi-ai'
 import type { AgentVisualObservation } from '@image-playground/shared'
 import { config } from '../../../config'
 import { type AgentContextTransform, AgentToolError, type VisualWorkset } from '../contracts'
-import { visualEvidenceOf } from './visual-input'
+import { visualEvidenceOf } from '../conversation/visual-input'
 
 function images(messages: readonly (AgentMessage | Message)[]): ImageContent[] {
   return messages.flatMap((message) =>

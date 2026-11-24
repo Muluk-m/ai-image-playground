@@ -5,6 +5,12 @@ import {
   type TurnRuntimePorts,
 } from '../../modules/agent'
 import type { RunningTurn } from '../../modules/agent/contracts'
+import {
+  agentToolEnd,
+  agentToolStart,
+  agentTurnTools,
+  isAgentToolName,
+} from '../../modules/agent/tools'
 import { CONFIRMED_EDIT_CALL_PREFIX, confirmedMaskEditCall, toolCallStream } from './confirmed-edit'
 import { directImageCall } from './direct-image'
 import {
@@ -15,7 +21,6 @@ import {
   maskProposalRetryable,
 } from './mask-proposal'
 import { modelHistoryTransform, saveModelHistoryAfterTurn } from './model-history'
-import { agentToolEnd, agentToolStart, agentTurnTools, isAgentToolName } from './tools'
 import { createTurnAuthorization } from './turn-authorization'
 import {
   clarificationChainStart,

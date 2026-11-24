@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { AgentMessageView, AgentMode, AgentThinkingDepth } from '@image-playground/shared'
+import { agentToolDeclarations } from '../../modules/agent/tools'
 import { canonicalJson } from '../canonicalJson'
 import { log } from '../logger'
 import { objectStore, readObjectWithinLimit } from '../objectStore'
@@ -15,7 +16,6 @@ import { agentInlineReasoningTags } from './model-limits'
 import { replayedSkillTexts } from './skill-loader'
 import { type AgentTurnAudience, visibleAgentSkills } from './skills'
 import { estimateMessageTokens } from './token-estimate'
-import { agentToolDeclarations } from './tools'
 import { systemPrompt } from './turn-input'
 
 const MAX_BYTES = 8 * 1024 * 1024

@@ -120,6 +120,13 @@ export {
   validateSelections,
 } from './selection-preview'
 export {
+  prepareVisualEvidence,
+  registerVisualBlock,
+  type VisualEvidence,
+  type VisualEvidenceSource,
+  visualEvidenceOf,
+} from './visual-input'
+export {
   assertVisualBytes,
   currentVisualSignal,
   previewSourceByteLimit,

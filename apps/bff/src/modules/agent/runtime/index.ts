@@ -49,11 +49,4 @@ export {
   type TurnRuntimePorts,
   type TurnToolRuntime,
 } from './turn-types'
-export {
-  prepareVisualEvidence,
-  registerVisualBlock,
-  type VisualEvidence,
-  type VisualEvidenceSource,
-  visualEvidenceOf,
-} from './visual-input'
 export { createVisualWorkset } from './visual-workset'
