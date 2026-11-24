@@ -250,11 +250,11 @@ function ModelTableRow({
         onInspect(model.id)
       }}
     >
-      <TableCell className="min-w-[196px] py-3 pl-4 align-middle">
+      <TableCell className="min-w-[176px] py-3 pl-4 align-middle">
         <div className="font-medium text-foreground">{model.label}</div>
         <div className="mt-0.5 font-mono text-xs text-muted-foreground">{model.id}</div>
       </TableCell>
-      <TableCell className="min-w-[176px] py-3 align-middle">
+      <TableCell className="min-w-[164px] py-3 align-middle">
         <div className="flex items-center gap-1.5 whitespace-nowrap">
           <Badge variant="outline" className="px-2 py-0 text-xs font-medium">
             {KIND_LABELS[model.kind]}
@@ -272,14 +272,14 @@ function ModelTableRow({
           </div>
         ) : null}
       </TableCell>
-      <TableCell className="min-w-[176px] py-3 align-middle">
+      <TableCell className="min-w-[164px] py-3 align-middle">
         <ModelSpecSummary model={model} />
       </TableCell>
-      <TableCell className="min-w-[148px] py-3 align-middle">
+      <TableCell className="min-w-[136px] py-3 align-middle">
         <ModelStatus model={model} />
       </TableCell>
       {billingEnabled ? (
-        <TableCell className="min-w-[260px] py-3 align-middle">
+        <TableCell className="min-w-[240px] py-3 align-middle">
           <PrivateAdminModelPricing
             model={model.id}
             kind={model.kind}
@@ -289,7 +289,7 @@ function ModelTableRow({
         </TableCell>
       ) : null}
       <TableCell
-        className="w-[144px] py-3 pr-4 align-middle"
+        className="w-[132px] py-3 pr-4 align-middle"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-end gap-2">
