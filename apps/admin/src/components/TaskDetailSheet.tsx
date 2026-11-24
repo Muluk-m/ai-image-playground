@@ -1,11 +1,20 @@
 import type { ServerLogEntry, ServerLogsResult } from '@image-playground/shared'
 import { useQuery } from '@tanstack/react-query'
+import { Link } from '@tanstack/react-router'
 import { useState } from 'react'
 import { TaskDetailView } from '@/components/TaskDetailView'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { apiClient } from '@/lib/api-client'
 import { useAudits, useTask } from '@/lib/queries'
 import { cn } from '@/lib/utils'
+
+interface TaskTrace {
+  traceId: string
+  startedAt: number
+  tree: string
+  spans: number
+  truncated: boolean
+}
 
 interface TaskDetailSheetProps {
   taskId: string | undefined
@@ -49,12 +58,24 @@ function TaskDrawerTabs({ taskId }: { taskId: string }) {
         `/api/ops/logs?taskId=${encodeURIComponent(taskId)}&from=${logFrom}&to=${logTo}`,
       ),
   })
+  // 提交和每次执行各一条链路；没开 OpenObserve 的部署（测试环境）查不到就不显示这一页。
+  const traces = useQuery({
+    queryKey: ['task-traces', taskId, logFrom, logTo],
+    enabled: logFrom !== null && logTo !== null,
+    retry: false,
+    queryFn: () =>
+      apiClient.get<{ traces: TaskTrace[]; more: boolean }>(
+        `/api/ops/tasks/${encodeURIComponent(taskId)}/traces?from=${logFrom}&to=${logTo}`,
+      ),
+  })
+  const traceList = traces.data?.traces ?? []
   const audits = useAudits({ targetId: taskId })
   const auditRows = audits.data?.pages.flatMap((page) => page.audits) ?? []
   const logEntries = logs.data?.entries ?? []
   const history = task.data ? historyFromTask(task.data) : []
   const tabs = [
     history.length ? { id: 'history', label: `变更历史 ${history.length}` } : null,
+    traceList.length ? { id: 'traces', label: `链路 ${traceList.length}` } : null,
     logEntries.length ? { id: 'logs', label: `服务端日志 ${logEntries.length}` } : null,
     auditRows.length ? { id: 'audit', label: `审计 ${auditRows.length}` } : null,
   ].filter((tab): tab is { id: string; label: string } => tab !== null)
@@ -89,7 +110,10 @@ function TaskDrawerTabs({ taskId }: { taskId: string }) {
         role="tabpanel"
         aria-labelledby={`task-tab-${current}`}
         tabIndex={0}
-        className="max-h-40 overflow-y-auto px-5 py-2 text-xs"
+        className={cn(
+          'overflow-y-auto px-5 py-2 text-xs',
+          current === 'traces' || current === 'logs' ? 'max-h-80' : 'max-h-40',
+        )}
       >
         {current === 'history'
           ? history.map((event) => (
@@ -99,6 +123,18 @@ function TaskDrawerTabs({ taskId }: { taskId: string }) {
               </p>
             ))
           : null}
+        {current === 'traces' ? (
+          <>
+            {traceList.map((trace) => (
+              <TraceSection key={trace.traceId} trace={trace} />
+            ))}
+            {traces.data?.more ? (
+              <p className="py-1 text-muted-foreground">
+                链路太多，只列出前 {traceList.length} 条。
+              </p>
+            ) : null}
+          </>
+        ) : null}
         {current === 'logs'
           ? logEntries.map((entry) => <LogLine key={entry.id} entry={entry} />)
           : null}
@@ -146,16 +182,52 @@ function historyFromTask(task: {
   return events.map((event) => ({ ...event, time: clock(event.at) }))
 }
 
-function LogLine({ entry }: { entry: ServerLogEntry }) {
+const clockTime = (at: number) =>
+  new Date(at).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
+
+function TraceSection({ trace }: { trace: TaskTrace }) {
   return (
-    <p className="py-1">
-      <span className="font-mono text-muted-foreground">
-        {new Date(entry.at).toLocaleTimeString('zh-CN', {
-          timeZone: 'Asia/Shanghai',
-          hour12: false,
-        })}
-      </span>{' '}
+    <section aria-label={`链路 ${trace.traceId}`} className="border-b py-2 last:border-b-0">
+      <p className="flex flex-wrap items-baseline gap-x-2 pb-1">
+        <span className="font-mono text-muted-foreground">{clockTime(trace.startedAt)}</span>
+        <span className="min-w-0 break-all font-mono">{trace.traceId}</span>
+        <Link
+          to="/logs"
+          search={{
+            traceId: trace.traceId,
+            from: trace.startedAt - 60_000,
+            to: Math.min(Date.now() + 60_000, trace.startedAt + 86_400_000),
+          }}
+          className="ml-auto underline-offset-2 hover:underline"
+        >
+          日志
+        </Link>
+      </p>
+      {trace.truncated ? (
+        <p className="text-muted-foreground">
+          span 超过 {trace.spans} 个，只显示前 {trace.spans} 个。
+        </p>
+      ) : null}
+      <pre className="overflow-x-auto whitespace-pre font-mono">{trace.tree}</pre>
+    </section>
+  )
+}
+
+function LogLine({ entry }: { entry: ServerLogEntry }) {
+  const fields = Object.keys(entry.fields).length ? JSON.stringify(entry.fields, null, 2) : null
+  const line = (
+    <>
+      <span className="font-mono text-muted-foreground">{clockTime(entry.at)}</span>{' '}
       <span className="font-mono">{entry.level}</span> {entry.message}
-    </p>
+    </>
+  )
+  if (!fields) return <p className="py-1">{line}</p>
+  return (
+    <details className="py-1">
+      <summary className="cursor-pointer break-words">{line}</summary>
+      <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/60 p-2 font-mono">
+        {fields}
+      </pre>
+    </details>
   )
 }

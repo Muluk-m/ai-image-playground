@@ -28,6 +28,7 @@ import {
   SERVER_LOG_LEVELS,
   SERVER_LOG_SERVICES,
   sqlString,
+  taskSpansSql,
   traceSql,
 } from '@image-playground/shared'
 import { sql } from 'drizzle-orm'
@@ -549,4 +550,62 @@ export async function readTrace(
     ...range,
   })
   return { tree: formatTrace(records), spans: records.length, truncated }
+}
+
+/** 一个任务最多画几条链路：一次提交加几次重试执行，再多就是异常的任务，去日志页看。 */
+const TASK_TRACE_LIMIT = 8
+
+export interface TaskTraceView extends TraceView {
+  traceId: string
+  /** 链路里最早 span 的起点（毫秒）。 */
+  startedAt: number
+}
+
+/**
+ * 一个任务的全部链路：BFF 收下提交的那条，加上 worker 每次执行的那条，按开始时间排。
+ * 和 `bun scripts/obs.ts task` 一样按 span 上的 task_id 找，窗口与任务详情里的日志相同。
+ */
+export async function readTaskTraces(
+  taskId: string,
+  from: number,
+  to: number,
+  client: ObsClient = defaultClient(),
+): Promise<{ traces: TaskTraceView[]; more: boolean }> {
+  if (!/^[\w-]{1,128}$/.test(taskId)) throw new LogQueryError('无效的任务 id')
+  if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from < 0 || to <= from)
+    throw new LogQueryError('无效的时间范围')
+  if (to - from > MAX_WINDOW + 120_000) throw new LogQueryError('时间范围最长 7 天')
+  const range = { type: 'traces' as const, startMs: from, endMs: to }
+  const found = await client.search({
+    ...range,
+    sql: taskSpansSql(taskId),
+    size: TASK_TRACE_LIMIT + 1,
+  })
+  const ids = found
+    .map((row) => String(row.trace_id ?? ''))
+    .filter((id) => /^(?!0+$)[0-9a-f]{32}$/.test(id))
+  const traces: TaskTraceView[] = []
+  // 一次最多 4 个查询：OpenObserve 只有 512 MB。
+  for (let index = 0; index < Math.min(ids.length, TASK_TRACE_LIMIT); index += 4) {
+    const batch = ids.slice(index, Math.min(index + 4, TASK_TRACE_LIMIT))
+    traces.push(
+      ...(await Promise.all(
+        batch.map(async (traceId) => {
+          const { records, truncated } = await client.searchAll({
+            ...range,
+            sql: traceSql(traceId),
+          })
+          const starts = records.map((hit) => Number(hit.start_time)).filter(Number.isFinite)
+          return {
+            traceId,
+            startedAt: starts.length ? Math.floor(Math.min(...starts) / 1e6) : from,
+            tree: formatTrace(records),
+            spans: records.length,
+            truncated,
+          }
+        }),
+      )),
+    )
+  }
+  return { traces, more: ids.length > TASK_TRACE_LIMIT }
 }

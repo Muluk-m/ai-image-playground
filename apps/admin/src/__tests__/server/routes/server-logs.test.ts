@@ -162,6 +162,7 @@ describe('server log explorer on OpenObserve', () => {
       base,
       `/api/ops/logs/context?id=${toEntry(hit(1)).id}`,
       '/api/ops/traces/4bf92f3577b34da6a3ce929d0e0e4736',
+      `/api/ops/tasks/task-1/traces?from=${now - 3600_000}&to=${now}`,
     ]) {
       const response = await request(path)
       expect(response.status).toBe(503)
@@ -388,6 +389,68 @@ describe('server log explorer on OpenObserve', () => {
     expect((await request('/api/ops/traces/4bf92f3577b34da6a3ce929d0e0e4736?at=x')).status).toBe(
       400,
     )
+  })
+
+  it('draws every trace of a task, submit and each execution, in start order', async () => {
+    const submit = 'a'.repeat(32)
+    const execute = 'b'.repeat(32)
+    const taskFake: ObsClient = {
+      ...fake,
+      async search(query) {
+        searches.push(query)
+        return [{ trace_id: submit }, { trace_id: execute }, { trace_id: '0'.repeat(32) }]
+      },
+      async searchAll(query) {
+        searches.push({ ...query })
+        const bff = query.sql.includes(submit)
+        return {
+          records: [
+            {
+              span_id: bff ? 's' : 'e',
+              reference_parent_span_id: '',
+              start_time: (bff ? now : now + 1_000) * 1e6,
+              duration: 28_000,
+              service_name: bff ? 'bff' : 'worker',
+              operation_name: bff ? 'POST /v1/queue/submit' : 'task.execute',
+            },
+          ],
+          truncated: !bff,
+        }
+      },
+    }
+    _setObsClientForTesting(taskFake)
+    const from = now - 3600_000
+    const response = await request(`/api/ops/tasks/task-1/traces?from=${from}&to=${now}`)
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      traces: {
+        traceId: string
+        tree: string
+        spans: number
+        truncated: boolean
+        startedAt: number
+      }[]
+      more: boolean
+    }
+    expect(body.more).toBe(false)
+    expect(body.traces.map((trace) => trace.traceId)).toEqual([submit, execute])
+    expect(body.traces[0]).toMatchObject({ spans: 1, truncated: false, startedAt: now })
+    expect(body.traces[0]!.tree).toContain('bff POST /v1/queue/submit')
+    expect(body.traces[1]!.tree).toContain('worker task.execute')
+    expect(body.traces[1]!.truncated).toBe(true)
+    expect(searches[0]!.sql).toContain("WHERE task_id = 'task-1'")
+    expect(
+      searches.every((s) => s.type === 'traces' && s.startMs === from && s.endMs === now),
+    ).toBe(true)
+
+    for (const bad of [
+      "/api/ops/tasks/bad'id/traces?from=1&to=2",
+      `/api/ops/tasks/task-1/traces?from=${now}&to=${from}`,
+      '/api/ops/tasks/task-1/traces?from=x&to=2',
+      `/api/ops/tasks/task-1/traces?from=${now - 9 * 86_400_000}&to=${now}`,
+    ])
+      expect((await request(bad)).status).toBe(400)
+    _setObsClientForTesting(fake)
   })
 
   it('treats plain-text container lines and empty trace ids sensibly', () => {

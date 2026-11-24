@@ -8,6 +8,7 @@ import {
   parseLogQuery,
   readLogContext,
   readServerLogs,
+  readTaskTraces,
   readTrace,
 } from '../lib/server-logs'
 
@@ -40,6 +41,18 @@ export const opsRoutes = new Elysia()
       if (error instanceof LogsUnavailableError)
         return status(503, { error: error.message, code: OBSERVABILITY_OFF })
       return status(503, { error: '日志上下文暂时无法读取' })
+    }
+  })
+
+  .get('/api/ops/tasks/:taskId/traces', async ({ params, query, status }) => {
+    try {
+      return await readTaskTraces(params.taskId, Number(query.from), Number(query.to))
+    } catch (error) {
+      if (error instanceof LogQueryError) return status(400, { error: error.message })
+      if (error instanceof LogsUnavailableError)
+        return status(503, { error: error.message, code: OBSERVABILITY_OFF })
+      console.error('[ops] task traces read failed', error)
+      return status(503, { error: '链路暂时无法读取' })
     }
   })
 
