@@ -218,6 +218,7 @@ describe('libraryStore.attachAsset targetZone, imageId and shouldCommit', () => 
     ],
     createdAt: 1,
     updatedAt: 1,
+    lastUsedAt: 0,
   }
 
   beforeEach(() => {
