@@ -238,6 +238,7 @@ export function ModelList({
         <SearchField
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          onClear={() => setQuery('')}
           placeholder={t('param.searchModel')}
           aria-label={t('param.searchModel')}
           aria-controls={listId}

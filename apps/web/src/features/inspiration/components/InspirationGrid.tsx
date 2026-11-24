@@ -1,4 +1,6 @@
 import { useMemo } from 'react'
+import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { useStore } from '../../../store'
 import { visibleInspirationItems } from '../lib/visibleItems'
@@ -22,7 +24,7 @@ export default function InspirationGrid({ scroller }: Props) {
   const onlyImageEdits = useInspirationStore((s) => s.onlyImageEdits)
   const searchKeyword = useInspirationStore((s) => s.searchKeyword)
   const pinnedIds = useStore((s) => s.pinnedInspirationIds)
-  const { t } = useTranslation('inspiration')
+  const { t } = useTranslation(['inspiration', 'common'])
 
   const ordered = useMemo(
     () =>
@@ -52,9 +54,22 @@ export default function InspirationGrid({ scroller }: Props) {
   }
   if (items.length === 0) {
     return (
-      <p className="py-16 text-center text-body-sm text-muted-foreground">
-        {status === 'error' ? t('manifest.invalid') : t('list.empty')}
-      </p>
+      <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+        <p className="text-body-sm text-muted-foreground">
+          {status === 'error' ? t('manifest.invalid') : t('list.empty')}
+        </p>
+        {status === 'error' && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => void useInspirationStore.getState().loadRemote()}
+          >
+            <Icon name="refresh" />
+            {t('common:action.retry')}
+          </Button>
+        )}
+      </div>
     )
   }
   if (ordered.length === 0) return <InspirationEmpty />

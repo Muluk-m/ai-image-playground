@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import PageHeader from '../../../components/patterns/PageHeader'
 import SearchField from '../../../components/patterns/SearchField'
-import { Button } from '../../../components/ui/button'
-import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { APP_MODE_LABELS, useStore } from '../../../store'
 import { visibleInspirationItems } from '../lib/visibleItems'
@@ -55,50 +53,26 @@ export default function ExplorePage() {
         <div className="hidden items-center gap-2 md:flex">
           <InspirationProviderTabs />
         </div>
-        <div className="relative ml-auto hidden w-full max-w-xs md:block">
+        <div className="ml-auto hidden w-full max-w-xs md:block">
           <SearchField
             value={searchKeyword}
             onChange={(event) => setSearch(event.target.value)}
+            onClear={() => setSearch('')}
+            clearLabel={t('list.clearSearch')}
             placeholder={t('panel.searchPlaceholder')}
-            className="max-w-none rounded-full bg-card/40 pr-8"
+            className="max-w-none rounded-full bg-card/40"
           />
-          {searchKeyword ? (
-            <Button
-              type="button"
-              size="icon-xs"
-              variant="ghost"
-              autoTooltip={false}
-              aria-label={t('list.clearSearch')}
-              className="absolute right-1 top-1"
-              onClick={() => setSearch('')}
-            >
-              <Icon name="close" />
-            </Button>
-          ) : null}
         </div>
       </PageHeader>
       <div className="space-y-3 border-b border-border px-4 py-3 md:hidden">
-        <div className="relative">
-          <SearchField
-            value={searchKeyword}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={t('panel.searchPlaceholder')}
-            className="max-w-none rounded-full border-border/80 bg-card/50 pr-8"
-          />
-          {searchKeyword ? (
-            <Button
-              type="button"
-              size="icon-xs"
-              variant="ghost"
-              autoTooltip={false}
-              aria-label={t('list.clearSearch')}
-              className="absolute right-1 top-1"
-              onClick={() => setSearch('')}
-            >
-              <Icon name="close" />
-            </Button>
-          ) : null}
-        </div>
+        <SearchField
+          value={searchKeyword}
+          onChange={(event) => setSearch(event.target.value)}
+          onClear={() => setSearch('')}
+          clearLabel={t('list.clearSearch')}
+          placeholder={t('panel.searchPlaceholder')}
+          className="max-w-none rounded-full border-border/80 bg-card/50"
+        />
         <div className="overflow-x-auto">
           <InspirationProviderTabs />
         </div>

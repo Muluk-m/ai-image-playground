@@ -19,7 +19,8 @@ import {
 import { useTranslation } from '../../../i18n'
 import { videoModelOptions } from '../../../lib/channels/videoChannels'
 import VideoPresetRows from '../../video/components/VideoPresetRows'
-import { useVideoStore } from '../../video/store'
+import { clampDraftToSupport } from '../../video/lib/draft'
+import { INITIAL_VIDEO_DRAFT, useVideoStore } from '../../video/store'
 import type { VideoDraft } from '../../video/types'
 
 /**
@@ -55,6 +56,33 @@ export default function CanvasVideoParams({
   const modelLabel = option?.label ?? ''
   const modelName = useOverflowTitle<HTMLSpanElement>(modelLabel, { whenHidden: true })
   if (!option) return null
+  const support = controlled?.support ?? option.support
+  const defaultDraft = clampDraftToSupport(
+    { ...INITIAL_VIDEO_DRAFT, model: option.modelId },
+    support,
+  )
+  const dirty =
+    draft.duration !== defaultDraft.duration ||
+    draft.resolution !== defaultDraft.resolution ||
+    (!hasFirstFrame && draft.aspectRatio !== defaultDraft.aspectRatio) ||
+    Boolean(draft.voices?.length)
+  const reset = () => {
+    const patch: Partial<VideoDraft> = {
+      duration: defaultDraft.duration,
+      aspectRatio: defaultDraft.aspectRatio,
+      resolution: defaultDraft.resolution,
+      voices: [],
+    }
+    if (controlled) {
+      controlled.onChange(patch)
+      return
+    }
+    const video = useVideoStore.getState()
+    video.setDuration(defaultDraft.duration)
+    video.setAspectRatio(defaultDraft.aspectRatio)
+    video.setResolution(defaultDraft.resolution)
+    if (draft.voices?.length) video.setVoices([])
+  }
   const summary = [
     t('shared.seconds', { seconds: draft.duration }),
     hasFirstFrame ? undefined : draft.aspectRatio,
@@ -97,6 +125,8 @@ export default function CanvasVideoParams({
         title={t('settings.title')}
         summary={summary}
         size={size}
+        dirty={dirty}
+        onReset={dirty ? reset : undefined}
         icon={
           <RatioShape ratio={hasFirstFrame ? 'auto' : draft.aspectRatio} className="h-3.5 w-3.5" />
         }
@@ -104,7 +134,7 @@ export default function CanvasVideoParams({
         {() => (
           <>
             <VideoPresetRows
-              support={controlled?.support ?? option.support}
+              support={support}
               draft={draft}
               onChange={controlled?.onChange}
               aspectFollowsFirstFrame={hasFirstFrame}

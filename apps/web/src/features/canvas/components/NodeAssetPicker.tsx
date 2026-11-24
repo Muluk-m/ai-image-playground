@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
+import SearchField from '../../../components/patterns/SearchField'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
-import { Input } from '../../../components/ui/input'
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '../../../components/ui/sheet'
 import { useTranslation } from '../../../i18n'
 import AssetThumb from '../../library/components/AssetThumb'
@@ -13,9 +13,11 @@ import { ASSET_DRAG_TYPE } from '../lib/nodeAssets'
 export default function NodeAssetPicker({
   onClose,
   onChoose,
+  description,
 }: {
   onClose: () => void
   onChoose: (asset: AssetRecord, imageId?: string) => void
+  description?: string
 }) {
   const { t } = useTranslation('canvas')
   const { t: common } = useTranslation('common')
@@ -24,11 +26,15 @@ export default function NodeAssetPicker({
   const [query, setQuery] = useState('')
   const [failed, setFailed] = useState(false)
   const [creating, setCreating] = useState(false)
-  useEffect(() => {
+  const load = () => {
+    setFailed(false)
     void useLibraryStore
       .getState()
       .loadAssets()
       .catch(() => setFailed(true))
+  }
+  useEffect(() => {
+    load()
   }, [])
   const visible = assets.filter((asset) =>
     `${asset.name} ${asset.description ?? ''}`.toLowerCase().includes(query.toLowerCase()),
@@ -48,13 +54,15 @@ export default function NodeAssetPicker({
           onInteractOutside={(event) => event.preventDefault()}
         >
           <SheetTitle>{t('nodes.assets')}</SheetTitle>
-          <SheetDescription>{t('nodes.assetDragHint')}</SheetDescription>
+          <SheetDescription>{description ?? t('nodes.assetDragHint')}</SheetDescription>
           <div className="flex gap-2">
-            <Input
+            <SearchField
+              className="max-w-none flex-1"
               aria-label={t('nodes.assets')}
               placeholder={t('nodes.assets')}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onClear={() => setQuery('')}
             />
             <Button
               variant="outline"
@@ -66,9 +74,17 @@ export default function NodeAssetPicker({
             </Button>
           </div>
           {!visible.length && (
-            <p className="py-8 text-center text-sm text-muted-foreground">
-              {t(failed ? 'import.failed' : 'nodes.assetsEmpty')}
-            </p>
+            <div className="flex flex-col items-center gap-2 py-8 text-center">
+              <p className="text-sm text-muted-foreground">
+                {t(failed ? 'import.failed' : 'nodes.assetsEmpty')}
+              </p>
+              {failed && (
+                <Button type="button" variant="outline" size="sm" onClick={load}>
+                  <Icon name="refresh" />
+                  {common('action.retry')}
+                </Button>
+              )}
+            </div>
           )}
           <div className="grid min-h-0 grid-cols-2 gap-3 overflow-auto">
             {visible.map((asset) => (

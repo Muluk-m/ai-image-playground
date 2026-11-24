@@ -89,13 +89,13 @@
   },
   "transparent": {
     "pixelSizeMismatch": "Transparent-background pixel data size mismatch",
-    "unsupportedKeyColor": "Unsupported transparent-background key color: {{keyColor}}"
+    "unsupportedKeyColor": "Unsupported transparent background color: {{keyColor}}"
   },
   "clipboard": {
     "iframeDenied": "Copy failed: the embedding page did not grant clipboard permission"
   },
   "storage": {
-    "adoptTxAborted": "The {{store}} transaction for adopting history was aborted"
+    "adoptTxAborted": "Syncing local history ({{store}}) was interrupted. Refresh and try again."
   },
   "mention": {
     "imageLabel": "@Image {{n}}",
