@@ -30,6 +30,8 @@ export default function Lightbox() {
   const tasks = useHistoryTasks()
 
   const [src, setSrc] = useState('')
+  const [originalFailed, setOriginalFailed] = useState(false)
+  const [retryKey, setRetryKey] = useState(0)
   const [maskImageSrc, setMaskImageSrc] = useState('')
   const [maskPreviewSrc, setMaskPreviewSrc] = useState('')
   const thumbnail = useImagePreview(lightboxImageId ?? undefined)
@@ -42,19 +44,30 @@ export default function Lightbox() {
 
     if (!lightboxImageId) {
       setSrc('')
+      setOriginalFailed(false)
       return
     }
 
     setSrc('')
+    setOriginalFailed(false)
 
-    void loadImageOriginal(lightboxImageId).then((url) => {
-      if (!cancelled && url) setSrc(url)
-    })
+    void loadImageOriginal(lightboxImageId)
+      .then((url) => {
+        if (cancelled) return
+        if (url) {
+          setSrc(url)
+        } else {
+          setOriginalFailed(true)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setOriginalFailed(true)
+      })
 
     return () => {
       cancelled = true
     }
-  }, [lightboxImageId])
+  }, [lightboxImageId, retryKey])
 
   // 遮罩图加载
   useEffect(() => {
@@ -146,7 +159,7 @@ export default function Lightbox() {
 
   // 原图读起来是几秒的事（本机几 MB 的 dataURL，平台图整张下载再转 base64）。在它到位前先
   // 铺缩略图，缩略图也没有就先给个转圈——否则点开之后屏幕上什么都不发生，像是没点中。
-  const originalPending = !src
+  const originalPending = !src && !originalFailed
   const displaySrc = src || thumbnail?.url || ''
   if (!lightboxImageId) return null
   if (!displaySrc) {
@@ -160,7 +173,22 @@ export default function Lightbox() {
       >
         <div className="flex h-full w-full items-center justify-center">
           <div className="absolute inset-0 bg-black/70 backdrop-blur-md animate-fade-in" />
-          <Icon name="loading" size="lg" className="relative animate-spin text-white" />
+          {originalFailed ? (
+            <div className="relative flex flex-col items-center gap-3 rounded-2xl bg-black/60 px-5 py-4 text-sm text-white backdrop-blur-sm">
+              <p>{t('lightbox.originalFailed')}</p>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setRetryKey((k) => k + 1)}
+              >
+                <Icon name="refresh" size="xs" />
+                {t('common:action.retry')}
+              </Button>
+            </div>
+          ) : (
+            <Icon name="loading" size="lg" className="relative animate-spin text-white" />
+          )}
           <Button
             type="button"
             variant="secondary"
@@ -180,6 +208,8 @@ export default function Lightbox() {
     <LightboxInner
       src={displaySrc}
       originalPending={originalPending}
+      originalFailed={originalFailed}
+      onRetryOriginal={() => setRetryKey((k) => k + 1)}
       imageId={lightboxImageId}
       maskPreviewSrc={maskPreviewSrc}
       onClose={close}
@@ -306,13 +336,15 @@ function LightboxInner({
   const didDragRef = useRef(false)
   const suppressNextClickRef = useRef(false)
 
-  // 切换图片时重置缩放
+  // 切换图片时重置缩放（同一 imageId 从缩略图升级为原图时保留当前缩放与位移）
+  const zoomIdentity = imageId || src
   useEffect(() => {
+    void zoomIdentity
     scaleRef.current = 1
     txRef.current = 0
     tyRef.current = 0
     rerender()
-  }, [src, rerender])
+  }, [zoomIdentity, rerender])
 
   useEffect(() => {
     const suppressClick = () => {

@@ -120,6 +120,8 @@
     "currentPassword": "Current password",
     "newPassword": "New password",
     "confirmPassword": "Confirm new password",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
     "security": "Security",
     "devices": "Signed-in devices",
     "devicesLoading": "Loading devices…",
@@ -375,5 +377,8 @@
     "viewExisting": "View original order",
     "replaceOrder": "Cancel original and continue",
     "changeBlocked": "A plan change is already scheduled. Wait for it to take effect before changing again."
+  },
+  "error": {
+    "temporary": "Service temporarily unavailable. Please try again."
   }
 }
