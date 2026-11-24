@@ -48,15 +48,23 @@ export function AgentRoutingSettings() {
       setSaved(true)
     },
   })
-  const error =
+  const rawErrorCode =
     update.error instanceof ApiError &&
     typeof update.error.body === 'object' &&
     update.error.body &&
     'error' in update.error.body
       ? String(update.error.body.error)
-      : update.error
-        ? '保存失败，请稍后重试'
-        : null
+      : null
+  const error =
+    rawErrorCode === 'stale_revision'
+      ? '配置已被其他人更新，请刷新后重试'
+      : rawErrorCode === 'invalid_request' || rawErrorCode === 'validation_error'
+        ? '配置项格式无效，请检查后重试'
+        : rawErrorCode === 'forbidden' || rawErrorCode === 'unauthorized'
+          ? '登录状态已失效或无操作权限，请重新登录'
+          : update.error
+            ? '保存失败，请稍后重试'
+            : null
   if (query.isPending) return <PendingState label="加载模型配置" />
   if (query.isError) return <ErrorState label="加载模型配置失败" error={query.error} />
   return (

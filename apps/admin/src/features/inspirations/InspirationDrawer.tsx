@@ -86,7 +86,9 @@ export function InspirationDrawer({
           <SheetTitle>
             {creating ? '新建灵感条目' : (detail.data?.title ?? '编辑灵感条目')}
           </SheetTitle>
-          <SheetDescription>关掉抽屉会回到列表，筛选和滚动位置都还在。</SheetDescription>
+          <SheetDescription className="sr-only">
+            {creating ? '新建灵感条目' : '编辑灵感条目'}
+          </SheetDescription>
         </SheetHeader>
         {creating ? (
           <InspirationEditor
@@ -150,6 +152,7 @@ function InspirationEditor({
   )
   const [tagsText, setTagsText] = useState(() => (item?.tags ?? []).join(', '))
   const [error, setError] = useState<string | null>(null)
+  const [savedNotice, setSavedNotice] = useState<string | null>(null)
   const [confirming, setConfirming] = useState<PendingConfirm | null>(null)
   // 新建成功后先别急着换抽屉：紧跟着的发布校验可能被拒，错误得有地方显示。
   // 等这一轮动作整个做完才 onCreated（它会改 URL 并按新 id 重挂编辑器）。
@@ -166,10 +169,12 @@ function InspirationEditor({
   const savedStatus = item?.status ?? (createdId ? 'draft' : null)
 
   function patch(next: Partial<InspirationWriteInput>): void {
+    setSavedNotice(null)
     setDraft((current) => ({ ...current, ...next }))
   }
 
   function patchParams(next: Partial<InspirationParams>): void {
+    setSavedNotice(null)
     setDraft((current) => ({ ...current, params: { ...current.params, ...next } }))
   }
 
@@ -191,6 +196,7 @@ function InspirationEditor({
   }
 
   async function saveAsDraft(): Promise<void> {
+    setSavedNotice(null)
     const id = await save()
     if (!id) return
     // 新建出来就是草稿；已发布 / 已下架的条目点「存草稿」才需要再退一次状态。
@@ -202,6 +208,7 @@ function InspirationEditor({
         return
       }
     }
+    setSavedNotice('已保存草稿')
     if (!item) onCreated(id)
   }
 
@@ -552,6 +559,11 @@ function InspirationEditor({
 
       <div className="border-t px-4 py-3 sm:px-6">
         {error ? <p className="mb-2 text-sm text-destructive">{error}</p> : null}
+        {savedNotice ? (
+          <p role="status" className="mb-2 text-sm text-success">
+            {savedNotice}
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Button
             variant="ghost"
@@ -577,7 +589,12 @@ function InspirationEditor({
             >
               下架
             </Button>
-            <Button size="sm" disabled={busy} onClick={() => setConfirming('publish')}>
+            <Button
+              variant="brand"
+              size="sm"
+              disabled={busy}
+              onClick={() => setConfirming('publish')}
+            >
               发布到主站
             </Button>
           </div>

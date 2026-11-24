@@ -70,6 +70,23 @@ describe('UpstreamSecretsPanel', () => {
     await waitFor(() => expect(state.replace).toHaveBeenCalledWith('openai_direct', secret))
     expect(screen.queryByText(secret)).not.toBeInTheDocument()
     expect(state.setQueryData).toHaveBeenCalledWith(['upstream-secrets'], state.data)
+    expect(screen.getByText('已保存并生效')).toBeInTheDocument()
+  })
+
+  it('requires confirmation before clearing an admin-stored upstream secret', async () => {
+    state.clear.mockResolvedValue({
+      ...state.data,
+      secrets: [{ ...state.data.secrets[0], source: 'env' as const }],
+    })
+    render(<UpstreamSecretsPanel />)
+
+    fireEvent.click(screen.getByRole('button', { name: '清除' }))
+    expect(state.clear).not.toHaveBeenCalled()
+    expect(screen.getByText(/清除 OpenAI 直连 后台密钥/)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '确认清除' }))
+    await waitFor(() => expect(state.clear).toHaveBeenCalledWith('openai_direct'))
+    expect(screen.getByText('已清除后台密钥')).toBeInTheDocument()
   })
 
   it('tests a draft without saving it', async () => {

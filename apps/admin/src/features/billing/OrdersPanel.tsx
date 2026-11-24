@@ -602,8 +602,11 @@ function OrderDetail({
   const tier = resolveOrderTier(order, catalog)
   const version = order.payment_history.find((v) => v.id === code) ?? order.payment_code
   const canConfirm = order.status === 'review' || order.status === 'pending'
-  const review = (action: 'note' | 'reject' | 'reopen') =>
+  const [confirmReject, setConfirmReject] = useState(false)
+  const review = (action: 'note' | 'reject' | 'reopen') => {
+    setConfirmReject(false)
     mutation.mutate({ action: 'review', body: { action, note, rejection_message: rejection } })
+  }
   const conflict =
     mutation.error instanceof ApiError &&
     typeof mutation.error.body === 'object' &&
@@ -788,12 +791,30 @@ function OrderDetail({
               </label>
               <Button
                 disabled={!note.trim() || !rejection.trim() || mutation.isPending}
+                title={!note.trim() || !rejection.trim() ? '请先填写核对备注与拒绝原因' : undefined}
                 variant="destructive"
-                onClick={() => review('reject')}
+                onClick={() => {
+                  if (!confirmReject) {
+                    setConfirmReject(true)
+                    return
+                  }
+                  review('reject')
+                }}
               >
                 <XCircle className="size-4" aria-hidden="true" />
-                拒绝本次申报
+                {confirmReject ? '确认拒绝本次申报' : '拒绝本次申报'}
               </Button>
+              {confirmReject ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={mutation.isPending}
+                  onClick={() => setConfirmReject(false)}
+                >
+                  取消
+                </Button>
+              ) : null}
             </div>
           ) : null}
         </div>

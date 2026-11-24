@@ -132,8 +132,21 @@ export function FilterBar({
             onChange={(event) => setDraft(event.target.value)}
             placeholder={searchPlaceholder}
             aria-label={searchPlaceholder}
-            className="h-8 pl-8 text-xs"
+            className="h-8 pl-8 pr-7 text-xs"
           />
+          {draft ? (
+            <button
+              type="button"
+              aria-label="清空搜索"
+              className="absolute right-1.5 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+              onClick={() => {
+                setDraft('')
+                if (search) onSearch('')
+              }}
+            >
+              <X className="size-3" />
+            </button>
+          ) : null}
         </form>
         <SavedViews pageKey={savedViewKey} />
       </div>
@@ -254,45 +267,11 @@ function AddFilter({
             ))}
           </SelectContent>
         </Select>
-        {definition.kind === 'single' || definition.kind === 'multi' ? (
-          definition.options ? (
-            <Select value={draft || undefined} onValueChange={setDraft}>
-              <SelectTrigger aria-label={definition.label} className="h-8 text-xs">
-                <SelectValue placeholder={definition.placeholder ?? '选择'} />
-              </SelectTrigger>
-              <SelectContent>
-                {definition.options.map((option) => (
-                  <SelectItem key={option.value} value={option.value} className="text-xs">
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <Input
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder={definition.placeholder ?? '逗号分隔'}
-              aria-label={definition.label}
-              className="h-8 text-xs"
-            />
-          )
-        ) : (
-          <Input
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder={definition.placeholder}
-            aria-label={definition.label}
-            inputMode={definition.kind === 'number' ? 'numeric' : 'text'}
-            className="h-8 text-xs"
-          />
-        )}
-        <Button
-          size="sm"
-          variant="outline"
-          className="w-full"
-          disabled={!draft.trim()}
-          onClick={() => {
+        <form
+          className="space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!draft.trim()) return
             const current = values[definition.key]
             const next =
               definition.kind === 'multi' && current
@@ -305,8 +284,49 @@ function AddFilter({
             setOpen(false)
           }}
         >
-          添加
-        </Button>
+          {definition.kind === 'single' || definition.kind === 'multi' ? (
+            definition.options ? (
+              <Select value={draft || undefined} onValueChange={setDraft}>
+                <SelectTrigger aria-label={definition.label} className="h-8 text-xs">
+                  <SelectValue placeholder={definition.placeholder ?? '选择'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {definition.options.map((option) => (
+                    <SelectItem key={option.value} value={option.value} className="text-xs">
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder={definition.placeholder ?? '逗号分隔'}
+                aria-label={definition.label}
+                className="h-8 text-xs"
+              />
+            )
+          ) : (
+            <Input
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder={definition.placeholder}
+              aria-label={definition.label}
+              inputMode={definition.kind === 'number' ? 'numeric' : 'text'}
+              className="h-8 text-xs"
+            />
+          )}
+          <Button
+            type="submit"
+            size="sm"
+            variant="outline"
+            className="w-full"
+            disabled={!draft.trim()}
+          >
+            添加
+          </Button>
+        </form>
       </PopoverContent>
     </Popover>
   )

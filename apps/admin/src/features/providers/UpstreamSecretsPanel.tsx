@@ -4,6 +4,13 @@ import { ErrorState, PendingState } from '@/components/Page'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { modelsQueryKey } from '@/features/models/ModelTable'
 import { ApiError } from '@/lib/api-client'
@@ -107,15 +114,18 @@ function SecretCard({ secret, writable }: { secret: UpstreamSecretView; writable
   const client = useQueryClient()
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState<'save' | 'clear' | 'test' | null>(null)
+  const [confirmClear, setConfirmClear] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [probe, setProbe] = useState<{ ok: boolean; text: string } | null>(null)
 
-  function apply(next: UpstreamSecretsResult) {
+  function apply(next: UpstreamSecretsResult, message: string) {
     client.setQueryData(upstreamSecretsQueryKey, next)
     void client.invalidateQueries?.({ queryKey: modelsQueryKey })
     void client.invalidateQueries?.({ queryKey: ['agent-models'] })
     setDraft('')
     setError(null)
+    setNotice(message)
   }
 
   async function save() {
@@ -123,10 +133,11 @@ function SecretCard({ secret, writable }: { secret: UpstreamSecretView; writable
     if (!writable || !apiKey || pending) return
     setPending('save')
     setError(null)
+    setNotice(null)
     setProbe(null)
     await enqueueWrite(async () => {
       try {
-        apply(await replaceUpstreamSecret(secret.id, apiKey))
+        apply(await replaceUpstreamSecret(secret.id, apiKey), '已保存并生效')
       } catch (cause) {
         setError(failureMessage(cause))
       } finally {
@@ -137,12 +148,14 @@ function SecretCard({ secret, writable }: { secret: UpstreamSecretView; writable
 
   async function clear() {
     if (secret.source !== 'admin' || pending) return
+    setConfirmClear(false)
     setPending('clear')
     setError(null)
+    setNotice(null)
     setProbe(null)
     await enqueueWrite(async () => {
       try {
-        apply(await clearUpstreamSecret(secret.id))
+        apply(await clearUpstreamSecret(secret.id), '已清除后台密钥')
       } catch (cause) {
         setError(failureMessage(cause))
       } finally {
@@ -261,13 +274,18 @@ function SecretCard({ secret, writable }: { secret: UpstreamSecretView; writable
                 variant="ghost"
                 disabled={pending !== null}
                 className="text-muted-foreground hover:text-danger"
-                onClick={() => void clear()}
+                onClick={() => setConfirmClear(true)}
               >
                 {pending === 'clear' ? '清除中' : '清除'}
               </Button>
             ) : null}
           </div>
         </div>
+        {notice ? (
+          <p role="status" className="text-xs font-medium text-success">
+            {notice}
+          </p>
+        ) : null}
         {probe ? (
           <p className={cn('text-xs font-medium', probe.ok ? 'text-success' : 'text-danger')}>
             {probe.text}
@@ -275,6 +293,30 @@ function SecretCard({ secret, writable }: { secret: UpstreamSecretView; writable
         ) : null}
         {error ? <p className="text-xs text-danger">{error}</p> : null}
       </form>
+      <Dialog open={confirmClear} onOpenChange={setConfirmClear}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>清除 {secret.label} 后台密钥？</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm leading-6 text-muted-foreground">
+            清除后将移除后台加密存储的密钥，回退到服务器环境变量{' '}
+            <code className="font-mono">{meta.env}</code>
+            （若未配置环境变量则该通道将不可用）。
+          </p>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmClear(false)}
+              disabled={pending !== null}
+            >
+              取消
+            </Button>
+            <Button variant="destructive" onClick={() => void clear()} disabled={pending !== null}>
+              确认清除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
