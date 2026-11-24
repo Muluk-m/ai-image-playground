@@ -28,8 +28,10 @@ delete process.env.OPENAI_ADMIN_KEY
 const { callUpstream, setUpstreamFetchForTesting } = await import('../../lib/upstream')
 const { budgetMonthStart } = await import('../../lib/upstream/gpt-budget')
 const { _resetDirectBudgetCacheForTesting } = await import('../../lib/upstream/gpt-budget')
-const { _setDirectKeyAlertForTesting, directKeyPanel, disabledDirectKeys, restoreDirectKey } =
-  await import('../../lib/upstream/gpt-keys')
+const { _setDirectKeyAlertForTesting, disabledDirectKeys, restoreDirectKey } = await import(
+  '../../lib/upstream/gpt-keys'
+)
+const { directKeyPanel } = await import('../../lib/upstream/gpt-direct-panel')
 const { refreshGptDirectKeys } = await import('../../lib/upstream/gpt-direct-admin')
 const {
   configuredDirectKeys,

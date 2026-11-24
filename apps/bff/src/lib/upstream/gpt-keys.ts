@@ -368,9 +368,10 @@ function recentTaipeiDays(days: number, now: number): string[] {
   return list
 }
 
-export async function directKeyPanel(days: 7 | 30, now = Date.now()): Promise<GptDirectAdminView> {
-  const { refreshGptDirectKeys } = await import('./gpt-direct-admin')
-  await refreshGptDirectKeys()
+export async function buildDirectKeyPanel(
+  days: 7 | 30,
+  now = Date.now(),
+): Promise<GptDirectAdminView> {
   // 环境变量清单解析不了（格式错、缺指纹密钥）时面板照样打开，只是没有密钥可列、也不能写，
   // 并把原因给运维看；不能让 GET 直接 500，运维连页面都进不去就没法修。
   let keys: DirectKey[] = []

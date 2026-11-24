@@ -5,7 +5,8 @@ import {
   reorderGptDirectKeys,
   updateGptDirectKey,
 } from '../lib/upstream/gpt-direct-admin'
-import { directKeyPanel, restoreDirectKey } from '../lib/upstream/gpt-keys'
+import { directKeyPanel } from '../lib/upstream/gpt-direct-panel'
+import { restoreDirectKey } from '../lib/upstream/gpt-keys'
 import { UpstreamSecretError } from '../lib/upstream-secrets'
 import { requireInternalService } from '../lib/user-auth'
 
