@@ -868,7 +868,7 @@ describe('interrupted OpenAI running tasks', () => {
     })
     expect(result.tasks.find((item) => item.id === 'custom-running')).toMatchObject({
       status: 'error',
-      error: expect.stringContaining('自带密钥'),
+      error: expect.stringContaining('无法跨会话恢复'),
       customRecoverable: false,
       finishedAt: now,
     })
@@ -914,7 +914,7 @@ describe('interrupted OpenAI running tasks', () => {
     expect(result.interruptedTasks.map((item) => item.id)).toEqual(['byok-sync'])
     expect(result.tasks.find((item) => item.id === 'byok-sync')).toMatchObject({
       status: 'error',
-      error: expect.stringContaining('自带密钥'),
+      error: expect.stringContaining('无法跨会话恢复'),
     })
     expect(result.tasks.find((item) => item.id === 'platform-running')?.status).toBe('running')
     expect(result.tasks.find((item) => item.id === 'platform-inflight')?.status).toBe('running')
@@ -997,7 +997,7 @@ describe('startup task migration', () => {
     )
     expect(useStore.getState().tasks.find((item) => item.id === byok.id)).toMatchObject({
       status: 'error',
-      error: expect.stringContaining('自带密钥'),
+      error: expect.stringContaining('无法跨会话恢复'),
     })
   })
 })

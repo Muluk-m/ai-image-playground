@@ -29,7 +29,23 @@ export default function AssetDetail({
   const [editing, setEditing] = useState(false)
   const description = draftDescription ?? asset.description ?? ''
   const [saving, setSaving] = useState(false)
+  const [attaching, setAttaching] = useState(false)
   const writing = useRef(false)
+  const attachingRef = useRef(false)
+  const handleAttach = async () => {
+    if (attachingRef.current || writing.current || asset.views.length === 0) return
+    attachingRef.current = true
+    setAttaching(true)
+    try {
+      const attached = await attachAsset(asset.id)
+      if (attached !== null) onClose()
+    } catch {
+      useStore.getState().showToast(t('asset.saveFailed'), 'error')
+    } finally {
+      attachingRef.current = false
+      setAttaching(false)
+    }
+  }
   const saveDescription = async () => {
     if (writing.current) return
     const latest = useLibraryStore.getState().assets.find((one) => one.id === asset.id)
@@ -160,7 +176,7 @@ export default function AssetDetail({
                 </Button>
               </div>
             </form>
-          ) : (
+          ) : description.trim().length > 0 ? (
             <div className="mb-5">
               <h4 className="text-sm font-medium text-foreground">
                 {t('createAsset.description')}
@@ -169,7 +185,7 @@ export default function AssetDetail({
                 {description}
               </p>
             </div>
-          )}
+          ) : null}
           <ul className="grid grid-cols-3 gap-2">
             {asset.views.map((view, index) => (
               <li key={view.imageId} className="flex flex-col gap-1">
@@ -238,11 +254,8 @@ export default function AssetDetail({
           <Button
             type="button"
             size="sm"
-            disabled={saving || asset.views.length === 0}
-            onClick={() => {
-              void attachAsset(asset.id)
-              onClose()
-            }}
+            disabled={saving || attaching || asset.views.length === 0}
+            onClick={() => void handleAttach()}
           >
             {t('asset.addAsReference')}
           </Button>

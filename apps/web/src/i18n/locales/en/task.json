@@ -117,7 +117,7 @@
     "noMatches": "No matching records",
     "empty": "No works yet. Write a line on Create, or pick a starting point in Explore.",
     "mine": "My works",
-    "showAll": "Show all works",
+    "showAll": "View all",
     "submitted": "Submitted"
   },
   "set": {
@@ -127,6 +127,8 @@
     "cancelledCount": "{{cancelled}} cancelled",
     "failedCount": "{{failed}} failed",
     "expandToView": "Expand",
+    "expandMore_one": "Show {{count}} more",
+    "expandMore_other": "Show {{count}} more",
     "resultAlt": "{{name}} result",
     "batchTag": "Per image",
     "runningCount": "{{running}} running",
@@ -137,6 +139,7 @@
     "itemDetail": "Details of image {{index}}",
     "downloadItem": "Download image {{index}}",
     "downloadAll": "Download all",
+    "retryAllFailed": "Retry all",
     "itemList": "Images",
     "deleteItem": "Delete image {{index}}"
   },

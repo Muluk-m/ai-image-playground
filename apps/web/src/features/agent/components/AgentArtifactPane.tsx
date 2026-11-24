@@ -6,10 +6,12 @@ import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { OverflowText } from '../../../components/ui/overflowTitle'
 import { describeError, useTranslation } from '../../../i18n'
+import { authenticatedBffFetch } from '../../../lib/authClient'
 import { queueOutputUrl } from '../../../lib/channels/queueClient'
 import { isClientCapabilityEnabled } from '../../../lib/clientCapabilities'
 import { copyTextToClipboard, getClipboardFailureMessage } from '../../../lib/clipboard'
 import { resolveMediaSource } from '../../../lib/cloudMedia'
+import { downloadBlob } from '../../../lib/downloadImages'
 import { useStore } from '../../../store'
 import { fetchedCanvasId } from '../lib/artifactDelivery'
 import type { ArtifactEditAction, ArtifactEditInput } from '../lib/artifactEdit'
@@ -99,6 +101,7 @@ export default function AgentArtifactPane({
   const [retry, setRetry] = useState(0)
   const [editAction, setEditAction] = useState<ArtifactEditAction | null>(null)
   const [editBusy, setEditBusy] = useState(false)
+  const [downloading, setDownloading] = useState(false)
   const items: PaneItem[] = [
     ...(message.artifacts ?? []).map((artifact) => ({
       id: artifact.artifactId,
@@ -150,7 +153,7 @@ export default function AgentArtifactPane({
       if (document.querySelector('.studio-handoff-dialog, .studio-artifact-edit-dialog')) return
       if (event.key === 'Escape' && presentation === 'panel') onClose()
       if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && items.length > 1) {
-        if (!target?.closest('.studio-artifact-pane')) return
+        if (presentation !== 'overlay' && !target?.closest('.studio-artifact-pane')) return
         event.preventDefault()
         const index = items.findIndex((item) => item.id === active?.id)
         onSelect(
@@ -235,6 +238,46 @@ export default function AgentArtifactPane({
         useStore.getState().showToast(describeError(error), 'error')
       })
       .finally(() => setEditBusy(false))
+  }
+
+  const downloadActive = async () => {
+    if (!active || downloading) return
+    setDownloading(true)
+    try {
+      if (active.media === 'video' && active.videoUrl) {
+        const response = await authenticatedBffFetch(active.videoUrl)
+        if (!response.ok) throw new Error('download_failed')
+        const blob = await response.blob()
+        const ext =
+          blob.type === 'video/webm' ? 'webm' : blob.type === 'video/quicktime' ? 'mov' : 'mp4'
+        downloadBlob(blob, `muvloom-${active.id}.${ext}`)
+        return
+      }
+      if (!source) return
+      const response = await fetch(source)
+      if (!response.ok) throw new Error('download_failed')
+      const blob = await response.blob()
+      const ext =
+        blob.type === 'image/jpeg'
+          ? 'jpg'
+          : blob.type === 'image/webp'
+            ? 'webp'
+            : blob.type === 'image/gif'
+              ? 'gif'
+              : blob.type === 'image/svg+xml'
+                ? 'svg'
+                : 'png'
+      downloadBlob(blob, `muvloom-${active.id}.${ext}`)
+    } catch {
+      useStore
+        .getState()
+        .showToast(
+          t(active.media === 'video' ? 'video.downloadFailed' : 'tool.downloadFailed'),
+          'error',
+        )
+    } finally {
+      setDownloading(false)
+    }
   }
 
   const pane = (
@@ -399,8 +442,8 @@ export default function AgentArtifactPane({
           </section>
         )}
         <div className="studio-artifact-pane-actions">
-          {active.media === 'image' && source && (
-            <div className="studio-artifact-pane-quick">
+          <div className="studio-artifact-pane-quick">
+            {active.media === 'image' && source && (
               <Button
                 type="button"
                 variant="ghost"
@@ -410,8 +453,23 @@ export default function AgentArtifactPane({
                 <Icon name="zoomIn" />
                 {t('tool.zoomResult')}
               </Button>
-            </div>
-          )}
+            )}
+            {(active.media === 'video' ? Boolean(active.videoUrl) : Boolean(source)) && (
+              <Button
+                type="button"
+                variant="ghost"
+                className={TOOL_ACTION}
+                disabled={downloading}
+                onClick={() => void downloadActive()}
+              >
+                <Icon
+                  name={downloading ? 'loading' : 'download'}
+                  className={downloading ? 'animate-spin' : undefined}
+                />
+                {downloading ? t('video.downloading') : t('tool.downloadResult')}
+              </Button>
+            )}
+          </div>
           {active.media === 'image' && (
             <div className="studio-artifact-pane-tools">
               <Button

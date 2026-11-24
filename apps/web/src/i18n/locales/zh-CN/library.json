@@ -92,6 +92,7 @@
     "needsRetune": "需重新调试",
     "deleteTitle": "删除模板",
     "deleteMessage": "确定删除模板「{{name}}」吗？",
+    "saveFailed": "模板保存失败，请重试",
     "viewDetail": "查看详情",
     "more": "更多模板",
     "applied": "已切到 {{model}} · {{size}}",

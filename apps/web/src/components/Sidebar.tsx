@@ -30,6 +30,7 @@ import {
   useStore,
 } from '../store'
 import { useTheme } from '../theme/useTheme'
+import { Hint } from './assistant-ui/elements/tooltip-icon-button'
 import MediaImage from './MediaImage'
 import Badge from './patterns/Badge'
 import { Button } from './ui/button'
@@ -158,7 +159,7 @@ export default function Sidebar() {
         onClick={() => setAppMode(mode)}
         aria-pressed={active}
         aria-label={APP_MODE_LABELS[mode]}
-        autoTooltip={false}
+        autoTooltip={showRail}
         className={`${showRail ? 'size-10 shrink-0 rounded-xl p-0 [&_svg]:size-5' : ITEM} ${active ? ACTIVE_ITEM : IDLE_ITEM}`}
       >
         <Icon name={MODE_ICONS[mode]} filled={active} />
@@ -249,15 +250,17 @@ export default function Sidebar() {
           {pluginEntry()}
           <div className="min-h-6 flex-1" aria-hidden="true" />
           <AnnouncementEntry compact />
-          <a
-            href={GUIDE_PATHS[currentLocale()]}
-            target="_blank"
-            rel="noopener"
-            aria-label={t('nav.guide')}
-            className="flex size-10 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <Icon name="guide" />
-          </a>
+          <Hint tooltip={t('nav.guide')} side="right">
+            <a
+              href={GUIDE_PATHS[currentLocale()]}
+              target="_blank"
+              rel="noopener"
+              aria-label={t('nav.guide')}
+              className="flex size-10 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Icon name="guide" />
+            </a>
+          </Hint>
         </nav>
       )}
       {expanded ? (

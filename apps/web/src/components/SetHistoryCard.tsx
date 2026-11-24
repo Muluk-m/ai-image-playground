@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { taskExportSources } from '../features/image-export/sources'
 import { openImageExport } from '../features/image-export/store'
 import AssetThumb from '../features/library/components/AssetThumb'
-import { useTranslation } from '../i18n'
+import { describeError, useTranslation } from '../i18n'
 import { activityFromRecord, isGenerationOpen } from '../lib/generationActivity'
 import { taskRecordErrorText } from '../lib/taskError'
 import { retryTask, useStore } from '../store'
@@ -255,6 +255,24 @@ export default function SetHistoryCard({
   const listed = batch && expanded && itemHandlers !== undefined
   // 点格子直接放大看这一张，和单张作品卡在详情里点图一样用全局大图预览；左右键在这一批出了图的几张间切换。
   const setLightboxImageId = useStore((state) => state.setLightboxImageId)
+  const [retryingIds, setRetryingIds] = useState<ReadonlySet<string>>(() => new Set())
+  const retryingIdsRef = useRef<Set<string>>(new Set())
+  const triggerRetry = (targets: readonly TaskRecord[]) => {
+    const fresh = targets.filter((task) => !retryingIdsRef.current.has(task.id))
+    if (fresh.length === 0) return
+    for (const task of fresh) retryingIdsRef.current.add(task.id)
+    setRetryingIds(new Set(retryingIdsRef.current))
+    for (const task of fresh) {
+      void retryTask(task)
+        .catch((err) => {
+          useStore.getState().showToast(describeError(err), 'error')
+        })
+        .finally(() => {
+          retryingIdsRef.current.delete(task.id)
+          setRetryingIds(new Set(retryingIdsRef.current))
+        })
+    }
+  }
   const zoom = (task: TaskRecord) => {
     const imageId = task.outputImages[0]
     if (imageId)
@@ -298,7 +316,20 @@ export default function SetHistoryCard({
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          {listed && doneTasks.length > 1 && (
+          {batch && failedTasks.length > 1 && (
+            <Button
+              variant="ghost"
+              size="xs"
+              type="button"
+              disabled={failedTasks.every((task) => retryingIds.has(task.id))}
+              onClick={() => triggerRetry(failedTasks)}
+              className="text-muted-foreground"
+            >
+              <Icon name="refresh" size="xs" />
+              {t('set.retryAllFailed')}
+            </Button>
+          )}
+          {batch && doneTasks.length > 1 && (
             <Button
               variant="ghost"
               size="xs"
@@ -357,9 +388,15 @@ export default function SetHistoryCard({
             />
           ))}
           {hiddenTiles > 0 && (
-            <div className="flex aspect-square items-center justify-center rounded-lg border border-border bg-muted/60 text-xs text-muted-foreground">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={onToggle}
+              aria-label={t('set.expandMore', { count: hiddenTiles })}
+              className="flex h-auto aspect-square items-center justify-center rounded-lg border border-border bg-muted/60 p-0 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
               +{hiddenTiles}
-            </div>
+            </Button>
           )}
         </div>
       )}
@@ -402,8 +439,9 @@ export default function SetHistoryCard({
                 variant="secondary"
                 size="xs"
                 type="button"
+                disabled={retryingIds.has(task.id)}
                 className="shrink-0"
-                onClick={() => void retryTask(task)}
+                onClick={() => triggerRetry([task])}
               >
                 {t('common:action.retry')}
               </Button>

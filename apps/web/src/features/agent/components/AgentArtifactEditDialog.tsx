@@ -981,11 +981,7 @@ export default function AgentArtifactEditDialog({
         )}
         <div className="flex items-center justify-between gap-3 pt-3">
           <span className="max-w-[55%] text-xs text-muted-foreground">
-            {marked
-              ? t('tool.markHint')
-              : action === 'outpaint'
-                ? t('tool.outpaintHint')
-                : t('tool.cropHint')}
+            {marked ? t('tool.markHint') : action === 'outpaint' ? t('tool.outpaintHint') : null}
           </span>
           <Button
             type="button"

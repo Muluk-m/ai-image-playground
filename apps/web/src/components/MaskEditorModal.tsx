@@ -141,6 +141,14 @@ export default function MaskEditorModal() {
   const panGestureRef = useRef<PanGesture | null>(null)
   const undoStackRef = useRef<ImageData[]>([])
   const redoStackRef = useRef<ImageData[]>([])
+  const editDepthRef = useRef(0)
+  const cleanEditDepthRef = useRef<number | null>(0)
+  const pendingStrokeRestoreRef = useRef<{
+    editDepth: number
+    cleanEditDepth: number | null
+    shiftedUndo: ImageData | null
+    redoStack: ImageData[]
+  } | null>(null)
   const previewFrameRef = useRef<number | null>(null)
   const saveTokenRef = useRef(0)
   const sessionIdRef = useRef(0)
@@ -165,6 +173,18 @@ export default function MaskEditorModal() {
 
   const close = () => {
     if (isSaving) return
+    const hasUnsavedChanges =
+      cleanEditDepthRef.current === null || editDepthRef.current !== cleanEditDepthRef.current
+    if (hasUnsavedChanges) {
+      setConfirmDialog({
+        title: t('mask.discardTitle'),
+        message: t('mask.discardMessage'),
+        confirmText: t('mask.discardConfirm'),
+        tone: 'danger',
+        action: () => setMaskEditorImageId(null),
+      })
+      return
+    }
     setMaskEditorImageId(null)
   }
   useEffect(
@@ -248,8 +268,18 @@ export default function MaskEditorModal() {
       renderPreview()
     } else {
       const previous = undoStackRef.current.pop()
+      const restore = pendingStrokeRestoreRef.current
+      if (restore) {
+        if (restore.shiftedUndo) undoStackRef.current.unshift(restore.shiftedUndo)
+        redoStackRef.current = restore.redoStack
+        editDepthRef.current = restore.editDepth
+        cleanEditDepthRef.current = restore.cleanEditDepth
+      } else if (previous) {
+        editDepthRef.current = Math.max(0, editDepthRef.current - 1)
+      }
       if (previous) restoreMask(previous)
     }
+    pendingStrokeRestoreRef.current = null
     activePointerIdRef.current = null
     lastPointRef.current = null
     syncHistoryState()
@@ -429,13 +459,41 @@ export default function MaskEditorModal() {
     }
   }
 
-  function pushUndoSnapshot() {
+  function pushUndoSnapshot(trackForCancel = false) {
     const canvas = maskCanvasRef.current
     const ctx = canvas?.getContext('2d', { willReadFrequently: true })
     if (!canvas || !ctx) return
 
+    const prevEditDepth = editDepthRef.current
+    const prevCleanEditDepth = cleanEditDepthRef.current
+    const prevRedoStack = trackForCancel ? [...redoStackRef.current] : []
+    if (
+      redoStackRef.current.length > 0 &&
+      cleanEditDepthRef.current !== null &&
+      cleanEditDepthRef.current > editDepthRef.current
+    ) {
+      cleanEditDepthRef.current = null
+    }
     undoStackRef.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height))
-    if (undoStackRef.current.length > 40) undoStackRef.current.shift()
+    editDepthRef.current += 1
+    let shiftedUndo: ImageData | null = null
+    if (undoStackRef.current.length > 40) {
+      shiftedUndo = undoStackRef.current.shift() ?? null
+      if (
+        cleanEditDepthRef.current !== null &&
+        editDepthRef.current - undoStackRef.current.length > cleanEditDepthRef.current
+      ) {
+        cleanEditDepthRef.current = null
+      }
+    }
+    pendingStrokeRestoreRef.current = trackForCancel
+      ? {
+          editDepth: prevEditDepth,
+          cleanEditDepth: prevCleanEditDepth,
+          shiftedUndo,
+          redoStack: prevRedoStack,
+        }
+      : null
     redoStackRef.current = []
     syncHistoryState()
   }
@@ -524,6 +582,9 @@ export default function MaskEditorModal() {
       setViewTransform(DEFAULT_VIEW_TRANSFORM)
       undoStackRef.current = []
       redoStackRef.current = []
+      editDepthRef.current = 0
+      cleanEditDepthRef.current = 0
+      pendingStrokeRestoreRef.current = null
       syncHistoryState()
       return
     }
@@ -537,6 +598,9 @@ export default function MaskEditorModal() {
     setSize(null)
     undoStackRef.current = []
     redoStackRef.current = []
+    editDepthRef.current = 0
+    cleanEditDepthRef.current = 0
+    pendingStrokeRestoreRef.current = null
     syncHistoryState()
 
     async function loadCanvases() {
@@ -642,11 +706,58 @@ export default function MaskEditorModal() {
     isAltKeyPressed,
   ])
 
+  const isReady = Boolean(sourceDataUrl && size && !isLoading)
+
+  const handleUndo = () => {
+    if (!isReady || isSaving || activePointerIdRef.current !== null) return
+    const canvas = maskCanvasRef.current
+    const ctx = canvas?.getContext('2d', { willReadFrequently: true })
+    const previous = undoStackRef.current.pop()
+    if (!canvas || !ctx || !previous) return
+
+    redoStackRef.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height))
+    editDepthRef.current -= 1
+    restoreMask(previous)
+    syncHistoryState()
+  }
+
+  const handleRedo = () => {
+    if (!isReady || isSaving || activePointerIdRef.current !== null) return
+    const canvas = maskCanvasRef.current
+    const ctx = canvas?.getContext('2d', { willReadFrequently: true })
+    const next = redoStackRef.current.pop()
+    if (!canvas || !ctx || !next) return
+
+    undoStackRef.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height))
+    editDepthRef.current += 1
+    restoreMask(next)
+    syncHistoryState()
+  }
+
+  const undoRedoRef = useRef<{ undo: () => void; redo: () => void }>({
+    undo: handleUndo,
+    redo: handleRedo,
+  })
+  useEffect(() => {
+    undoRedoRef.current = { undo: handleUndo, redo: handleRedo }
+  })
+
   useEffect(() => {
     if (!imageId) return
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.altKey) setIsAltKeyPressed(true)
+      if (event.defaultPrevented || useStore.getState().confirmDialog) return
+      if ((event.metaKey || event.ctrlKey) && !event.altKey) {
+        const key = event.key.toLowerCase()
+        if (key === 'z' && !event.shiftKey) {
+          event.preventDefault()
+          undoRedoRef.current.undo()
+        } else if ((key === 'z' && event.shiftKey) || key === 'y') {
+          event.preventDefault()
+          undoRedoRef.current.redo()
+        }
+      }
     }
     const handleKeyUp = (event: KeyboardEvent) => {
       if (event.key === 'Alt') setIsAltKeyPressed(false)
@@ -692,7 +803,6 @@ export default function MaskEditorModal() {
 
   if (!imageId) return null
 
-  const isReady = Boolean(sourceDataUrl && size && !isLoading)
   const canUndo = historyState.undo > 0 && isReady && !isSaving
   const canRedo = historyState.redo > 0 && isReady && !isSaving
   const isZoomed =
@@ -737,7 +847,7 @@ export default function MaskEditorModal() {
       lassoPointsRef.current = [point]
       renderPreview()
     } else {
-      pushUndoSnapshot()
+      pushUndoSnapshot(true)
       drawAt(point)
     }
   }
@@ -827,6 +937,7 @@ export default function MaskEditorModal() {
           fillMaskLasso(ctx, points, session?.keepSemantics ?? false)
         }
         lassoPointsRef.current = []
+        pendingStrokeRestoreRef.current = null
         activePointerIdRef.current = null
         lastPointRef.current = null
         renderPreview()
@@ -851,28 +962,6 @@ export default function MaskEditorModal() {
       lastPointRef.current = null
       if (hoverPoint) updateCursor(hoverPoint)
     }
-  }
-
-  const handleUndo = () => {
-    const canvas = maskCanvasRef.current
-    const ctx = canvas?.getContext('2d', { willReadFrequently: true })
-    const previous = undoStackRef.current.pop()
-    if (!canvas || !ctx || !previous) return
-
-    redoStackRef.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height))
-    restoreMask(previous)
-    syncHistoryState()
-  }
-
-  const handleRedo = () => {
-    const canvas = maskCanvasRef.current
-    const ctx = canvas?.getContext('2d', { willReadFrequently: true })
-    const next = redoStackRef.current.pop()
-    if (!canvas || !ctx || !next) return
-
-    undoStackRef.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height))
-    restoreMask(next)
-    syncHistoryState()
   }
 
   const handleClear = () => {
@@ -983,7 +1072,7 @@ export default function MaskEditorModal() {
                 </h2>
                 <Button
                   type="button"
-                  onClick={showMaskInfoPopover}
+                  onClick={() => setShowMaskInfo((v) => !v)}
                   onMouseEnter={showMaskInfoPopover}
                   onMouseLeave={hideMaskInfoPopover}
                   onTouchStart={startMaskInfoTouch}
@@ -993,6 +1082,7 @@ export default function MaskEditorModal() {
                   size="icon-xs"
                   className="text-muted-foreground"
                   aria-label={t('mask.infoLabel')}
+                  aria-expanded={showMaskInfo}
                   title={t('mask.infoLabel')}
                 >
                   <Icon name="info" />
@@ -1134,23 +1224,25 @@ export default function MaskEditorModal() {
                   </Button>
                 </div>
 
-                <div
-                  ref={brushSizeControlRef}
-                  className="relative flex items-center justify-center"
-                >
-                  <Button
-                    ref={brushSizeButtonRef}
-                    onClick={toggleBrushControls}
-                    variant={showBrushControls ? 'secondary' : 'outline'}
-                    size="icon-sm"
-                    aria-label={t('mask.brushSize')}
-                    aria-expanded={showBrushControls}
-                    disabled={!isReady || isSaving || tool === 'lasso'}
-                    title={t('mask.brushSize')}
+                {tool !== 'lasso' && (
+                  <div
+                    ref={brushSizeControlRef}
+                    className="relative flex items-center justify-center"
                   >
-                    <span className="text-sm font-semibold tracking-tight">{brushSize}</span>
-                  </Button>
-                </div>
+                    <Button
+                      ref={brushSizeButtonRef}
+                      onClick={toggleBrushControls}
+                      variant={showBrushControls ? 'secondary' : 'outline'}
+                      size="icon-sm"
+                      aria-label={t('mask.brushSize')}
+                      aria-expanded={showBrushControls}
+                      disabled={!isReady || isSaving}
+                      title={t('mask.brushSize')}
+                    >
+                      <span className="text-sm font-semibold tracking-tight">{brushSize}</span>
+                    </Button>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-0.5 sm:gap-2 sm:ml-1">

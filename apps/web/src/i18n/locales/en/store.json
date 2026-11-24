@@ -8,8 +8,8 @@
   },
   "task": {
     "interrupted": "Request interrupted",
-    "byokUnrecoverable": "This bring-your-own-key task can't be resumed. Generate it again.",
-    "timeout": "Request timed out: still unfinished after {{timeoutSeconds}} seconds. Retry later or raise the timeout.",
+    "byokUnrecoverable": "This task can't be resumed across sessions. Generate it again.",
+    "timeout": "Request timed out after {{timeoutSeconds}} seconds. Please try again later.",
     "profileMissing": "The model used for this task wasn't found. Pick another model and try again",
     "inputImageMissing": "The input image no longer exists",
     "maskImageMissing": "The mask image no longer exists"

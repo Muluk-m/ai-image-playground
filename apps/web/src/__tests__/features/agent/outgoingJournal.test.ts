@@ -271,36 +271,45 @@ it('图片生成模式按直出发；明确交给智能体的那一句不带直�
 
 it('发送失败后换了设置，刷新重发仍沿用原轮的完整参数', async () => {
   const original = useStore.getState().params
+  const originalThinkingDepth = useAgentStore.getState().thinkingDepth
+  const originalAutoSubmit = useAgentStore.getState().autoSubmit
   useStore.setState({ params: { ...original, size: '1536x1024', quality: 'high' } })
   useAgentStore.setState({ thinkingDepth: 'deep', autoSubmit: true })
-  // 已明确拒绝的提交可保留消息 id；未决 5xx 会先做服务端终态确认。
-  turnResponse = () => Response.json({ error: 'invalid_selection' }, { status: 400 })
-  await useAgentStore
-    .getState()
-    .send('保留这次设置', [], undefined, 'image', undefined, undefined, 'gpt-image-2')
-  const first = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
-  const initial = JSON.parse(String(first?.[1]?.body))
-  expect(initial.params).toMatchObject({
-    model: 'gpt-image-2',
-    size: '1536x1024',
-    quality: 'high',
-    thinkingDepth: 'deep',
-    autoSubmit: true,
-  })
-  useStore.setState({ params: { ...original, size: '1024x1536', quality: 'low' } })
-  useAgentStore.setState({ thinkingDepth: 'fast', autoSubmit: false })
-  reload(CONVERSATION)
-  fetchMock.mockClear()
-  turnResponse = COMPLETED_TURN
-  localStorage.setItem(scopedStorageName(AGENT_CONVERSATION_KEY), CONVERSATION)
-  await useAgentStore.getState().load()
-  await vi.waitFor(() =>
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(true),
-  )
-  const resent = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
-  expect(JSON.parse(String(resent?.[1]?.body)).params).toEqual(initial.params)
-  await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
-  useStore.setState({ params: original })
+  try {
+    // 已明确拒绝的提交可保留消息 id；未决 5xx 会先做服务端终态确认。
+    turnResponse = () => Response.json({ error: 'invalid_selection' }, { status: 400 })
+    await useAgentStore
+      .getState()
+      .send('保留这次设置', [], undefined, 'image', undefined, undefined, 'gpt-image-2')
+    const first = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
+    const initial = JSON.parse(String(first?.[1]?.body))
+    expect(initial.params).toMatchObject({
+      model: 'gpt-image-2',
+      size: '1536x1024',
+      quality: 'high',
+      thinkingDepth: 'deep',
+      autoSubmit: true,
+    })
+    useStore.setState({ params: { ...original, size: '1024x1536', quality: 'low' } })
+    useAgentStore.setState({ thinkingDepth: 'fast', autoSubmit: false })
+    reload(CONVERSATION)
+    fetchMock.mockClear()
+    turnResponse = COMPLETED_TURN
+    localStorage.setItem(scopedStorageName(AGENT_CONVERSATION_KEY), CONVERSATION)
+    await useAgentStore.getState().load()
+    await vi.waitFor(() =>
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/turns'))).toBe(true),
+    )
+    const resent = fetchMock.mock.calls.find(([url]) => String(url).includes('/turns'))
+    expect(JSON.parse(String(resent?.[1]?.body)).params).toEqual(initial.params)
+    await vi.waitFor(async () => expect(await outgoingMessages(PROJECT)).toEqual([]))
+  } finally {
+    useStore.setState({ params: original })
+    useAgentStore.setState({
+      thinkingDepth: originalThinkingDepth,
+      autoSubmit: originalAutoSubmit,
+    })
+  }
 })
 
 it.each([
@@ -619,7 +628,7 @@ it.each([
     const clickSend = async () => {
       const button = await vi.waitFor(async () => {
         await act(async () => {})
-        const current = host.querySelector<HTMLButtonElement>('button[aria-label="发送并拟提示词"]')
+        const current = host.querySelector<HTMLButtonElement>('button[aria-label="发送"]')
         expect(current).not.toBeNull()
         expect(current?.disabled).toBe(false)
         return current!

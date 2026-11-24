@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { taskExportSources } from '../features/image-export/sources'
 import { openImageExport } from '../features/image-export/store'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
@@ -42,13 +42,35 @@ export default function TaskBulkActions({
       if (filterFavorite && !task.isFavorite) return false
       if (!taskMatchesStatusFilter(task, filterStatus)) return false
       if (!q) return true
-      return task.prompt.toLowerCase().includes(q)
+      const prompt = (task.prompt || '').toLowerCase()
+      const paramStr = JSON.stringify(task.params).toLowerCase()
+      return prompt.includes(q) || paramStr.includes(q)
     })
   }, [tasks, searchQuery, filterStatus, filterFavorite, visibleTaskIds])
   const visibleIds = useMemo(
     () => visibleTaskIds ?? storeFilteredTasks.map((task) => task.id),
     [visibleTaskIds, storeFilteredTasks],
   )
+
+  const selectedTasks = useMemo(
+    () => tasks.filter((task) => selectedTaskIds.includes(task.id)),
+    [tasks, selectedTaskIds],
+  )
+  const allFavorited = selectedTasks.length > 0 && selectedTasks.every((task) => task.isFavorite)
+
+  useEffect(() => {
+    if (selectedTaskIds.length === 0) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      const target = event.target instanceof Element ? event.target : null
+      if (target?.closest('input, textarea, [contenteditable="true"], [role="dialog"]')) return
+      if (document.querySelector('[role="dialog"]')) return
+      event.preventDefault()
+      clearSelection()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [selectedTaskIds.length, clearSelection])
 
   // 按可见卡片逐一比对：切了筛选后留下的隐藏选中不能凑数成「全选」。
   const allSelected = useMemo(() => {
@@ -63,21 +85,15 @@ export default function TaskBulkActions({
   }, [allSelected, visibleIds, clearSelection, setSelectedTaskIds])
 
   const handleToggleFavorite = useCallback(() => {
-    const selected = tasks.filter((task) => selectedTaskIds.includes(task.id))
-    const allFavorite = selected.length > 0 && selected.every((task) => task.isFavorite)
-    const isFavorite = !allFavorite
-    setConfirmDialog({
-      title: isFavorite ? t('bulk.favoriteTitle') : t('bulk.unfavoriteTitle'),
-      message: isFavorite
-        ? t('bulk.favoriteMessage', { count: selectedTaskIds.length })
-        : t('bulk.unfavoriteMessage', { count: selectedTaskIds.length }),
-      confirmText: isFavorite ? t('bulk.confirmFavorite') : t('bulk.confirmUnfavorite'),
-      action: () => {
-        for (const task of selected) void setTaskFavorite(task, isFavorite)
-        clearSelection()
-      },
-    })
-  }, [tasks, selectedTaskIds, clearSelection, setConfirmDialog, t])
+    if (selectedTasks.length === 0) return
+    const isFavorite = !allFavorited
+    for (const task of selectedTasks) void setTaskFavorite(task, isFavorite)
+    showToast(
+      t(isFavorite ? 'bulk.favorited' : 'bulk.unfavorited', { count: selectedTasks.length }),
+      'success',
+    )
+    clearSelection()
+  }, [selectedTasks, allFavorited, showToast, clearSelection, t])
 
   const handleDeleteSelected = useCallback(() => {
     setConfirmDialog({
@@ -123,30 +139,40 @@ export default function TaskBulkActions({
             <Icon name="close" />
           </Button>
         </Hint>
+        <span className="px-1.5 text-xs font-medium tabular-nums text-foreground">
+          {t('bulk.selectedCount', { count: selectedTaskIds.length })}
+        </span>
         <div className="mx-1 h-5 w-px bg-muted" />
-        <Button
-          autoTooltip={false}
-          variant="ghost"
-          size="icon-sm"
-          type="button"
-          onClick={handleSelectAllToggle}
-          className="text-primary transition-colors hover:text-primary"
-          aria-label={allSelected ? t('bulk.deselectAll') : t('bulk.selectAllVisible')}
-        >
-          <Icon name={allSelected ? 'check' : 'selectRectangle'} filled={allSelected} />
-        </Button>
+        <Hint tooltip={allSelected ? t('bulk.deselectAll') : t('bulk.selectAllVisible')}>
+          <Button
+            autoTooltip={false}
+            variant="ghost"
+            size="icon-sm"
+            type="button"
+            onClick={handleSelectAllToggle}
+            className="text-primary transition-colors hover:text-primary"
+            aria-label={allSelected ? t('bulk.deselectAll') : t('bulk.selectAllVisible')}
+          >
+            <Icon name={allSelected ? 'check' : 'selectRectangle'} filled={allSelected} />
+          </Button>
+        </Hint>
 
         <div className="mx-1 h-5 w-px bg-muted" />
-        <Hint tooltip={t('bulk.toggleFavorite')}>
+        <Hint tooltip={t(allFavorited ? 'bulk.unfavoriteSelected' : 'bulk.favoriteSelected')}>
           <Button
             variant="ghost"
             size="icon-sm"
             type="button"
             onClick={handleToggleFavorite}
-            className="text-primary transition-colors"
-            aria-label={t('bulk.toggleFavorite')}
+            className={
+              allFavorited
+                ? 'text-warning transition-colors hover:text-warning'
+                : 'text-primary transition-colors'
+            }
+            aria-label={t(allFavorited ? 'bulk.unfavoriteSelected' : 'bulk.favoriteSelected')}
+            aria-pressed={allFavorited}
           >
-            <Icon name="favorite" />
+            <Icon name="favorite" filled={allFavorited} />
           </Button>
         </Hint>
         <div className="mx-1 h-5 w-px bg-muted" />
