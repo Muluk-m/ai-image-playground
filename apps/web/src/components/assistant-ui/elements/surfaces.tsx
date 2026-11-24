@@ -11,7 +11,7 @@ export const paper = 'bg-background border border-border/60 dark:bg-popover'
 export const field = 'bg-foreground/[0.04] dark:bg-foreground/[0.06]'
 export const mono = 'font-mono text-label-sm tracking-tight'
 export const iconSwap =
-  '[grid-area:1/1] transition-[opacity,transform] duration-150 motion-reduce:transition-none'
+  '[grid-area:1/1] transition-[opacity,transform] duration-fast ease-motion-out motion-reduce:transition-none'
 export const iconSwapIn = 'opacity-100 scale-100'
 export const iconSwapOut = 'opacity-0 scale-75'
 /** 过程步骤一行的按钮样子：没有底色、不缩进，与「思考中」左对齐。 */

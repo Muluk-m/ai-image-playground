@@ -28,7 +28,7 @@ export function DialogSurface({ title, onClose, children, footer, className }: D
       aria-modal="true"
       aria-labelledby={titleId}
       className={cn(
-        'flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-card shadow-dialog ring-1 ring-hairline',
+        'animate-modal-in flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-card shadow-dialog ring-1 ring-hairline',
         className,
       )}
     >

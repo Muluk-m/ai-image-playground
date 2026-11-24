@@ -306,8 +306,8 @@ input[type="number"] {
 .dark ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
 
 @keyframes pulse-border {
-  0%, 100% { border-color: hsl(var(--primary)); }
-  50% { border-color: hsl(var(--primary)); }
+  0%, 100% { border-color: hsl(var(--primary) / 0.45); }
+  50% { border-color: hsl(var(--primary) / 0.95); }
 }
 
 /* 画布生成占位框的 loading spinner（PlaceholderOverlay 引用） */
@@ -315,15 +315,15 @@ input[type="number"] {
   to { transform: rotate(360deg); }
 }
 .generating {
-  animation: pulse-border 1.8s ease-in-out infinite;
+  animation: pulse-border var(--motion-ambient) ease-in-out infinite;
 }
 
 @keyframes task-pop-in {
-  from { opacity: 0; transform: scale(0.94) translateY(-4px); }
+  from { opacity: 0; transform: scale(0.96) translateY(-4px); }
   to   { opacity: 1; transform: scale(1) translateY(0); }
 }
 .animate-task-pop-in {
-  animation: task-pop-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: task-pop-in var(--motion-normal) var(--ease-out) both;
 }
 
 /* 主动发送后的新作品卡：1.5s 内边框和光晕淡出，颜色用 primary。时长与 submittedTaskAttention 的高亮窗口一致。 */
@@ -418,11 +418,11 @@ input[type="number"] {
 }
 
 @keyframes coach-pop-in {
-  from { opacity: 0; transform: translateY(-6px) scale(0.96); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
 }
 .animate-coach-pop-in {
-  animation: coach-pop-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: coach-pop-in var(--motion-fast) var(--ease-out) backwards;
   transform-origin: top right;
 }
 .hide-scrollbar {
@@ -439,14 +439,21 @@ input[type="number"] {
 }
 
 @keyframes toast-enter {
-  0% { transform: translate(-50%, -16px); opacity: 0; }
-  100% { transform: translate(-50%, 0); opacity: 1; }
+  0% { transform: translateY(-10px) scale(0.97); opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+@keyframes toast-exit {
+  0% { transform: none; opacity: 1; }
+  100% { transform: translateY(-8px) scale(0.97); opacity: 0; }
 }
 .toast-enter {
-  animation: toast-enter 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: toast-enter var(--motion-normal) var(--ease-out) backwards;
+}
+.toast-exit {
+  animation: toast-exit var(--motion-fast) var(--ease-in) forwards;
 }
 
-/* ===== 弹窗通用动画 ===== */
+/* ===== 弹窗与浮层统一动画（曲线与节奏均来自 theme.css） ===== */
 
 /* 背景遮罩淡入 */
 @keyframes overlay-in {
@@ -454,7 +461,7 @@ input[type="number"] {
   to   { opacity: 1; }
 }
 .animate-overlay-in {
-  animation: overlay-in 0.2s ease-out both;
+  animation: overlay-in var(--motion-normal) var(--ease-out) backwards;
 }
 
 /* scrollbar-gutter: stable 让 fixed; inset: 0 的右缘停在视口内侧，
@@ -466,56 +473,140 @@ input[type="number"] {
   }
 }
 
-/* 弹窗面板：从中心弹出 */
+/* 弹窗面板：克制的缩放与上浮，交代它浮于工作区之上（结束后归零 transform，避免长期制造 fixed 包含块） */
 @keyframes modal-in {
-  from { opacity: 0; transform: scale(0.95) translateY(10px); }
-  to   { opacity: 1; transform: scale(1) translateY(0); }
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to   { opacity: 1; transform: none; }
 }
 .animate-modal-in {
-  animation: modal-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: modal-in var(--motion-normal) var(--ease-out) backwards;
 }
 
-/* 设置面板：从上方滑入 */
+/* 顶部提示条 / 设置面板：从上方轻滑入 */
 @keyframes slide-down-in {
-  from { opacity: 0; transform: translateY(-20px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateY(-10px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
 }
 .animate-slide-down-in {
-  animation: slide-down-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: slide-down-in var(--motion-normal) var(--ease-out) backwards;
 }
 
-/* Lightbox：淡入 */
+/* 轻量淡入（全屏背景 / 内容切换） */
 @keyframes fade-in {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
 .animate-fade-in {
-  animation: fade-in 0.2s ease-out both;
+  animation: fade-in var(--motion-fast) var(--ease-out) backwards;
 }
 
 /* Lightbox 图片：缩放弹入 */
 @keyframes zoom-in {
-  from { opacity: 0; transform: scale(0.9); }
-  to   { opacity: 1; transform: scale(1); }
+  from { opacity: 0; transform: scale(0.94); }
+  to   { opacity: 1; transform: none; }
 }
 .animate-zoom-in {
-  animation: zoom-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: zoom-in var(--motion-normal) var(--ease-out) backwards;
 }
 
-/* 确认对话框：从下方弹入 */
+/* 确认对话框：紧凑弹入 */
 @keyframes confirm-in {
-  from { opacity: 0; transform: scale(0.92) translateY(16px); }
-  to   { opacity: 1; transform: scale(1) translateY(0); }
+  from { opacity: 0; transform: scale(0.95) translateY(8px); }
+  to   { opacity: 1; transform: none; }
 }
 .animate-confirm-in {
-  animation: confirm-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: confirm-in var(--motion-normal) var(--ease-out) backwards;
+}
+
+/* 定位型浮层 / 头像菜单 / 任务弹层：从锚点轻展 */
+@keyframes popover-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to   { opacity: 1; transform: none; }
+}
+.animate-popover-in {
+  animation: popover-in var(--motion-fast) var(--ease-out) backwards;
+}
+
+/* 右侧抽屉滑入 */
+@keyframes drawer-right-in {
+  from { opacity: 0; transform: translateX(28px); }
+  to   { opacity: 1; transform: none; }
+}
+.animate-drawer-right-in {
+  animation: drawer-right-in var(--motion-slow) var(--ease-in-out) backwards;
+}
+
+/* 底部操作条 / 传输卡 / 浮条升起 */
+@keyframes sheet-up-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to   { opacity: 1; transform: none; }
+}
+.animate-sheet-up-in {
+  animation: sheet-up-in var(--motion-normal) var(--ease-out) backwards;
+}
+
+/* 页面视图切入：仅做透明度淡入，绝不在整页容器上做 transform（否则会破坏内部 position: fixed 浮条与拖拽遮罩） */
+@keyframes view-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-view-in {
+  animation: view-in var(--motion-fast) var(--ease-out) backwards;
+}
+
+/* 设置二级页横向钻入 */
+@keyframes subpage-in {
+  from { opacity: 0; transform: translateX(12px); }
+  to   { opacity: 1; transform: none; }
+}
+.animate-subpage-in {
+  animation: subpage-in var(--motion-normal) var(--ease-out) backwards;
+}
+
+/* 折叠内容 / 展开步骤顺滑揭示 */
+@keyframes reveal-down {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+.animate-reveal-down {
+  animation: reveal-down var(--motion-fast) var(--ease-out) backwards;
+}
+
+/* 生成完成的图片轻柔浮现 */
+@keyframes media-reveal {
+  from { opacity: 0; transform: scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+.animate-media-reveal {
+  animation: media-reveal var(--motion-normal) var(--ease-out) backwards;
+}
+
+/* 收藏 / 勾选确认的克制微弹（仅 ≤24px 图标） */
+@keyframes pop-confirm {
+  0%   { scale: 1; }
+  45%  { scale: 1.18; }
+  100% { scale: 1; }
+}
+.animate-pop-confirm {
+  animation: pop-confirm var(--motion-normal) var(--ease-spring) backwards;
+}
+
+/* 内联出错提示出现 */
+@keyframes error-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: none; }
+}
+.animate-error-in {
+  animation: error-in var(--motion-fast) var(--ease-out) backwards;
 }
 
 /* 移动端折叠区域收起/展开 */
 .collapse-section {
   display: grid;
   grid-template-rows: 1fr;
-  transition: grid-template-rows 0.25s ease-out, opacity 0.2s ease-out;
+  transition:
+    grid-template-rows var(--motion-normal) var(--ease-in-out),
+    opacity var(--motion-fast) var(--ease-out);
   opacity: 1;
 }
 .collapse-section.collapsed {
@@ -531,21 +622,52 @@ input[type="number"] {
 
 /* 下拉菜单：向下展开 */
 @keyframes dropdown-down {
-  from { opacity: 0; transform: scaleY(0.9) translateY(-4px); }
-  to   { opacity: 1; transform: scaleY(1) translateY(0); }
+  from { opacity: 0; transform: scaleY(0.94) translateY(-4px); }
+  to   { opacity: 1; transform: none; }
 }
 /* 下拉菜单：向上展开 */
 @keyframes dropdown-up {
-  from { opacity: 0; transform: scaleY(0.9) translateY(4px); }
-  to   { opacity: 1; transform: scaleY(1) translateY(0); }
+  from { opacity: 0; transform: scaleY(0.94) translateY(4px); }
+  to   { opacity: 1; transform: none; }
 }
 .animate-dropdown-down {
   transform-origin: top center;
-  animation: dropdown-down 0.15s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: dropdown-down var(--motion-fast) var(--ease-out) backwards;
 }
 .animate-dropdown-up {
   transform-origin: bottom center;
-  animation: dropdown-up 0.15s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: dropdown-up var(--motion-fast) var(--ease-out) backwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .generating,
+  .animate-coach-pulse,
+  .animate-task-pop-in,
+  .animate-coach-pop-in,
+  .toast-enter,
+  .toast-exit,
+  .animate-overlay-in,
+  .animate-modal-in,
+  .animate-slide-down-in,
+  .animate-fade-in,
+  .animate-zoom-in,
+  .animate-confirm-in,
+  .animate-popover-in,
+  .animate-drawer-right-in,
+  .animate-sheet-up-in,
+  .animate-view-in,
+  .animate-subpage-in,
+  .animate-reveal-down,
+  .animate-media-reveal,
+  .animate-pop-confirm,
+  .animate-error-in,
+  .animate-dropdown-down,
+  .animate-dropdown-up {
+    animation: none;
+  }
+  .collapse-section {
+    transition: none;
+  }
 }
 
 .safe-area-x {
@@ -588,7 +710,11 @@ input[type="number"] {
   vertical-align: middle;
   user-select: all;
   cursor: default;
-  transition: all 0.15s ease;
+  transition:
+    background-color var(--motion-fast) var(--ease-out),
+    border-color var(--motion-fast) var(--ease-out),
+    color var(--motion-fast) var(--ease-out),
+    box-shadow var(--motion-fast) var(--ease-out);
 }
 
 .mention-tag::selection,

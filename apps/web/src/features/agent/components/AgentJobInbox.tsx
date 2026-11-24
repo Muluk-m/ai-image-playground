@@ -3,6 +3,7 @@ import { JobProgress } from '../../../components/assistant-ui/elements/job-progr
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useCompactWorkspaceHeader } from '../../../hooks/useMobileWorkspace'
+import { useSlidingIndicator } from '../../../hooks/useSlidingIndicator'
 import { useTranslation } from '../../../i18n'
 import { useCanvasProjectStore } from '../../canvas/projectStore'
 import { CARD_NOTE, INK, INK_3, LIST_ROW } from '../agentStyles'
@@ -182,14 +183,14 @@ function InboxGroup({
       >
         <Icon
           name="chevronRight"
-          className={`transition-transform ${open && messages.length > 0 ? 'rotate-90' : ''}`}
+          className={`transition-transform duration-fast ease-motion-out motion-reduce:transition-none ${open && messages.length > 0 ? 'rotate-90' : ''}`}
         />
         <span>
           {label}（{messages.length}）
         </span>
       </Button>
       {open && messages.length > 0 && (
-        <ul className="flex flex-col gap-0.5">
+        <ul className="animate-reveal-down flex flex-col gap-0.5">
           {messages.map((message) => (
             <InboxRow key={message.id} message={message} onLocate={onLocate} />
           ))}
@@ -220,6 +221,11 @@ export default function AgentJobInbox() {
   const inbox = useMemo(() => agentJobInbox(messages, nodes), [messages, nodes])
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<'running' | 'finished'>('running')
+  const {
+    containerRef: tablistRef,
+    indicatorStyle: tabIndicatorStyle,
+    visible: tabSlideVisible,
+  } = useSlidingIndicator(open ? tab : null)
   const host = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
@@ -294,7 +300,7 @@ export default function AgentJobInbox() {
         <span className="text-label-sm tabular-nums">{count}</span>
       </Button>
       {open && (
-        <div className="absolute right-0 top-full z-10 mt-1.5 w-80 max-w-[85vw] rounded-xl border border-border bg-sidebar p-2.5 shadow-xl">
+        <div className="animate-popover-in origin-top-right absolute right-0 top-full z-10 mt-1.5 w-80 max-w-[85vw] rounded-xl border border-border bg-sidebar p-2.5 shadow-popover ring-1 ring-hairline">
           <p className={`text-xs font-semibold ${INK}`}>{t('job.inbox.title')}</p>
           <div className="mt-2 flex items-center gap-2">
             <InboxProgress
@@ -304,7 +310,18 @@ export default function AgentJobInbox() {
             />
             <span className={`shrink-0 text-label-sm tabular-nums ${INK_3}`}>{count}</span>
           </div>
-          <div role="tablist" className="mt-2 flex gap-1 rounded-lg bg-muted p-0.5">
+          <div
+            ref={tablistRef}
+            role="tablist"
+            className="relative mt-2 flex gap-1 rounded-lg bg-muted p-0.5"
+          >
+            {tabSlideVisible && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute left-0 top-0 z-0 rounded-md bg-sidebar shadow-sm"
+                style={tabIndicatorStyle}
+              />
+            )}
             {(['running', 'finished'] as const).map((one) => (
               <Button
                 key={one}
@@ -313,8 +330,10 @@ export default function AgentJobInbox() {
                 role="tab"
                 aria-selected={tab === one}
                 onClick={() => setTab(one)}
-                className={`h-auto flex-1 rounded-md px-2 py-1 text-label-sm font-normal ${
-                  tab === one ? `bg-sidebar font-semibold ${INK} shadow-sm hover:bg-sidebar` : INK_3
+                className={`relative z-[1] h-auto flex-1 rounded-md px-2 py-1 text-label-sm font-normal hover:bg-transparent ${
+                  tab === one
+                    ? `${tabSlideVisible ? 'bg-transparent' : 'bg-sidebar shadow-sm'} font-semibold ${INK}`
+                    : INK_3
                 }`}
               >
                 {one === 'running'

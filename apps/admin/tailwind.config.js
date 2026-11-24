@@ -95,8 +95,16 @@ export default {
         'shell-nav-icon': 'var(--shell-nav-width-icon)',
       },
       transitionDuration: {
-        fast: 'var(--duration-fast)',
-        normal: 'var(--duration-normal)',
+        instant: 'var(--motion-instant)',
+        fast: 'var(--motion-fast)',
+        normal: 'var(--motion-normal)',
+        slow: 'var(--motion-slow)',
+      },
+      transitionTimingFunction: {
+        'motion-out': 'var(--ease-out)',
+        'motion-in-out': 'var(--ease-in-out)',
+        'motion-in': 'var(--ease-in)',
+        'motion-spring': 'var(--ease-spring)',
       },
       fontFamily: {
         sans: [

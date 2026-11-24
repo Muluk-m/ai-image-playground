@@ -49,7 +49,7 @@ export default function AssetCard({
   }
 
   return (
-    <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-card/40 transition-all duration-300 hover:-translate-y-0.5 hover:border-primary hover:shadow-lg">
+    <div className="group relative flex flex-col overflow-hidden rounded-2xl border border-border/60 bg-card/40 transition-[transform,border-color,box-shadow] duration-normal ease-motion-out hover:-translate-y-0.5 hover:border-primary hover:shadow-lg motion-reduce:transition-none motion-reduce:hover:translate-y-0">
       {/* 外层不是 <button>：卡片内还有编辑、删除与放大按钮，嵌套 button 是 invalid HTML。 */}
       <div
         role="button"
@@ -87,7 +87,7 @@ export default function AssetCard({
             {t('asset.viewDetail')}
           </Button>
         </div>
-        <div className="absolute inset-x-0 bottom-0 flex translate-y-1 items-center justify-center gap-1 bg-black/55 px-1 py-2 opacity-0 transition-all group-hover/cover:translate-y-0 group-hover/cover:opacity-100 group-focus-within/cover:translate-y-0 group-focus-within/cover:opacity-100">
+        <div className="absolute inset-x-0 bottom-0 flex translate-y-1 items-center justify-center gap-1 bg-black/55 px-1 py-2 opacity-0 transition-[opacity,transform] duration-fast ease-motion-out group-hover/cover:translate-y-0 group-hover/cover:opacity-100 group-focus-within/cover:translate-y-0 group-focus-within/cover:opacity-100 motion-reduce:translate-y-0 motion-reduce:transition-none">
           <Button
             type="button"
             variant="ghost"
