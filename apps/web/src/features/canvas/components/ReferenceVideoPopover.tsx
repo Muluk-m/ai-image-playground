@@ -108,7 +108,7 @@ export default function ReferenceVideoPopover({
 
   return (
     <Dialog
-      onClose={onClose}
+      onClose={submitting ? () => {} : onClose}
       tier="raised"
       title={t('referenceVideo.title', { count: items.length })}
       footer={
@@ -133,6 +133,7 @@ export default function ReferenceVideoPopover({
             title={guard.disabledReason}
             onClick={() => void submit()}
           >
+            {submitting && <Icon name="loading" className="animate-spin" />}
             {guard.estimatedCredits === undefined ? (
               t('referenceVideo.submit')
             ) : (
@@ -244,8 +245,17 @@ export default function ReferenceVideoPopover({
 
       <div className={`${LABEL} mb-1.5`}>{t('video:field.description')}</div>
       <Textarea
+        autoFocus
+        disabled={submitting}
         value={prompt}
         onChange={(event) => setPrompt(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return
+          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+            event.preventDefault()
+            void submit()
+          }
+        }}
         rows={4}
         aria-label={t('video:field.description')}
         placeholder={t('referenceVideo.placeholder')}

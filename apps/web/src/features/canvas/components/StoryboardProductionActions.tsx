@@ -18,11 +18,13 @@ export default function StoryboardProductionActions({
   canvas,
   id,
   ready,
+  disabledReason,
   onRun,
 }: {
   canvas: NodeCanvasDocument
   id: string
   ready: boolean
+  disabledReason?: string
   onRun: (ids: string[]) => void
 }) {
   const { t } = useTranslation('canvas')
@@ -45,7 +47,13 @@ export default function StoryboardProductionActions({
   }
   return (
     <>
-      <Button size="sm" variant="outline" disabled={!ready} onClick={() => setOpen(true)}>
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={!ready}
+        title={!ready ? disabledReason : undefined}
+        onClick={() => setOpen(true)}
+      >
         <Icon name="image" />
         {t('storyFlow.frames')}
       </Button>
@@ -53,6 +61,7 @@ export default function StoryboardProductionActions({
         size="sm"
         variant="outline"
         disabled={!ready}
+        title={!ready ? disabledReason : undefined}
         onClick={() =>
           apply(
             () =>

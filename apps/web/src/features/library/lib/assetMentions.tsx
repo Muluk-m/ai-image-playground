@@ -108,9 +108,13 @@ export function buildAtMentionGroups({
     : []
 
   // 一条素材都没有时留住空组当引导；有素材只是被查询过滤光则照旧收起。
+  const isTouch =
+    typeof window !== 'undefined' && Boolean(window.matchMedia?.('(pointer: coarse)').matches)
   const assetsEmptyNote =
     canAttachAssets && assets.length === 0
-      ? i18next.t('mention.assetsEmptyNote', { ns: 'library' })
+      ? i18next.t(isTouch ? 'mention.assetsEmptyNoteTouch' : 'mention.assetsEmptyNote', {
+          ns: 'library',
+        })
       : undefined
 
   return [

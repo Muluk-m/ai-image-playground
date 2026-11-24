@@ -241,8 +241,17 @@ function NodeCaption({ node }: { node: CanvasNode }) {
             setEditing(false)
           }}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') e.currentTarget.blur()
-            if (e.key === 'Escape') setEditing(false)
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return
+            if (e.key === 'Enter') {
+              e.stopPropagation()
+              e.currentTarget.blur()
+            }
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              e.stopPropagation()
+              setName(title ?? '')
+              setEditing(false)
+            }
           }}
         />
       ) : (
@@ -1638,7 +1647,7 @@ function Flow({
       if (
         target?.isContentEditable ||
         target?.closest(
-          'input,textarea,[contenteditable],[role="dialog"],[role="menu"],[role="listbox"],[role="combobox"]',
+          'input,textarea,[contenteditable],[role="dialog"],[role="menu"],[role="listbox"],[role="combobox"],.studio-sidebar,.studio-agent-job-inbox',
         )
       )
         return
@@ -1649,6 +1658,7 @@ function Flow({
       }
       const command = event.metaKey || event.ctrlKey
       const key = event.key.toLowerCase()
+      const onInteractive = Boolean(target?.closest('button, a, [role="button"]'))
       if (command && key === 'z') {
         event.preventDefault()
         event.stopImmediatePropagation()
@@ -1679,10 +1689,12 @@ function Flow({
         event.stopImmediatePropagation()
         remove()
       } else if (key === 'escape') {
+        if (document.querySelector('[data-radix-popper-content-wrapper], .studio-agent-job-inbox'))
+          return
         closeMenu()
         selectNode(null)
-      } else if (!command && key === 'v') setMode('select')
-      else if (!command && key === 'h') setMode('pan')
+      } else if (!command && !onInteractive && key === 'v') setMode('select')
+      else if (!command && !onInteractive && key === 'h') setMode('pan')
       else if (command && ['=', '+', '-'].includes(key)) {
         event.preventDefault()
         void flowRef.current?.zoomTo(frame.zoom * (key === '-' ? 1 / 1.2 : 1.2))

@@ -6,6 +6,7 @@ import {
   type VideoAspectRatio,
   type VideoDuration,
   type VideoResolution,
+  videoDurationsForResolution,
 } from '@image-playground/shared'
 import { create } from 'zustand'
 import { videoModelOptions } from '../../lib/channels/videoChannels'
@@ -54,7 +55,27 @@ export const useVideoStore = create<VideoState>((set, get) => ({
     set((state) => ({ draft: clampDraftToSupport({ ...state.draft, model }, support) }))
   },
   setDuration(duration) {
-    set((state) => ({ draft: { ...state.draft, duration } }))
+    set((state) => {
+      const support = supportFor(state.draft.model)
+      if (!support) return { draft: { ...state.draft, duration } }
+      const allowed = videoDurationsForResolution(support, state.draft.resolution)
+      if (allowed.includes(duration)) {
+        return { draft: { ...state.draft, duration } }
+      }
+      const compatibleResolution = support.resolutions.find((res) =>
+        videoDurationsForResolution(support, res).includes(duration),
+      )
+      return {
+        draft: clampDraftToSupport(
+          {
+            ...state.draft,
+            duration,
+            ...(compatibleResolution ? { resolution: compatibleResolution } : {}),
+          },
+          support,
+        ),
+      }
+    })
   },
   setAspectRatio(aspectRatio) {
     set((state) => ({ draft: { ...state.draft, aspectRatio } }))

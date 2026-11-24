@@ -1089,6 +1089,7 @@ function StandardAgentToolCard({
                 variant="secondary"
                 size="icon"
                 className="size-8 rounded-xl"
+                disabled={downloading.size > 0}
                 aria-label={t('tool.downloadAll')}
                 onClick={() => {
                   for (const tile of tiles) {
@@ -1097,7 +1098,10 @@ function StandardAgentToolCard({
                   }
                 }}
               >
-                <Icon name="download" />
+                <Icon
+                  name={downloading.size > 0 ? 'loading' : 'download'}
+                  className={downloading.size > 0 ? 'animate-spin' : undefined}
+                />
               </Button>
               {offCanvas && !onPreviewResult && (
                 <AgentIconButton icon="images" label={t('tool.place')} onClick={placeOnCanvas} />
@@ -1387,10 +1391,17 @@ export function AgentImageRun({
   onPreviewProduction?: (pane?: ProductionPane) => void
 }) {
   const { t } = useTranslation('agent')
+  const [downloadingAll, setDownloadingAll] = useState(false)
+  const downloadingAllRef = useRef(false)
   const total = messages.reduce((sum, message) => {
     const finished = message.artifacts?.length ?? 0
     return sum + Math.max(finished, agentDraftOutputCount(message), 1)
   }, 0)
+  const downloadableArtifacts = messages.flatMap((message) =>
+    message.status === 'succeeded'
+      ? (message.artifacts ?? []).filter((artifact) => artifact.media !== 'video')
+      : [],
+  )
   const done = messages.reduce(
     (sum, message) => sum + (message.status === 'succeeded' ? (message.artifacts?.length ?? 0) : 0),
     0,
@@ -1454,29 +1465,49 @@ export function AgentImageRun({
             void regenerateFromCard(lead, (prompt) => t('tool.regenerateRequest', { prompt }))
           }
         >
-          <Button
-            type="button"
-            variant="secondary"
-            size="icon"
-            className="size-8 rounded-xl"
-            aria-label={t('tool.downloadAll')}
-            onClick={() => {
-              for (const message of messages) {
-                for (const artifact of message.artifacts ?? []) {
-                  if (artifact.media === 'video') continue
-                  void previewArtifactBitmap(artifact).then((source) => {
-                    if (!source) return
+          {downloadableArtifacts.length > 0 && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="icon"
+              className="size-8 rounded-xl"
+              disabled={downloadingAll}
+              aria-label={t('tool.downloadAll')}
+              onClick={() => {
+                if (downloadingAllRef.current) return
+                downloadingAllRef.current = true
+                setDownloadingAll(true)
+                void Promise.all(
+                  downloadableArtifacts.map(async (artifact) => {
+                    const source = await previewArtifactBitmap(artifact)
+                    if (!source) return false
                     const link = document.createElement('a')
                     link.href = source
                     link.download = `muvloom-${artifact.artifactId}.png`
                     link.click()
+                    return true
+                  }),
+                )
+                  .then((results) => {
+                    if (results.some((ok) => !ok)) {
+                      useStore.getState().showToast(t('common:error.downloadFailed'), 'error')
+                    }
                   })
-                }
-              }
-            }}
-          >
-            <Icon name="download" />
-          </Button>
+                  .catch(() => {
+                    useStore.getState().showToast(t('common:error.downloadFailed'), 'error')
+                  })
+                  .finally(() => {
+                    downloadingAllRef.current = false
+                    setDownloadingAll(false)
+                  })
+              }}
+            >
+              <Icon
+                name={downloadingAll ? 'loading' : 'download'}
+                className={downloadingAll ? 'animate-spin' : undefined}
+              />
+            </Button>
+          )}
         </MessageActions>
       )}
     </div>

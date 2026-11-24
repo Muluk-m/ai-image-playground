@@ -4,6 +4,7 @@ import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { formatDate } from '../../../i18n/format'
 import { accountScope, scopedStorageName } from '../../../lib/authScope'
+import { useStore } from '../../../store'
 import { copyDeletedProjectLocally, restoreProject } from '../lib/activeProject'
 import { listRecycledCloudProjects, ProjectRequestError } from '../lib/projectClient'
 import { type CanvasProject, projectDisplayName } from '../lib/projectRepository'
@@ -51,12 +52,11 @@ export default function ProjectTrash({
     if (busy) return
     const isCurrent = accountScope()
     setBusy(true)
-    setError(false)
     try {
       const project = await copyDeletedProjectLocally(id)
       if (isCurrent()) await onOpen(project)
     } catch {
-      if (isCurrent()) setError('fallback')
+      if (isCurrent()) useStore.getState().showToast(t('errors:projectRecycle.fallback'), 'error')
     } finally {
       setBusy(false)
     }
@@ -65,18 +65,17 @@ export default function ProjectTrash({
     if (busy) return
     const isCurrent = accountScope()
     setBusy(true)
-    setError(false)
     try {
       await restoreProject(id)
       if (!isCurrent()) return
       setProjects((all) => all.filter((one) => one.id !== id))
     } catch (failure) {
-      if (isCurrent())
-        setError(
-          failure instanceof ProjectRequestError && failure.code === 'project_quota_exceeded'
-            ? 'project_quota_exceeded'
-            : 'fallback',
-        )
+      if (!isCurrent()) return
+      if (failure instanceof ProjectRequestError && failure.code === 'project_quota_exceeded') {
+        setError('project_quota_exceeded')
+      } else {
+        useStore.getState().showToast(t('errors:projectRecycle.fallback'), 'error')
+      }
     } finally {
       setBusy(false)
     }
