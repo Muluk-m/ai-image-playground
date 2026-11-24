@@ -206,7 +206,7 @@ export async function backfillTaskPayloads(
   let written = 0
 
   while (maxBatches === undefined || batches < maxBatches) {
-    const row = repairMismatches
+    const row: BatchRow = repairMismatches
       ? await runRepairBatch(client, lastId, batchSize)
       : await runInsertOnlyBatch(client, lastId, batchSize)
     if (row.scanned === 0) {
