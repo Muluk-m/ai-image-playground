@@ -7,7 +7,7 @@ import type {
 } from '@image-playground/shared'
 import { INSPIRATION_KINDS } from '@image-playground/shared'
 import { Loader2, Trash2 } from 'lucide-react'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 
 import { ErrorState, PendingState } from '@/components/Page'
 import { Badge } from '@/components/ui/badge'
@@ -86,6 +86,10 @@ export function InspirationDrawer({
     }
   }, [open])
 
+  const handleDirtyChange = useCallback((dirty: boolean) => {
+    dirtyRef.current = dirty
+  }, [])
+
   const closeImmediately = () => {
     dirtyRef.current = false
     setConfirmDiscard(false)
@@ -128,9 +132,7 @@ export function InspirationDrawer({
               categories={categories}
               onClose={closeImmediately}
               onCreated={handleCreated}
-              onDirtyChange={(dirty) => {
-                dirtyRef.current = dirty
-              }}
+              onDirtyChange={handleDirtyChange}
             />
           ) : detail.isPending ? (
             <PendingState label="加载条目" />
@@ -144,9 +146,7 @@ export function InspirationDrawer({
               categories={categories}
               onClose={closeImmediately}
               onCreated={handleCreated}
-              onDirtyChange={(dirty) => {
-                dirtyRef.current = dirty
-              }}
+              onDirtyChange={handleDirtyChange}
             />
           )}
         </SheetContent>
@@ -223,9 +223,15 @@ function InspirationEditor({
   // 服务端此刻的状态：新建出来的条目一定是草稿。
   const savedStatus = item?.status ?? (createdId ? 'draft' : null)
 
+  const mountedRef = useRef(true)
+
   useEffect(() => {
+    mountedRef.current = true
     onDirtyChange(false)
-    return () => onDirtyChange(false)
+    return () => {
+      mountedRef.current = false
+      onDirtyChange(false)
+    }
   }, [onDirtyChange])
 
   function patch(next: Partial<InspirationWriteInput>): void {
@@ -249,17 +255,19 @@ function InspirationEditor({
     try {
       if (savedId) {
         await update.mutateAsync({ ...draft, id: savedId })
+        if (!mountedRef.current) return null
         savedRevisionRef.current = rev
         onDirtyChange(draftRevisionRef.current !== savedRevisionRef.current)
         return savedId
       }
       const created = await create.mutateAsync(draft)
+      if (!mountedRef.current) return null
       savedRevisionRef.current = rev
       onDirtyChange(draftRevisionRef.current !== savedRevisionRef.current)
       setCreatedId(created.item.id)
       return created.item.id
     } catch (saveError) {
-      setError(inspirationErrorMessage(saveError))
+      if (mountedRef.current) setError(inspirationErrorMessage(saveError))
       return null
     }
   }

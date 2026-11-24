@@ -203,6 +203,11 @@ function CustomRange({
   const [start, setStart] = useState(from ? beijingInput(from) : '')
   const [end, setEnd] = useState(to ? beijingInput(to) : '')
   const [error, setError] = useState('')
+  useEffect(() => {
+    setStart(from ? beijingInput(from) : '')
+    setEnd(to ? beijingInput(to) : '')
+    setError('')
+  }, [from, to])
   return (
     <form
       className="flex flex-wrap items-center gap-2"
