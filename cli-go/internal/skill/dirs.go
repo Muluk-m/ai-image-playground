@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/auth"
@@ -53,10 +55,11 @@ func readRegistry() ([]string, error) {
 	return reg.Paths, nil
 }
 
-// ReinstallCommand is the command that replaces this copy with the bundled Skill.
+// ReinstallCommand is the command that replaces this copy with the bundled Skill, ready to paste
+// into the user's shell.
 func ReinstallCommand(item Installation) string {
 	if item.Host == customHost || item.foundHost == customHost {
-		return fmt.Sprintf("muvloom skill install --dir %q", filepath.Dir(item.Path))
+		return "muvloom skill install --dir " + shellQuote(filepath.Dir(item.Path), runtime.GOOS)
 	}
 	return fmt.Sprintf("muvloom skill install --host %s --scope %s", item.Host, item.Scope)
 }
@@ -73,8 +76,12 @@ func register(destination string) error {
 	defer release()
 	paths, readErr := readRegistry()
 	if readErr != nil {
-		// Keep the damaged file for a person to recover the other entries from.
-		_ = os.Rename(path, path+".bad")
+		// Keep the damaged file for a person to recover the other entries from; never replace it
+		// without a copy.
+		kept := fmt.Sprintf("%s.bad-%d", path, time.Now().UnixNano())
+		if err := os.Rename(path, kept); err != nil {
+			return fmt.Errorf("%s cannot be read (%v) and could not be kept aside: %w", path, readErr, err)
+		}
 	}
 	if slices.Contains(paths, destination) {
 		return nil
@@ -205,6 +212,9 @@ func knownHostDir(dir, home, cwd string) (string, string, bool) {
 		}
 		return filepath.Clean(a) == filepath.Clean(b)
 	}
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
 	project := ""
 	if cwd != "" {
 		project, _ = findProjectRoot(cwd)
@@ -218,4 +228,13 @@ func knownHostDir(dir, home, cwd string) (string, string, bool) {
 		}
 	}
 	return "", "", false
+}
+
+// shellQuote quotes a path as one literal argument: single quotes in POSIX shells (nothing
+// inside expands), and in PowerShell, where a single quote is escaped by doubling it.
+func shellQuote(value, goos string) string {
+	if goos == "windows" {
+		return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }

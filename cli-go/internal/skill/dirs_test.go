@@ -3,6 +3,7 @@ package skill
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -113,9 +114,17 @@ func TestDirInstallIntoAHostSkillsDirectoryStaysThatHostsInstall(t *testing.T) {
 }
 
 func TestReinstallCommandNamesTheDirectoryForACustomCopy(t *testing.T) {
-	custom := Installation{Host: customHost, Scope: customScope, Path: filepath.Join("/x", "skills", "muvloom")}
-	if got := ReinstallCommand(custom); got != `muvloom skill install --dir "/x/skills"` {
+	dir := filepath.Join(t.TempDir(), "skills")
+	custom := Installation{Host: customHost, Scope: customScope, Path: filepath.Join(dir, "muvloom")}
+	if got := ReinstallCommand(custom); got != "muvloom skill install --dir "+shellQuote(dir, runtime.GOOS) {
 		t.Fatalf("custom = %s", got)
+	}
+	// Nothing in a directory name may expand when the command is pasted into a shell.
+	if got := shellQuote(`/a/$(touch x) $HOME `+"`id`"+` it's`, "linux"); got != `'/a/$(touch x) $HOME `+"`id`"+` it'\''s'` {
+		t.Fatalf("posix = %s", got)
+	}
+	if got := shellQuote(`C:\a\$env:X it's`, "windows"); got != `'C:\a\$env:X it''s'` {
+		t.Fatalf("powershell = %s", got)
 	}
 	if got := ReinstallCommand(Installation{Host: "codex", Scope: "user"}); got != "muvloom skill install --host codex --scope user" {
 		t.Fatalf("host = %s", got)
@@ -131,8 +140,12 @@ func TestDamagedRegistryIsKeptAsideNotOverwritten(t *testing.T) {
 	if _, err := Install(InstallOptions{Dir: t.TempDir(), Home: t.TempDir()}); err != nil {
 		t.Fatal(err)
 	}
-	if kept, err := os.ReadFile(filepath.Join(config, "skill-dirs.json.bad")); err != nil || string(kept) != "{broken" {
-		t.Fatalf("damaged registry = %q, %v", kept, err)
+	kept, _ := filepath.Glob(filepath.Join(config, "skill-dirs.json.bad-*"))
+	if len(kept) != 1 {
+		t.Fatalf("damaged registry copies = %v", kept)
+	}
+	if data, err := os.ReadFile(kept[0]); err != nil || string(data) != "{broken" {
+		t.Fatalf("damaged registry = %q, %v", data, err)
 	}
 	if len(RegisteredDirs()) != 1 {
 		t.Fatalf("registry = %v", RegisteredDirs())
