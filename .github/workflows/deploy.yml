@@ -3,6 +3,7 @@
 # with its own API hostname and a host-scoped noindex.
 # Runbook, secrets and break-glass manual release: docs/deploy/image-release.md.
 name: Deploy production
+run-name: "Deploy production (${{ inputs.mode || 'incremental' }})${{ inputs.dispatch_id != '' && format(' [{0}]', inputs.dispatch_id) || '' }}"
 # 按需发布：合并 main 不会自动上线，由 Nain 决定何时发（推荐 `scripts/release.sh`，或在 Actions 页面
 # Run workflow）。默认自动推进到拿到发布锁时 main 上最新已通过 `Web checks` 的提交（排队期间合入的
 # PR 会自动合并进同一单）；设 pin_sha=true 可锁死触发时刻的提交。默认 incremental，只发有改动的部分；
@@ -23,6 +24,10 @@ on:
         description: 锁死触发时刻的提交，不自动推进到排队期间已过 Web checks 的最新 main
         type: boolean
         default: false
+      dispatch_id:
+        description: 调用方关联标识（由 scripts/release.sh 或自动合批器生成，手工触发留空即可）
+        type: string
+        required: false
 permissions:
   contents: read
 # One deployment at a time. A queued run waits; a newer queued run replaces it.

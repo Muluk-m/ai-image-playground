@@ -65,12 +65,12 @@ printf '%s' "$payload" | jq -r "$jq_expr"
   chmodSync(join(root, 'bin/gh'), 0o755)
 }
 
-function runPick(eventSha: string, pinSha: 'true' | 'false') {
+function runPick(eventSha: string, pinSha: 'true' | 'false', extraEnv?: Record<string, string>) {
   const outFile = join(root, `out-${Math.random().toString(36).slice(2)}`)
   writeFileSync(outFile, '')
   const run = spawnSync('sh', [script, eventSha, pinSha, repoSlug], {
     cwd: repo,
-    env: { ...env, GITHUB_OUTPUT: outFile },
+    env: { ...env, GITHUB_OUTPUT: outFile, ...extraEnv },
     encoding: 'utf8',
   })
   const outputs = Object.fromEntries(
@@ -107,7 +107,7 @@ afterEach(() => rmSync(root, { recursive: true, force: true }))
 describe('ci-pick-release-sha.sh', () => {
   it('advances from event_sha to the newest green main commit when pin_sha=false', () => {
     mockGh({
-      [`repos/${repoSlug}/actions/workflows/web.yml/runs?event=push&branch=main&status=success&per_page=50`]:
+      [`repos/${repoSlug}/actions/workflows/web.yml/runs?event=push&branch=main&status=success&per_page=100`]:
         [
           { head_sha: commits[2], status: 'completed', conclusion: 'success' },
           { head_sha: commits[0], status: 'completed', conclusion: 'success' },
@@ -120,7 +120,7 @@ describe('ci-pick-release-sha.sh', () => {
 
   it('picks the newest green commit below a still-running or failed HEAD', () => {
     mockGh({
-      [`repos/${repoSlug}/actions/workflows/web.yml/runs?event=push&branch=main&status=success&per_page=50`]:
+      [`repos/${repoSlug}/actions/workflows/web.yml/runs?event=push&branch=main&status=success&per_page=100`]:
         [
           { head_sha: commits[1], status: 'completed', conclusion: 'success' },
           { head_sha: commits[0], status: 'completed', conclusion: 'success' },
@@ -131,9 +131,31 @@ describe('ci-pick-release-sha.sh', () => {
     expect(res.outputs).toEqual({ sha: commits[1], advanced: 'true' })
   })
 
+  it('falls back to exact per-commit checks when the green runs page is truncated', () => {
+    // Simulate a saturated first page containing only an unrelated old rerun, while commits[1]
+    // actually succeeded on main and commits[2] is still running.
+    mockGh({
+      [`repos/${repoSlug}/actions/workflows/web.yml/runs?event=push&branch=main&status=success&per_page=1`]:
+        [
+          {
+            head_sha: '0000000000000000000000000000000000000000',
+            status: 'completed',
+            conclusion: 'success',
+          },
+        ],
+      [`repos/${repoSlug}/actions/workflows/web.yml/runs?head_sha=${commits[2]}&event=push&branch=main&per_page=100`]:
+        [{ head_sha: commits[2], status: 'in_progress', conclusion: null }],
+      [`repos/${repoSlug}/actions/workflows/web.yml/runs?head_sha=${commits[1]}&event=push&branch=main&per_page=100`]:
+        [{ head_sha: commits[1], status: 'completed', conclusion: 'success' }],
+    })
+    const res = runPick(commits[0], 'false', { PICK_GREEN_PAGE_SIZE: '1' })
+    expect(res.status).toBe(0)
+    expect(res.outputs).toEqual({ sha: commits[1], advanced: 'true' })
+  })
+
   it('falls back to green event_sha when newer commits have not passed yet', () => {
     mockGh({
-      [`repos/${repoSlug}/actions/workflows/web.yml/runs?event=push&branch=main&status=success&per_page=50`]:
+      [`repos/${repoSlug}/actions/workflows/web.yml/runs?event=push&branch=main&status=success&per_page=100`]:
         [{ head_sha: commits[0], status: 'completed', conclusion: 'success' }],
     })
     const res = runPick(commits[0], 'false')
@@ -145,7 +167,7 @@ describe('ci-pick-release-sha.sh', () => {
     mockGh({
       [`repos/${repoSlug}/actions/workflows/web.yml/runs?head_sha=${commits[0]}&event=push&branch=main&per_page=100`]:
         [{ head_sha: commits[0], status: 'completed', conclusion: 'success' }],
-      [`repos/${repoSlug}/actions/workflows/web.yml/runs?event=push&branch=main&status=success&per_page=50`]:
+      [`repos/${repoSlug}/actions/workflows/web.yml/runs?event=push&branch=main&status=success&per_page=100`]:
         [{ head_sha: commits[2], status: 'completed', conclusion: 'success' }],
     })
     const res = runPick(commits[0], 'true')
@@ -155,7 +177,7 @@ describe('ci-pick-release-sha.sh', () => {
 
   it('fails cleanly when neither event_sha nor newer commits passed Web checks', () => {
     mockGh({
-      [`repos/${repoSlug}/actions/workflows/web.yml/runs?event=push&branch=main&status=success&per_page=50`]:
+      [`repos/${repoSlug}/actions/workflows/web.yml/runs?event=push&branch=main&status=success&per_page=100`]:
         [],
       [`repos/${repoSlug}/actions/workflows/web.yml/runs?head_sha=${commits[0]}&event=push&branch=main&per_page=100`]:
         [{ head_sha: commits[0], status: 'completed', conclusion: 'failure' }],

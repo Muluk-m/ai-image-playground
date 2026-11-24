@@ -74,7 +74,7 @@ scripts/release.sh --pin-sha --reason '…'                           # 锁死�
 1. **已在线跳过（`outcome=already_live`）**：`--include <sha>` 触及的每一边线上都已运行该提交或其后代（或全量线上已覆盖 `origin/main` 全部可发布改动）时直接退出。
 2. **搭便车复用（`outcome=piggybacked`）**：若已有 `in_progress` 或 `queued` 的 `Deploy production` 且其提交已包含 `--include`（或 `origin/main`），不发新单，直接 `gh run watch` 复用它。
 3. **CI 门禁后再复查**：若 `main` 的 `Web checks` 尚未结束，先轮询等待变绿（失败则拒绝触发），通过后再做一次 1/2 复查，防并行会话在等待窗口内已发过单。
-4. **单次触发并精确跟踪（`outcome=dispatched`）**：触发一次 `deploy.yml`，按 `id > before_id` 解析新 run ID 并 `gh run watch`（加 `--no-watch` 只触发不阻塞）。
+4. **单次触发并精确跟踪（`outcome=dispatched`）**：在本地原子锁内再复查一次线上与在途单，带唯一 `dispatch_id` 触发一次 `deploy.yml`，按 `display_title` 精确关联新 run ID 后释放锁并 `gh run watch`（加 `--no-watch` 只触发不阻塞；默认 watch 模式下超时未找到 run 会返回非零并提示人工查看，避免静默误报成功）。
 
 workflow 本身的机制：
 
@@ -92,7 +92,7 @@ workflow 本身的机制：
 
 多 Agent 持续合入 PR 时，如果希望“不用每个会话都喊上线，等一波合并停下来后自动合批上一单”，可在 `macmini2` 安装本仓库自带的 `launchd` 定时器（每 2 分钟检查一次，纯只读查询 + 满足静默窗后发一单 `incremental`）：
 
-- **合批规则**：当 `main` 有未上线提交且 `Web checks` 已绿，等待连续 `DEPLOY_DEBOUNCE_MINUTES`（默认 10 分钟）无新合并后触发一单；若连续合并超过 `DEPLOY_MAX_WAIT_MINUTES`（默认 45 分钟）也会强制发一单防饿死。已有发布在跑/排队、已有成功单/发布标签覆盖当前 HEAD、或线上三边已最新时直接跳过。
+- **合批规则**：当 `main` 有未上线改动（按线上 `/health` 与 `/version.json` 结合 GitHub Compare 路径规则实时核对）且 `Web checks` 已绿，等待连续 `DEPLOY_DEBOUNCE_MINUTES`（默认 10 分钟）`main` 无新变化后触发一单；若首条待发改动累计等待超过 `DEPLOY_MAX_WAIT_MINUTES`（默认 45 分钟，含 CI 运行时长）也会强制发一单防饿死。已有任意非终态发布单或线上各端已覆盖当前改动时直接跳过；发单后跟踪该 `dispatch_id` 对应 run，失败/取消后按冷却期有上限重试（默认最多 2 次，间隔 15 分钟）。
 - **安装（在 `macmini2` 上执行，需 Nain 准备最小权限 PAT）**：
   1. 创建仅对 `Muluk-m/ai-image-playground` 拥有 `Actions: Read and write` 与 `Contents: Read-only` 权限的 fine-grained PAT，写入 `~/.config/ai-image-playground/deploy-dispatch.token` 并设权限 `chmod 600`（脚本通过 `curl --config -` 标准输入传令牌，不出现在进程参数里）。
   2. 运行 `scripts/install-deploy-debounce-timer.sh` 安装 `~/.local/bin/muvloom-deploy-debounce-tick.sh` 与 `~/Library/LaunchAgents/com.muvloom.deploy-debounce.plist`。

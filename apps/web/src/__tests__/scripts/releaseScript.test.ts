@@ -1,10 +1,10 @@
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-/** 幂等生产发布入口 scripts/release.sh 测试：已在线跳过、搭便车复用、等 CI 后单次派发。 */
+/** 幂等生产发布入口 scripts/release.sh 测试：已在线跳过、搭便车复用、并发锁序列化、dispatch_id 精确关联。 */
 const script = resolve(__dirname, '../../../../../scripts/release.sh')
 const repoSlug = 'Muluk-m/ai-image-playground'
 const api = 'https://api.example.net'
@@ -54,16 +54,31 @@ type GhApiSequence = Record<string, Array<Record<string, unknown>>>
 /**
  * Fake `gh`:
  * - `gh api <endpoint> --jq <expr>`: pops next queued response (or repeats the last one) and runs real `jq`.
- * - `gh workflow run ...`: logs args and optionally pushes a new dispatched run into the API queue.
+ * - `gh workflow run ...`: records dispatch and appends a correlated run (with `[<dispatch_id>]` in
+ *   display_title) into both active runs and workflow_dispatch runs, optionally alongside extra runs.
  * - `gh run watch ...`: logs args and exits 0.
  */
 function mockGh(
   apiResponses: GhApiSequence,
-  options?: { dispatchedRun?: { id: number; html_url: string } },
+  options?: {
+    materializeRun?: boolean
+    dispatchDelaySec?: number
+    extraConcurrentRuns?: Array<{
+      id: number
+      status: string
+      head_sha: string
+      html_url: string
+      display_title: string
+    }>
+    headShaForDispatched?: string
+  },
 ) {
   const stateFile = join(root, 'gh-api-state.json')
-  writeFileSync(stateFile, JSON.stringify({ responses: apiResponses, counts: {} }))
-  const dispatchedJson = options?.dispatchedRun ? JSON.stringify(options.dispatchedRun) : ''
+  writeFileSync(stateFile, JSON.stringify({ responses: apiResponses, counts: {}, nextId: 101 }))
+  const materialize = options?.materializeRun ?? true
+  const dispatchDelay = options?.dispatchDelaySec ?? 0
+  const extraRunsJson = JSON.stringify(options?.extraConcurrentRuns ?? [])
+  const dispatchedHeadSha = options?.headShaForDispatched ?? commits[2]
   writeFileSync(
     join(root, 'bin/gh'),
     `#!/bin/sh
@@ -94,11 +109,41 @@ case "$1" in
     printf '%s' "$payload" | jq -r "$jq_expr"
     ;;
   workflow)
-    if [ -n '${dispatchedJson}' ]; then
+    did=
+    while [ "$#" -gt 0 ]; do
+      case $1 in
+        -f)
+          case $2 in
+            dispatch_id=*) did=\${2#dispatch_id=} ;;
+          esac
+          shift 2
+          ;;
+        *) shift ;;
+      esac
+    done
+    if [ '${dispatchDelay}' -gt 0 ]; then
+      sleep '${dispatchDelay}'
+    fi
+    if [ '${materialize ? '1' : '0'}' = 1 ]; then
       tmp=$(mktemp '${root}/gh-state.XXXXXX')
-      jq --arg key 'repos/${repoSlug}/actions/workflows/deploy.yml/runs?event=workflow_dispatch&branch=main&per_page=10' \
-         --argjson run '${dispatchedJson || 'null'}' \
-         '.responses[$key] = [{workflow_runs: [$run]}]' '${stateFile}' >"$tmp"
+      jq --arg activeKey 'repos/${repoSlug}/actions/workflows/deploy.yml/runs?branch=main&per_page=100' \
+         --arg dispKey 'repos/${repoSlug}/actions/workflows/deploy.yml/runs?event=workflow_dispatch&branch=main&per_page=20' \
+         --arg did "$did" \
+         --arg sha '${dispatchedHeadSha}' \
+         --argjson extra '${extraRunsJson}' \
+         '
+         .nextId as $id |
+         {
+           id: $id,
+           status: "queued",
+           head_sha: $sha,
+           html_url: ("https://github.com/${repoSlug}/actions/runs/" + ($id | tostring)),
+           display_title: ("Deploy production (incremental) [" + $did + "]")
+         } as $run |
+         .nextId = ($id + 1) |
+         .responses[$activeKey] = [{workflow_runs: ($extra + [$run])}] |
+         .responses[$dispKey] = [{workflow_runs: ($extra + [$run])}]
+         ' '${stateFile}' >"$tmp"
       mv "$tmp" '${stateFile}'
     fi
     exit 0
@@ -118,6 +163,23 @@ esac
 
 function runRelease(...args: string[]) {
   return spawnSync('sh', [script, ...args], { cwd: repo, env, encoding: 'utf8' })
+}
+
+function runReleaseAsync(...args: string[]) {
+  return new Promise<{ status: number | null; stdout: string; stderr: string }>(
+    (resolvePromise) => {
+      const child = spawn('sh', [script, ...args], { cwd: repo, env })
+      let stdout = ''
+      let stderr = ''
+      child.stdout.on('data', (d) => {
+        stdout += String(d)
+      })
+      child.stderr.on('data', (d) => {
+        stderr += String(d)
+      })
+      child.on('close', (status) => resolvePromise({ status, stdout, stderr }))
+    },
+  )
 }
 
 function ghCalls() {
@@ -159,6 +221,8 @@ beforeEach(() => {
     RELEASE_POLL_INTERVAL: '0',
     RELEASE_WAIT_CI_SECONDS: '5',
     RELEASE_DISPATCH_WAIT_SECONDS: '2',
+    RELEASE_DISPATCH_POLL_SECONDS: '0',
+    RELEASE_LOCK_DIR: join(root, 'release.lock'),
     RELEASE_REPO: repoSlug,
     RELEASE_API: api,
     RELEASE_WEB: web,
@@ -170,7 +234,6 @@ afterEach(() => rmSync(root, { recursive: true, force: true }))
 
 describe('release.sh', () => {
   it('skips when --include commit is already live on every side it touched', () => {
-    // Web already serves c1 (which only touched apps/web); API still serves c0, yet c1 is live.
     serve({
       [`${api}/health`]: health(commits[0]),
       [`${web}/version.json`]: site(commits[1]),
@@ -205,7 +268,7 @@ describe('release.sh', () => {
       [`${admin}/version.json`]: site(commits[0]),
     })
     mockGh({
-      [`repos/${repoSlug}/actions/workflows/deploy.yml/runs?branch=main&per_page=20`]: [
+      [`repos/${repoSlug}/actions/workflows/deploy.yml/runs?branch=main&per_page=100`]: [
         {
           workflow_runs: [
             {
@@ -227,7 +290,7 @@ describe('release.sh', () => {
     expect(ghCalls()).toContain(`run watch 9001 --repo ${repoSlug} --exit-status`)
   })
 
-  it('waits for Web checks, re-checks active deploys, and dispatches once when none exists', () => {
+  it('correlates its own run by dispatch_id even when another concurrent run has a higher ID', () => {
     serve({
       [`${api}/health`]: health(commits[0]),
       [`${web}/version.json`]: site(commits[0]),
@@ -235,7 +298,7 @@ describe('release.sh', () => {
     })
     mockGh(
       {
-        [`repos/${repoSlug}/actions/workflows/deploy.yml/runs?branch=main&per_page=20`]: [
+        [`repos/${repoSlug}/actions/workflows/deploy.yml/runs?branch=main&per_page=100`]: [
           { workflow_runs: [] },
         ],
         [`repos/${repoSlug}/actions/workflows/web.yml/runs?head_sha=${commits[2]}&event=push&branch=main&per_page=100`]:
@@ -243,14 +306,17 @@ describe('release.sh', () => {
             { workflow_runs: [{ status: 'in_progress', conclusion: null }] },
             { workflow_runs: [{ status: 'completed', conclusion: 'success' }] },
           ],
-        [`repos/${repoSlug}/actions/workflows/deploy.yml/runs?event=workflow_dispatch&branch=main&per_page=5`]:
-          [{ workflow_runs: [{ id: 100 }] }],
       },
       {
-        dispatchedRun: {
-          id: 101,
-          html_url: `https://github.com/${repoSlug}/actions/runs/101`,
-        },
+        extraConcurrentRuns: [
+          {
+            id: 102,
+            status: 'queued',
+            head_sha: commits[2],
+            html_url: `https://github.com/${repoSlug}/actions/runs/102`,
+            display_title: 'Deploy production (incremental) [other-caller-999]',
+          },
+        ],
       },
     )
 
@@ -258,42 +324,62 @@ describe('release.sh', () => {
     expect(res.status).toBe(0)
     expect(res.stdout).toContain('outcome=dispatched')
     expect(res.stdout).toContain('run_id=101')
-    expect(ghCalls()).toContain(
-      `workflow run deploy.yml --repo ${repoSlug} --ref main -f mode=incremental -f reason=ship fix`,
-    )
     expect(ghCalls()).toContain(`run watch 101 --repo ${repoSlug} --exit-status`)
+    expect(ghCalls()).not.toContain(`run watch 102 --repo ${repoSlug} --exit-status`)
   })
 
-  it('piggybacks instead of dispatching when another Agent dispatches while waiting for CI', () => {
+  it('serializes two concurrent invocations so only one dispatches and the second piggybacks', async () => {
     serve({
       [`${api}/health`]: health(commits[0]),
       [`${web}/version.json`]: site(commits[0]),
       [`${admin}/version.json`]: site(commits[0]),
     })
-    mockGh({
-      [`repos/${repoSlug}/actions/workflows/deploy.yml/runs?branch=main&per_page=20`]: [
-        { workflow_runs: [] },
-        {
-          workflow_runs: [
-            {
-              id: 9002,
-              status: 'queued',
-              head_sha: commits[2],
-              html_url: `https://github.com/${repoSlug}/actions/runs/9002`,
-            },
-          ],
-        },
-      ],
-      [`repos/${repoSlug}/actions/workflows/web.yml/runs?head_sha=${commits[2]}&event=push&branch=main&per_page=100`]:
-        [{ workflow_runs: [{ status: 'completed', conclusion: 'success' }] }],
-    })
+    mockGh(
+      {
+        [`repos/${repoSlug}/actions/workflows/deploy.yml/runs?branch=main&per_page=100`]: [
+          { workflow_runs: [] },
+        ],
+        [`repos/${repoSlug}/actions/workflows/web.yml/runs?head_sha=${commits[2]}&event=push&branch=main&per_page=100`]:
+          [{ workflow_runs: [{ status: 'completed', conclusion: 'success' }] }],
+      },
+      { dispatchDelaySec: 1 },
+    )
 
-    const res = runRelease('--no-watch')
-    expect(res.status).toBe(0)
-    expect(res.stdout).toContain('outcome=piggybacked')
-    expect(res.stdout).toContain('run_id=9002')
-    expect(ghCalls().some((c) => c.startsWith('workflow run'))).toBe(false)
-    expect(ghCalls().some((c) => c.startsWith('run watch'))).toBe(false)
+    const [a, b] = await Promise.all([runReleaseAsync('--no-watch'), runReleaseAsync('--no-watch')])
+    expect(a.status).toBe(0)
+    expect(b.status).toBe(0)
+    const outcomes = [a.stdout, b.stdout].map((s) =>
+      s.includes('outcome=dispatched')
+        ? 'dispatched'
+        : s.includes('outcome=piggybacked')
+          ? 'piggybacked'
+          : 'other',
+    )
+    expect(outcomes.sort()).toEqual(['dispatched', 'piggybacked'])
+    expect(ghCalls().filter((c) => c.startsWith('workflow run'))).toHaveLength(1)
+  })
+
+  it('exits non-zero when watch is enabled and the dispatched run cannot be located', () => {
+    serve({
+      [`${api}/health`]: health(commits[0]),
+      [`${web}/version.json`]: site(commits[0]),
+      [`${admin}/version.json`]: site(commits[0]),
+    })
+    mockGh(
+      {
+        [`repos/${repoSlug}/actions/workflows/deploy.yml/runs?branch=main&per_page=100`]: [
+          { workflow_runs: [] },
+        ],
+        [`repos/${repoSlug}/actions/workflows/web.yml/runs?head_sha=${commits[2]}&event=push&branch=main&per_page=100`]:
+          [{ workflow_runs: [{ status: 'completed', conclusion: 'success' }] }],
+      },
+      { materializeRun: false },
+    )
+
+    const res = runRelease()
+    expect(res.status).toBe(1)
+    expect(res.stdout).toContain('outcome=dispatched')
+    expect(res.stderr).toContain('do not blindly re-dispatch')
   })
 
   it('refuses to dispatch when main Web checks failed', () => {
@@ -303,7 +389,7 @@ describe('release.sh', () => {
       [`${admin}/version.json`]: site(commits[0]),
     })
     mockGh({
-      [`repos/${repoSlug}/actions/workflows/deploy.yml/runs?branch=main&per_page=20`]: [
+      [`repos/${repoSlug}/actions/workflows/deploy.yml/runs?branch=main&per_page=100`]: [
         { workflow_runs: [] },
       ],
       [`repos/${repoSlug}/actions/workflows/web.yml/runs?head_sha=${commits[2]}&event=push&branch=main&per_page=100`]:

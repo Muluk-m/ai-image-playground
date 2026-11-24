@@ -21,6 +21,7 @@ const prodWeb = 'https://web.example.net'
 const prodAdmin = 'https://admin.example.net'
 const shaA = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
 const shaB = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+const shaC = 'cccccccccccccccccccccccccccccccccccccccc'
 const secretToken = 'github_pat_fake_secret_token_for_test'
 
 let root: string
@@ -50,7 +51,6 @@ while [ "$#" -gt 0 ]; do
     -d) body=$2; shift 2 ;;
     -w) write_code=true; shift 2 ;;
     --config)
-      # Consume stdin config to verify token comes via stdin rather than argv.
       if [ "$2" = - ]; then
         cfg=$(cat)
         printf '%s\\n' "$cfg" | grep -Fq 'Authorization: Bearer ${secretToken}' || {
@@ -81,28 +81,32 @@ printf '%s' "$val"
 }
 
 function baseResponses(opts?: {
-  deployRuns?: unknown[]
+  activeByStatus?: Partial<
+    Record<'in_progress' | 'queued' | 'waiting' | 'pending' | 'requested', unknown[]>
+  >
+  dispatchedRuns?: unknown[]
   headSha?: string
-  commitDate?: string
-  tags?: unknown[]
   webCheckRuns?: unknown[]
   prodApiSha?: string
   prodWebSha?: string
   prodAdminSha?: string
+  compareFiles?: string[]
+  compareStatus?: string
 }) {
   const headSha = opts?.headSha ?? shaB
-  const commitDate = opts?.commitDate ?? '2026-11-24T12:00:00Z'
   const apiSha = opts?.prodApiSha ?? shaA
   const webSha = opts?.prodWebSha ?? shaA
   const adminSha = opts?.prodAdminSha ?? shaA
-  return {
-    [`${apiBase}/repos/${repoSlug}/actions/workflows/deploy.yml/runs?branch=main&per_page=10`]:
-      JSON.stringify({ workflow_runs: opts?.deployRuns ?? [] }),
-    [`${apiBase}/repos/${repoSlug}/commits/main`]: JSON.stringify({
-      sha: headSha,
-      commit: { committer: { date: commitDate } },
-    }),
-    [`${apiBase}/repos/${repoSlug}/tags?per_page=10`]: JSON.stringify(opts?.tags ?? []),
+  const compareFiles = opts?.compareFiles ?? ['apps/web/src/App.tsx']
+  const comparePayload = JSON.stringify({
+    status: opts?.compareStatus ?? 'ahead',
+    total_commits: 1,
+    files: compareFiles.map((filename) => ({ filename })),
+  })
+  const map: Record<string, string> = {
+    [`${apiBase}/repos/${repoSlug}/commits/main`]: JSON.stringify({ sha: headSha }),
+    [`${apiBase}/repos/${repoSlug}/actions/workflows/deploy.yml/runs?event=workflow_dispatch&branch=main&per_page=30`]:
+      JSON.stringify({ workflow_runs: opts?.dispatchedRuns ?? [] }),
     [`${apiBase}/repos/${repoSlug}/actions/workflows/web.yml/runs?head_sha=${headSha}&event=push&branch=main&per_page=20`]:
       JSON.stringify({
         workflow_runs: opts?.webCheckRuns ?? [{ status: 'completed', conclusion: 'success' }],
@@ -114,7 +118,16 @@ function baseResponses(opts?: {
     [`${prodAdmin}/version.json`]: JSON.stringify({
       version: `${adminSha.slice(0, 7)}-20261124T100000Z`,
     }),
+    [`${apiBase}/repos/${repoSlug}/compare/${apiSha}...${headSha}`]: comparePayload,
+    [`${apiBase}/repos/${repoSlug}/compare/${webSha.slice(0, 7)}...${headSha}`]: comparePayload,
+    [`${apiBase}/repos/${repoSlug}/compare/${adminSha.slice(0, 7)}...${headSha}`]: comparePayload,
   }
+  for (const st of ['in_progress', 'queued', 'waiting', 'pending', 'requested'] as const) {
+    map[
+      `${apiBase}/repos/${repoSlug}/actions/workflows/deploy.yml/runs?branch=main&status=${st}&per_page=5`
+    ] = JSON.stringify({ workflow_runs: opts?.activeByStatus?.[st] ?? [] })
+  }
+  return map
 }
 
 function tick(nowIso: string, extraEnv?: Record<string, string>) {
@@ -153,6 +166,8 @@ beforeEach(() => {
     DEPLOY_ADMIN_URL: prodAdmin,
     DEPLOY_DEBOUNCE_MINUTES: '10',
     DEPLOY_MAX_WAIT_MINUTES: '45',
+    DEPLOY_MAX_RETRIES: '2',
+    DEPLOY_RETRY_COOLDOWN_MINUTES: '15',
   }
 })
 
@@ -168,10 +183,10 @@ describe('deploy-debounce-tick.sh', () => {
     expect(readDispatches()).toEqual([])
   })
 
-  it('skips when a deploy run is already active (in_progress, queued, waiting, etc.)', () => {
+  it('skips when an active deploy exists in any non-completed status (e.g. waiting)', () => {
     mockCurl(
       baseResponses({
-        deployRuns: [{ id: 55, status: 'waiting', head_sha: shaA, conclusion: null }],
+        activeByStatus: { waiting: [{ id: 55, status: 'waiting' }] },
       }),
     )
     const res = tick('2026-11-24T12:20:00Z')
@@ -181,71 +196,127 @@ describe('deploy-debounce-tick.sh', () => {
     expect(readDispatches()).toEqual([])
   })
 
-  it('skips when head_sha already has a release tag from an auto-advanced successful deploy even after a cancelled run', () => {
+  it('skips when only Web changed and Web already serves head_sha while API/Admin stayed on older commits', () => {
     mockCurl(
       baseResponses({
-        deployRuns: [
-          { id: 56, status: 'completed', head_sha: shaA, conclusion: 'cancelled' },
-          { id: 54, status: 'completed', head_sha: shaA, conclusion: 'success' },
-        ],
-        tags: [{ name: 'v0.1.9', commit: { sha: shaB } }],
-        // Only web was updated to shaB; api/admin stayed on shaA.
         prodWebSha: shaB,
+        prodApiSha: shaA,
+        prodAdminSha: shaA,
+        compareFiles: ['apps/web/src/App.tsx'],
       }),
     )
     const res = tick('2026-11-24T12:20:00Z')
     expect(res.status).toBe(0)
-    expect(res.stdout).toContain(`release tag already exists for ${shaB}`)
+    expect(res.stdout).toContain(`production already up to date for ${shaB}`)
     expect(readDispatches()).toEqual([])
     const state = JSON.parse(readFileSync(stateFile, 'utf8'))
-    expect(state.last_dispatched_sha).toBe(shaB)
+    expect(state.shipped_sha).toBe(shaB)
   })
 
-  it('skips when Web checks for main HEAD have not passed yet', () => {
-    mockCurl(
-      baseResponses({
-        webCheckRuns: [{ status: 'in_progress', conclusion: null }],
-      }),
-    )
-    const res = tick('2026-11-24T12:20:00Z')
-    expect(res.status).toBe(0)
-    expect(res.stdout).toContain("is 'running'; not dispatching")
-    expect(readDispatches()).toEqual([])
-  })
+  it('holds from observed HEAD change time, dispatches compact payload with stdin token, and confirms success', () => {
+    mockCurl(baseResponses({ headSha: shaB }))
 
-  it('holds during the quiet period, then dispatches once quiet >= debounce and skips next tick', () => {
-    mockCurl(baseResponses({ commitDate: '2026-11-24T12:00:00Z' }))
-
-    // 4 minutes after merge: hold and record first_unshipped_at.
-    const hold = tick('2026-11-24T12:04:00Z')
-    expect(hold.status).toBe(0)
-    expect(hold.stdout).toContain('holding')
+    // First observation of shaB at 12:00: records observed_head_at=12:00 and holds.
+    const first = tick('2026-11-24T12:00:00Z', { DEPLOY_DISPATCH_ID: 'auto-test-1' })
+    expect(first.status).toBe(0)
+    expect(first.stdout).toContain('holding')
     expect(readDispatches()).toEqual([])
 
-    // 11 minutes after merge: dispatch once, passing token via stdin only.
-    const fire = tick('2026-11-24T12:11:00Z')
+    // 11 minutes after observing shaB: dispatches once with compact JSON and stdin token.
+    const fire = tick('2026-11-24T12:11:00Z', { DEPLOY_DISPATCH_ID: 'auto-test-1' })
     expect(fire.status).toBe(0)
     expect(fire.stdout).toContain('dispatched auto-batch (quiet 10m)')
     expect(readDispatches()).toHaveLength(1)
     expect(readDispatches()[0]).toContain('"mode":"incremental"')
+    expect(readDispatches()[0]).toContain('"dispatch_id":"auto-test-1"')
     expect(readFileSync(argvLog, 'utf8')).not.toContain(secretToken)
 
-    // Subsequent tick for the same HEAD skips via last_dispatched_sha.
-    const again = tick('2026-11-24T12:15:00Z')
-    expect(again.status).toBe(0)
-    expect(again.stdout).toContain(`already dispatched ${shaB}`)
+    // After the correlated run succeeds, next tick marks shipped_sha and stays idle.
+    mockCurl(
+      baseResponses({
+        headSha: shaB,
+        dispatchedRuns: [
+          {
+            id: 701,
+            status: 'completed',
+            conclusion: 'success',
+            display_title: 'Deploy production (incremental) [auto-test-1]',
+          },
+        ],
+      }),
+    )
+    const done = tick('2026-11-24T12:18:00Z')
+    expect(done.status).toBe(0)
+    expect(done.stdout).toContain('succeeded for')
     expect(readDispatches()).toHaveLength(1)
   })
 
-  it('flushes the batch when max wait ceiling is reached despite recent merges', () => {
-    mockCurl(baseResponses({ commitDate: '2026-11-24T12:00:00Z' }))
-    // First unshipped commit observed at 12:02 (within quiet window).
-    expect(tick('2026-11-24T12:02:00Z').status).toBe(0)
-    expect(readDispatches()).toEqual([])
+  it('retries after cooldown if the dispatched run failed, and stops after max retries', () => {
+    mockCurl(baseResponses({ headSha: shaB }))
+    expect(tick('2026-11-24T12:00:00Z', { DEPLOY_DISPATCH_ID: 'auto-fail-1' }).status).toBe(0)
+    expect(tick('2026-11-24T12:11:00Z', { DEPLOY_DISPATCH_ID: 'auto-fail-1' }).status).toBe(0)
+    expect(readDispatches()).toHaveLength(1)
 
-    // Another commit merged at 12:46, tick runs at 12:48 (quiet=2m < 10m, but waited=46m >= 45m).
-    mockCurl(baseResponses({ commitDate: '2026-11-24T12:46:00Z' }))
-    const flush = tick('2026-11-24T12:48:00Z')
+    // Run failed at 12:15 (only 4m after dispatch < 15m cooldown): should cool down.
+    mockCurl(
+      baseResponses({
+        headSha: shaB,
+        dispatchedRuns: [
+          {
+            id: 801,
+            status: 'completed',
+            conclusion: 'failure',
+            display_title: 'Deploy production (incremental) [auto-fail-1]',
+          },
+        ],
+      }),
+    )
+    const cool = tick('2026-11-24T12:15:00Z', { DEPLOY_DISPATCH_ID: 'auto-fail-2' })
+    expect(cool.status).toBe(0)
+    expect(cool.stdout).toContain('cooling down before retry')
+    expect(readDispatches()).toHaveLength(1)
+
+    // After 15m cooldown (12:27): retries once (attempt 2).
+    const retry = tick('2026-11-24T12:27:00Z', { DEPLOY_DISPATCH_ID: 'auto-fail-2' })
+    expect(retry.status).toBe(0)
+    expect(retry.stdout).toContain('dispatched auto-batch')
+    expect(readDispatches()).toHaveLength(2)
+
+    // Second attempt also fails: stops at max_retries=2.
+    mockCurl(
+      baseResponses({
+        headSha: shaB,
+        dispatchedRuns: [
+          {
+            id: 802,
+            status: 'completed',
+            conclusion: 'failure',
+            display_title: 'Deploy production (incremental) [auto-fail-2]',
+          },
+        ],
+      }),
+    )
+    const capped = tick('2026-11-24T12:50:00Z', { DEPLOY_DISPATCH_ID: 'auto-fail-3' })
+    expect(capped.status).toBe(0)
+    expect(capped.stdout).toContain('max retries (2) reached')
+    expect(readDispatches()).toHaveLength(2)
+  })
+
+  it('starts max-wait timer even while Web checks are running and flushes once green after 45m', () => {
+    // At 12:00 shaB is unshipped while Web checks are still running -> records first_unshipped_at=12:00.
+    mockCurl(
+      baseResponses({
+        headSha: shaB,
+        webCheckRuns: [{ status: 'in_progress', conclusion: null }],
+      }),
+    )
+    const running = tick('2026-11-24T12:00:00Z')
+    expect(running.status).toBe(0)
+    expect(running.stdout).toContain("is 'running'; not dispatching")
+
+    // At 12:46 shaC just merged (quiet=0m < 10m), Web checks pass, total batch wait=46m >= 45m -> flushes!
+    mockCurl(baseResponses({ headSha: shaC }))
+    const flush = tick('2026-11-24T12:46:00Z', { DEPLOY_DISPATCH_ID: 'auto-flush-1' })
     expect(flush.status).toBe(0)
     expect(flush.stdout).toContain('dispatched auto-batch (max wait 45m)')
     expect(readDispatches()).toHaveLength(1)

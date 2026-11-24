@@ -15,6 +15,7 @@ pin_sha=${2:-false}
 repo=${3:?repository required}
 output=${GITHUB_OUTPUT:-/dev/stdout}
 head_ref=${PICK_HEAD_REF:-HEAD}
+green_page_size=${PICK_GREEN_PAGE_SIZE:-100}
 
 case $pin_sha in
   true | false) ;;
@@ -58,26 +59,44 @@ if [ "$pin_sha" = true ] || [ "$event_sha" = "$head_sha" ]; then
   emit "$event_sha" false
 fi
 
-# Collect recent green main commits in one API call, then walk newest -> oldest down to event_sha.
-green_shas=$(
-  gh api "repos/$repo/actions/workflows/web.yml/runs?event=push&branch=main&status=success&per_page=50" \
-    --jq '[.workflow_runs[]? | select(.conclusion == "success") | .head_sha] | unique | .[]' \
+# Fetch one page of recent green main runs as a fast cache. If the page is full (truncated), fall
+# back to exact per-commit checks for misses so no commit in the full event_sha..head_sha range is
+# ever silently skipped.
+green_meta=$(
+  gh api "repos/$repo/actions/workflows/web.yml/runs?event=push&branch=main&status=success&per_page=$green_page_size" \
+    --jq '([.workflow_runs[]?] | length | tostring), ([.workflow_runs[]? | select(.conclusion == "success") | .head_sha] | unique | .[])' \
     2>/dev/null
 ) || {
   echo "::error::Could not query Web checks on main for $repo." >&2
   exit 1
 }
+green_count=$(printf '%s\n' "$green_meta" | head -n 1)
+green_shas=$(printf '%s\n' "$green_meta" | tail -n +2)
+case $green_count in
+  '' | *[!0-9]*) green_count=$green_page_size ;;
+esac
+page_truncated=false
+if [ "$green_count" -ge "$green_page_size" ]; then
+  page_truncated=true
+fi
 
-candidates=$(git rev-list --first-parent --max-count=50 "${event_sha}..${head_sha}")
+candidates=$(git rev-list --first-parent "${event_sha}..${head_sha}")
 for candidate in $candidates; do
-  if printf '%s\n' "$green_shas" | grep -Fqx "$candidate"; then
+  if [ -n "$green_shas" ] && printf '%s\n' "$green_shas" | grep -Fqx "$candidate"; then
     echo "::notice::Advanced release target from $event_sha to latest green main commit $candidate."
     emit "$candidate" true
+  fi
+  if [ "$page_truncated" = true ]; then
+    cand_state=$(web_check_state "$candidate")
+    if [ "$cand_state" = success ]; then
+      echo "::notice::Advanced release target from $event_sha to latest green main commit $candidate."
+      emit "$candidate" true
+    fi
   fi
 done
 
 # Newer commits have not passed Web checks yet; fall back to event_sha itself if it is green.
-if printf '%s\n' "$green_shas" | grep -Fqx "$event_sha"; then
+if [ -n "$green_shas" ] && printf '%s\n' "$green_shas" | grep -Fqx "$event_sha"; then
   emit "$event_sha" false
 fi
 

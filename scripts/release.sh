@@ -7,11 +7,13 @@ set -eu
 # Prevents duplicate production builds when multiple Agents finish around the same time:
 #   1. Already live: if every production side affected by --include (or all of origin/main)
 #      already serves that commit or a descendant, skip triggering a new deploy.
-#   2. Piggyback: if an in_progress or queued Deploy production run already covers --include
-#      (or origin/main), attach to and watch that run instead of starting another one.
-#   3. CI gate: wait for main's `Web checks` to pass before dispatching (avoids instant red runs),
-#      then re-check live/active deploys in case another Agent dispatched while waiting.
-#   4. Dispatch: trigger Deploy production once, resolve the exact new run ID, and watch it.
+#   2. Piggyback: if an active Deploy production run already covers --include (or origin/main),
+#      attach to and watch that run instead of starting another one.
+#   3. CI gate: wait for main's `Web checks` to pass (refreshing origin/main while waiting so we
+#      never dispatch against a newly merged unverified commit).
+#   4. Serialized recheck + correlated dispatch: hold a local atomic lock around the final
+#      already-live / active-run check, dispatch with a unique `dispatch_id`, and resolve that exact
+#      run via `display_title` before releasing the lock and watching.
 
 here=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=scripts/lib/release-paths.sh
@@ -40,6 +42,9 @@ watch=true
 wait_ci=${RELEASE_WAIT_CI_SECONDS:-600}
 poll_interval=${RELEASE_POLL_INTERVAL:-15}
 dispatch_wait=${RELEASE_DISPATCH_WAIT_SECONDS:-30}
+dispatch_poll=${RELEASE_DISPATCH_POLL_SECONDS:-2}
+lock_wait=${RELEASE_LOCK_WAIT_SECONDS:-60}
+lock_dir=${RELEASE_LOCK_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/ai-image-playground/release-dispatch.lock}
 repo=${RELEASE_REPO:-Muluk-m/ai-image-playground}
 
 while [ "$#" -gt 0 ]; do
@@ -91,6 +96,45 @@ case $mode in
     exit 2
     ;;
 esac
+
+lock_held=false
+release_dispatch_lock() {
+  if [ "$lock_held" = true ]; then
+    rm -rf "$lock_dir" 2>/dev/null || true
+    lock_held=false
+  fi
+}
+trap 'release_dispatch_lock' EXIT INT TERM
+
+acquire_dispatch_lock() {
+  mkdir -p "$(dirname "$lock_dir")"
+  lock_deadline=$(( $(date +%s) + lock_wait ))
+  while :; do
+    if mkdir "$lock_dir" 2>/dev/null; then
+      printf '%s\n' "$$" >"$lock_dir/pid"
+      lock_held=true
+      return 0
+    fi
+    # Recover stale lock left behind by a crashed process.
+    if [ -r "$lock_dir/pid" ]; then
+      owner_pid=$(cat "$lock_dir/pid" 2>/dev/null || true)
+      case $owner_pid in
+        '' | *[!0-9]*) ;;
+        *)
+          if ! kill -0 "$owner_pid" 2>/dev/null; then
+            rm -rf "$lock_dir" 2>/dev/null || true
+            continue
+          fi
+          ;;
+      esac
+    fi
+    if [ "$(date +%s)" -ge "$lock_deadline" ]; then
+      echo "Timed out waiting for local release dispatch lock ($lock_dir)." >&2
+      exit 1
+    fi
+    sleep 1
+  done
+}
 
 env_file=${PAGES_ENV_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/pages.env}
 if [ -f "$env_file" ]; then
@@ -161,6 +205,7 @@ include_already_live() {
 check_already_live() {
   [ "$mode" = incremental ] || return 0
   if include_already_live; then
+    release_dispatch_lock
     short=$(git log -1 --format='%h' "$include")
     echo "outcome=already_live"
     echo "Commit $short is already live on all affected production sides; skipping deploy."
@@ -169,6 +214,7 @@ check_already_live() {
   plan=$(WEB_ORIGINS="$web" ADMIN_ORIGIN="$admin" GITHUB_OUTPUT= \
     "$here/ci-deploy-target.sh" "$target" incremental "$api")
   if printf '%s\n' "$plan" | grep -qx 'deploy=false'; then
+    release_dispatch_lock
     short=$(git log -1 --format='%h' "$target")
     echo "outcome=already_live"
     echo "Production already serves all deployable changes up to $short; nothing to ship."
@@ -180,7 +226,7 @@ check_already_live() {
 # covers $include, piggyback on it instead of dispatching a second deploy.
 check_active_run() {
   [ "$mode" = incremental ] && [ "$pin_sha" = false ] || return 0
-  runs=$(gh api "repos/$repo/actions/workflows/deploy.yml/runs?branch=main&per_page=20" \
+  runs=$(gh api "repos/$repo/actions/workflows/deploy.yml/runs?branch=main&per_page=100" \
     --jq '.workflow_runs[]? | select(.status != "completed") | "\(.id)\t\(.status)\t\(.head_sha)\t\(.html_url)"' \
     2>/dev/null) || return 0
   [ -n "$runs" ] || return 0
@@ -223,6 +269,7 @@ check_active_run() {
   IFS=$old_ifs
 
   if [ -n "$matched_id" ]; then
+    release_dispatch_lock
     echo "outcome=piggybacked"
     echo "run_id=$matched_id"
     echo "run_url=$matched_url"
@@ -294,22 +341,22 @@ wait_for_web_checks() {
 check_already_live
 check_active_run
 wait_for_web_checks
-# Re-check after waiting: another parallel Agent may have already shipped or started shipping.
+
+# Serialize the final recheck + dispatch + run-ID discovery so two parallel Agents on this machine
+# cannot race past check_active_run and dispatch two runs at once.
+acquire_dispatch_lock
+refresh_target || true
 check_already_live
 check_active_run
 
-before_ok=true
-before_id=0
-if before_id=$(gh api "repos/$repo/actions/workflows/deploy.yml/runs?event=workflow_dispatch&branch=main&per_page=5" \
-  --jq '[.workflow_runs[]?.id] | max // 0' 2>/dev/null); then
-  case $before_id in
-    '' | *[!0-9]*) before_ok=false ;;
-  esac
+if [ -n "${RELEASE_DISPATCH_ID:-}" ]; then
+  dispatch_id=$RELEASE_DISPATCH_ID
 else
-  before_ok=false
+  rand_hex=$(od -An -tx1 -N4 /dev/urandom 2>/dev/null | tr -d ' \n' || echo 00000000)
+  dispatch_id="rel-$(date -u +%Y%m%d%H%M%S)-$$-$rand_hex"
 fi
 
-set -- workflow run deploy.yml --repo "$repo" --ref main -f "mode=$mode"
+set -- workflow run deploy.yml --repo "$repo" --ref main -f "mode=$mode" -f "dispatch_id=$dispatch_id"
 if [ -n "$reason" ]; then
   set -- "$@" -f "reason=$reason"
 fi
@@ -318,26 +365,28 @@ if [ "$pin_sha" = true ]; then
 fi
 gh "$@"
 
-# Wait briefly for GitHub to materialize the dispatched run so we watch the exact one we created.
+# Wait briefly for GitHub to materialize our exact dispatched run (matched by unique dispatch_id in
+# display_title) before releasing the local lock, so a waiting caller sees it via check_active_run.
 new_id=
 new_url=
-if [ "$before_ok" = true ]; then
-  dispatch_deadline=$(( $(date +%s) + dispatch_wait ))
-  while :; do
-    match=$(gh api "repos/$repo/actions/workflows/deploy.yml/runs?event=workflow_dispatch&branch=main&per_page=10" \
-      --jq "[.workflow_runs[]? | select(.id > $before_id)] | sort_by(.id) | last | if . then \"\(.id)\t\(.html_url)\" else \"\" end" \
-      2>/dev/null) || match=
-    if [ -n "$match" ]; then
-      new_id=${match%%	*}
-      new_url=${match#*	}
-      break
-    fi
-    [ "$(date +%s)" -lt "$dispatch_deadline" ] || break
-    sleep 2
-  done
-fi
+dispatch_deadline=$(( $(date +%s) + dispatch_wait ))
+while :; do
+  match=$(gh api "repos/$repo/actions/workflows/deploy.yml/runs?event=workflow_dispatch&branch=main&per_page=20" \
+    --jq "[.workflow_runs[]? | select((.display_title // \"\") | contains(\"[$dispatch_id]\"))] | first | if . then \"\(.id)\t\(.html_url)\" else \"\" end" \
+    2>/dev/null) || match=
+  if [ -n "$match" ]; then
+    new_id=${match%%	*}
+    new_url=${match#*	}
+    break
+  fi
+  [ "$(date +%s)" -lt "$dispatch_deadline" ] || break
+  sleep "$dispatch_poll"
+done
+
+release_dispatch_lock
 
 echo "outcome=dispatched"
+echo "dispatch_id=$dispatch_id"
 if [ -n "$new_id" ]; then
   echo "run_id=$new_id"
   echo "run_url=$new_url"
@@ -345,8 +394,9 @@ if [ -n "$new_id" ]; then
   if [ "$watch" = true ]; then
     gh run watch "$new_id" --repo "$repo" --exit-status
   fi
-elif [ "$before_ok" = false ]; then
-  echo "Dispatched Deploy production, but could not query baseline run ID before dispatch; check GitHub Actions manually." >&2
+elif [ "$watch" = true ]; then
+  echo "Dispatched Deploy production (dispatch_id=$dispatch_id), but could not locate the run within ${dispatch_wait}s; do not blindly re-dispatch — inspect GitHub Actions." >&2
+  exit 1
 else
-  echo "Dispatched Deploy production, but run ID did not appear within ${dispatch_wait}s; check GitHub Actions." >&2
+  echo "Dispatched Deploy production (dispatch_id=$dispatch_id), but run ID did not appear within ${dispatch_wait}s; check GitHub Actions." >&2
 fi

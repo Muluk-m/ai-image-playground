@@ -23,6 +23,7 @@ max_wait_min=${DEPLOY_MAX_WAIT_MINUTES:-45}
 
 mkdir -p "$bin_dir" "$log_dir" "$HOME/Library/LaunchAgents"
 install -m 755 "$here/deploy-debounce-tick.sh" "$bin_dir/muvloom-deploy-debounce-tick.sh"
+install -m 644 "$here/lib/release-paths.sh" "$bin_dir/muvloom-release-paths.sh"
 
 cat >"$plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
