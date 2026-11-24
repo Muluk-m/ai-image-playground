@@ -1,13 +1,13 @@
 import { Type } from 'typebox'
 import { config } from '../../../../config'
 import { db } from '../../../../db/client'
-import { BatchAnalysisLimit } from '../../../../lib/agent/batch-analysis-limit'
-import { proposeBatchAnalysis as saveAnalysisProposal } from '../../../../lib/agent/batch-analysis-proposal'
-import { readBatchSourceItems } from '../../../../lib/agent/batch-analysis-sources'
-import { batchExecutionAvailable } from '../../../../lib/agent/batch-execution'
-import { readAgentBatchPlan, sameArchivedReference } from '../../../../lib/agent/batch-plans'
 import { isCapabilityEnabled } from '../../../../lib/capabilities'
 import { AgentToolError } from '../../contracts'
+import { BatchAnalysisLimit } from '../../orchestration/batch/analysis-limit'
+import { proposeBatchAnalysis as saveAnalysisProposal } from '../../orchestration/batch/analysis-proposal'
+import { readBatchSourceItems } from '../../orchestration/batch/analysis-sources'
+import { batchExecutionAvailable } from '../../orchestration/batch/execution'
+import { readAgentBatchPlan, sameArchivedReference } from '../../orchestration/batch/plans'
 import { defineAgentTool } from '../adapter'
 
 export const proposeBatchAnalysis = defineAgentTool({

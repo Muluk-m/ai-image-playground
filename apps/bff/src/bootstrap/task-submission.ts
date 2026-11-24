@@ -15,7 +15,7 @@ const maskedInputPlugin: TaskSubmissionPlugin = {
   async transformInput(input) {
     const request = input.request
     if (!request.mask || input.video) return undefined
-    const { prepareMaskedInput } = await import('../lib/agent/masked-input')
+    const { prepareMaskedInput } = await import('../modules/agent/orchestration/masked/pure')
     const strict = await prepareMaskedInput(
       input.model,
       request.input_images?.[0] ?? '',
@@ -46,7 +46,7 @@ const stageAuthorizationPlugin: TaskSubmissionPlugin = {
   id: 'stage-authorization',
   async afterTaskCreated(tx, { input, taskId, requestPayload, pricing, reservedCredits }) {
     if (!input.stageAuthorization) return
-    const { consumeStageAuthorization } = await import('../lib/agent/stage-authorizations')
+    const { consumeStageAuthorization } = await import('../modules/agent/orchestration')
     await consumeStageAuthorization(
       tx,
       input.userId,

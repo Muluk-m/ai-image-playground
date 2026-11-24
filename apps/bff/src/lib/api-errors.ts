@@ -1,5 +1,5 @@
 import { Elysia } from 'elysia'
-import { BatchAnalysisLimit } from './agent/batch-analysis-limit'
+import { BatchAnalysisLimit } from '../modules/agent/orchestration'
 import { log } from './logger'
 
 export function isApiPath(pathname: string): boolean {

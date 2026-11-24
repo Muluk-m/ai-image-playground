@@ -1,7 +1,7 @@
 import { Type } from 'typebox'
-import { proposeProductionAssets as proposeAssets } from '../../../../lib/agent/production-assets'
 import { isCapabilityEnabled } from '../../../../lib/capabilities'
 import { AgentToolError } from '../../contracts'
+import { proposeProductionAssets as proposeAssets } from '../../orchestration/production/assets'
 import { defineAgentTool } from '../adapter'
 
 const id = Type.String({ minLength: 1, maxLength: 128 })

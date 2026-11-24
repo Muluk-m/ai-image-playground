@@ -1,9 +1,9 @@
 import { and, eq, isNull } from 'drizzle-orm'
 import { Type } from 'typebox'
 import { db, schema } from '../../../../db/client'
-import { readBatchAnalysisSummary } from '../../../../lib/agent/batch-analysis-summary'
 import { isCapabilityEnabled } from '../../../../lib/capabilities'
 import { AgentToolError } from '../../contracts'
+import { readBatchAnalysisSummary } from '../../orchestration/batch/analysis-summary'
 import { defineAgentTool } from '../adapter'
 
 export const readBatchAnalysis = defineAgentTool({

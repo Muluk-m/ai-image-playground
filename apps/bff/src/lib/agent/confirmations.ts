@@ -1,15 +1,10 @@
-import type { AgentDraftSubmission } from '@image-playground/db'
 import type {
   AgentBackgroundJob,
   AgentContentBlock,
   AgentMessageView,
   AgentToolErrorCode,
-  AgentToolName,
   AgentToolResultBlock,
-  ChannelMedia,
-  PersistedSubmitRequest,
   PersistedVideoRequest,
-  QueueProvider,
   SubmitRequest,
 } from '@image-playground/shared'
 import {
@@ -18,7 +13,7 @@ import {
   agentTool,
   restoreQueuePrompt,
 } from '@image-playground/shared'
-import { and, eq, isNull, or, sql } from 'drizzle-orm'
+import { and, eq, isNull, or } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import {
   discardConversationDraftInputs,
@@ -27,7 +22,11 @@ import {
   lockConversation,
   saveGenerationDraft,
 } from '../../modules/agent'
-import { AgentToolError, queueRefusalCode } from '../../modules/agent/contracts'
+import { queueRefusalCode } from '../../modules/agent/contracts'
+import {
+  validateImageParameters,
+  validateProductionConfirmation,
+} from '../../modules/agent/orchestration'
 import { createQueueTask } from '../../modules/execution'
 import { resolveQueueModel } from '../channels'
 import { hydrateInputImages } from '../imageArchive'
@@ -37,10 +36,6 @@ import { settleSubmittedTaskIfTerminal } from './background-jobs'
 import type { AgentOwner } from './conversations'
 import { writtenPrompt } from './design-intent'
 import { enqueueAgentResume, gateResumeLive, userMessageAfterTurn } from './inbox'
-import {
-  validateImageParameters,
-  validateProductionConfirmation,
-} from './production-generation-validation'
 import {
   GATE_VOIDED_MESSAGE,
   isPendingGate,

@@ -1,8 +1,8 @@
 import { PRODUCTION_SHOTS_MAX } from '@image-playground/shared'
 import { Type } from 'typebox'
-import { proposeProductionStoryboard } from '../../../../lib/agent/production-storyboard'
 import { isCapabilityEnabled } from '../../../../lib/capabilities'
 import { AgentToolError } from '../../contracts'
+import { proposeProductionStoryboard } from '../../orchestration/production/storyboard'
 import { defineAgentTool } from '../adapter'
 
 const keyframeSchema = Type.Union([

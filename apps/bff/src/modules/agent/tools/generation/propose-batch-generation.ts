@@ -1,10 +1,10 @@
 import { Type } from 'typebox'
-import { batchExecutionAvailable } from '../../../../lib/agent/batch-execution'
-import { proposeBatchGeneration as saveGenerationProposal } from '../../../../lib/agent/batch-generation-proposal'
-import { readAgentBatchPlan } from '../../../../lib/agent/batch-plans'
 import { resolveAgentModel } from '../../../../lib/agent/model-resolution'
 import { isCapabilityEnabled } from '../../../../lib/capabilities'
 import { AgentToolError } from '../../contracts'
+import { batchExecutionAvailable } from '../../orchestration/batch/execution'
+import { proposeBatchGeneration as saveGenerationProposal } from '../../orchestration/batch/generation-proposal'
+import { readAgentBatchPlan } from '../../orchestration/batch/plans'
 import { defineAgentTool } from '../adapter'
 
 export const proposeBatchGeneration = defineAgentTool({

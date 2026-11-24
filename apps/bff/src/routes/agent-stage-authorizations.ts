@@ -1,20 +1,18 @@
 import { STAGE_RUN_OUTCOMES, STAGE_RUN_REASONS } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
-import {
-  confirmStageAuthorization,
-  endStageAuthorization,
-  preflightStageAuthorization,
-  readStageAuthorization,
-  StageAuthorizationError,
-} from '../lib/agent/stage-authorizations'
-import {
-  noteBlockedStageRun,
-  readStageRunWakeReceipt,
-  reportStageRun,
-} from '../lib/agent/stage-runs'
 import { isCapabilityEnabled } from '../lib/capabilities'
 import { deviceIdSchema } from '../lib/http'
 import { resolveAuthUser } from '../lib/user-auth'
+import {
+  confirmStageAuthorization,
+  endStageAuthorization,
+  noteBlockedStageRun,
+  preflightStageAuthorization,
+  readStageAuthorization,
+  readStageRunWakeReceipt,
+  reportStageRun,
+  StageAuthorizationError,
+} from '../modules/agent/orchestration'
 
 const params = t.Object({ id: t.String({ minLength: 1, maxLength: 128 }) })
 export const stageAuthorizationRoutes = new Elysia({ name: 'agent-stage-authorizations' })
