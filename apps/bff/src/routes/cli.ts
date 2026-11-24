@@ -50,9 +50,9 @@ import {
 import { log } from '../lib/logger'
 import { resolveMediaInputs } from '../lib/mediaInputs'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
-import { createQueueTask } from '../modules/execution'
 import { requireUser } from '../lib/user-auth'
 import { sessionClientFromRequest } from '../lib/user-session'
+import { createQueueTask } from '../modules/execution'
 import { cliVerificationOrigin, frontendOrigin } from './oauth'
 
 /** CLI 低于这个版本时 `auth status` 报需要升级。 */

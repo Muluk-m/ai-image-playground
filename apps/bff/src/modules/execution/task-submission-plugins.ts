@@ -130,9 +130,7 @@ export interface TaskSubmissionContext {
 export interface TaskSubmissionPlugin {
   readonly id: string
   /** 事务外输入预处理（如局部重绘遮罩裁剪与保护标记）；返回修改后的请求与附加落库 facts。 */
-  transformInput?(
-    input: CreateQueueTaskInput,
-  ): Promise<SubmissionInputTransformResult | undefined>
+  transformInput?(input: CreateQueueTaskInput): Promise<SubmissionInputTransformResult | undefined>
   /** 事务内准入与计费之前执行（用于固定锁获取顺序，如项目画布先拿 lockMediaOwner）。 */
   beforeAdmission?(tx: ExecutionTransaction, input: CreateQueueTaskInput): Promise<void>
   /** 任务行与计费/配额准入落库后、同事务内执行（阶段授权消费、项目产物预留、agent_jobs 登记）。 */

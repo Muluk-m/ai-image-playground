@@ -108,6 +108,7 @@ describe('TaskSubmissionPlugin fail-closed guards & transaction atomicity', () =
           authorizationId: 'auth-1',
           attemptId: 'att-1',
           nodeId: 'node-1',
+          executionToken: 'exec-token-1',
         },
         request: { prompt: 'stage job' },
       }),

@@ -15,8 +15,8 @@ import { deviceIdSchema } from '../lib/http'
 import { type BffTransaction, loadPrivateBffOverlay } from '../lib/private-overlay'
 import { type SubmissionRefusal, submissionRefusalResponse } from '../lib/submissionRefusal'
 import { readAssetImage } from '../lib/sync-assets'
-import { type CreateQueueTaskInput, submitPrepared } from '../modules/execution'
 import { resolveAuthUser } from '../lib/user-auth'
+import { type CreateQueueTaskInput, submitPrepared } from '../modules/execution'
 
 /** 一批最多几条素材。上限存在是为了挡住一次点掉整个素材库，不是产品刻度。 */
 export const LOOK_BATCH_MAX_ASSETS = 20

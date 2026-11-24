@@ -21,6 +21,7 @@ test('模型、供应商、定价、额度、扣费入口和计费模块的改�
     'apps/bff/src/lib/upstream.ts',
     'apps/bff/src/lib/token-pricing.ts',
     'apps/bff/src/modules/execution/task-submission.ts',
+    'apps/bff/src/modules/execution/task-submission-plugins.ts',
     'apps/bff/src/modules/execution/submission-tier.ts',
     'apps/bff/src/modules/execution/task-transitions.ts',
     'apps/bff/src/bootstrap/task-lifecycle.ts',
