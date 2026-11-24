@@ -34,6 +34,7 @@ export interface RegistrationVerificationChallenge {
 interface RegistrationPanelProps {
   pending: boolean
   error: string | null
+  onClearError?: () => void
   verificationEnabled: boolean
   onBack: () => void
   onRequestVerification: (email: string) => Promise<RegistrationVerificationChallenge | null>
@@ -46,6 +47,7 @@ interface RegistrationPanelProps {
 export function RegistrationPanel({
   pending,
   error,
+  onClearError,
   verificationEnabled,
   onBack,
   onRequestVerification,
@@ -173,6 +175,7 @@ export function RegistrationPanel({
               onChange={(event) => {
                 setVerificationCode(event.currentTarget.value.replace(/\D/g, '').slice(0, 6))
                 setValidationErrorKey(null)
+                onClearError?.()
               }}
               placeholder={t('registration.verification.codePlaceholder')}
               disabled={pending}
@@ -191,7 +194,11 @@ export function RegistrationPanel({
                 autoComplete="email"
                 maxLength={EMAIL_MAX_LENGTH}
                 value={email}
-                onChange={(event) => setEmail(event.currentTarget.value)}
+                onChange={(event) => {
+                  setEmail(event.currentTarget.value)
+                  setValidationErrorKey(null)
+                  onClearError?.()
+                }}
                 placeholder={t('registration.emailPlaceholder')}
                 disabled={pending}
                 autoCapitalize="none"
@@ -214,7 +221,11 @@ export function RegistrationPanel({
                   autoComplete="new-password"
                   minLength={PASSWORD_MIN_LENGTH}
                   value={password}
-                  onChange={(event) => setPassword(event.currentTarget.value)}
+                  onChange={(event) => {
+                    setPassword(event.currentTarget.value)
+                    setValidationErrorKey(null)
+                    onClearError?.()
+                  }}
                   placeholder={t('registration.passwordPlaceholder', {
                     min: PASSWORD_MIN_LENGTH,
                     max: PASSWORD_MAX_LENGTH,
@@ -250,7 +261,11 @@ export function RegistrationPanel({
                   autoComplete="new-password"
                   minLength={PASSWORD_MIN_LENGTH}
                   value={confirmPassword}
-                  onChange={(event) => setConfirmPassword(event.currentTarget.value)}
+                  onChange={(event) => {
+                    setConfirmPassword(event.currentTarget.value)
+                    setValidationErrorKey(null)
+                    onClearError?.()
+                  }}
                   placeholder={t('registration.confirmationPlaceholder')}
                   disabled={pending}
                   required

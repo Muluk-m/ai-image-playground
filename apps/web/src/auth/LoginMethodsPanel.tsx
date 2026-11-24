@@ -10,6 +10,7 @@ import {
 import { type FormEvent, useEffect, useState } from 'react'
 import Dialog from '../components/patterns/Dialog'
 import { Button } from '../components/ui/button'
+import { Icon } from '../components/ui/icon'
 import { Input } from '../components/ui/input'
 import { Label } from '../components/ui/label'
 import CliConnectionsSection from '../features/cli/CliConnectionsSection'
@@ -79,15 +80,20 @@ type PanelNoticeKey = 'methods.passwordUpdated' | 'methods.passwordSet' | 'metho
 type PanelNotice = { readonly key: PanelNoticeKey } | { readonly linkedProvider: string }
 
 export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
-  const { t } = useTranslation(['auth', 'errors'])
+  const { t } = useTranslation(['auth', 'errors', 'common'])
   const user = useAuth().user
   const [methods, setMethods] = useState<LoginMethodsView | null>(null)
   const [providers, setProviders] = useState<readonly OAuthProviderView[]>([])
   const [passwordEnabled, setPasswordEnabled] = useState(false)
   const [loadFailed, setLoadFailed] = useState(false)
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmation, setConfirmation] = useState('')
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmation, setShowConfirmation] = useState(false)
+  const [confirmUnlinkProvider, setConfirmUnlinkProvider] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
   const [notice, setNotice] = useState<PanelNotice | null>(null)
   const [errorKey, setErrorKey] = useState<PanelErrorKey | null>(null)
@@ -103,6 +109,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     let cancelled = false
+    setLoadFailed(false)
     void Promise.all([fetchLoginMethods(), fetchLoginOptions()]).then(
       ([loaded, available]) => {
         if (cancelled) return
@@ -117,7 +124,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [loadAttempt])
 
   useEffect(() => {
     const url = new URL(window.location.href)
@@ -169,6 +176,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
 
   async function unlink(provider: string): Promise<void> {
     if (pending) return
+    setConfirmUnlinkProvider(null)
     setPending(true)
     setErrorKey(null)
     setNotice(null)
@@ -200,7 +208,18 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
       ) : null}
 
       {loadFailed ? (
-        <p className="text-body-sm text-muted-foreground">{t('methods.loadFailed')}</p>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-body-sm text-muted-foreground">{t('methods.loadFailed')}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setLoadAttempt((count) => count + 1)}
+          >
+            <Icon name="refresh" />
+            {t('common:action.retry')}
+          </Button>
+        </div>
       ) : !methods ? (
         <p className="text-body-sm text-muted-foreground">{t('methods.loading')}</p>
       ) : (
@@ -219,49 +238,104 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                     <Label htmlFor="login-methods-current-password">
                       {t('methods.currentPassword')}
                     </Label>
-                    <Input
-                      id="login-methods-current-password"
-                      name="current-password"
-                      type="password"
-                      autoComplete="current-password"
-                      placeholder={t('methods.currentPassword')}
-                      aria-label={t('methods.currentPassword')}
-                      maxLength={PASSWORD_MAX_LENGTH}
-                      value={currentPassword}
-                      onChange={(event) => setCurrentPassword(event.currentTarget.value)}
-                      disabled={pending}
-                    />
+                    <div className="relative">
+                      <Input
+                        id="login-methods-current-password"
+                        name="current-password"
+                        type={showCurrentPassword ? 'text' : 'password'}
+                        className="pr-10"
+                        autoComplete="current-password"
+                        placeholder={t('methods.currentPassword')}
+                        aria-label={t('methods.currentPassword')}
+                        maxLength={PASSWORD_MAX_LENGTH}
+                        value={currentPassword}
+                        onChange={(event) => {
+                          setCurrentPassword(event.currentTarget.value)
+                          setErrorKey(null)
+                        }}
+                        disabled={pending}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="absolute right-0.5 top-0.5 text-muted-foreground"
+                        onClick={() => setShowCurrentPassword((value) => !value)}
+                        disabled={pending}
+                        aria-label={showCurrentPassword ? t('password.hide') : t('password.show')}
+                      >
+                        <Icon name={showCurrentPassword ? 'hidden' : 'visible'} />
+                      </Button>
+                    </div>
                   </div>
                 ) : null}
                 <div className="grid gap-2">
                   <Label htmlFor="login-methods-new-password">{t('methods.newPassword')}</Label>
-                  <Input
-                    id="login-methods-new-password"
-                    name="new-password"
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder={t('methods.newPassword')}
-                    aria-label={t('methods.newPassword')}
-                    value={newPassword}
-                    onChange={(event) => setNewPassword(event.currentTarget.value)}
-                    disabled={pending}
-                  />
+                  <div className="relative">
+                    <Input
+                      id="login-methods-new-password"
+                      name="new-password"
+                      type={showNewPassword ? 'text' : 'password'}
+                      className="pr-10"
+                      autoComplete="new-password"
+                      placeholder={t('methods.newPassword')}
+                      aria-label={t('methods.newPassword')}
+                      value={newPassword}
+                      onChange={(event) => {
+                        setNewPassword(event.currentTarget.value)
+                        setErrorKey(null)
+                      }}
+                      disabled={pending}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="absolute right-0.5 top-0.5 text-muted-foreground"
+                      onClick={() => setShowNewPassword((value) => !value)}
+                      disabled={pending}
+                      aria-label={showNewPassword ? t('password.hide') : t('password.show')}
+                    >
+                      <Icon name={showNewPassword ? 'hidden' : 'visible'} />
+                    </Button>
+                  </div>
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="login-methods-confirm-password">
                     {t('methods.confirmNewPassword')}
                   </Label>
-                  <Input
-                    id="login-methods-confirm-password"
-                    name="confirm-password"
-                    type="password"
-                    autoComplete="new-password"
-                    placeholder={t('methods.confirmNewPassword')}
-                    aria-label={t('methods.confirmNewPassword')}
-                    value={confirmation}
-                    onChange={(event) => setConfirmation(event.currentTarget.value)}
-                    disabled={pending}
-                  />
+                  <div className="relative">
+                    <Input
+                      id="login-methods-confirm-password"
+                      name="confirm-password"
+                      type={showConfirmation ? 'text' : 'password'}
+                      className="pr-10"
+                      autoComplete="new-password"
+                      placeholder={t('methods.confirmNewPassword')}
+                      aria-label={t('methods.confirmNewPassword')}
+                      value={confirmation}
+                      onChange={(event) => {
+                        setConfirmation(event.currentTarget.value)
+                        setErrorKey(null)
+                      }}
+                      disabled={pending}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="absolute right-0.5 top-0.5 text-muted-foreground"
+                      onClick={() => setShowConfirmation((value) => !value)}
+                      disabled={pending}
+                      aria-label={
+                        showConfirmation
+                          ? t('password.hideConfirmation')
+                          : t('password.showConfirmation')
+                      }
+                    >
+                      <Icon name={showConfirmation ? 'hidden' : 'visible'} />
+                    </Button>
+                  </div>
                 </div>
                 <Button type="submit" disabled={pending} className="w-full">
                   {methods.password ? t('methods.updatePassword') : t('methods.setPassword')}
@@ -280,6 +354,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                   const identity = methods.identities.find(
                     (linked) => linked.provider === provider.id,
                   )
+                  const onlyLoginMethod = !methods.password && methods.identities.length <= 1
                   return (
                     <li
                       key={provider.id}
@@ -294,16 +369,42 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                         </span>
                       </span>
                       {identity ? (
-                        <Button
-                          type="button"
-                          disabled={pending}
-                          onClick={() => void unlink(provider.id)}
-                          variant="ghost"
-                          size="sm"
-                          className="shrink-0 text-muted-foreground"
-                        >
-                          {t('methods.unlink')}
-                        </Button>
+                        confirmUnlinkProvider === provider.id ? (
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              disabled={pending}
+                              onClick={() => setConfirmUnlinkProvider(null)}
+                            >
+                              {t('common:action.cancel')}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              disabled={pending}
+                              onClick={() => void unlink(provider.id)}
+                            >
+                              {t('methods.confirmUnlink')}
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            type="button"
+                            disabled={pending || onlyLoginMethod}
+                            title={
+                              onlyLoginMethod ? t('errors:unlink.last_login_method') : undefined
+                            }
+                            onClick={() => setConfirmUnlinkProvider(provider.id)}
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0 text-muted-foreground"
+                          >
+                            {t('methods.unlink')}
+                          </Button>
+                        )
                       ) : (
                         <Button
                           type="button"

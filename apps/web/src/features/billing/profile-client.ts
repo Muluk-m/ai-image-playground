@@ -69,6 +69,7 @@ export interface AccountProfile {
 export interface LoginMethods {
   password: boolean
   google: { linked: boolean; email: string | null }
+  linkedCount?: number
 }
 
 export interface LoginSession {
@@ -164,15 +165,15 @@ export function parseProfile(body: unknown): AccountProfile {
 export function parseLoginMethods(body: unknown): LoginMethods {
   const root = asRecord(body)
   const identities = Array.isArray(root?.identities) ? root.identities : []
-  const google = identities
-    .map((item) => asRecord(item))
-    .find((item) => item?.provider === 'google')
+  const records = identities.map((item) => asRecord(item)).filter((item) => item !== null)
+  const google = records.find((item) => item.provider === 'google')
   return {
     password: root?.password === true,
     google: {
       linked: Boolean(google),
       email: typeof google?.email === 'string' ? google.email : null,
     },
+    linkedCount: records.length,
   }
 }
 

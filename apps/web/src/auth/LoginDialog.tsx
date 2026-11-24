@@ -163,10 +163,11 @@ export function LoginDialog({
   onAuthenticated,
   plansHref,
 }: LoginDialogProps) {
-  const { t } = useTranslation('auth')
+  const { t } = useTranslation(['auth', 'common'])
   const { t: tError } = useTranslation('errors')
   const [options, setOptions] = useState<LoginOptions | null>(null)
   const [loadFailed, setLoadFailed] = useState(false)
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const passwordEnabled = options?.loginMethods.password === true
   const registrationEnabled =
     options?.loginMethods.registration === true &&
@@ -190,6 +191,7 @@ export function LoginDialog({
   const [recoverySent, setRecoverySent] = useState(false)
   const [resetToken, setResetToken] = useState<string | null>(null)
   const [newPassword, setNewPassword] = useState('')
+  const [showNewPassword, setShowNewPassword] = useState(false)
   const [resetComplete, setResetComplete] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
   const previousView = useRef(view)
@@ -208,6 +210,7 @@ export function LoginDialog({
 
   useEffect(() => {
     let cancelled = false
+    setLoadFailed(false)
     void fetchLoginOptions().then(
       (available) => {
         if (cancelled) return
@@ -229,7 +232,7 @@ export function LoginDialog({
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [loadAttempt])
 
   useEffect(() => {
     const token = new URLSearchParams(window.location.search).get('reset_token')
@@ -416,6 +419,7 @@ export function LoginDialog({
               plansHref={plansHref}
               pending={pending}
               error={error}
+              onClearError={() => setErrorKey(null)}
               verificationEnabled={emailVerificationEnabled}
               onRequestVerification={requestVerification}
               onBack={() => {
@@ -440,16 +444,41 @@ export function LoginDialog({
                 <form className="auth-form" onSubmit={(event) => void submitRecovery(event)}>
                   <Label className="mt-4 grid gap-2">
                     <span>{resetToken ? t('recovery.newPassword') : t('login.emailLabel')}</span>
-                    <Input
-                      type={resetToken ? 'password' : 'email'}
-                      value={resetToken ? newPassword : username}
-                      onChange={(event) =>
-                        resetToken
-                          ? setNewPassword(event.currentTarget.value)
-                          : setUsername(event.currentTarget.value)
-                      }
-                      autoComplete={resetToken ? 'new-password' : 'email'}
-                    />
+                    {resetToken ? (
+                      <div className="relative">
+                        <Input
+                          type={showNewPassword ? 'text' : 'password'}
+                          className="pr-10"
+                          value={newPassword}
+                          onChange={(event) => {
+                            setNewPassword(event.currentTarget.value)
+                            setErrorKey(null)
+                          }}
+                          autoComplete="new-password"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="absolute right-0.5 top-0.5 text-muted-foreground"
+                          onClick={() => setShowNewPassword((value) => !value)}
+                          disabled={pending}
+                          aria-label={showNewPassword ? t('password.hide') : t('password.show')}
+                        >
+                          <Icon name={showNewPassword ? 'hidden' : 'visible'} />
+                        </Button>
+                      </div>
+                    ) : (
+                      <Input
+                        type="email"
+                        value={username}
+                        onChange={(event) => {
+                          setUsername(event.currentTarget.value)
+                          setErrorKey(null)
+                        }}
+                        autoComplete="email"
+                      />
+                    )}
                   </Label>
                   {error ? (
                     <p role="alert" className="auth-error">
@@ -496,9 +525,25 @@ export function LoginDialog({
               {providerButtons}
 
               {!options ? (
-                <p role={loadFailed ? 'alert' : 'status'} className="text-sm text-muted-foreground">
-                  {t(loadFailed ? 'methods.loadFailed' : 'methods.loading')}
-                </p>
+                <div className="flex items-center justify-between gap-3">
+                  <p
+                    role={loadFailed ? 'alert' : 'status'}
+                    className="text-sm text-muted-foreground"
+                  >
+                    {t(loadFailed ? 'methods.loadFailed' : 'methods.loading')}
+                  </p>
+                  {loadFailed ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setLoadAttempt((count) => count + 1)}
+                    >
+                      <Icon name="refresh" />
+                      {t('common:action.retry')}
+                    </Button>
+                  ) : null}
+                </div>
               ) : null}
               {!passwordEnabled && error ? (
                 <p role="alert" className="auth-error">
@@ -518,7 +563,10 @@ export function LoginDialog({
                       type="text"
                       inputMode="email"
                       value={username}
-                      onChange={(event) => setUsername(event.currentTarget.value)}
+                      onChange={(event) => {
+                        setUsername(event.currentTarget.value)
+                        setErrorKey(null)
+                      }}
                       autoComplete="username"
                       autoCapitalize="none"
                       spellCheck={false}
@@ -535,7 +583,10 @@ export function LoginDialog({
                         type={showPassword ? 'text' : 'password'}
                         className="pr-10"
                         value={password}
-                        onChange={(event) => setPassword(event.currentTarget.value)}
+                        onChange={(event) => {
+                          setPassword(event.currentTarget.value)
+                          setErrorKey(null)
+                        }}
                         autoComplete="current-password"
                         disabled={pending}
                         placeholder={t('login.passwordPlaceholder')}

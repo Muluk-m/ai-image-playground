@@ -107,6 +107,8 @@
     "linkedEmail": "已绑定 · {{email}}",
     "notLinked": "未绑定",
     "unlink": "解除",
+    "confirmUnlink": "确认解除",
+    "unlinkLastMethodHint": "请先设置登录密码，再解除唯一的登录方式",
     "link": "绑定",
     "password": "登录密码",
     "passwordSet": "已设置",
