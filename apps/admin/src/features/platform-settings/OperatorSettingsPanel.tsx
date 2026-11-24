@@ -688,22 +688,20 @@ function SettingRowView({
   onRequestSave: (row: OperatorSettingRow, nextValue: boolean | number) => void
   onRequestClear: (row: OperatorSettingRow) => void
 }) {
-  const initialQuotaText =
-    row.kind === 'quota' ? formatSettingValue(row.override ?? row.effective, row.unit) : ''
+  const baseQuotaValue = row.invalid ? row.effective : (row.override ?? row.effective)
+  const initialQuotaText = row.kind === 'quota' ? formatSettingValue(baseQuotaValue, row.unit) : ''
   const [draft, setDraft] = useState(initialQuotaText)
 
   useEffect(() => {
-    setDraft(
-      row.kind === 'quota' ? formatSettingValue(row.override ?? row.effective, row.unit) : '',
-    )
-  }, [row.kind, row.override, row.effective, row.unit])
+    setDraft(row.kind === 'quota' ? formatSettingValue(baseQuotaValue, row.unit) : '')
+  }, [row.kind, baseQuotaValue, row.unit])
 
   const readOnly = row.editability !== 'hot'
   const Icon = getSettingIcon(row)
   const effectiveBool = Boolean(row.effective)
   const rangeHint = formatRangeHint(row)
 
-  const currentNumeric = row.kind === 'quota' ? Number(row.override ?? row.effective) : Number.NaN
+  const currentNumeric = row.kind === 'quota' ? Number(baseQuotaValue) : Number.NaN
   const parsedQuota = row.kind === 'quota' ? parseSettingInput(draft, row.unit) : Number.NaN
   const quotaInvalid = row.kind === 'quota' && !Number.isFinite(parsedQuota)
   const quotaOutOfRange =
@@ -711,7 +709,9 @@ function SettingRowView({
     !quotaInvalid &&
     ((typeof row.min === 'number' && parsedQuota < row.min) ||
       (typeof row.max === 'number' && parsedQuota > row.max))
-  const quotaDirty = row.kind === 'quota' && (quotaInvalid || parsedQuota !== currentNumeric)
+  const draftModified = row.kind === 'quota' && draft.trim() !== initialQuotaText.trim()
+  const quotaDirty =
+    row.kind === 'quota' && draftModified && (quotaInvalid || parsedQuota !== currentNumeric)
 
   const iconTileClass = row.invalid
     ? 'border-danger/30 bg-danger/10 text-danger'
@@ -877,7 +877,7 @@ function SettingRowView({
             </>
           ) : (
             <>
-              {!quotaDirty && row.override !== null ? (
+              {row.override !== null && (row.invalid || !quotaDirty) ? (
                 <Button
                   type="button"
                   size="sm"
@@ -896,6 +896,7 @@ function SettingRowView({
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
                 onKeyDown={(event) => {
+                  if (event.nativeEvent.isComposing || event.keyCode === 229) return
                   if (event.key === 'Enter' && quotaDirty && !quotaInvalid && !quotaOutOfRange) {
                     event.preventDefault()
                     onRequestSave(row, parsedQuota)

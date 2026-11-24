@@ -147,7 +147,11 @@ export function parseSettingInput(value: string, unit?: OperatorSettingUnit): nu
   if (unit === 'tokens') multipliers.tokens = 1
   if (unit === 'count') multipliers.条 = 1
   if (!Object.prototype.hasOwnProperty.call(multipliers, suffix)) return Number.NaN
-  const result = Number(match[1]) * multipliers[suffix]!
+  const [whole, frac = ''] = match[1]!.split('.')
+  const scale = 10n ** BigInt(frac.length)
+  const numerator = BigInt(`${whole}${frac}`) * BigInt(multipliers[suffix]!)
+  if (numerator % scale !== 0n) return Number.NaN
+  const result = Number(numerator / scale)
   return Number.isSafeInteger(result) ? result : Number.NaN
 }
 

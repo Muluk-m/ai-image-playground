@@ -67,6 +67,24 @@ const state = vi.hoisted(() => {
         reason: null,
         revision: 3,
       },
+      {
+        key: 'agent:visual-prepare-concurrency',
+        kind: 'quota' as const,
+        name: '视觉准备并发',
+        description: '同时进行视觉预处理的任务数',
+        domain: 'agent',
+        editability: 'hot' as const,
+        baseline: 5,
+        override: -1,
+        effective: 5,
+        reason: 'corrupted',
+        revision: 3,
+        unit: 'count' as const,
+        min: 1,
+        max: 64,
+        invalid: true,
+        invalidReason: 'invalid_value',
+      },
     ],
   }
   return {
@@ -102,7 +120,10 @@ vi.mock('../../lib/queries', () => ({
   clearOperatorSetting: state.clear,
 }))
 
-import { OperatorSettingsPanel } from '../../features/platform-settings/OperatorSettingsPanel'
+import {
+  OperatorSettingsPanel,
+  parseSettingInput,
+} from '../../features/platform-settings/OperatorSettingsPanel'
 
 function getSettingRow(name: string): HTMLElement {
   const row = screen.getByText(name).closest('li')
@@ -273,5 +294,40 @@ describe('operator settings panel', () => {
     expect(within(alert).getByRole('button', { name: '刷新配置' })).toBeInTheDocument()
     fireEvent.click(within(alert).getByRole('button', { name: '刷新配置' }))
     await waitFor(() => expect(state.refetch).toHaveBeenCalled())
+  })
+
+  it('keeps clear-override accessible for invalid quota overrides and ignores IME composing Enter', async () => {
+    render(<OperatorSettingsPanel />)
+    const invalidRow = getSettingRow('视觉准备并发')
+    expect(within(invalidRow).getByText('覆盖无效')).toBeInTheDocument()
+    const input = within(invalidRow).getByRole('textbox', { name: '视觉准备并发值' })
+    expect(input).toHaveValue('5 条')
+    expect(within(invalidRow).getByRole('button', { name: '清除覆盖' })).toBeInTheDocument()
+
+    // Editing triggers dirty state; IME composing Enter does NOT open dialog
+    fireEvent.change(input, { target: { value: '8' } })
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    // Clearing invalid override works directly
+    fireEvent.click(within(invalidRow).getByRole('button', { name: '撤销视觉准备并发修改' }))
+    expect(input).toHaveValue('5 条')
+    fireEvent.click(within(invalidRow).getByRole('button', { name: '清除覆盖' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), {
+      target: { value: 'cleanup invalid override' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '继续' }))
+    await waitFor(() =>
+      expect(state.clear).toHaveBeenCalledWith('agent:visual-prepare-concurrency', {
+        reason: 'cleanup invalid override',
+        expectedRevision: 3,
+      }),
+    )
+  })
+
+  it('parses decimal unit values without IEEE-754 precision loss', () => {
+    expect(parseSettingInput('1.15 分钟', 'seconds')).toBe(69)
+    expect(parseSettingInput('1.5 GB', 'bytes')).toBe(1_610_612_736)
+    expect(parseSettingInput('1.5', 'count')).toBeNaN()
   })
 })
