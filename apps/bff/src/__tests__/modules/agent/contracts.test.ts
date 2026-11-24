@@ -2,19 +2,28 @@ import { describe, expect, it } from 'bun:test'
 import { SafeFetchError } from '../../../lib/safeFetch'
 import {
   AgentToolError,
+  agentReplayStream,
+  agentTurnFailure,
   confirmedSubmissionText,
   createToolFailureLog,
+  getInterruptedTurnRecoverer,
   isSealLease,
+  MissingInterruptedTurnRecovererError,
   mergeMaskedPlanCarries,
   noModelMessage,
   queueArtifacts,
   queueParamsFor,
   queueRefusalCode,
+  registerInterruptedTurnRecoverer,
+  registerRunningTurn,
+  requireInterruptedTurnRecoverer,
+  runningTurn,
   SEAL_LEASE_PREFIX,
   safeFetchToolError,
   selectionSettings,
   toolErrorText,
   toolResultBlock,
+  trackAgentBackgroundWork,
   wakeReviewImageIds,
   wakeTurnSetup,
 } from '../../../modules/agent/contracts'
@@ -101,5 +110,39 @@ describe('modules/agent/contracts', () => {
     })
     expect(wakeTurnSetup([])).toEqual({ mode: 'image' })
     expect(wakeReviewImageIds([])).toEqual([])
+
+    const failure = agentTurnFailure('agent_upstream_error', 'Bearer secret-token-123', 'gpt-test')
+    expect(failure.message).toContain('Bearer [REDACTED]')
+    expect(failure.message).not.toContain('secret-token-123')
+
+    const replay = agentReplayStream([])
+    expect(replay.headers.get('content-type')).toContain('text/event-stream')
+
+    const unregister = registerRunningTurn({
+      conversationId: 'conv-contract-test',
+      turnId: 'turn-1',
+      mode: 'image',
+      async *read() {},
+      async interject() {
+        return null
+      },
+      abort() {},
+    })
+    expect(runningTurn('conv-contract-test')?.turnId).toBe('turn-1')
+    unregister()
+    expect(runningTurn('conv-contract-test')).toBeUndefined()
+
+    trackAgentBackgroundWork(Promise.resolve())
+    const previousRecoverer = getInterruptedTurnRecoverer()
+    const stubRecoverer = async () => null
+    try {
+      registerInterruptedTurnRecoverer(null)
+      expect(() => requireInterruptedTurnRecoverer()).toThrow(MissingInterruptedTurnRecovererError)
+      registerInterruptedTurnRecoverer(stubRecoverer)
+      expect(getInterruptedTurnRecoverer()).toBe(stubRecoverer)
+      expect(requireInterruptedTurnRecoverer()).toBe(stubRecoverer)
+    } finally {
+      registerInterruptedTurnRecoverer(previousRecoverer)
+    }
   })
 })

@@ -3,12 +3,12 @@ import { extname, join } from 'node:path'
 import { cors } from '@elysiajs/cors'
 import { trace } from '@opentelemetry/api'
 import { Elysia, StatusMap } from 'elysia'
+import './bootstrap/agent-runtime'
 import './bootstrap/billing'
 import './bootstrap/task-execution'
 import './bootstrap/task-lifecycle'
 import './bootstrap/task-submission'
 import { config } from './config'
-import { StageAuthorizationError } from './lib/agent/stage-authorizations'
 import { apiErrorHandler, isApiPath } from './lib/api-errors'
 import { appRelease, appVersion } from './lib/app-version'
 import { isCapabilityEnabled } from './lib/capabilities'
@@ -18,6 +18,7 @@ import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/pri
 import { REQUEST_ID_HEADER, TRACE_ID_HEADER } from './lib/request-context'
 import { gzipBlob } from './lib/staticCompression'
 import { requestAuthUserId } from './lib/user-auth'
+import { StageAuthorizationError } from './modules/agent/orchestration'
 import { createApiMetrics, isCountedPath } from './ops/api-metrics'
 import { accountRoutes } from './routes/account'
 import { agentRoutes } from './routes/agent'
@@ -37,6 +38,7 @@ import { internalInspirationRoutes, publicInspirationRoutes } from './routes/ins
 import { internalAgentModelRoutes } from './routes/internal-agent-models'
 import { internalAuditRoutes } from './routes/internal-audits'
 import { internalDrainRoutes } from './routes/internal-drain'
+import { internalGeminiDirectRoutes } from './routes/internal-gemini-direct'
 import { internalGptDirectRoutes } from './routes/internal-gpt-direct'
 import { internalModelRoutes } from './routes/internal-models'
 import { internalOperatorConfigRoutes } from './routes/internal-operator-config'
@@ -311,6 +313,7 @@ export const app = new Elysia()
   .use(internalTaskReconciliationRoutes)
   .use(internalOpsRoutes)
   .use(internalGptDirectRoutes)
+  .use(internalGeminiDirectRoutes)
   .use(internalInspirationRoutes)
   .use(internalAnnouncementRoutes)
   .use(internalFeedbackRoutes)

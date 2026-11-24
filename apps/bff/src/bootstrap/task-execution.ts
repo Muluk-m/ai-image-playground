@@ -11,12 +11,12 @@ let maskedOutputErrorClass: (abstract new (...args: never[]) => Error) | undefin
 
 const defaultMaskedEditExecutionHook: MaskedEditExecutionHook = {
   async protectMaskedOutput(sourceDataUrl, maskDataUrl, originalSize, crop) {
-    const mod = await import('../lib/agent/masked-output')
+    const mod = await import('../modules/agent/orchestration/masked/pure')
     maskedOutputErrorClass = mod.MaskedOutputError
     return mod.protectMaskedOutput(sourceDataUrl, maskDataUrl, originalSize, crop)
   },
   async cropMaskedUpstream(request, crop, originalSize) {
-    const { cropMaskedUpstream } = await import('../lib/agent/masked-input')
+    const { cropMaskedUpstream } = await import('../modules/agent/orchestration/masked/pure')
     return cropMaskedUpstream(request, crop, originalSize)
   },
   isMaskedOutputError(error) {
@@ -28,7 +28,7 @@ const defaultMaskedEditExecutionHook: MaskedEditExecutionHook = {
 }
 
 const defaultAgentBatchAdvancer: AgentBatchAdvancer = async (cursor, canDispatch) => {
-  const { advanceAgentBatches } = await import('../lib/agent/batch-execution')
+  const { advanceAgentBatches } = await import('../modules/agent/orchestration')
   return advanceAgentBatches(cursor, canDispatch)
 }
 

@@ -51,28 +51,14 @@ import {
   isConversationBoundToCanvasProject,
   readUserMessageContent,
 } from '../lib/agent/conversation-service'
-import {
-  isSealLease,
-  lastConversationEventSeq,
-  openTurnEventBase,
-  readConversationEvents,
-  readTurnEvents,
-  sealAbandonedTurns,
-} from '../lib/agent/events'
 import { readAgentFollowUps } from '../lib/agent/follow-ups'
-import { MASK_PROMPT_POINTS_MAX, refineEditRegion } from '../lib/agent/mask-proposal'
 import {
   advanceAgentRetryQueueSafely,
   cancelAgentRetry,
   retryAgentToolCall,
 } from '../lib/agent/retry'
-import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
 import { markAgentSaveCardSaved } from '../lib/agent/saves'
-import { segmentRateLimiter } from '../lib/agent/segment-rate-limit'
-import { segmenterStatus } from '../lib/agent/segmentation'
-import { agentReplayStream, agentTurnStream } from '../lib/agent/sse'
 import { agentTurnRateLimited } from '../lib/agent/turn-rate-limit'
-import { agentTurnSettled, listAgentTurnSummaries } from '../lib/agent/turn-summary'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { bffDrain } from '../lib/drain'
 import { durableMediaStore } from '../lib/durableMediaStore'
@@ -94,7 +80,10 @@ import {
   type AgentOwner,
   agentInstance,
   agentJobViews,
+  agentReplayStream,
   agentSubmissionEntry,
+  agentTurnSettled,
+  agentTurnStream,
   cancelAgentJob,
   conversationExecution,
   createAgentConversation,
@@ -102,20 +91,35 @@ import {
   forwardActiveTurn,
   type InboxEntry,
   InvalidSelectionError,
+  isSealLease,
+  lastConversationEventSeq,
   listAgentConversationsPage,
   listAgentMessages,
   listAgentMessagesPage,
+  listAgentTurnSummaries,
+  openTurnEventBase,
   parseAgentConversationCursor,
   queuedAgentMessages,
+  type RunningTurn,
+  readConversationEvents,
   readConversationMedia,
+  readTurnEvents,
   readyCanvasMediaIds,
   removeAgentConversationReferences,
   reserveAgentSubmissionCancellation,
+  runningTurn,
+  sealAbandonedTurns,
   selectionPreview,
   validateConversationMediaSelections,
   validateSelections,
   withAgentLifecycle,
 } from '../modules/agent'
+import {
+  MASK_PROMPT_POINTS_MAX,
+  refineEditRegion,
+  segmenterStatus,
+} from '../modules/agent/orchestration'
+import { segmentRateLimiter } from '../modules/agent/orchestration/masked/pure'
 import { agentBatchRoutes } from './agent-batches'
 
 /** 归属不依赖登录能力：有会话 cookie 就挂用户，否则挂设备。 */
@@ -1068,13 +1072,8 @@ export const agentRoutes = new Elysia()
       // 动态引入：`skills` 与 `tools` 静态依赖 pi，模块图不该因为一条清单端点被提到路由加载时。
       const [
         { listAgentSkillSummaries, ensureAgentSkills },
-        { resolveAgentMode },
-        { resolveAgentModel },
-      ] = await Promise.all([
-        import('../lib/agent/skills'),
-        import('../lib/agent/tools'),
-        import('../lib/agent/tools/queueTask'),
-      ])
+        { resolveAgentMode, resolveAgentModel },
+      ] = await Promise.all([import('../lib/agent/skills'), import('../modules/agent/tools')])
       await ensureAgentSkills()
       // 做不了视频的部署里没有视频轮，所以也没有只有视频轮看得见的技能。
       // 非模板技能的「已验证」跟部署默认的出图模型比（ADR 0020）。
@@ -1096,7 +1095,7 @@ export const agentRoutes = new Elysia()
     '/api/agent/skills/:name/files/:file',
     async ({ params, query, status }) => {
       const [{ readAgentSkillFileBytes, ensureAgentSkills }, { resolveAgentMode }] =
-        await Promise.all([import('../lib/agent/skills'), import('../lib/agent/tools')])
+        await Promise.all([import('../lib/agent/skills'), import('../modules/agent/tools')])
       await ensureAgentSkills()
       const result = await readAgentSkillFileBytes(
         resolveAgentMode(query.mode ?? 'image'),

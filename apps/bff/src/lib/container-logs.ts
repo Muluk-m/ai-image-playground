@@ -105,8 +105,13 @@ export function parseContainerLog(record: unknown): ServerLogEntry | null {
     instance,
     version: '',
     level:
-      // cloudflared reports a client that hung up mid-request (tab closed, fetch aborted) as ERR.
-      service === 'cloudflared' && /\bcontext canceled\b/.test(header)
+      // cloudflared reports client hang-ups (`context canceled`) and routine per-connection
+      // HTTP/2 control-stream teardowns during edge recycles as ERR; keep parity with otel-collector.
+      service === 'cloudflared' &&
+      (/\bcontext canceled\b/.test(header) ||
+        /^\S+\s+ERR\s+failed to serve incoming request error="Error shutting down control stream:/.test(
+          header,
+        ))
         ? 'warn'
         : textLevel(header, stream),
     event: null,

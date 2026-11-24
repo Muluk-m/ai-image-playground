@@ -98,6 +98,7 @@ export interface UpstreamTransportSession {
     init: UpstreamFetchInit,
     counted?: boolean,
     requestModel?: string,
+    onDispatched?: () => void,
   ): Promise<UpstreamResponse>
   parseResponse(res: UpstreamResponse, imageResponses?: boolean): Promise<UpstreamCallResult>
   abort(): void
@@ -187,6 +188,7 @@ export function createUpstreamSession(
     init: UpstreamFetchInit,
     counted = true,
     requestModel = model,
+    onDispatched?: () => void,
   ): Promise<UpstreamResponse> => {
     let lease: SchedulerLease | undefined
     if (counted && schedulerBuckets.length > 0) {
@@ -215,6 +217,7 @@ export function createUpstreamSession(
       committing = true
       const dispatchId = counted ? await beforeRequest?.() : undefined
       sent = true
+      onDispatched?.()
       const attributed = counted ? attempt.onDispatched?.() : undefined
       // The accounting callback is the dispatch commit point. Start the transport with a fresh
       // signal before relaying cancellation so a cancellation that loses the database race cannot

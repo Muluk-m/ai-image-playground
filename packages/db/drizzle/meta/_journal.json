@@ -708,6 +708,13 @@
       "when": 1795200000000,
       "tag": "0102_cli_jobs_connection_index",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1795300000000,
+      "tag": "0103_gemini_direct_keys",
+      "breakpoints": true
     }
   ]
 }

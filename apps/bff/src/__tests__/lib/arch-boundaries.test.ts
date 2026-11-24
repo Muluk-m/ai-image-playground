@@ -122,6 +122,81 @@ describe('check-arch-boundaries', () => {
         "import type { RuntimeState } from '../runtime/exec'\nexport type BadInboxUp = RuntimeState\n",
       'modules/agent/runtime/exec.ts':
         "import { tag } from '../contracts/types'\nexport interface RuntimeState { tag: string }\nexport const rt = tag\n",
+      'modules/agent/runtime/bad-tool.ts':
+        "import { helper } from '../../../lib/agent/tools/helper'\nexport const badTool = helper\n",
+      'modules/agent/runtime/bad-fanout.ts': [
+        "import { a } from 'pkg-1'",
+        "import { b } from 'pkg-2'",
+        "import { c } from 'pkg-3'",
+        "import { d } from 'pkg-4'",
+        "import { e } from 'pkg-5'",
+        "import { f } from 'pkg-6'",
+        "import { g } from 'pkg-7'",
+        "import { h } from 'pkg-8'",
+        "import { i } from 'pkg-9'",
+        "import { j } from 'pkg-10'",
+        "import { k } from 'pkg-11'",
+        "import { l } from 'pkg-12'",
+        'export const all = [a, b, c, d, e, f, g, h, i, j, k, l]',
+      ].join('\n'),
+      'modules/canvas/index.ts': 'export const canvasOp = 1\n',
+      'modules/canvas/bad-agent.ts':
+        "import { tag } from '../agent/contracts'\nexport const badCanvasAgent = tag\n",
+      'modules/canvas/bad-legacy.ts':
+        "import type { Legacy } from '../../lib/agent/legacy'\nexport type BadCanvasLegacy = Legacy\n",
+      'modules/agent/inbox/item.ts': 'export const inboxItem = 1\n',
+      'modules/agent/tools/index.ts': "export { reg } from './registry'\n",
+      'modules/agent/tools/registry.ts': 'export const reg = 1\n',
+      'modules/agent/tools/adapter.ts':
+        "import type { reg } from './registry'\nimport { genTool } from './generation/gen'\nexport type BadAdapterReg = typeof reg\nexport const badAdapterGen = genTool\n",
+      'modules/agent/tools/generation/gen.ts': 'export const genTool = 1\n',
+      'modules/agent/tools/analysis/bad-future-domain.ts':
+        "import { genTool } from '../generation/gen'\nimport { reg } from '../registry'\nexport const badFuture = [genTool, reg]\n",
+      'modules/agent/tools/canvas/ok.ts':
+        "import { canvasOp } from '../../../canvas'\nimport { tag } from '../../contracts'\nexport const okCanvasTool = [canvasOp, tag]\n",
+      'modules/agent/tools/canvas/bad-runtime.ts':
+        "import { rt } from '../../runtime/exec'\nexport const badRt = rt\n",
+      'modules/agent/tools/canvas/bad-inbox.ts':
+        "import { inboxItem } from '../../inbox/item'\nexport const badIn = inboxItem\n",
+      'modules/agent/tools/canvas/bad-inter-tool.ts':
+        "import { genTool } from '../generation/gen'\nexport const badInter = genTool\n",
+      'modules/agent/tools/canvas/bad-registry.ts':
+        "import { reg } from '../registry'\nexport const badReg = reg\n",
+      'modules/agent/tools/web/bad-legacy-tools.ts':
+        "import { helper } from '../../../../lib/agent/tools/helper'\nexport const badLT = helper\n",
+      'modules/agent/tools/web/bad-shim.ts':
+        "import { ev } from '../../../../lib/agent/events'\nimport { qa } from '../../../../lib/agent/job-artifacts'\nexport const badShim = [ev, qa]\n",
+      'lib/agent/events.ts': 'export const ev = 1\n',
+      'lib/agent/job-artifacts.ts': 'export const qa = 1\n',
+      'lib/agent/tools/index.ts': 'export const legacyTools = 1\n',
+      'lib/agent/turn.ts':
+        "import { legacyTools } from './tools'\nexport const badTurnCore = legacyTools\n",
+      'lib/agent/interrupted.ts':
+        "import { reg } from '../../modules/agent/tools'\nexport const okWhitelistedCaller = reg\n",
+      'lib/agent/bad-tools-caller.ts':
+        "import { reg } from '../../modules/agent/tools'\nexport const badCaller = reg\n",
+      'modules/agent/orchestration/index.ts': 'export const orchFacade = 1\n',
+      'modules/agent/orchestration/masked/mask-ok.ts': 'export const maskOk = 1\n',
+      'modules/agent/orchestration/masked/pure.ts':
+        "import { readCfg } from '../../../../lib/channels'\nexport const badPure = readCfg\n",
+      'modules/agent/orchestration/batch/ok.ts':
+        "import { maskOk } from '../masked/mask-ok'\nexport const okBatchMasked = maskOk\n",
+      'modules/agent/orchestration/batch/bad-prod.ts':
+        "import { prodVal } from '../production/prod-ok'\nexport const badBatchProd = prodVal\n",
+      'modules/agent/orchestration/batch/bad-facade.ts':
+        "import { orchFacade } from '..'\nexport const badOrchFacade = orchFacade\n",
+      'modules/agent/orchestration/production/prod-ok.ts': 'export const prodVal = 1\n',
+      'modules/agent/orchestration/production/bad-batch.ts':
+        "import { okBatchMasked } from '../batch/ok'\nexport const badProdBatch = okBatchMasked\n",
+      'modules/agent/orchestration/production/bad-runtime.ts':
+        "import { rt } from '../../runtime/exec'\nexport const badOrchRt = rt\n",
+      'modules/agent/orchestration/production/bad-tools.ts':
+        "import { genTool } from '../../tools/generation/gen'\nexport const badOrchTools = genTool\n",
+      'modules/agent/orchestration/production/bad-legacy.ts':
+        "import { helper } from '../../../../lib/agent/tools/helper'\nimport { ev } from '../../../../lib/agent/events'\nexport const badOrchLegacy = [helper, ev]\n",
+      'lib/agent/batch-plans.ts': 'export const legacyBatchPlan = 1\n',
+      'modules/agent/runtime/bad-orch.ts':
+        "import { prodVal } from '../orchestration/production/prod-ok'\nimport { legacyBatchPlan } from '../../../lib/agent/batch-plans'\nexport const badRtOrch = [prodVal, legacyBatchPlan]\n",
     })
 
     const violations = await checkBffBoundaries(dir)
@@ -228,46 +303,225 @@ describe('check-arch-boundaries', () => {
     ).toBe(true)
     expect(
       violations.some((v) =>
+        v.includes(
+          '[agent-runtime -> legacy-tools] modules/agent/runtime/bad-tool.ts -> lib/agent/tools/helper.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes('[agent-runtime-fanout] modules/agent/runtime/bad-fanout.ts imports 12 modules'),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
         v.includes('[agent-core -> tools] lib/agent/core-bad.ts -> lib/agent/tools/helper.ts'),
       ),
     ).toBe(true)
-    expect(violations).toHaveLength(16)
+    expect(
+      violations.some((v) =>
+        v.includes('[agent-core -> tools] lib/agent/turn.ts -> lib/agent/tools/index.ts'),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[canvas -> agent] modules/canvas/bad-agent.ts -> modules/agent/contracts/index.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes('[canvas -> agent] modules/canvas/bad-legacy.ts -> lib/agent/legacy.ts'),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-tools -> runtime] modules/agent/tools/canvas/bad-runtime.ts -> modules/agent/runtime/exec.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-tools -> inbox] modules/agent/tools/canvas/bad-inbox.ts -> modules/agent/inbox/item.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-tools -> inter-tool] modules/agent/tools/canvas/bad-inter-tool.ts -> modules/agent/tools/generation/gen.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-tools -> registry] modules/agent/tools/canvas/bad-registry.ts -> modules/agent/tools/registry.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-tools -> legacy-tools] modules/agent/tools/web/bad-legacy-tools.ts -> lib/agent/tools/helper.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-tools -> legacy-agent-layer] modules/agent/tools/web/bad-shim.ts -> lib/agent/events.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-tools -> legacy-agent-layer] modules/agent/tools/web/bad-shim.ts -> lib/agent/job-artifacts.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-tools -> adapter-upward] modules/agent/tools/adapter.ts -> modules/agent/tools/registry.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-tools -> adapter-upward] modules/agent/tools/adapter.ts -> modules/agent/tools/generation/gen.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-tools -> inter-tool] modules/agent/tools/analysis/bad-future-domain.ts -> modules/agent/tools/generation/gen.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-tools -> registry] modules/agent/tools/analysis/bad-future-domain.ts -> modules/agent/tools/registry.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-core -> module-tools] lib/agent/bad-tools-caller.ts -> modules/agent/tools/index.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-orchestration -> subdomain] modules/agent/orchestration/batch/bad-prod.ts -> modules/agent/orchestration/production/prod-ok.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-orchestration -> facade] modules/agent/orchestration/batch/bad-facade.ts -> modules/agent/orchestration/index.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-orchestration -> subdomain] modules/agent/orchestration/production/bad-batch.ts -> modules/agent/orchestration/batch/ok.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-orchestration -> runtime] modules/agent/orchestration/production/bad-runtime.ts -> modules/agent/runtime/exec.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-layer] modules/agent/orchestration/production/bad-tools.ts -> modules/agent/tools/generation/gen.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-orchestration -> legacy-tools] modules/agent/orchestration/production/bad-legacy.ts -> lib/agent/tools/helper.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-orchestration -> legacy-agent-layer] modules/agent/orchestration/production/bad-legacy.ts -> lib/agent/events.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-layer] modules/agent/runtime/bad-orch.ts -> modules/agent/orchestration/production/prod-ok.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-runtime -> legacy-agent-layer] modules/agent/runtime/bad-orch.ts -> lib/agent/batch-plans.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-masked-pure -> runtime-env] modules/agent/orchestration/masked/pure.ts -> config.ts (via lib/channels.ts)',
+        ),
+      ),
+    ).toBe(true)
+    expect(violations).toHaveLength(43)
     expect(violations.some((v) => v.includes('lib/agent/pure-ok.ts ->'))).toBe(false)
+    expect(violations.some((v) => v.includes('lib/agent/interrupted.ts ->'))).toBe(false)
+    expect(violations.some((v) => v.includes('modules/agent/tools/canvas/ok.ts ->'))).toBe(false)
+    expect(violations.some((v) => v.includes('modules/agent/orchestration/batch/ok.ts ->'))).toBe(
+      false,
+    )
     expect(violations.some((v) => v.includes('modules/execution/ok.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('modules/agent/runtime/exec.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('bootstrap/container.ts ->'))).toBe(false)
   })
 
-  it('ratchets runtime cycles at directed-edge granularity while ignoring type-only cycles and scanning TSX JSX cleanly', async () => {
-    // 1. Adding a new directed edge inside an existing SCC must fail even when member nodes stay identical.
-    const addedEdgeDir = createTempTree({
-      'lib/agent/batch-analysis-preparation.ts':
-        "import { p } from './batch-plans'\nimport { e } from './batch-execution'\nexport const prep = [p, e]\n",
-      'lib/agent/batch-execution.ts': "import { p } from './batch-plans'\nexport const e = p\n",
-      'lib/agent/batch-phase-edit.ts':
-        "import { prep } from './batch-analysis-preparation'\nimport { e } from './batch-execution'\nimport { r } from './batch-plan-revision'\nimport { p } from './batch-plans'\nexport const edit = [prep, e, r, p]\n",
-      'lib/agent/batch-plan-revision.ts': "import { p } from './batch-plans'\nexport const r = p\n",
-      'lib/agent/batch-plans.ts':
-        "import { prep } from './batch-analysis-preparation'\nimport { edit } from './batch-phase-edit'\nexport const p = [prep, edit]\n",
+  it('rejects any runtime import cycle (zero-cycle baseline) while ignoring type-only cycles and scanning TSX JSX cleanly', async () => {
+    const dir = createTempTree({
+      'lib/a.ts': "import { b } from './b'\nexport const a = b\n",
+      'lib/b.ts': "import { a } from './a'\nexport const b = a\n",
       'lib/t1.ts': "import type { T2 } from './t2'\nexport interface T1 { x?: T2 }\n",
       'lib/t2.ts': "import type { T1 } from './t1'\nexport interface T2 { y?: T1 }\n",
       'lib/view.tsx': 'export const View = () => <div />\n',
     })
 
-    const addedEdgeViolations = await checkBffBoundaries(addedEdgeDir)
-    expect(addedEdgeViolations).toHaveLength(1)
-    expect(addedEdgeViolations[0]).toContain(
-      '[import-cycle] new runtime cycle edge: lib/agent/batch-analysis-preparation.ts -> lib/agent/batch-execution.ts',
-    )
-
-    // 2. Shrinking an existing SCC by removing edges must pass (incremental cycle breaking).
-    const shrunkDir = createTempTree({
-      'lib/agent/batch-analysis-preparation.ts':
-        "import { p } from './batch-plans'\nexport const prep = p\n",
-      'lib/agent/batch-plans.ts':
-        "import { prep } from './batch-analysis-preparation'\nexport const p = prep\n",
-    })
-    expect(await checkBffBoundaries(shrunkDir)).toEqual([])
+    const violations = await checkBffBoundaries(dir)
+    expect(violations).toHaveLength(2)
+    expect(
+      violations.some((v) =>
+        v.includes('[import-cycle] new runtime cycle edge: lib/a.ts -> lib/b.ts'),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes('[import-cycle] new runtime cycle edge: lib/b.ts -> lib/a.ts'),
+      ),
+    ).toBe(true)
   })
 
   it('catches DB schema cycles routed back through the barrel schema.ts', async () => {

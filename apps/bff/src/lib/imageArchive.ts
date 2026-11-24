@@ -6,7 +6,7 @@ import type {
   SubmitRequest,
   VideoRequest,
 } from '@image-playground/shared'
-import { MaskedOutputError } from './agent/masked-output'
+import { MaskedOutputError } from '../modules/agent/contracts'
 import { durableMediaStore } from './durableMediaStore'
 import { type ObjectStore, objectStore, readObjectWithinLimit } from './objectStore'
 import { isAbortError } from './queueProvider'

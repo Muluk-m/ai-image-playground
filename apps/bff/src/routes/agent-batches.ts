@@ -6,28 +6,26 @@ import {
   GPT_IMAGE_26_GIF_FRAME_MIN,
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
-import { proposeBatchAnalysis } from '../lib/agent/batch-analysis-proposal'
-import {
-  batchExecutionAvailable,
-  cancelAgentBatchItem,
-  confirmAgentBatch,
-  controlAgentBatch,
-  quoteAgentBatchRetry,
-  repriceAgentBatch,
-} from '../lib/agent/batch-execution'
-import { proposeBatchGeneration } from '../lib/agent/batch-generation-proposal'
-import {
-  BatchPlanError,
-  batchPlansAvailable,
-  cancelAgentBatchPlan,
-  readAgentBatchPlan,
-  updateAgentBatchPlan,
-} from '../lib/agent/batch-plans'
-import { readBatchWakeReceipt } from '../lib/agent/batch-wake'
 import { listConversationBatches } from '../lib/agent/conversation-service'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { badRequestOnValidation } from '../lib/http'
 import { resolveAuthUser } from '../lib/user-auth'
+import {
+  BatchPlanError,
+  batchExecutionAvailable,
+  batchPlansAvailable,
+  cancelAgentBatchItem,
+  cancelAgentBatchPlan,
+  confirmAgentBatch,
+  controlAgentBatch,
+  proposeBatchAnalysis,
+  proposeBatchGeneration,
+  quoteAgentBatchRetry,
+  readAgentBatchPlan,
+  readBatchWakeReceipt,
+  repriceAgentBatch,
+  updateAgentBatchPlan,
+} from '../modules/agent/orchestration'
 
 const batchInputReference = t.Object({
   imageId: t.String({ minLength: 1, maxLength: 128 }),

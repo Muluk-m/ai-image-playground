@@ -1,0 +1,54 @@
+{
+  "type": "object",
+  "required": [
+    "infraNetwork",
+    "postgres",
+    "deploy"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "infraNetwork": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "postgres": {
+      "type": "object",
+      "required": [
+        "superuser",
+        "database"
+      ],
+      "properties": {
+        "superuser": {
+          "type": "string",
+          "pattern": "^[a-z_][a-z0-9_]*$"
+        },
+        "database": {
+          "type": "string",
+          "pattern": "^[a-z_][a-z0-9_]*$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "deploy": {
+      "type": "object",
+      "required": [
+        "keepImages",
+        "minFreeGb"
+      ],
+      "properties": {
+        "keepImages": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "minFreeGb": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

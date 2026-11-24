@@ -1,0 +1,83 @@
+import type { AgentMode, AgentTurnEvent, AgentTurnReference } from '@image-playground/shared'
+import type { StoredAgentEvent, TurnEventFeed, TurnEventLog } from './events'
+
+export interface AgentInterjectOptions {
+  /** 缺席即新起一个；排队消息升级来的插话沿用收件箱记录的 id。 */
+  readonly messageId?: string
+  /**
+   * 插话进这一轮之前的最后一步：参考图校验与归档都过了、就要写进这一轮时调用。返回 false
+   * 就不插（清掉本次归档）。排队消息升级为插话时，在这里才从收件箱取走它。
+   */
+  readonly claim?: () => Promise<boolean>
+}
+
+/**
+ * 一轮在 API 进程里的把手。轮独立于连接存活，只有跑完、失败或显式中止才结束。
+ * 注册表是进程内的：BFF 多副本时续播会落到没有这一轮的进程上。
+ */
+export interface RunningTurn {
+  readonly conversationId: string
+  readonly turnId: string
+  /** 这一轮按什么装配的。插话要照同一份技能清单展开 `/skill-name`，所以它得挂在轮上。 */
+  readonly mode: AgentMode
+  readonly completed?: Promise<void>
+  read(afterSeq: number): AsyncGenerator<StoredAgentEvent>
+  /**
+   * 返回插话那条用户消息的 id；它也随 `interjection` 事件发给所有连着的消费者。插不进去
+   * （本轮已收尾、被中止，或 `claim` 没取到）返回 null。
+   */
+  interject(
+    text: string,
+    references?: readonly AgentTurnReference[],
+    options?: AgentInterjectOptions,
+  ): Promise<string | null>
+  /**
+   * 中止这一轮。`user_stop` 只由用户点「中止」的停止接口传：只有它会连带取消本轮的出图任务并退款
+   * （BUG-32）；租约丢失、停机清场等其余中止只停下对话，任务照常跑完、照常结算。
+   */
+  abort(reason?: 'user_stop'): void
+}
+
+/**
+ * 多副本演进预留的流式事件与运行态代理端口（ADR 0034）：
+ * 当前默认实现为单实例内存 + PG 持久化事件日志（`createLocalTurnBroker`）；
+ * 未来扩多副本时可平滑替换为 Redis Streams / PG LISTEN-NOTIFY 实现，不改调用方。
+ */
+export interface TurnBroker {
+  openEventLog(conversationId: string, turnId: string): Promise<TurnEventLog>
+  registerTurn(turn: RunningTurn): () => void
+  getRunningTurn(conversationId: string): RunningTurn | undefined
+  openTurnEventBase(conversationId: string, turnId: string): number | undefined
+  notifyConversation(conversationId: string, event: AgentTurnEvent): boolean
+  readTurnEvents(conversationId: string, turnId: string, afterSeq: number): Promise<TurnEventFeed>
+  readConversationEvents(
+    conversationId: string,
+    afterSeq: number,
+  ): Promise<AsyncGenerator<StoredAgentEvent>>
+  sealAbandonedTurns(conversationId: string, owned?: boolean): Promise<void>
+  recoverAbandonedExecution(conversationId: string): Promise<void>
+}
+
+const running = new Map<string, RunningTurn>()
+
+/** 一个会话同时只允许一轮，起第二轮的请求由路由挡在门口。 */
+export function runningTurn(conversationId: string): RunningTurn | undefined {
+  return running.get(conversationId)
+}
+
+export function registerRunningTurn(turn: RunningTurn): () => void {
+  running.set(turn.conversationId, turn)
+  return () => {
+    if (running.get(turn.conversationId) === turn) running.delete(turn.conversationId)
+  }
+}
+
+/** 本进程里此刻在跑的轮。测试等它们落定时用。 */
+export function runningTurnsForTesting(): RunningTurn[] {
+  return [...running.values()]
+}
+
+/** 测试之间的清场：上一个用例留下还在跑的轮一律中止，否则它会写向下一个用例刚清掉的数据。 */
+export function abortRunningTurnsForTesting(): void {
+  for (const turn of running.values()) turn.abort()
+}

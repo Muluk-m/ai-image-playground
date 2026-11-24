@@ -80,6 +80,29 @@ describe('container log records', () => {
     expect(
       level('2026-10-10T03:17:45Z ERR  error="context canceled" connIndex=2 event=1 ingressRule=0'),
     ).toBe('warn')
+    expect(
+      level(
+        '2026-11-23T23:24:22Z ERR failed to serve incoming request error="Error shutting down control stream: rpc: connection closed"',
+      ),
+    ).toBe('warn')
+    expect(
+      level(
+        '2026-11-23T22:47:55Z ERR failed to serve incoming request error="Error shutting down control stream: stream error: stream ID 1; CANCEL"',
+      ),
+    ).toBe('warn')
+    expect(
+      level(
+        '2026-11-23T06:58:42Z ERR failed to serve incoming request error="Error shutting down control stream: client disconnected"',
+      ),
+    ).toBe('warn')
+    expect(
+      parseContainerLog(
+        record(
+          '2026-11-23T23:24:22Z ERR failed to serve incoming request error="Error shutting down control stream: rpc: connection closed"',
+          '/image-playground-paid-bff-1',
+        ),
+      )!.level,
+    ).toBe('error')
     expect(level('2026-10-08T03:01:40Z INF Registered tunnel connection', 'stderr')).toBe('info')
     expect(level('[ops] snapshot built in 41ms')).toBe('info')
     expect(level('WARN [admin] GET /api/error failed: NOT_FOUND', 'stderr')).toBe('warn')

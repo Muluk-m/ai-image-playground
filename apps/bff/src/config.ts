@@ -238,6 +238,17 @@ export const config = {
     sub2apiBreakerCooldownMs: positiveIntEnv('GPT_SUB2API_BREAKER_COOLDOWN_MS', 60_000),
   },
   /**
+   * Gemini 直连（Vertex / Nano Banana）多密钥池与月度预算。
+   * 后台存了密钥就只用后台清单；未存时退回 VERTEX_API_KEYS，再退回 VERTEX_API_KEY（含上游密钥页替换）
+   * 加 GEMINI_DIRECT_MONTHLY_BUDGET_USD。月按台北时间自然月算。
+   */
+  geminiDirect: {
+    monthlyBudgetUsd: positiveIntEnv('GEMINI_DIRECT_MONTHLY_BUDGET_USD', 200),
+    budgetPercent: positiveIntEnv('GEMINI_DIRECT_BUDGET_PERCENT', 100),
+    /** 单把 key 遇到 429 后切走并冷却的时长（毫秒）。 */
+    cooldownMs: positiveIntEnv('GEMINI_DIRECT_COOLDOWN_MS', 60_000),
+  },
+  /**
    * GPT Image 2.6（flare / sunburst）单独的开关，默认关。开了之后：直连 key 可用时走
    * OpenAI 直连；没有启用 key、预算用尽或 key 被停用时，静态图走 sub2api。
    * GIF / SVG 仍只要直连。sub2api 的模型名默认与产品 id 相同，可用环境变量换。

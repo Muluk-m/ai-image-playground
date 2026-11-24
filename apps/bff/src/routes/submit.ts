@@ -13,7 +13,6 @@ import {
   videoRequestRejection,
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
-import { StageAuthorizationError } from '../lib/agent/stage-authorizations'
 import { isModelDisabled, resolveModelMedia } from '../lib/channels'
 import { resolveImageBytesRef } from '../lib/extractImages'
 import {
@@ -27,6 +26,7 @@ import { MEDIA_INPUT_PATTERN, MediaInputError, resolveMediaInputs } from '../lib
 import { asQueueProvider } from '../lib/queueProvider'
 import { submissionRefusalResponse } from '../lib/submissionRefusal'
 import { requireUser } from '../lib/user-auth'
+import { StageAuthorizationError } from '../modules/agent/orchestration'
 import {
   createQueueTask,
   findAccessibleTaskSourceVideo,

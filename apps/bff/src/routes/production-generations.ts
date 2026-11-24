@@ -1,13 +1,13 @@
 import { Elysia, t } from 'elysia'
-import { ProductionError } from '../lib/agent/production'
+import { badRequestOnValidation } from '../lib/http'
+import { resolveAuthUser } from '../lib/user-auth'
 import {
   adoptProductionGeneration,
   createProductionGenerationDraft,
   editProductionGenerationDraft,
   listProductionGenerations,
-} from '../lib/agent/production-generation'
-import { badRequestOnValidation } from '../lib/http'
-import { resolveAuthUser } from '../lib/user-auth'
+  ProductionError,
+} from '../modules/agent/orchestration'
 import { productionReferenceSchema } from './production-asset-schema'
 import { productionVideoSchema } from './production-clip-schema'
 

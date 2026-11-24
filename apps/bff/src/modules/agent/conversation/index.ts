@@ -76,6 +76,13 @@ export {
   withConversationExecution,
 } from './execution'
 export {
+  discardConversationDraftInputs,
+  discardDraftInputs,
+  type GenerationDraftInput,
+  lockConversation,
+  saveGenerationDraft,
+} from './generation-drafts'
+export {
   activeAgentReferences,
   addConversationMediaClaims,
   archiveAgentReferences,
@@ -119,6 +126,13 @@ export {
   selectionPreview,
   validateSelections,
 } from './selection-preview'
+export {
+  prepareVisualEvidence,
+  registerVisualBlock,
+  type VisualEvidence,
+  type VisualEvidenceSource,
+  visualEvidenceOf,
+} from './visual-input'
 export {
   assertVisualBytes,
   currentVisualSignal,

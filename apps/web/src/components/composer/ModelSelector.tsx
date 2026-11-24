@@ -194,11 +194,15 @@ export function ModelList({
   value,
   onPick,
   className,
+  query: controlledQuery,
+  onQueryChange,
 }: {
   options: readonly ModelChoice[]
   value: string
   onPick: (value: string) => void
   className?: string
+  query?: string
+  onQueryChange?: (query: string) => void
 }) {
   const { t } = useTranslation('composer')
   const newLabel = (option: ModelChoice) =>
@@ -217,7 +221,9 @@ export function ModelList({
       ? t('param.modelEta', { seconds })
       : t('param.modelEtaMinutes', { minutes: Math.round(seconds / 60) })
   }
-  const [query, setQuery] = useState('')
+  const [internalQuery, setInternalQuery] = useState('')
+  const query = controlledQuery ?? internalQuery
+  const setQuery = onQueryChange ?? setInternalQuery
   const listId = useId()
   const needle = query.trim().toLocaleLowerCase()
   const visible = needle
@@ -345,11 +351,18 @@ export function ModelSelector({
   const { t } = useTranslation('composer')
   const { options, currentValue, current, pick } = useModelChoices()
   const [open, setOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const shown = label ?? current?.label ?? t('param.noModel')
   const name = useOverflowTitle<HTMLSpanElement>(shown, { whenHidden: true })
   if (options.length === 0 && !label) return null
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next)
+        if (!next) setSearchQuery('')
+      }}
+    >
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -400,14 +413,27 @@ export function ModelSelector({
             .querySelector<HTMLElement>('input, [role="option"][tabindex="0"]')
             ?.focus({ preventScroll: false })
         }}
+        onEscapeKeyDown={(event) => {
+          if (event.isComposing || event.keyCode === 229) {
+            event.preventDefault()
+            return
+          }
+          if (searchQuery.length > 0) {
+            event.preventDefault()
+            setSearchQuery('')
+          }
+        }}
         className="flex max-h-[min(26rem,var(--radix-popover-content-available-height))] w-80 max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-xl p-1 shadow-popover"
       >
         <ModelList
           options={options}
           value={currentValue}
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
           onPick={(value) => {
             pick(value)
             setOpen(false)
+            setSearchQuery('')
           }}
         />
       </PopoverContent>

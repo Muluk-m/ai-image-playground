@@ -1,0 +1,12 @@
+{
+  "$schema": "./host.schema.json",
+  "infraNetwork": "image-playground-infra",
+  "postgres": {
+    "superuser": "playground_root",
+    "database": "playground_root"
+  },
+  "deploy": {
+    "keepImages": 2,
+    "minFreeGb": 8
+  }
+}

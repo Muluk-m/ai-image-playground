@@ -7,6 +7,11 @@ import {
   canvasStageRunsDirectly,
   stripInlineReasoning,
 } from '@image-playground/shared'
+import {
+  agentToolDeclarations,
+  agentToolGuidance,
+  isCanvasToolName,
+} from '../../modules/agent/tools'
 import { reservationCeiling, storedSummaryTokens } from './compaction'
 import { compactionSettings } from './compaction-settings'
 import type { AgentHistoryWindow } from './conversations'
@@ -31,7 +36,6 @@ import {
   visibleAgentSkills,
 } from './skills'
 import { estimateMessageTokens } from './token-estimate'
-import { agentToolDeclarations, agentToolGuidance, isCanvasToolName } from './tools'
 import { prepareVisualEvidence, type VisualEvidenceSource } from './visual-input'
 
 /**

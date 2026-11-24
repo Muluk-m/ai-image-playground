@@ -212,6 +212,7 @@ function InspirationEditor({
   // 新建成功后先别急着换抽屉：紧跟着的发布校验可能被拒，错误得有地方显示。
   // 等这一轮动作整个做完才 onCreated（它会改 URL 并按新 id 重挂编辑器）。
   const [createdId, setCreatedId] = useState<string | null>(null)
+  const [createdStatus, setCreatedStatus] = useState<InspirationAdminItem['status'] | null>(null)
   const skills = useAgentSkillCatalog()
   const assetBase = useInspirationAssetBase()
   const create = useCreateInspiration()
@@ -220,8 +221,19 @@ function InspirationEditor({
   const setStatus = useSetInspirationStatus()
   const busy = create.isPending || update.isPending || remove.isPending || setStatus.isPending
   const savedId = item?.id ?? createdId
-  // 服务端此刻的状态：新建出来的条目一定是草稿。
-  const savedStatus = item?.status ?? (createdId ? 'draft' : null)
+  // 服务端此刻的状态：新建条目保留本地编辑时，也随每次发布/草稿/下架同步真实状态。
+  const savedStatus = item?.status ?? createdStatus
+
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    mountedRef.current = true
+    onDirtyChange(false)
+    return () => {
+      mountedRef.current = false
+      onDirtyChange(false)
+    }
+  }, [onDirtyChange])
 
   const mountedRef = useRef(true)
 
@@ -265,6 +277,7 @@ function InspirationEditor({
       savedRevisionRef.current = rev
       onDirtyChange(draftRevisionRef.current !== savedRevisionRef.current)
       setCreatedId(created.item.id)
+      setCreatedStatus(created.item.status)
       return created.item.id
     } catch (saveError) {
       if (mountedRef.current) setError(inspirationErrorMessage(saveError))
@@ -281,14 +294,17 @@ function InspirationEditor({
     if (savedStatus && savedStatus !== 'draft') {
       try {
         await setStatus.mutateAsync({ id, status: 'draft' })
+        if (mountedRef.current && !item) setCreatedStatus('draft')
       } catch (statusError) {
-        setError(inspirationErrorMessage(statusError))
+        if (mountedRef.current) setError(inspirationErrorMessage(statusError))
         return
       }
     }
+    if (!mountedRef.current) return
     const unchanged = draftRevisionRef.current === rev
     if (unchanged) setSavedNotice('已保存草稿')
-    if (!item) onCreated(id, unchanged ? '已保存草稿' : undefined)
+    // 保存期间用户继续输入时留在当前编辑器（已记录 createdId 与未保存脏状态），避免重挂丢稿。
+    if (!item && unchanged) onCreated(id, '已保存草稿')
   }
 
   async function runConfirmed(): Promise<void> {
@@ -299,21 +315,25 @@ function InspirationEditor({
     setSavedNotice(null)
     try {
       if (action === 'publish') {
+        const rev = draftRevisionRef.current
         const id = await save()
         if (!id) return
         await setStatus.mutateAsync({ id, status: 'published' })
-        if (!item) onCreated(id)
+        if (!mountedRef.current) return
+        if (!item) setCreatedStatus('published')
+        if (!item && draftRevisionRef.current === rev) onCreated(id)
         return
       }
       if (!savedId) return
       if (action === 'archive') {
         await setStatus.mutateAsync({ id: savedId, status: 'archived' })
+        if (mountedRef.current && !item) setCreatedStatus('archived')
         return
       }
       await remove.mutateAsync(savedId)
-      onClose()
+      if (mountedRef.current) onClose()
     } catch (actionError) {
-      setError(inspirationErrorMessage(actionError))
+      if (mountedRef.current) setError(inspirationErrorMessage(actionError))
     }
   }
 

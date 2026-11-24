@@ -1,25 +1,21 @@
 import { Elysia, t } from 'elysia'
-import {
-  adoptProductionProposal,
-  discardProductionProposal,
-  ProductionError,
-  readProduction,
-  restoreProduction,
-  writeProduction,
-} from '../lib/agent/production'
-import {
-  adoptProductionAssets,
-  discardProductionAssets,
-  previewProductionReference,
-} from '../lib/agent/production-assets'
-import { productionDependencyStates } from '../lib/agent/production-dependencies'
-import { refreshProductionDependencies } from '../lib/agent/production-dependency-refresh'
-import {
-  adoptProductionStoryboard,
-  discardProductionStoryboard,
-} from '../lib/agent/production-storyboard'
 import { badRequestOnValidation } from '../lib/http'
 import { resolveAuthUser } from '../lib/user-auth'
+import {
+  adoptProductionAssets,
+  adoptProductionProposal,
+  adoptProductionStoryboard,
+  discardProductionAssets,
+  discardProductionProposal,
+  discardProductionStoryboard,
+  ProductionError,
+  previewProductionReference,
+  productionDependencyStates,
+  readProduction,
+  refreshProductionDependencies,
+  restoreProduction,
+  writeProduction,
+} from '../modules/agent/orchestration'
 import { productionAssetFields } from './production-asset-schema'
 import { productionClipSchema } from './production-clip-schema'
 import { productionExportRoutes } from './production-export'

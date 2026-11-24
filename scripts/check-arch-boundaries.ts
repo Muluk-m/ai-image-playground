@@ -19,13 +19,13 @@ const ALLOWED_ROUTE_TO_DB = new Set<string>([])
 const ALLOWED_DB_TO_OUTSIDE = new Set([
   'db/client.ts -> config.ts',
   'db/maintenance.ts -> config.ts',
-  'db/maintenance.ts -> lib/agent/batch-progress.ts',
   'db/maintenance.ts -> lib/durableMediaStore.ts',
   'db/maintenance.ts -> lib/logger.ts',
   'db/maintenance.ts -> lib/objectStore.ts',
   'db/maintenance.ts -> lib/retry.ts',
   'db/maintenance.ts -> lib/sync-assets.ts',
   'db/maintenance.ts -> modules/agent/index.ts',
+  'db/maintenance.ts -> modules/agent/orchestration/index.ts',
   'db/maintenance.ts -> modules/execution/index.ts',
   'db/migrate.ts -> config.ts',
   'db/migrate.ts -> lib/capabilities.ts',
@@ -61,32 +61,28 @@ const ALLOWED_EXECUTION_TO_LEGACY_LIB = new Set([
 ])
 
 /**
- * 存量运行时强连通分量内的具体有向边白名单（边级棘轮）：
- * 删边使分量缩小时自然通过；在原分量节点集合内新增任何成环边都会立即拦截。
+ * 全仓运行时循环依赖白名单已于 ADR 0034 Phase 4 PR-4.5 正式清零（原 85 文件巨型 SCC -> 9 边 -> 0）；
+ * 仓库内任意新增运行时循环依赖边均会被 CI 立即拦截。
  */
-const ALLOWED_RUNTIME_CYCLE_EDGES = new Set([
-  'lib/agent/batch-analysis-preparation.ts -> lib/agent/batch-plans.ts',
-  'lib/agent/batch-execution.ts -> lib/agent/batch-plans.ts',
-  'lib/agent/batch-phase-edit.ts -> lib/agent/batch-analysis-preparation.ts',
-  'lib/agent/batch-phase-edit.ts -> lib/agent/batch-execution.ts',
-  'lib/agent/batch-phase-edit.ts -> lib/agent/batch-plan-revision.ts',
-  'lib/agent/batch-phase-edit.ts -> lib/agent/batch-plans.ts',
-  'lib/agent/batch-plan-revision.ts -> lib/agent/batch-plans.ts',
-  'lib/agent/batch-plans.ts -> lib/agent/batch-analysis-preparation.ts',
-  'lib/agent/batch-plans.ts -> lib/agent/batch-phase-edit.ts',
-])
+const ALLOWED_RUNTIME_CYCLE_EDGES = new Set<string>([])
 
 /**
- * 存量 `lib/agent/* -> lib/agent/tools/*` 边棘轮（ADR 0034 Phase 4 PR-4.1）：
- * 抽出 `modules/agent/contracts/` 后，46 条反向依赖已压降至仅剩 5 条工具注册表入口；
- * 禁止新增任何 `core -> tools` 边，后续 PR-4.3/4.4 逐步归零。
+ * `lib/agent/* -> lib/agent/tools/*` 反向依赖已于 PR-4.4 彻底归零（原 46 -> 5 -> 0）；
+ * 任何 `lib/agent/*`（非 `lib/agent/tools/*` 兼容壳）均禁止再引入 `lib/agent/tools/*`。
  */
-const ALLOWED_AGENT_CORE_TO_TOOLS = new Set([
-  'lib/agent/interrupted.ts -> lib/agent/tools/index.ts',
-  'lib/agent/model-history.ts -> lib/agent/tools/index.ts',
-  'lib/agent/turn-input.ts -> lib/agent/tools/index.ts',
-  'lib/agent/turn-preparation.ts -> lib/agent/tools/index.ts',
-  'lib/agent/turn.ts -> lib/agent/tools/index.ts',
+const ALLOWED_AGENT_CORE_TO_TOOLS = new Set<string>([])
+
+/**
+ * 存量 `lib/agent/* -> modules/agent/tools/*` 边棘轮（PR-4.4）：
+ * 将原 5 处 `lib/agent/* -> lib/agent/tools/index.ts` 迁至 `modules/agent/tools/index.ts` 后，
+ * 继续锁死仅此 5 个编排入口可依赖工具层，防止其余 `lib/agent/*` 文件新增对工具层的耦合。
+ */
+const ALLOWED_LEGACY_AGENT_TO_MODULE_TOOLS = new Set([
+  'lib/agent/interrupted.ts -> modules/agent/tools/index.ts',
+  'lib/agent/model-history.ts -> modules/agent/tools/index.ts',
+  'lib/agent/turn-input.ts -> modules/agent/tools/index.ts',
+  'lib/agent/turn-preparation.ts -> modules/agent/tools/index.ts',
+  'lib/agent/turn.ts -> modules/agent/tools/index.ts',
 ])
 
 const CORE_PLATFORM_MODULES = new Set(['identity', 'catalog', 'media', 'execution'])
@@ -97,9 +93,87 @@ const AGENT_LAYER_RANK: Readonly<Record<string, number>> = {
   conversation: 1,
   inbox: 2,
   runtime: 3,
-  tools: 4,
-  orchestration: 5,
+  orchestration: 4,
+  tools: 5,
 }
+
+/** `modules/agent/orchestration/` 内部允许的跨子域方向（仅 `batch -> masked`）。 */
+const ALLOWED_ORCHESTRATION_SUBDOMAIN_EDGES = new Set(['batch -> masked'])
+
+/** 已迁入 `modules/agent/{contracts,conversation,inbox,runtime,orchestration}` 的旧 `lib/agent/*` 兼容壳，工具层与编排层禁止回流依赖。 */
+const LEGACY_AGENT_MIGRATED_SHIMS = new Set([
+  'lib/agent/background-jobs.ts',
+  'lib/agent/background-work.ts',
+  'lib/agent/batch-analysis-limit.ts',
+  'lib/agent/batch-analysis-preparation.ts',
+  'lib/agent/batch-analysis-proposal.ts',
+  'lib/agent/batch-analysis-sources.ts',
+  'lib/agent/batch-analysis-summary.ts',
+  'lib/agent/batch-dependencies.ts',
+  'lib/agent/batch-execution.ts',
+  'lib/agent/batch-generation-proposal.ts',
+  'lib/agent/batch-items.ts',
+  'lib/agent/batch-phase-edit.ts',
+  'lib/agent/batch-plan-revision.ts',
+  'lib/agent/batch-plans.ts',
+  'lib/agent/batch-progress.ts',
+  'lib/agent/batch-wake.ts',
+  'lib/agent/compaction-transform.ts',
+  'lib/agent/conversation-images.ts',
+  'lib/agent/conversation-state.ts',
+  'lib/agent/conversations.ts',
+  'lib/agent/events.ts',
+  'lib/agent/execution.ts',
+  'lib/agent/images.ts',
+  'lib/agent/inbox-pickup.ts',
+  'lib/agent/inbox.ts',
+  'lib/agent/job-artifacts.ts',
+  'lib/agent/lifecycle.ts',
+  'lib/agent/mask-proposal.ts',
+  'lib/agent/mask-regions.ts',
+  'lib/agent/masked-alignment.ts',
+  'lib/agent/masked-boundary.ts',
+  'lib/agent/masked-edit-settings.ts',
+  'lib/agent/masked-edit.ts',
+  'lib/agent/masked-input.ts',
+  'lib/agent/masked-output.ts',
+  'lib/agent/masked-plan.ts',
+  'lib/agent/modelImage.ts',
+  'lib/agent/production-asset-validation.ts',
+  'lib/agent/production-assets.ts',
+  'lib/agent/production-clips.ts',
+  'lib/agent/production-dependencies.ts',
+  'lib/agent/production-dependency-refresh.ts',
+  'lib/agent/production-export.ts',
+  'lib/agent/production-generation-binding.ts',
+  'lib/agent/production-generation-validation.ts',
+  'lib/agent/production-generation.ts',
+  'lib/agent/production-references.ts',
+  'lib/agent/production-shot-validation.ts',
+  'lib/agent/production-storyboard.ts',
+  'lib/agent/production.ts',
+  'lib/agent/review-images.ts',
+  'lib/agent/runningTurns.ts',
+  'lib/agent/segment-rate-limit.ts',
+  'lib/agent/segmentation.ts',
+  'lib/agent/selection-preview.ts',
+  'lib/agent/selection-settings.ts',
+  'lib/agent/sse.ts',
+  'lib/agent/stage-authorizations.ts',
+  'lib/agent/stage-runs.ts',
+  'lib/agent/tool-gate-records.ts',
+  'lib/agent/turn-failure.ts',
+  'lib/agent/turn-summary.ts',
+  'lib/agent/turn.ts',
+  'lib/agent/visual-input.ts',
+  'lib/agent/visual-resources.ts',
+  'lib/agent/visual-workset.ts',
+  'lib/agent/wake-prompt.ts',
+  'lib/agent/wake.ts',
+])
+
+/** ADR 0034 Phase 4 PR-4.3：`modules/agent/runtime/` 单文件扇出硬上限（严格 < 12）。 */
+const MAX_AGENT_RUNTIME_FAN_OUT = 11
 
 const JS_EXTENSION_PATTERN = /\.(?:[cm]?js|jsx)$/
 
@@ -185,13 +259,20 @@ interface ImportGraphs {
   runtimeAdjacency: Map<string, string[]>
   /** 完整依赖（含 import/export type 与动态导入），用于边界与封装门禁。 */
   allAdjacency: Map<string, string[]>
+  /** 每个源文件去重后的总导入模块数（含外部包与本地模块），用于单文件扇出门禁。 */
+  specifierCounts: Map<string, number>
 }
 
 async function buildImportGraphs(rootDir: string): Promise<ImportGraphs> {
   const normalizedRoot = resolve(rootDir)
   const files: string[] = []
   if (!existsSync(normalizedRoot)) {
-    return { files, runtimeAdjacency: new Map(), allAdjacency: new Map() }
+    return {
+      files,
+      runtimeAdjacency: new Map(),
+      allAdjacency: new Map(),
+      specifierCounts: new Map(),
+    }
   }
 
   for await (const file of sourceGlob.scan({ cwd: normalizedRoot, onlyFiles: true })) {
@@ -203,6 +284,7 @@ async function buildImportGraphs(rootDir: string): Promise<ImportGraphs> {
 
   const runtimeAdjacency = new Map<string, string[]>()
   const allAdjacency = new Map<string, string[]>()
+  const specifierCounts = new Map<string, number>()
   for (const file of files) {
     const text = await Bun.file(resolve(normalizedRoot, file)).text()
     const transpiler = file.endsWith('.tsx') ? tsxTranspiler : tsTranspiler
@@ -218,15 +300,17 @@ async function buildImportGraphs(rootDir: string): Promise<ImportGraphs> {
       const target = resolveInternalTarget(normalizedRoot, file, imp.path)
       if (target && target !== file) runtimeTargets.add(target)
     }
+    const allSpecifiers = scanAllSpecifiers(file, text)
     const allTargets = new Set<string>(runtimeTargets)
-    for (const specifier of scanAllSpecifiers(file, text)) {
+    for (const specifier of allSpecifiers) {
       const target = resolveInternalTarget(normalizedRoot, file, specifier)
       if (target && target !== file) allTargets.add(target)
     }
     runtimeAdjacency.set(file, [...runtimeTargets].sort())
     allAdjacency.set(file, [...allTargets].sort())
+    specifierCounts.set(file, allSpecifiers.length)
   }
-  return { files, runtimeAdjacency, allAdjacency }
+  return { files, runtimeAdjacency, allAdjacency, specifierCounts }
 }
 
 export function findStronglyConnectedCycles(
@@ -285,12 +369,35 @@ function agentLayerOf(rest: string): string | null {
   return match[1]! in AGENT_LAYER_RANK ? match[1]! : null
 }
 
+function agentToolDomainOf(rest: string): string | null {
+  const match = /^tools\/([^/]+)\//.exec(rest)
+  return match ? match[1]! : null
+}
+
+function agentOrchestrationSubdomainOf(rest: string): string | null {
+  const match = /^orchestration\/([^/]+)\//.exec(rest)
+  return match ? match[1]! : null
+}
+
 export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
-  const { files, runtimeAdjacency, allAdjacency } = await buildImportGraphs(bffRoot)
+  const { files, runtimeAdjacency, allAdjacency, specifierCounts } =
+    await buildImportGraphs(bffRoot)
   const violations: string[] = []
 
   for (const file of files) {
     const fromModule = moduleOf(file)
+    if (
+      fromModule?.name === 'agent' &&
+      agentLayerOf(fromModule.rest) === 'runtime' &&
+      fromModule.rest !== 'runtime/index.ts'
+    ) {
+      const fanOut = specifierCounts.get(file) ?? 0
+      if (fanOut > MAX_AGENT_RUNTIME_FAN_OUT) {
+        violations.push(
+          `[agent-runtime-fanout] ${file} imports ${fanOut} modules (max ${MAX_AGENT_RUNTIME_FAN_OUT})`,
+        )
+      }
+    }
 
     for (const target of allAdjacency.get(file) ?? []) {
       const edge = `${file} -> ${target}`
@@ -325,12 +432,27 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
       if (toModule && fromModule?.name !== toModule.name && !file.startsWith('bootstrap/')) {
         if (
           toModule.rest !== 'index.ts' &&
-          !(toModule.name === 'agent' && toModule.rest === 'contracts/index.ts')
+          !(
+            toModule.name === 'agent' &&
+            (toModule.rest === 'contracts/index.ts' ||
+              toModule.rest === 'orchestration/index.ts' ||
+              toModule.rest === 'orchestration/masked/pure.ts' ||
+              toModule.rest === 'tools/index.ts')
+          )
         ) {
           violations.push(
             `[module-encapsulation] ${edge} bypasses modules/${toModule.name}/index.ts facade`,
           )
         }
+      }
+
+      if (
+        fromModule?.name === 'canvas' &&
+        (toModule?.name === 'agent' || target.startsWith('lib/agent/'))
+      ) {
+        violations.push(
+          `[canvas -> agent] ${edge} is not allowed (modules/canvas must stay decoupled from agent)`,
+        )
       }
 
       if (
@@ -378,6 +500,53 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
           violations.push(
             `[agent-layer] ${edge} violates ADR 0034 agent sub-layer order (${fromLayer} -> ${toLayer})`,
           )
+        } else if (fromLayer === 'tools' && (toLayer === 'runtime' || toLayer === 'inbox')) {
+          violations.push(
+            `[agent-tools -> ${toLayer}] ${edge} is not allowed (tools must not depend on ${toLayer})`,
+          )
+        } else if (fromLayer === 'orchestration' && toLayer === 'runtime') {
+          violations.push(
+            `[agent-orchestration -> runtime] ${edge} is not allowed (orchestration must not depend on runtime)`,
+          )
+        }
+        const fromOrchSub = agentOrchestrationSubdomainOf(fromModule.rest)
+        const toOrchSub = agentOrchestrationSubdomainOf(toModule.rest)
+        if (
+          fromOrchSub &&
+          toOrchSub &&
+          fromOrchSub !== toOrchSub &&
+          !ALLOWED_ORCHESTRATION_SUBDOMAIN_EDGES.has(`${fromOrchSub} -> ${toOrchSub}`)
+        ) {
+          violations.push(
+            `[agent-orchestration -> subdomain] ${edge} is not allowed (orchestration/${fromOrchSub} must not depend on orchestration/${toOrchSub})`,
+          )
+        } else if (fromOrchSub && toModule.rest === 'orchestration/index.ts') {
+          violations.push(
+            `[agent-orchestration -> facade] ${edge} is not allowed (orchestration subdomains must not import orchestration/index.ts)`,
+          )
+        }
+        const fromToolDomain = agentToolDomainOf(fromModule.rest)
+        const toToolDomain = agentToolDomainOf(toModule.rest)
+        if (fromToolDomain && toToolDomain && fromToolDomain !== toToolDomain) {
+          violations.push(
+            `[agent-tools -> inter-tool] ${edge} is not allowed (tools in ${fromToolDomain}/ must not import tools in ${toToolDomain}/)`,
+          )
+        } else if (
+          fromToolDomain &&
+          (toModule.rest === 'tools/index.ts' || toModule.rest === 'tools/registry.ts')
+        ) {
+          violations.push(
+            `[agent-tools -> registry] ${edge} is not allowed (domain tools must not import tools facade or registry)`,
+          )
+        } else if (
+          fromModule.rest === 'tools/adapter.ts' &&
+          (toToolDomain !== null ||
+            toModule.rest === 'tools/index.ts' ||
+            toModule.rest === 'tools/registry.ts')
+        ) {
+          violations.push(
+            `[agent-tools -> adapter-upward] ${edge} is not allowed (tools/adapter.ts must stay below domain tools and registry)`,
+          )
         }
       }
 
@@ -386,6 +555,25 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
         if (layer === 'contracts' || layer === 'conversation' || layer === 'inbox') {
           violations.push(
             `[agent-${layer} -> legacy-agent] ${edge} is not allowed (${layer} layer must stay free of lib/agent deps)`,
+          )
+        } else if (layer === 'runtime' && target.startsWith('lib/agent/tools/')) {
+          violations.push(
+            `[agent-runtime -> legacy-tools] ${edge} is not allowed (inject tool capabilities via TurnRuntimePorts instead)`,
+          )
+        } else if (layer === 'tools' && target.startsWith('lib/agent/tools/')) {
+          violations.push(
+            `[agent-tools -> legacy-tools] ${edge} is not allowed (use modules/agent/tools internal modules directly)`,
+          )
+        } else if (layer === 'orchestration' && target.startsWith('lib/agent/tools/')) {
+          violations.push(
+            `[agent-orchestration -> legacy-tools] ${edge} is not allowed (orchestration must not depend on lib/agent/tools)`,
+          )
+        } else if (
+          (layer === 'runtime' || layer === 'tools' || layer === 'orchestration') &&
+          LEGACY_AGENT_MIGRATED_SHIMS.has(target)
+        ) {
+          violations.push(
+            `[agent-${layer} -> legacy-agent-layer] ${edge} is not allowed (import from modules/agent internal layers instead of legacy shims)`,
           )
         }
       }
@@ -398,6 +586,17 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
       ) {
         violations.push(
           `[agent-core -> tools] ${edge} is not allowed (import shared contracts from modules/agent instead)`,
+        )
+      }
+
+      if (
+        file.startsWith('lib/agent/') &&
+        !file.startsWith('lib/agent/tools/') &&
+        target.startsWith('modules/agent/tools/') &&
+        !ALLOWED_LEGACY_AGENT_TO_MODULE_TOOLS.has(edge)
+      ) {
+        violations.push(
+          `[agent-core -> module-tools] ${edge} is not allowed (keep legacy lib/agent core decoupled from modules/agent/tools)`,
         )
       }
     }
@@ -419,7 +618,14 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
 
   for (const file of files) {
     const fromModule = moduleOf(file)
-    if (fromModule?.name !== 'agent' || agentLayerOf(fromModule.rest) !== 'contracts') continue
+    const isContracts =
+      fromModule?.name === 'agent' && agentLayerOf(fromModule.rest) === 'contracts'
+    const isMaskedPure =
+      fromModule?.name === 'agent' && fromModule.rest === 'orchestration/masked/pure.ts'
+    if (!isContracts && !isMaskedPure) continue
+    const ruleTag = isContracts
+      ? 'agent-contracts -> runtime-env'
+      : 'agent-masked-pure -> runtime-env'
     const visited = new Set<string>([file])
     const queue: Array<{ node: string; via: string }> = []
     for (const next of runtimeAdjacency.get(file) ?? []) {
@@ -432,7 +638,7 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
       if (current.node === 'config.ts' || current.node.startsWith('db/')) {
         const suffix = current.via === current.node ? '' : ` (via ${current.via})`
         violations.push(
-          `[agent-contracts -> runtime-env] ${file} -> ${current.node}${suffix} is not allowed (contracts must stay import-safe without DATABASE_URL / config / db)`,
+          `[${ruleTag}] ${file} -> ${current.node}${suffix} is not allowed (pure agent entry must stay import-safe without DATABASE_URL / config / db)`,
         )
         continue
       }

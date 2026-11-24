@@ -1,6 +1,6 @@
 import { createFileRoute, Link, Outlet, redirect } from '@tanstack/react-router'
 import { AlertTriangle, ChevronRight } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 
 import { AppSidebar } from '@/components/AppSidebar'
 import { CommandPalette } from '@/components/CommandPalette'
@@ -69,11 +69,18 @@ function AuthedNotFound() {
 
 /**
  * 出事了就在内容区顶上挂一条窄横幅，点进运维看板看详情——不把运维数据混进当前这页。
- * 常驻壳五分钟取一次；进入运维看板后，同一把 query 会按看板自己的 30 秒间隔更新。
- * 还没取到或取失败时什么都不显示：横幅是「有事」的信号，不是「取数状态」的展示位。
+ * 常驻壳五分钟取一次；首屏延后 1.5 秒再拉横幅，避免 17 条运维读查询在首屏和当前页主查询抢连接池
+ * （直接进 `/ops` 默认 24h 窗口时，看板页自身的 `useOps` 会立刻拉取并共享同一份缓存）。
  */
+const BANNER_DEFER_MS = 1_500
+
 function OpsAlertBanner() {
-  const { data } = useOps(DEFAULT_OPS_RANGE, 5 * 60_000)
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    const timer = setTimeout(() => setReady(true), BANNER_DEFER_MS)
+    return () => clearTimeout(timer)
+  }, [])
+  const { data } = useOps(DEFAULT_OPS_RANGE, 5 * 60_000, ready)
   const alerts = data ? opsAlerts(data) : []
   if (!alerts.length) return null
   return (

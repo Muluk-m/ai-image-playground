@@ -93,8 +93,8 @@ services:
       APP_ROLE: bff
       PORT: "37377"
       # Per-process connection caps. Both deployments share one PostgreSQL (max_connections 100),
-      # and a rollout runs a second bff and worker beside the old pair: 2 x (6 + 4 + 3 + 1 + 1) = 30
-      # steady (including a single log connection per bff/worker), under 60 with both deployments mid-rollout plus migrate and pg-backup. Queries past
+      # and a rollout runs a second bff and worker beside the old pair: 2 x (6 + 4 + 6 + 1 + 1) = 36
+      # steady (including a single log connection per bff/worker), under 65 with both deployments mid-rollout plus migrate and pg-backup. Queries past
       # the cap wait for a free connection instead of failing. The BFF's work is short
       # transactions; its background sweeps (agent inbox pickup, retries, purge, heartbeat) each
       # hold one at a time, leaving most for requests. scripts/rollout-runtime.sh repeats the bff
@@ -184,8 +184,9 @@ services:
       <<: *observability-secrets-blank
       APP_ROLE: admin
       PORT: "37378"
-      # Operator traffic only; the operations board fans out a dozen short reads per load.
-      DATABASE_POOL_MAX: "3"
+      # Operator traffic only; ops snapshot fans out parallel reads alongside active page queries.
+      # 6 connections keeps paid+test+rollout well within PostgreSQL max_connections=100.
+      DATABASE_POOL_MAX: "6"
       # ADMIN_DIST_DIR is deliberately absent: app.env owns it. Empty there makes Admin
       # API-only (the frontend is its own Pages project); unset falls back to the image
       # default that still serves dist, which is the rollback path.
@@ -634,6 +635,10 @@ configs:
                 - set(span_id.string, attributes["span_id"]) where attributes["span_id"] != nil
                 - delete_key(attributes, "trace_id")
                 - delete_key(attributes, "span_id")
+                # Service from the container name when the line did not say (cloudflared, backups).
+                # Normalize before severity rules so cloudflared-only downgrades stay scoped to cloudflared.
+                - set(attributes["service"], attributes["container_name"]) where attributes["service"] == nil and attributes["container_name"] != nil
+                - replace_pattern(attributes["service"], "^/?.*-(bff|worker|admin|cloudflared|host-collector|pg-backup|release-router|migrate|obs-proxy|openobserve|dependency-check)(-[0-9]+)?$$", "$$1")
                 # pino numeric levels, string levels (host-collector), cloudflared's INF/WRN/ERR.
                 - set(severity_number, SEVERITY_NUMBER_TRACE) where attributes["level"] == 10
                 - set(severity_number, SEVERITY_NUMBER_DEBUG) where attributes["level"] == 20
@@ -641,10 +646,13 @@ configs:
                 - set(severity_number, SEVERITY_NUMBER_WARN) where attributes["level"] == 40 or attributes["level"] == "warn"
                 - set(severity_number, SEVERITY_NUMBER_ERROR) where attributes["level"] == 50 or attributes["level"] == "error"
                 - set(severity_number, SEVERITY_NUMBER_FATAL) where attributes["level"] == 60 or attributes["level"] == "fatal"
-                # Same as the old server_logs parser (container-logs.ts): FTL is fatal, and a client
-                # that hung up mid-request (cloudflared `ERR ... context canceled`) is only a warning.
+                # Same as the old server_logs parser (container-logs.ts): FTL is fatal; cloudflared's
+                # client hang-ups (`ERR ... context canceled`) and per-connection HTTP/2 control-stream
+                # teardown during routine edge recycles (`Error shutting down control stream: ...`)
+                # are only warnings — real origin/auth/tunnel failures still stay ERROR/FATAL.
                 - set(severity_number, SEVERITY_NUMBER_FATAL) where severity_number == SEVERITY_NUMBER_UNSPECIFIED and IsMatch(body, "^\\S+\\s+FTL\\s")
-                - set(severity_number, SEVERITY_NUMBER_WARN) where severity_number == SEVERITY_NUMBER_UNSPECIFIED and IsMatch(body, "^\\S+\\s+ERR\\s") and IsMatch(body, "\\bcontext canceled\\b")
+                - set(severity_number, SEVERITY_NUMBER_WARN) where severity_number == SEVERITY_NUMBER_UNSPECIFIED and attributes["service"] == "cloudflared" and IsMatch(body, "^\\S+\\s+ERR\\s") and IsMatch(body, "\\bcontext canceled\\b")
+                - set(severity_number, SEVERITY_NUMBER_WARN) where severity_number == SEVERITY_NUMBER_UNSPECIFIED and attributes["service"] == "cloudflared" and IsMatch(body, "^\\S+\\s+ERR\\s+failed to serve incoming request error=\"Error shutting down control stream:")
                 - set(severity_number, SEVERITY_NUMBER_ERROR) where severity_number == SEVERITY_NUMBER_UNSPECIFIED and IsMatch(body, "^\\S+\\s+ERR\\s")
                 - set(severity_number, SEVERITY_NUMBER_WARN) where severity_number == SEVERITY_NUMBER_UNSPECIFIED and IsMatch(body, "^\\S+\\s+WRN\\s")
                 - set(severity_number, SEVERITY_NUMBER_INFO) where severity_number == SEVERITY_NUMBER_UNSPECIFIED and IsMatch(body, "^\\S+\\s+INF\\s")
@@ -657,9 +665,6 @@ configs:
                 - set(severity_text, "ERROR") where severity_number == SEVERITY_NUMBER_ERROR
                 - set(severity_text, "FATAL") where severity_number == SEVERITY_NUMBER_FATAL
                 - delete_key(attributes, "level")
-                # Service from the container name when the line did not say (cloudflared, backups).
-                - set(attributes["service"], attributes["container_name"]) where attributes["service"] == nil and attributes["container_name"] != nil
-                - replace_pattern(attributes["service"], "^/?.*-(bff|worker|admin|cloudflared|host-collector|pg-backup|release-router|migrate|obs-proxy|openobserve|dependency-check)(-[0-9]+)?$$", "$$1")
                 # Redaction, the same rules as server_logs (packages/shared/src/redact-log.ts):
                 # drop private fields at any depth, then scrub credential-shaped fragments.
                 - flatten(attributes)
