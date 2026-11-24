@@ -1490,11 +1490,11 @@ export function AgentImageRun({
                 )
                   .then((results) => {
                     if (results.some((ok) => !ok)) {
-                      useStore.getState().showToast(t('common:error.downloadFailed'), 'error')
+                      useStore.getState().showToast(t('tool.downloadFailed'), 'error')
                     }
                   })
                   .catch(() => {
-                    useStore.getState().showToast(t('common:error.downloadFailed'), 'error')
+                    useStore.getState().showToast(t('tool.downloadFailed'), 'error')
                   })
                   .finally(() => {
                     downloadingAllRef.current = false

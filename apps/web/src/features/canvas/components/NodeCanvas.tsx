@@ -1689,7 +1689,11 @@ function Flow({
         event.stopImmediatePropagation()
         remove()
       } else if (key === 'escape') {
-        if (document.querySelector('[data-radix-popper-content-wrapper], .studio-agent-job-inbox'))
+        if (
+          document.querySelector(
+            '[data-radix-popper-content-wrapper], .studio-agent-job-inbox [aria-expanded="true"]',
+          )
+        )
           return
         closeMenu()
         selectNode(null)

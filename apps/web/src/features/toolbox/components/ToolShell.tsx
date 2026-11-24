@@ -111,7 +111,7 @@ export default function ToolShell({
     setLocalDownloading(true)
     void downloadImages(deliverables, `${name}.zip`)
       .catch(() => {
-        useStore.getState().showToast(t('common:error.downloadFailed'), 'error')
+        useStore.getState().showToast(t('result.failed'), 'error')
       })
       .finally(() => {
         downloadingRef.current = false

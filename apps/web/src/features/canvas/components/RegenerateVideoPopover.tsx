@@ -98,6 +98,9 @@ export default function RegenerateVideoPopover({
     }
   }
 
+  const canSubmit =
+    !guard.blocked && Boolean(prompt.trim()) && Boolean(option) && !inputRefusal && !submitting
+
   return (
     <Dialog
       onClose={submitting ? () => {} : onClose}
@@ -117,9 +120,7 @@ export default function RegenerateVideoPopover({
             type="button"
             size="sm"
             className="w-full"
-            disabled={
-              guard.blocked || !prompt.trim() || !option || Boolean(inputRefusal) || submitting
-            }
+            disabled={!canSubmit}
             title={guard.disabledReason}
             onClick={() => void submit()}
           >
@@ -162,7 +163,7 @@ export default function RegenerateVideoPopover({
           if (event.nativeEvent.isComposing || event.keyCode === 229) return
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
             event.preventDefault()
-            void submit()
+            if (canSubmit) void submit()
           }
         }}
         rows={4}

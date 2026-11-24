@@ -52,6 +52,7 @@ export default function ProjectTrash({
     if (busy) return
     const isCurrent = accountScope()
     setBusy(true)
+    setError((prev) => (prev === 'project_quota_exceeded' ? false : prev))
     try {
       const project = await copyDeletedProjectLocally(id)
       if (isCurrent()) await onOpen(project)
@@ -65,6 +66,7 @@ export default function ProjectTrash({
     if (busy) return
     const isCurrent = accountScope()
     setBusy(true)
+    setError((prev) => (prev === 'project_quota_exceeded' ? false : prev))
     try {
       await restoreProject(id)
       if (!isCurrent()) return

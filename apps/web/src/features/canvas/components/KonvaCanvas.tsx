@@ -234,6 +234,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
       // 模态确认开着时焦点可能被 Tab 到背景，快捷键仍不能改动它正要处理的那批元素。
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
       const onInteractive = Boolean(target?.closest('button, a, [role="button"]'))
+      const onCanvasToolbar = Boolean(target?.closest('[data-canvas-toolbar]'))
       if (e.key === ' ') {
         if (onInteractive) return
         setSpaceDown(true)
@@ -266,7 +267,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         }
         return
       }
-      if (onInteractive && e.key !== 'Escape') return
+      if (onInteractive && !onCanvasToolbar && e.key !== 'Escape') return
       switch (e.key) {
         case 'v':
         case 'V':

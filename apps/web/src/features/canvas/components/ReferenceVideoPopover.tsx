@@ -105,6 +105,7 @@ export default function ReferenceVideoPopover({
   const framesAllowed = option?.support.referenceImages?.withFrames !== false
   const keyframeMax = option?.support.keyframes?.max
   const keyframeCount = items.filter((item) => item.role === 'keyframe').length
+  const canSubmit = !guard.blocked && Boolean(prompt.trim()) && !refusal && !submitting
 
   return (
     <Dialog
@@ -129,7 +130,7 @@ export default function ReferenceVideoPopover({
             type="button"
             size="sm"
             className="w-full"
-            disabled={guard.blocked || !prompt.trim() || Boolean(refusal) || submitting}
+            disabled={!canSubmit}
             title={guard.disabledReason}
             onClick={() => void submit()}
           >
@@ -253,7 +254,7 @@ export default function ReferenceVideoPopover({
           if (event.nativeEvent.isComposing || event.keyCode === 229) return
           if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
             event.preventDefault()
-            void submit()
+            if (canSubmit) void submit()
           }
         }}
         rows={4}
