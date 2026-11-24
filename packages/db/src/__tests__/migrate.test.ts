@@ -909,6 +909,7 @@ describe('runMigrations', () => {
         expect(builtConcurrently).toEqual([
           'idx_tasks_reconciling_next_retry',
           'idx_tasks_reconciling_alert',
+          'idx_media_objects_owner_asset_image',
         ])
         await expect(verifySchema(url)).resolves.toMatchObject({
           migrations: journal.entries.length,
@@ -1061,6 +1062,99 @@ describe('runMigrations', () => {
             WHERE table_schema = 'public' AND table_name = 'queue_tasks' AND grantee = 'PUBLIC'`,
         ).toEqual([{ privilege_type: 'SELECT' }])
         await sql`DROP VIEW queue_tasks_payload_reader`
+      } finally {
+        await sql.close()
+      }
+    })
+  }, 30_000)
+
+  it('unifies media ledger columns, builds 0108 index concurrently, fixes user cascade delete, and back-syncs on rollback', async () => {
+    await withEmptyDatabase('media_ledger_unification_upgrade', async (url) => {
+      await migrateUntil(url, '0106_queue_tasks_payload_view')
+      const sql = new SQL(url, { max: 1 })
+      try {
+        const builtConcurrently: string[] = []
+        await runMigrations(url, {
+          onConcurrentIndexBuilt: (name) => builtConcurrently.push(name),
+        })
+        expect(builtConcurrently).toEqual(['idx_media_objects_owner_asset_image'])
+        // All 0107 constraints must be validated by 0108 in its separate transaction.
+        const constraints = await sql<{ conname: string; convalidated: boolean }[]>`
+          SELECT conname, convalidated
+          FROM pg_constraint
+          WHERE conname IN (
+            'media_objects_storage_scope_check',
+            'media_references_owner_kind_check',
+            'media_references_media_id_fkey'
+          )
+          ORDER BY conname
+        `
+        expect(constraints).toEqual([
+          { conname: 'media_objects_storage_scope_check', convalidated: true },
+          { conname: 'media_references_media_id_fkey', convalidated: true },
+          { conname: 'media_references_owner_kind_check', convalidated: true },
+        ])
+
+        const now = new Date()
+        await sql`
+          INSERT INTO users (id, username, password_hash, status, created_at, updated_at)
+          VALUES
+            ('u-rollback', 'u-rollback', 'hash', 'active', ${now}, ${now}),
+            ('u-cascade', 'u-cascade', 'hash', 'active', ${now}, ${now})
+        `
+        // Unified media row exists only in media_objects (e.g. post-unification upload or sync).
+        await sql`
+          INSERT INTO media_objects (
+            id, user_id, sha256, bytes, content_type, status, attachment_managed,
+            reserved_bytes, staging_key, object_key, preview_bytes,
+            asset_image_id, storage_scope, expires_at, created_at, updated_at
+          )
+          VALUES
+            (
+              'm-rollback', 'u-rollback', 'asset:img-rb', 123, 'image/png', 'ready', false,
+              123, 'users/u-rollback/assets/img-rb', 'users/u-rollback/assets/img-rb', 0,
+              'img-rb', 'object', ${now}, ${now}, ${now}
+            ),
+            (
+              'm-cascade', 'u-cascade', 'asset:img-cas', 64, 'image/png', 'ready', false,
+              64, 'users/u-cascade/assets/img-cas', 'users/u-cascade/assets/img-cas', 0,
+              'img-cas', 'object', ${now}, ${now}, ${now}
+            )
+        `
+        await sql`
+          INSERT INTO media_references (user_id, media_id, owner_kind, owner_id, created_at)
+          VALUES
+            ('u-rollback', 'm-rollback', 'look', 'look-1', ${now}),
+            ('u-rollback', 'm-rollback', 'cli_reference', 'm-rollback', ${now}),
+            ('u-cascade', 'm-cascade', 'asset', 'asset-1', ${now})
+        `
+
+        // Direct deletion of a referenced media_objects row must still fail with FK violation.
+        await expect(sql`DELETE FROM media_objects WHERE id = 'm-cascade'`).rejects.toThrow()
+        // Deleting the owning user must cascade both media_objects and media_references cleanly.
+        await sql`DELETE FROM users WHERE id = 'u-cascade'`
+        expect(await sql`SELECT id FROM media_objects WHERE user_id = 'u-cascade'`).toEqual([])
+        expect(
+          await sql`SELECT media_id FROM media_references WHERE user_id = 'u-cascade'`,
+        ).toEqual([])
+
+        // Rollback 0108 then 0107 must preserve u-rollback's asset in user_asset_objects.
+        await sql.unsafe(
+          await Bun.file(
+            join(migrationsDirectory, 'rollback/0108_media_objects_asset_image_index.down.sql'),
+          ).text(),
+        )
+        await sql.unsafe(
+          await Bun.file(
+            join(migrationsDirectory, 'rollback/0107_media_ledger_unification.down.sql'),
+          ).text(),
+        )
+        expect(
+          await sql`SELECT user_id, image_id, bytes, content_type FROM user_asset_objects WHERE user_id = 'u-rollback'`,
+        ).toEqual([
+          { user_id: 'u-rollback', image_id: 'img-rb', bytes: 123, content_type: 'image/png' },
+        ])
+        expect(await sql`SELECT id FROM media_objects WHERE user_id = 'u-rollback'`).toEqual([])
       } finally {
         await sql.close()
       }

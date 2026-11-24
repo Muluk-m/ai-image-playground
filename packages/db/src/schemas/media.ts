@@ -31,6 +31,10 @@ export const media_objects = pgTable(
     object_key: text('object_key'),
     preview_key: text('preview_key'),
     preview_bytes: bigint('preview_bytes', { mode: 'number' }).notNull().default(0),
+    /** 映射旧 `user_asset_objects.image_id`，为空表示标准内容寻址云媒体。 */
+    asset_image_id: text('asset_image_id'),
+    /** 区分持久媒体前缀（`durableMediaStore`）与旧素材对象前缀（`objectStore`），实现零搬运迁移。 */
+    storage_scope: text('storage_scope').$type<'durable' | 'object'>().notNull().default('durable'),
     width: integer('width'),
     height: integer('height'),
     expires_at: epochMs('expires_at').notNull(),
@@ -39,10 +43,14 @@ export const media_objects = pgTable(
   },
   (t) => [
     uniqueIndex('idx_media_objects_owner_hash').on(t.user_id, t.sha256),
+    uniqueIndex('idx_media_objects_owner_asset_image')
+      .on(t.user_id, t.asset_image_id)
+      .where(sql`${t.asset_image_id} IS NOT NULL`),
     index('idx_media_objects_pending').on(t.status, t.expires_at),
     check('media_objects_bytes_check', sql`${t.bytes} > 0`),
     check('media_objects_reserved_bytes_check', sql`${t.reserved_bytes} >= 0`),
     check('media_objects_status_check', sql`${t.status} IN ('pending', 'ready', 'deleting')`),
+    check('media_objects_storage_scope_check', sql`${t.storage_scope} IN ('durable', 'object')`),
   ],
 )
 
@@ -54,9 +62,18 @@ export const media_references = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     media_id: text('media_id')
       .notNull()
-      .references(() => media_objects.id, { onDelete: 'restrict' }),
+      .references(() => media_objects.id, { onDelete: 'no action' }),
     owner_kind: text('owner_kind')
-      .$type<'project' | 'asset' | 'conversation' | 'generation' | 'batch' | 'analysis'>()
+      .$type<
+        | 'project'
+        | 'asset'
+        | 'conversation'
+        | 'generation'
+        | 'batch'
+        | 'analysis'
+        | 'cli_reference'
+        | 'look'
+      >()
       .notNull(),
     owner_id: text('owner_id').notNull(),
     created_at: epochMs('created_at').notNull(),
@@ -66,7 +83,7 @@ export const media_references = pgTable(
     index('idx_media_references_media').on(t.media_id),
     check(
       'media_references_owner_kind_check',
-      sql`${t.owner_kind} IN ('project', 'asset', 'conversation', 'generation', 'batch', 'analysis')`,
+      sql`${t.owner_kind} IN ('project', 'asset', 'conversation', 'generation', 'batch', 'analysis', 'cli_reference', 'look')`,
     ),
   ],
 )
