@@ -35,6 +35,14 @@ const EXECUTE = 'b'.repeat(32)
 
 it('shows the submit and execution traces of a task, and the fields behind each log line', async () => {
   get.mockImplementation(async (path: string) => {
+    if (path.startsWith('/api/ops/tasks/task-1/traces?') && !path.endsWith('&trees=1'))
+      return {
+        more: false,
+        traces: [
+          { traceId: SUBMIT, startedAt: Date.UTC(2026, 10, 24, 2) },
+          { traceId: EXECUTE, startedAt: Date.UTC(2026, 10, 24, 2, 0, 1) },
+        ],
+      }
     if (path.startsWith('/api/ops/tasks/task-1/traces?'))
       return {
         more: false,
@@ -75,8 +83,10 @@ it('shows the submit and execution traces of a task, and the fields behind each 
     </QueryClientProvider>,
   )
 
+  expect(get.mock.calls.some(([path]) => String(path).endsWith('&trees=1'))).toBe(false)
   fireEvent.click(await screen.findByRole('tab', { name: '链路 2' }))
-  expect(screen.getByRole('region', { name: `链路 ${SUBMIT}` })).toHaveTextContent(
+  // 打开抽屉只列链路；span 树等点开这一页才取。
+  expect(await screen.findByRole('region', { name: `链路 ${SUBMIT}` })).toHaveTextContent(
     'bff POST /v1/queue/submit',
   )
   const execution = screen.getByRole('region', { name: `链路 ${EXECUTE}` })

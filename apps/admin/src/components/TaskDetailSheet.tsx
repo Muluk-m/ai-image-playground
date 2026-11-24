@@ -11,9 +11,14 @@ import { cn } from '@/lib/utils'
 interface TaskTrace {
   traceId: string
   startedAt: number
-  tree: string
-  spans: number
-  truncated: boolean
+  tree?: string
+  spans?: number
+  truncated?: boolean
+}
+
+interface TaskTraces {
+  traces: TaskTrace[]
+  more: boolean
 }
 
 interface TaskDetailSheetProps {
@@ -58,15 +63,14 @@ function TaskDrawerTabs({ taskId }: { taskId: string }) {
         `/api/ops/logs?taskId=${encodeURIComponent(taskId)}&from=${logFrom}&to=${logTo}`,
       ),
   })
-  // 提交和每次执行各一条链路；没开 OpenObserve 的部署（测试环境）查不到就不显示这一页。
+  // 提交和每次执行各一条链路。打开抽屉只列链路决定要不要这一页，点开才画 span 树；没开
+  // OpenObserve 的部署（测试环境）查不到就不显示这一页。
+  const tracePath = `/api/ops/tasks/${encodeURIComponent(taskId)}/traces?from=${logFrom}&to=${logTo}`
   const traces = useQuery({
     queryKey: ['task-traces', taskId, logFrom, logTo],
     enabled: logFrom !== null && logTo !== null,
     retry: false,
-    queryFn: () =>
-      apiClient.get<{ traces: TaskTrace[]; more: boolean }>(
-        `/api/ops/tasks/${encodeURIComponent(taskId)}/traces?from=${logFrom}&to=${logTo}`,
-      ),
+    queryFn: () => apiClient.get<TaskTraces>(tracePath),
   })
   const traceList = traces.data?.traces ?? []
   const audits = useAudits({ targetId: taskId })
@@ -81,6 +85,12 @@ function TaskDrawerTabs({ taskId }: { taskId: string }) {
   ].filter((tab): tab is { id: string; label: string } => tab !== null)
   const [active, setActive] = useState('history')
   const current = tabs.some((tab) => tab.id === active) ? active : tabs[0]?.id
+  const trees = useQuery({
+    queryKey: ['task-trace-trees', taskId, logFrom, logTo],
+    enabled: current === 'traces',
+    retry: false,
+    queryFn: () => apiClient.get<TaskTraces>(`${tracePath}&trees=1`),
+  })
   if (!tabs.length || !current) return null
   return (
     <div className="border-t bg-muted/40">
@@ -125,9 +135,17 @@ function TaskDrawerTabs({ taskId }: { taskId: string }) {
           : null}
         {current === 'traces' ? (
           <>
-            {traceList.map((trace) => (
-              <TraceSection key={trace.traceId} trace={trace} />
-            ))}
+            {trees.isPending ? (
+              <p role="status" className="py-1 text-muted-foreground">
+                正在读取链路…
+              </p>
+            ) : trees.isError ? (
+              <p role="alert" className="py-1 text-danger">
+                链路读取失败，请稍后重试。
+              </p>
+            ) : (
+              trees.data.traces.map((trace) => <TraceSection key={trace.traceId} trace={trace} />)
+            )}
             {traces.data?.more ? (
               <p className="py-1 text-muted-foreground">
                 链路太多，只列出前 {traceList.length} 条。
@@ -204,11 +222,15 @@ function TraceSection({ trace }: { trace: TaskTrace }) {
         </Link>
       </p>
       {trace.truncated ? (
-        <p className="text-muted-foreground">
-          span 超过 {trace.spans} 个，只显示前 {trace.spans} 个。
-        </p>
+        <p className="text-muted-foreground">span 超过上限，只显示前 {trace.spans} 个。</p>
       ) : null}
-      <pre className="overflow-x-auto whitespace-pre font-mono">{trace.tree}</pre>
+      <pre
+        tabIndex={0}
+        aria-label={`链路 ${trace.traceId} 的 span 树`}
+        className="overflow-x-auto whitespace-pre font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {trace.tree}
+      </pre>
     </section>
   )
 }

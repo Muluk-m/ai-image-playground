@@ -554,58 +554,65 @@ export async function readTrace(
 
 /** 一个任务最多画几条链路：一次提交加几次重试执行，再多就是异常的任务，去日志页看。 */
 const TASK_TRACE_LIMIT = 8
+const TRACE_ID = /^(?!0+$)[0-9a-f]{32}$/
 
-export interface TaskTraceView extends TraceView {
+export interface TaskTraceView {
   traceId: string
   /** 链路里最早 span 的起点（毫秒）。 */
   startedAt: number
+  /** 只列链路时（`trees: false`）不带下面三项。 */
+  tree?: string
+  spans?: number
+  truncated?: boolean
 }
 
 /**
  * 一个任务的全部链路：BFF 收下提交的那条，加上 worker 每次执行的那条，按开始时间排。
  * 和 `bun scripts/obs.ts task` 一样按 span 上的 task_id 找，窗口与任务详情里的日志相同。
+ * 抽屉打开时只列链路（一次聚合查询），点开「链路」页才画 span 树，免得每看一个任务都压一组查询给
+ * OpenObserve。
  */
 export async function readTaskTraces(
   taskId: string,
   from: number,
   to: number,
+  options: { trees: boolean },
   client: ObsClient = defaultClient(),
 ): Promise<{ traces: TaskTraceView[]; more: boolean }> {
   if (!/^[\w-]{1,128}$/.test(taskId)) throw new LogQueryError('无效的任务 id')
   if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from < 0 || to <= from)
     throw new LogQueryError('无效的时间范围')
   if (to - from > MAX_WINDOW + 120_000) throw new LogQueryError('时间范围最长 7 天')
+  // traces 流里还没有 task_id 列（刚开观测、或保留期清空后）时，引用它会让 OpenObserve 报错。
+  if (!(await client.streamFields(OBS_STREAM, 'traces')).has('task_id'))
+    return { traces: [], more: false }
   const range = { type: 'traces' as const, startMs: from, endMs: to }
-  const found = await client.search({
-    ...range,
-    sql: taskSpansSql(taskId),
-    size: TASK_TRACE_LIMIT + 1,
-  })
-  const ids = found
-    .map((row) => String(row.trace_id ?? ''))
-    .filter((id) => /^(?!0+$)[0-9a-f]{32}$/.test(id))
+  const found = (
+    await client.search({ ...range, sql: taskSpansSql(taskId), size: TASK_TRACE_LIMIT + 1 })
+  )
+    .map((row) => ({
+      traceId: String(row.trace_id ?? ''),
+      startedAt: Math.floor(Number(row.started) / 1e6),
+    }))
+    .filter((row) => TRACE_ID.test(row.traceId))
+  const listed = found
+    .slice(0, TASK_TRACE_LIMIT)
+    .map((row) => ({ ...row, startedAt: Number.isFinite(row.startedAt) ? row.startedAt : from }))
+  const more = found.length > TASK_TRACE_LIMIT
+  if (!options.trees) return { traces: listed, more }
   const traces: TaskTraceView[] = []
   // 一次最多 4 个查询：OpenObserve 只有 512 MB。
-  for (let index = 0; index < Math.min(ids.length, TASK_TRACE_LIMIT); index += 4) {
-    const batch = ids.slice(index, Math.min(index + 4, TASK_TRACE_LIMIT))
+  for (let index = 0; index < listed.length; index += 4)
     traces.push(
       ...(await Promise.all(
-        batch.map(async (traceId) => {
+        listed.slice(index, index + 4).map(async (row) => {
           const { records, truncated } = await client.searchAll({
             ...range,
-            sql: traceSql(traceId),
+            sql: traceSql(row.traceId),
           })
-          const starts = records.map((hit) => Number(hit.start_time)).filter(Number.isFinite)
-          return {
-            traceId,
-            startedAt: starts.length ? Math.floor(Math.min(...starts) / 1e6) : from,
-            tree: formatTrace(records),
-            spans: records.length,
-            truncated,
-          }
+          return { ...row, tree: formatTrace(records), spans: records.length, truncated }
         }),
       )),
     )
-  }
-  return { traces, more: ids.length > TASK_TRACE_LIMIT }
+  return { traces, more }
 }
