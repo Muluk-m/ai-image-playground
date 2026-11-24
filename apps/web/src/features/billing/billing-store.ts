@@ -221,6 +221,11 @@ export async function refreshBillingAfterSettlement(): Promise<void> {
   await loadBilling()
 }
 
+export function friendlyBillingError(error: string | null): string {
+  if (!error) return tBilling('error.temporary')
+  return tBilling('error.temporary')
+}
+
 export function useBilling(): BillingSnapshot {
   const value = useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   useEffect(() => {

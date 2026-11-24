@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Overlay from '../../../web/src/components/patterns/Overlay'
 import { Icon } from '../../../web/src/components/ui/icon'
+import { copyTextToClipboard } from '../../../web/src/lib/clipboardText'
 import type { Locale } from '../catalog'
 import { CONTACT_EMAIL, type MarketingCopy, marketingCopy } from '../marketing'
 
@@ -46,16 +47,26 @@ export function ContactPanel({
   onClose?: () => void
   wechat?: ContactWechat | null
 }) {
-  const [copyLabel, setCopyLabel] = useState(text.copy)
+  const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const copyTimer = useRef<number | null>(null)
+  useEffect(
+    () => () => {
+      if (copyTimer.current !== null) window.clearTimeout(copyTimer.current)
+    },
+    [],
+  )
   const copyAddress = async () => {
     try {
-      await navigator.clipboard.writeText(CONTACT_EMAIL)
-      setCopyLabel(text.copied)
+      await copyTextToClipboard(CONTACT_EMAIL)
+      setCopyStatus('copied')
     } catch {
-      setCopyLabel(text.copyFailed)
+      setCopyStatus('failed')
     }
-    window.setTimeout(() => setCopyLabel(text.copy), 1600)
+    if (copyTimer.current !== null) window.clearTimeout(copyTimer.current)
+    copyTimer.current = window.setTimeout(() => setCopyStatus('idle'), 1600)
   }
+  const copyLabel =
+    copyStatus === 'copied' ? text.copied : copyStatus === 'failed' ? text.copyFailed : text.copy
   return (
     <div className="cbox" role="dialog" aria-modal="true" aria-labelledby="contact-title">
       <button type="button" className="cx" onClick={onClose} aria-label={text.close}>

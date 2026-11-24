@@ -7,6 +7,8 @@ import {
   formatCredits,
   formatDate,
   formatMoney,
+  friendlyBillingError,
+  loadBilling,
   useBilling,
 } from './billing-store'
 import { tBilling, useTranslation } from './i18n'
@@ -106,8 +108,14 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
         </div>
       ) : null}
       {status === 'error' && !catalog ? (
-        <div className="mx-auto mt-8 max-w-xl rounded-2xl border border-destructive bg-destructive/10 p-4 text-sm text-destructive">
-          {tBilling('pricing.loadFailed', { reason: error })}
+        <div
+          role="alert"
+          className="mx-auto mt-8 flex max-w-xl flex-wrap items-center justify-between gap-3 rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive"
+        >
+          <span>{tBilling('pricing.loadFailed', { reason: friendlyBillingError(error) })}</span>
+          <Button type="button" variant="outline" size="sm" onClick={() => void loadBilling()}>
+            {tBilling('action.retry')}
+          </Button>
         </div>
       ) : null}
 
@@ -324,7 +332,7 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
 
 export function RechargePanel({ onClose }: { onClose: () => void }) {
   useTranslation()
-  const { catalog, status } = useBilling()
+  const { catalog, status, error } = useBilling()
   const [amount, setAmount] = useState(50)
   const purchase = usePurchaseOrder()
   const { order, setOrder, busy } = purchase
@@ -352,53 +360,69 @@ export function RechargePanel({ onClose }: { onClose: () => void }) {
   return (
     <Dialog title={tBilling('action.recharge')} onClose={onClose}>
       <p className="mt-2 text-sm text-muted-foreground">{tBilling('recharge.subtitle')}</p>
-      {pricing ? (
-        <p className="mt-4 font-medium">
-          {tBilling('recharge.rate', { n: formatCredits(pricing.credits_per_yuan) })}
-        </p>
-      ) : (
-        <p className="mt-4 text-muted-foreground">
-          {tBilling(status === 'loading' ? 'recharge.loading' : 'recharge.unavailable')}
-        </p>
-      )}
-      <div className="my-4 grid grid-cols-3 gap-2">
-        {(pricing?.amounts_yuan ?? [10, 50, 100]).map((value) => (
-          <Button
-            type="button"
-            key={value}
-            disabled={busy}
-            aria-pressed={yuan === value}
-            onClick={() => {
-              setAmount(value)
-              purchase.resetFeedback()
-            }}
-            variant={yuan === value ? 'secondary' : 'outline'}
-          >
-            ¥{value}
-          </Button>
-        ))}
-      </div>
-      <p className="my-4 text-base font-semibold" aria-live="polite">
-        {tBilling('recharge.credits', {
-          n: formatCredits(valid && pricing ? yuan * pricing.credits_per_yuan : 0),
-        })}
-      </p>
-      <PurchaseFeedback purchase={purchase} />
-      {!available && pricing ? (
-        <p className="mb-3 text-sm text-muted-foreground">{tBilling('recharge.unavailable')}</p>
-      ) : null}
-      {!purchase.conflict ? (
-        <Button
-          type="button"
-          disabled={!valid || !available || busy}
-          aria-busy={busy}
-          onClick={() => void buy()}
-          className="w-full"
+      {status === 'error' && !pricing ? (
+        <div
+          role="alert"
+          className="my-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
         >
-          {busy ? <Icon name="loading" className="animate-spin" /> : null}
-          {tBilling(busy ? 'recharge.creating' : 'recharge.pay')}
-        </Button>
-      ) : null}
+          <span>{tBilling('recharge.loadFailed', { reason: friendlyBillingError(error) })}</span>
+          <Button type="button" variant="outline" size="sm" onClick={() => void loadBilling()}>
+            {tBilling('action.retry')}
+          </Button>
+        </div>
+      ) : (
+        <>
+          {pricing ? (
+            <p className="mt-4 font-medium">
+              {tBilling('recharge.rate', { n: formatCredits(pricing.credits_per_yuan) })}
+            </p>
+          ) : (
+            <p className="mt-4 text-muted-foreground">
+              {tBilling(status === 'loading' ? 'recharge.loading' : 'recharge.unavailable')}
+            </p>
+          )}
+          <div className="my-4 grid grid-cols-3 gap-2">
+            {(pricing?.amounts_yuan ?? [10, 50, 100]).map((value) => (
+              <Button
+                type="button"
+                key={value}
+                disabled={busy || !pricing}
+                aria-pressed={yuan === value}
+                onClick={() => {
+                  setAmount(value)
+                  purchase.resetFeedback()
+                }}
+                variant={yuan === value ? 'secondary' : 'outline'}
+              >
+                ¥{value}
+              </Button>
+            ))}
+          </div>
+          {pricing ? (
+            <p className="my-4 text-base font-semibold" aria-live="polite">
+              {tBilling('recharge.credits', {
+                n: formatCredits(valid ? yuan * pricing.credits_per_yuan : 0),
+              })}
+            </p>
+          ) : null}
+          <PurchaseFeedback purchase={purchase} />
+          {!available && pricing ? (
+            <p className="mb-3 text-sm text-muted-foreground">{tBilling('recharge.unavailable')}</p>
+          ) : null}
+          {!purchase.conflict ? (
+            <Button
+              type="button"
+              disabled={!valid || !available || busy}
+              aria-busy={busy}
+              onClick={() => void buy()}
+              className="w-full"
+            >
+              {busy ? <Icon name="loading" className="animate-spin" /> : null}
+              {tBilling(busy ? 'recharge.creating' : 'recharge.pay')}
+            </Button>
+          ) : null}
+        </>
+      )}
       <Button
         type="button"
         onClick={() => setHistory(true)}

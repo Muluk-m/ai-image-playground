@@ -54,6 +54,57 @@ function normalizeMime(type: string): string {
   return lower === 'image/jpg' ? 'image/jpeg' : lower
 }
 
+function AttachmentThumbnail({ file, alt }: { file: File; alt: string }) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const [drawn, setDrawn] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    setDrawn(false)
+    if (typeof createImageBitmap !== 'function') return
+    void createImageBitmap(file)
+      .then((bitmap) => {
+        if (cancelled) {
+          bitmap.close()
+          return
+        }
+        const canvas = canvasRef.current
+        const ctx = canvas?.getContext('2d')
+        if (!canvas || !ctx) {
+          bitmap.close()
+          return
+        }
+        const size = 80
+        canvas.width = size
+        canvas.height = size
+        const scale = Math.max(size / bitmap.width, size / bitmap.height)
+        const dw = bitmap.width * scale
+        const dh = bitmap.height * scale
+        ctx.clearRect(0, 0, size, size)
+        ctx.drawImage(bitmap, (size - dw) / 2, (size - dh) / 2, dw, dh)
+        bitmap.close()
+        setDrawn(true)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [file])
+
+  return (
+    <>
+      <canvas
+        ref={canvasRef}
+        role={drawn ? 'img' : undefined}
+        aria-label={drawn ? alt : undefined}
+        aria-hidden={!drawn}
+        className={drawn ? 'size-10 shrink-0 rounded-lg border border-border' : 'hidden'}
+      />
+      {!drawn ? <Icon name="imageAdd" className="shrink-0 text-muted-foreground" /> : null}
+    </>
+  )
+}
+
 function AttachmentPreview({
   messageId,
   filename,
@@ -149,6 +200,7 @@ export default function FeedbackDialog({
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const listEndRef = useRef<HTMLDivElement>(null)
+  const keepEditingRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (!canUseInApp) return
@@ -297,6 +349,7 @@ export default function FeedbackDialog({
       setErrorText(t('header.feedback.errors.bodyTooLong'))
       return
     }
+    setConfirmDiscard(false)
     setSubmitting(true)
     setErrorText(null)
     try {
@@ -340,10 +393,36 @@ export default function FeedbackDialog({
   const canSend =
     (draft.trim().length > 0 || attachment !== null) && !submitting && !loading && !loadError
 
+  const hasUnsentDraft = draft.trim().length > 0 || attachment !== null
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+
+  useEffect(() => {
+    if (!hasUnsentDraft && confirmDiscard) setConfirmDiscard(false)
+  }, [hasUnsentDraft, confirmDiscard])
+
+  useEffect(() => {
+    if (!confirmDiscard || submitting) return
+    keepEditingRef.current?.focus()
+    keepEditingRef.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [confirmDiscard, submitting])
+
+  const requestClose = () => {
+    if (submitting) return
+    if (!hasUnsentDraft) {
+      onClose()
+      return
+    }
+    if (confirmDiscard) {
+      setConfirmDiscard(false)
+      return
+    }
+    setConfirmDiscard(true)
+  }
+
   return (
     <>
       <Dialog
-        onClose={onClose}
+        onClose={requestClose}
         tier="artifact"
         title={t('header.feedback.label')}
         className="max-w-xl"
@@ -495,7 +574,7 @@ export default function FeedbackDialog({
 
                 {attachment ? (
                   <div className="flex items-center gap-3 rounded-xl border border-border bg-card p-2">
-                    <Icon name="imageAdd" className="shrink-0 text-muted-foreground" />
+                    <AttachmentThumbnail file={attachment} alt={attachment.name} />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-xs font-medium text-foreground">
                         {attachment.name}
@@ -556,6 +635,47 @@ export default function FeedbackDialog({
                   </Button>
                 </div>
               </div>
+
+              {confirmDiscard && !submitting ? (
+                <div
+                  role="alertdialog"
+                  aria-label={t('header.feedback.discardTitle')}
+                  aria-describedby="feedback-discard-desc"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3.5 py-2.5 text-sm"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-foreground">
+                      {t('header.feedback.discardTitle')}
+                    </div>
+                    <div id="feedback-discard-desc" className="text-xs text-muted-foreground">
+                      {t('header.feedback.discardMessage')}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button
+                      ref={keepEditingRef}
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={submitting}
+                      onClick={() => setConfirmDiscard(false)}
+                    >
+                      {t('header.feedback.continueEditing')}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="destructive"
+                      disabled={submitting}
+                      onClick={() => {
+                        if (!submitting) onClose()
+                      }}
+                    >
+                      {t('header.feedback.discardConfirm')}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
 
               {errorText ? (
                 <p role="alert" className="text-xs text-destructive">

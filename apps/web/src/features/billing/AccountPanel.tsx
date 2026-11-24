@@ -23,6 +23,7 @@ import {
   availableCredits,
   formatCredits,
   formatDate,
+  friendlyBillingError,
   loadBilling,
   readBillingJson,
   useBilling,
@@ -102,6 +103,7 @@ export function AccountPanel({
   const [billingEntries, setBillingEntries] = useState<LedgerEntry[]>([])
   const [nextLedgerOffset, setNextLedgerOffset] = useState<number | null>(null)
   const [ledgerLoading, setLedgerLoading] = useState(false)
+  const [ledgerError, setLedgerError] = useState(false)
   const [referralRefresh, setReferralRefresh] = useState(0)
   const visibleBillingEntries = useMemo(
     () => toUserBillingEntries(billingEntries),
@@ -129,17 +131,21 @@ export function AccountPanel({
     if (!account) return
     setBillingEntries(account.ledger)
     setNextLedgerOffset(account.ledger.length === 100 ? 100 : null)
+    setLedgerError(false)
   }, [account])
 
   async function loadOlderBillingEntries(): Promise<void> {
     if (nextLedgerOffset === null || ledgerLoading) return
     setLedgerLoading(true)
+    setLedgerError(false)
     try {
       const page: LedgerPage = await readBillingJson<LedgerPage>(
         `/api/billing/ledger?offset=${nextLedgerOffset}&limit=100`,
       )
       setBillingEntries((current) => [...current, ...page.ledger])
       setNextLedgerOffset(page.next_offset)
+    } catch {
+      setLedgerError(true)
     } finally {
       setLedgerLoading(false)
     }
@@ -265,6 +271,7 @@ export function AccountPanel({
                   variant="ghost"
                   size="sm"
                   type="button"
+                  disabled={status === 'loading'}
                   onClick={() => {
                     if (billingEnabled) {
                       void loadBilling()
@@ -274,6 +281,9 @@ export function AccountPanel({
                   }}
                   className="text-muted-foreground hover:text-foreground"
                 >
+                  {status === 'loading' ? (
+                    <Icon name="loading" size="xs" className="animate-spin" />
+                  ) : null}
                   {tBilling('action.refresh')}
                 </Button>
                 <Button
@@ -354,8 +364,21 @@ export function AccountPanel({
               </div>
             ) : null}
             {activeView !== 'settings' && status === 'error' && !account ? (
-              <div className="rounded-2xl border border-destructive/60 bg-destructive/30 p-4 text-sm text-destructive">
-                {tBilling('account.loadFailed', { reason: error })}
+              <div
+                role="alert"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive"
+              >
+                <span>
+                  {tBilling('account.loadFailed', { reason: friendlyBillingError(error) })}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void loadBilling()}
+                >
+                  {tBilling('action.retry')}
+                </Button>
               </div>
             ) : null}
 
@@ -526,6 +549,11 @@ export function AccountPanel({
                     ))}
                   </div>
                 )}
+                {ledgerError ? (
+                  <p role="alert" className="text-xs text-destructive">
+                    {tBilling('error.temporary')}
+                  </p>
+                ) : null}
                 {nextLedgerOffset !== null ? (
                   <Button
                     variant="ghost"

@@ -19,6 +19,7 @@ export function AvatarCropFrame({
   imageUrl,
   sheet,
   saving,
+  error,
   onClose,
   onReselect,
   onConfirm,
@@ -27,6 +28,7 @@ export function AvatarCropFrame({
   imageUrl: string
   sheet: boolean
   saving: boolean
+  error?: string | null
   onClose: () => void
   onReselect: () => void
   onConfirm: (blob: Blob) => void
@@ -176,6 +178,14 @@ export function AvatarCropFrame({
           <p className="text-xs text-muted-foreground">{tBilling('settings.cropHint')}</p>
         </div>
       </div>
+      {error ? (
+        <p
+          role="alert"
+          className="mx-6 mb-3 rounded-lg bg-destructive/10 px-3 py-2 text-xs text-destructive"
+        >
+          {error}
+        </p>
+      ) : null}
       <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-6 py-3">
         <Button type="button" variant="outline" onClick={onReselect} disabled={saving}>
           {tBilling('settings.reselect')}
@@ -192,6 +202,7 @@ export function AvatarCropFrame({
 export function AvatarCropDialog(props: {
   imageUrl: string
   saving: boolean
+  error?: string | null
   onClose: () => void
   onReselect: () => void
   onConfirm: (blob: Blob) => void
@@ -199,8 +210,15 @@ export function AvatarCropDialog(props: {
 }) {
   const sheet = useMediaQuery('(max-width: 767px)')
   return (
-    <Overlay onClose={props.onClose} tier="raised" role="none" layout={sheet ? 'fill' : 'center'}>
-      <AvatarCropFrame {...props} sheet={sheet} />
+    <Overlay
+      onClose={() => {
+        if (!props.saving) props.onClose()
+      }}
+      tier="raised"
+      role="none"
+      layout={sheet ? 'fill' : 'center'}
+    >
+      <AvatarCropFrame key={props.imageUrl} {...props} sheet={sheet} />
     </Overlay>
   )
 }

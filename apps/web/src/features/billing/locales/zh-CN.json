@@ -118,6 +118,8 @@
     "currentPassword": "当前密码",
     "newPassword": "新密码",
     "confirmPassword": "确认新密码",
+    "showPassword": "显示密码",
+    "hidePassword": "隐藏密码",
     "security": "安全",
     "devices": "登录设备",
     "devicesLoading": "正在读取登录设备…",
@@ -362,5 +364,8 @@
     "viewExisting": "查看原订单",
     "replaceOrder": "取消原订单并继续",
     "changeBlocked": "已有待生效的套餐变更，请完成后再更换。"
+  },
+  "error": {
+    "temporary": "服务暂时不可用，请稍后重试"
   }
 }
