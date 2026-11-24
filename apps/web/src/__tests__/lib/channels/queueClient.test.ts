@@ -591,3 +591,219 @@ describe('提交失败时的 BFF 错误码文案', () => {
     expect(message).not.toContain('服务端说了句新话')
   })
 })
+
+describe('预签名直传输入图（PR-5.5）', () => {
+  // 带合法 PNG 魔数（89 50 4E 47 0D 0A 1A 0A -> iVBORw0KGgoA）且长度为 4 的倍数的标准 base64
+  const largeDataUrl = `data:image/png;base64,iVBORw0KGgoA${'A'.repeat(70 * 1024)}`
+  const mismatchedMimeDataUrl = `data:image/jpeg;base64,iVBORw0KGgoA${'A'.repeat(70 * 1024)}`
+  const smallDataUrl = 'data:image/png;base64,iVBORw0KGgo='
+
+  beforeEach(() => {
+    const shim = makeLocalStorageShim()
+    vi.stubGlobal('localStorage', shim)
+    localStorage.setItem(STORAGE_KEY, 'dev-aaaa-bbbb-cccc')
+    vi.resetModules()
+  })
+
+  afterEach(() => {
+    vi.doUnmock('../../../lib/mediaUpload')
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  async function enableDirectUpload(
+    uploadSpy: ReturnType<typeof vi.fn>,
+    options: {
+      loggedIn?: boolean
+      attachments?: boolean
+      directSubmitExactMedia?: boolean
+      mediaLimits?: { imageBytes: number; imagePixels: number }
+    } = {},
+  ) {
+    vi.doMock('../../../lib/mediaUpload', () => ({ uploadMediaSource: uploadSpy }))
+    const { setClientStorageScope } = await import('../../../lib/authScope')
+    const { bootstrapClientCapabilities } = await import('../../../lib/clientCapabilities')
+    setClientStorageScope(options.loggedIn === false ? null : 'user-direct-1')
+    vi.spyOn(globalThis, 'fetch').mockImplementationOnce(
+      async () =>
+        new Response(
+          JSON.stringify({
+            'accounts:sync': true,
+            'agent:attachments': options.attachments !== false,
+            directSubmitExactMedia: options.directSubmitExactMedia !== false,
+            mediaLimits: options.mediaLimits,
+          }),
+          { status: 200 },
+        ),
+    )
+    await bootstrapClientCapabilities(true, 'https://bff.example.com')
+    return await import('../../../lib/channels/queueClient')
+  }
+
+  it('登录后开启附件直传与精确透传握手时，大图转成 aip-media:<id>、仅标记提升下标、既有云图与小图不标记', async () => {
+    const uploadSpy = vi.fn().mockResolvedValue({
+      id: '11111111-2222-4333-8444-555555555555',
+      sha256: 'abc',
+    })
+    const existingCloudRef = 'aip-media:99999999-aaaa-4bbb-8ccc-dddddddddddd'
+    const { callQueueChannelApi } = await enableDirectUpload(uploadSpy)
+    const fetchSpy = mockFetchJson(
+      { request_id: 'rid-direct-1', status: 'queued' },
+      {
+        request_id: 'rid-direct-1',
+        status: 'failed',
+        submitted_at: Date.now(),
+        error: { message: 'stop-after-submit', type: 'unknown' },
+      },
+    )
+
+    await expect(
+      callQueueChannelApi(
+        {
+          ...mockOpts(),
+          inputImageDataUrls: [existingCloudRef, largeDataUrl, smallDataUrl, largeDataUrl],
+        },
+        mockProfile('openai-compat'),
+        mockChannel('openai-compat'),
+      ),
+    ).rejects.toThrow('stop-after-submit')
+
+    // 同一请求内重复的大图只直传一次，并使用带租约的 conversation-attachment 通道避免额度泄漏。
+    expect(uploadSpy).toHaveBeenCalledTimes(1)
+    expect(uploadSpy).toHaveBeenCalledWith(
+      largeDataUrl,
+      expect.objectContaining({ purpose: 'conversation-attachment' }),
+    )
+    const submitCall = fetchSpy.mock.calls.find(([url]) => String(url).includes('/submit'))!
+    const body = JSON.parse(String((submitCall[1] as RequestInit).body)) as Record<string, unknown>
+    expect(body.input_images).toEqual([
+      existingCloudRef,
+      'aip-media:11111111-2222-4333-8444-555555555555',
+      smallDataUrl,
+      'aip-media:11111111-2222-4333-8444-555555555555',
+    ])
+    // 仅本次提升的本地大图下标 1、3 进入 exact_input_indices，下标 0 既有云图继续走服务端压缩。
+    expect(body.exact_input_indices).toEqual([1, 3])
+  })
+
+  it('submitVideoRequest 同样将大首尾帧直传为 aip-media:<id>、带 exact_input_indices 并保留帧下标顺序', async () => {
+    const uploadSpy = vi.fn().mockResolvedValue({
+      id: '22222222-3333-4444-8555-666666666666',
+      sha256: 'def',
+    })
+    const { submitVideoRequest } = await enableDirectUpload(uploadSpy)
+    const fetchSpy = mockFetchJson({ request_id: 'rid-video-1', status: 'queued' })
+
+    const requestId = await submitVideoRequest({
+      channel: mockChannel('openai-compat'),
+      model: 'veo-3',
+      prompt: 'pan across scene',
+      video: {
+        duration_seconds: 4,
+        aspect_ratio: '16:9',
+        resolution: '720p',
+        first_frame_index: 1,
+      },
+      inputImageDataUrls: [smallDataUrl, largeDataUrl],
+      clientRequestId: 'req-video-1111',
+    })
+
+    expect(requestId).toBe('rid-video-1')
+    expect(uploadSpy).toHaveBeenCalledTimes(1)
+    const submitCall = fetchSpy.mock.calls.find(([url]) => String(url).includes('/submit'))!
+    const body = JSON.parse(String((submitCall[1] as RequestInit).body)) as Record<string, unknown>
+    expect(body.input_images).toEqual([
+      smallDataUrl,
+      'aip-media:22222222-3333-4444-8555-666666666666',
+    ])
+    expect(body.exact_input_indices).toEqual([1])
+  })
+
+  it('直传失败时静默回退原始内联 data URL 且不带 exact_input_indices，不中断提交', async () => {
+    const uploadSpy = vi.fn().mockRejectedValue(new Error('media_quota_exceeded'))
+    const { callQueueChannelApi } = await enableDirectUpload(uploadSpy)
+    const fetchSpy = mockFetchJson(
+      { request_id: 'rid-fallback-1', status: 'queued' },
+      {
+        request_id: 'rid-fallback-1',
+        status: 'failed',
+        submitted_at: Date.now(),
+        error: { message: 'stop-fallback', type: 'unknown' },
+      },
+    )
+
+    await expect(
+      callQueueChannelApi(
+        { ...mockOpts(), inputImageDataUrls: [largeDataUrl] },
+        mockProfile('openai-compat'),
+        mockChannel('openai-compat'),
+      ),
+    ).rejects.toThrow('stop-fallback')
+
+    expect(uploadSpy).toHaveBeenCalledTimes(1)
+    const submitCall = fetchSpy.mock.calls.find(([url]) => String(url).includes('/submit'))!
+    const body = JSON.parse(String((submitCall[1] as RequestInit).body)) as Record<string, unknown>
+    expect(body.input_images).toEqual([largeDataUrl])
+    expect(body.exact_input_indices).toBeUndefined()
+  })
+
+  it('未登录、缺少握手能力、声明 MIME 与魔数不符或超出 mediaLimits 上限时跳过直传', async () => {
+    const uploadSpy = vi.fn()
+    const { prepareDirectSubmitInputs } = await enableDirectUpload(uploadSpy, { loggedIn: false })
+    expect(await prepareDirectSubmitInputs([largeDataUrl])).toEqual({
+      inputs: [largeDataUrl],
+      exactIndices: [],
+    })
+    expect(uploadSpy).not.toHaveBeenCalled()
+
+    vi.resetModules()
+    const { prepareDirectSubmitInputs: prepareNoCap } = await enableDirectUpload(uploadSpy, {
+      loggedIn: true,
+      attachments: false,
+    })
+    expect(await prepareNoCap([largeDataUrl])).toEqual({
+      inputs: [largeDataUrl],
+      exactIndices: [],
+    })
+    expect(uploadSpy).not.toHaveBeenCalled()
+
+    // 旧 BFF 未声明 directSubmitExactMedia 时绝不提升，避免跨版发布触发二次压缩与 409 冲突
+    vi.resetModules()
+    const { prepareDirectSubmitInputs: prepareOldBff } = await enableDirectUpload(uploadSpy, {
+      loggedIn: true,
+      directSubmitExactMedia: false,
+    })
+    expect(await prepareOldBff([largeDataUrl])).toEqual({
+      inputs: [largeDataUrl],
+      exactIndices: [],
+    })
+    expect(uploadSpy).not.toHaveBeenCalled()
+
+    // 声明 MIME 与魔数不一致，或超出 mediaLimits.imageBytes 回退上限时直接内联跳过直传
+    vi.resetModules()
+    const { prepareDirectSubmitInputs: prepareLimited } = await enableDirectUpload(uploadSpy, {
+      loggedIn: true,
+      mediaLimits: { imageBytes: 1024, imagePixels: 1_000_000 },
+    })
+    expect(await prepareLimited([mismatchedMimeDataUrl, largeDataUrl])).toEqual({
+      inputs: [mismatchedMimeDataUrl, largeDataUrl],
+      exactIndices: [],
+    })
+    expect(uploadSpy).not.toHaveBeenCalled()
+  })
+
+  it('直传挂起超时后立即回退原始内联 data URL 并中止 signal，不无限等待并发槽位', async () => {
+    let observedSignal: AbortSignal | undefined
+    const uploadSpy = vi.fn().mockImplementation(
+      (_url: string, options?: { signal?: AbortSignal }) =>
+        new Promise(() => {
+          observedSignal = options?.signal
+        }),
+    )
+    const { prepareDirectSubmitInputs } = await enableDirectUpload(uploadSpy)
+
+    const result = await prepareDirectSubmitInputs([largeDataUrl], { timeoutMs: 25 })
+    expect(result).toEqual({ inputs: [largeDataUrl], exactIndices: [] })
+    expect(observedSignal?.aborted).toBe(true)
+  })
+})

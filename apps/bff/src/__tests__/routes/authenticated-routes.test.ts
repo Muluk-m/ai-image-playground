@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { SQL } from 'bun'
 import { eq, sql } from 'drizzle-orm'
+import sharp from 'sharp'
 import { TEST_IMAGE } from '../helpers/imageFixtures'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
@@ -722,6 +723,154 @@ describe('BFF optional user auth', () => {
     )
     expect(foreign.status).toBe(400)
     expect(foreign.json).toMatchObject({ error: 'invalid_input_image' })
+
+    // Pure input_media_ids submit resolves identically and archives exact bytes.
+    const byMediaIds = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({ prompt: 'by-media-ids', input_media_ids: [mediaId.toUpperCase()] }),
+      { cookie: aliceCookie },
+    )
+    expect(byMediaIds.status).toBe(200)
+    const mediaIdsTaskId = (byMediaIds.json as { request_id: string }).request_id
+    expect(await storage.read(`${mediaIdsTaskId}/in/0`)).toEqual(new Uint8Array(TEST_IMAGE.png))
+
+    // Mixed input_images + input_media_ids preserves order ([inline, mediaId]).
+    const inlineWebp = TEST_IMAGE.webpDataUrl
+    const mixed = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({
+        prompt: 'mixed-media-ids',
+        input_images: [inlineWebp],
+        input_media_ids: [mediaId],
+      }),
+      { cookie: aliceCookie },
+    )
+    expect(mixed.status).toBe(200)
+    const mixedTaskId = (mixed.json as { request_id: string }).request_id
+    expect(await storage.read(`${mixedTaskId}/in/0`)).toEqual(new Uint8Array(TEST_IMAGE.webp))
+    expect(await storage.read(`${mixedTaskId}/in/1`)).toEqual(new Uint8Array(TEST_IMAGE.png))
+
+    // Mixed cloud media + promoted local direct upload (> 256 KiB valid PNG):
+    // - index 0 (existing cloud ref, NOT in exact_input_indices) still runs compressed() -> smaller JPEG
+    // - index 1 (promoted local ref, IN exact_input_indices: [1]) preserves exact PNG bytes even on a
+    //   durable (attachment_managed=false) row
+    // - inline fallback replay ([cloudRef, largeDataUrl] with same client_request_id and no
+    //   exact_input_indices) produces the exact same commandHash and replays cleanly (200, not 409).
+    const largeMediaId = '3a4b5c6d-1234-4abc-8def-1234567890ab'
+    const rawRgb = Buffer.alloc(400 * 400 * 3)
+    for (let y = 0; y < 400; y += 1) {
+      for (let x = 0; x < 400; x += 1) {
+        const offset = (y * 400 + x) * 3
+        rawRgb[offset] = x % 256
+        rawRgb[offset + 1] = y % 256
+        rawRgb[offset + 2] = (x + y) % 256
+      }
+    }
+    const largePng = await sharp(rawRgb, { raw: { width: 400, height: 400, channels: 3 } })
+      .png({ compressionLevel: 0 })
+      .toBuffer()
+    expect(largePng.length).toBeGreaterThan(256 * 1024)
+    await db.insert(schema.media_objects).values({
+      id: largeMediaId,
+      user_id: alice.id,
+      sha256: 'large-exact-media',
+      bytes: largePng.length,
+      content_type: 'image/png',
+      status: 'ready',
+      attachment_managed: false,
+      reserved_bytes: largePng.length,
+      staging_key: 'staging/large-exact',
+      object_key: 'media/large-exact',
+      expires_at: now + 60_000,
+      created_at: now,
+      updated_at: now,
+    })
+    await durable.write('media/large-exact', new Uint8Array(largePng), 'image/png')
+    const clientRequestId = 'cmd-exact-parity-1234'
+    const largeDataUrl = `data:image/png;base64,${largePng.toString('base64')}`
+    const directSubmit = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({
+        prompt: 'exact-parity-test',
+        client_request_id: clientRequestId,
+        input_images: [`aip-media:${largeMediaId}`, `aip-media:${largeMediaId}`],
+        exact_input_indices: [1],
+      }),
+      { cookie: aliceCookie },
+    )
+    expect(directSubmit.status).toBe(200)
+    const directTaskId = (directSubmit.json as { request_id: string }).request_id
+    const storedCloud = await storage.read(`${directTaskId}/in/0`)
+    const storedPromoted = await storage.read(`${directTaskId}/in/1`)
+    expect(storedCloud).toBeDefined()
+    expect(storedCloud!.length).toBeLessThan(largePng.length)
+    expect(storedPromoted).toEqual(new Uint8Array(largePng))
+
+    const inlineReplay = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({
+        prompt: 'exact-parity-test',
+        client_request_id: clientRequestId,
+        input_images: [`aip-media:${largeMediaId}`, largeDataUrl],
+      }),
+      { cookie: aliceCookie },
+    )
+    expect(inlineReplay.status).toBe(200)
+    expect((inlineReplay.json as { request_id: string }).request_id).toBe(directTaskId)
+
+    // Out-of-range exact_input_indices is rejected with 400 invalid_request.
+    const badExactIndex = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({
+        prompt: 'bad-exact-index',
+        input_images: [inlineWebp],
+        exact_input_indices: [1],
+      }),
+      { cookie: aliceCookie },
+    )
+    expect(badExactIndex.status).toBe(400)
+    expect(badExactIndex.json).toMatchObject({ error: 'invalid_request' })
+
+    // Combined count exceeding QUEUE_MAX_INPUT_IMAGES (16) is rejected with 400 invalid_request.
+    const tooMany = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({
+        input_images: Array.from({ length: 10 }, () => inlineWebp),
+        input_media_ids: Array.from({ length: 7 }, () => mediaId),
+      }),
+      { cookie: aliceCookie },
+    )
+    expect(tooMany.status).toBe(400)
+    expect(tooMany.json).toMatchObject({ error: 'invalid_request' })
+
+    // Foreign user's input_media_ids is rejected with 400 invalid_input_image.
+    const foreignMediaIds = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({
+        device_id: 'bob-device-aaaa-bbbb-cccc',
+        input_media_ids: [mediaId],
+      }),
+      { cookie: bobCookie },
+    )
+    expect(foreignMediaIds.status).toBe(400)
+    expect(foreignMediaIds.json).toMatchObject({ error: 'invalid_input_image' })
+
+    // Non-UUID input_media_ids fails schema validation with 400 invalid_request.
+    const badUuid = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({ input_media_ids: ['not-a-uuid'] }),
+      { cookie: aliceCookie },
+    )
+    expect(badUuid.status).toBe(400)
+    expect(badUuid.json).toMatchObject({ error: 'invalid_request' })
   })
 
   it('对象存储读输入图卡住或回 5xx 时，提交有期限：重试一次，仍不行就明确回 503', async () => {
