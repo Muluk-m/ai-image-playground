@@ -1,4 +1,4 @@
-import { AgentToolError } from '../../modules/agent'
+import { AgentToolError } from '../../modules/agent/contracts'
 import type { AgentImageSource, ResolvedAgentImage } from './images'
 import { assertVisualBytes, visualByteLimit } from './visual-resources'
 

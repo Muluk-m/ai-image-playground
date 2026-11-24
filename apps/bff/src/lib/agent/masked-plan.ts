@@ -6,31 +6,19 @@ import {
   type MaskedOperation,
   type MaskedPlanCarry,
   type MaskedSubmission,
+  mergeMaskedPlanCarries,
   type PlanCall,
-} from '../../modules/agent'
+} from '../../modules/agent/contracts'
 
-export type {
-  MaskedApproval,
-  MaskedEditContent,
-  MaskedEditPlan,
-  MaskedOperation,
-  MaskedPlanCarry,
-  MaskedSubmission,
-  PlanCall,
-}
-
-/** 同一批里几个任务各自记下的计划合成一份：内容取并集，后续编辑以最后提交的那一次为准。 */
-export function mergeMaskedPlanCarries(
-  carries: readonly MaskedPlanCarry[],
-): MaskedPlanCarry | undefined {
-  const last = carries.at(-1)
-  if (!last) return undefined
-  return {
-    authorization: last.authorization,
-    protected: carries.some((carry) => carry.protected),
-    contents: [...new Set(carries.flatMap((carry) => carry.contents))],
-    deferred: last.deferred,
-  }
+export {
+  type MaskedApproval,
+  type MaskedEditContent,
+  type MaskedEditPlan,
+  type MaskedOperation,
+  type MaskedPlanCarry,
+  type MaskedSubmission,
+  mergeMaskedPlanCarries,
+  type PlanCall,
 }
 
 const key = (operation: MaskedOperation) =>

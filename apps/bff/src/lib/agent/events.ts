@@ -12,7 +12,7 @@ import {
   type StoredAgentEvent,
   type TurnEventFeed,
   type TurnEventLog,
-} from '../../modules/agent'
+} from '../../modules/agent/contracts'
 import { log } from '../logger'
 import { claimConversation, releaseConversation } from './execution'
 import { enqueueAgentResume, queuedAgentResumeTurnIds } from './inbox'

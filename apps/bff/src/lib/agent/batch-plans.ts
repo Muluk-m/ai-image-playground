@@ -18,12 +18,12 @@ import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, sql } from 'drizzle-o
 import { drizzle } from 'drizzle-orm/bun-sql'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
-import type { AgentToolAudience, AgentToolContext } from '../../modules/agent'
+import type { AgentToolAudience, AgentToolContext } from '../../modules/agent/contracts'
 import {
   AgentToolError,
   BATCH_EXECUTION_UNAVAILABLE_MESSAGE,
   queueArtifacts,
-} from '../../modules/agent'
+} from '../../modules/agent/contracts'
 import { queueTaskOutcome } from '../../modules/execution'
 import { quoteAnalysisTask } from '../analysis-tasks'
 import { type BffTransaction, loadMeteringPort, nonBillingPriceSnapshot } from '../billing-ports'

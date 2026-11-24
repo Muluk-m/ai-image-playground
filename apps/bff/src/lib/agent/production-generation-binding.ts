@@ -6,7 +6,7 @@ import type {
   ProductionMediaReference,
 } from '@image-playground/shared'
 import { parseProjectArtifactId, productionClipVideo } from '@image-playground/shared'
-import { type AgentToolContext, AgentToolError } from '../../modules/agent'
+import { type AgentToolContext, AgentToolError } from '../../modules/agent/contracts'
 import { decodeDataUrl } from '../imageArchive'
 import { readAssetImage } from '../sync-assets'
 import { createAgentImageSource, readConversationMedia } from './images'

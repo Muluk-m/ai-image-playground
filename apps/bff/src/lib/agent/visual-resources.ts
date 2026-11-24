@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import sharp from 'sharp'
 import { config } from '../../config'
-import { AgentToolError } from '../../modules/agent'
+import { AgentToolError } from '../../modules/agent/contracts'
 import { SafeFetchError } from '../safeFetch'
 
 const preparation = new AsyncLocalStorage<boolean>()

@@ -35,6 +35,7 @@ export {
   reviewParameter,
   withAspectRatio,
 } from './queue-params'
+export { selectionSettings } from './selection-settings'
 export {
   type AgentReplayedSubmission,
   type AgentSubmissionReplay,
@@ -63,6 +64,7 @@ export {
   type MaskedOperation,
   type MaskedPlanCarry,
   type MaskedSubmission,
+  mergeMaskedPlanCarries,
   type PlanCall,
   type ResolvedAgentImage,
   type TurnAuthorization,
@@ -77,4 +79,13 @@ export {
   toolErrorText,
   toolResultBlock,
 } from './tool-results'
+export {
+  mergedWakePrompt,
+  type WakeJob,
+  wakeAuthorizationPrompt,
+  wakeJobs,
+  wakeReviewImageIds,
+  wakeTurnPrompt,
+  wakeTurnSetup,
+} from './wake-prompt'
 export { safeFetchToolError } from './web-error'

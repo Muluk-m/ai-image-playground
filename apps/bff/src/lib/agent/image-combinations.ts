@@ -1,5 +1,5 @@
 import type { AgentClarificationBlock, AgentMessageView } from '@image-playground/shared'
-import { AgentToolError, type ImageCombinationGuard } from '../../modules/agent'
+import { AgentToolError, type ImageCombinationGuard } from '../../modules/agent/contracts'
 
 export type { ImageCombinationGuard }
 

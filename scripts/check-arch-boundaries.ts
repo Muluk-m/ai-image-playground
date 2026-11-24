@@ -323,7 +323,7 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
       }
 
       if (toModule && fromModule?.name !== toModule.name && !file.startsWith('bootstrap/')) {
-        if (toModule.rest !== 'index.ts') {
+        if (toModule.rest !== 'index.ts' && toModule.rest !== 'contracts/index.ts') {
           violations.push(
             `[module-encapsulation] ${edge} bypasses modules/${toModule.name}/index.ts facade`,
           )

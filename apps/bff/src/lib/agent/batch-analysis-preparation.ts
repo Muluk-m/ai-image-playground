@@ -1,4 +1,4 @@
-import { AgentToolError } from '../../modules/agent'
+import { AgentToolError } from '../../modules/agent/contracts'
 import { prepareAnalysisTask } from '../analysis-tasks'
 import { jointAnalysisLimit } from './batch-analysis-limit'
 import { BatchPlanError } from './batch-plans'

@@ -1,6 +1,6 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { AgentCompactionRecord } from '@image-playground/shared'
-import type { AgentContextTransform } from '../../modules/agent'
+import type { AgentContextTransform } from '../../modules/agent/contracts'
 import type { ChatAttempt } from '../chatCompletion'
 import { log } from '../logger'
 import {

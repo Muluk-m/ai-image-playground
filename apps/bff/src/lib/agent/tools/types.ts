@@ -10,4 +10,4 @@ export type {
   AgentToolDetails,
   AgentToolGateView,
   AgentToolSpec,
-} from '../../../modules/agent'
+} from '../../../modules/agent/contracts'

@@ -13,7 +13,7 @@ import {
   safeFetchToolError,
   toolErrorText,
   toolResultBlock,
-} from '../../../modules/agent'
+} from '../../../modules/agent/contracts'
 
 describe('modules/agent/contracts', () => {
   it('classifies tool errors, queue refusals, and safeFetch failures consistently', () => {

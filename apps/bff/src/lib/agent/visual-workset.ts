@@ -2,7 +2,11 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { ImageContent, Message } from '@earendil-works/pi-ai'
 import type { AgentVisualObservation } from '@image-playground/shared'
 import { config } from '../../config'
-import { type AgentContextTransform, AgentToolError, type VisualWorkset } from '../../modules/agent'
+import {
+  type AgentContextTransform,
+  AgentToolError,
+  type VisualWorkset,
+} from '../../modules/agent/contracts'
 import { visualEvidenceOf } from './visual-input'
 
 export type { VisualWorkset }

@@ -7,4 +7,4 @@ export {
   requestedImageCount,
   reviewParameter,
   withAspectRatio,
-} from '../../../modules/agent'
+} from '../../../modules/agent/contracts'

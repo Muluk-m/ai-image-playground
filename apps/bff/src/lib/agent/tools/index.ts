@@ -8,7 +8,7 @@ import type {
   AgentToolResultBlock,
   AgentTurnParams,
 } from '@image-playground/shared'
-import type { AgentImageSource } from '../../../modules/agent'
+import type { AgentImageSource } from '../../../modules/agent/contracts'
 import { isCapabilityEnabled } from '../../capabilities'
 import { log } from '../../logger'
 import { clarificationTool } from '../clarification'

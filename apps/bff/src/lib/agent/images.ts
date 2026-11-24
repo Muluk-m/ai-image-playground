@@ -18,7 +18,7 @@ import {
   type AgentImageVariant,
   AgentToolError,
   type ResolvedAgentImage,
-} from '../../modules/agent'
+} from '../../modules/agent/contracts'
 import { durableMediaStore } from '../durableMediaStore'
 import { resolveImageBytesRef } from '../extractImages'
 import { archiveInputImages, fetchSourceImage, hydrateInputImages } from '../imageArchive'

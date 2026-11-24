@@ -16,7 +16,7 @@ import {
 } from '@image-playground/shared'
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import { queueArtifacts, queueParamsFor } from '../../modules/agent'
+import { queueArtifacts, queueParamsFor } from '../../modules/agent/contracts'
 import { resolveQueueModel } from '../channels'
 import { extractMeta } from '../extractImages'
 import { archiveInputImages } from '../imageArchive'

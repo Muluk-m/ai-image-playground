@@ -7,7 +7,7 @@ import {
 } from '@image-playground/shared'
 import { and, asc, eq, inArray, isNull, lte, ne, or, type SQL, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import { queueArtifacts } from '../../modules/agent'
+import { queueArtifacts } from '../../modules/agent/contracts'
 import { queueTaskOutcome } from '../../modules/execution'
 import { type BffTransaction, loadMeteringPort } from '../billing-ports'
 import { log } from '../logger'

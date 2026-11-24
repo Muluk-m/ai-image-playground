@@ -15,7 +15,7 @@ import {
   toolDeclaration,
   toolErrorText,
   toolResultBlock,
-} from '../../../modules/agent'
+} from '../../../modules/agent/contracts'
 import { registerVisualBlock } from '../visual-input'
 import { withVisualSignal } from '../visual-resources'
 
