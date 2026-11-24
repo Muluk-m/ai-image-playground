@@ -32,15 +32,33 @@ type registry struct {
 // RegisteredDirs returns the Skill directories recorded by `skill install --dir`. A missing
 // or unreadable registry is empty: status stays read-only and never fails on it.
 func RegisteredDirs() []string {
+	paths, _ := readRegistry()
+	return paths
+}
+
+// readRegistry reports a registry that exists but cannot be parsed, so a write keeps it aside
+// instead of replacing every earlier entry with only the new one.
+func readRegistry() ([]string, error) {
 	data, err := os.ReadFile(registryPath())
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var reg registry
-	if json.Unmarshal(data, &reg) != nil {
-		return nil
+	if err := json.Unmarshal(data, &reg); err != nil {
+		return nil, err
 	}
-	return reg.Paths
+	return reg.Paths, nil
+}
+
+// ReinstallCommand is the command that replaces this copy with the bundled Skill.
+func ReinstallCommand(item Installation) string {
+	if item.Host == customHost || item.foundHost == customHost {
+		return fmt.Sprintf("muvloom skill install --dir %q", filepath.Dir(item.Path))
+	}
+	return fmt.Sprintf("muvloom skill install --host %s --scope %s", item.Host, item.Scope)
 }
 
 func register(destination string) error {
@@ -53,7 +71,11 @@ func register(destination string) error {
 		return fmt.Errorf("another muvloom is updating %s: %w", path, err)
 	}
 	defer release()
-	paths := RegisteredDirs()
+	paths, readErr := readRegistry()
+	if readErr != nil {
+		// Keep the damaged file for a person to recover the other entries from.
+		_ = os.Rename(path, path+".bad")
+	}
 	if slices.Contains(paths, destination) {
 		return nil
 	}
@@ -82,6 +104,11 @@ func installDir(opts InstallOptions) (Result, error) {
 	parent, err := filepath.Abs(opts.Dir)
 	if err != nil {
 		return Result{}, fmt.Errorf("resolve --dir: %w", err)
+	}
+	// A host's own skills directory stays that host's install, so status, refresh and hot
+	// updates keep treating it as one.
+	if host, scope, ok := knownHostDir(parent, opts.Home, opts.CWD); ok {
+		return Install(InstallOptions{Host: host, Scope: scope, Home: opts.Home, CWD: opts.CWD, onlyIf: opts.onlyIf})
 	}
 	destination := filepath.Join(parent, "muvloom")
 	if err := os.MkdirAll(parent, 0o755); err != nil {
@@ -161,4 +188,34 @@ func Content() (string, error) {
 		out = append(out, f.data...)
 	}
 	return string(out), nil
+}
+
+// knownHostDir reports whether dir is the skills directory a --host install uses: a host's
+// user-scope directory, or its project-scope directory in the current project.
+func knownHostDir(dir, home, cwd string) (string, string, bool) {
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	same := func(a, b string) bool {
+		if ra, err := filepath.EvalSymlinks(a); err == nil {
+			a = ra
+		}
+		if rb, err := filepath.EvalSymlinks(b); err == nil {
+			b = rb
+		}
+		return filepath.Clean(a) == filepath.Clean(b)
+	}
+	project := ""
+	if cwd != "" {
+		project, _ = findProjectRoot(cwd)
+	}
+	for _, host := range hosts {
+		if home != "" && same(dir, filepath.Join(home, filepath.FromSlash(host.userDir), "skills")) {
+			return host.name, "user", true
+		}
+		if project != "" && same(dir, filepath.Join(project, filepath.FromSlash(host.projectDir), "skills")) {
+			return host.name, "project", true
+		}
+	}
+	return "", "", false
 }

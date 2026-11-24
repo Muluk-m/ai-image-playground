@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"flag"
 	"strings"
 
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/skill"
@@ -18,8 +19,10 @@ func cmdSkillInstall(_ context.Context, a *App, args []string) (any, error) {
 		return nil, err
 	}
 	if *dir != "" {
-		if *host != "" || *output != "" {
-			return nil, fail("USAGE", "--dir cannot be combined with --host or --output")
+		scopeSet := false
+		fs.Visit(func(f *flag.Flag) { scopeSet = scopeSet || f.Name == "scope" })
+		if *host != "" || *output != "" || scopeSet {
+			return nil, fail("USAGE", "--dir cannot be combined with --host, --scope or --output")
 		}
 		result, err := skill.Install(skill.InstallOptions{Dir: *dir, Home: a.Home, CWD: a.CWD})
 		if err != nil {

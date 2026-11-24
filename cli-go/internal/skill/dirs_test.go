@@ -92,3 +92,49 @@ func TestContentIsTheBundledSkillAndItsReferences(t *testing.T) {
 		t.Fatal("host-specific WorkBuddy notes do not belong in the generic text")
 	}
 }
+
+func TestDirInstallIntoAHostSkillsDirectoryStaysThatHostsInstall(t *testing.T) {
+	t.Setenv("MUVLOOM_CONFIG_DIR", t.TempDir())
+	home := t.TempDir()
+	res, err := Install(InstallOptions{Dir: filepath.Join(home, ".claude", "skills"), Home: home})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Host != "claude-code" || res.Scope != "user" {
+		t.Fatalf("--dir into ~/.claude/skills = %+v", res)
+	}
+	if dirs := RegisteredDirs(); len(dirs) != 0 {
+		t.Fatalf("a host directory must not be registered as custom: %v", dirs)
+	}
+	installed, _ := Installed(home, t.TempDir())
+	if len(installed) != 1 || installed[0].Host != "claude-code" || !installed[0].Current {
+		t.Fatalf("status = %+v", installed)
+	}
+}
+
+func TestReinstallCommandNamesTheDirectoryForACustomCopy(t *testing.T) {
+	custom := Installation{Host: customHost, Scope: customScope, Path: filepath.Join("/x", "skills", "muvloom")}
+	if got := ReinstallCommand(custom); got != `muvloom skill install --dir "/x/skills"` {
+		t.Fatalf("custom = %s", got)
+	}
+	if got := ReinstallCommand(Installation{Host: "codex", Scope: "user"}); got != "muvloom skill install --host codex --scope user" {
+		t.Fatalf("host = %s", got)
+	}
+}
+
+func TestDamagedRegistryIsKeptAsideNotOverwritten(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("MUVLOOM_CONFIG_DIR", config)
+	if err := os.WriteFile(filepath.Join(config, "skill-dirs.json"), []byte("{broken"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Install(InstallOptions{Dir: t.TempDir(), Home: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	if kept, err := os.ReadFile(filepath.Join(config, "skill-dirs.json.bad")); err != nil || string(kept) != "{broken" {
+		t.Fatalf("damaged registry = %q, %v", kept, err)
+	}
+	if len(RegisteredDirs()) != 1 {
+		t.Fatalf("registry = %v", RegisteredDirs())
+	}
+}

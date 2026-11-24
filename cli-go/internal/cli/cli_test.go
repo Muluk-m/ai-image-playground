@@ -663,6 +663,9 @@ func TestSkillInstallDirIsTrackedAndShowPrintsTheSkill(t *testing.T) {
 	if r := execute(t, app, "skill", "install", "--dir", skills, "--host", "codex"); r.code != ExitInvalid {
 		t.Fatalf("--dir with --host = %d %s", r.code, r.stdout)
 	}
+	if r := execute(t, app, "skill", "install", "--dir", skills, "--scope", "project"); r.code != ExitInvalid {
+		t.Fatalf("--dir with --scope = %d %s", r.code, r.stdout)
+	}
 	r := execute(t, app, "skill", "install", "--dir", skills)
 	if r.code != ExitOK || r.out["data"].(map[string]any)["path"] != filepath.Join(skills, "muvloom") {
 		t.Fatalf("--dir install = %d %s", r.code, r.stdout)
