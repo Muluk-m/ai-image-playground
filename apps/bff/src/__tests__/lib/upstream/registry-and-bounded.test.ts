@@ -1,23 +1,27 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import {
-  parseUpstreamResponse,
-  readBoundedErrorText,
-  UPSTREAM_ERROR_BODY_MAX_BYTES,
-} from '../../../lib/upstream/bounded-error'
-import {
-  type ConcurrencyGate,
-  InMemoryConcurrencyGate,
-  setConcurrencyGateForTesting,
-} from '../../../lib/upstream/concurrency'
-import {
-  defaultUpstreamRegistry,
-  executeViaRoute,
-  type UpstreamExecutor,
-  UpstreamRegistry,
-} from '../../../lib/upstream/executors/registry'
-import type { UpstreamRoute } from '../../../lib/upstream/routes'
-import { setUpstreamFetchForTesting } from '../../../lib/upstream/transport'
-import type { UpstreamCallParams, UpstreamResponse } from '../../../lib/upstream/types'
+
+// Inject before importing modules that transitively load config at module initialization.
+process.env.UPSTREAM_BASE_URL = 'http://localhost:9999'
+process.env.UPSTREAM_API_KEY = 'test-key'
+process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? ''
+process.env.PORT = '0'
+
+const { parseUpstreamResponse, readBoundedErrorText, UPSTREAM_ERROR_BODY_MAX_BYTES } = await import(
+  '../../../lib/upstream/bounded-error'
+)
+const { InMemoryConcurrencyGate, setConcurrencyGateForTesting } = await import(
+  '../../../lib/upstream/concurrency'
+)
+const { defaultUpstreamRegistry, executeViaRoute, UpstreamRegistry } = await import(
+  '../../../lib/upstream/executors/registry'
+)
+const { setUpstreamFetchForTesting } = await import('../../../lib/upstream/transport')
+
+type ConcurrencyGate = import('../../../lib/upstream/concurrency').ConcurrencyGate
+type UpstreamExecutor = import('../../../lib/upstream/executors/registry').UpstreamExecutor
+type UpstreamRoute = import('../../../lib/upstream/routes').UpstreamRoute
+type UpstreamCallParams = import('../../../lib/upstream/types').UpstreamCallParams
+type UpstreamResponse = import('../../../lib/upstream/types').UpstreamResponse
 
 afterEach(() => {
   setUpstreamFetchForTesting()
