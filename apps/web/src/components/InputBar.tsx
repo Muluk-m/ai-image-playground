@@ -186,7 +186,7 @@ function referenceUploadGate(references: readonly { dataUrl: string }[]) {
 }
 
 export default function InputBar({ inline = false }: { inline?: boolean } = {}) {
-  const { t, i18n } = useTranslation(['composer', 'common', 'agent', 'lib', 'task'])
+  const { t, i18n } = useTranslation(['composer', 'common', 'agent', 'lib', 'task', 'store'])
   const prompt = useStore((s) => s.prompt)
   const setPrompt = useStore((s) => s.setPrompt)
   const inputImages = useStore((s) => s.inputImages)
@@ -317,7 +317,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     : 0
   const batchTaskCountOverflow = batchActive && batchImageCount > BATCH_GENERATE_MAX
   const batchTaskOverflowNotice = batchTaskCountOverflow
-    ? referenceRefusalMessage('overflow', BATCH_GENERATE_MAX)
+    ? t('store:submit.batchLimit', { max: BATCH_GENERATE_MAX })
     : null
   // GPT 直连按实际会执行的档计价。非会员，以及交给智能体的请求，服务端收到 ≤2K、非高画质。
   // Gemini 先按会员身份收口，再按渠道开放档位计价。

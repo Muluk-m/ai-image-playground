@@ -23,7 +23,7 @@ export const useActiveLook = create<ActiveLookState>((set) => ({
 }))
 
 // 切入批量生图时自动摘掉模板胶囊，防止模板提交忽略共用参考或误读批量提及序号。
-useStore.subscribe((state, prev) => {
+useStore.subscribe?.((state, prev) => {
   if (
     state.createTarget === 'batch' &&
     prev.createTarget !== 'batch' &&

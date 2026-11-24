@@ -550,7 +550,7 @@ const batch: GuidePage = {
       title: 'Before you send',
       blocks: [
         p(
-          'Check the parameter summary and the live breakdown in Examples to verify total tasks (source images × prompt slot combinations) and that 1 + shared refs stays within the model limit. Remove any oversized or unreadable files before sending. Credits are quoted as unit price × total tasks.',
+          'Check the parameter summary and the live breakdown in Examples to verify total tasks (source images × prompt slot combinations, capped at 50 per batch) and that 1 + shared refs stays within the model limit. Remove any oversized or unreadable files before sending. Credits are quoted as unit price × total tasks.',
         ),
       ],
     },

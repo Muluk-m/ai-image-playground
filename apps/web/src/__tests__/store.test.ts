@@ -3676,6 +3676,33 @@ describe('batch dual-zone mode draft and submitTask guards', () => {
     expect(state.batchZoneNotice).toBeNull()
   })
 
+  it('remaps shared mentions when initStore drops a missing persisted shared image', async () => {
+    await clearImages()
+    await putImage({
+      id: 'shared-kept',
+      dataUrl: 'data:image/png;base64,kept',
+      createdAt: Date.now(),
+    })
+    useStore.setState({
+      createTarget: 'batch',
+      prompt: `把 ${getSelectedImageMentionLabel(0)} 换成 ${getSelectedImageMentionLabel(2)}`,
+      inputImages: [],
+      batchSharedImages: [
+        { id: 'shared-missing', dataUrl: '' },
+        { id: 'shared-kept', dataUrl: '' },
+      ],
+    })
+
+    await initStore()
+    const state = useStore.getState()
+    expect(state.batchSharedImages).toEqual([
+      { id: 'shared-kept', dataUrl: 'data:image/png;base64,kept' },
+    ])
+    expect(state.prompt).toBe(
+      `把 ${getSelectedImageMentionLabel(0)} 换成 ${getSelectedImageMentionLabel(1)}`,
+    )
+  })
+
   it('exits batch mode and merges zones when opening mask editor or setting maskDraft', () => {
     useStore.setState({
       createTarget: 'batch',

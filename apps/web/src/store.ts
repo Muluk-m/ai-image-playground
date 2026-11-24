@@ -99,7 +99,7 @@ import {
   setPlatformFavorite,
   watchPlatformGeneration,
 } from './lib/platformGenerations'
-import { replaceImageMentionsForApi } from './lib/promptImageMentions'
+import { remapImageMentions, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import {
   expandPromptSlots,
   getSubmissionImageCount,
@@ -690,6 +690,7 @@ interface AppState {
       inputImages: InputImage[]
       batchSharedImages: InputImage[]
       createTarget?: AppState['createTarget']
+      maskDraft?: MaskDraft | null
     }
   } | null
   setBatchZoneNotice: (notice: AppState['batchZoneNotice']) => void
@@ -958,7 +959,7 @@ export const useStore = create<AppState>()(
       undoBatchZoneNotice: () => {
         const current = get()
         if (!current.batchZoneNotice) return
-        const { prompt, inputImages, batchSharedImages, createTarget } =
+        const { prompt, inputImages, batchSharedImages, createTarget, maskDraft } =
           current.batchZoneNotice.snapshot
         if (createTarget && createTarget !== current.createTarget) {
           get().setCreateTarget(createTarget)
@@ -967,6 +968,7 @@ export const useStore = create<AppState>()(
           prompt,
           inputImages: [...inputImages],
           batchSharedImages: [...batchSharedImages],
+          ...(maskDraft !== undefined ? { maskDraft } : {}),
           batchZoneNotice: null,
         })
       },
@@ -1199,6 +1201,7 @@ export const useStore = create<AppState>()(
                       inputImages: [...state.inputImages],
                       batchSharedImages: [...state.batchSharedImages],
                       createTarget: state.createTarget,
+                      maskDraft: state.maskDraft,
                     },
                   }
                 : null,
@@ -1633,10 +1636,27 @@ export async function initStore() {
   }
   const restoredSharedImages = await hydrateList(persistedSharedImages)
   if (
-    restoredSharedImages.length !== persistedSharedImages.length ||
-    restoredSharedImages.some((img, index) => img.dataUrl !== persistedSharedImages[index]?.dataUrl)
+    useStore.getState().batchSharedImages === persistedSharedImages &&
+    (restoredSharedImages.length !== persistedSharedImages.length ||
+      restoredSharedImages.some(
+        (img, index) => img.dataUrl !== persistedSharedImages[index]?.dataUrl,
+      ))
   ) {
-    useStore.setState({ batchSharedImages: restoredSharedImages })
+    // 若读盘发现部分共用图已缺失，按旧→新 ID 映射重排提示词中的 @参考k，保留 @当前图（index 0）。
+    const nextSharedIndexById = new Map(restoredSharedImages.map((img, i) => [img.id, i + 1]))
+    const nextPrompt =
+      restoredSharedImages.length === persistedSharedImages.length
+        ? useStore.getState().prompt
+        : remapImageMentions(useStore.getState().prompt, (imageIndex) => {
+            if (imageIndex === 0) return 0
+            const oldShared = persistedSharedImages[imageIndex - 1]
+            if (!oldShared) return null
+            return nextSharedIndexById.get(oldShared.id) ?? -1
+          })
+    useStore.setState({
+      batchSharedImages: restoredSharedImages,
+      prompt: nextPrompt,
+    })
   }
   await restorePersistedMaskDraft(restoredInputImages)
 }
