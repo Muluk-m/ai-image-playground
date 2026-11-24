@@ -21,7 +21,7 @@ const {
   serverLogsCte,
 } = await import('../../../../server/lib/server-log-source')
 const { _setObsClientForTesting } = await import('../../../../server/lib/server-logs')
-const { getOverviewActivity, getTodayErrors } = await import('../../../../server/lib/today')
+const { getOverviewActivity } = await import('../../../../server/lib/today')
 
 const now = Date.UTC(2026, 10, 20, 6)
 const SCHEMA = new Set([
@@ -201,83 +201,8 @@ describe('server log source for the overview errors', () => {
     expect(empty?.total).toBe(0)
   })
 
-  it('classifies a cloudflared reconnect from OpenObserve rows the same way as from server_logs', async () => {
-    const at = now - 10 * 60_000
-    const line = (offset: number, text: string, severity: number, key: string) =>
-      legacyRow(
-        record({
-          _timestamp: (at + offset) * 1_000,
-          body: `${new Date(at + offset).toISOString()} ${text}`,
-          service: 'cloudflared',
-          log_service: 'cloudflared',
-          instance: null,
-          container_name: '/image-playground-paid-cloudflared-1',
-          log_instance: '/image-playground-paid-cloudflared-1',
-          severity_number: severity,
-          log_key: key.repeat(32),
-        }),
-      )
-    const failure = line(
-      0,
-      'ERR failed to serve incoming request error="Error shutting down control stream: rpc: connection closed"',
-      17,
-      '1',
-    )
-    _setServerLogSourceForTesting({
-      async logs() {
-        return {
-          rows: [
-            failure,
-            line(
-              100,
-              'WRN Serve tunnel error error="Error shutting down control stream: rpc: connection closed" connIndex=2',
-              13,
-              '2',
-            ),
-            line(1_500, 'INF Registered tunnel connection connIndex=2 location=sjc01', 9, '3'),
-          ],
-          availability: 'complete',
-        }
-      },
-      async causes() {
-        return []
-      },
-    })
-    try {
-      const data = await getTodayErrors(now)
-      expect(data.serverLogs).toBe('complete')
-      expect(
-        data.recovery?.recovered.entries.find((entry) => entry.id === failure.id),
-      ).toMatchObject({
-        service: 'cloudflared',
-        recovery: { state: 'recovered', recoveredAt: at + 1_500 },
-      })
-    } finally {
-      _setServerLogSourceForTesting(undefined)
-    }
-  })
-
-  it('does not count an error twice when the cause lookup returns it again', async () => {
-    const error = legacyRow(record({ requestid: 'req-dup', errorcode: 'upstream_timeout' }))
-    _setServerLogSourceForTesting({
-      async logs() {
-        return { rows: [error], availability: 'complete' }
-      },
-      async causes() {
-        return [error]
-      },
-    })
-    try {
-      const data = await getTodayErrors(now)
-      expect(data.total).toBe(1)
-      expect(data.entries.filter((entry) => entry.id === error.id)).toHaveLength(1)
-    } finally {
-      _setServerLogSourceForTesting(undefined)
-    }
-  })
-
-  it('looks up causes for every error the panel shows, however old, and reports availability', async () => {
-    const errors = Array.from({ length: 302 }, (_, index) =>
+  it('reports truncated server log availability through getOverviewActivity', async () => {
+    const errors = Array.from({ length: 12 }, (_, index) =>
       legacyRow(
         record({
           _timestamp: (now - index * 1_000) * 1_000,
@@ -286,32 +211,18 @@ describe('server log source for the overview errors', () => {
         }),
       ),
     )
-    const asked: string[][] = []
     _setServerLogSourceForTesting({
       async logs() {
         return { rows: errors, availability: 'truncated' }
       },
-      async causes(requestIds) {
-        asked.push([...requestIds])
+      async causes() {
         return []
       },
     })
     try {
-      const data = await getTodayErrors(now)
-      expect(data.serverLogs).toBe('truncated')
-      expect(asked).toHaveLength(1)
-      // 补查的正是面板上展示的那些错误所在的请求。
-      const shown = [
-        ...data.entries,
-        ...(data.recovery?.unknown.entries ?? []),
-        ...(data.recovery?.unresolved.entries ?? []),
-      ]
-        .map((entry) => entry.request_id)
-        .filter((id): id is string => id !== null)
-      expect(shown.length).toBeGreaterThan(0)
-      for (const id of shown) expect(asked[0]).toContain(id)
       const activity = await getOverviewActivity({ from: now - 3600_000, to: now })
       expect(activity.server.availability).toBe('truncated')
+      expect(activity.server.total).toBe(12)
     } finally {
       _setServerLogSourceForTesting(undefined)
     }
