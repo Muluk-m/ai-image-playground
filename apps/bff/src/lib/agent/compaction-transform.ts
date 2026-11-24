@@ -1,5 +1,6 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { AgentCompactionRecord } from '@image-playground/shared'
+import type { AgentContextTransform } from '../../modules/agent/contracts'
 import type { ChatAttempt } from '../chatCompletion'
 import { log } from '../logger'
 import {
@@ -15,10 +16,7 @@ import { summarizeCompaction, summaryChunkBudget, summaryRequestFits } from './c
 import { saveAgentCompaction } from './conversations'
 import { AgentRequestBudgetError } from './outbound-budget'
 
-export type AgentContextTransform = (
-  messages: AgentMessage[],
-  accepts?: (messages: readonly AgentMessage[]) => boolean,
-) => Promise<AgentMessage[]>
+export type { AgentContextTransform }
 
 export interface CompactionTransformInput {
   readonly conversationId: string

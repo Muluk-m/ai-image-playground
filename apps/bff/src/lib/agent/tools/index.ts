@@ -8,10 +8,10 @@ import type {
   AgentToolResultBlock,
   AgentTurnParams,
 } from '@image-playground/shared'
+import type { AgentImageSource } from '../../../modules/agent/contracts'
 import { isCapabilityEnabled } from '../../capabilities'
 import { log } from '../../logger'
 import { clarificationTool } from '../clarification'
-import type { AgentImageSource } from '../images'
 import { MASK_PROPOSAL_GUIDANCE, maskProposalDeclaration, maskProposalTool } from '../mask-proposal'
 import {
   type AgentToolOutcome,

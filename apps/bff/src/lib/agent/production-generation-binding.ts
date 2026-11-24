@@ -6,14 +6,13 @@ import type {
   ProductionMediaReference,
 } from '@image-playground/shared'
 import { parseProjectArtifactId, productionClipVideo } from '@image-playground/shared'
+import { type AgentToolContext, AgentToolError } from '../../modules/agent/contracts'
 import { decodeDataUrl } from '../imageArchive'
 import { readAssetImage } from '../sync-assets'
 import { createAgentImageSource, readConversationMedia } from './images'
 import { ProductionError, readProduction } from './production'
-
 import { productionClipDependencies } from './production-dependencies'
 import { validateProductionMediaReferences } from './production-references'
-import { AgentToolError } from './tools/errors'
 
 export function targetSnapshot(
   content: ProductionContent,
@@ -86,7 +85,7 @@ export async function referenceDataUrl(
 }
 
 export async function bindProductionGeneration(
-  context: import('./tools/types').AgentToolContext,
+  context: AgentToolContext,
   input: {
     media: 'image' | 'video'
     referenceIds?: readonly string[]

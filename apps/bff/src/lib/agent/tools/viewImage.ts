@@ -1,6 +1,6 @@
 import type { ImageContent } from '@earendil-works/pi-ai'
 import { Type } from 'typebox'
-import type { ResolvedAgentImage } from '../images'
+import type { ResolvedAgentImage } from '../../../modules/agent/contracts'
 import { toRegionDataUrl } from '../modelImage'
 import { prepareVisualEvidence, registerVisualBlock } from '../visual-input'
 import { defineAgentTool } from './adapter'

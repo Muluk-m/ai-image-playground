@@ -16,6 +16,7 @@ import {
 } from '@image-playground/shared'
 import { and, desc, eq, inArray, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
+import { queueArtifacts, queueParamsFor } from '../../modules/agent/contracts'
 import { resolveQueueModel } from '../channels'
 import { extractMeta } from '../extractImages'
 import { archiveInputImages } from '../imageArchive'
@@ -34,8 +35,6 @@ import { productionDependencyChanges } from './production-dependencies'
 import { referenceDataUrl, targetSnapshot } from './production-generation-binding'
 import { validateImageParameters } from './production-generation-validation'
 import { validateProductionMediaReferences } from './production-references'
-import { queueParamsFor } from './tools/queueParams'
-import { queueArtifacts } from './tools/queueTask'
 
 const drafts = schema.agent_generation_drafts
 function fingerprint(value: unknown): string {

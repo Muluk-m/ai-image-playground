@@ -1,8 +1,8 @@
+import { AgentToolError } from '../../modules/agent/contracts'
 import { prepareAnalysisTask } from '../analysis-tasks'
 import { jointAnalysisLimit } from './batch-analysis-limit'
 import { BatchPlanError } from './batch-plans'
 import { AgentContextOverflow } from './request-budget'
-import { AgentToolError } from './tools/errors'
 
 /** User-correctable preparation refusals retain the batch API's explicit refusal contract. */
 export async function prepareBatchAnalysis(input: Parameters<typeof prepareAnalysisTask>[0]) {

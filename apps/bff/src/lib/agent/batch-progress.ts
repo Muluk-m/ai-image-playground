@@ -7,6 +7,7 @@ import {
 } from '@image-playground/shared'
 import { and, asc, eq, inArray, isNull, lte, ne, or, type SQL, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
+import { queueArtifacts } from '../../modules/agent/contracts'
 import { queueTaskOutcome } from '../../modules/execution'
 import { type BffTransaction, loadMeteringPort } from '../billing-ports'
 import { log } from '../logger'
@@ -14,7 +15,6 @@ import { lockMediaOwner } from '../projectMedia'
 import { cancelledBatchDependents, readFrozenDependencyTargets } from './batch-dependencies'
 import { lockConversation } from './confirmations'
 import { enqueueAgentWake } from './inbox'
-import { queueArtifacts } from './tools/queueTask'
 
 const unsettledAttempt = or(
   isNull(schema.agent_batch_attempts.terminal_snapshot),

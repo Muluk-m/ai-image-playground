@@ -1,6 +1,6 @@
 import type { AgentBatchAnalysisLimit } from '@image-playground/shared'
+import { AgentToolError } from '../../modules/agent/contracts'
 import { AgentContextOverflow } from './request-budget'
-import { AgentToolError } from './tools/errors'
 
 export class BatchAnalysisLimit extends Error {
   readonly details: AgentBatchAnalysisLimit

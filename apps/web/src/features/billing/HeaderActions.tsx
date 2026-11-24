@@ -167,7 +167,7 @@ export function HeaderActions({
   }, [enabled])
 
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled || !username) return
     const pending = consumePendingBillingModal()
     if (pending === 'pricing') {
       setMenuOpen(false)
@@ -180,7 +180,7 @@ export function HeaderActions({
       setPricingOpen(false)
       setRechargeOpen(true)
     }
-  }, [enabled])
+  }, [enabled, username])
 
   useEffect(() => {
     if (!menuOpen) return

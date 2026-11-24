@@ -11,7 +11,7 @@ import { lockOwnedBatch } from './batch-execution'
 import { batchItem } from './batch-items'
 import { saveBatchRevision } from './batch-plan-revision'
 import { BatchPlanError, sameArchivedReference } from './batch-plans'
-import { resolveAgentModel } from './tools/queueTask'
+import { resolveAgentModel } from './model-resolution'
 
 /** Editing pending work creates a new approval; accepted attempts retain their exact inputs and prompts. */
 export async function updatePendingBatchPhase(

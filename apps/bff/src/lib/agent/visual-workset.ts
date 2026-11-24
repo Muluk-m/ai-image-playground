@@ -2,9 +2,14 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { ImageContent, Message } from '@earendil-works/pi-ai'
 import type { AgentVisualObservation } from '@image-playground/shared'
 import { config } from '../../config'
-import type { AgentContextTransform } from './compaction-transform'
-import { AgentToolError } from './tools/errors'
+import {
+  type AgentContextTransform,
+  AgentToolError,
+  type VisualWorkset,
+} from '../../modules/agent/contracts'
 import { visualEvidenceOf } from './visual-input'
+
+export type { VisualWorkset }
 
 function images(messages: readonly (AgentMessage | Message)[]): ImageContent[] {
   return messages.flatMap((message) =>
@@ -14,7 +19,7 @@ function images(messages: readonly (AgentMessage | Message)[]): ImageContent[] {
   )
 }
 
-export function createVisualWorkset() {
+export function createVisualWorkset(): VisualWorkset {
   const active = new Set<ImageContent>()
   const delivered = new Map<string, Set<ImageContent>>()
   const released = new WeakMap<ImageContent, string>()
@@ -142,4 +147,3 @@ export function createVisualWorkset() {
     },
   }
 }
-export type VisualWorkset = ReturnType<typeof createVisualWorkset>

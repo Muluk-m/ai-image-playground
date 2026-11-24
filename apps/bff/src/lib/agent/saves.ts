@@ -8,10 +8,10 @@ import type {
 } from '@image-playground/shared'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
+import type { AgentToolAudience } from '../../modules/agent/contracts'
 import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
 import { enqueueAgentUserMessage } from './inbox'
-import type { AgentToolAudience } from './tools/types'
 
 /**
  * 保存卡片这条路的服务端一侧：工具备好卡片，用户在浏览器里把记录写进本机素材库，再回到这里

@@ -229,16 +229,74 @@ export function useBilling(): BillingSnapshot {
   return value
 }
 
-let pendingBillingModal: 'pricing' | 'recharge' | null = null
+type WorkspaceSheetKind = 'plans' | 'topup'
+const WORKSPACE_SHEET_STORAGE_KEY = 'muvloom:workspace-sheet-intent'
+const WORKSPACE_SHEET_WINDOW_MS = 10 * 60 * 1000
+let pendingWorkspaceSheet: { kind: WorkspaceSheetKind; until: number } | null = null
+
+function toModalName(kind: WorkspaceSheetKind): 'pricing' | 'recharge' {
+  return kind === 'plans' ? 'pricing' : 'recharge'
+}
+
+function toSheetKind(modal: 'pricing' | 'recharge'): WorkspaceSheetKind {
+  return modal === 'pricing' ? 'plans' : 'topup'
+}
+
+function clearPendingWorkspaceSheet(): void {
+  pendingWorkspaceSheet = null
+  try {
+    window.sessionStorage.removeItem(WORKSPACE_SHEET_STORAGE_KEY)
+  } catch {
+    // 忽略存储异常。
+  }
+}
+
+function readPendingWorkspaceSheet(): WorkspaceSheetKind | null {
+  const now = Date.now()
+  if (pendingWorkspaceSheet) {
+    if (pendingWorkspaceSheet.until > now) return pendingWorkspaceSheet.kind
+    clearPendingWorkspaceSheet()
+    return null
+  }
+  try {
+    const raw = window.sessionStorage.getItem(WORKSPACE_SHEET_STORAGE_KEY)
+    if (!raw) return null
+    const [kind, untilText] = raw.split(':')
+    const until = Number(untilText)
+    if ((kind === 'plans' || kind === 'topup') && Number.isFinite(until) && until > now) {
+      pendingWorkspaceSheet = { kind, until }
+      return kind
+    }
+    window.sessionStorage.removeItem(WORKSPACE_SHEET_STORAGE_KEY)
+  } catch {
+    // sessionStorage 不可用时退回内存状态。
+  }
+  return null
+}
 
 export function queueBillingModal(modal: 'pricing' | 'recharge'): void {
-  pendingBillingModal = modal
+  const kind = toSheetKind(modal)
+  const until = Date.now() + WORKSPACE_SHEET_WINDOW_MS
+  pendingWorkspaceSheet = { kind, until }
+  try {
+    window.sessionStorage.setItem(WORKSPACE_SHEET_STORAGE_KEY, `${kind}:${until}`)
+  } catch {
+    // 忽略存储异常，内存态仍可用。
+  }
+}
+
+export function clearPendingBillingModal(): void {
+  clearPendingWorkspaceSheet()
+}
+
+export function hasPendingBillingModal(): boolean {
+  return readPendingWorkspaceSheet() !== null
 }
 
 export function consumePendingBillingModal(): 'pricing' | 'recharge' | null {
-  const next = pendingBillingModal
-  pendingBillingModal = null
-  return next
+  const kind = readPendingWorkspaceSheet()
+  clearPendingWorkspaceSheet()
+  return kind ? toModalName(kind) : null
 }
 
 export function openBilling(): void {
@@ -246,12 +304,12 @@ export function openBilling(): void {
 }
 
 export function openPricing(): void {
-  pendingBillingModal = null
+  clearPendingWorkspaceSheet()
   window.dispatchEvent(new Event(OPEN_PRICING_EVENT))
 }
 
 export function openRecharge(): void {
-  pendingBillingModal = null
+  clearPendingWorkspaceSheet()
   window.dispatchEvent(new Event(OPEN_RECHARGE_EVENT))
 }
 

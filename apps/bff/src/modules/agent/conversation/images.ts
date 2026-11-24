@@ -1,0 +1,1098 @@
+import type {
+  AgentMediaReference,
+  AgentMessageView,
+  AgentStoredReference,
+  AgentToolArtifact,
+  AgentTurnReference,
+  StoredImageRef,
+} from '@image-playground/shared'
+import { AGENT_TURN_ATTACHED_MEDIA_MAX, parseProjectArtifactId } from '@image-playground/shared'
+import { and, eq, exists, inArray, isNull, notExists, or, sql } from 'drizzle-orm'
+import { config } from '../../../config'
+import { db, schema } from '../../../db/client'
+import { durableMediaStore } from '../../../lib/durableMediaStore'
+import { resolveImageBytesRef } from '../../../lib/extractImages'
+import { archiveInputImages, fetchSourceImage, hydrateInputImages } from '../../../lib/imageArchive'
+import { log } from '../../../lib/logger'
+import { objectStore, readObjectWithinLimit } from '../../../lib/objectStore'
+import { attachmentLimits } from '../../../lib/operator-config'
+import type { BffTransaction } from '../../../lib/private-overlay'
+import { lockMediaOwner } from '../../../lib/projectMedia'
+import { asQueueProvider } from '../../../lib/queueProvider'
+import { readAssetImage } from '../../../lib/sync-assets'
+import { taskAccessWhere } from '../../../lib/task-access'
+import {
+  type AgentImageRead,
+  type AgentImageReference,
+  type AgentImageRequest,
+  type AgentImageSource,
+  type AgentImageVariant,
+  AgentToolError,
+  type ResolvedAgentImage,
+} from '../contracts'
+import { findConversationImages } from './conversation-images'
+import {
+  editSourceByteLimit,
+  toEditInputDataUrl,
+  toModelImageDataUrl,
+  toPreviewDataUrl,
+} from './model-image'
+import { InvalidSelectionError, imageSelection } from './selection-preview'
+import {
+  assertVisualBytes,
+  previewSourceByteLimit,
+  visualByteLimit,
+  withVisualPreparation,
+} from './visual-resources'
+
+/** 按 id 取图，取不到就抛。工具共用这一句：模型换个 id 重试是它唯一的出路。 */
+export async function requireAgentImages(
+  source: AgentImageSource,
+  requested: readonly AgentImageRequest[],
+): Promise<ResolvedAgentImage[]> {
+  const resolved = await Promise.all(
+    requested.map((one) =>
+      typeof one === 'string' ? source.resolve(one) : source.resolve(one.imageId, one.variant),
+    ),
+  )
+  return resolved.map((image, at) => {
+    if (!image) {
+      const request = requested[at]!
+      const available = source.references.map((reference) => reference.imageId).join('、')
+      throw new AgentToolError(
+        'invalid_params',
+        `图片 ${typeof request === 'string' ? request : request.imageId} 不可用。${available ? `可用参考图 id：${available}；请核对后重试。` : '当前会话没有可用参考图。'}`,
+      )
+    }
+    return image
+  })
+}
+
+/**
+ * 这一轮的引用里，哪几张的**内容**真的进这一份输入。规则只写在这里：实发首轮、插话、
+ * 预扣估算与清单措辞四处共用它，不会各数各的。
+ *
+ * 内联那一路一定进：字节已经在请求体里了，不给模型看等于白传一遍。
+ * 按 id 附的那一路整批同进退——画布上一次圈几十张是常事，全塞进去既撑爆上下文
+ * 也把出站带宽烧光；超过 {@link AGENT_TURN_ATTACHED_MEDIA_MAX} 张就只上清单，
+ * 模型要看内容自己调 `viewImage`。
+ */
+export function shownTurnReferences<T extends AgentImageReference>(
+  references: readonly T[],
+): readonly T[] {
+  let media = 0
+  for (const one of references) if ('mediaId' in one) media += 1
+  if (media <= AGENT_TURN_ATTACHED_MEDIA_MAX) return references
+  return references.filter((one) => !('mediaId' in one))
+}
+
+/**
+ * 这一轮要给模型看的那几张，连同各自该取哪一份字节。都取预览：判断「是不是那张图」、
+ * 框出要改的对象，预览就够，原件一次就是几 MB。内联上传的也一样（附件上传没开时用户的
+ * 图就是这么来的），工具要原件时另按 `original` 去取。带遮罩的由 `modelImage` 保留原件，
+ * 遮罩只对得上原件的尺寸。
+ */
+export function shownImageRequests(
+  references: readonly AgentImageReference[],
+): AgentImageRequest[] {
+  return shownTurnReferences(references).map((one) => ({
+    imageId: one.imageId,
+    variant: 'preview' as const,
+  }))
+}
+
+/**
+ * 把这一批刚到的引用里**要给模型看的那几张**解成字节。按 id 附来的从云媒体读回来，
+ * 内联的原样用；张数多到只上清单的那些根本不解（见 `shownTurnReferences`）。
+ *
+ * 它不经 `AgentImageSource`：插话在被收下之前就要做视觉证据，这时把它们登记进图源
+ * 会让一条可能被拒收的插话提前改掉本轮的活动引用。
+ */
+export async function resolveTurnReferences(
+  references: readonly AgentTurnReference[],
+  conversationId: string,
+  userId: string | null,
+  allowUnclaimed = false,
+): Promise<ResolvedAgentImage[]> {
+  const resolved: ResolvedAgentImage[] = []
+  for (const reference of shownTurnReferences(references)) {
+    if (!('mediaId' in reference)) {
+      const image = await withVisualPreparation(() =>
+        modelImage(
+          {
+            imageId: reference.imageId,
+            dataUrl: reference.dataUrl,
+            ...(reference.maskDataUrl ? { maskDataUrl: reference.maskDataUrl } : {}),
+            ...(reference.regions ? { regions: reference.regions } : {}),
+            ...(reference.editAction ? { editAction: reference.editAction } : {}),
+          },
+          'preview',
+        ),
+      )
+      if (image) resolved.push(image)
+      continue
+    }
+    const image = await withVisualPreparation(async () => {
+      const media = await readMediaReference(
+        reference,
+        conversationId,
+        userId,
+        'preview',
+        allowUnclaimed,
+      )
+      if (!media) throw new AgentToolError('invalid_params', '参考图或选区不可用，请重新添加')
+      return modelImage(media, 'preview')
+    })
+    if (image) resolved.push(image)
+  }
+  return resolved
+}
+
+interface TaskOutput {
+  readonly taskId: string
+  readonly outputIndex: number
+}
+
+/**
+ * 解析链内部的一份字节。`reduced` 表示它已经是预览规格——只有画布媒体有预留的预览，
+ * 其余来源只存一份原件，要预览得读时现缩。
+ */
+type ReadImage = Omit<ResolvedAgentImage, 'imageId'> & { readonly reduced?: boolean }
+
+function dataUrl(bytes: Uint8Array, mime: string): string {
+  const view = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  return `data:${mime};base64,${view.toString('base64')}`
+}
+
+/**
+ * 出解析链前的最后一道：格式归一（画布可存 SVG、用户能拖进 AVIF，上游只认几种位图），
+ * 外加按需降采样。
+ *
+ * 降采样放在这里而不是各个来源里，是因为只有画布媒体有预留的预览；工具产物、素材、本轮
+ * 附图都只存一份原件，而画布上被反复查看的恰恰是产物。放在各来源里就会漏掉它们。
+ */
+async function modelImage(
+  image: (ReadImage & { readonly imageId: string }) | null,
+  variant: AgentImageRead,
+): Promise<ResolvedAgentImage | null> {
+  if (!image) return image
+  const { reduced, ...rest } = image
+  // A selection ID binds the original pixels and mask. Resizing only the image
+  // breaks both coordinate validation and the identity used by editImage.
+  // 现缩预览时直接从原件缩（预览本身就是 webp，不必先归一化）：原件只是源图、不进请求，
+  // 不能先按请求预算卡它——4K 产物原件会在缩之前就被拒。
+  const dataUrl =
+    variant === 'preview' && !reduced && !rest.maskDataUrl
+      ? await toPreviewDataUrl(rest.dataUrl)
+      : variant === 'edit' && !rest.maskDataUrl
+        ? await toEditInputDataUrl(rest.dataUrl)
+        : await toModelImageDataUrl(rest.dataUrl)
+  return { ...rest, dataUrl, visualVariant: rest.maskDataUrl ? 'original' : stored(variant) }
+}
+
+/** 存储里取哪一份：改图输入读的是原件。 */
+function stored(variant: AgentImageRead): AgentImageVariant {
+  return variant === 'preview' ? 'preview' : 'original'
+}
+
+/**
+ * 读这份字节的上限：只为现缩而读的原件（预览、改图输入）按源图上限，其余按请求预算。
+ * 带遮罩的一律按请求预算——遮罩绑着原图像素，不能缩。
+ */
+function readByteLimit(variant: AgentImageRead, masked = false): number {
+  if (masked) return visualByteLimit()
+  if (variant === 'preview') return previewSourceByteLimit()
+  return variant === 'edit' ? editSourceByteLimit() : visualByteLimit()
+}
+
+async function readTaskOutput(
+  output: TaskOutput,
+  userId: string | null,
+  maxBytes = visualByteLimit(),
+): Promise<Omit<ResolvedAgentImage, 'imageId'> | null> {
+  const g = schema.generation_records
+  const gi = schema.generation_images
+  const m = schema.media_objects
+  const archivedOutputs = db
+    .select({ one: sql`1` })
+    .from(gi)
+    .where(and(eq(gi.generation_id, g.id), eq(gi.role, 'output')))
+  const readyLegacyOutput = db
+    .select({ one: sql`1` })
+    .from(gi)
+    .innerJoin(
+      m,
+      and(
+        eq(m.id, gi.media_id),
+        eq(m.user_id, g.user_id),
+        eq(m.status, 'ready'),
+        sql`${m.object_key} IS NOT NULL`,
+      ),
+    )
+    .where(
+      and(eq(gi.generation_id, g.id), eq(gi.role, 'output'), eq(gi.position, output.outputIndex)),
+    )
+  const [task] = await db
+    .select({
+      status: schema.tasks.status,
+      provider: schema.tasks.provider,
+      result_payload: schema.tasks.result_payload,
+    })
+    .from(schema.tasks)
+    .leftJoin(schema.generation_records, eq(schema.generation_records.id, schema.tasks.id))
+    // No-sync deployments and old records without source metadata still use retained tasks.
+    // Never bypass deletion or a modern durable output's unavailable original.
+    .where(
+      and(
+        taskAccessWhere(output.taskId, userId),
+        or(
+          isNull(g.id),
+          and(
+            isNull(g.deleted_at),
+            or(
+              and(eq(g.archive_status, 'none'), notExists(archivedOutputs)),
+              and(isNull(g.source), eq(g.archive_status, 'ready'), exists(readyLegacyOutput)),
+            ),
+          ),
+        ),
+      ),
+    )
+    .limit(1)
+  if (!task || task.status !== 'completed') return null
+  const provider = asQueueProvider(task.provider)
+  if (!provider) return null
+  const ref = resolveImageBytesRef(provider, task.result_payload, output.outputIndex)
+  if (!ref) return null
+  if (ref.kind === 'b64') return { dataUrl: `data:${ref.mime};base64,${ref.data}` }
+  if (ref.kind === 'object')
+    return {
+      dataUrl: dataUrl(
+        await readObjectWithinLimit(
+          ref.store === 'durable' ? durableMediaStore() : objectStore(),
+          ref.data,
+          maxBytes,
+        ),
+        ref.mime,
+      ),
+    }
+  const upstream = await fetchSourceImage(ref.data, { maxBytes }).catch(() => {
+    throw new AgentToolError(
+      'upstream_error',
+      '结果图片未能在当前读取预算内取得，未送入模型，复核尚未完成。请重新添加有效图片或选择必要区域。',
+    )
+  })
+  return { dataUrl: dataUrl(upstream.bytes, upstream.mime ?? ref.mime) }
+}
+
+/**
+ * 尚无持久生成记录的旧产物（包括匿名产物）。
+ *
+ * 折进摘要的那段历史不再读回来（#708），可摘要的「产物」一节仍然点着它们的 id，模型照样
+ * 会去 `viewImage` / `editImage`。好在产物 id 本身就是 `agent_<任务 id>_<下标>`，解开它
+ * 直接回表，比为这一张图把整段历史读回来便宜得多。
+ *
+ * 多一条会话限定：这个 id 来自模型输出，而模型输出受用户文本影响。「历史里出现过的才准
+ * 解析」原先是隐含边界，回表时得由 SQL 把它写明。
+ */
+async function readFoldedOutput(
+  imageId: string,
+  conversationId: string,
+  userId: string | null,
+  maxBytes = visualByteLimit(),
+): Promise<Omit<ResolvedAgentImage, 'imageId'> | null> {
+  const parsed = parseProjectArtifactId(imageId)
+  if (!parsed) return null
+  const [owned] = await db
+    .select({ id: schema.tasks.id })
+    .from(schema.tasks)
+    .where(
+      and(
+        eq(schema.tasks.id, parsed.generationId),
+        eq(schema.tasks.agent_conversation_id, conversationId),
+      ),
+    )
+    .limit(1)
+  if (!owned) return null
+  return readTaskOutput(
+    { taskId: parsed.generationId, outputIndex: parsed.position },
+    userId,
+    maxBytes,
+  )
+}
+
+/** `aip-media:<uuid>` 是画布里存图片来源的写法，模型多半照抄过来，这里一并认。 */
+const CANVAS_MEDIA_ID = /^(?:aip-media:)?([0-9a-f-]{36})$/i
+
+/**
+ * 这个会话读得到的那张云媒体的字节。
+ *
+ * 越权边界由 SQL 写明，比「归本人所有」更紧一格：只按 user_id 放行的话，模型报一串 uuid
+ * 就能把这人别的项目里的图读出来。放行的只有两种认领关系：
+ *
+ * - **这一轮会话绑着的那个项目**认领着它：模型读画布报出来的 id 走这条。
+ * - **这个会话自己**认领着它：用户按 id 附过来的参考图走这条（见 `claimConversationMedia`）。
+ *   会话自己那一份是历史的锚：用户后来把这张图从画布上删了，项目那条认领会随下一次项目
+ *   写入消失，历史里的引用不该跟着变成一张读不出来的图。
+ * - **本轮已校验的画布目录**列着它：尚未同步到项目的图只在本轮可读，不创建永久认领。
+ */
+export async function readConversationMedia(
+  mediaId: string,
+  conversationId: string,
+  userId: string | null,
+  variant: AgentImageVariant,
+  fromCurrentCanvas = false,
+  maxBytes?: number,
+): Promise<{
+  readonly bytes: Uint8Array
+  readonly contentType: string
+  readonly reduced: boolean
+} | null> {
+  if (!userId) return null
+  const fields = {
+    objectKey: schema.media_objects.object_key,
+    previewKey: schema.media_objects.preview_key,
+    contentType: schema.media_objects.content_type,
+  }
+  const filter = and(
+    eq(schema.media_objects.id, mediaId),
+    eq(schema.media_objects.user_id, userId),
+    eq(schema.media_objects.status, 'ready'),
+  )
+  const [row] = fromCurrentCanvas
+    ? await db.select(fields).from(schema.media_objects).where(filter).limit(1)
+    : await db
+        .select(fields)
+        .from(schema.media_objects)
+        .innerJoin(
+          schema.media_references,
+          and(
+            eq(schema.media_references.media_id, schema.media_objects.id),
+            eq(schema.media_references.user_id, userId),
+            or(
+              and(
+                eq(schema.media_references.owner_kind, 'conversation'),
+                eq(schema.media_references.owner_id, conversationId),
+              ),
+              and(
+                eq(schema.media_references.owner_kind, 'project'),
+                exists(
+                  db
+                    .select({ one: sql`1` })
+                    .from(schema.canvas_projects)
+                    .where(
+                      and(
+                        eq(schema.canvas_projects.id, schema.media_references.owner_id),
+                        eq(schema.canvas_projects.conversation_id, conversationId),
+                        isNull(schema.canvas_projects.deleted_at),
+                      ),
+                    ),
+                ),
+              ),
+            ),
+          ),
+        )
+        .where(filter)
+        .limit(1)
+  // 预览是上传时一并生成的，理论上 ready 的行两份都在；缺了就退回原件，宁可贵一次也别取不到图。
+  const previewKey = variant === 'preview' ? row?.previewKey : null
+  const key = previewKey ?? row?.objectKey
+  if (!key) return null
+  return {
+    bytes:
+      maxBytes === undefined
+        ? await durableMediaStore().read(key)
+        : await readObjectWithinLimit(durableMediaStore(), key, maxBytes),
+    // 预留的预览是 webp，原件那一行的 content type 对不上它，按字节认。
+    contentType: previewKey ? 'image/webp' : row.contentType,
+    reduced: previewKey !== null,
+  }
+}
+
+/** Owner-checked durable inputs for independent tasks; never silently omit a large input set. */
+export async function resolveOwnedMediaImages(
+  references: readonly import('@image-playground/shared').AgentMediaReference[],
+  userId: string,
+): Promise<ResolvedAgentImage[]> {
+  const images: ResolvedAgentImage[] = []
+  let bytes = 0
+  for (const reference of references) {
+    const source = await readMediaReference(reference, '', userId, 'preview', true)
+    const image = await modelImage(source, 'preview')
+    if (!image) throw new AgentToolError('invalid_params', '分析图片不可用，请重新确认输入范围。')
+    bytes += Buffer.byteLength(image.dataUrl) + Buffer.byteLength(image.maskDataUrl ?? '')
+    assertVisualBytes(bytes)
+    images.push(image)
+  }
+  return images
+}
+
+/** 遮罩坐标与选区身份绑定原件，不能把原尺寸遮罩套在媒体预览上。 */
+async function readMediaReference(
+  reference: import('@image-playground/shared').AgentMediaReference,
+  conversationId: string,
+  userId: string | null,
+  variant: AgentImageRead,
+  allowUnclaimed = false,
+): Promise<(ResolvedAgentImage & { readonly reduced?: boolean }) | null> {
+  return withVisualPreparation(async () => {
+    const original = await readConversationMedia(
+      reference.mediaId,
+      conversationId,
+      userId,
+      reference.maskMediaId ? 'original' : stored(variant),
+      allowUnclaimed,
+      readByteLimit(variant, !!reference.maskMediaId),
+    )
+    if (!original) return null
+    const mask = reference.maskMediaId
+      ? await readConversationMedia(
+          reference.maskMediaId,
+          conversationId,
+          userId,
+          'original',
+          allowUnclaimed,
+          visualByteLimit(),
+        )
+      : undefined
+    if (reference.maskMediaId && !mask) return null
+    return {
+      imageId: reference.imageId,
+      dataUrl: dataUrl(original.bytes, original.contentType),
+      reduced: original.reduced,
+      ...(mask ? { maskDataUrl: dataUrl(mask.bytes, mask.contentType) } : {}),
+      ...(reference.regions ? { regions: reference.regions } : {}),
+      ...(reference.editAction ? { editAction: reference.editAction } : {}),
+    }
+  })
+}
+
+/**
+ * 画布上用户自己放的图。
+ *
+ * 它们的 id 是 `media_objects.id`，与产物 id（`agent_<任务>_<下标>`）、素材 id 都不是一个
+ * 空间——不接这一路，`readCanvas` 报出来的图片 id 就交不给 `editImage`，读画布这件事等于白做。
+ */
+async function readCanvasMedia(
+  imageId: string,
+  conversationId: string,
+  userId: string | null,
+  variant: AgentImageRead,
+  canvasMediaIds?: ReadonlySet<string>,
+): Promise<ReadImage | null> {
+  const mediaId = imageId.match(CANVAS_MEDIA_ID)?.[1]?.toLowerCase()
+  if (!mediaId) return null
+  const media = await readConversationMedia(
+    mediaId,
+    conversationId,
+    userId,
+    stored(variant),
+    canvasMediaIds?.has(mediaId) ?? false,
+    readByteLimit(variant),
+  )
+  if (!media) return null
+  // 预留的预览已经是这条规格缩过的，别再缩第二次。格式归一在出解析链时统一做（`modelImage`）。
+  return { reduced: media.reduced, dataUrl: dataUrl(media.bytes, media.contentType) }
+}
+
+/** 历史工具结果提供本轮产物身份；旧产物仍以任务和下标读取。 */
+function outputsFromHistory(history: readonly AgentMessageView[]): Map<string, TaskOutput> {
+  const outputs = new Map<string, TaskOutput>()
+  for (const message of history) {
+    for (const block of message.content) {
+      if (block.type !== 'toolResult') continue
+      rememberImages(outputs, block.artifacts ?? [])
+    }
+  }
+  return outputs
+}
+
+/** 视频取不出可编辑的位图，所以只有图片产物进得来。 */
+function rememberImages(
+  outputs: Map<string, TaskOutput>,
+  artifacts: readonly AgentToolArtifact[],
+): void {
+  for (const artifact of artifacts) {
+    if (artifact.media !== 'image') continue
+    outputs.set(artifact.artifactId, {
+      taskId: artifact.taskId,
+      outputIndex: artifact.outputIndex,
+    })
+  }
+}
+
+/**
+ * 用户在这张图上画没画遮罩。三种引用形态各把它存在不同字段里，问法只此一处。
+ */
+export function referenceHasMask(reference: AgentImageReference): boolean {
+  if ('mediaId' in reference) return Boolean(reference.maskMediaId)
+  if ('maskDataUrl' in reference) return Boolean(reference.maskDataUrl)
+  return 'mask' in reference && Boolean(reference.mask)
+}
+
+/**
+ * 附在用户消息后面送给模型；没有引用时是空串。
+ *
+ * `selected` 说的是这批图**是不是用户为这一轮挑的**，与内容在不在这份输入里是两件事：
+ *
+ * - 上下文里沿用下来的（`false`）：它们不代表本轮意图，模型要看内容得自己调 `viewImage`。
+ * - 本轮选中、内容也附上了的：连字节一起发，措辞照旧。
+ * - 本轮选中、只给了 id 的（张数超过 {@link AGENT_TURN_ATTACHED_MEDIA_MAX}）：它们**是**
+ *   本轮意图，只是内容没随这一轮发——把它说成「之前对话用到的图」会让模型当历史图忽略掉。
+ *
+ * 三种措辞共用同一份编号，`[image N]` 的可寻址性不因为字节没发而丢；编号一律按请求顺序数，
+ * 用户那句话里写的 `[image N]` 指的就是这一个。
+ */
+export function referenceManifest(
+  references: readonly AgentImageReference[],
+  selected: boolean,
+  maskScope: 'historical' | 'retained' = 'retained',
+): string {
+  if (references.length === 0) return ''
+  const shown = selected ? shownTurnReferences(references) : []
+  const attached = new Set(shown)
+  // 一半附一半不附时逐条标注；整批同进退的两种情形由开头那句话一次说清。
+  // 张数按数组长度比，不按集合大小：同一张图重复附两次时，集合会少数一个。
+  const mixed = shown.length > 0 && shown.length < references.length
+  const lines = references.map((one, at) => {
+    const name = one.name ? `${one.name}，` : ''
+    const mask = referenceHasMask(one)
+      ? attached.has(one)
+        ? '，蓝色半透明覆盖处是用户圈选区（仅供定位，不是图中原有颜色；编辑时用原图）。作为编辑目标时只改圈选内，作为参考时只参考圈选内容'
+        : maskScope === 'retained'
+          ? '，这次续作仍沿用此前的选区；作为编辑目标时只改圈选内，作为参考时只参考圈选内容'
+          : '，此前附过选区；历史选区不代表本轮修改范围，以本轮附图或系统续作计划为准'
+      : ''
+    const carried = mixed && attached.has(one) ? '（内容已附在本轮输入里）' : ''
+    return `[image ${at + 1}] ${name}图片 id ${one.imageId}${mask}${carried}`
+  })
+  const head = !selected
+    ? maskScope === 'historical'
+      ? '上下文里可取的图（工具参数使用图片 id，不要把编号当 id）：这些是之前对话用到的图，内容没有附在本轮输入里，它们不代表本轮意图；真需要看它们的内容时调 viewImage，改图直接把 id 交给 editImage。'
+      : '上下文里可取的图（工具参数使用图片 id，不要把编号当 id）：这些是之前对话用到的图，内容没有附在本轮输入里；真需要看它们的内容时调 viewImage，改图直接把 id 交给 editImage。'
+    : shown.length === references.length
+      ? '可用参考图（工具参数使用图片 id，不要把编号当 id）；以下图的内容已附在本轮输入里：'
+      : mixed
+        ? '本轮用户选中的图（工具参数使用图片 id，不要把编号当 id）：它们都是用户为这次请求挑的图，标注「内容已附在本轮输入里」的那几张随这一轮发出，其余只给了 id；只有任务确实要看清某张的样子时才调 viewImage，改图或以图生图直接把 id 交给 editImage / generateImage，不必先看。'
+        : '本轮用户选中的图（工具参数使用图片 id，不要把编号当 id）：它们都是用户为这次请求挑的图，张数较多，内容没有附在本轮输入里；只有任务确实要看清某张的样子时才调 viewImage，改图或以图生图直接把 id 交给 editImage / generateImage，不必先看。'
+  return `\n\n${head}\n${lines.join('\n')}`
+}
+
+function originalStoredReference(reference: AgentStoredReference): AgentStoredReference {
+  if ('mediaId' in reference) {
+    const { maskMediaId: _mask, regions: _regions, editAction: _action, ...original } = reference
+    return original
+  }
+  const { mask: _mask, regions: _regions, editAction: _action, ...original } = reference
+  return original
+}
+
+/**
+ * 保留最近一批引用的编号；更早的图仍可凭原 id 取回。
+ *
+ * 沿用下来的这一批**只进清单文字**：它让 `[image N]` 仍然指得回真 id，不再让本轮重发字节。
+ */
+export function activeAgentReferences(
+  current: readonly AgentTurnReference[],
+  history: readonly AgentMessageView[],
+  selectionHistoryStart = history.length,
+): readonly AgentImageReference[] {
+  if (current.length) return current
+  for (let at = history.length - 1; at >= 0; at--) {
+    const message = history[at]!
+    if (message.role !== 'user') continue
+    for (let index = message.content.length - 1; index >= 0; index--) {
+      const block = message.content[index]!
+      if (block.type === 'text' && block.references?.length) {
+        return block.references.map((reference) => {
+          return at >= selectionHistoryStart ? reference : originalStoredReference(reference)
+        })
+      }
+    }
+  }
+  return []
+}
+
+export async function removeAgentTurnReferences(
+  conversationId: string,
+  turnId: string,
+): Promise<void> {
+  try {
+    await objectStore().deletePrefix(`agent/${conversationId}/${turnId}/`)
+  } catch (err) {
+    log.warn(
+      { event: 'agent.reference_cleanup_failed', conversationId, turnId, err },
+      'reference cleanup failed',
+    )
+  }
+}
+
+/**
+ * 会话删掉之后，它历轮的参考图就没有任何读路径了。逐轮前缀在正常跑完的轮上不会被清
+ * （`removeAgentTurnReferences` 只在起轮失败的回滚路径上调），所以删会话时按会话前缀一次清掉。
+ * 云媒体那一路没有副本，清的是这个会话对那些媒体的认领——不清的话，那几张图会被
+ * `media_references` 的 `restrict` 永远钉在用户的配额里。
+ */
+export async function removeAgentConversationReferences(conversationId: string): Promise<void> {
+  try {
+    await db
+      .delete(schema.media_references)
+      .where(
+        and(
+          eq(schema.media_references.owner_kind, 'conversation'),
+          eq(schema.media_references.owner_id, conversationId),
+        ),
+      )
+  } catch (err) {
+    log.warn(
+      { event: 'agent.reference_cleanup_failed', conversationId, err },
+      'conversation media claim cleanup failed',
+    )
+  }
+  try {
+    await objectStore().deletePrefix(`agent/${conversationId}/`)
+  } catch (err) {
+    log.warn(
+      { event: 'agent.reference_cleanup_failed', conversationId, err },
+      'conversation reference cleanup failed',
+    )
+  }
+}
+
+/**
+ * 把几张云媒体挂到这个会话名下。
+ *
+ * 会话自己那条认领是历史的锚：它在，`readConversationMedia` 就读得到这张图，与画布后来
+ * 怎么改无关。重复认领是常事（同一张图附两轮、取图两次取到同一个地址），所以忽略主键冲突。
+ */
+export async function addConversationMediaClaims(
+  conversationId: string,
+  userId: string,
+  mediaIds: readonly string[],
+): Promise<void> {
+  if (mediaIds.length === 0) return
+  const accepted = await claimReadyConversationMedia(
+    conversationId,
+    userId,
+    mediaIds.map((mediaId) => ({ imageId: mediaId, mediaId })),
+    false,
+  )
+  if (!accepted) throw new Error('media_not_ready')
+}
+
+function withinAttachmentBudget(
+  media: readonly { bytes: number; width: number | null; height: number | null }[],
+): boolean {
+  const limits = attachmentLimits(config.operator)
+  return (
+    !limits ||
+    media.every(
+      (image) =>
+        image.bytes <= limits.imageBytes &&
+        image.width !== null &&
+        image.height !== null &&
+        image.width * image.height <= limits.imagePixels,
+    )
+  )
+}
+
+/** Decode before acquiring transaction locks; ready media bytes are immutable. */
+export async function validateConversationMediaSelections(
+  userId: string | null,
+  references: readonly AgentTurnReference[],
+): Promise<boolean> {
+  const masked = references.filter((reference) => 'mediaId' in reference && reference.maskMediaId)
+  const inspected = attachmentLimits(config.operator)
+    ? references.filter((reference) => 'mediaId' in reference)
+    : masked
+  if (!inspected.length) return true
+  if (!userId) return false
+  const ids = [
+    ...new Set(
+      inspected.flatMap((reference) =>
+        'mediaId' in reference
+          ? [reference.mediaId, ...(reference.maskMediaId ? [reference.maskMediaId] : [])]
+          : [],
+      ),
+    ),
+  ]
+  const owned = await db
+    .select({
+      id: schema.media_objects.id,
+      bytes: schema.media_objects.bytes,
+      width: schema.media_objects.width,
+      height: schema.media_objects.height,
+      objectKey: schema.media_objects.object_key,
+      contentType: schema.media_objects.content_type,
+    })
+    .from(schema.media_objects)
+    .where(
+      and(
+        inArray(schema.media_objects.id, ids),
+        eq(schema.media_objects.user_id, userId),
+        eq(schema.media_objects.status, 'ready'),
+      ),
+    )
+  if (owned.length !== ids.length || !withinAttachmentBudget(owned)) return false
+  const byId = new Map(owned.map((media) => [media.id, media]))
+  for (const reference of references) {
+    if (!('mediaId' in reference) || !reference.maskMediaId) continue
+    const original = byId.get(reference.mediaId)!
+    const mask = byId.get(reference.maskMediaId)!
+    const originalKey = original.objectKey
+    const maskKey = mask.objectKey
+    if (
+      !originalKey ||
+      !maskKey ||
+      original.width !== mask.width ||
+      original.height !== mask.height
+    )
+      return false
+    try {
+      await withVisualPreparation(async () =>
+        imageSelection(
+          {
+            dataUrl: dataUrl(
+              await readObjectWithinLimit(durableMediaStore(), originalKey, visualByteLimit()),
+              original.contentType,
+            ),
+            maskDataUrl: dataUrl(
+              await readObjectWithinLimit(durableMediaStore(), maskKey, visualByteLimit()),
+              mask.contentType,
+            ),
+          },
+          false,
+        ),
+      )
+    } catch (error) {
+      if (error instanceof InvalidSelectionError) return false
+      throw error
+    }
+  }
+  return true
+}
+
+/**
+ * 让这个会话认领用户按 id 附过来的那几张云媒体，并顺带把越权挡在起轮之前。
+ *
+ * 两件事一次做完是刻意的：能认领就说明这张图确实是这个人的、确实还在（`ready`），
+ * 认领落下之后 `readCanvasMedia` 才读得到它，而且读得到与画布后来怎么改无关。
+ * 认领不上就是越权或图已经不在，调用方按 422 打回——那一轮还没开始，用户的话还在输入框里。
+ */
+export async function claimConversationMedia(
+  conversationId: string,
+  userId: string | null,
+  references: readonly AgentTurnReference[],
+  executor?: BffTransaction,
+): Promise<boolean> {
+  return claimReadyConversationMedia(conversationId, userId, references, true, executor)
+}
+
+/** Tool results already passed their own visual/storage admission policy. */
+async function claimReadyConversationMedia(
+  conversationId: string,
+  userId: string | null,
+  references: readonly AgentTurnReference[],
+  enforceAttachmentBudget: boolean,
+  executor?: BffTransaction,
+): Promise<boolean> {
+  const mediaIds = [
+    ...new Set(
+      references.flatMap((one) =>
+        'mediaId' in one ? [one.mediaId, ...(one.maskMediaId ? [one.maskMediaId] : [])] : [],
+      ),
+    ),
+  ]
+  if (mediaIds.length === 0) return true
+  if (!userId) return false
+  if (
+    enforceAttachmentBudget &&
+    !executor &&
+    !(await validateConversationMediaSelections(userId, references))
+  )
+    return false
+  const claim = async (tx: BffTransaction) => {
+    await lockMediaOwner(tx, userId)
+    const owned = await tx
+      .select({
+        id: schema.media_objects.id,
+        bytes: schema.media_objects.bytes,
+        width: schema.media_objects.width,
+        height: schema.media_objects.height,
+        objectKey: schema.media_objects.object_key,
+        contentType: schema.media_objects.content_type,
+      })
+      .from(schema.media_objects)
+      .where(
+        and(
+          inArray(schema.media_objects.id, mediaIds),
+          eq(schema.media_objects.user_id, userId),
+          eq(schema.media_objects.status, 'ready'),
+        ),
+      )
+    if (
+      owned.length !== mediaIds.length ||
+      (enforceAttachmentBudget && !withinAttachmentBudget(owned))
+    )
+      return false
+    const byId = new Map(owned.map((media) => [media.id, media]))
+    for (const reference of references) {
+      if (!('mediaId' in reference) || !reference.maskMediaId) continue
+      const original = byId.get(reference.mediaId)!
+      const mask = byId.get(reference.maskMediaId)!
+      if (
+        !original.objectKey ||
+        !mask.objectKey ||
+        original.width !== mask.width ||
+        original.height !== mask.height
+      )
+        return false
+    }
+    await tx
+      .insert(schema.media_references)
+      .values(
+        mediaIds.map((mediaId) => ({
+          user_id: userId,
+          media_id: mediaId,
+          owner_kind: 'conversation' as const,
+          owner_id: conversationId,
+          created_at: Date.now(),
+        })),
+      )
+      .onConflictDoNothing()
+    return true
+  }
+  return executor ? claim(executor) : db.transaction(claim)
+}
+
+/** 只把当前用户已上传且可用的媒体编号留在本轮画布目录中，不创建持久引用。 */
+export async function readyCanvasMediaIds(
+  userId: string | null,
+  mediaIds: readonly string[],
+): Promise<ReadonlySet<string>> {
+  if (!userId || mediaIds.length === 0) return new Set()
+  const owned = await db
+    .select({ id: schema.media_objects.id })
+    .from(schema.media_objects)
+    .where(
+      and(
+        inArray(schema.media_objects.id, [...new Set(mediaIds)]),
+        eq(schema.media_objects.user_id, userId),
+        eq(schema.media_objects.status, 'ready'),
+      ),
+    )
+  return new Set(owned.map((row) => row.id))
+}
+
+/**
+ * 把这一轮的参考图存成跨轮可读的快照。内联那一路把字节复制进对象存储；云媒体那一路
+ * 只记 id——字节已经在 R2 里，复制第二遍既费出站带宽又白占一份配额，认领由
+ * `claimConversationMedia` 在起轮之前落好。
+ */
+export async function archiveAgentReferences(
+  conversationId: string,
+  turnId: string,
+  references: readonly AgentTurnReference[],
+): Promise<AgentStoredReference[]> {
+  const stored: AgentStoredReference[] = []
+  try {
+    for (const [index, reference] of references.entries()) {
+      if ('mediaId' in reference) {
+        stored.push({
+          imageId: reference.imageId,
+          ...(reference.name ? { name: reference.name } : {}),
+          mediaId: reference.mediaId,
+          ...(reference.maskMediaId ? { maskMediaId: reference.maskMediaId } : {}),
+          ...(reference.regions ? { regions: reference.regions } : {}),
+          ...(reference.editAction ? { editAction: reference.editAction } : {}),
+        })
+        continue
+      }
+      const archived = await archiveInputImages(`agent/${conversationId}/${turnId}/${index}`, {
+        prompt: '',
+        input_images: [reference.dataUrl],
+        ...(reference.maskDataUrl ? { mask: reference.maskDataUrl } : {}),
+      })
+      stored.push({
+        imageId: reference.imageId,
+        ...(reference.name ? { name: reference.name } : {}),
+        ...(reference.regions ? { regions: reference.regions } : {}),
+        ...(reference.editAction ? { editAction: reference.editAction } : {}),
+        image: archived.input_images![0] as StoredImageRef,
+        ...(archived.mask ? { mask: archived.mask as StoredImageRef } : {}),
+      })
+    }
+    return stored
+  } catch (error) {
+    await removeAgentTurnReferences(conversationId, turnId)
+    throw error
+  }
+}
+
+export function createAgentImageSource(input: {
+  readonly references: readonly AgentTurnReference[]
+  /** 锚点之后的历史；更早的图片按 id 从持久目录或旧任务回查。 */
+  readonly history: readonly AgentMessageView[]
+  readonly conversationId: string
+  readonly userId: string | null
+  /** 仅本轮已校验画布里的媒体；不把它们持久认领给会话。 */
+  readonly canvasMediaIds?: readonly string[]
+  /** 未完成澄清链从此处继承选区；系统续作传 0，新请求默认不继承。 */
+  readonly selectionHistoryStart?: number
+}): AgentImageSource {
+  const { userId } = input
+  const canvasMediaIds = new Set(input.canvasMediaIds ?? [])
+  // 原图可跨请求复用，选区只在当前请求、澄清链或已授权续作中有效。
+  const selectionHistoryStart = input.selectionHistoryStart ?? input.history.length
+  const references = new Map<string, AgentImageReference>()
+  for (const [index, message] of input.history.entries()) {
+    if (message.role !== 'user') continue
+    for (const block of message.content) {
+      if (block.type !== 'text') continue
+      for (const reference of block.references ?? []) {
+        references.set(
+          reference.imageId,
+          index < selectionHistoryStart ? originalStoredReference(reference) : reference,
+        )
+      }
+    }
+  }
+  for (const reference of input.references) references.set(reference.imageId, reference)
+  let active: readonly AgentImageReference[] = activeAgentReferences(
+    input.references,
+    input.history,
+    selectionHistoryStart,
+  ).map((reference) => references.get(reference.imageId)!)
+  const outputs = outputsFromHistory(input.history)
+  // 只去重在途读取；完成后不让原件缓存随本轮已看图片数无限增长。
+  const resolving = new Map<string, Promise<ResolvedAgentImage | null>>()
+
+  const resolveMediaReferences = async (imageIds: readonly string[]) => {
+    const ids = imageIds.map((id) => identify(id))
+    const missing = [...new Set(ids.filter((id) => !references.has(id)))]
+    const stored =
+      userId && missing.length
+        ? await findConversationImages({
+            conversationId: input.conversationId,
+            userId,
+            imageIds: missing,
+          })
+        : []
+    const durable = new Map(stored.map((row) => [row.imageId, row.reference]))
+    return ids.map((id): AgentMediaReference | null => {
+      const reference = references.get(id)
+      if (reference) return 'mediaId' in reference ? reference : null
+      return durable.get(id) ?? null
+    })
+  }
+
+  const read = async (
+    imageId: string,
+    variant: AgentImageRead,
+  ): Promise<ResolvedAgentImage | null> => {
+    const reference = references.get(imageId)
+    if (reference) {
+      // 云媒体那一路没有副本，字节仍在 R2 的原件里；认领是起轮时落下的，所以读得到。
+      if ('mediaId' in reference) {
+        return readMediaReference(reference, input.conversationId, userId, variant)
+      }
+      const hydrated =
+        'dataUrl' in reference
+          ? { input_images: [reference.dataUrl], mask: reference.maskDataUrl }
+          : await hydrateInputImages(
+              {
+                prompt: '',
+                input_images: [reference.image],
+                mask: reference.mask,
+              },
+              {
+                maxBytes:
+                  variant === 'edit' && !reference.mask ? editSourceByteLimit() : visualByteLimit(),
+              },
+            )
+      return {
+        imageId,
+        dataUrl: hydrated.input_images![0]!,
+        ...(hydrated.mask ? { maskDataUrl: hydrated.mask } : {}),
+        ...('regions' in reference && reference.regions ? { regions: reference.regions } : {}),
+        ...('editAction' in reference && reference.editAction
+          ? { editAction: reference.editAction }
+          : {}),
+      }
+    }
+    const [durable] = await resolveMediaReferences([imageId])
+    if (durable) return readMediaReference(durable, input.conversationId, userId, variant, true)
+    const output = outputs.get(imageId)
+    if (output) {
+      const image = await readTaskOutput(output, userId, readByteLimit(variant))
+      return image ? { imageId, ...image } : null
+    }
+    const folded = await readFoldedOutput(
+      imageId,
+      input.conversationId,
+      userId,
+      readByteLimit(variant),
+    )
+    if (folded) return { imageId, ...folded }
+    const canvas = await readCanvasMedia(
+      imageId,
+      input.conversationId,
+      userId,
+      variant,
+      canvasMediaIds,
+    )
+    if (canvas) return { imageId, ...canvas }
+    if (!userId) return null
+    const asset = await readAssetImage(userId, imageId, readByteLimit(variant))
+    return asset ? { imageId, dataUrl: dataUrl(asset.bytes, asset.contentType) } : null
+  }
+
+  const identify = (imageId: string): string => {
+    if (references.has(imageId) || outputs.has(imageId)) return imageId
+    const ordinal = /^(?:image\s+([1-9]\d*)|\[image\s+([1-9]\d*)\])$/i.exec(imageId.trim())
+    if (!ordinal) return imageId
+    return active[Number(ordinal[1] ?? ordinal[2]) - 1]?.imageId ?? imageId
+  }
+
+  return {
+    get references() {
+      return active
+    },
+    get masked() {
+      for (const reference of references.values()) {
+        if (referenceHasMask(reference)) return true
+      }
+      return false
+    },
+    attach(added) {
+      if (!added.length) return
+      active = added
+      for (const reference of added) {
+        references.set(reference.imageId, reference)
+        for (const variant of ['original', 'preview', 'edit']) {
+          resolving.delete(`${variant}\u0000${reference.imageId}`)
+        }
+      }
+    },
+    note(artifacts) {
+      rememberImages(outputs, artifacts)
+    },
+
+    identify,
+    resolveMediaReferences,
+
+    resolve(imageId, variant = 'original') {
+      const id = identify(imageId)
+      // 同一张图两种变体是两份字节，缓存不能共用一个键。
+      const key = `${variant}\u0000${id}`
+      const running = resolving.get(key)
+      if (running) return running
+      const started = withVisualPreparation(() =>
+        read(id, variant).then((image) => modelImage(image, variant)),
+      ).finally(() => {
+        if (resolving.get(key) === started) resolving.delete(key)
+      })
+      resolving.set(key, started)
+      return started
+    },
+  }
+}

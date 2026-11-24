@@ -1,6 +1,6 @@
+import { AgentToolError } from '../../modules/agent/contracts'
 import type { ResolvedAgentImage } from './images'
 import { editActionIntent, type ImageSelection, imageSelection } from './selection-preview'
-import { AgentToolError } from './tools/errors'
 
 export interface SelectionBinding {
   readonly imageId: string

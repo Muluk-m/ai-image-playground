@@ -13,6 +13,7 @@ import type {
 } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
+import { toolErrorText } from '../../modules/agent/contracts'
 import { bffDrain } from '../drain'
 import { log } from '../logger'
 import type { BffTransaction, TaskOutcome } from '../private-overlay'
@@ -89,7 +90,6 @@ import {
   createToolFailureLog,
   isAgentToolName,
 } from './tools'
-import { toolErrorText } from './tools/adapter'
 import { createTurnAuthorization } from './turn-authorization'
 import { agentTurnFailure } from './turn-failure'
 import {

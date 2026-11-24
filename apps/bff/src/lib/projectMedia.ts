@@ -18,7 +18,6 @@ import type { BunSQLDatabase } from 'drizzle-orm/bun-sql'
 import sharp, { type Metadata } from 'sharp'
 import { config } from '../config'
 import { db, schema } from '../db/client'
-import { PREVIEW_RESIZE } from './agent/modelImage'
 import { isCapabilityEnabled } from './capabilities'
 import { durableMediaStore } from './durableMediaStore'
 import { log } from './logger'
@@ -26,6 +25,7 @@ import {
   assertMediaImageProcessingBudget,
   displayedImageSize,
   MEDIA_UPLOAD_MAX_PIXELS,
+  PREVIEW_RESIZE,
 } from './media-image-limits'
 import { withMediaObjectLock } from './mediaObjectLock'
 import { createMediaProcessingLimiter } from './mediaProcessingLimiter'

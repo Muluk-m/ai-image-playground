@@ -17,12 +17,12 @@ import {
 } from 'drizzle-orm'
 import { config } from '../config'
 import { snapshotAgentBatchesBeforePurge } from '../lib/agent/batch-progress'
-import { settleAgentConversationJobs } from '../lib/agent/conversations'
 import { durableMediaStore } from '../lib/durableMediaStore'
 import { log } from '../lib/logger'
 import { objectStore } from '../lib/objectStore'
 import { planNextAttempt, type RetryPlan } from '../lib/retry'
 import { ASSET_OBJECT_ROOT, assetOwnerPrefix } from '../lib/sync-assets'
+import { settleAgentConversationJobs } from '../modules/agent'
 import {
   finishTask,
   reconcileTasks,
