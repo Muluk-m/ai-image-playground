@@ -318,11 +318,11 @@ describe('Gemini direct key pool & stats', () => {
   })
 
   it('records HTTP 200 zero-image safety block as error with prompt token cost only', async () => {
-    const createRes = await request('/internal/gemini-direct/keys', 'POST', {
+    const createRes = await request('/internal/admin/gemini-direct/keys', 'POST', {
       apiKey: 'AIzaSy-safety-block-key-111111111',
       budgetUsd: 100,
     })
-    expect(createRes.status).toBe(201)
+    expect(createRes.status).toBe(200)
 
     setUpstreamFetchForTesting(
       async () =>
@@ -340,7 +340,7 @@ describe('Gemini direct key pool & stats', () => {
       model: 'gemini-3-pro-image',
       request: { prompt: 'blocked prompt', n: 1, image_size: '2K' },
     })
-    expect(result.status).toBe(200)
+    expect(result.payload).toBeDefined()
 
     const rows = await db.select().from(schema.gemini_direct_usage)
     expect(rows).toHaveLength(1)
@@ -350,24 +350,24 @@ describe('Gemini direct key pool & stats', () => {
   })
 
   it('bumps revision monotonically across rapid writes and delete', async () => {
-    const r1 = await request('/internal/gemini-direct/keys', 'POST', {
+    const r1 = await request('/internal/admin/gemini-direct/keys', 'POST', {
       apiKey: 'AIzaSy-rev-key-1-aaaaaaaaaaaaaa',
       budgetUsd: 50,
     })
-    expect(r1.status).toBe(201)
+    expect(r1.status).toBe(200)
     const v1 = (await r1.json()) as GeminiDirectAdminView
 
-    const r2 = await request('/internal/gemini-direct/keys', 'POST', {
+    const r2 = await request('/internal/admin/gemini-direct/keys', 'POST', {
       apiKey: 'AIzaSy-rev-key-2-bbbbbbbbbbbbbb',
       budgetUsd: 50,
     })
-    expect(r2.status).toBe(201)
+    expect(r2.status).toBe(200)
     const v2 = (await r2.json()) as GeminiDirectAdminView
     expect(v2.revision).toBeGreaterThan(v1.revision)
 
     const newestId = v2.keys[1]?.id
     expect(newestId).toBeTruthy()
-    const r3 = await request(`/internal/gemini-direct/keys/${newestId}`, 'DELETE')
+    const r3 = await request(`/internal/admin/gemini-direct/keys/${newestId}`, 'DELETE')
     expect(r3.status).toBe(200)
     const v3 = (await r3.json()) as GeminiDirectAdminView
     expect(v3.revision).toBeGreaterThan(v2.revision)

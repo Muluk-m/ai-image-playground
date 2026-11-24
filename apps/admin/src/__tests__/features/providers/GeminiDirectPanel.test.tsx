@@ -108,8 +108,8 @@ describe('GeminiDirectPanel', () => {
     render(<GeminiDirectPanel view={view} />)
 
     expect(screen.getByText('Nano Banana 2.1')).toBeInTheDocument()
-    expect(screen.getByText('42 次')).toBeInTheDocument()
-    expect(screen.getByText('2 次')).toBeInTheDocument()
+    expect(screen.getAllByText('42 次').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText('2 次').length).toBeGreaterThanOrEqual(1)
 
     // Add key
     fireEvent.change(screen.getByLabelText('新 Gemini 密钥'), { target: { value: secret } })

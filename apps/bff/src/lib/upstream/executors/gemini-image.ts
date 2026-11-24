@@ -176,6 +176,7 @@ export const geminiImageExecutor: UpstreamExecutor = {
       withRetry = vertex,
       hooks?: {
         onDispatched?: () => void
+        onResolved?: () => void
         onRateLimit?: () => Promise<void>
       },
     ): Promise<UpstreamCallResult> => {
@@ -197,17 +198,21 @@ export const geminiImageExecutor: UpstreamExecutor = {
         : undefined
       const headers = buildHeaders(apiKey)
       const send = async () => {
-        hooks?.onDispatched?.()
         try {
-          return await session.parseResponse(
-            await session.performFetch(
-              target.url,
-              { method: 'POST', headers, body: target.body },
-              true,
-              target.model,
-            ),
+          const response = await session.performFetch(
+            target.url,
+            { method: 'POST', headers, body: target.body },
+            true,
+            target.model,
+            hooks?.onDispatched,
           )
+          const parsed = await session.parseResponse(response)
+          hooks?.onResolved?.()
+          return parsed
         } catch (error) {
+          if (upstreamStatusOf(error) !== undefined) {
+            hooks?.onResolved?.()
+          }
           if (isRateLimited(error) && hooks?.onRateLimit) await hooks.onRateLimit()
           throw error
         }
@@ -274,7 +279,8 @@ export const geminiImageExecutor: UpstreamExecutor = {
         exclude.add(activeKey.fingerprint)
 
         let reservationSettled = false
-        let requestDispatched = false
+        let hasDispatched = false
+        let unresolvedDispatch = false
         let hasNextKey = false
         try {
           const another = await selectGeminiDirectKey({
@@ -286,7 +292,11 @@ export const geminiImageExecutor: UpstreamExecutor = {
 
           const result = await executeSingleFetch(target, activeKey.secret, capAt, !hasNextKey, {
             onDispatched: () => {
-              requestDispatched = true
+              hasDispatched = true
+              unresolvedDispatch = true
+            },
+            onResolved: () => {
+              unresolvedDispatch = false
             },
             ...(hasNextKey
               ? {}
@@ -322,8 +332,8 @@ export const geminiImageExecutor: UpstreamExecutor = {
           return result
         } catch (error) {
           lastError = error
-          // 未出队列或在探查备用 key 时失败：请求从未发往 Vertex，不计入密钥统计，直接释放预占。
-          if (!requestDispatched) {
+          // 未出队列或在探查备用 key / 等待调度名额时失败：请求从未发往 Vertex，不计入密钥统计，直接释放预占。
+          if (!hasDispatched) {
             throw error
           }
           const failure = classifyGeminiKeyFailure(error)
@@ -373,12 +383,15 @@ export const geminiImageExecutor: UpstreamExecutor = {
             )
             continue
           }
-          // 已派发但超时/断连/外层取消结果未知：按估算计入本月花费守住预算；写库失败时保留预占直到租期。
+          const aborted = isAbortLikeError(error, Boolean(session.externalSignal?.aborted))
+          // 仅对“已真正发出且尚未拿到明确响应”的在途请求按完整预占金额估算落账；
+          // 收到明确 429 后在退避等待期间被取消（unresolvedDispatch === false）不计未知费用。
           if (
+            unresolvedDispatch &&
             status === undefined &&
             (error instanceof UpstreamResultUnknownError ||
               error instanceof UpstreamTimeoutError ||
-              isAbortLikeError(error, Boolean(session.externalSignal?.aborted)))
+              aborted)
           ) {
             reservationSettled = true
             await recordGeminiUsage({
@@ -388,14 +401,15 @@ export const geminiImageExecutor: UpstreamExecutor = {
               images: 1,
               status: 'error',
               billUnknown: true,
+              unknownCostMicroUsd: estimate,
               keyFingerprint: activeKey.fingerprint,
               reservationId,
             })
             throw error
           }
-          // 429 在 !hasNextKey 分支已由 onRateLimit 记过 rate_limited，这里由 finally 释放预占；
+          // 429 在 !hasNextKey 分支已由 onRateLimit 记过 rate_limited，退避期取消也不再多记 error；
           // 其它已派发错误（如 400 / 5xx）记一条 error；若记账写库失败则由 finally 兜底释放预占。
-          if (!isRateLimited(error) && !(error instanceof VertexTimeCapError)) {
+          if (!isRateLimited(error) && !(error instanceof VertexTimeCapError) && !aborted) {
             reservationSettled = await recordGeminiUsage({
               ...(params.taskId ? { taskId: params.taskId } : {}),
               model: target.model,

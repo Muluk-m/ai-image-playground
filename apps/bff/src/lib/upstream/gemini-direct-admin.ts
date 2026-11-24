@@ -250,12 +250,11 @@ function uniqueViolation(error: unknown): boolean {
 type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
 async function nextMonotonicRevision(tx: DbTx): Promise<number> {
-  const [maxRow] = await tx
-    .select({
-      value: sql<number>`coalesce(max(${schema.gemini_direct_admin_keys.updated_at}), 0)`,
-    })
+  const rows = await tx
+    .select({ updated_at: schema.gemini_direct_admin_keys.updated_at })
     .from(schema.gemini_direct_admin_keys)
-  return Math.max(Date.now(), Number(maxRow?.value ?? 0) + 1)
+  const maxUpdatedAt = rows.reduce((max, row) => Math.max(max, row.updated_at), 0)
+  return Math.max(Date.now(), maxUpdatedAt + 1)
 }
 
 export async function createGeminiDirectKey(input: {

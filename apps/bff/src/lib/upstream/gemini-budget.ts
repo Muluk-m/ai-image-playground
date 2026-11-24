@@ -292,6 +292,8 @@ export async function recordGeminiUsage(input: {
   status: 'ok' | 'rate_limited' | 'error'
   /** 已派发但超时/断连结果未知时仍按估算记入花费，避免绕过月预算封顶。 */
   billUnknown?: boolean
+  /** 结果未知时的保守结算下限（通常传入本次完整预占金额，保留输入 token 余量）。 */
+  unknownCostMicroUsd?: number
   upstreamStatus?: number
   keyFingerprint?: string
   payload?: unknown
@@ -300,31 +302,39 @@ export async function recordGeminiUsage(input: {
   const usage = input.payload === undefined ? null : readGeminiUsage(input.payload)
   const billableImages =
     input.status === 'ok' ? input.images : input.billUnknown ? Math.max(1, input.images) : 0
-  const cost =
+  const baseCost =
     billableImages > 0 || usage !== null
       ? estimateGeminiCostMicroUsd(input.model, input.imageSize, billableImages, usage)
       : 0
+  const cost =
+    input.billUnknown && input.unknownCostMicroUsd !== undefined
+      ? Math.max(baseCost, input.unknownCostMicroUsd)
+      : baseCost
   const now = Date.now()
-  const maxAttempts = billableImages > 0 ? 3 : 1
+  const usageId = randomUUID()
+  const maxAttempts = cost > 0 ? 3 : 1
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
       await db.transaction(async (tx) => {
         if (input.keyFingerprint) await lockGeminiBudget(tx, input.keyFingerprint)
-        await tx.insert(schema.gemini_direct_usage).values({
-          id: randomUUID(),
-          task_id: input.taskId ?? null,
-          model: input.model,
-          image_size: input.imageSize ?? null,
-          images: input.status === 'ok' ? Math.max(0, input.images) : 0,
-          input_tokens: usage ? usage.promptTokens : null,
-          output_tokens: usage ? usage.outputTokens : null,
-          cost_micro_usd: cost,
-          estimated: !usage,
-          status: input.status,
-          upstream_status: input.upstreamStatus ?? null,
-          key_fingerprint: input.keyFingerprint ?? null,
-          created_at: now,
-        })
+        await tx
+          .insert(schema.gemini_direct_usage)
+          .values({
+            id: usageId,
+            task_id: input.taskId ?? null,
+            model: input.model,
+            image_size: input.imageSize ?? null,
+            images: input.status === 'ok' ? Math.max(0, input.images) : 0,
+            input_tokens: usage ? usage.promptTokens : null,
+            output_tokens: usage ? usage.outputTokens : null,
+            cost_micro_usd: cost,
+            estimated: !usage,
+            status: input.status,
+            upstream_status: input.upstreamStatus ?? null,
+            key_fingerprint: input.keyFingerprint ?? null,
+            created_at: now,
+          })
+          .onConflictDoNothing({ target: schema.gemini_direct_usage.id })
         if (input.reservationId) {
           await tx
             .delete(schema.gemini_direct_budget_holds)
@@ -345,7 +355,7 @@ export async function recordGeminiUsage(input: {
           model: input.model,
           status: input.status,
           cost,
-          ...(billableImages > 0 && input.reservationId
+          ...(cost > 0 && input.reservationId
             ? { reservationId: input.reservationId, holdRetained: true }
             : {}),
         },
