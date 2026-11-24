@@ -44,10 +44,10 @@ trap 'rm -rf "$work"' EXIT
 
 pg_dump --format=custom --file="$dump" "$ADMIN_DATABASE_URL"
 pg_restore --list "$dump" >/dev/null
-aws --endpoint-url "$S3_ENDPOINT" s3 cp "$dump" "$target"
+aws --endpoint-url "$S3_ENDPOINT" s3 cp --only-show-errors "$dump" "$target"
 # Publish the checksum last: it is the completion marker for new immutable dumps.
 sha256sum "$dump" | awk '{ print $1 }' >"$dump.sha256"
-aws --endpoint-url "$S3_ENDPOINT" s3 cp "$dump.sha256" "$target.sha256"
+aws --endpoint-url "$S3_ENDPOINT" s3 cp --only-show-errors "$dump.sha256" "$target.sha256"
 
 # Keep one complete backup. Delete only dump objects: pg/drill/latest.json must survive retention.
 listed=$(aws --endpoint-url "$S3_ENDPOINT" s3api list-objects-v2 \

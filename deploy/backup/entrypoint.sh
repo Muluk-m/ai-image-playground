@@ -22,4 +22,6 @@ EOF
   catch_up
 ) >>/proc/1/fd/1 2>&1 &
 
-exec crond -f -l 2 -L /dev/stdout
+# Level 8 still logs each job start (USER root pid N cmd ...); lower levels add a wakeup line every
+# minute and the parsed schedule bitmaps, which buried everything else in the log store.
+exec crond -f -l 8 -L /dev/stdout

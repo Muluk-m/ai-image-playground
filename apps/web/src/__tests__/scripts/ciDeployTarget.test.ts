@@ -71,10 +71,10 @@ const result = (api: boolean, web: boolean, admin: boolean) =>
 const nothing = result(false, false, false)
 const everything = result(true, true, true)
 
-function decide(target: string, event = 'schedule', webOrigins = `${paidSite}/`) {
+function decide(target: string, mode = 'incremental', webOrigins = `${paidSite}/`) {
   const output = join(root, 'output')
   writeFileSync(output, '')
-  const run = spawnSync('sh', [script, target, event, `${paidApi}/`], {
+  const run = spawnSync('sh', [script, target, mode, `${paidApi}/`], {
     cwd: repo,
     env: {
       ...env,
@@ -124,10 +124,28 @@ describe('ci-deploy-target.sh', () => {
     expect(decide(commits[2]).decision).toBe(everything)
   })
 
-  it('skips a commit that is no longer the tip of main', () => {
-    const { decision, log } = decide(commits[1])
+  it('rejects an unknown mode before reading any side', () => {
+    const run = spawnSync('sh', [script, commits[2], 'schedule', `${paidApi}/`], {
+      cwd: repo,
+      env: { ...env, GITHUB_OUTPUT: join(root, 'output') },
+      encoding: 'utf8',
+    })
+    expect(run.status).toBe(2)
+    expect(run.stderr).toContain("Unknown mode 'schedule'")
+  })
+
+  it('deploys the commit it was triggered for even after main moved on', () => {
+    serveSides({ api: commits[0], web: commits[0], admin: commits[0] })
+    expect(decide(commits[1]).decision).toBe(everything)
+  })
+
+  it('skips a commit that is not on main', () => {
+    git('checkout', '-q', '-b', 'side', commits[1])
+    git('commit', '-q', '--allow-empty', '-m', 'side')
+    const side = git('rev-parse', 'HEAD')
+    const { decision, log } = decide(side)
     expect(decision).toBe(nothing)
-    expect(log).toContain(`::notice::${commits[1]} is not the tip of origin/main (${commits[2]})`)
+    expect(log).toContain(`::notice::${side} is not on origin/main`)
   })
 
   it('never moves an API back to an ancestor of what it runs', () => {
@@ -148,10 +166,10 @@ describe('ci-deploy-target.sh', () => {
     expect(log).toContain(`::notice::${adminSite} already runs ${commits[2]}`)
   })
 
-  it('skips an automatic run when every side already serves the commit, but a manual run redeploys', () => {
+  it('skips an incremental run when every side already serves the commit, but a full run redeploys', () => {
     serveSides({ api: commits[2], web: commits[2], admin: commits[2] })
     expect(decide(commits[2]).decision).toBe(nothing)
-    expect(decide(commits[2], 'workflow_dispatch').decision).toBe(everything)
+    expect(decide(commits[2], 'full').decision).toBe(everything)
   })
 
   it('ships every side when pnpm-workspace.yaml changed', () => {
@@ -259,7 +277,7 @@ describe('ci-deploy-target.sh', () => {
       [`${paidSite}/version.json`]: manifest(commits[1], true),
       [`${adminSite}/version.json`]: JSON.stringify({ notify: false }),
     })
-    const { decision, log } = decide(tip, 'schedule', `${enterpriseSite} ${paidSite}/`)
+    const { decision, log } = decide(tip, 'incremental', `${enterpriseSite} ${paidSite}/`)
     expect(decision).toBe(everything)
     expect(log).toContain(
       `::warning::${paidSite} runs ${commits[1]} while another copy runs ${previous}`,
@@ -284,7 +302,7 @@ describe('ci-deploy-target.sh', () => {
       [`${paidSite}/version.json`]: manifest(tip, true),
       [`${adminSite}/version.json`]: manifest(tip, true),
     })
-    expect(decide(tip, 'schedule', `${enterpriseSite} ${paidSite}/`).decision).toBe(
+    expect(decide(tip, 'incremental', `${enterpriseSite} ${paidSite}/`).decision).toBe(
       result(false, true, false),
     )
   })

@@ -10,6 +10,7 @@ export const SERVER_LOG_SERVICES = [
   'host-collector',
   'pg-backup',
   'migrate',
+  'obs-proxy',
   'web',
   'other',
 ] as const

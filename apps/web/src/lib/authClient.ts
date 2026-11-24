@@ -297,6 +297,10 @@ export interface CliConnectionSummary {
   readonly client_name: string
   readonly created_at: number
   readonly last_used_at: number | null
+  readonly expires_at?: number
+  readonly scopes?: readonly string[]
+  readonly user_agent?: string | null
+  readonly job_count?: number
 }
 
 export async function fetchCliConnections(signal?: AbortSignal): Promise<CliConnectionSummary[]> {
@@ -318,7 +322,14 @@ function isCliConnectionSummary(value: unknown): value is CliConnectionSummary {
     typeof row.id === 'string' &&
     typeof row.client_name === 'string' &&
     typeof row.created_at === 'number' &&
-    (row.last_used_at === null || typeof row.last_used_at === 'number')
+    (row.last_used_at === null || typeof row.last_used_at === 'number') &&
+    (row.expires_at === undefined || typeof row.expires_at === 'number') &&
+    (row.scopes === undefined ||
+      (Array.isArray(row.scopes) && row.scopes.every((scope) => typeof scope === 'string'))) &&
+    (row.user_agent === undefined ||
+      row.user_agent === null ||
+      typeof row.user_agent === 'string') &&
+    (row.job_count === undefined || typeof row.job_count === 'number')
   )
 }
 

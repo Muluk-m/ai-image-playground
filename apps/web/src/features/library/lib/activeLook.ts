@@ -13,8 +13,25 @@ interface ActiveLookState {
 
 export const useActiveLook = create<ActiveLookState>((set) => ({
   look: null,
-  set: (look) => set({ look }),
+  set: (look) => {
+    // 模板胶囊面向普通单次参考图坐标系，与批量生图双区互斥：挂上模板时自动退出批量并合并草稿。
+    if (look && useStore.getState().createTarget === 'batch') {
+      useStore.getState().setCreateTarget('generate')
+    }
+    set({ look })
+  },
 }))
+
+// 切入批量生图时自动摘掉模板胶囊，防止模板提交忽略共用参考或误读批量提及序号。
+useStore.subscribe?.((state, prev) => {
+  if (
+    state.createTarget === 'batch' &&
+    prev.createTarget !== 'batch' &&
+    useActiveLook.getState().look
+  ) {
+    useActiveLook.setState({ look: null })
+  }
+})
 
 /** 当前部署里所有可选的图片模型 id：判断模板钉死的模型还在不在。 */
 export function availableImageModels(): ReadonlySet<string> {

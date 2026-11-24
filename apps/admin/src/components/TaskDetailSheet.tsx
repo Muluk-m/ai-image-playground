@@ -1,11 +1,25 @@
 import type { ServerLogEntry, ServerLogsResult } from '@image-playground/shared'
 import { useQuery } from '@tanstack/react-query'
-import { useState } from 'react'
+import { Link } from '@tanstack/react-router'
+import { useEffect, useState } from 'react'
 import { TaskDetailView } from '@/components/TaskDetailView'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { apiClient } from '@/lib/api-client'
 import { useAudits, useTask } from '@/lib/queries'
 import { cn } from '@/lib/utils'
+
+interface TaskTrace {
+  traceId: string
+  startedAt: number
+  tree?: string
+  spans?: number
+  truncated?: boolean
+}
+
+interface TaskTraces {
+  traces: TaskTrace[]
+  more: boolean
+}
 
 interface TaskDetailSheetProps {
   taskId: string | undefined
@@ -32,10 +46,30 @@ export function TaskDetailSheet({ taskId, onOpenChange }: TaskDetailSheetProps) 
   )
 }
 
+/** 链路结果过这么久再打开抽屉或页签就重取。 */
+const TRACE_STALE_MS = 30_000
+
 function TaskDrawerTabs({ taskId }: { taskId: string }) {
   const task = useTask(taskId)
+  const running = task.data ? task.data.completed_at === null : false
+  // 没结束的任务（排队、执行中、卡住）一直查到现在，每 30 秒前移一次窗口刷新日志和链路；
+  // 结束后固定到完成时间。
+  // 任务详情也一起重取：全局 staleTime 是 Infinity，不重取就永远不知道它已经结束、停不下来。
+  const [now, setNow] = useState(() => Date.now())
+  const refetchTask = task.refetch
+  useEffect(() => {
+    if (!running) return
+    setNow(Date.now())
+    const timer = setInterval(() => {
+      setNow(Date.now())
+      void refetchTask()
+    }, 30_000)
+    return () => clearInterval(timer)
+  }, [running, refetchTask])
   const logTo = task.data
-    ? Math.min(Date.now() + 60_000, (task.data.completed_at ?? task.data.submitted_at) + 60_000)
+    ? task.data.completed_at === null
+      ? now + 60_000
+      : Math.min(now + 60_000, task.data.completed_at + 60_000)
     : null
   const logFrom =
     task.data && logTo !== null
@@ -49,17 +83,37 @@ function TaskDrawerTabs({ taskId }: { taskId: string }) {
         `/api/ops/logs?taskId=${encodeURIComponent(taskId)}&from=${logFrom}&to=${logTo}`,
       ),
   })
+  // 提交和每次执行各一条链路。打开抽屉只列链路决定要不要这一页，点开才画 span 树；没开
+  // OpenObserve 的部署（测试环境）查不到就不显示这一页。
+  const tracePath = `/api/ops/tasks/${encodeURIComponent(taskId)}/traces?from=${logFrom}&to=${logTo}`
+  const traces = useQuery({
+    queryKey: ['task-traces', taskId, logFrom, logTo],
+    enabled: logFrom !== null && logTo !== null,
+    retry: false,
+    // span 由 BatchSpanProcessor 异步批量导出，任务刚结束时可能还没入库：别把空结果缓存到底。
+    staleTime: TRACE_STALE_MS,
+    queryFn: () => apiClient.get<TaskTraces>(tracePath),
+  })
+  const traceList = traces.data?.traces ?? []
   const audits = useAudits({ targetId: taskId })
   const auditRows = audits.data?.pages.flatMap((page) => page.audits) ?? []
   const logEntries = logs.data?.entries ?? []
   const history = task.data ? historyFromTask(task.data) : []
   const tabs = [
     history.length ? { id: 'history', label: `变更历史 ${history.length}` } : null,
+    traceList.length ? { id: 'traces', label: `链路 ${traceList.length}` } : null,
     logEntries.length ? { id: 'logs', label: `服务端日志 ${logEntries.length}` } : null,
     auditRows.length ? { id: 'audit', label: `审计 ${auditRows.length}` } : null,
   ].filter((tab): tab is { id: string; label: string } => tab !== null)
   const [active, setActive] = useState('history')
   const current = tabs.some((tab) => tab.id === active) ? active : tabs[0]?.id
+  const trees = useQuery({
+    queryKey: ['task-trace-trees', taskId, logFrom, logTo],
+    enabled: current === 'traces',
+    retry: false,
+    staleTime: TRACE_STALE_MS,
+    queryFn: () => apiClient.get<TaskTraces>(`${tracePath}&trees=1`),
+  })
   if (!tabs.length || !current) return null
   return (
     <div className="border-t bg-muted/40">
@@ -89,7 +143,10 @@ function TaskDrawerTabs({ taskId }: { taskId: string }) {
         role="tabpanel"
         aria-labelledby={`task-tab-${current}`}
         tabIndex={0}
-        className="max-h-40 overflow-y-auto px-5 py-2 text-xs"
+        className={cn(
+          'overflow-y-auto px-5 py-2 text-xs',
+          current === 'traces' || current === 'logs' ? 'max-h-80' : 'max-h-40',
+        )}
       >
         {current === 'history'
           ? history.map((event) => (
@@ -99,6 +156,26 @@ function TaskDrawerTabs({ taskId }: { taskId: string }) {
               </p>
             ))
           : null}
+        {current === 'traces' ? (
+          <>
+            {trees.isPending ? (
+              <p role="status" className="py-1 text-muted-foreground">
+                正在读取链路…
+              </p>
+            ) : trees.isError ? (
+              <p role="alert" className="py-1 text-danger">
+                链路读取失败，请稍后重试。
+              </p>
+            ) : (
+              trees.data.traces.map((trace) => <TraceSection key={trace.traceId} trace={trace} />)
+            )}
+            {traces.data?.more ? (
+              <p className="py-1 text-muted-foreground">
+                链路太多，只列出前 {traceList.length} 条。
+              </p>
+            ) : null}
+          </>
+        ) : null}
         {current === 'logs'
           ? logEntries.map((entry) => <LogLine key={entry.id} entry={entry} />)
           : null}
@@ -146,16 +223,56 @@ function historyFromTask(task: {
   return events.map((event) => ({ ...event, time: clock(event.at) }))
 }
 
-function LogLine({ entry }: { entry: ServerLogEntry }) {
+const clockTime = (at: number) =>
+  new Date(at).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false })
+
+function TraceSection({ trace }: { trace: TaskTrace }) {
   return (
-    <p className="py-1">
-      <span className="font-mono text-muted-foreground">
-        {new Date(entry.at).toLocaleTimeString('zh-CN', {
-          timeZone: 'Asia/Shanghai',
-          hour12: false,
-        })}
-      </span>{' '}
+    <section aria-label={`链路 ${trace.traceId}`} className="border-b py-2 last:border-b-0">
+      <p className="flex flex-wrap items-baseline gap-x-2 pb-1">
+        <span className="font-mono text-muted-foreground">{clockTime(trace.startedAt)}</span>
+        <span className="min-w-0 break-all font-mono">{trace.traceId}</span>
+        <Link
+          to="/logs"
+          search={{
+            traceId: trace.traceId,
+            from: trace.startedAt - 60_000,
+            to: Math.min(Date.now() + 60_000, trace.startedAt + 86_400_000),
+          }}
+          className="ml-auto underline-offset-2 hover:underline"
+        >
+          日志
+        </Link>
+      </p>
+      {trace.truncated ? (
+        <p className="text-muted-foreground">span 超过上限，只显示前 {trace.spans} 个。</p>
+      ) : null}
+      <pre
+        tabIndex={0}
+        aria-label={`链路 ${trace.traceId} 的 span 树`}
+        className="overflow-x-auto whitespace-pre font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {trace.tree}
+      </pre>
+    </section>
+  )
+}
+
+function LogLine({ entry }: { entry: ServerLogEntry }) {
+  const fields = Object.keys(entry.fields).length ? JSON.stringify(entry.fields, null, 2) : null
+  const line = (
+    <>
+      <span className="font-mono text-muted-foreground">{clockTime(entry.at)}</span>{' '}
       <span className="font-mono">{entry.level}</span> {entry.message}
-    </p>
+    </>
+  )
+  if (!fields) return <p className="py-1">{line}</p>
+  return (
+    <details className="py-1">
+      <summary className="cursor-pointer break-words">{line}</summary>
+      <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/60 p-2 font-mono">
+        {fields}
+      </pre>
+    </details>
   )
 }

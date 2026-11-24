@@ -19,6 +19,18 @@ export interface ObsProxyOptions {
   readonly timeoutMs?: number
 }
 
+/** 慢于这个时长的成功查询仍记一行访问日志，用来发现拖慢 Admin 的查询。 */
+export const OBS_PROXY_SLOW_MS = 3000
+
+/**
+ * 只记失败或慢的请求。成功的查询几乎都来自 Admin 日志页的定时刷新，逐条写回 OpenObserve
+ * 会让查日志本身成为日志里最多的一类（曾占一小时入库量的一半）。
+ */
+export function shouldLogObsProxyRequest(path: string, status: number, elapsedMs: number): boolean {
+  if (path === '/healthz') return false
+  return status >= 400 || elapsedMs >= OBS_PROXY_SLOW_MS
+}
+
 /** 查询语句和 trace 查询都很小；再大就是误用。 */
 export const OBS_PROXY_MAX_BODY_BYTES = 64 * 1024
 

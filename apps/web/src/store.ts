@@ -24,9 +24,16 @@ import {
   BATCH_GENERATE_CONCURRENCY,
   BATCH_GENERATE_MAX,
   batchPerImage,
+  batchSharedAdmission,
+  clearBatchSharedImagesFromDraft,
+  demoteSharedImageToLoop,
+  mergeDraftFromBatchMode,
   oversizedReferenceIndexes,
   oversizedReferenceMessage,
+  promoteLoopImageToShared,
   quickGenerateAdmission,
+  removeBatchSharedImageFromDraft,
+  splitDraftForBatchMode,
 } from './lib/batchGenerate'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { ensureChannelsLoaded } from './lib/channels/bootstrapChannels'
@@ -58,6 +65,7 @@ import {
   putTask,
   storeImage,
 } from './lib/db'
+import { markFeatureSeen } from './lib/featureDiscovery'
 import {
   activityFromRecord,
   applyGenerationActivity,
@@ -91,7 +99,7 @@ import {
   setPlatformFavorite,
   watchPlatformGeneration,
 } from './lib/platformGenerations'
-import { replaceImageMentionsForApi } from './lib/promptImageMentions'
+import { remapImageMentions, replaceImageMentionsForApi } from './lib/promptImageMentions'
 import {
   expandPromptSlots,
   getSubmissionImageCount,
@@ -507,6 +515,15 @@ export function getPersistedState(state: AppState) {
           prompt: state.prompt,
           slotValues: state.slotValues,
           inputImages: state.inputImages.map((img) => ({ id: img.id, dataUrl: '' })),
+          ...(state.createTarget === 'batch'
+            ? {
+                createTarget: 'batch' as const,
+                batchSharedImages: state.batchSharedImages.map((img) => ({
+                  id: img.id,
+                  dataUrl: '',
+                })),
+              }
+            : {}),
           maskDraft: persistedMaskDraft(state),
         }
       : {}),
@@ -584,6 +601,9 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     settings.persistInputOnRestart && Array.isArray(persisted.inputImages)
       ? persisted.inputImages
       : []
+  const persistedBatch = settings.persistInputOnRestart && persisted.createTarget === 'batch'
+  const batchSharedImages =
+    persistedBatch && Array.isArray(persisted.batchSharedImages) ? persisted.batchSharedImages : []
   const maskDraft = settings.persistInputOnRestart
     ? readPersistedMaskDraft(persisted.maskDraft)
     : null
@@ -610,11 +630,14 @@ function mergePersistedState(persistedState: unknown, currentState: AppState): A
     },
     // Navigation belongs to this session, not saved settings or another device.
     appMode: currentState.appMode,
+    createTarget: persistedBatch ? 'batch' : currentState.createTarget,
     prompt:
       settings.persistInputOnRestart && typeof persisted.prompt === 'string'
         ? persisted.prompt
         : '',
     inputImages,
+    batchSharedImages,
+    batchZoneNotice: null,
     slotValues: settings.persistInputOnRestart ? normalizeSlotValues(persisted.slotValues) : {},
     maskDraft: null,
   }
@@ -645,6 +668,33 @@ interface AppState {
   ) => number[] | null
   removeInputImage: (idx: number) => void
   clearInputImages: () => void
+  /** 批量生图模式「共用参考」区：每条遍历任务都会附带这一组固定参考图（最多 15 张）。 */
+  batchSharedImages: InputImage[]
+  attachBatchSharedImages: (
+    images: readonly InputImage[],
+    admission?: ReferenceAdmission,
+  ) => number[] | null
+  removeBatchSharedImage: (idx: number) => void
+  clearBatchSharedImages: () => void
+  promoteInputImageToShared: (
+    loopIdx: number,
+  ) => { sharedIndex: number; mentionIndex: number; image: InputImage } | null
+  demoteSharedImageToInput: (
+    sharedIdx: number,
+  ) => { image: InputImage; hadCitation: boolean } | null
+  /** 跨区拖拽 / `@` 自动归类后的可撤销提示条（不持久化）。 */
+  batchZoneNotice: {
+    message: string
+    snapshot: {
+      prompt: string
+      inputImages: InputImage[]
+      batchSharedImages: InputImage[]
+      createTarget?: AppState['createTarget']
+      maskDraft?: MaskDraft | null
+    }
+  } | null
+  setBatchZoneNotice: (notice: AppState['batchZoneNotice']) => void
+  undoBatchZoneNotice: () => void
   /** 整条换掉。带上 `prompt` 就是连提示词一起换，两件事在同一次写入里完成。 */
   replaceInputImages: (imgs: InputImage[], options?: ReplaceOptions) => void
   moveInputImage: (fromIdx: number, toIdx: number) => void
@@ -693,8 +743,8 @@ interface AppState {
   creationSelections: Partial<
     Record<'generate' | 'chat', { params: TaskParams; profileId: string; model: string }>
   >
-  createTarget: 'generate' | 'chat' | 'canvas' | 'video'
-  setCreateTarget: (target: 'generate' | 'chat' | 'canvas' | 'video') => void
+  createTarget: 'generate' | 'batch' | 'chat' | 'canvas' | 'video'
+  setCreateTarget: (target: 'generate' | 'batch' | 'chat' | 'canvas' | 'video') => void
   /** 图片生成档：多张参考图各自用同一句提示词生成，而不是合成一次。 */
   batchGenerate: boolean
   setBatchGenerate: (on: boolean) => void
@@ -764,7 +814,7 @@ export const useStore = create<AppState>()(
 
       // Input
       prompt: '',
-      setPrompt: (prompt) => set({ prompt }),
+      setPrompt: (prompt) => set({ prompt, batchZoneNotice: null }),
       slotValues: {},
       setSlotValues: (name, values) =>
         set((s) => ({ slotValues: { ...s.slotValues, [name]: values } })),
@@ -779,31 +829,159 @@ export const useStore = create<AppState>()(
           showToast(referenceRefusalMessage(result.reason, effective.limit), 'error')
           return null
         }
-        set({ inputImages: [...result.draft.references] })
+        set({ inputImages: [...result.draft.references], batchZoneNotice: null })
         return [...result.indexes]
       },
       removeInputImage: (idx) =>
         set((s) => {
+          if (s.createTarget === 'batch') {
+            if (idx < 0 || idx >= s.inputImages.length) return s
+            return {
+              inputImages: s.inputImages.filter((_, i) => i !== idx),
+              batchZoneNotice: null,
+            }
+          }
           const shouldClearMask = s.inputImages[idx]?.id === s.maskDraft?.targetImageId
           const draft = removeReference({ prompt: s.prompt, references: s.inputImages }, idx)
           return {
             inputImages: [...draft.references],
             prompt: draft.prompt,
+            batchZoneNotice: null,
             ...(shouldClearMask ? { maskDraft: null, maskEditorImageId: null } : {}),
           }
         }),
       clearInputImages: () =>
         set((s) => {
           for (const img of s.inputImages) imageCache.delete(img.id)
+          if (s.createTarget === 'batch') {
+            return {
+              inputImages: [],
+              maskDraft: null,
+              maskEditorImageId: null,
+              batchZoneNotice: null,
+            }
+          }
           return {
             inputImages: [],
             prompt: replaceReferences({ prompt: s.prompt, references: s.inputImages }, []).prompt,
             maskDraft: null,
             maskEditorImageId: null,
+            batchZoneNotice: null,
           }
         }),
+      batchSharedImages: [],
+      attachBatchSharedImages: (images, admission) => {
+        const { batchSharedImages, settings, showToast } = get()
+        const base = referenceAdmission(getActiveApiProfile(settings))
+        const effective = admission ?? batchSharedAdmission(base)
+        const result = attachReferences(
+          { prompt: '', references: batchSharedImages },
+          images,
+          effective,
+        )
+        if (!result.ok) {
+          showToast(referenceRefusalMessage(result.reason, effective.limit), 'error')
+          return null
+        }
+        set({ batchSharedImages: [...result.draft.references], batchZoneNotice: null })
+        return [...result.indexes]
+      },
+      removeBatchSharedImage: (idx) =>
+        set((s) => {
+          const next = removeBatchSharedImageFromDraft({
+            prompt: s.prompt,
+            batchSharedImages: s.batchSharedImages,
+            sharedIndex: idx,
+          })
+          return {
+            batchSharedImages: next.batchSharedImages,
+            prompt: next.prompt,
+            batchZoneNotice: null,
+          }
+        }),
+      clearBatchSharedImages: () =>
+        set((s) => {
+          for (const img of s.batchSharedImages) imageCache.delete(img.id)
+          return {
+            batchSharedImages: [],
+            prompt: clearBatchSharedImagesFromDraft(s.prompt),
+            batchZoneNotice: null,
+          }
+        }),
+      promoteInputImageToShared: (loopIdx) => {
+        const s = get()
+        const mergeLimit = referenceAdmission(getActiveApiProfile(s.settings)).limit
+        const result = promoteLoopImageToShared({
+          inputImages: s.inputImages,
+          batchSharedImages: s.batchSharedImages,
+          loopIndex: loopIdx,
+          mergeLimit,
+        })
+        if (!result.ok) {
+          if (result.reason === 'overflow') {
+            s.showToast(referenceRefusalMessage('overflow', Math.max(0, mergeLimit - 1)), 'error')
+          }
+          return null
+        }
+        set({
+          inputImages: result.inputImages,
+          batchSharedImages: result.batchSharedImages,
+        })
+        return {
+          sharedIndex: result.sharedIndex,
+          mentionIndex: result.mentionIndex,
+          image: result.movedImage,
+        }
+      },
+      demoteSharedImageToInput: (sharedIdx) => {
+        const s = get()
+        const result = demoteSharedImageToLoop({
+          prompt: s.prompt,
+          inputImages: s.inputImages,
+          batchSharedImages: s.batchSharedImages,
+          sharedIndex: sharedIdx,
+        })
+        if (!result.ok) {
+          if (result.reason === 'overflow') {
+            s.showToast(referenceRefusalMessage('overflow', BATCH_GENERATE_MAX), 'error')
+          }
+          return null
+        }
+        set({
+          inputImages: result.inputImages,
+          batchSharedImages: result.batchSharedImages,
+          prompt: result.prompt,
+        })
+        return { image: result.movedImage, hadCitation: result.hadCitation }
+      },
+      batchZoneNotice: null,
+      setBatchZoneNotice: (batchZoneNotice) => set({ batchZoneNotice }),
+      undoBatchZoneNotice: () => {
+        const current = get()
+        if (!current.batchZoneNotice) return
+        const { prompt, inputImages, batchSharedImages, createTarget, maskDraft } =
+          current.batchZoneNotice.snapshot
+        if (createTarget && createTarget !== current.createTarget) {
+          get().setCreateTarget(createTarget)
+        }
+        set({
+          prompt,
+          inputImages: [...inputImages],
+          batchSharedImages: [...batchSharedImages],
+          batchZoneNotice: null,
+        })
+        if (maskDraft !== undefined) {
+          get().setMaskDraft(maskDraft)
+        }
+      },
       replaceInputImages: (imgs, options) =>
         set((s) => {
+          if (s.createTarget === 'batch' && options?.prompt === undefined) {
+            return {
+              inputImages: [...imgs],
+              batchZoneNotice: null,
+            }
+          }
           const keepsMask =
             Boolean(s.maskDraft) && imgs.some((img) => img.id === s.maskDraft?.targetImageId)
           const references = keepsMask
@@ -817,6 +995,7 @@ export const useStore = create<AppState>()(
           return {
             inputImages: [...draft.references],
             prompt: draft.prompt,
+            batchZoneNotice: null,
             ...(s.maskDraft && !keepsMask ? { maskDraft: null, maskEditorImageId: null } : {}),
           }
         }),
@@ -838,6 +1017,10 @@ export const useStore = create<AppState>()(
       maskDraft: null,
       setMaskDraft: (maskDraft) => {
         pendingPersistedMaskDraft = null
+        // 遮罩编辑只面向普通单次生图坐标系：批量模式下创建遮罩时先切回普通模式并合并两区。
+        if (maskDraft && get().createTarget === 'batch') {
+          get().setCreateTarget('generate')
+        }
         set((s) => {
           const draft = replaceReferences(
             { prompt: s.prompt, references: s.inputImages },
@@ -864,6 +1047,9 @@ export const useStore = create<AppState>()(
       },
       maskEditorImageId: null,
       setMaskEditorImageId: (maskEditorImageId) => {
+        if (maskEditorImageId && get().createTarget === 'batch') {
+          get().setCreateTarget('generate')
+        }
         // 这是 composer 的入口：会话一律换成 composer 自己那份，否则保存会写到别人那里去。
         set({
           maskEditorImageId,
@@ -949,8 +1135,10 @@ export const useStore = create<AppState>()(
       setCreateTarget: (createTarget) => {
         const state = get()
         if (createTarget === state.createTarget) return
-        const key = state.createTarget === 'generate' ? 'generate' : 'chat'
-        const nextKey = createTarget === 'generate' ? 'generate' : 'chat'
+        const isDirect = (target: AppState['createTarget']) =>
+          target === 'generate' || target === 'batch'
+        const key = isDirect(state.createTarget) ? 'generate' : 'chat'
+        const nextKey = isDirect(createTarget) ? 'generate' : 'chat'
         const profile = getActiveApiProfile(state.settings)
         // Text/references are shared. Only model selection and parameters belong to a mode.
         // Video parameters live in useVideoStore and never overwrite either image selection.
@@ -981,9 +1169,63 @@ export const useStore = create<AppState>()(
             ? candidate
             : undefined
         if (candidate && !saved) delete selections[nextKey]
+
+        // 切入「批量生图」：提示词里已 `@` 引用的图自动归入共用参考，并记录可撤销快照；
+        // 离开「批量生图」：把共用参考合并回普通参考图条，保持引用不丢。
+        let draftPatch: Partial<AppState> = { batchZoneNotice: null }
+        if (createTarget === 'batch') {
+          const split = splitDraftForBatchMode({
+            prompt: state.prompt,
+            inputImages: state.inputImages,
+            batchSharedImages: state.batchSharedImages,
+            mergeLimit: referenceAdmission(profile).limit,
+          })
+          if (!split.ok) {
+            state.showToast(referenceRefusalMessage('overflow', split.maxShared), 'error')
+            return
+          }
+          markFeatureSeen('composer.batchMode')
+          draftPatch = {
+            prompt: split.prompt,
+            inputImages: split.inputImages,
+            batchSharedImages: split.batchSharedImages,
+            maskDraft: null,
+            maskEditorImageId: null,
+            batchZoneNotice:
+              split.promotedImages.length > 0
+                ? {
+                    message: i18next.t('batch.autoPromotedOnSwitch', {
+                      ns: 'composer',
+                      count: split.promotedImages.length,
+                    }),
+                    snapshot: {
+                      prompt: state.prompt,
+                      inputImages: [...state.inputImages],
+                      batchSharedImages: [...state.batchSharedImages],
+                      createTarget: state.createTarget,
+                      maskDraft: state.maskDraft,
+                    },
+                  }
+                : null,
+          }
+        } else if (state.createTarget === 'batch') {
+          const merged = mergeDraftFromBatchMode({
+            prompt: state.prompt,
+            inputImages: state.inputImages,
+            batchSharedImages: state.batchSharedImages,
+          })
+          draftPatch = {
+            prompt: merged.prompt,
+            inputImages: merged.inputImages,
+            batchSharedImages: [],
+            batchZoneNotice: null,
+          }
+        }
+
         set({
           createTarget,
           creationSelections: selections,
+          ...draftPatch,
           ...(saved ? { params: saved.params } : {}),
           ...(saved?.profileId && savedProfile
             ? {
@@ -1287,8 +1529,9 @@ async function resolveImageSizeParamsList(
  * 任务列表和输入框同步核一遍，被用上的留着。
  */
 function referencedNow(imageId: string): boolean {
-  const { tasks, inputImages, maskDraft } = useStore.getState()
+  const { tasks, inputImages, batchSharedImages, maskDraft } = useStore.getState()
   if (inputImages.some((image) => image.id === imageId)) return true
+  if (batchSharedImages.some((image) => image.id === imageId)) return true
   if (maskDraft && (maskDraft.targetImageId === imageId || maskDraft.maskImageId === imageId)) {
     return true
   }
@@ -1304,8 +1547,9 @@ function referencedNow(imageId: string): boolean {
 
 async function imageIdsInUse(tasks: readonly TaskRecord[]): Promise<Set<string>> {
   const ids = await getReferencedImageIds(tasks)
-  const { inputImages, maskDraft } = useStore.getState()
+  const { inputImages, batchSharedImages, maskDraft } = useStore.getState()
   for (const image of inputImages) ids.add(image.id)
+  for (const image of batchSharedImages) ids.add(image.id)
   for (const draft of [maskDraft, pendingPersistedMaskDraft]) {
     if (!draft) continue
     ids.add(draft.targetImageId)
@@ -1354,6 +1598,7 @@ export async function initStore() {
 
   const referencedIds = await imageIdsInUse(tasks)
   const persistedInputImages = useStore.getState().inputImages
+  const persistedSharedImages = useStore.getState().batchSharedImages
 
   // 只枚举 key 清理孤立图片，避免启动时把所有 4K 原图读进内存。
   const imageIds = await getAllImageIds()
@@ -1367,24 +1612,69 @@ export async function initStore() {
   }
   scheduleThumbnailBackfill(referencedImageIds)
 
-  const restoredInputImages: InputImage[] = []
-  for (const img of persistedInputImages) {
-    if (img.dataUrl) {
-      restoredInputImages.push(img)
-      cacheImage(img.id, img.dataUrl)
-      continue
+  const hydrateList = async (list: readonly InputImage[]) => {
+    const restored: InputImage[] = []
+    for (const img of list) {
+      if (img.dataUrl) {
+        restored.push(img)
+        cacheImage(img.id, img.dataUrl)
+        continue
+      }
+      const storedImage = await getImage(img.id)
+      if (storedImage?.dataUrl) {
+        restored.push({ ...img, dataUrl: storedImage.dataUrl })
+        cacheImage(img.id, storedImage.dataUrl)
+      }
     }
-    const storedImage = await getImage(img.id)
-    if (storedImage?.dataUrl) {
-      restoredInputImages.push({ ...img, dataUrl: storedImage.dataUrl })
-      cacheImage(img.id, storedImage.dataUrl)
-    }
+    return restored
   }
+
+  const restoredInputImages = await hydrateList(persistedInputImages)
   if (
     restoredInputImages.length !== persistedInputImages.length ||
     restoredInputImages.some((img, index) => img.dataUrl !== persistedInputImages[index]?.dataUrl)
   ) {
     useStore.getState().replaceInputImages(restoredInputImages)
+  }
+  const restoredSharedImages = await hydrateList(persistedSharedImages)
+  const currentShared = useStore.getState().batchSharedImages
+  if (currentShared.length > 0 && persistedSharedImages.length > 0) {
+    const persistedSharedIds = new Set(persistedSharedImages.map((img) => img.id))
+    const hydratedById = new Map(restoredSharedImages.map((img) => [img.id, img.dataUrl]))
+    const mergedShared: InputImage[] = []
+    let changed = false
+    for (const img of currentShared) {
+      if (img.dataUrl) {
+        mergedShared.push(img)
+        continue
+      }
+      const dataUrl = hydratedById.get(img.id)
+      if (dataUrl) {
+        mergedShared.push({ ...img, dataUrl })
+        changed = true
+      } else if (persistedSharedIds.has(img.id)) {
+        // 持久化的共用图在 IndexedDB 中已缺失，剔除并在下方重映射引用。
+        changed = true
+      } else {
+        mergedShared.push(img)
+      }
+    }
+    if (changed) {
+      const nextSharedIndexById = new Map(mergedShared.map((img, i) => [img.id, i + 1]))
+      const nextPrompt =
+        mergedShared.length === currentShared.length
+          ? useStore.getState().prompt
+          : remapImageMentions(useStore.getState().prompt, (imageIndex) => {
+              if (imageIndex === 0) return 0
+              const oldShared = currentShared[imageIndex - 1]
+              if (!oldShared) return null
+              return nextSharedIndexById.get(oldShared.id) ?? -1
+            })
+      useStore.setState({
+        batchSharedImages: mergedShared,
+        prompt: nextPrompt,
+      })
+    }
   }
   await restorePersistedMaskDraft(restoredInputImages)
 }
@@ -1437,10 +1727,12 @@ export interface PreparedSubmission {
   /** 归属信息（套 / 镜头）；零散提交不带。 */
   origin?: TaskOrigin
   /**
-   * 逐张生成：每张参考图各发一条任务、各出 1 张，同一句提示词；这批任务折成「我的作品」里的一组。
+   * 逐张生成：每张遍历原图各发一条任务、各出 1 张，同一句提示词；这批任务折成「我的作品」里的一组。
    * 与遮罩、`origin` 互斥。
    */
   eachImage?: true
+  /** 逐张生成时每条任务都会附带的共用参考图（紧跟在当前遍历原图后面）。 */
+  sharedImages?: InputImage[]
 }
 
 /**
@@ -1556,22 +1848,29 @@ export async function submitPrepared(
   }
   const admission = referenceAdmission(profile)
   const eachImage = Boolean(input.eachImage) && !input.maskDraft && !input.mask
-  // 逐张生成时每条任务只带一张图，模型上限管不着整批；整批另按 BATCH_GENERATE_MAX 收口。
+  const sharedImages = eachImage ? (input.sharedImages ?? []) : []
+  // 逐张生成时每条任务带「1 张遍历原图 + 共用参考图」，单条受模型上限管，整批按 BATCH_GENERATE_MAX 收口。
   const referenceLimit = eachImage ? BATCH_GENERATE_MAX : admission.limit
+  const totalImages = input.inputImages.length + sharedImages.length
   if (
     input.inputImages.length > referenceLimit ||
-    (input.inputImages.length > 0 && !admission.acceptsReferences)
+    (eachImage && sharedImages.length > 0 && 1 + sharedImages.length > admission.limit) ||
+    (totalImages > 0 && !admission.acceptsReferences)
   ) {
+    const overflowLimit =
+      eachImage && 1 + sharedImages.length > admission.limit
+        ? Math.max(0, admission.limit - 1)
+        : referenceLimit
     showToast(
       referenceRefusalMessage(
-        input.inputImages.length > referenceLimit ? 'overflow' : 'noEdit',
-        referenceLimit,
+        totalImages > 0 && !admission.acceptsReferences ? 'noEdit' : 'overflow',
+        overflowLimit,
       ),
       'error',
     )
     return []
   }
-  const oversized = oversizedReferenceIndexes(input.inputImages)
+  const oversized = oversizedReferenceIndexes([...input.inputImages, ...sharedImages])
   if (oversized.length) {
     showToast(oversizedReferenceMessage(oversized), 'error')
     return []
@@ -1648,6 +1947,9 @@ export async function submitPrepared(
   for (const img of input.inputImages) {
     await storeImage(img.dataUrl)
   }
+  for (const img of sharedImages) {
+    await storeImage(img.dataUrl)
+  }
   const maskDataUrl = input.mask ? await ensureImageCached(input.mask.imageId) : undefined
   if (input.mask && !maskDataUrl) {
     showToast(i18next.t('task.maskImageMissing', { ns: 'store' }), 'error')
@@ -1655,8 +1957,10 @@ export async function submitPrepared(
   }
 
   if (!current()) return []
-  // 一组参考图对应一条变体：合并参考是整条一组，逐张生成是每张图自成一组。
-  const referenceGroups = eachImage ? input.inputImages.map((img) => [img]) : [input.inputImages]
+  // 一组参考图对应一条变体：合并参考是整条一组，逐张生成是每张遍历图拼上共用参考各自成组。
+  const referenceGroups = eachImage
+    ? input.inputImages.map((img) => [img, ...sharedImages])
+    : [input.inputImages]
   const jobs = startGeneration<WorkbenchJob, WorkbenchVariant>(
     {
       settings: requestSettings,
@@ -1720,8 +2024,18 @@ export async function submitPrepared(
  * 这里只管 composer 自己的事：孤儿遮罩草稿兜底、归一化参数写回、成功后的收尾。
  */
 export async function submitTask(options: { holdClear?: Promise<unknown> } = {}) {
-  const { settings, prompt, slotValues, inputImages, maskDraft, params, batchGenerate, showToast } =
-    useStore.getState()
+  const {
+    settings,
+    prompt,
+    slotValues,
+    inputImages,
+    batchSharedImages,
+    createTarget,
+    maskDraft,
+    params,
+    batchGenerate,
+    showToast,
+  } = useStore.getState()
 
   // 遮罩草稿的目标图已不在参考图条里：草稿留着也提交不了，清掉并提示重新选区。
   if (maskDraft && !inputImages.some((img) => img.id === maskDraft.targetImageId)) {
@@ -1732,14 +2046,33 @@ export async function submitTask(options: { holdClear?: Promise<unknown> } = {})
 
   const activeProfile = getActiveApiProfile(settings)
   const requestSettings = createSettingsForApiProfile(normalizeSettings(settings), activeProfile)
-  // 与输入框同一条判断：用户选了逐张，或图多到超过模型一次能带的张数。遮罩编辑不走逐张。
+  // 批量生图模式按每张遍历原图发一条（可带共用参考）；旧 batchGenerate 开关仍向后兼容。
+  const isBatchMode = createTarget === 'batch'
+  const activeAdmission = referenceAdmission(activeProfile)
+  if (isBatchMode) {
+    if (!activeAdmission.acceptsReferences) {
+      showToast(referenceRefusalMessage('noEdit', activeAdmission.limit), 'error')
+      return
+    }
+    if (inputImages.length === 0) {
+      showToast(i18next.t('batch.needLoopImages', { ns: 'composer' }), 'error')
+      return
+    }
+  }
   const eachImage =
     !maskDraft &&
-    batchPerImage(inputImages.length, batchGenerate, referenceAdmission(activeProfile).limit)
+    (isBatchMode
+      ? inputImages.length > 0
+      : batchPerImage(inputImages.length, batchGenerate, activeAdmission.limit))
   const orderedInputImages = maskDraft
     ? orderInputImagesForMask(inputImages, maskDraft.targetImageId)
     : inputImages
-  const taskParams = deriveTaskParams(params, requestSettings, orderedInputImages.length > 0)
+  const sharedImages = isBatchMode ? batchSharedImages : []
+  const taskParams = deriveTaskParams(
+    params,
+    requestSettings,
+    orderedInputImages.length > 0 || sharedImages.length > 0,
+  )
   const normalizedParamPatch = getChangedParams(params, taskParams)
   if (Object.keys(normalizedParamPatch).length) {
     useStore.getState().setParams(normalizedParamPatch)
@@ -1760,6 +2093,7 @@ export async function submitTask(options: { holdClear?: Promise<unknown> } = {})
         maskDraft,
         profileId: activeProfile.id,
         ...(eachImage ? { eachImage: true as const } : {}),
+        ...(eachImage && sharedImages.length > 0 ? { sharedImages } : {}),
       },
       {
         signal: controller.signal,
@@ -1769,27 +2103,32 @@ export async function submitTask(options: { holdClear?: Promise<unknown> } = {})
         },
       },
     )
-  } finally {
-    context.dispose()
-  }
-  if (createdTaskIds.length === 0) return
-  await acknowledged
+    if (createdTaskIds.length === 0) return
+    await acknowledged
 
-  // 新卡在输入框下方。滚不滚、高亮和焦点由作品网格在卡片挂上之后做；这里只标记「这次是用户主动发送」。
-  noteUserSubmittedTasks(createdTaskIds)
+    // 新卡在输入框下方。滚不滚、高亮和焦点由作品网格在卡片挂上之后做；这里只标记「这次是用户主动发送」。
+    noteUserSubmittedTasks(createdTaskIds)
 
-  // 发送按钮的转圈要先让人看见，输入框再清空。转圈期间用户又改了提示词或参考图，就不清，免得吞掉新输入。
-  if (options.holdClear) {
-    await options.holdClear
+    // 发送按钮的转圈要先让人看见，输入框再清空。转圈期间用户又改了提示词、参考图或切换了创作模式，就不清，免得吞掉新输入。
+    if (options.holdClear) {
+      await options.holdClear
+    }
+    if (!context.isCurrent()) return
     const now = useStore.getState()
+    if (now.createTarget !== createTarget) return
     const sameImages =
       now.inputImages.length === inputImages.length &&
-      now.inputImages.every((img, i) => img.id === inputImages[i]?.id)
-    if (now.prompt !== prompt || !sameImages) return
-  }
-  if (settings.clearInputAfterSubmit) {
-    useStore.getState().setPrompt('')
-    useStore.getState().clearInputImages()
+      now.inputImages.every((img, i) => img.id === inputImages[i]?.id) &&
+      now.batchSharedImages.length === sharedImages.length &&
+      now.batchSharedImages.every((img, i) => img.id === sharedImages[i]?.id)
+    if (options.holdClear && (now.prompt !== prompt || !sameImages)) return
+    if (settings.clearInputAfterSubmit) {
+      useStore.getState().setPrompt('')
+      useStore.getState().clearInputImages()
+      if (isBatchMode) useStore.getState().clearBatchSharedImages()
+    }
+  } finally {
+    context.dispose()
   }
 }
 
@@ -2503,6 +2842,10 @@ async function reuseLocalConfig(task: TaskRecord) {
       imgs.push({ id: imgId, dataUrl })
     }
   }
+  // 复用历史配置面向单次生图坐标系：若当前在批量模式先清掉共用参考并回到普通图片生成。
+  if (useStore.getState().createTarget === 'batch') {
+    useStore.setState({ createTarget: 'generate', batchSharedImages: [], batchZoneNotice: null })
+  }
   // 条与提示词一起换：这句话是按这条记录自己的参考图序号写的，分两步写会按旧条重排坏。
   replaceInputImages(imgs, { prompt: task.prompt })
   const maskTargetImageId =
@@ -2535,6 +2878,9 @@ async function reuseLocalConfig(task: TaskRecord) {
  * 遮罩——那条规则写在 `lib/referenceDraft` 的准入里，被拒的理由由附图那一步提示。
  */
 export function editImageInComposer(image: InputImage): boolean {
+  if (useStore.getState().createTarget === 'batch') {
+    useStore.getState().setCreateTarget('generate')
+  }
   const { settings, attachInputImages, setMaskEditorImageId } = useStore.getState()
   if (!attachInputImages([image], referenceAdmission(getActiveApiProfile(settings), 'edit'))) {
     return false
@@ -2956,8 +3302,16 @@ export interface ClearOptions {
 
 /** 清空数据 */
 export async function clearData(options: ClearOptions = { clearConfig: true, clearTasks: true }) {
-  const { setTasks, clearInputImages, clearMaskDraft, setSettings, setParams, showToast } =
-    useStore.getState()
+  const {
+    setTasks,
+    clearInputImages,
+    clearBatchSharedImages,
+    setBatchZoneNotice,
+    clearMaskDraft,
+    setSettings,
+    setParams,
+    showToast,
+  } = useStore.getState()
 
   if (options.clearTasks) {
     await dbClearTasks()
@@ -2967,6 +3321,8 @@ export async function clearData(options: ClearOptions = { clearConfig: true, cle
     thumbnailBackfillIds.clear()
     setTasks([])
     clearInputImages()
+    clearBatchSharedImages()
+    setBatchZoneNotice(null)
     clearMaskDraft()
   }
 

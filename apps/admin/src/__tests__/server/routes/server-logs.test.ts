@@ -162,6 +162,7 @@ describe('server log explorer on OpenObserve', () => {
       base,
       `/api/ops/logs/context?id=${toEntry(hit(1)).id}`,
       '/api/ops/traces/4bf92f3577b34da6a3ce929d0e0e4736',
+      `/api/ops/tasks/task-1/traces?from=${now - 3600_000}&to=${now}`,
     ]) {
       const response = await request(path)
       expect(response.status).toBe(503)
@@ -388,6 +389,96 @@ describe('server log explorer on OpenObserve', () => {
     expect((await request('/api/ops/traces/4bf92f3577b34da6a3ce929d0e0e4736?at=x')).status).toBe(
       400,
     )
+  })
+
+  it("lists a task's traces cheaply and draws the span trees only when asked", async () => {
+    const submit = 'a'.repeat(32)
+    const execute = 'b'.repeat(32)
+    let traceFields = new Set(['trace_id', 'task_id', 'start_time'])
+    const taskFake: ObsClient = {
+      ...fake,
+      async search(query) {
+        searches.push(query)
+        return [
+          { trace_id: submit, started: now * 1e6 },
+          { trace_id: execute, started: (now + 1_000) * 1e6 },
+          { trace_id: '0'.repeat(32), started: now * 1e6 },
+        ]
+      },
+      async searchAll(query) {
+        searches.push({ ...query })
+        const bff = query.sql.includes(submit)
+        return {
+          records: [
+            {
+              span_id: bff ? 's' : 'e',
+              reference_parent_span_id: '',
+              start_time: (bff ? now : now + 1_000) * 1e6,
+              duration: 28_000,
+              service_name: bff ? 'bff' : 'worker',
+              operation_name: bff ? 'POST /v1/queue/submit' : 'task.execute',
+            },
+          ],
+          truncated: !bff,
+        }
+      },
+      async streamFields(_stream, type) {
+        return type === 'traces' ? traceFields : SCHEMA
+      },
+    }
+    _setObsClientForTesting(taskFake)
+    const from = now - 3600_000
+    const path = `/api/ops/tasks/task-1/traces?from=${from}&to=${now}`
+    type Body = {
+      traces: {
+        traceId: string
+        startedAt: number
+        tree?: string
+        spans?: number
+        truncated?: boolean
+      }[]
+      more: boolean
+    }
+
+    // 打开抽屉：一次聚合查询，只列链路。
+    const listed = (await (await request(path)).json()) as Body
+    expect(listed).toEqual({
+      more: false,
+      traces: [
+        { traceId: submit, startedAt: now },
+        { traceId: execute, startedAt: now + 1_000 },
+      ],
+    })
+    expect(searches).toHaveLength(1)
+    expect(searches[0]!.sql).toContain("WHERE task_id = 'task-1'")
+
+    // 点开「链路」页：再画每条的 span 树。
+    searches.length = 0
+    const drawn = (await (await request(`${path}&trees=1`)).json()) as Body
+    expect(drawn.traces.map((trace) => trace.traceId)).toEqual([submit, execute])
+    expect(drawn.traces[0]).toMatchObject({ spans: 1, truncated: false, startedAt: now })
+    expect(drawn.traces[0]!.tree).toContain('bff POST /v1/queue/submit')
+    expect(drawn.traces[1]!.tree).toContain('worker task.execute')
+    expect(drawn.traces[1]!.truncated).toBe(true)
+    expect(searches).toHaveLength(3)
+    expect(
+      searches.every((s) => s.type === 'traces' && s.startMs === from && s.endMs === now),
+    ).toBe(true)
+
+    // traces 流里还没有 task_id 列：当作没有链路，不去查一个会报错的字段。
+    traceFields = new Set(['trace_id'])
+    searches.length = 0
+    expect(await (await request(path)).json()).toEqual({ traces: [], more: false })
+    expect(searches).toHaveLength(0)
+
+    for (const bad of [
+      "/api/ops/tasks/bad'id/traces?from=1&to=2",
+      `/api/ops/tasks/task-1/traces?from=${now}&to=${from}`,
+      '/api/ops/tasks/task-1/traces?from=x&to=2',
+      `/api/ops/tasks/task-1/traces?from=${now - 9 * 86_400_000}&to=${now}`,
+    ])
+      expect((await request(bad)).status).toBe(400)
+    _setObsClientForTesting(fake)
   })
 
   it('treats plain-text container lines and empty trace ids sensibly', () => {

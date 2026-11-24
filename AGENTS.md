@@ -14,13 +14,13 @@ This codebase is yours: what it's for and how it's built are your call, and you'
 
 ## 部署与灾备
 
-- **生产：Pages + VPS，合并 main 后由 GitHub Actions（`.github/workflows/deploy.yml`）在下一个发布窗口（北京时间 12:30、18:30、23:30；GitHub schedule 常晚数小时）部署，紧急修复手动 `workflow_dispatch` 并填 `reason`：镜像在 Actions 构建、经私有 GHCR 按 digest 拉到 VPS；只更新共享 muvloom 后端，再按需发布一个多域名 muvloom Pages 项目和 Admin（见[发布手册](docs/agents/release.md)「三」）。企业域名与 muvloom 共用前后端，登录方式按 origin 决定。会话只合并到 main，不手动发布；手动发布（macmini2 构建）仅作应急。** VPS 只接收镜像，不安装构建依赖或编译。提交通过 PR/main CI，使用独立检出、既有构建锁和发布锁。
+- **生产：Pages + VPS，合并 main 不自动上线，由 Nain 决定何时发布，发布时手动运行 GitHub Actions（`.github/workflows/deploy.yml`，`workflow_dispatch`，默认只发有改动的部分）：镜像在 Actions 构建、经私有 GHCR 按 digest 拉到 VPS；只更新共享 muvloom 后端，再按需发布一个多域名 muvloom Pages 项目和 Admin（见[发布手册](docs/agents/release.md)「三」）。企业域名与 muvloom 共用前后端，登录方式按 origin 决定。会话只在 Nain 说发布时触发该 workflow，不绕过它；macmini2 构建的手工发布仅作应急。** VPS 只接收镜像，不安装构建依赖或编译。提交通过 PR/main CI，使用独立检出、既有构建锁和发布锁。
 - 前端单项目多域名、后端发布、排空、回滚与验收按[部署手册](docs/deploy/image-release.md)。不得强停在途执行器；迁移须兼容新旧版本。验收 API、登录和业务数据后才报告完成。
 - **改迁移编号前先查两个库已经跑过哪些迁移。** 重新编号、改名或调整 `packages/db/drizzle` 的顺序之前，先确认测试库和生产库的 `drizzle.__drizzle_migrations` 已应用到哪一条，与 `meta/_journal.json` 的 `when` 对照：drizzle 按时间戳判断哪些还没跑，已应用的迁移被改号或挪位，会被跳过或重复执行（2026-10-27 测试环境发布因此中断过）。生产库不能自己查（见[生产只读排查](docs/agents/prod-readonly.md)），请 Nain 查或看发布日志里的迁移输出；已在任一库应用过的迁移不改号，新加一条。带迁移的 PR 按时间戳先后合并：`runMigrations` 发现时间戳不晚于库中最新一条却没跑过的迁移会直接报错、中止发布，不再被 drizzle 静默跳过；真遇到时，核实后手工执行报出的迁移，再按它的 sha256 与 journal `when` 补一行 `drizzle.__drizzle_migrations`。
 - **测试环境**：推 `test` 分支由 `.github/workflows/deploy-test.yml` 先发布独立测试后端（`image-playground-test`，独立数据库与 R2 桶），再发布 https://test.muvloom.online；前端固定连 `https://test-api.muvloom.online`，不读写生产数据。前后端使用同一主仓提交。test 落后 main 会直接失败，把 main 合进 test 再推；别在 `test` 上直接改代码。细节见[测试环境手册](docs/deploy/test-environment.md)。
 - 前端发布只用 `scripts/pages-release.sh muvloom|test|admin`（企业域名与 muvloom 同属 muvloom 项目，一个项目、多个域名）；各目标的 Pages 项目与域名写在仓库外的 `pages.env`（默认 `$XDG_CONFIG_HOME/ai-image-playground/pages.env`，可用 `PAGES_ENV_FILE` 覆盖）。现存 `PAID_*` 配置键和 VPS `paid` 目标连接共享生产资源；企业域名使用 `ENTERPRISE_PUBLIC_ORIGIN` / `ENTERPRISE_BFF_BASE_URL`，配置切换与 VPS 受限入口更新见[部署手册](docs/deploy/image-release.md#产品与现存标识)。不要直接调底层 `scripts/pages-deploy.sh`——漏掉分支参数曾把未合并分支发到生产。
 - 灵感库（探索页素材流）批量下架、新增、回滚与验收按[灵感库维护手册](docs/deploy/inspiration-maintenance.md)；灵感图只传 `cms-r2.deepclick.com`。
-- **Agent 发布按[发布手册](docs/agents/release.md)**：合并前检查、`test` 只用 fetch 加快进推送、生产发布、上线核对和回滚。经流水线上线的 PR 合并、数据库迁移、CLI 发布与常规回滚，在 CI 全绿、评审意见处理完毕且确认没问题后**直接 squash merge 推进，不用等 Nain 确认**；合并后的部署由 workflow 在下一个窗口自动跑，会话跟进结果，发布完成后冒烟。只有绕过流水线、手工改生产服务器或生产数据要 Nain 批准，表格见该手册。查生产问题默认只读，能做和禁止的操作见[生产只读排查](docs/agents/prod-readonly.md)。
+- **Agent 发布按[发布手册](docs/agents/release.md)**：合并前检查、`test` 只用 fetch 加快进推送、生产发布、上线核对和回滚。经流水线上线的 PR 合并、数据库迁移、CLI 发布与常规回滚，在 CI 全绿、评审意见处理完毕且确认没问题后**直接 squash merge 推进，不用等 Nain 确认**。合并不等于上线：合并后的改动处于「待发布」，`scripts/release-status.sh` 列出尚未上线的提交；Nain 说发布后会话触发 Deploy production、跟进结果，发布完成后冒烟。只有绕过流水线、手工改生产服务器或生产数据要 Nain 批准，表格见该手册。查生产问题默认只读，能做和禁止的操作见[生产只读排查](docs/agents/prod-readonly.md)。
 - 灾备采用[R2 按需冷恢复](docs/deploy/cold-recovery.md)；macmini2 旧备用已停止。固定 API 切换和跨机器单写者保护尚未上线，恢复演练或同库发布排空都不算完整灾备。
 
 ## 项目概况
@@ -76,7 +76,7 @@ CI（`.github/workflows/web.yml`，PR 以及 push 到 main 和 test 都跑）把
 
 `main` 由 ruleset 保护：只能经 PR squash 合并，上述 Web checks job 为必需检查。`scripts/check-migrations.mjs`（在 `pnpm lint` 里）要求 `packages/db/drizzle` 相对 main 只追加，且新迁移的 `when` 晚于 main 上时间戳最大的一条（`migrate.ts` 中审计过的 supersession `original` 除外）。
 
-**默认把改动做成可以上生产的 PR 并直接合入。** 代码修改通过检查后，继续创建 PR、等 CI 全绿，并处理评审；确认没问题后直接 squash merge 到 `main`，不用等 Nain 确认。合并后由部署 workflow 在下一个发布窗口自动发布，会话不手动发布，只跟进该 workflow 结果并核验线上版本和行为。用户明确要求仅本地修改或暂不合并时照办。
+**默认把改动做成可以上生产的 PR 并直接合入。** 代码修改通过检查后，继续创建 PR、等 CI 全绿，并处理评审；确认没问题后直接 squash merge 到 `main`，不用等 Nain 确认。合并后改动处于待发布，Nain 说发布后由会话触发 Deploy production workflow，跟进结果并核验线上版本和行为。用户明确要求仅本地修改或暂不合并时照办。
 
 **交付不能停在本地。** 用户指定测试环境或明确暂不上生产时，完成改动后自动走测试环境发布：工作分支提交 → 远端检查 → 将最新 `main` 与工作分支合入 `test` → 跟进 Deploy test → 核对线上版本并实测变更。不再次询问是否部署，不把已提交、已推送或 workflow 已触发当作交付完成；失败继续处理，外部阻塞明确报告且待办保持阻塞状态。测试验收不代表获准上生产。
 
@@ -98,7 +98,7 @@ CI（`.github/workflows/web.yml`，PR 以及 push 到 main 和 test 都跑）把
 
 **评审。** 怎么评、什么算严重、哪些文件可跳过、输出格式，见 [REVIEW.md](REVIEW.md)。作者 Agent 与 Codex 最多来回 3 轮：第 2 轮起只看新增改动、不重复已提过的问题；3 轮后仍有严重问题就停下，重新想方案或交给 Nain。规则细节见 REVIEW.md「评审轮次上限」。每轮怎么处理的写进 PR 的「评审处理记录」。
 
-**检查齐了直接合并；上线后冒烟。** CI 全绿、评审有效意见处理完毕且确认没问题后，由 Agent 直接 squash merge 到 `main`，不用等 Nain 确认。合并后等下一个发布窗口（紧急修复走手动 `workflow_dispatch`）的部署 workflow 完成，核对线上版本，再实测改到的功能：接口用只读请求，界面在浏览器里看，关键流程用测试账号；结果写进 PR 评论。冒烟不过就开修复或回滚 PR 直接处理，并在汇报里说明。
+**检查齐了直接合并；上线后冒烟。** CI 全绿、评审有效意见处理完毕且确认没问题后，由 Agent 直接 squash merge 到 `main`，不用等 Nain 确认。合并后在汇报里列出待发布的改动；Nain 说发布后触发 Deploy production，等它完成，核对线上版本，再实测改到的功能：接口用只读请求，界面在浏览器里看，关键流程用测试账号；结果写进 PR 评论。冒烟不过就开修复或回滚 PR 直接处理（回滚 PR 合并后同样触发一次发布），并在汇报里说明。
 
 **关键流程证据。** 改到注册/登录、支付/计费、生成（出图、出视频）流程的 PR，必须附测试账号在测试环境（https://test.muvloom.online）走通该流程的截图或录屏，写明账号类型、环境（test.muvloom.online）和提交 SHA；`PR rules` 按 `scripts/pr-rules.mjs` 的 `CRITICAL_FLOWS` 路径核对，只改类型或重构、流程行为不变的，勾「不涉及」并写明理由（至少 10 个字，「不涉及」「无」这类套话不算；降为警告，由评审确认）。路径清单外的流程改动同样要附。证据里不能出现密码、验证码、token 或真实用户数据。`scripts/agent-smoke.ts`（[智能体上线手册](docs/deploy/agent-rollout.md)第七节）、`scripts/pages-browser-smoke.sh`（[部署手册](docs/deploy/image-release.md)「前端启动验收」）和[云端测试](docs/agents/cloud-tests.md)只能作补充：它们不走真实登录、付款或生成，不能代替证据。
 

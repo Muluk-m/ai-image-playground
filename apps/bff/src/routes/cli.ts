@@ -30,6 +30,8 @@ import {
   assertReferenceMedia,
   availableImageModels,
   CLI_PROMPT_MAX_CHARS,
+  type CliImageRequestBody,
+  defaultImageModelId,
   imageCapabilities,
   isMembershipUpgradeableRejection,
   normalizeImageRequest,
@@ -91,6 +93,13 @@ const formClient = t.Object(
   { additionalProperties: true },
 )
 
+/** 不带 model 时按该账号能提交的第一个模型补上，与 `/v1/capabilities` 的 `default_model` 一致。 */
+async function prepareImageRequest(userId: string, body: CliImageRequestBody) {
+  const models = await availableImageModels()
+  const model = body.model ?? (await defaultImageModelId(userId, models))
+  return normalizeImageRequest(model === undefined ? body : { ...body, model }, models)
+}
+
 /**
  * RFC 8628 设备授权与 RFC 6749/7009 令牌端点。放在 /v1/oauth 下是为了走 API 错误处理，
  * 但它们不经过 Bearer 边界：调用方此时还没有令牌。能力在每个处理器里判断，不挂 app 级钩子。
@@ -150,11 +159,15 @@ export const cliOAuthRoutes = new Elysia()
       const requestKey = body.request_id === undefined ? null : parseCliRequestKey(body.request_id)
       if (body.request_id !== undefined && !requestKey)
         return oauthJson({ error: 'invalid_request' }, 400)
+      const { userAgent } = sessionClientFromRequest(
+        request,
+        server?.requestIP(request)?.address ?? null,
+      )
       const result =
         body.grant_type === 'urn:ietf:params:oauth:grant-type:device_code' && body.device_code
-          ? await exchangeDeviceCode(body.device_code, CLI_CLIENT_ID, requestKey)
+          ? await exchangeDeviceCode(body.device_code, CLI_CLIENT_ID, requestKey, userAgent)
           : body.grant_type === 'refresh_token' && body.refresh_token
-            ? await refreshCliToken(body.refresh_token, CLI_CLIENT_ID, requestKey)
+            ? await refreshCliToken(body.refresh_token, CLI_CLIENT_ID, requestKey, userAgent)
             : body.grant_type === 'authorization_code' &&
                 body.code &&
                 body.code_verifier &&
@@ -165,6 +178,7 @@ export const cliOAuthRoutes = new Elysia()
                   body.redirect_uri,
                   CLI_CLIENT_ID,
                   requestKey,
+                  userAgent,
                 )
               : null
       if (!result) return oauthJson({ error: 'unsupported_grant_type' }, 400)
@@ -356,7 +370,7 @@ export const cliApiRoutes = new Elysia()
     '/v1/image-jobs/validate',
     async ({ cli, body, request }) => {
       requireScope(cli, 'images:write')
-      const prepared = normalizeImageRequest(body, await availableImageModels())
+      const prepared = await prepareImageRequest(cli.user.id, body)
       await assertReferenceMedia(cli.user.id, prepared.normalized.reference_media_ids)
       const submit = toSubmitRequest(prepared)
       const preview = await previewImageRequest(cli.user.id, prepared, submit)
@@ -399,7 +413,7 @@ export const cliApiRoutes = new Elysia()
     '/v1/image-jobs',
     async ({ cli, body, request }) => {
       requireScope(cli, 'images:write')
-      const prepared = normalizeImageRequest(body, await availableImageModels())
+      const prepared = await prepareImageRequest(cli.user.id, body)
       await assertReferenceMedia(cli.user.id, prepared.normalized.reference_media_ids)
       const submit = toSubmitRequest(prepared)
       const inputImages = await withMediaErrors(() =>

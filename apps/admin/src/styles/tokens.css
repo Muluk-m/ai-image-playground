@@ -13,6 +13,8 @@
 
 @layer base {
   :root {
+    color-scheme: light;
+
     /* ============================ PRIMITIVE ============================ */
 
     /* 品牌（docs/brand/muvloom.md：深灰 #23282B / 芽尖 #DBFFA0 / 薄荷 #83EEB0） */
@@ -226,6 +228,7 @@
   /* 深色：只改 semantic 层；primitive 与 component 层不重复定义 */
   @media (prefers-color-scheme: dark) {
     :root {
+      color-scheme: dark;
       --background: var(--neutral-950);
       --foreground: var(--neutral-50);
       --card: var(--neutral-950);

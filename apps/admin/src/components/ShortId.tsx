@@ -39,11 +39,11 @@ export function ShortId({ value, len = 8, className, compact = false, copy = tru
       <TooltipTrigger asChild>
         <span
           className={cn(
-            'inline-flex items-center gap-1 font-mono text-xs text-foreground',
+            'inline-flex items-center gap-1 whitespace-nowrap font-mono text-xs text-foreground',
             className,
           )}
         >
-          {compact ? null : <span>{shortId(value, len)}</span>}
+          {compact ? null : <span className="whitespace-nowrap">{shortId(value, len)}</span>}
           {copy ? (
             <Button
               autoTooltip={false}
@@ -52,7 +52,7 @@ export function ShortId({ value, len = 8, className, compact = false, copy = tru
               size="icon-sm"
               onClick={onCopy}
               aria-label={copied ? '已复制 ID' : '复制 ID'}
-              className="text-muted-foreground hover:text-foreground"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
             >
               {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
             </Button>

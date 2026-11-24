@@ -49,6 +49,7 @@ import { useActiveLook } from '../features/library/lib/activeLook'
 import {
   type AtMentionValue,
   buildAtMentionGroups,
+  buildBatchAtMentionGroups,
   getAssetNamesByImageId,
 } from '../features/library/lib/assetMentions'
 import {
@@ -66,8 +67,10 @@ import { clientProfileToApiProfile, getActiveApiProfile } from '../lib/apiProfil
 import {
   BATCH_GENERATE_MAX,
   batchCredits,
-  batchGenerateAvailable,
-  batchPerImage,
+  batchMentionReferenceIds,
+  batchSharedAdmission,
+  batchSharedMax,
+  createBatchMentionLabels,
   oversizedReferenceIndexes,
   oversizedReferenceMessage,
   quickGenerateAdmission,
@@ -100,6 +103,7 @@ import {
   createMentionLabels,
   getAtImageQuery,
   getSelectedImageMentionLabel,
+  getVisiblePrompt,
   type MentionLabelResolver,
   replaceImageMentionsForApi,
 } from '../lib/promptImageMentions'
@@ -123,7 +127,8 @@ import {
 } from '../store'
 import type { InputImage } from '../types'
 import { Hint } from './assistant-ui/elements/tooltip-icon-button'
-import { BatchModeControls } from './creation/BatchModeControls'
+import { BatchDualZone } from './creation/BatchDualZone'
+import { BatchExamplesPopover } from './creation/BatchExamplesPopover'
 import {
   CreationBody,
   CreationFrame,
@@ -136,6 +141,7 @@ import HomeTargetPicker from './creation/HomeTargetPicker'
 import { MultiSceneHint } from './creation/MultiSceneHint'
 import { useReferenceDisplay } from './creation/referenceDisplay'
 import { LookCapsule } from './LookChips'
+import MediaImage from './MediaImage'
 import ParamControls from './ParamControls'
 import PromptEditor, { usePromptEditor } from './PromptEditor'
 import ContextMenu, { ContextMenuItem } from './patterns/ContextMenu'
@@ -180,7 +186,7 @@ function referenceUploadGate(references: readonly { dataUrl: string }[]) {
 }
 
 export default function InputBar({ inline = false }: { inline?: boolean } = {}) {
-  const { t, i18n } = useTranslation(['composer', 'common', 'agent', 'lib', 'task'])
+  const { t, i18n } = useTranslation(['composer', 'common', 'agent', 'lib', 'task', 'store'])
   const prompt = useStore((s) => s.prompt)
   const setPrompt = useStore((s) => s.setPrompt)
   const inputImages = useStore((s) => s.inputImages)
@@ -227,6 +233,8 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   } | null>(null)
   // 附件按钮弹的「图片 / 文件夹」二选一，与画布工具条那颗回形针同一套菜单。
   const [attachMenu, setAttachMenu] = useState<{ x: number; y: number } | null>(null)
+  const attachZoneRef = useRef<'loop' | 'shared'>('loop')
+  const [justMovedSharedId, setJustMovedSharedId] = useState<string | null>(null)
   const [batchSending, setBatchSending] = useState(false)
   // 回车和按钮共用这把锁：点下去一直锁到服务端受理或失败，上传参考图期间不能再发一条。
   const batchSendingRef = useRef(false)
@@ -280,25 +288,37 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       : t('common:action.generate')
   // 首屏「画布」档：这句话不直接出图，交给一个新建的画布项目当第一轮。走智能体，不看出图的 API 配置。
   const createTarget = useStore((s) => s.createTarget)
-  const toCanvas = inline && createTarget !== 'generate'
-  // 快速生成带多张参考图时可以逐张生成：每张图用同一句提示词各出 1 张，张数等于图数。
-  const batchChosen = useStore((s) => s.batchGenerate)
-  // 挂着模板胶囊时提交走模板组装（素材条数要与素材位对上），不提供逐张生成。
+  const isBatchMode = inline && createTarget === 'batch'
+  const toCanvas = inline && createTarget !== 'generate' && createTarget !== 'batch'
+  const batchSharedImages = useStore((s) => s.batchSharedImages)
+  const batchZoneNotice = useStore((s) => s.batchZoneNotice)
+  // 挂着模板胶囊时提交走模板组装（素材条数要与素材位对上），不走批量生图。
   const activeLook = useActiveLook((s) => s.look)
   const modelAdmission = useMemo(() => referenceAdmission(activeProfile), [activeProfile])
-  const batchOffered =
-    !toCanvas &&
-    !maskDraft &&
-    !activeLook &&
-    modelAdmission.acceptsReferences &&
-    batchGenerateAvailable(inputImages.length)
   const batchMergeLimit = modelAdmission.limit
-  const batchActive =
-    batchOffered && batchPerImage(inputImages.length, batchChosen, batchMergeLimit)
-  // 逐张生成每张参考图按 n=1 出图，提示词槽展开几条就再乘几条，与实际发出的任务数一致。
+  const batchActive = isBatchMode && !maskDraft && !activeLook && modelAdmission.acceptsReferences
+  const batchNoEditSupport =
+    isBatchMode && !maskDraft && !activeLook && !modelAdmission.acceptsReferences
+  const batchSharedLimit = batchSharedMax(batchMergeLimit)
+  const batchSharedOverflow =
+    isBatchMode && !maskDraft && !activeLook && batchSharedImages.length > batchSharedLimit
+  const batchNeedsLoopImages = isBatchMode && !maskDraft && !activeLook && inputImages.length === 0
+  const batchNoEditNotice = batchNoEditSupport
+    ? referenceRefusalMessage('noEdit', batchMergeLimit)
+    : null
+  const batchSharedOverflowNotice = batchSharedOverflow
+    ? referenceRefusalMessage('overflow', batchSharedLimit)
+    : null
+  const generateOverflow =
+    !isBatchMode && !toCanvas && !maskDraft && !activeLook && inputImages.length > batchMergeLimit
+  // 逐张生成每张遍历原图按 n=1 出图，提示词槽展开几条就再乘几条，与实际发出的任务数一致。
   const batchImageCount = batchActive
     ? inputImages.length * getSubmissionImageCount(prompt, slotValues, 1)
     : 0
+  const batchTaskCountOverflow = batchActive && batchImageCount > BATCH_GENERATE_MAX
+  const batchTaskOverflowNotice = batchTaskCountOverflow
+    ? t('store:submit.batchLimit', { max: BATCH_GENERATE_MAX })
+    : null
   // GPT 直连按实际会执行的档计价。非会员，以及交给智能体的请求，服务端收到 ≤2K、非高画质。
   // Gemini 先按会员身份收口，再按渠道开放档位计价。
   const honorsSize = getParamCapabilities(activeProfile, params.output_format).size
@@ -459,15 +479,65 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     gifSpriteExceedsLimit(gifSize.width, gifSize.height, params.frame_count ?? 6)
       ? t('lib:dispatch.gifSpriteLimit')
       : null
+  const oversizedSharedIndexes = useMemo(
+    () => (isBatchMode ? oversizedReferenceIndexes(batchSharedImages) : []),
+    [isBatchMode, batchSharedImages],
+  )
+  const quickSharedImages = useMemo(
+    () => (isBatchMode ? batchSharedImages : []),
+    [isBatchMode, batchSharedImages],
+  )
+  const quickSharedCheck = useUnusableReferences(quickSharedImages)
+  const failedSharedIndexes = useMemo(
+    () =>
+      isBatchMode
+        ? [...quickSharedCheck.failures.keys()].filter(
+            (index) => !oversizedSharedIndexes.includes(index),
+          )
+        : [],
+    [isBatchMode, quickSharedCheck.failures, oversizedSharedIndexes],
+  )
+  const sharedFailedLines = failedSharedIndexes.map((index) =>
+    t('composer:studio.referenceIssue', {
+      index: index + 1,
+      reason: attachmentUploadErrorMessage(
+        quickSharedCheck.failures.get(index),
+        getAttachmentLimits(),
+      ),
+    }),
+  )
+  const sharedReferenceNotice =
+    [
+      ...(oversizedSharedIndexes.length
+        ? [
+            {
+              index: oversizedSharedIndexes[0]!,
+              text: oversizedReferenceMessage(oversizedSharedIndexes),
+            },
+          ]
+        : []),
+      ...failedSharedIndexes.map((index, at) => ({ index, text: sharedFailedLines[at]! })),
+    ]
+      .sort((a, b) => a.index - b.index)
+      .map((line) => line.text)
+      .join('\n') || null
   const canSubmit = Boolean(
     (!promptBlank || activeLook) &&
       hasSubmitApiConfig &&
       !submissionGuard.blocked &&
       !gifNotice &&
+      !generateOverflow &&
+      !batchNoEditSupport &&
+      !batchSharedOverflow &&
+      !batchTaskCountOverflow &&
+      !batchNeedsLoopImages &&
       (lookCheck?.ok ?? true) &&
       oversizedIndexes.length === 0 &&
+      oversizedSharedIndexes.length === 0 &&
       failedIndexes.length === 0 &&
-      quickCheck.pending === 0,
+      failedSharedIndexes.length === 0 &&
+      quickCheck.pending === 0 &&
+      quickSharedCheck.pending === 0,
   )
   const creationMode = creationModeOf(createTarget, { inline })
   const apiReady = toCanvas || hasSubmitApiConfig
@@ -484,20 +554,29 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       : canSubmit && !skillNeedsCanvas)
   // 提交按钮悬停时说明为什么点不了；画布档不看出图的 API 配置，也就没有这些原因。
   const promptMissing = promptBlank && (toCanvas || !activeLook)
-  const blockedByReferences = referenceNotice ?? (uploadsBlocked ? uploadProgress : null)
+  const batchBlockingNotice =
+    batchNoEditNotice ?? batchSharedOverflowNotice ?? batchTaskOverflowNotice
+  const blockedByReferences =
+    referenceNotice ?? sharedReferenceNotice ?? (uploadsBlocked ? uploadProgress : null)
   const submitBlockedTip =
     gifNotice ??
-    (blockedByReferences
-      ? blockedByReferences
-      : promptTooLong
-        ? t('submit.promptTooLong', { max: promptMax.toLocaleString() })
-        : skillNeedsCanvas
-          ? t('submit.skillNeedsCanvas')
-          : !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked)
-            ? (submissionGuard.disabledReason ?? t('submit.noModel'))
-            : promptMissing
-              ? t('submit.promptRequired')
-              : null)
+    (generateOverflow
+      ? t('batch.overflowInImageMode', { max: batchMergeLimit, count: inputImages.length })
+      : batchBlockingNotice
+        ? batchBlockingNotice
+        : batchNeedsLoopImages
+          ? t('batch.needLoopImages')
+          : blockedByReferences
+            ? blockedByReferences
+            : promptTooLong
+              ? t('submit.promptTooLong', { max: promptMax.toLocaleString() })
+              : skillNeedsCanvas
+                ? t('submit.skillNeedsCanvas')
+                : !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked)
+                  ? (submissionGuard.disabledReason ?? t('submit.noModel'))
+                  : promptMissing
+                    ? t('submit.promptRequired')
+                    : null)
   const submit = () => {
     if (image26Unavailable || gifNotice || lookSubmitting || batchSendingRef.current) return
     if (toCanvas) {
@@ -574,12 +653,13 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   // 参考图入口按附图那条准入规则显隐：认不认参考图、条还放不放得下，由 `lib/referenceDraft`
   // 判一次，附图与禁用态不会各说各话。首屏「画布」档附的图是交给画布第一轮的，那一轮用哪个
   // 模型由服务端定，所以只剩条的上限管着。
-  // 快速生成能放到逐张生成的上限；超过模型合并上限的部分只能逐张跑。遮罩与模板只按模型的上限。
+  // 批量生图模式放得下 50 张遍历原图；普通图片生成与遮罩/模板只按模型的合并上限（16 张）。
   const admission = toCanvas
     ? CANVAS_HANDOFF_ADMISSION
-    : maskDraft || activeLook
-      ? modelAdmission
-      : quickGenerateAdmission(modelAdmission)
+    : isBatchMode
+      ? quickGenerateAdmission(modelAdmission)
+      : modelAdmission
+  const sharedAdmission = useMemo(() => batchSharedAdmission(modelAdmission), [modelAdmission])
   const acceptsReferences = admission.acceptsReferences
   // 遮罩是出图那一刻的事，始终归生图模型：画布档把图交出去时不带遮罩。
   const supportsMask = modelAdmission.acceptsReferences
@@ -592,10 +672,34 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const maskTargetImage = maskDraft
     ? (inputImages.find((img) => img.id === maskDraft.targetImageId) ?? null)
     : null
-  // 序号胶囊的显示标签随界面语言变；编辑器 HTML 与光标换算都按这份解析器缓存，语言也是入参。
+  // 序号胶囊的显示标签随界面语言变；批量模式下 index 0 固定为 `@当前图`，1..k 为 `@参考1..k`。
   const mentionLabels = useMemo(
-    () => createMentionLabels(inputImages, getAssetNamesByImageId(assets)),
-    [inputImages, assets, i18n.language],
+    () =>
+      isBatchMode
+        ? createBatchMentionLabels(batchSharedImages)
+        : createMentionLabels(inputImages, getAssetNamesByImageId(assets)),
+    [isBatchMode, batchSharedImages, inputImages, assets, i18n.language],
+  )
+  const mentionReferenceIds = useMemo(
+    () =>
+      isBatchMode
+        ? batchMentionReferenceIds(batchSharedImages)
+        : inputImages.map((image) => image.id),
+    [isBatchMode, batchSharedImages, inputImages],
+  )
+  const renderBatchMention = useCallback(
+    (imageIndex: number, label: string): ReactNode => {
+      if (!isBatchMode || imageIndex === 0) return null
+      const shared = batchSharedImages[imageIndex - 1]
+      if (!shared) return null
+      return (
+        <span className="creation-batch-mention-shared">
+          <MediaImage src={shared.dataUrl} alt="" />
+          <span>{label}</span>
+        </span>
+      )
+    },
+    [isBatchMode, batchSharedImages],
   )
   // 开头的 `/技能` 要变成带图标的胶囊，与画布输入框同一种呈现——用户从资产页「用智能体创建」
   // 跳过来看到的不该是一行裸文本。名字还在打的时候不提升，否则菜单会被胶囊关在外面。
@@ -630,20 +734,23 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       return images
     },
     imageName: (image) => assetNames[image.id],
+    // 批量生图采用「0=当前图，1..k=共用参考」双区坐标系，禁止普通单区素材位写入覆盖。
+    accepting: () => useStore.getState().createTarget !== 'batch',
   })
 
   const promptEditor = usePromptEditor({
     value: prompt,
     labels: mentionLabels,
     // 引用的序号由条的顺序定义，所以这份 id 必须与 `mentionLabels` 同一条参考图列表、同一个顺序。
-    referenceIds: inputImages.map((image) => image.id),
+    referenceIds: mentionReferenceIds,
     onChange: setPrompt,
     slotValues,
     command: skillCommand,
     commandLabel: skillInvocation?.skill.title,
     commandChip: skillInvocation && <AgentSkillBadge skill={skillInvocation.skill} />,
     parseCommand: getSlashTemplateQuery,
-    renderSlot,
+    renderMention: isBatchMode ? renderBatchMention : undefined,
+    renderSlot: isBatchMode ? undefined : renderSlot,
     onEdit: () => menusRef.current.open(),
     onKeyDown: (event) => {
       if (menusRef.current.handleKeyDown(event)) return
@@ -668,12 +775,19 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   })
   const atMentionGroups =
     promptEditor.query?.kind === 'mention'
-      ? buildAtMentionGroups({
-          query: promptEditor.query.query,
-          inputImages,
-          assets,
-          canAttachAssets: acceptsReferences,
-        })
+      ? isBatchMode
+        ? buildBatchAtMentionGroups({
+            query: promptEditor.query.query,
+            loopImages: inputImages,
+            sharedImages: batchSharedImages,
+            canPromote: batchSharedImages.length < batchSharedMax(batchMergeLimit),
+          })
+        : buildAtMentionGroups({
+            query: promptEditor.query.query,
+            inputImages,
+            assets,
+            canAttachAssets: acceptsReferences,
+          })
       : []
   const templateMenuGroups =
     promptEditor.query?.kind === 'command'
@@ -686,11 +800,61 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     [promptEditor.replaceRange],
   )
   const insertImageMentionAtCursor = useCallback(
-    (imageIndex: number) => {
+    (imageIndex: number, nextLabelFor?: MentionLabelResolver) => {
       const cursor = promptEditor.cursor()
-      replaceRangeWithImageMention(cursor, cursor, imageIndex)
+      replaceRangeWithImageMention(cursor, cursor, imageIndex, nextLabelFor)
     },
     [promptEditor.cursor, replaceRangeWithImageMention],
+  )
+  const handlePromoteLoopToShared = useCallback(
+    (loopIndex: number, insertMention: boolean, replaceRange?: { start: number; end: number }) => {
+      const before = useStore.getState()
+      const snapshot = {
+        prompt: before.prompt,
+        inputImages: [...before.inputImages],
+        batchSharedImages: [...before.batchSharedImages],
+      }
+      const moved = before.promoteInputImageToShared(loopIndex)
+      if (!moved) return
+      setJustMovedSharedId(moved.image.id)
+      const nextLabels = createBatchMentionLabels(useStore.getState().batchSharedImages)
+      if (insertMention) {
+        if (replaceRange) {
+          replaceRangeWithImageMention(
+            replaceRange.start,
+            replaceRange.end,
+            moved.mentionIndex,
+            nextLabels,
+          )
+        } else {
+          insertImageMentionAtCursor(moved.mentionIndex, nextLabels)
+        }
+      }
+      useStore.getState().setBatchZoneNotice({
+        message: insertMention
+          ? t('batch.promotedNotice', { n: moved.sharedIndex + 1 })
+          : t('batch.promotedDragNotice', { n: moved.sharedIndex + 1 }),
+        snapshot,
+      })
+    },
+    [insertImageMentionAtCursor, replaceRangeWithImageMention, t],
+  )
+  const handleDemoteSharedToLoop = useCallback(
+    (sharedIndex: number) => {
+      const before = useStore.getState()
+      const snapshot = {
+        prompt: before.prompt,
+        inputImages: [...before.inputImages],
+        batchSharedImages: [...before.batchSharedImages],
+      }
+      const moved = before.demoteSharedImageToInput(sharedIndex)
+      if (!moved) return
+      useStore.getState().setBatchZoneNotice({
+        message: moved.hadCitation ? t('batch.demotedClearedNotice') : t('batch.demotedNotice'),
+        snapshot,
+      })
+    },
+    [t],
   )
   const selectAtMentionOption = useCallback(
     async (value: AtMentionValue) => {
@@ -701,6 +865,18 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
 
       if (value.type === 'image') {
         replaceRangeWithImageMention(query.start, cursor, value.index)
+        return
+      }
+      if (value.type === 'batchCurrent') {
+        replaceRangeWithImageMention(query.start, cursor, 0)
+        return
+      }
+      if (value.type === 'batchShared') {
+        replaceRangeWithImageMention(query.start, cursor, value.index + 1)
+        return
+      }
+      if (value.type === 'batchPromoteLoop') {
+        handlePromoteLoopToShared(value.index, true, { start: query.start, end: cursor })
         return
       }
 
@@ -716,6 +892,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     [
       admission,
       attachAsset,
+      handlePromoteLoopToShared,
       promptEditor.cursor,
       promptEditor.visible,
       replaceRangeWithImageMention,
@@ -780,6 +957,16 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     templateMenu.dismiss()
     promptEditor.focusAt(0)
   }, [atImageMenu.dismiss, templateMenu.dismiss, promptEditor.focusAt, setPrompt])
+
+  useEffect(() => {
+    if (!justMovedSharedId) return
+    const timer = window.setTimeout(() => setJustMovedSharedId(null), 1800)
+    return () => window.clearTimeout(timer)
+  }, [justMovedSharedId])
+
+  useEffect(() => {
+    if (!isBatchMode) setJustMovedSharedId(null)
+  }, [isBatchMode])
 
   useEffect(() => {
     const normalizedParams = normalizeParamsForSettings(params, settings, {
@@ -942,20 +1129,25 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     window.addEventListener('dragend', release)
   }
 
-  const handleFiles = (files: FileList | File[]) => {
+  const handleFiles = (files: FileList | File[], zoneOverride?: 'loop' | 'shared') => {
     const revision = attachmentRevision.current
     const accepted = Array.from(files).filter((f) => f.type.startsWith('image/'))
     if (accepted.length === 0) return
+    const targetZone = isBatchMode ? (zoneOverride ?? attachZoneRef.current) : 'loop'
+    const targetAdmission = targetZone === 'shared' ? sharedAdmission : admission
+    const targetImages = targetZone === 'shared' ? batchSharedImages : inputImages
     // 这一把文件是一组：放不下就一张都不落，免得用户拖进去十张只见前几张、还得自己数少了哪几张。
     // 所以先问一次准入——答案是「不行」就别往 image store 写，那几张谁也不会再用。这一把还是
     // 文件，只报得出张数；生成模式本来也没有「按 id 发」那一档，每张都要随请求带上。
     const refusal = referenceRefusal(
-      referenceTally(inputImages, admission),
+      referenceTally(targetImages, targetAdmission),
       { total: accepted.length },
-      admission,
+      targetAdmission,
     )
     if (refusal) {
-      useStore.getState().showToast(referenceRefusalMessage(refusal, admission.limit), 'error')
+      useStore
+        .getState()
+        .showToast(referenceRefusalMessage(refusal, targetAdmission.limit), 'error')
       return
     }
     const importAll = async () => {
@@ -972,7 +1164,12 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         const images: InputImage[] = []
         for (const file of fitted) images.push(await storeImageFromFile(file))
         if (revision !== attachmentRevision.current) return
-        useStore.getState().attachInputImages(images, admission)
+        if (targetZone === 'shared') {
+          if (useStore.getState().createTarget !== 'batch') return
+          useStore.getState().attachBatchSharedImages(images, targetAdmission)
+        } else {
+          useStore.getState().attachInputImages(images, targetAdmission)
+        }
       } catch (err) {
         useStore.getState().showToast(t('image.addFailed', { reason: describeError(err) }), 'error')
       }
@@ -990,14 +1187,18 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
     e.target.value = ''
   }
 
-  const openAttachMenu = (e: React.MouseEvent<HTMLButtonElement>) => {
+  const openAttachMenu = (
+    e: React.MouseEvent<HTMLButtonElement>,
+    zone: 'loop' | 'shared' = 'loop',
+  ) => {
+    attachZoneRef.current = zone
     const rect = getSafeBoundingClientRect(e.currentTarget)
     // 输入条贴着视口底：从按钮上沿往上开，ContextMenu 自己会按实测高度夹回视口。
     setAttachMenu(rect ? { x: rect.left, y: rect.top - 8 } : { x: e.clientX, y: e.clientY })
   }
 
   const dragActive = useImageInputScope() === 'image'
-  usePasteImageFiles('image', (files) => void handleFilesRef.current(files))
+  usePasteImageFiles('image', (files) => void handleFilesRef.current(files, 'loop'))
 
   // 拖拽图片 - 监听整个页面
   useEffect(() => {
@@ -1008,50 +1209,61 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       return
     }
 
+    const hasFiles = (e: DragEvent) => Boolean(e.dataTransfer?.types.includes('Files'))
+
     const handleDragEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return
       e.preventDefault()
       e.stopPropagation()
       dragCounter.current++
-      if (e.dataTransfer?.types.includes('Files')) {
-        setIsDragging(true)
-      }
+      setIsDragging(true)
     }
 
     const handleDragOver = (e: DragEvent) => {
+      if (!hasFiles(e)) return
       e.preventDefault()
       e.stopPropagation()
     }
 
     const handleDragLeave = (e: DragEvent) => {
+      if (!hasFiles(e)) return
       e.preventDefault()
       e.stopPropagation()
-      dragCounter.current--
+      dragCounter.current = Math.max(0, dragCounter.current - 1)
       if (dragCounter.current === 0) {
         setIsDragging(false)
       }
     }
 
     const handleDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return
       e.preventDefault()
       e.stopPropagation()
       dragCounter.current = 0
       setIsDragging(false)
       const files = e.dataTransfer?.files
       if (files && files.length > 0) {
-        handleFilesRef.current(files)
+        handleFilesRef.current(files, 'loop')
       }
+    }
+
+    const handleDragEnd = () => {
+      dragCounter.current = 0
+      setIsDragging(false)
     }
 
     document.addEventListener('dragenter', handleDragEnter)
     document.addEventListener('dragover', handleDragOver)
     document.addEventListener('dragleave', handleDragLeave)
     document.addEventListener('drop', handleDrop)
+    document.addEventListener('dragend', handleDragEnd)
 
     return () => {
       document.removeEventListener('dragenter', handleDragEnter)
       document.removeEventListener('dragover', handleDragOver)
       document.removeEventListener('dragleave', handleDragLeave)
       document.removeEventListener('drop', handleDrop)
+      document.removeEventListener('dragend', handleDragEnd)
     }
   }, [dragActive])
 
@@ -1623,50 +1835,99 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               }
         }
       >
+        {isBatchMode && batchZoneNotice && (
+          <div className="creation-batch-undo-banner" role="status" data-testid="batch-zone-notice">
+            <span>{batchZoneNotice.message}</span>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className="bg-primary/15 text-primary hover:bg-primary/20 hover:text-primary"
+                onClick={() => {
+                  setJustMovedSharedId(null)
+                  useStore.getState().undoBatchZoneNotice()
+                }}
+              >
+                {t('batch.undo')}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label={t('settings.close')}
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => useStore.getState().setBatchZoneNotice(null)}
+              >
+                <Icon name="close" size="xs" />
+              </Button>
+            </div>
+          </div>
+        )}
         <CreationFrame ref={cardRef} className={isDragging ? 'ring-2 ring-primary' : ''}>
           <CreationBody
             referencesRef={imagesRef}
             references={
-              <CreationReferenceStack
-                count={inputImages.length}
-                compact={batchOffered}
-                aside={
-                  batchOffered && (
-                    <BatchModeControls
-                      count={inputImages.length}
-                      mergeLimit={batchMergeLimit}
-                      perImage={batchActive}
-                      onChange={(perImage) => useStore.getState().setBatchGenerate(perImage)}
-                    />
-                  )
-                }
-                failed={Boolean(referenceNotice)}
-                uploading={!referenceNotice && Boolean(uploadProgress)}
-                progress={stackProgress}
-                status={referenceNotice ?? uploadProgress ?? undefined}
-                onRemoveFailed={removeUnusableLabel ? removeUnusable : undefined}
-                removeFailedLabel={removeUnusableLabel}
-                showUploadingStatus={false}
-                onClear={() => useStore.getState().clearInputImages()}
-                previews={inputImages
-                  .slice(-3)
-                  .map((image) => <img key={image.id} src={image.dataUrl} alt="" />)}
-                add={
-                  <Button
-                    variant="ghost"
-                    className="creation-add"
-                    aria-label={t('studio.addReference')}
-                    aria-disabled={attachDisabled || undefined}
-                    title={attachDisabled ? attachDisabledReason : undefined}
-                    onClick={(event) => !attachDisabled && openAttachMenu(event)}
-                  >
-                    <Icon name="add" />
-                    <span>{t('studio.reference')}</span>
-                  </Button>
-                }
-              >
-                {renderImageThumbs()}
-              </CreationReferenceStack>
+              isBatchMode ? (
+                <BatchDualZone
+                  loopImages={inputImages}
+                  sharedImages={batchSharedImages}
+                  mergeLimit={batchMergeLimit}
+                  oversizedLoopIndexes={oversizedIndexes}
+                  oversizedSharedIndexes={oversizedSharedIndexes}
+                  failedLoopIndexes={failedIndexes}
+                  failedSharedIndexes={failedSharedIndexes}
+                  disabled={batchSending}
+                  canAttach={acceptsReferences}
+                  justMovedSharedId={justMovedSharedId}
+                  onAddLoop={(event) => openAttachMenu(event, 'loop')}
+                  onAddShared={(event) => openAttachMenu(event, 'shared')}
+                  onRemoveLoop={(idx) => useStore.getState().removeInputImage(idx)}
+                  onRemoveShared={(idx) => useStore.getState().removeBatchSharedImage(idx)}
+                  onClearLoop={() => useStore.getState().clearInputImages()}
+                  onClearShared={() => useStore.getState().clearBatchSharedImages()}
+                  onInsertCurrentMention={() => insertImageMentionAtCursor(0)}
+                  onInsertSharedMention={(sharedIdx) => insertImageMentionAtCursor(sharedIdx + 1)}
+                  onPromoteLoopToShared={handlePromoteLoopToShared}
+                  onDemoteSharedToLoop={handleDemoteSharedToLoop}
+                  onPreviewImage={(id, list) => setLightboxImageId(id, list)}
+                  onDropFiles={(zone, files) => {
+                    dragCounter.current = 0
+                    setIsDragging(false)
+                    handleFilesRef.current(files, zone)
+                  }}
+                />
+              ) : (
+                <CreationReferenceStack
+                  count={inputImages.length}
+                  failed={Boolean(referenceNotice)}
+                  uploading={!referenceNotice && Boolean(uploadProgress)}
+                  progress={stackProgress}
+                  status={referenceNotice ?? uploadProgress ?? undefined}
+                  onRemoveFailed={removeUnusableLabel ? removeUnusable : undefined}
+                  removeFailedLabel={removeUnusableLabel}
+                  showUploadingStatus={false}
+                  onClear={() => useStore.getState().clearInputImages()}
+                  previews={inputImages
+                    .slice(-3)
+                    .map((image) => <img key={image.id} src={image.dataUrl} alt="" />)}
+                  add={
+                    <Button
+                      variant="ghost"
+                      className="creation-add"
+                      aria-label={t('studio.addReference')}
+                      aria-disabled={attachDisabled || undefined}
+                      title={attachDisabled ? attachDisabledReason : undefined}
+                      onClick={(event) => !attachDisabled && openAttachMenu(event, 'loop')}
+                    >
+                      <Icon name="add" />
+                      <span>{t('studio.reference')}</span>
+                    </Button>
+                  }
+                >
+                  {renderImageThumbs()}
+                </CreationReferenceStack>
+              )
             }
           >
             {/* 输入框 */}
@@ -1708,7 +1969,11 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
               )}
               <PromptEditor
                 editor={promptEditor}
-                placeholder={t(`studio.placeholders.${creationMode}`)}
+                placeholder={
+                  isBatchMode
+                    ? t('studio.placeholders.batch')
+                    : t(`studio.placeholders.${creationMode}`)
+                }
                 className={
                   prompt.length > 0 ? 'creation-prompt creation-prompt-filled' : 'creation-prompt'
                 }
@@ -1730,11 +1995,12 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     )
                     return
                   }
-                  if (target.classList.contains('mention-tag')) {
+                  const mentionTag = target.closest<HTMLElement>('.mention-tag')
+                  if (mentionTag) {
                     const sel = window.getSelection()
                     if (sel) {
                       const range = document.createRange()
-                      range.selectNode(target)
+                      range.selectNode(mentionTag)
                       sel.removeAllRanges()
                       sel.addRange(range)
                       syncMentionTagSelection(el)
@@ -1766,13 +2032,40 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             imageCount={batchActive ? batchImageCount : submitImageCount}
             creationMode={creationMode}
           />
+          {generateOverflow && (
+            <div
+              className="creation-multi-scene-hint items-center"
+              role="status"
+              data-testid="generate-overflow-hint"
+            >
+              <p className="creation-multi-scene-hint-text">
+                {t('batch.overflowInImageMode', {
+                  max: batchMergeLimit,
+                  count: inputImages.length,
+                })}
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                className="shrink-0 bg-primary/15 text-primary hover:bg-primary/20 hover:text-primary"
+                onClick={() => useStore.getState().setCreateTarget('batch')}
+              >
+                {t('batch.switchToBatch')}
+              </Button>
+            </div>
+          )}
           <CreationToolbar
             mode={inline ? <HomeTargetPicker /> : undefined}
             status={
-              // 参考区展开时原因句已在参考图上方，输入框下不再重复一遍。
-              gifNotice || (referenceNotice && !(referencesExpanded && inputImages.length > 0)) ? (
+              // 参考区展开时原因句已在参考图上方，输入框下不再重复一遍；批量双区没有折叠条，始终在下方展示。
+              gifNotice ||
+              batchBlockingNotice ||
+              sharedReferenceNotice ||
+              (referenceNotice &&
+                (isBatchMode || !(referencesExpanded && inputImages.length > 0))) ? (
                 <span role="alert" className="text-xs leading-snug text-destructive">
-                  {gifNotice ?? referenceNotice}
+                  {gifNotice ?? batchBlockingNotice ?? sharedReferenceNotice ?? referenceNotice}
                 </span>
               ) : (
                 <>
@@ -1807,7 +2100,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 <span className="inline-flex">
                   <CreationSend
                     autoTooltip={false}
-                    cost={batchTotalCredits?.toLocaleString()}
+                    cost={batchImageCount > 0 ? batchTotalCredits?.toLocaleString() : undefined}
                     streaming={lookSubmitting}
                     busy={batchSending}
                     onClick={onSubmitClick}
@@ -1826,7 +2119,23 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             ) : creationMode === 'agent' ? (
               <AgentParamsChip />
             ) : (
-              <ParamControls showCount fixedCount={batchActive ? batchImageCount : undefined} />
+              <>
+                <ParamControls showCount fixedCount={batchActive ? batchImageCount : undefined} />
+                {isBatchMode && (
+                  <BatchExamplesPopover
+                    loopImages={inputImages}
+                    sharedImages={batchSharedImages}
+                    mergeLimit={batchMergeLimit}
+                    taskCount={batchImageCount}
+                    slotVariants={getSubmissionImageCount(prompt, slotValues, 1)}
+                    totalCredits={batchImageCount > 0 ? batchTotalCredits : undefined}
+                    onApplyPrompt={(nextPrompt) => {
+                      setPrompt(nextPrompt)
+                      promptEditor.focusAt(getVisiblePrompt(nextPrompt, mentionLabels).length)
+                    }}
+                  />
+                )}
+              </>
             )}
           </CreationToolbar>
           <input

@@ -322,6 +322,7 @@ runtime() {
     --label "app.runtime.project=$project" --label "app.runtime.role=$role" \
     --label "app.runtime.generation=$release" \
     --network "$network" --env-file "$app_env" \
+    -e OBS_ROOT_PASSWORD= -e OBS_S3_ACCESS_KEY_ID= -e OBS_S3_SECRET_ACCESS_KEY= \
     -e APP_ROLE="$role" -e DATABASE_POOL_MAX="$3" -e PORT=37377 -e STATIC_DIR= -e CLIENT_IP_SOURCE=cf-connecting-ip \
     -e WORKER_HEALTH_PORT=37379 -e WORKER_START_PAUSED=true \
     -e WORKER_ACTIVATION_FILE="/run/operator/releases/activated/$release-worker" \
@@ -396,7 +397,8 @@ else
     exit 1
   fi
   logged_docker run --rm --name "$release-migrate" --network "$infra" --env-file "$app_env" \
-    --env-file "$config_dir/migrate.env" -e APP_ROLE=migrate \
+    --env-file "$config_dir/migrate.env" \
+    -e OBS_ROOT_PASSWORD= -e OBS_S3_ACCESS_KEY_ID= -e OBS_S3_SECRET_ACCESS_KEY= -e APP_ROLE=migrate \
     --mount "type=bind,source=$config_dir,target=/run/operator,readonly" \
     "$image_id" bun run /app/apps/bff/src/db/migrate.ts
   runtime bff index.ts 6
