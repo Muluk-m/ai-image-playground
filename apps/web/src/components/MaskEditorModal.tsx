@@ -143,6 +143,12 @@ export default function MaskEditorModal() {
   const redoStackRef = useRef<ImageData[]>([])
   const editDepthRef = useRef(0)
   const cleanEditDepthRef = useRef<number | null>(0)
+  const pendingStrokeRestoreRef = useRef<{
+    editDepth: number
+    cleanEditDepth: number | null
+    shiftedUndo: ImageData | null
+    redoStack: ImageData[]
+  } | null>(null)
   const previewFrameRef = useRef<number | null>(null)
   const saveTokenRef = useRef(0)
   const sessionIdRef = useRef(0)
@@ -262,8 +268,18 @@ export default function MaskEditorModal() {
       renderPreview()
     } else {
       const previous = undoStackRef.current.pop()
+      const restore = pendingStrokeRestoreRef.current
+      if (restore) {
+        if (restore.shiftedUndo) undoStackRef.current.unshift(restore.shiftedUndo)
+        redoStackRef.current = restore.redoStack
+        editDepthRef.current = restore.editDepth
+        cleanEditDepthRef.current = restore.cleanEditDepth
+      } else if (previous) {
+        editDepthRef.current = Math.max(0, editDepthRef.current - 1)
+      }
       if (previous) restoreMask(previous)
     }
+    pendingStrokeRestoreRef.current = null
     activePointerIdRef.current = null
     lastPointRef.current = null
     syncHistoryState()
@@ -443,11 +459,14 @@ export default function MaskEditorModal() {
     }
   }
 
-  function pushUndoSnapshot() {
+  function pushUndoSnapshot(trackForCancel = false) {
     const canvas = maskCanvasRef.current
     const ctx = canvas?.getContext('2d', { willReadFrequently: true })
     if (!canvas || !ctx) return
 
+    const prevEditDepth = editDepthRef.current
+    const prevCleanEditDepth = cleanEditDepthRef.current
+    const prevRedoStack = trackForCancel ? [...redoStackRef.current] : []
     if (
       redoStackRef.current.length > 0 &&
       cleanEditDepthRef.current !== null &&
@@ -457,8 +476,9 @@ export default function MaskEditorModal() {
     }
     undoStackRef.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height))
     editDepthRef.current += 1
+    let shiftedUndo: ImageData | null = null
     if (undoStackRef.current.length > 40) {
-      undoStackRef.current.shift()
+      shiftedUndo = undoStackRef.current.shift() ?? null
       if (
         cleanEditDepthRef.current !== null &&
         editDepthRef.current - undoStackRef.current.length > cleanEditDepthRef.current
@@ -466,6 +486,14 @@ export default function MaskEditorModal() {
         cleanEditDepthRef.current = null
       }
     }
+    pendingStrokeRestoreRef.current = trackForCancel
+      ? {
+          editDepth: prevEditDepth,
+          cleanEditDepth: prevCleanEditDepth,
+          shiftedUndo,
+          redoStack: prevRedoStack,
+        }
+      : null
     redoStackRef.current = []
     syncHistoryState()
   }
@@ -556,6 +584,7 @@ export default function MaskEditorModal() {
       redoStackRef.current = []
       editDepthRef.current = 0
       cleanEditDepthRef.current = 0
+      pendingStrokeRestoreRef.current = null
       syncHistoryState()
       return
     }
@@ -571,6 +600,7 @@ export default function MaskEditorModal() {
     redoStackRef.current = []
     editDepthRef.current = 0
     cleanEditDepthRef.current = 0
+    pendingStrokeRestoreRef.current = null
     syncHistoryState()
 
     async function loadCanvases() {
@@ -817,7 +847,7 @@ export default function MaskEditorModal() {
       lassoPointsRef.current = [point]
       renderPreview()
     } else {
-      pushUndoSnapshot()
+      pushUndoSnapshot(true)
       drawAt(point)
     }
   }
@@ -907,6 +937,7 @@ export default function MaskEditorModal() {
           fillMaskLasso(ctx, points, session?.keepSemantics ?? false)
         }
         lassoPointsRef.current = []
+        pendingStrokeRestoreRef.current = null
         activePointerIdRef.current = null
         lastPointRef.current = null
         renderPreview()

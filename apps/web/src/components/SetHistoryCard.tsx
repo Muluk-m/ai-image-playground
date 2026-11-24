@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { taskExportSources } from '../features/image-export/sources'
 import { openImageExport } from '../features/image-export/store'
 import AssetThumb from '../features/library/components/AssetThumb'
-import { useTranslation } from '../i18n'
+import { describeError, useTranslation } from '../i18n'
 import { activityFromRecord, isGenerationOpen } from '../lib/generationActivity'
 import { taskRecordErrorText } from '../lib/taskError'
 import { retryTask, useStore } from '../store'
@@ -263,10 +263,14 @@ export default function SetHistoryCard({
     for (const task of fresh) retryingIdsRef.current.add(task.id)
     setRetryingIds(new Set(retryingIdsRef.current))
     for (const task of fresh) {
-      void retryTask(task).finally(() => {
-        retryingIdsRef.current.delete(task.id)
-        setRetryingIds(new Set(retryingIdsRef.current))
-      })
+      void retryTask(task)
+        .catch((err) => {
+          useStore.getState().showToast(describeError(err), 'error')
+        })
+        .finally(() => {
+          retryingIdsRef.current.delete(task.id)
+          setRetryingIds(new Set(retryingIdsRef.current))
+        })
     }
   }
   const zoom = (task: TaskRecord) => {
