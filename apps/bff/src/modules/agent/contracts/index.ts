@@ -28,6 +28,8 @@ export {
   registerInterruptedTurnRecoverer,
   requireInterruptedTurnRecoverer,
 } from './interrupted-recovery'
+export { MaskedOutputError } from './masked-errors'
+export { createMaskedEditPlan } from './masked-plan'
 export {
   AGENT_IMAGE_FALLBACK_MODEL,
   confirmedSubmissionText,

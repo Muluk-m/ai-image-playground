@@ -1,4 +1,5 @@
 import sharp from 'sharp'
+import { MaskedOutputError } from '../../modules/agent/contracts'
 import { labelComponents } from './mask-regions'
 import { estimateTranslation, inspectMaskedAlignment } from './masked-alignment'
 import { inwardMaskDistance } from './masked-boundary'
@@ -6,11 +7,7 @@ import { maskedEditSettings } from './masked-edit-settings'
 import { type MaskedCrop, paddedEditSize } from './masked-input'
 import { selectionSettings } from './selection-settings'
 
-const MASKED_OUTPUT_ERROR_TAG = Symbol.for('image-playground.masked-output-error')
-
-export class MaskedOutputError extends Error {
-  readonly [MASKED_OUTPUT_ERROR_TAG] = true
-}
+export { MaskedOutputError }
 
 type Pixels = Awaited<ReturnType<typeof pixels>>
 
