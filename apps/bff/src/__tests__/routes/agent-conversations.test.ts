@@ -663,6 +663,24 @@ describe('cursor pagination on conversations and messages', () => {
       (await request('GET', '/api/agent/conversations?cursor=not-a-cursor', { deviceId: DEVICE }))
         .status,
     ).toBe(400)
+    expect(
+      (
+        await request('GET', '/api/agent/conversations?cursor=9000000000000000:abc', {
+          deviceId: DEVICE,
+        })
+      ).status,
+    ).toBe(400)
+    expect(
+      (
+        await request('GET', '/api/agent/conversations?cursor=253402300800000:abc', {
+          deviceId: DEVICE,
+        })
+      ).status,
+    ).toBe(400)
+    expect(
+      (await request('GET', '/api/agent/conversations?cursor=1000:abc%00def', { deviceId: DEVICE }))
+        .status,
+    ).toBe(400)
   })
 
   it('pages conversation messages backwards by beforeSeq in chronological order', async () => {
@@ -716,6 +734,15 @@ describe('cursor pagination on conversations and messages', () => {
         await request('GET', `/api/agent/conversations/${conversationId}/messages?beforeSeq=bad`, {
           deviceId: DEVICE,
         })
+      ).status,
+    ).toBe(400)
+    expect(
+      (
+        await request(
+          'GET',
+          `/api/agent/conversations/${conversationId}/messages?beforeSeq=999999999999`,
+          { deviceId: DEVICE },
+        )
       ).status,
     ).toBe(400)
   })

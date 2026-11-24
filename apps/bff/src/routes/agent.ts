@@ -408,6 +408,8 @@ async function conversationBusy(conversationId: string): Promise<boolean> {
   return !(await agentTurnSettled(conversationId, execution.turn_id))
 }
 
+const MAX_PG_INT4 = 2_147_483_647
+
 function parsePositiveIntQuery(raw: string | undefined, max?: number): number | undefined | null {
   if (raw === undefined) return undefined
   if (!/^[1-9]\d*$/.test(raw)) return null
@@ -435,7 +437,7 @@ export const agentRoutes = new Elysia()
     '/api/agent/conversations/:id/messages',
     async ({ params, headers, query, authUser, status, request }) => {
       const limit = parsePositiveIntQuery(query.limit, AGENT_MESSAGES_MAX_LIMIT)
-      const beforeSeq = parsePositiveIntQuery(query.beforeSeq)
+      const beforeSeq = parsePositiveIntQuery(query.beforeSeq, MAX_PG_INT4)
       if (limit === null || beforeSeq === null) {
         return status(400, { error: 'invalid_pagination' })
       }

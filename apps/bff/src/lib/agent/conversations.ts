@@ -121,6 +121,8 @@ export const AGENT_CONVERSATIONS_DEFAULT_LIMIT = 200
 export const AGENT_CONVERSATIONS_MAX_LIMIT = 200
 export const AGENT_MESSAGES_DEFAULT_LIMIT = 500
 export const AGENT_MESSAGES_MAX_LIMIT = 500
+const MAX_CURSOR_EPOCH_MS = Date.UTC(9999, 11, 31, 23, 59, 59, 999)
+const INVALID_CURSOR_ID_RE = /[\p{Cc}\s]/u
 
 export interface AgentConversationCursor {
   readonly updatedAt: number
@@ -146,9 +148,9 @@ export function parseAgentConversationCursor(raw: string): AgentConversationCurs
   if (sep <= 0 || sep === raw.length - 1) return null
   const updatedAtRaw = raw.slice(0, sep)
   const id = raw.slice(sep + 1)
-  if (!/^\d+$/.test(updatedAtRaw) || id.length > 128 || /\s/.test(id)) return null
+  if (!/^\d+$/.test(updatedAtRaw) || id.length > 128 || INVALID_CURSOR_ID_RE.test(id)) return null
   const updatedAt = Number(updatedAtRaw)
-  if (!Number.isSafeInteger(updatedAt)) return null
+  if (!Number.isSafeInteger(updatedAt) || updatedAt > MAX_CURSOR_EPOCH_MS) return null
   return { updatedAt, id }
 }
 
