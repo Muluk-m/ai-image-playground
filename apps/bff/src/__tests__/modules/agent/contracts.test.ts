@@ -5,14 +5,18 @@ import {
   confirmedSubmissionText,
   createToolFailureLog,
   isSealLease,
+  mergeMaskedPlanCarries,
   noModelMessage,
   queueArtifacts,
   queueParamsFor,
   queueRefusalCode,
   SEAL_LEASE_PREFIX,
   safeFetchToolError,
+  selectionSettings,
   toolErrorText,
   toolResultBlock,
+  wakeReviewImageIds,
+  wakeTurnSetup,
 } from '../../../modules/agent/contracts'
 
 describe('modules/agent/contracts', () => {
@@ -82,5 +86,20 @@ describe('modules/agent/contracts', () => {
         images: [{ index: 0, mime: 'image/png', width: 512, height: 512 }],
       }),
     ).toHaveLength(1)
+
+    expect(selectionSettings.maxPixels).toBeGreaterThan(0)
+    expect(
+      mergeMaskedPlanCarries([
+        { authorization: 'a', protected: false, contents: ['c1'], deferred: ['d1'] },
+        { authorization: 'b', protected: true, contents: ['c1', 'c2'], deferred: ['d2'] },
+      ]),
+    ).toEqual({
+      authorization: 'b',
+      protected: true,
+      contents: ['c1', 'c2'],
+      deferred: ['d2'],
+    })
+    expect(wakeTurnSetup([])).toEqual({ mode: 'image' })
+    expect(wakeReviewImageIds([])).toEqual([])
   })
 })

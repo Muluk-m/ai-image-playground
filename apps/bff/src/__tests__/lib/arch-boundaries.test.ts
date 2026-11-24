@@ -92,6 +92,7 @@ describe('check-arch-boundaries', () => {
       'bootstrap/container.ts':
         "import { mediaSecret } from '../modules/media/internal'\nexport const c = mediaSecret\n",
       'modules/agent/index.ts': 'export interface AgentFacade { ok: boolean }\n',
+      'modules/agent/contracts/index.ts': "export { tag } from './types'\n",
       'modules/agent/contracts/types.ts': 'export const tag = "a"\n',
       'modules/agent/contracts/bad-legacy.ts':
         "import type { Legacy } from '../../../lib/agent/legacy'\nexport type BadLegacy = Legacy\n",
@@ -101,11 +102,19 @@ describe('check-arch-boundaries', () => {
       'lib/channels.ts':
         "import { config } from '../config'\nexport const readCfg = () => config\n",
       'lib/agent/legacy.ts': 'export interface Legacy { id: string }\n',
+      'lib/agent/pure-ok.ts':
+        "import { tag } from '../../modules/agent/contracts'\nexport const pureOk = tag\n",
       'lib/agent/core-bad.ts':
         "import { helper } from './tools/helper'\nexport const badToolDep = helper\n",
       'lib/agent/tools/helper.ts': 'export const helper = 1\n',
       'modules/agent/conversation/bad.ts':
         "import type { RuntimeState } from '../runtime/exec'\nexport type C = RuntimeState\n",
+      'modules/agent/conversation/bad-legacy.ts':
+        "import type { Legacy } from '../../../lib/agent/legacy'\nexport type BadConvLegacy = Legacy\n",
+      'modules/agent/inbox/bad-legacy.ts':
+        "import type { Legacy } from '../../../lib/agent/legacy'\nexport type BadInboxLegacy = Legacy\n",
+      'modules/agent/inbox/bad-up.ts':
+        "import type { RuntimeState } from '../runtime/exec'\nexport type BadInboxUp = RuntimeState\n",
       'modules/agent/runtime/exec.ts':
         "import { tag } from '../contracts/types'\nexport interface RuntimeState { tag: string }\nexport const rt = tag\n",
     })
@@ -175,6 +184,25 @@ describe('check-arch-boundaries', () => {
     expect(
       violations.some((v) =>
         v.includes(
+          '[agent-conversation -> legacy-agent] modules/agent/conversation/bad-legacy.ts -> lib/agent/legacy.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-inbox -> legacy-agent] modules/agent/inbox/bad-legacy.ts -> lib/agent/legacy.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes('[agent-layer] modules/agent/inbox/bad-up.ts -> modules/agent/runtime/exec.ts'),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
           '[agent-contracts -> runtime-env] modules/agent/contracts/bad-env.ts -> config.ts (via lib/channels.ts)',
         ),
       ),
@@ -184,7 +212,8 @@ describe('check-arch-boundaries', () => {
         v.includes('[agent-core -> tools] lib/agent/core-bad.ts -> lib/agent/tools/helper.ts'),
       ),
     ).toBe(true)
-    expect(violations).toHaveLength(11)
+    expect(violations).toHaveLength(14)
+    expect(violations.some((v) => v.includes('lib/agent/pure-ok.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('modules/execution/ok.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('modules/agent/runtime/exec.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('bootstrap/container.ts ->'))).toBe(false)
