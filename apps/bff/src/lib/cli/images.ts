@@ -101,6 +101,11 @@ const GIF_DEFAULT_FRAMES = GPT_IMAGE_26_GIF_DEFAULT_FRAMES
 const GIF_DEFAULT_SIZE = GPT_IMAGE_26_GIF_DEFAULT_SIZE
 const OUTPUT_FORMAT_VALUES = ['image', 'png', 'gif', 'svg'] as const
 
+/** 请求的格式里只有 GIF / SVG 要特定模型；省略、image、png 都是普通图片，非法值交给校验报错。 */
+function specialOutputFormat(value: string | undefined): 'gif' | 'svg' | undefined {
+  return value === 'gif' || value === 'svg' ? value : undefined
+}
+
 /**
  * 与网站一致：只有 GPT Image 2.6 能直出 GIF / SVG。直连接不了单时仍列出，
  * 提交会降级成静态图，能力清单用 `degraded` 标明。
@@ -700,7 +705,7 @@ export async function defaultImageModelId(
   outputFormat?: string,
 ): Promise<string | undefined> {
   if (models.length === 0) return undefined
-  const special = outputFormat === 'gif' || outputFormat === 'svg' ? outputFormat : undefined
+  const special = specialOutputFormat(outputFormat)
   const candidates = special
     ? models.filter((model) => outputFormatsFor(model.id).includes(special))
     : models
@@ -710,7 +715,8 @@ export async function defaultImageModelId(
     }
     return undefined
   })
-  return found ?? models[0]!.id
+  // 没有能提交的：退回能出该格式的第一个，让后续校验说出它为什么不可用。
+  return found ?? candidates[0]?.id ?? models[0]!.id
 }
 
 /** 账号相关的能力清单：只列该账号能提交的档位与画质，一个档位都提交不了的模型不列。 */
@@ -725,7 +731,7 @@ export async function imageCapabilities(userId: string) {
       const image26 = isGptImage26Model(model.id)
       const image26Direct = image26 && gptImage26DirectListed()
       const { tiers, memberTier } = await submittableTiers(tx, userId, model)
-      // 与 defaultImageModelId 同一判断：第一个列出的就是不指定模型时提交的那个。
+      // 与 defaultImageModelId 同一判断：第一个列出的就是不指定模型、要普通图片时提交的那个。
       if (tiers.length === 0) continue
       const quote = await quoteCliCredits(tx, hooks, userId, model.id, 1)
       listed.push({
