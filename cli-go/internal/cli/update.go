@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Muluk-m/ai-image-playground/cli-go/internal/netidle"
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/skill"
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/updates"
 )
@@ -101,6 +102,8 @@ func classifySelfUpdateError(err error) *Failure {
 		return fail("CAPABILITY_UNAVAILABLE", "No prebuilt muvloom CLI binary is available for this OS/architecture")
 	case errors.Is(err, updates.ErrSelfUpdateBusy):
 		return fail("TEMPORARILY_UNAVAILABLE", "Another muvloom process is updating the CLI binary; retry shortly")
+	case errors.Is(err, netidle.ErrStalled):
+		return fail("NETWORK_ERROR", "The CLI update download stalled: no data arrived for a while; retry")
 	case errors.Is(err, updates.ErrSelfRemoteUnavailable):
 		return fail("NETWORK_ERROR", "Could not reach Muvloom to download the CLI update; retry shortly")
 	case errors.Is(err, updates.ErrSelfInvalidBinary):
