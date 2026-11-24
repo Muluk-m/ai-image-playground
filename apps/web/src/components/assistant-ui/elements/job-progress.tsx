@@ -23,7 +23,7 @@ export function JobProgress({
       >
         <span
           className={cn(
-            'block h-full rounded-full bg-foreground/75',
+            'block h-full rounded-full bg-foreground/75 transition-[width] duration-slow ease-motion-out motion-reduce:transition-none',
             value === undefined && 'agent-job-progress-sweep',
           )}
           style={{ width: value === undefined ? '34%' : `${value}%` }}

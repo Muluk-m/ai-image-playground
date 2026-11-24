@@ -243,7 +243,7 @@ export default function Header() {
               {accountMenuOpen && auth.user ? (
                 <div
                   role="menu"
-                  className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card p-1.5 text-sm shadow-popover"
+                  className="animate-popover-in origin-top-right absolute right-0 top-[calc(100%+0.75rem)] z-50 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-card p-1.5 text-sm shadow-popover ring-1 ring-hairline"
                 >
                   <div className="truncate px-3 py-2 font-medium text-foreground">
                     {auth.user?.username ??

@@ -18,6 +18,7 @@ export default function CompareView({
 }) {
   const { t } = useTranslation('toolbox')
   const [split, setSplit] = useState(50)
+  const [isDragging, setIsDragging] = useState(false)
   const box = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)
   useCloseOnEscape(true, onExit)
@@ -28,18 +29,21 @@ export default function CompareView({
   return (
     <div
       ref={box}
-      className="absolute inset-0 cursor-ew-resize touch-none select-none"
+      className="group/compare absolute inset-0 cursor-ew-resize touch-none select-none"
       onPointerDown={(event) => {
         dragging.current = true
+        setIsDragging(true)
         event.currentTarget.setPointerCapture?.(event.pointerId)
         follow(event)
       }}
       onPointerMove={(event) => dragging.current && follow(event)}
       onPointerUp={() => {
         dragging.current = false
+        setIsDragging(false)
       }}
       onPointerCancel={() => {
         dragging.current = false
+        setIsDragging(false)
       }}
     >
       {/* 两侧各裁到自己那半：原图的留白或透明处不能透出处理后的图。 */}
@@ -47,19 +51,19 @@ export default function CompareView({
         src={after}
         alt=""
         draggable={false}
-        className="absolute inset-0 h-full w-full object-contain"
+        className={`absolute inset-0 h-full w-full object-contain ${isDragging ? '' : 'transition-[clip-path] duration-fast ease-motion-out motion-reduce:transition-none'}`}
         style={{ clipPath: `inset(0 0 0 ${split}%)` }}
       />
       <img
         src={before}
         alt=""
         draggable={false}
-        className="absolute inset-0 h-full w-full object-contain"
+        className={`absolute inset-0 h-full w-full object-contain ${isDragging ? '' : 'transition-[clip-path] duration-fast ease-motion-out motion-reduce:transition-none'}`}
         style={{ clipPath: `inset(0 ${100 - split}% 0 0)` }}
       />
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 bg-white shadow"
+        className={`pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 bg-white shadow ${isDragging ? '' : 'transition-[left] duration-fast ease-motion-out motion-reduce:transition-none'}`}
         style={{ left: `${split}%` }}
       />
       <div
@@ -76,7 +80,11 @@ export default function CompareView({
           else return
           event.preventDefault()
         }}
-        className="absolute top-1/2 grid h-7 w-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-white text-black shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className={`absolute top-1/2 grid h-7 w-7 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-white text-black shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none motion-reduce:[scale:1] ${
+          isDragging
+            ? 'transition-[scale] duration-instant ease-motion-out [scale:0.95]'
+            : 'transition-[left,scale] duration-fast ease-motion-out group-hover/compare:[scale:1.05]'
+        }`}
         style={{ left: `${split}%` }}
       >
         <Icon name="compare" size="xs" />

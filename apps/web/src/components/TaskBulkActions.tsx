@@ -126,7 +126,7 @@ export default function TaskBulkActions({
       )}
       style={{ paddingLeft: 'var(--app-sidebar-width)' }}
     >
-      <div className="pointer-events-auto flex items-center rounded-full border border-border/50 bg-card/90 p-1 shadow-popover backdrop-blur">
+      <div className="animate-sheet-up-in pointer-events-auto flex items-center rounded-full border border-border/50 bg-card/90 p-1 shadow-popover backdrop-blur">
         <Hint tooltip={t('bulk.clearSelection')}>
           <Button
             variant="ghost"

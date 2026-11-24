@@ -103,8 +103,12 @@ export default function ContextMenu({
         const step = e.key === 'ArrowDown' ? 1 : -1
         items[(at + step + items.length) % items.length]?.focus()
       }}
-      className="fixed z-[1500] min-w-[120px] overflow-hidden rounded-lg border border-border bg-card py-1 shadow-xl animate-fade-in"
-      style={{ left: position.left, top: position.top }}
+      className="animate-popover-in fixed z-[1500] min-w-[120px] overflow-hidden rounded-lg border border-border bg-card py-1 shadow-popover ring-1 ring-hairline"
+      style={{
+        left: position.left,
+        top: position.top,
+        transformOrigin: `${Math.max(0, x - position.left)}px ${Math.max(0, y - position.top)}px`,
+      }}
       onContextMenu={(e) => e.preventDefault()}
     >
       {children}

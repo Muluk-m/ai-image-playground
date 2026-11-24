@@ -153,6 +153,7 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
   if (isCliDevicePath(pathname)) return route(pathname, <CliDevicePage />)
   if (isTermsPath(pathname) || isPrivacyPath(pathname)) return <LegalPage />
 
+  const pageViewKey = isChangelogPath(pathname) ? 'changelog' : appMode
   const page = isChangelogPath(pathname) ? (
     route(pathname, <ChangelogPage />)
   ) : appMode === 'explore' ? (
@@ -250,7 +251,9 @@ export default function App({ adoptedTaskCount = 0 }: { adoptedTaskCount?: numbe
                 'calc(100dvh - var(--mobile-topbar-height) - var(--mobile-nav-height, 0px) - var(--app-inset) * 2)',
             }}
           >
-            {page}
+            <div key={pageViewKey} className="animate-view-in">
+              {page}
+            </div>
           </div>
         )}
       </div>

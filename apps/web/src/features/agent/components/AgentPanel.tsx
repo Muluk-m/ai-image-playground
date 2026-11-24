@@ -460,8 +460,11 @@ export default function AgentPanel({
   }
 
   /** 从实际显示宽度开始拖动，避免布局限宽后反向拖动出现空行程。 */
+  const resizeCleanupRef = useRef<(() => void) | null>(null)
+  useEffect(() => () => resizeCleanupRef.current?.(), [])
   const startResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault()
+    resizeCleanupRef.current?.()
     const handle = event.currentTarget
     const originX = event.clientX
     const originWidth = handle.parentElement?.getBoundingClientRect().width || panelWidth
@@ -471,15 +474,22 @@ export default function AgentPanel({
           PANEL_MAX_WIDTH_RATIO
         : Number.POSITIVE_INFINITY
     handle.setPointerCapture(event.pointerId)
+    document.body.classList.add('drag-selecting')
+    const previousCursor = document.body.style.cursor
+    document.body.style.cursor = 'col-resize'
     const onMove = (move: PointerEvent) =>
       setPanelWidth(
         Math.min(maxWidth, originWidth + (move.clientX - originX) * (dock === 'right' ? -1 : 1)),
       )
     const onUp = () => {
+      document.body.classList.remove('drag-selecting')
+      document.body.style.cursor = previousCursor
       handle.removeEventListener('pointermove', onMove)
       handle.removeEventListener('pointerup', onUp)
       handle.removeEventListener('pointercancel', onUp)
+      resizeCleanupRef.current = null
     }
+    resizeCleanupRef.current = onUp
     handle.addEventListener('pointermove', onMove)
     handle.addEventListener('pointerup', onUp)
     handle.addEventListener('pointercancel', onUp)

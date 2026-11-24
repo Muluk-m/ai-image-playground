@@ -72,6 +72,7 @@ export default function TaskCard({
       : null
   const [now, setNow] = useState(Date.now())
   const [moreOpen, setMoreOpen] = useState(false)
+  const [favoritePopSeq, setFavoritePopSeq] = useState(0)
   // 仅给「页面运行期间刚提交的卡片」播放一次入场动画。CSS keyframes 本身只在
   // mount 时播放一次，所以 useRef 锁定 mount 时刻的判定即可——不需要 state +
   // timer 去摘除 className（即便保留也只是 DOM 节点上一个无副作用的 class）。
@@ -133,10 +134,12 @@ export default function TaskCard({
     if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 10) {
       horizontalSwipeRef.current = true
       e.preventDefault()
-      // 限制滑动距离，例如最大 60px
-      const boundedOffset = Math.max(-60, Math.min(60, deltaX))
+      // 过阈值后施加阻尼，给手指“已到位”的物理阻力感
+      const abs = Math.abs(deltaX)
+      const damped = abs <= 40 ? abs : 40 + (abs - 40) * 0.35
+      const boundedOffset = Math.sign(deltaX) * Math.min(64, damped)
       setSwipeOffset(boundedOffset)
-      setSwipeActionActive(Math.abs(deltaX) >= 40)
+      setSwipeActionActive(abs >= 40)
     }
   }
 
@@ -266,19 +269,19 @@ export default function TaskCard({
     <div className="relative rounded-xl">
       {/* 侧滑底图 */}
       <div
-        className={`absolute inset-0 rounded-xl flex items-center transition-opacity duration-200 pointer-events-none ${
+        className={`absolute inset-0 rounded-xl flex items-center transition-opacity duration-fast ease-motion-out pointer-events-none ${
           isSwiping || swipeOffset || swipeActionActive ? 'opacity-100' : 'opacity-0'
         } ${swipeBgClass} ${swipeOffset > 0 ? 'justify-start pl-6' : 'justify-end pr-6'}`}
       >
         <Icon
           name={swipeStartedSelected && showSwipeAction ? 'close' : 'check'}
           size="lg"
-          className={`transition-transform duration-150 ${showSwipeAction ? 'scale-110' : 'scale-90'} ${showSwipeAction && !swipeStartedSelected ? 'text-primary-foreground' : 'text-muted-foreground'}`}
+          className={`transition-transform duration-fast ease-motion-spring ${showSwipeAction ? 'scale-110' : 'scale-90'} ${showSwipeAction && !swipeStartedSelected ? 'text-primary-foreground' : 'text-muted-foreground'}`}
         />
       </div>
 
       <div
-        className={`relative bg-card rounded-xl border overflow-hidden cursor-pointer duration-200 hover:shadow-lg dark:hover:bg-muted/80 ${
+        className={`relative bg-card rounded-xl border overflow-hidden cursor-pointer duration-normal ease-motion-out hover:shadow-lg dark:hover:bg-muted/80 ${
           !isSwiping
             ? 'transition-[box-shadow,border-color,background-color,transform]'
             : 'transition-[box-shadow,border-color,background-color]'
@@ -307,7 +310,7 @@ export default function TaskCard({
       >
         {/* 选中时的角标 */}
         {isSelected && (
-          <div className="absolute top-2 right-2 z-10 w-5 h-5 bg-primary rounded-full flex items-center justify-center shadow-sm">
+          <div className="motion-check-pop absolute top-2 right-2 z-10 w-5 h-5 bg-primary rounded-full flex items-center justify-center shadow-sm">
             <Icon name="check" size="xs" className="text-primary-foreground" />
           </div>
         )}
@@ -346,7 +349,7 @@ export default function TaskCard({
                 <img
                   src={playingGif ?? thumbSrc}
                   data-image-id={task.outputImages[0]}
-                  className="saveable-image w-full h-full object-cover"
+                  className="saveable-image animate-media-reveal w-full h-full object-cover"
                   loading="lazy"
                   alt=""
                   onMouseEnter={() => {
@@ -392,7 +395,7 @@ export default function TaskCard({
                 </>
               ) : (
                 duration && (
-                  <span className="flex items-center gap-1 bg-black/50 text-white text-label-sm sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-mono">
+                  <span className="flex items-center gap-1 bg-black/50 text-white text-label-sm sm:text-xs px-1.5 py-0.5 rounded backdrop-blur-sm font-mono tabular-nums">
                     <Icon name="clock" size="xs" />
                     {duration}
                   </span>
@@ -557,7 +560,10 @@ export default function TaskCard({
                     type="button"
                     variant="ghost"
                     size="icon-xs"
-                    onClick={() => void setTaskFavorite(task, !task.isFavorite)}
+                    onClick={() => {
+                      if (!task.isFavorite) setFavoritePopSeq((n) => n + 1)
+                      void setTaskFavorite(task, !task.isFavorite)
+                    }}
                     className={
                       task.isFavorite
                         ? 'text-warning hover:text-warning'
@@ -566,7 +572,15 @@ export default function TaskCard({
                     aria-label={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}
                     aria-pressed={task.isFavorite}
                   >
-                    <Icon name="favorite" size="xs" filled={task.isFavorite} />
+                    <Icon
+                      key={favoritePopSeq}
+                      name="favorite"
+                      size="xs"
+                      filled={task.isFavorite}
+                      className={
+                        favoritePopSeq > 0 && task.isFavorite ? 'animate-pop-confirm' : undefined
+                      }
+                    />
                   </Button>
                 </Hint>
                 <Hint tooltip={t('action.reuse')}>
