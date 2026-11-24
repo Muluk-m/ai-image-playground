@@ -43,9 +43,9 @@ const { setAsyncPollBackoffForTesting, setUpstreamFetchForTesting } = await impo
   '../../../lib/upstream'
 )
 const { _setChannelsForTesting } = await import('../../../lib/channels')
-const { privateTaskHooks, scanDueAccounts, syncModelPricesFromChannels } = await import(
-  '../../../modules/billing/service'
-)
+const { scanDueAccounts } = await import('../../../modules/billing/entitlement')
+const { privateTaskHooks } = await import('../../../modules/billing/hooks')
+const { syncModelPricesFromChannels } = await import('../../../modules/billing/pricing')
 const { runTask } = await import('../../../workers/task-runner')
 const { recoverTasksByIds, purgeOldTasks } = await import('../../../db/maintenance')
 type TestFetch = NonNullable<Parameters<typeof setUpstreamFetchForTesting>[0]>

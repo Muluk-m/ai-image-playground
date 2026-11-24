@@ -158,7 +158,7 @@ async function pay(
   operationId = randomUUID(),
   credits = 4_000,
 ) {
-  const { adjustRechargeCredits } = await import('../../../modules/billing/service')
+  const { adjustRechargeCredits } = await import('../../../modules/billing/ledger')
   const body = {
     amount: credits,
     reason: 'confirmed fixture payment',
@@ -214,7 +214,7 @@ describe('confirmed referral payments', () => {
     const body = { amount: 4_000, reason: '实际收款 100 元', payment }
     const path = `/internal/admin/private/billing/users/${user.id}/recharge`
 
-    const { adjustRechargeCredits } = await import('../../../modules/billing/service')
+    const { adjustRechargeCredits } = await import('../../../modules/billing/ledger')
     await adjustRechargeCredits({
       userId: user.id,
       amount: body.amount,
@@ -535,7 +535,7 @@ describe('referral accounting lifecycle', () => {
       starts_at: Date.now(),
       reason: 'actual collected amount',
     }
-    const { grantSubscription } = await import('../../../modules/billing/service')
+    const { grantSubscription } = await import('../../../modules/billing/commerce')
     for (const [periodMonths, amount] of [
       [1, 10000],
       [1, 8000],

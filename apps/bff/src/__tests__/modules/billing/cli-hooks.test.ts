@@ -16,7 +16,7 @@ const { ensureBillingMigrations } = await import('@image-playground/db')
 await ensureBillingMigrations(TEST_DB)
 
 const { close: closeDb, db, schema } = await import('../../../db/client')
-const { privateTaskHooks } = await import('../../../modules/billing/service')
+const { privateTaskHooks } = await import('../../../modules/billing/hooks')
 
 const USER = 'cli-hooks-user'
 

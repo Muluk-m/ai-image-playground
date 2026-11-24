@@ -38,7 +38,7 @@ const { setObjectStoreForTesting } = await import('../../../lib/objectStore')
 const { _setChannelsForTesting } = await import('../../../lib/channels')
 const { setUpstreamFetchForTesting } = await import('../../../lib/upstream')
 const { runTask } = await import('../../../workers/task-runner')
-const { syncModelPricesFromChannels } = await import('../../../modules/billing/service')
+const { syncModelPricesFromChannels } = await import('../../../modules/billing/pricing')
 let subject = ''
 let tokenRejected = false
 let profileEmail: string | undefined
