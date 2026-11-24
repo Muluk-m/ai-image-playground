@@ -83,4 +83,28 @@ describe('确认框的危险语气', () => {
     expect(confirmButton().className).toContain('bg-destructive')
     expect(confirmButton().textContent).toBe('确认删除')
   })
+
+  it('延迟确认期间取消按钮可以立即关闭对话框，只有确认按钮被禁用', async () => {
+    let cancelled = false
+    await open({
+      title: '删除记录',
+      message: '不可恢复',
+      minConfirmDelayMs: 5000,
+      action: () => {},
+      cancelAction: () => {
+        cancelled = true
+      },
+    })
+
+    expect(confirmButton().disabled).toBe(true)
+    const cancelBtn = Array.from(document.body.querySelectorAll<HTMLButtonElement>('button')).find(
+      (b) => b.textContent === '取消',
+    )
+    expect(cancelBtn).toBeDefined()
+    await act(async () => {
+      cancelBtn?.click()
+    })
+    expect(cancelled).toBe(true)
+    expect(useStore.getState().confirmDialog).toBeNull()
+  })
 })

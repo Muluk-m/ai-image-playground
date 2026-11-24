@@ -91,3 +91,29 @@ it('作品页签传入自己的可见列表：全选按它来，不看创作页�
   expect(useStore.getState().selectedTaskIds.sort()).toEqual(['a', 'b'])
   expect(host.querySelector('[aria-label="取消全选"]')).not.toBeNull()
 })
+
+it('展示已选数量、Esc 退出选择，且批量收藏无需弹窗确认直接生效', () => {
+  useStore.setState({
+    tasks: [task('a', { status: 'done', isFavorite: false }), task('b', { status: 'done' })],
+    platformGenerations: [],
+    searchQuery: '',
+    filterStatus: 'all',
+    filterFavorite: false,
+    selectedTaskIds: ['a', 'b'],
+    confirmDialog: null,
+  })
+  act(() => root.render(<TaskBulkActions />))
+
+  expect(host.textContent).toContain('已选 2')
+  act(() => {
+    host.querySelector<HTMLButtonElement>('[aria-label="收藏选中"]')?.click()
+  })
+  expect(useStore.getState().confirmDialog).toBeNull()
+  expect(useStore.getState().selectedTaskIds).toEqual([])
+
+  act(() => useStore.setState({ selectedTaskIds: ['a'] }))
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  })
+  expect(useStore.getState().selectedTaskIds).toEqual([])
+})
