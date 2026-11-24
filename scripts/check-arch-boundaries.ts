@@ -85,8 +85,6 @@ const ALLOWED_RUNTIME_CYCLE_EDGES = new Set([
   'lib/agent/batch-plan-revision.ts -> lib/agent/batch-plans.ts',
   'lib/agent/batch-plans.ts -> lib/agent/batch-analysis-preparation.ts',
   'lib/agent/batch-plans.ts -> lib/agent/batch-phase-edit.ts',
-  'lib/upstream/gpt-direct-admin.ts -> lib/upstream/gpt-keys.ts',
-  'lib/upstream/gpt-keys.ts -> lib/upstream/gpt-direct-admin.ts',
 ])
 
 const CORE_PLATFORM_MODULES = new Set(['identity', 'catalog', 'media', 'execution'])
