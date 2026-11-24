@@ -69,14 +69,19 @@ func (a *App) uploadMedia(ctx context.Context, c *client.HTTPClient, path string
 		return media{}, err
 	}
 	a.progress("Uploading %s (%d bytes)", filepath.Base(path), size)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, reserved.UploadURL, file)
+	upload := a.startTransfer(ctx)
+	defer upload.stop()
+	req, err := http.NewRequestWithContext(upload.ctx, http.MethodPut, reserved.UploadURL, upload.track(file))
 	if err != nil {
 		return media{}, err
 	}
 	req.ContentLength = size
 	req.Header.Set("Content-Type", contentType)
-	resp, err := a.HTTP.Do(req)
+	resp, err := a.transferClient().Do(req)
 	if err != nil {
+		if upload.stalled() {
+			return media{}, upload.stalledFailure("Upload")
+		}
 		return media{}, fail("NETWORK_ERROR", "Upload failed: could not reach storage")
 	}
 	resp.Body.Close()
@@ -198,20 +203,28 @@ func (a *App) downloadTo(ctx context.Context, c *client.HTTPClient, path, target
 	if err := a.checkStorageURL(signed.DownloadURL); err != nil {
 		return download{}, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, signed.DownloadURL, nil)
+	fetch := a.startTransfer(ctx)
+	defer fetch.stop()
+	req, err := http.NewRequestWithContext(fetch.ctx, http.MethodGet, signed.DownloadURL, nil)
 	if err != nil {
 		return download{}, err
 	}
-	resp, err := a.HTTP.Do(req)
+	resp, err := a.transferClient().Do(req)
 	if err != nil {
+		if fetch.stalled() {
+			return download{}, fetch.stalledFailure("Download")
+		}
 		return download{}, fail("NETWORK_ERROR", "Download failed: could not reach storage")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return download{}, fail("TEMPORARILY_UNAVAILABLE", "Download failed with HTTP %d; retry to get a new link", resp.StatusCode)
 	}
-	size, present, err := writeNew(target, resp.Body)
+	size, present, err := writeNew(target, fetch.track(resp.Body))
 	if err != nil {
+		if fetch.stalled() {
+			return download{}, fetch.stalledFailure("Download")
+		}
 		return download{}, err
 	}
 	absolute, _ := filepath.Abs(target)
