@@ -10,7 +10,7 @@ import { and, asc, eq, gt, inArray, isNull, lte } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { AgentToolError } from '../modules/agent/contracts'
-import { heldBy, syncTaskPayloads } from '../modules/execution'
+import { heldBy, patchTaskPayload, syncTaskPayloads } from '../modules/execution'
 import { compactionSettings } from './agent/compaction-settings'
 import { resolveOwnedMediaImages } from './agent/images'
 import {
@@ -486,6 +486,9 @@ export async function finalizeAnalysisTask(
       reviewedImageIds: findings?.map((one) => one.imageId) ?? [],
       missingImageIds: findings ? [] : analysis.input_snapshot.inputs.map((one) => one.imageId),
     }
+    const resultPayload = findings
+      ? { findings, coverage, evidence: analysis.input_snapshot.evidence }
+      : null
     await tx
       .update(schema.tasks)
       .set({
@@ -493,14 +496,12 @@ export async function finalizeAnalysisTask(
         completed_at: completedAt,
         execution_token: null,
         lease_expires_at: null,
-        result_payload: findings
-          ? { findings, coverage, evidence: analysis.input_snapshot.evidence }
-          : null,
+        result_payload: resultPayload,
         error_type: status === 'failed' ? 'upstream_error' : null,
         error_message: status === 'failed' ? '分析未取得覆盖完整输入的有效结论' : null,
       })
       .where(eq(schema.tasks.id, taskId))
-    await syncTaskPayloads(tx, [taskId])
+    await patchTaskPayload(tx, taskId, { result_payload: resultPayload })
     await tx
       .update(schema.analysis_tasks)
       .set({

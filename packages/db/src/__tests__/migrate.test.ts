@@ -1001,22 +1001,59 @@ describe('runMigrations', () => {
           },
         ])
 
+        // Even when tasks.result_payload is already NULL while task_payloads holds a non-NULL value,
+        // an explicit `UPDATE tasks SET result_payload = NULL` must fire the per-column trigger and
+        // clear task_payloads.result_payload without touching other columns.
+        await sql`
+          INSERT INTO tasks (id, provider, model, status, request_payload, result_payload, upstream_body, submitted_at)
+          VALUES ('null-clear', 'openai-compat', 'gpt-image-2', 'in_progress', '{"prompt":"old-null","device_id":"d1"}'::jsonb, NULL, 'old-up', now())
+        `
+        await sql`
+          INSERT INTO task_payloads (task_id, request_payload, result_payload, upstream_body)
+          VALUES ('null-clear', '{"prompt":"cold-null","device_id":"d1"}'::jsonb, '{"stale_cold":1}'::jsonb, 'cold-up')
+        `
+        await sql`UPDATE tasks SET result_payload = NULL WHERE id = 'null-clear'`
+        expect(
+          await sql`SELECT request_payload, result_payload, upstream_body FROM task_payloads WHERE task_id = 'null-clear'`,
+        ).toEqual([
+          {
+            request_payload: { prompt: 'cold-null', device_id: 'd1' },
+            result_payload: null,
+            upstream_body: 'cold-up',
+          },
+        ])
+
         await sql.unsafe(
           await Bun.file(
             join(migrationsDirectory, 'rollback/0106_queue_tasks_payload_view.down.sql'),
           ).text(),
         )
+        // Rollback must back-sync authoritative task_payloads values onto tasks before switching
+        // queue_tasks back, so stale legacy values are never resurrected.
         const rolledBackRows = await sql`
           SELECT id, request_payload, result_payload, upstream_body
           FROM queue_tasks
-          WHERE id = 'backfilled'
+          WHERE id IN ('backfilled', 'null-clear', 'unbackfilled')
+          ORDER BY id
         `
         expect(rolledBackRows).toEqual([
           {
             id: 'backfilled',
-            request_payload: { prompt: 'old', device_id: 'd1' },
+            request_payload: { prompt: 'new', device_id: 'd1' },
             result_payload: { from_legacy_writer: true },
-            upstream_body: 'old err',
+            upstream_body: 'new err',
+          },
+          {
+            id: 'null-clear',
+            request_payload: { prompt: 'cold-null', device_id: 'd1' },
+            result_payload: null,
+            upstream_body: 'cold-up',
+          },
+          {
+            id: 'unbackfilled',
+            request_payload: { prompt: 'legacy', device_id: 'd1' },
+            result_payload: { legacy: 1 },
+            upstream_body: 'legacy err',
           },
         ])
         expect(

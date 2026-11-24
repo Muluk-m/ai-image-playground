@@ -1,5 +1,5 @@
 import type { NewTaskPayload, TaskPayload } from '@image-playground/db'
-import { eq, inArray, sql } from 'drizzle-orm'
+import { inArray, sql } from 'drizzle-orm'
 import { schema } from '../../db/client'
 import type { ExecutionTransaction } from './task-lifecycle-bus'
 
@@ -59,18 +59,47 @@ export async function readTaskPayloads(
 }
 
 /**
- * 局部更新已存在的 `task_payloads` 行（不覆盖未改动列），若冷表尚未回填则回落到全量 `syncTaskPayloads`。
+ * 批量局部更新已存在的 `task_payloads` 行（只覆盖本次修改列，保留其余冷列权威值）；
+ * 尚未回填的旧行回落到 `syncTaskPayloads` 一次补齐。`patch` 为空对象时仅补齐缺行（不覆写已有行）。
  */
+export async function patchTaskPayloads(
+  tx: Pick<ExecutionTransaction, 'update' | 'execute'>,
+  taskIds: readonly string[],
+  patch: Partial<Omit<NewTaskPayload, 'task_id'>>,
+): Promise<void> {
+  const uniqueIds = [...new Set(taskIds)]
+  if (uniqueIds.length === 0) return
+  if (Object.keys(patch).length === 0) {
+    const idList = sql.join(
+      uniqueIds.map((id) => sql`${id}`),
+      sql`, `,
+    )
+    await tx.execute(sql`
+      INSERT INTO task_payloads (
+        task_id, request_payload, metering, result_payload, archive_payload, upstream_body
+      )
+      SELECT id, request_payload, metering, result_payload, archive_payload, upstream_body
+      FROM tasks
+      WHERE id IN (${idList})
+      ON CONFLICT (task_id) DO NOTHING
+    `)
+    return
+  }
+  const updated = await tx
+    .update(schema.task_payloads)
+    .set(patch)
+    .where(inArray(schema.task_payloads.task_id, uniqueIds))
+    .returning({ taskId: schema.task_payloads.task_id })
+  const updatedSet = new Set(updated.map((row) => row.taskId))
+  const missingIds = uniqueIds.filter((id) => !updatedSet.has(id))
+  if (missingIds.length > 0) await syncTaskPayloads(tx, missingIds)
+}
+
+/** 单条任务的局部冷载荷回写便捷封装。 */
 export async function patchTaskPayload(
   tx: Pick<ExecutionTransaction, 'update' | 'execute'>,
   taskId: string,
   patch: Partial<Omit<NewTaskPayload, 'task_id'>>,
 ): Promise<void> {
-  if (Object.keys(patch).length === 0) return
-  const updated = await tx
-    .update(schema.task_payloads)
-    .set(patch)
-    .where(eq(schema.task_payloads.task_id, taskId))
-    .returning({ taskId: schema.task_payloads.task_id })
-  if (updated.length === 0) await syncTaskPayloads(tx, [taskId])
+  await patchTaskPayloads(tx, [taskId], patch)
 }

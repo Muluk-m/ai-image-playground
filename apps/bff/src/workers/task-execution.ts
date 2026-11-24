@@ -29,7 +29,6 @@ import {
   requeueTask,
   requeueTaskArchive,
   saveArchiveCheckpoint,
-  syncTaskPayloads,
   type TerminalTaskUpdate,
 } from '../modules/execution'
 import { checkIdleSlot, lockIdleSlotClaims, providerConcurrencyLimit } from './idle-concurrency'
@@ -363,7 +362,7 @@ class TaskExecutionHandle implements TaskExecution {
         .where(this.#own())
         .returning({ id: schema.tasks.id })
       if (updated.length === 0) return null
-      await syncTaskPayloads(tx, [this.taskId])
+      await patchTaskPayload(tx, this.taskId, { request_payload: next })
       return next
     })
   }

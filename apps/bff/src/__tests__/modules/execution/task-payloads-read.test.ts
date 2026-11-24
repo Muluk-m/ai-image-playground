@@ -2,6 +2,8 @@ import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
+import sharp from 'sharp'
+import { InMemoryObjectStore } from '../../helpers/inMemoryObjectStore'
 
 const TEST_DB = await resetTestDatabase('bff_task_payloads_read')
 
@@ -25,10 +27,17 @@ const {
   findAccessibleTaskStatus,
   finishTask,
   heldBy,
+  requeueTask,
+  requeueTaskArchive,
+  requeueTasksForPolling,
+  saveArchiveCheckpoint,
 } = await import('../../../modules/execution')
 const { reconcileAgentBatchProgress } = await import(
   '../../../modules/agent/orchestration/batch/progress'
 )
+const { setDurableMediaStoreForTesting } = await import('../../../lib/durableMediaStore')
+const { setObjectStoreForTesting } = await import('../../../lib/objectStore')
+const { promoteCanvasCandidate } = await import('../../../lib/promoteCanvasCandidate')
 const { selectRunnableTasks } = await import('../../../workers/runnable-tasks')
 const { claimTaskExecution } = await import('../../../workers/task-execution')
 
@@ -38,14 +47,19 @@ beforeEach(async () => {
   await db.delete(schema.agent_batch_plans)
   await db.delete(schema.agent_batches)
   await db.delete(schema.agent_conversations)
+  await db.delete(schema.media_references)
+  await db.delete(schema.generation_images)
   await db.delete(schema.user_changes)
   await db.delete(schema.user_change_heads)
   await db.delete(schema.generation_records)
   await db.delete(schema.tasks)
+  await db.delete(schema.media_objects)
   await db.delete(schema.users)
 })
 
 afterAll(async () => {
+  setDurableMediaStoreForTesting(undefined)
+  setObjectStoreForTesting(undefined)
   await closeDb()
 })
 
@@ -482,5 +496,186 @@ describe('task_payloads switch-read with legacy fallback', () => {
     expect(byKey.get('from-cold')?.errorCode).toBeNull()
     expect(byKey.get('cleared-cold')?.artifacts).toEqual([])
     expect(byKey.get('cleared-cold')?.errorCode).toBe('no_output')
+  })
+
+  it('preserves untouched task_payloads columns across partial updates (preserveInputs, checkpoint, requeue, promoteCanvasCandidate)', async () => {
+    const now = Date.now()
+    const store = Object.assign(new InMemoryObjectStore(), {
+      sign: (key: string) => `https://media.test/${key}`,
+    })
+    setObjectStoreForTesting(store)
+    setDurableMediaStoreForTesting(store)
+    try {
+      await db.insert(schema.users).values({
+        id: 'u-partial-test',
+        username: 'u-partial-test@example.com',
+        password_hash: 'fixture-hash',
+        created_at: now,
+        updated_at: now,
+      })
+      const png = await sharp({
+        create: { width: 8, height: 8, channels: 3, background: '#224466' },
+      })
+        .png()
+        .toBuffer()
+      const pngB64 = png.toString('base64')
+
+      // 1. Worker partial updates (preserveInputs, saveArchiveCheckpoint, requeueTask, requeueTaskArchive, requeueTasksForPolling)
+      //    must NOT clobber task_payloads.metering when tasks.metering has a stale value.
+      await db.insert(schema.tasks).values({
+        id: 'partial-worker-1',
+        user_id: 'u-partial-test',
+        provider: 'openai-compat',
+        model: 'gpt-image-2',
+        status: 'queued',
+        request_payload: { prompt: 'stale prompt', device_id: 'dev-1' },
+        metering: { mode: 'credits', model: 'gpt-image-2', quantity: 1, unitMultiplier: 1 },
+        result_payload: { stale: true },
+        upstream_body: 'stale error',
+        submitted_at: now - 5_000,
+      })
+      await db.insert(schema.task_payloads).values({
+        task_id: 'partial-worker-1',
+        request_payload: { prompt: 'cold prompt', device_id: 'dev-1' },
+        metering: { mode: 'none', model: 'gpt-image-2', quantity: 1, unitMultiplier: 1 },
+        result_payload: { cold: true },
+        upstream_body: 'cold error',
+      })
+
+      const execution = await claimTaskExecution('partial-worker-1', now)
+      expect(execution).not.toBeNull()
+      try {
+        const preserved = await execution!.preserveInputs({
+          prompt: 'preserved prompt',
+          device_id: 'dev-1',
+        })
+        expect(preserved).toEqual({ prompt: 'preserved prompt', device_id: 'dev-1' })
+        const [afterPreserve] = await db
+          .select()
+          .from(schema.task_payloads)
+          .where(eq(schema.task_payloads.task_id, 'partial-worker-1'))
+        expect(afterPreserve?.metering?.mode).toBe('none')
+        expect(afterPreserve?.result_payload).toEqual({ cold: true })
+
+        expect(await execution!.saveCheckpoint({ checkpoint: 1 })).toBe(true)
+        const [afterCheckpoint] = await db
+          .select()
+          .from(schema.task_payloads)
+          .where(eq(schema.task_payloads.task_id, 'partial-worker-1'))
+        expect(afterCheckpoint?.metering?.mode).toBe('none')
+        expect(afterCheckpoint?.archive_payload).toEqual({ checkpoint: 1 })
+
+        expect(await execution!.requeueArchive(now + 10_000)).toBe(true)
+        const [afterRequeueArchive] = await db
+          .select()
+          .from(schema.task_payloads)
+          .where(eq(schema.task_payloads.task_id, 'partial-worker-1'))
+        expect(afterRequeueArchive?.metering?.mode).toBe('none')
+        expect(afterRequeueArchive?.archive_payload).toEqual({ checkpoint: 1 })
+      } finally {
+        execution?.release()
+      }
+
+      const token = 'partial-requeue-token'
+      await db
+        .update(schema.tasks)
+        .set({ status: 'in_progress', execution_token: token, lease_expires_at: now + 60_000 })
+        .where(eq(schema.tasks.id, 'partial-worker-1'))
+      expect(await requeueTask('partial-worker-1', 1, now + 5_000, heldBy(token))).toBe(true)
+      const [afterRequeue] = await db
+        .select()
+        .from(schema.task_payloads)
+        .where(eq(schema.task_payloads.task_id, 'partial-worker-1'))
+      expect(afterRequeue).toMatchObject({
+        metering: { mode: 'none', model: 'gpt-image-2', quantity: 1, unitMultiplier: 1 },
+        result_payload: null,
+        upstream_body: null,
+        archive_payload: { checkpoint: 1 },
+      })
+
+      await db
+        .update(schema.tasks)
+        .set({ status: 'in_progress', execution_token: token, lease_expires_at: now + 60_000 })
+        .where(eq(schema.tasks.id, 'partial-worker-1'))
+      expect(
+        await saveArchiveCheckpoint('partial-worker-1', { checkpoint: 2 }, heldBy(token)),
+      ).toBe(true)
+      expect(
+        await requeueTaskArchive('partial-worker-1', now + 5_000, { checkpoint: 3 }, heldBy(token)),
+      ).toBe(true)
+      await db
+        .update(schema.tasks)
+        .set({ status: 'in_progress', execution_token: token, lease_expires_at: now + 60_000 })
+        .where(eq(schema.tasks.id, 'partial-worker-1'))
+      expect(await requeueTasksForPolling(['partial-worker-1'], heldBy(token))).toBe(1)
+      const [afterPollRequeue] = await db
+        .select()
+        .from(schema.task_payloads)
+        .where(eq(schema.task_payloads.task_id, 'partial-worker-1'))
+      expect(afterPollRequeue?.metering?.mode).toBe('none')
+      expect(afterPollRequeue?.archive_payload).toEqual({ checkpoint: 3 })
+
+      // 2. promoteCanvasCandidate (both primary promotion and markCanvas) must patch ONLY
+      //    request_payload and preserve task_payloads.result_payload & metering even when tasks has NULL.
+      await db.insert(schema.tasks).values({
+        id: 'partial-canvas-promote',
+        user_id: 'u-partial-test',
+        provider: 'openai-compat',
+        model: 'gpt-image-2',
+        status: 'completed',
+        request_payload: {
+          prompt: 'stale canvas',
+          device_id: 'dev-1',
+          output_retention: 'candidate',
+        },
+        metering: { mode: 'credits', model: 'gpt-image-2', quantity: 1, unitMultiplier: 1 },
+        result_payload: null,
+        submitted_at: now - 3_000,
+        completed_at: now - 1_000,
+      })
+      await db.insert(schema.task_payloads).values({
+        task_id: 'partial-canvas-promote',
+        request_payload: {
+          prompt: 'cold canvas candidate',
+          device_id: 'dev-1',
+          output_retention: 'candidate',
+        },
+        metering: { mode: 'none', model: 'gpt-image-2', quantity: 1, unitMultiplier: 1 },
+        result_payload: { data: [{ b64_json: pngB64 }] },
+      })
+
+      const promoted = await promoteCanvasCandidate('u-partial-test', 'partial-canvas-promote', 0)
+      expect(promoted.ok).toBe(true)
+      const [afterPromote] = await db
+        .select()
+        .from(schema.task_payloads)
+        .where(eq(schema.task_payloads.task_id, 'partial-canvas-promote'))
+      expect(afterPromote).toMatchObject({
+        request_payload: {
+          prompt: 'cold canvas candidate',
+          device_id: 'dev-1',
+          output_retention: 'canvas',
+        },
+        metering: { mode: 'none', model: 'gpt-image-2', quantity: 1, unitMultiplier: 1 },
+        result_payload: { data: [{ b64_json: pngB64 }] },
+      })
+
+      // Exercise markCanvas branch (existing output already archived, source not yet 'canvas').
+      await db
+        .update(schema.generation_records)
+        .set({ source: { kind: 'studio' } })
+        .where(eq(schema.generation_records.id, 'partial-canvas-promote'))
+      const marked = await promoteCanvasCandidate('u-partial-test', 'partial-canvas-promote', 0)
+      expect(marked.ok).toBe(true)
+      const [afterMark] = await db
+        .select()
+        .from(schema.task_payloads)
+        .where(eq(schema.task_payloads.task_id, 'partial-canvas-promote'))
+      expect(afterMark?.result_payload).toEqual({ data: [{ b64_json: pngB64 }] })
+      expect(afterMark?.metering?.mode).toBe('none')
+    } finally {
+      setDurableMediaStoreForTesting(undefined)
+      setObjectStoreForTesting(undefined)
+    }
   })
 })

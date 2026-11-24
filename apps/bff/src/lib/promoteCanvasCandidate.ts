@@ -3,7 +3,7 @@ import type { GenerationDetail, PersistedSubmitRequest } from '@image-playground
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { publishGenerations } from '../db/generation-events'
-import { readTaskPayloads, syncTaskPayloads } from '../modules/execution'
+import { patchTaskPayload, readTaskPayloads } from '../modules/execution'
 import {
   archiveCandidateSelection,
   CandidateExpiredError,
@@ -96,13 +96,14 @@ export async function promoteCanvasCandidate(
           ),
         )
         .limit(1)
+      const nextRequest = { ...locked.request, output_retention: 'canvas' as const }
       await tx
         .update(schema.tasks)
         .set({
-          request_payload: { ...locked.request, output_retention: 'canvas' },
+          request_payload: nextRequest,
         })
         .where(eq(schema.tasks.id, taskId))
-      await syncTaskPayloads(tx, [taskId])
+      await patchTaskPayload(tx, taskId, { request_payload: nextRequest })
       await publishGenerations(tx, [taskId])
       if (!linked) {
         const links = await archiveCandidateSelection(
@@ -185,11 +186,12 @@ async function markCanvas(userId: string, taskId: string): Promise<void> {
         : lockedRow
       : undefined
     if (!locked || locked.status !== 'completed' || !isCanvasTask(locked)) return
+    const nextRequest = { ...locked.request, output_retention: 'canvas' as const }
     await tx
       .update(schema.tasks)
-      .set({ request_payload: { ...locked.request, output_retention: 'canvas' } })
+      .set({ request_payload: nextRequest })
       .where(eq(schema.tasks.id, taskId))
-    await syncTaskPayloads(tx, [taskId])
+    await patchTaskPayload(tx, taskId, { request_payload: nextRequest })
     await publishGenerations(tx, [taskId])
     await tx
       .update(schema.generation_records)
