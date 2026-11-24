@@ -110,5 +110,25 @@ describe('backfillTaskPayloads', () => {
     await handle.db.delete(schema.tasks).where(eq(schema.tasks.id, 'task-a'))
     const afterDelete = await verifyTaskPayloadsConsistency(handle.client)
     expect(afterDelete).toMatchObject({ totalTasks: 0, totalPayloads: 0 })
+
+    // Re-running repair on already-consistent rows writes zero rows.
+    await handle.db.insert(schema.tasks).values([sampleTask('task-b', 'clean-prompt')])
+    await backfillTaskPayloads(handle.client, { batchSize: 10, delayMs: 0 })
+    const cleanRepair = await backfillTaskPayloads(handle.client, {
+      batchSize: 10,
+      delayMs: 0,
+      repairMismatches: true,
+    })
+    expect(cleanRepair).toMatchObject({ scanned: 1, written: 0, completed: true })
+
+    await expect(verifyTaskPayloadsConsistency(handle.client, -1)).rejects.toThrow(RangeError)
+    expect(await verifyTaskPayloadsConsistency(handle.client, 0)).toMatchObject({
+      totalTasks: 1,
+      totalPayloads: 1,
+      missingCount: 0,
+      mismatchCount: 0,
+      sampleMissingIds: [],
+      sampleMismatchIds: [],
+    })
   })
 })

@@ -6,36 +6,90 @@
  *   DATABASE_URL=... bun run scripts/backfill-task-payloads.ts [--batch-size=1000] [--delay-ms=50] [--repair] [--verify-only]
  */
 import { SQL } from 'bun'
-import { backfillTaskPayloads, verifyTaskPayloadsConsistency } from '../packages/db/src/index'
+import {
+  backfillTaskPayloads,
+  verifyTaskPayloadsConsistency,
+} from '../packages/db/src/backfill-task-payloads'
 
-function parseFlagNumber(args: readonly string[], name: string, fallback: number): number {
-  const prefix = `--${name}=`
-  const matched = args.find((arg) => arg.startsWith(prefix))
-  if (!matched) return fallback
-  const value = Number(matched.slice(prefix.length))
-  if (!Number.isFinite(value)) throw new Error(`Invalid numeric value for --${name}: ${matched}`)
+const USAGE =
+  'Usage: DATABASE_URL=... bun run scripts/backfill-task-payloads.ts [--batch-size=1000] [--delay-ms=50] [--repair] [--verify-only] [--help]'
+
+interface CliOptions {
+  readonly help: boolean
+  readonly verifyOnly: boolean
+  readonly repairMismatches: boolean
+  readonly batchSize: number
+  readonly delayMs: number
+}
+
+function parseNonEmptyNumber(raw: string, flag: string): number {
+  const trimmed = raw.trim()
+  if (!trimmed) throw new Error(`Missing numeric value for ${flag}`)
+  const value = Number(trimmed)
+  if (!Number.isFinite(value)) throw new Error(`Invalid numeric value for ${flag}: ${raw}`)
   return value
 }
 
+function parseArgs(args: readonly string[]): CliOptions {
+  let help = false
+  let verifyOnly = false
+  let repairMismatches = false
+  let batchSize = 1000
+  let delayMs = 50
+  for (const arg of args) {
+    if (arg === '--help' || arg === '-h') {
+      help = true
+      continue
+    }
+    if (arg === '--verify-only') {
+      verifyOnly = true
+      continue
+    }
+    if (arg === '--repair') {
+      repairMismatches = true
+      continue
+    }
+    if (arg.startsWith('--batch-size=')) {
+      batchSize = parseNonEmptyNumber(arg.slice('--batch-size='.length), '--batch-size')
+      continue
+    }
+    if (arg.startsWith('--delay-ms=')) {
+      delayMs = parseNonEmptyNumber(arg.slice('--delay-ms='.length), '--delay-ms')
+      continue
+    }
+    throw new Error(`Unknown argument: ${arg}\n${USAGE}`)
+  }
+  return { help, verifyOnly, repairMismatches, batchSize, delayMs }
+}
+
 async function main(): Promise<void> {
-  const args = process.argv.slice(2)
+  let options: CliOptions
+  try {
+    options = parseArgs(process.argv.slice(2))
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exit(1)
+  }
+  if (options.help) {
+    console.log(USAGE)
+    return
+  }
+
   const databaseUrl = process.env.DATABASE_URL?.trim()
   if (!databaseUrl) {
     console.error('DATABASE_URL is required')
     process.exit(1)
   }
-  const verifyOnly = args.includes('--verify-only')
-  const repairMismatches = args.includes('--repair')
-  const batchSize = parseFlagNumber(args, 'batch-size', 1000)
-  const delayMs = parseFlagNumber(args, 'delay-ms', 50)
 
   const client = new SQL(databaseUrl, { max: 1 })
   try {
-    if (!verifyOnly) {
+    await client`SET application_name = 'backfill-task-payloads'`
+    await client`SET lock_timeout = '5000ms'`
+    if (!options.verifyOnly) {
       const result = await backfillTaskPayloads(client, {
-        batchSize,
-        delayMs,
-        repairMismatches,
+        batchSize: options.batchSize,
+        delayMs: options.delayMs,
+        repairMismatches: options.repairMismatches,
         onBatch: (batch) => {
           console.log(
             `[backfill-task-payloads] batch=${batch.batchNumber} scanned=${batch.scanned} written=${batch.written} lastId=${batch.lastId ?? 'none'}`,
