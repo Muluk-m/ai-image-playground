@@ -8,7 +8,7 @@
 # shellcheck disable=SC2034 # used by the scripts that source this file
 RELEASE_WEB_PATHS='^(apps/web/|apps/website/|cli-go/|scripts/build-cli-web-bins\.sh$|packages/shared/|pnpm-workspace\.yaml$)'
 # shellcheck disable=SC2034
-RELEASE_ADMIN_PATHS='^(apps/admin/|packages/shared/|pnpm-workspace\.yaml$)'
+RELEASE_ADMIN_PATHS='^(apps/admin/|packages/read-models/|packages/shared/|pnpm-workspace\.yaml$)'
 # Build and deployment protocol changes require a new release. Deployment code itself lives in the
 # fixed VPS runtime and must be installed separately from the data-only release.
 # shellcheck disable=SC2034

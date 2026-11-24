@@ -72,12 +72,12 @@ web_bundle_changed() {
 # shellcheck disable=SC2329 # called through decide
 admin_bundle_changed() {
   printf '%s\n' "$1" | grep -Eq "$RELEASE_ADMIN_PATHS" ||
-    lock_changed "$1" . apps/admin packages/shared
+    lock_changed "$1" . apps/admin packages/read-models packages/shared
 }
 # shellcheck disable=SC2329 # called through decide
 api_tree_changed() {
   printf '%s\n' "$1" | grep -Eq "$RELEASE_API_PATHS" ||
-    lock_changed "$1" . apps/bff apps/admin packages/db packages/node-kit packages/shared
+    lock_changed "$1" . apps/bff apps/admin packages/db packages/node-kit packages/read-models packages/shared
 }
 
 git merge-base --is-ancestor "$target" origin/main 2>/dev/null || skip "$target is not on origin/main"

@@ -1,5 +1,6 @@
+import { readUserAssetBytes } from '@image-playground/read-models'
 import type { SyncAssetQuotaError, SyncAssetUploadResult } from '@image-playground/shared'
-import { and, eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { objectStore, readObjectWithinLimit } from './objectStore'
@@ -33,13 +34,8 @@ export function assetImageByteLimit(): number {
   return config.operator.quotas['sync:asset-image-bytes']
 }
 
-async function totalBytes(tx: BffTransaction, userId: string): Promise<number> {
-  // sum() 出来是 bigint，别往 int4 上转——运营把每用户配额调过 2 GB 之后这里就会溢出报错。
-  const [row] = await tx
-    .select({ total: sql<string | number>`coalesce(sum(${schema.user_asset_objects.bytes}), 0)` })
-    .from(schema.user_asset_objects)
-    .where(eq(schema.user_asset_objects.user_id, userId))
-  return Number(row?.total ?? 0)
+function totalBytes(tx: BffTransaction, userId: string): Promise<number> {
+  return readUserAssetBytes(tx, userId)
 }
 
 /**
