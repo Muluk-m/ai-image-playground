@@ -45,11 +45,11 @@ API 错误展示接口、HTTP 状态、原始错误码和已记录的具体原�
 
 采集容器停止期间，运行中的容器在内存里暂存日志，恢复后补发（每容器驱动最多缓存 4096 条，超限会丢弃）；运行时间短于停机时间的一次性容器（例如迁移）会丢失这段输出。采集容器自身的输出只留在 `docker logs`，否则会形成回路。初次部署时 `scripts/app-compose.sh` 在其他服务之前启动它，启动失败只打警告，不影响发布。采集容器带着自己配置的摘要标签，配置一改，下次发布就会重建它。发布收尾用 Compose 更新 admin、采集和备份。已经在跑的 cloudflared 不重建，避免每次发布都把边缘连接拆掉。
 
-迁移 `0060_server_logs` 建表，`0061_server_logs_containers` 放宽服务名约束，`0062_server_logs_instance_at` 支持同容器上下文范围查询。P3-5 起不再写入，旧数据由原有的保留期清理自然过期，P3-6 删表（#1937）。日志界面和接口都要求 Admin 会话。写入使用独立单连接池，连接超时 2 秒、语句超时 1.5 秒，避免挤占业务连接。
+迁移 `0060_server_logs` 建表，`0061_server_logs_containers` 放宽服务名约束，`0062_server_logs_instance_at` 支持同容器上下文范围查询。P3-5（#1937）起不再写入，Phase 6 / PR-6.1 移除 BFF / worker 进程内的 `startServerLogs()` 清理循环与旧日志解析/缓冲代码（不再为旧日志保留专用 PG session advisory lock 或独立连接池）；表结构暂时保留至旧容器完全退场后的 Contract 迁移再 `DROP TABLE server_logs`。
 
-日志保留由持有 PostgreSQL session advisory lock 的单个维护执行者在启动时及每分钟清理，保留近 7 天、约 20 万条。保留原来的每分钟清理能力，同时避免所有 BFF／worker 重复删除同一共享数据。单次删除最多 5000 条，容量超限会逐步回落。领导连接关闭或失败后释放锁，其他实例下一周期尝试接管；每个维护 job 的领导者占用一个专用连接，跟随者不保留空闲连接。worker 的过期服务心跳与宿主机历史采样从 10 秒任务恢复循环移到独立的 5 分钟共享维护。接管或重启后可能在同一时间窗口再次清理，删除操作幂等；清理失败不阻塞业务，任务恢复、取消检测与租约续期保持原频率。
+worker 的过期服务心跳与宿主机历史采样从 10 秒任务恢复循环移到独立的 5 分钟共享维护（`startSharedMaintenance`），由持有 PostgreSQL session advisory lock 的单个维护执行者执行；领导连接关闭或失败后释放锁，其他实例下一周期尝试接管。接管或重启后可能在同一时间窗口再次清理，删除操作幂等；清理失败不阻塞业务，任务恢复、取消检测与租约续期保持原频率。
 
-数据库日志隐藏常见密钥字段、认证头、Cookie、原始请求体、响应预览和序列化 JSON 中的用户内容，消息里的 Bearer、常见 API key、URL 密钥参数与 URL 密码也会脱敏。单行消息最多 4000 字符；多行终端记录整体脱敏后最多保留 16000 字符，结构化字段超限会标记截断。应用日志仍应遵守不输出秘密和用户原文的约定。
+应用日志仍应遵守不输出秘密和用户原文的约定；容器日志的脱敏与截断规则见下文「OpenTelemetry 与 OpenObserve」一节的 Collector 配置。
 
 BFF 的 `/api/*` 与 `/v1/*` 请求用 OpenTelemetry 建链路（ADR 0033）：接着调用方的 W3C `traceparent`，在请求里打的 pino 日志自动带 `trace_id`、`span_id`，在本页用关键词搜 `trace_id` 就能查到同一请求的日志。健康检查、`/internal/*` 与静态资源不建链路。生成任务提交时把当前链路的 `traceparent` 写进 `tasks.traceparent`；worker 每次认领执行都开一个新的 `task.execute` 链路，用 span link 指回提交链路，执行期间（含中断收尾）的 worker 日志带这条新链路的 `trace_id`；提交请求的 span 带 `task.id` 属性。从任务找提交链路看 `tasks.traceparent`，从执行链路找提交链路看 span link。认领本身（含弹性名额判定）发生在执行链路之前，相关日志只带任务 ID。上游请求（CLIENT span，并把 `traceparent` 带给上游）、Vertex 限流退避（执行 span 上的事件）与 R2 读写（CLIENT span，只记操作和字节数）也各有 span（#1927）。配置 `OTEL_EXPORTER_OTLP_ENDPOINT`（Collector 的 OTLP/HTTP 地址，不含 `/v1/traces`）时才导出 span，默认不导出；`OTEL_TRACES_SAMPLE_RATIO`（0–1，默认 1）按比例采样；`OTEL_DEPLOYMENT_ENVIRONMENT` 可选，写进 span 的 `deployment.environment.name`。
 

@@ -13,14 +13,12 @@ process.env.CORS_ALLOWED_ORIGINS = allowedOrigin
 const { app, apiMetrics } = await import('../../app')
 const { close, db, schema } = await import('../../db/client')
 const { log } = await import('../../lib/logger')
-const { closeServerLogDatabase } = await import('../../lib/server-logs')
 const { REQUEST_ID_HEADER, withRequestContext } = await import('../../lib/request-context')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { captureLogLines } = await import('../helpers/logCapture')
 const lines = captureLogLines(log)
 
 afterAll(async () => {
-  await closeServerLogDatabase()
   await close()
 })
 

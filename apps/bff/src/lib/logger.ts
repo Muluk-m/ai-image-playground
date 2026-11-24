@@ -5,9 +5,9 @@ import { requestLogFields } from './request-context'
 import { traceLogFields } from './telemetry'
 
 /**
- * BFF 全局 logger。pino 输出 JSON line 到 stdout；部署里由 Docker 的 fluentd 日志驱动转给
- * 日志采集容器，再写进 server_logs 供 Admin 查询（docs/deploy/server-logs.md）。LOG_LEVEL
- * 环境变量可调级别，缺省 'info'。
+ * BFF 全局 logger。pino 输出 JSON line 到 stdout；部署里由 Docker 的 fluentd 日志驱动经
+ * Fluent Bit 与 OpenTelemetry Collector 写入 OpenObserve 供 Admin 查询（docs/deploy/server-logs.md）。
+ * LOG_LEVEL 环境变量可调级别，缺省 'info'。
  *
  * 调用约定：跟事件相关的字段放对象，可读消息放第二个参数。例：
  *   log.info({ event: 'task.completed', taskId, elapsedMs }, 'task completed')
