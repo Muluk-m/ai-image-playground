@@ -43,7 +43,7 @@ export default function SearchField({
           }
           onKeyDown?.(event)
         }}
-        className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+        className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-cancel-button]:appearance-none"
         {...props}
       />
       {onClear && hasValue && (

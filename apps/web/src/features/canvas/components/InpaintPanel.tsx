@@ -126,7 +126,9 @@ export default function InpaintPanel({
               type="button"
               size="sm"
               variant={session.tool === tool ? 'secondary' : 'outline'}
-              className={session.tool === tool ? 'border-primary/50 text-primary' : undefined}
+              className={
+                session.tool === tool ? 'border border-primary/50 text-primary' : undefined
+              }
               role="radio"
               aria-checked={session.tool === tool}
               onClick={() => session.setTool(tool)}

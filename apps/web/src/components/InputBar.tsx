@@ -2245,7 +2245,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
             <NodeAssetPicker
               description={t('library:panel.pickToAttach')}
               onClose={() => setLibraryPickerZone(null)}
-              onChoose={(asset) => {
+              onChoose={(asset, imageId) => {
                 const zone = libraryPickerZone
                 const targetAdmission = zone === 'shared' ? sharedAdmission : admission
                 const revision = attachmentRevision.current
@@ -2254,10 +2254,11 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                   .getState()
                   .attachAsset(asset.id, targetAdmission, {
                     targetZone: zone,
+                    imageId,
                     shouldCommit: () => revision === attachmentRevision.current,
                   })
                   .catch(() => {
-                    showToast(t('library:asset.saveFailed'), 'error')
+                    showToast(t('library:toast.assetImageMissing'), 'error')
                   })
               }}
             />
