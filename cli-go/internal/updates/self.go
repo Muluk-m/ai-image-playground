@@ -49,6 +49,8 @@ func SelfErrorReason(err error) string {
 		return "unsupported platform"
 	case errors.Is(err, ErrSelfUpdateBusy), errors.Is(err, auth.ErrLockTimeout):
 		return "another muvloom process is updating"
+	case errors.Is(err, netidle.ErrStalled):
+		return "download stalled"
 	case errors.Is(err, ErrSelfRemoteUnavailable):
 		return "network or service error"
 	case errors.Is(err, ErrSelfInvalidBinary):
@@ -464,6 +466,8 @@ func downloadVerifiedBinary(ctx context.Context, base *http.Client, targetURL st
 	}
 	// No total limit: a slow link that keeps moving bytes finishes. The automatic update in
 	// auth status still has its own budget through ctx.
+	ctx, cancel := context.WithTimeout(ctx, selfBinaryMaxTotal) // a floor: a byte every few seconds never finishes
+	defer cancel()
 	fetch := netidle.Start(ctx, httpClient, selfBinaryIdle, false)
 	defer fetch.Stop()
 	req, err := http.NewRequestWithContext(fetch.Ctx, http.MethodGet, targetURL, nil)
@@ -558,3 +562,6 @@ func stallCause(t *netidle.Transfer, err error) error {
 
 // selfBinaryIdle: no bytes moved for this long ends the download. A variable so tests can shorten it.
 var selfBinaryIdle = 30 * time.Second
+
+// selfBinaryMaxTotal bounds an explicit `update self` download that keeps trickling.
+const selfBinaryMaxTotal = 10 * time.Minute

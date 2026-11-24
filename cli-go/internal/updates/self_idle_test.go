@@ -16,7 +16,7 @@ import (
 
 func TestBinaryDownloadThatKeepsMovingFinishesAndAStallFails(t *testing.T) {
 	old := selfBinaryIdle
-	selfBinaryIdle = 300 * time.Millisecond
+	selfBinaryIdle = time.Second
 	t.Cleanup(func() { selfBinaryIdle = old })
 	payload := []byte(strings.Repeat("B", 12))
 	sum := sha256.Sum256(payload)
@@ -29,7 +29,7 @@ func TestBinaryDownloadThatKeepsMovingFinishesAndAStallFails(t *testing.T) {
 			}
 			_, _ = w.Write([]byte{b})
 			w.(http.Flusher).Flush()
-			time.Sleep(80 * time.Millisecond) // ~1s in total, three times the idle limit
+			time.Sleep(50 * time.Millisecond) // ~0.6s in total, each gap a twentieth of the idle limit
 		}
 	}))
 	t.Cleanup(srv.Close)

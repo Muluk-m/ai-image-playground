@@ -5,6 +5,7 @@ package netidle
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptrace"
@@ -117,10 +118,21 @@ func client(base *http.Client, t *Transfer) *http.Client {
 	if base == nil {
 		base = &http.Client{}
 	}
-	transport, _ := base.Transport.(*http.Transport)
-	if transport == nil {
-		transport = http.DefaultTransport.(*http.Transport)
+	c := *base
+	c.Timeout = 0
+	if base.Transport == nil {
+		c.Transport = connTransport(http.DefaultTransport.(*http.Transport), t)
+	} else if transport, ok := base.Transport.(*http.Transport); ok {
+		c.Transport = connTransport(transport, t)
+	} else {
+		// A custom RoundTripper (a test stub, a proxy wrapper) is kept as it is; only the response
+		// body's reads count as progress there.
+		c.Transport = bodyTransport{next: base.Transport, t: t}
 	}
+	return &c
+}
+
+func connTransport(transport *http.Transport, t *Transfer) *http.Transport {
 	tr := transport.Clone()
 	dial := tr.DialContext
 	if dial == nil {
@@ -142,10 +154,34 @@ func client(base *http.Client, t *Transfer) *http.Client {
 			return &progressConn{Conn: conn, t: t}, nil
 		}
 	}
-	c := *base
-	c.Timeout = 0
-	c.Transport = tr
-	return &c
+	return tr
+}
+
+type bodyTransport struct {
+	next http.RoundTripper
+	t    *Transfer
+}
+
+func (b bodyTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := b.next.RoundTrip(req)
+	if err == nil {
+		b.t.extend(b.t.idle)
+		resp.Body = progressBody{ReadCloser: resp.Body, t: b.t}
+	}
+	return resp, err
+}
+
+type progressBody struct {
+	io.ReadCloser
+	t *Transfer
+}
+
+func (p progressBody) Read(b []byte) (int, error) {
+	n, err := p.ReadCloser.Read(b)
+	if n > 0 {
+		p.t.extend(p.t.idle)
+	}
+	return n, err
 }
 
 type progressConn struct {

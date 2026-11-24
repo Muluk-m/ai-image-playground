@@ -685,6 +685,8 @@ func httpGetBytes(ctx context.Context, httpClient *http.Client, targetURL string
 // httpGetArchive downloads a Skill archive with no total limit, only an idle one: a slow link
 // that keeps moving bytes finishes. The automatic update still has its budget through ctx.
 func httpGetArchive(ctx context.Context, httpClient *http.Client, targetURL string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, remoteArchiveMaxTotal) // a floor for a trickling link
+	defer cancel()
 	fetch := netidle.Start(ctx, httpClient, remoteArchiveIdle, false)
 	defer fetch.Stop()
 	body, err := httpGetBytes(fetch.Ctx, fetch.Client, targetURL, 0, maxArchiveBytes)
@@ -1475,3 +1477,6 @@ func writeSkillFileInPlace(target string, data []byte, perm os.FileMode) error {
 
 // remoteArchiveIdle: no bytes moved for this long ends an archive download. A variable so tests can shorten it.
 var remoteArchiveIdle = 15 * time.Second
+
+// remoteArchiveMaxTotal bounds an explicit Skill archive download that keeps trickling.
+const remoteArchiveMaxTotal = 5 * time.Minute

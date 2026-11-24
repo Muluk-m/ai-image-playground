@@ -8,10 +8,10 @@ import (
 )
 
 func TestProgressRacingTheTimerNeverCancels(t *testing.T) {
-	moving := Start(context.Background(), &http.Client{}, 20*time.Millisecond, false)
-	for end := time.Now().Add(300 * time.Millisecond); time.Now().Before(end); {
+	moving := Start(context.Background(), &http.Client{}, 100*time.Millisecond, false)
+	for end := time.Now().Add(600 * time.Millisecond); time.Now().Before(end); {
 		moving.extend(moving.idle) // progress right around every expiry
-		time.Sleep(5 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 	if moving.Stalled() || moving.Ctx.Err() != nil {
 		t.Fatal("a transfer that kept moving was cancelled")

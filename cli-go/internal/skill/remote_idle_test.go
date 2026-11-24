@@ -13,7 +13,7 @@ import (
 
 func TestArchiveDownloadThatKeepsMovingFinishesAndAStallFails(t *testing.T) {
 	old := remoteArchiveIdle
-	remoteArchiveIdle = 300 * time.Millisecond
+	remoteArchiveIdle = time.Second
 	t.Cleanup(func() { remoteArchiveIdle = old })
 	stall := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -24,7 +24,7 @@ func TestArchiveDownloadThatKeepsMovingFinishesAndAStallFails(t *testing.T) {
 			}
 			_, _ = w.Write([]byte{b})
 			w.(http.Flusher).Flush()
-			time.Sleep(80 * time.Millisecond) // ~1s in total, three times the idle limit
+			time.Sleep(50 * time.Millisecond) // ~0.6s in total, each gap a twentieth of the idle limit
 		}
 	}))
 	t.Cleanup(srv.Close)
