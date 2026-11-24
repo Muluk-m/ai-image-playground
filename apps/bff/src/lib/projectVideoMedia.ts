@@ -180,9 +180,10 @@ export async function serveMediaContent(userId: string, mediaId: string, request
     .where(and(eq(schema.media_objects.id, mediaId), eq(schema.media_objects.user_id, userId)))
   if (!media) throw new MediaError(404, 'media_not_found')
   if (media.status !== 'ready' || !media.object_key) throw new MediaError(409, 'media_not_ready')
+  const store = media.storage_scope === 'object' ? objectStore() : durableMediaStore()
   try {
     return rangeStreamResponse(
-      await durableMediaStore().open(media.object_key),
+      await store.open(media.object_key),
       media.content_type,
       'private, no-store',
       request.headers.get('range'),

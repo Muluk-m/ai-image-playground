@@ -736,6 +736,20 @@
       "when": 1795600000000,
       "tag": "0106_queue_tasks_payload_view",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1795700000000,
+      "tag": "0107_media_ledger_unification",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1795800000000,
+      "tag": "0108_media_objects_asset_image_index",
+      "breakpoints": true
     }
   ]
 }

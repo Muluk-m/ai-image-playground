@@ -4,7 +4,7 @@ import { config } from '../config'
 import { db, schema } from '../db/client'
 import { durableMediaStore } from './durableMediaStore'
 import { log } from './logger'
-import { ObjectStoreHttpError } from './objectStore'
+import { ObjectStoreHttpError, objectStore } from './objectStore'
 
 /** 提交里按云媒体身份给的输入图：`aip-media:<media_objects.id>`。 */
 export const MEDIA_INPUT_PATTERN = '^aip-media:[0-9a-f-]{36}$'
@@ -81,6 +81,7 @@ export async function resolveMediaInputs(
     .select({
       id: schema.media_objects.id,
       key: schema.media_objects.object_key,
+      storageScope: schema.media_objects.storage_scope,
       contentType: schema.media_objects.content_type,
       bytes: schema.media_objects.bytes,
     })
@@ -102,7 +103,7 @@ export async function resolveMediaInputs(
     if (row.bytes > config.operator.quotas['sync:asset-image-bytes'])
       throw new MediaInputError('输入图片过大')
     const key = row.key
-    return readInput(id, key, options.signal).then((bytes) =>
+    return readInput(id, key, row.storageScope, options.signal).then((bytes) =>
       options.masked ? exact(bytes, row.contentType) : compressed(bytes, row.contentType),
     )
   }
@@ -181,14 +182,16 @@ function transient(status: number | string | undefined, timedOut: boolean): bool
 async function readInput(
   mediaId: string,
   key: string,
+  storageScope: 'durable' | 'object',
   requestSignal: AbortSignal | undefined,
 ): Promise<Uint8Array> {
+  const store = storageScope === 'object' ? objectStore() : durableMediaStore()
   for (let attempt = 1; ; attempt++) {
     const timeout = AbortSignal.timeout(readAttemptTimeoutMs)
     const signal = requestSignal ? AbortSignal.any([requestSignal, timeout]) : timeout
     const started = performance.now()
     try {
-      return await abortable(durableMediaStore().read(key, signal), signal)
+      return await abortable(store.read(key, signal), signal)
     } catch (error) {
       const clientGone = Boolean(requestSignal?.aborted)
       const status = storageStatus(error)

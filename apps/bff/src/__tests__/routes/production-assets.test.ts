@@ -186,6 +186,12 @@ it('previews only owned referenced images and keeps an expired reference editabl
       (await request(owner, undefined, '/references/preview?kind=asset&id=guessed')).status,
     ).toBe(404)
     await db
+      .delete(schema.media_references)
+      .where(eq(schema.media_references.user_id, owner.userId))
+    await db
+      .delete(schema.media_objects)
+      .where(eq(schema.media_objects.asset_image_id, 'owned-image'))
+    await db
       .delete(schema.user_asset_objects)
       .where(eq(schema.user_asset_objects.image_id, 'owned-image'))
     expect((await request(owner, undefined, path)).status).toBe(404)

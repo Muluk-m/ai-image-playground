@@ -1,12 +1,11 @@
 import { createHash } from 'node:crypto'
-import { readUserAssetBytes } from '@image-playground/read-models'
 import { mediaObject } from '@image-playground/shared'
 import {
   and,
   eq,
   exists,
-  gt,
   isNotNull,
+  isNull,
   lte,
   not,
   notExists,
@@ -29,6 +28,7 @@ import {
 } from './media-image-limits'
 import { withMediaObjectLock } from './mediaObjectLock'
 import { createMediaProcessingLimiter } from './mediaProcessingLimiter'
+import { objectStore } from './objectStore'
 import { attachmentLimits } from './operator-config'
 import type { BffTransaction } from './private-overlay'
 
@@ -61,23 +61,43 @@ export async function lockMediaOwner(tx: BffTransaction, userId: string) {
     .for('no key update')
 }
 
-/** Call with the user's row locked: old assets and new media share one capacity boundary. */
+/**
+ * Call with the user's row locked: old assets and new media share one capacity boundary.
+ * Evaluated in a single SQL statement so concurrent online backfill sees one MVCC snapshot.
+ * Synced asset rows store `reserved_bytes = 0` during Phase 5.4a Expand (preventing pre-5.4a
+ * containers from double-counting during rolling deploys), so we count `bytes` for asset rows
+ * and `reserved_bytes` for durable uploads, plus unmigrated `user_asset_objects`.
+ */
 export async function mediaUsage(tx: BffTransaction, userId: string, now = Date.now()) {
-  const [durable] = await tx
-    .select({ total: sql<string>`coalesce(sum(${media.reserved_bytes}), 0)` })
-    .from(media)
-    .where(
-      and(
-        eq(media.user_id, userId),
-        or(
-          eq(media.attachment_managed, true),
-          eq(media.status, 'ready'),
-          gt(media.expires_at, now),
-        ),
-      ),
-    )
-  const legacyBytes = await readUserAssetBytes(tx, userId)
-  return Number(durable?.total ?? 0) + legacyBytes
+  const rows = (await tx.execute(sql`
+    SELECT (
+      COALESCE(
+        (SELECT SUM(
+           CASE WHEN m.asset_image_id IS NOT NULL THEN m.bytes ELSE m.reserved_bytes END
+         )
+         FROM media_objects m
+         WHERE m.user_id = ${userId}
+           AND (
+             m.attachment_managed = true
+             OR m.asset_image_id IS NOT NULL
+             OR m.status = 'ready'
+             OR m.expires_at > ${new Date(now)}
+           )),
+        0
+      )
+      + COALESCE(
+        (SELECT SUM(a.bytes) FROM user_asset_objects a
+         WHERE a.user_id = ${userId}
+           AND NOT EXISTS (
+             SELECT 1 FROM media_objects m
+             WHERE m.user_id = a.user_id
+               AND m.asset_image_id = a.image_id
+           )),
+        0
+      )
+    ) AS total
+  `)) as unknown as Array<{ total?: string | number }>
+  return Number(rows[0]?.total ?? 0)
 }
 
 export function mediaSummary(row: Media) {
@@ -654,7 +674,12 @@ async function publishMedia(
 
 export async function accessMedia(userId: string, id: string) {
   const row = await ownedMedia(userId, id)
-  if (row.status !== 'ready' || !row.object_key || !row.preview_key)
+  if (
+    row.status !== 'ready' ||
+    row.storage_scope !== 'durable' ||
+    !row.object_key ||
+    !row.preview_key
+  )
     throw new MediaError(409, 'media_not_ready')
   const store = durableMediaStore()
   return {
@@ -724,7 +749,7 @@ export async function purgeDeletingUnreferencedMedia(signal?: AbortSignal): Prom
       const row = queue.shift()
       if (!row) return
       try {
-        if (await finishDeletingMedia(row.userId, row.id)) removed += 1
+        if (await finishDeletingMedia(row.userId, row.id, { requireDeleting: true })) removed += 1
       } catch (error) {
         log.warn(
           { event: 'media.deleting_cleanup_failed', mediaId: row.id, err: String(error) },
@@ -738,7 +763,11 @@ export async function purgeDeletingUnreferencedMedia(signal?: AbortSignal): Prom
 }
 
 /** 持有这位用户的媒体锁：有引用就恢复 ready，没有才删字节并删行。 */
-export async function finishDeletingMedia(userId: string, id: string): Promise<boolean> {
+export async function finishDeletingMedia(
+  userId: string,
+  id: string,
+  options?: { readonly requireDeleting?: boolean },
+): Promise<boolean> {
   return db.transaction(async (tx) => {
     await lockMediaOwner(tx, userId)
     const [referenced] = await tx
@@ -750,7 +779,14 @@ export async function finishDeletingMedia(userId: string, id: string): Promise<b
       await tx
         .update(media)
         .set({ status: 'ready', updated_at: Date.now() })
-        .where(and(eq(media.id, id), eq(media.user_id, userId), eq(media.status, 'deleting')))
+        .where(
+          and(
+            eq(media.id, id),
+            eq(media.user_id, userId),
+            eq(media.status, 'deleting'),
+            eq(media.storage_scope, 'durable'),
+          ),
+        )
       return false
     }
     const [row] = await tx
@@ -760,6 +796,7 @@ export async function finishDeletingMedia(userId: string, id: string): Promise<b
         and(
           eq(media.id, id),
           eq(media.user_id, userId),
+          options?.requireDeleting ? eq(media.status, 'deleting') : undefined,
           notExists(
             tx
               .select({ id: schema.media_references.media_id })
@@ -772,13 +809,23 @@ export async function finishDeletingMedia(userId: string, id: string): Promise<b
         id: media.id,
         stagingKey: media.staging_key,
         objectKey: media.object_key,
+        storageScope: media.storage_scope,
+        assetImageId: media.asset_image_id,
       })
     if (!row) return false
-    const store = durableMediaStore()
     try {
-      await store.deletePrefix(`objects/${userId}/${row.id}/`)
-      await store.deletePrefix(row.stagingKey)
-      if (row.objectKey) await store.deletePrefix(row.objectKey)
+      if (row.storageScope === 'object') {
+        const key =
+          row.objectKey ?? (row.assetImageId ? `users/${userId}/assets/${row.assetImageId}` : null)
+        if (key) {
+          await objectStore().deleteObject(key)
+        }
+      } else {
+        const store = durableMediaStore()
+        await store.deletePrefix(`objects/${userId}/${row.id}/`)
+        await store.deletePrefix(row.stagingKey)
+        if (row.objectKey) await store.deletePrefix(row.objectKey)
+      }
     } catch (error) {
       log.warn(
         { event: 'media.deleting_bytes_failed', mediaId: row.id, err: String(error) },
@@ -801,8 +848,229 @@ export async function finishDeletingMedia(userId: string, id: string): Promise<b
         ),
       )
       .returning({ id: media.id })
+    if (deleted.length > 0 && row.assetImageId) {
+      await tx
+        .delete(schema.user_asset_objects)
+        .where(
+          and(
+            eq(schema.user_asset_objects.user_id, userId),
+            eq(schema.user_asset_objects.image_id, row.assetImageId),
+          ),
+        )
+    }
     return deleted.length > 0
   })
+}
+
+/**
+ * 锁住用户的同步版本行（与旧代 `POST /api/sync` 共用同一把行锁），必须在 `lockMediaOwner` 之后获取，
+ * 使回收与同步（含未感知 `lockMediaOwner` 的旧代 BFF 同步）严格串行且不产生死锁。
+ */
+async function lockUserSyncState(tx: BffTransaction, userId: string): Promise<void> {
+  await tx
+    .insert(schema.user_sync_state)
+    .values({ user_id: userId, version: 0 })
+    .onConflictDoNothing()
+  await tx
+    .select({ version: schema.user_sync_state.version })
+    .from(schema.user_sync_state)
+    .where(eq(schema.user_sync_state.user_id, userId))
+    .for('update')
+}
+
+/** 未被任何活跃实体引用的素材图片在宽限期后自动回收（解决 #222 墓碑长期占额度问题）。 */
+export const ASSET_RECLAIM_GRACE_MS = 24 * 60 * 60 * 1000
+
+/**
+ * 回收宽限期满且不再被任何 `media_references`、活跃素材、活跃模板、导演台文档、生成草稿（含已确认历史）、
+ * 引用该素材的在途任务或运行中智能体执行引用的同步素材图片（`asset_image_id IS NOT NULL`）。
+ * 采用两阶段排他可恢复删除协议：
+ * 1. 事务 1 按 `lockMediaOwner -> lockUserSyncState -> media_objects FOR UPDATE` 持锁，用独立查询在最新快照
+ *    复核全部保护条件，通过后在同一事务内把 `media_objects.status` 置为 `'deleting'` 并立即删除 `user_asset_objects`
+ *    旧账本行（使滚动发布期间的旧代 `POST /api/sync` 在整个删除窗口内都无法重新绑定该图）；
+ * 2. 委托 `finishDeletingMedia(userId, mediaId, { requireDeleting: true })` 在 `lockMediaOwner` 排他锁内按
+ *    精确 `media.id` 校验行仍处于 `deleting` 后执行 `deleteObject` 并删除账本行。若步骤 1 与步骤 2 之间已被另一
+ *    `purgeDeletingUnreferencedMedia` 清扫且同 `imageId` 被重新上传成新行，旧 `media.id` 已不存在，绝不误删新对象；
+ *    若对象存储删除临时失败，行停留在 `deleting`（绝不回滚成已丢字节的 `ready`），由下轮清扫重试收尾。
+ */
+export async function reclaimUnreferencedAssetMedia(
+  now = Date.now(),
+  graceMs = ASSET_RECLAIM_GRACE_MS,
+  signal?: AbortSignal,
+  hooks?: { readonly afterClaim?: (mediaId: string) => Promise<void> | void },
+): Promise<number> {
+  if (signal?.aborted) return 0
+  const cutoff = now - graceMs
+  const eligible = and(
+    isNotNull(media.asset_image_id),
+    eq(media.status, 'ready'),
+    eq(media.attachment_managed, false),
+    lte(media.updated_at, cutoff),
+  )
+  const protection = or(
+    exists(
+      db
+        .select({ id: schema.media_references.media_id })
+        .from(schema.media_references)
+        .where(eq(schema.media_references.media_id, media.id)),
+    ),
+    exists(
+      db
+        .select({ id: schema.user_assets.id })
+        .from(schema.user_assets)
+        .where(
+          and(
+            eq(schema.user_assets.user_id, media.user_id),
+            isNull(schema.user_assets.deleted_at),
+            or(
+              eq(schema.user_assets.image_id, media.asset_image_id),
+              sql`EXISTS (
+                SELECT 1
+                FROM jsonb_array_elements(COALESCE(${schema.user_assets.views}, '[]'::jsonb)) AS v
+                WHERE v->>'imageId' = ${media.asset_image_id}
+              )`,
+            ),
+          ),
+        ),
+    ),
+    exists(
+      db
+        .select({ id: schema.user_looks.id })
+        .from(schema.user_looks)
+        .where(
+          and(
+            eq(schema.user_looks.user_id, media.user_id),
+            isNull(schema.user_looks.deleted_at),
+            or(
+              eq(schema.user_looks.cover_image_id, media.asset_image_id),
+              sql`COALESCE(${schema.user_looks.reference_image_ids}, '[]'::jsonb) ? ${media.asset_image_id}`,
+            ),
+          ),
+        ),
+    ),
+    exists(
+      db
+        .select({ id: schema.agent_conversations.id })
+        .from(schema.agent_conversations)
+        .where(
+          and(
+            eq(schema.agent_conversations.user_id, media.user_id),
+            isNotNull(schema.agent_conversations.production),
+            sql`POSITION(${media.asset_image_id} IN ${schema.agent_conversations.production}::text) > 0`,
+          ),
+        ),
+    ),
+    exists(
+      db
+        .select({ id: schema.agent_generation_drafts.id })
+        .from(schema.agent_generation_drafts)
+        .innerJoin(
+          schema.agent_conversations,
+          eq(schema.agent_conversations.id, schema.agent_generation_drafts.conversation_id),
+        )
+        .where(
+          and(
+            eq(schema.agent_conversations.user_id, media.user_id),
+            sql`POSITION(${media.asset_image_id} IN ${schema.agent_generation_drafts.submission}::text) > 0`,
+          ),
+        ),
+    ),
+    exists(
+      db
+        .select({ id: schema.tasks.id })
+        .from(schema.tasks)
+        .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
+        .where(
+          and(
+            eq(schema.tasks.user_id, media.user_id),
+            notInArray(schema.tasks.status, ['completed', 'failed', 'cancelled']),
+            sql`(
+              POSITION(${media.asset_image_id} IN COALESCE(${schema.task_payloads.request_payload}, ${schema.tasks.request_payload})::text) > 0
+              OR POSITION(${media.id} IN COALESCE(${schema.task_payloads.request_payload}, ${schema.tasks.request_payload})::text) > 0
+            )`,
+          ),
+        ),
+    ),
+    exists(
+      db
+        .select({ id: schema.agent_executions.turn_id })
+        .from(schema.agent_executions)
+        .innerJoin(
+          schema.agent_conversations,
+          eq(schema.agent_conversations.id, schema.agent_executions.conversation_id),
+        )
+        .where(
+          and(
+            eq(schema.agent_conversations.user_id, media.user_id),
+            eq(schema.agent_executions.state, 'running'),
+          ),
+        ),
+    ),
+  )!
+
+  const candidates = await db
+    .select({ id: media.id, userId: media.user_id })
+    .from(media)
+    .where(and(eligible, not(protection)))
+    .limit(16)
+
+  let removed = 0
+  for (const candidate of candidates) {
+    if (signal?.aborted) break
+    try {
+      const claimed = await db.transaction(async (tx) => {
+        await lockMediaOwner(tx, candidate.userId)
+        await lockUserSyncState(tx, candidate.userId)
+        const [locked] = await tx
+          .select({ id: media.id })
+          .from(media)
+          .where(and(eq(media.id, candidate.id), eligible))
+          .for('update')
+          .limit(1)
+        if (!locked) return null
+        // 持锁后用独立语句在最新 READ COMMITTED 快照复核全部保护条件，避免与并发引用提交交错。
+        const [stillEligible] = await tx
+          .select({ id: media.id })
+          .from(media)
+          .where(and(eq(media.id, locked.id), eligible, not(protection)))
+          .limit(1)
+        if (!stillEligible) return null
+        const [marked] = await tx
+          .update(media)
+          .set({ status: 'deleting', updated_at: now })
+          .where(and(eq(media.id, locked.id), eq(media.status, 'ready')))
+          .returning({
+            id: media.id,
+            assetImageId: media.asset_image_id,
+          })
+        if (!marked) return null
+        // 仍持有 user_sync_state 行锁时同步撤下旧账本行，封堵滚动发布期旧代 POST /api/sync 复用该图。
+        if (marked.assetImageId) {
+          await tx
+            .delete(schema.user_asset_objects)
+            .where(
+              and(
+                eq(schema.user_asset_objects.user_id, candidate.userId),
+                eq(schema.user_asset_objects.image_id, marked.assetImageId),
+              ),
+            )
+        }
+        return marked
+      })
+      if (!claimed) continue
+      await hooks?.afterClaim?.(claimed.id)
+      // 统一经 finishDeletingMedia(requireDeleting: true) 在 lockMediaOwner 下排他完成对象删除与账本清理。
+      if (await finishDeletingMedia(candidate.userId, claimed.id, { requireDeleting: true })) {
+        removed += 1
+      }
+    } catch (error) {
+      log.warn(
+        { event: 'media.asset_reclaim_failed', mediaId: candidate.id, err: String(error) },
+        'unreferenced asset reclamation failed; kept deleting for the next sweep',
+      )
+    }
+  }
+  return removed
 }
 
 /** Only explicitly managed attachments are eligible; legacy media have incomplete references. */

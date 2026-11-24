@@ -154,6 +154,8 @@ const stopMaintenance = startPeriodicSteps(
             run: async (signal: AbortSignal) => {
               await purgeExpiredAttachmentMedia()
               if (signal.aborted) return
+              // Expand 滚动发布阶段旧代 BFF 尚未退出且仍运行不含 storage_scope 感知的 deleting 清扫，
+              // 待生产完成 Expand 部署与零搬运回填后，再在切换/收口阶段挂载 reclaimUnreferencedAssetMedia。
               await purgeDeletingUnreferencedMedia(signal)
             },
           },
