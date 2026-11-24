@@ -1,4 +1,4 @@
-import type { GptDirectAdminView } from '@image-playground/shared'
+import type { GeminiDirectAdminView, GptDirectAdminView } from '@image-playground/shared'
 import {
   hashKey,
   type QueryClient,
@@ -71,6 +71,38 @@ export function deleteGptDirectKey(id: string) {
 
 export function restoreGptDirectKey(fingerprint: string) {
   return apiClient.post<GptDirectAdminView>(`/api/gpt-direct/keys/${fingerprint}/restore`)
+}
+
+export const geminiDirectQueryKey = ['gemini-direct'] as const
+
+export function useGeminiDirect(days: 7 | 30, enabled = true) {
+  return useQuery({
+    queryKey: [...geminiDirectQueryKey, days],
+    queryFn: () => apiClient.get<GeminiDirectAdminView>(`/api/gemini-direct?days=${days}`),
+    enabled,
+  })
+}
+
+export function createGeminiDirectKey(body: { apiKey: string; budgetUsd: number }) {
+  return apiClient.post<GeminiDirectAdminView>('/api/gemini-direct/keys', body)
+}
+
+export function updateGeminiDirectKey(id: string, body: { budgetUsd?: number; enabled?: boolean }) {
+  return apiClient.patch<GeminiDirectAdminView>(`/api/gemini-direct/keys/${id}`, body)
+}
+
+export function reorderGeminiDirectKeys(ids: string[], revision: number) {
+  return apiClient.post<GeminiDirectAdminView>('/api/gemini-direct/keys/order', { ids, revision })
+}
+
+export function deleteGeminiDirectKey(id: string) {
+  return apiClient.del<GeminiDirectAdminView>(`/api/gemini-direct/keys/${id}`)
+}
+
+export function restoreGeminiDirectKey(fingerprint: string) {
+  return apiClient.post<GeminiDirectAdminView>(
+    `/api/gemini-direct/keys/${encodeURIComponent(fingerprint)}/restore`,
+  )
 }
 
 export function useDevices(

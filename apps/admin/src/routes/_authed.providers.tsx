@@ -18,6 +18,7 @@ import {
 } from '@/features/models/ModelTable'
 import { modelState } from '@/features/models/model-state'
 import { ChannelTopologyPanel } from '@/features/providers/ChannelTopologyPanel'
+import { GeminiDirectPanel } from '@/features/providers/GeminiDirectPanel'
 import { GptDirectPanel } from '@/features/providers/GptDirectPanel'
 import { UpstreamSecretsPanel } from '@/features/providers/UpstreamSecretsPanel'
 import { apiClient } from '@/lib/api-client'
@@ -25,9 +26,16 @@ import {
   PrivateAdminBillingPanel,
   usePrivateAdminBillingSettingsEnabled,
 } from '@/lib/private-overlay'
-import { gptDirectQueryKey, upstreamSecretsQueryKey, useGptDirect } from '@/lib/queries'
+import {
+  geminiDirectQueryKey,
+  gptDirectQueryKey,
+  upstreamSecretsQueryKey,
+  useGeminiDirect,
+  useGptDirect,
+} from '@/lib/queries'
 
 export type GatewayTab = 'models' | 'routing' | 'keys' | 'billing'
+export type DirectPoolKind = 'openai' | 'gemini'
 
 function normalizeGatewayTab(raw: unknown): GatewayTab | undefined {
   if (raw === 'models' || raw === 'routing' || raw === 'keys' || raw === 'billing') return raw
@@ -44,16 +52,17 @@ function normalizeModelKind(raw: unknown): ModelFilterKind | undefined {
 export const Route = createFileRoute('/_authed/providers')({
   validateSearch: (
     search: Record<string, unknown>,
-  ): { tab?: GatewayTab; kind?: ModelFilterKind; days?: 7 | 30 } => ({
+  ): { tab?: GatewayTab; kind?: ModelFilterKind; days?: 7 | 30; pool?: DirectPoolKind } => ({
     tab: normalizeGatewayTab(search.tab),
     kind: normalizeModelKind(search.kind),
     days: search.days === '30' || search.days === 30 ? 30 : 7,
+    pool: search.pool === 'gemini' ? 'gemini' : 'openai',
   }),
   component: GatewayAndBillingPage,
 })
 
 function GatewayAndBillingPage() {
-  const { tab = 'models', kind = 'all', days = 7 } = Route.useSearch()
+  const { tab = 'models', kind = 'all', days = 7, pool = 'openai' } = Route.useSearch()
   const navigate = Route.useNavigate()
   const queryClient = useQueryClient()
   const billingEnabled = usePrivateAdminBillingSettingsEnabled()
@@ -65,7 +74,8 @@ function GatewayAndBillingPage() {
     queryFn: () => apiClient.get<ManagedModelsView>('/api/models'),
     enabled: activeTab === 'models' || activeTab === 'routing',
   })
-  const directQuery = useGptDirect(days, activeTab === 'keys')
+  const directQuery = useGptDirect(days, activeTab === 'keys' && pool === 'openai')
+  const geminiQuery = useGeminiDirect(days, activeTab === 'keys' && pool === 'gemini')
 
   const models = modelsQuery.data?.models ?? []
   const channels = modelsQuery.data?.channels ?? []
@@ -73,13 +83,14 @@ function GatewayAndBillingPage() {
 
   const pageTitle = billingEnabled ? '模型与计费' : '模型与网关'
 
-  const refreshing = modelsQuery.isFetching || directQuery.isFetching
+  const refreshing = modelsQuery.isFetching || directQuery.isFetching || geminiQuery.isFetching
 
   function refreshAll() {
     void Promise.all([
       queryClient.invalidateQueries({ queryKey: modelsQueryKey }),
       queryClient.invalidateQueries({ queryKey: agentModelsQueryKey }),
       queryClient.invalidateQueries({ queryKey: gptDirectQueryKey }),
+      queryClient.invalidateQueries({ queryKey: geminiDirectQueryKey }),
       queryClient.invalidateQueries({ queryKey: upstreamSecretsQueryKey }),
       queryClient.invalidateQueries({ queryKey: ['private-billing'] }),
     ])
@@ -109,7 +120,7 @@ function GatewayAndBillingPage() {
         onValueChange={(value) => {
           const next = value as GatewayTab
           if (next === 'keys') {
-            void navigate({ search: { tab: 'keys', days }, replace: true })
+            void navigate({ search: { tab: 'keys', days, pool }, replace: true })
           } else if (next === 'models') {
             void navigate({ search: kind !== 'all' ? { kind } : {}, replace: true })
           } else {
@@ -164,7 +175,49 @@ function GatewayAndBillingPage() {
 
         <TabsContent value="keys" className="mt-4 space-y-4">
           <UpstreamSecretsPanel />
-          {directQuery.data ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <SegmentedControl
+              options={[
+                { value: 'openai' as const, label: 'OpenAI 直连密钥池' },
+                { value: 'gemini' as const, label: 'Gemini 直连密钥池' },
+              ]}
+              value={pool}
+              onChange={(next) =>
+                void navigate({
+                  search: { tab: 'keys', days, pool: next },
+                  replace: true,
+                })
+              }
+              label="直连密钥池"
+            />
+          </div>
+          {pool === 'gemini' ? (
+            geminiQuery.data ? (
+              <GeminiDirectPanel
+                view={geminiQuery.data}
+                rangeControl={
+                  <SegmentedControl
+                    options={[
+                      { value: '7' as const, label: '7 天' },
+                      { value: '30' as const, label: '30 天' },
+                    ]}
+                    value={String(days) as '7' | '30'}
+                    onChange={(next) =>
+                      void navigate({
+                        search: { tab: 'keys', pool: 'gemini', days: next === '30' ? 30 : 7 },
+                        replace: true,
+                      })
+                    }
+                    label="统计范围"
+                  />
+                }
+              />
+            ) : geminiQuery.isError ? (
+              <ErrorState label="Gemini 直连状态加载失败" error={geminiQuery.error} />
+            ) : (
+              <PendingState label="正在读取 Gemini 密钥池与统计" />
+            )
+          ) : directQuery.data ? (
             <GptDirectPanel
               view={directQuery.data}
               rangeControl={
@@ -176,7 +229,7 @@ function GatewayAndBillingPage() {
                   value={String(days) as '7' | '30'}
                   onChange={(next) =>
                     void navigate({
-                      search: { tab: 'keys', days: next === '30' ? 30 : 7 },
+                      search: { tab: 'keys', pool: 'openai', days: next === '30' ? 30 : 7 },
                       replace: true,
                     })
                   }
