@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 import HomeTargetPicker from '../../components/creation/HomeTargetPicker'
-import { SEEN_FEATURES_KEY } from '../../lib/featureDiscovery'
+import { resetSeenFeatures } from '../../lib/featureDiscovery'
 import { useStore } from '../../store'
 
 vi.mock('../../lib/clientCapabilities', async (original) => ({
@@ -27,7 +27,7 @@ it('lists every creation route in one picker and keeps the shared draft when swi
   Element.prototype.hasPointerCapture = vi.fn(() => false)
   Element.prototype.releasePointerCapture = vi.fn()
   const previous = useStore.getState()
-  localStorage.removeItem(SEEN_FEATURES_KEY)
+  resetSeenFeatures()
   const references = [{ id: 'kept', dataUrl: 'data:image/png;base64,AA' }]
   useStore.setState({ createTarget: 'video', prompt: 'keep this idea', inputImages: references })
   const host = document.createElement('div')
@@ -69,7 +69,7 @@ it('lists every creation route in one picker and keeps the shared draft when swi
   } finally {
     act(() => root.unmount())
     host.remove()
-    localStorage.removeItem(SEEN_FEATURES_KEY)
+    resetSeenFeatures()
     useStore.setState(previous)
     vi.unstubAllGlobals()
   }

@@ -1,17 +1,38 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   groupHasUnseenFeature,
   isFeatureUnseen,
   isFeatureWithinWindow,
   markFeatureSeen,
   readSeenFeatures,
+  resetSeenFeatures,
   SEEN_FEATURES_KEY,
 } from '../../lib/featureDiscovery'
 
+function createStorageShim() {
+  const map = new Map<string, string>()
+  return {
+    getItem: (key: string) => map.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      map.set(key, value)
+    },
+    removeItem: (key: string) => {
+      map.delete(key)
+    },
+    clear: () => map.clear(),
+  }
+}
+
 describe('featureDiscovery', () => {
   beforeEach(() => {
-    localStorage.removeItem(SEEN_FEATURES_KEY)
+    vi.stubGlobal('localStorage', createStorageShim())
+    resetSeenFeatures()
+  })
+
+  afterEach(() => {
+    resetSeenFeatures()
+    vi.unstubAllGlobals()
   })
 
   it('respects launch expiry window', () => {
@@ -29,6 +50,7 @@ describe('featureDiscovery', () => {
 
     markFeatureSeen('composer.batchMode')
 
+    expect(localStorage.getItem(SEEN_FEATURES_KEY)).toContain('composer.batchMode')
     expect(readSeenFeatures().has('composer.batchMode')).toBe(true)
     expect(isFeatureUnseen('composer.batchMode', readSeenFeatures(), now)).toBe(false)
     expect(groupHasUnseenFeature('composer-mode', readSeenFeatures(), now)).toBe(false)

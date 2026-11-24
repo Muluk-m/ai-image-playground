@@ -37,15 +37,33 @@ export function isFeatureWithinWindow(id: FeatureDiscoveryId, now: number = Date
   return now < parseExpiryMs(entry.until)
 }
 
+let memorySeen = new Set<string>()
+
 export function readSeenFeatures(): ReadonlySet<string> {
   try {
+    if (typeof localStorage?.getItem !== 'function') return new Set(memorySeen)
     const raw = localStorage.getItem(SEEN_FEATURES_KEY)
-    if (!raw) return new Set()
+    if (!raw) return new Set(memorySeen)
     const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return new Set()
-    return new Set(parsed.filter((item): item is string => typeof item === 'string'))
+    if (!Array.isArray(parsed)) return new Set(memorySeen)
+    return new Set([
+      ...memorySeen,
+      ...parsed.filter((item): item is string => typeof item === 'string'),
+    ])
   } catch {
-    return new Set()
+    return new Set(memorySeen)
+  }
+}
+
+export function resetSeenFeatures(): void {
+  memorySeen = new Set()
+  try {
+    if (typeof localStorage?.removeItem === 'function') localStorage.removeItem(SEEN_FEATURES_KEY)
+  } catch {
+    // ignore storage errors
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent<ReadonlySet<string>>(CHANGE_EVENT, { detail: new Set() }))
   }
 }
 
@@ -74,12 +92,17 @@ export function markFeatureSeen(id: FeatureDiscoveryId): void {
   const seen = new Set(readSeenFeatures())
   if (seen.has(id)) return
   seen.add(id)
+  memorySeen = seen
   try {
-    localStorage.setItem(SEEN_FEATURES_KEY, JSON.stringify([...seen]))
+    if (typeof localStorage?.setItem === 'function') {
+      localStorage.setItem(SEEN_FEATURES_KEY, JSON.stringify([...seen]))
+    }
   } catch {
     // Storage can be unavailable in private browsing; in-memory listeners still update.
   }
-  window.dispatchEvent(new CustomEvent<ReadonlySet<string>>(CHANGE_EVENT, { detail: seen }))
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent<ReadonlySet<string>>(CHANGE_EVENT, { detail: seen }))
+  }
 }
 
 function useSeenFeatures(): ReadonlySet<string> {
