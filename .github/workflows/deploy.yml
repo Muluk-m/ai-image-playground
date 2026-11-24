@@ -3,18 +3,21 @@
 # with its own API hostname and a host-scoped noindex.
 # Runbook, secrets and break-glass manual release: docs/deploy/image-release.md.
 name: Deploy production
-# 常规发布按窗口：北京时间 12:30、18:30、23:30 之后（cron 取 :37 避开整点、半点高峰；GitHub schedule
-# 不保证准时，2026-11 实测常晚 2–7 小时），只发当时 origin/main 的 tip，
-# 且该提交在 main 上的 `Web checks` 必须已成功。workflow_dispatch 是紧急通道：全量重发，须填 reason。
+# 按需发布：合并 main 不会自动上线，由 Nain 决定何时发（Actions 页面 Run workflow，或
+# `gh workflow run deploy.yml --ref main`）。只发当时 origin/main 的 tip，且该提交在 main 上的
+# `Web checks` 必须已成功。默认 incremental，只发自上次以来有改动的那几部分；full 全部重发（不回退）。
 on:
-  schedule:
-    - cron: '37 4,10,15 * * *'
   workflow_dispatch:
     inputs:
+      mode:
+        description: incremental 只发有改动的部分；full 全部重发
+        type: choice
+        options: [incremental, full]
+        default: incremental
       reason:
-        description: 紧急发布原因（写入 job summary）
+        description: 发布说明（可选，写入 job summary）
         type: string
-        required: true
+        required: false
 permissions:
   contents: read
 # One deployment at a time. A queued run waits; a newer queued run replaces it.
@@ -29,9 +32,7 @@ defaults:
 jobs:
   target:
     name: Pick the commit
-    if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
-      github.event_name == 'schedule'
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -49,72 +50,65 @@ jobs:
           PAGES_ENV: ${{ secrets.PAGES_ENV }}
         run: |
           [ -n "$PAGES_ENV" ] || { echo "::error::Secret PAGES_ENV is empty or missing."; exit 1; }
-      - name: Record the emergency reason
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          REASON: ${{ inputs.reason }}
-          ACTOR: ${{ github.actor }}
-        run: |
-          {
-            echo "### 紧急发布（workflow_dispatch）"
-            echo "- 触发人：$ACTOR"
-            echo "- 原因：$REASON"
-          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
           fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
-      # 窗口发 checkout 当下 main 的 tip（排队期间 main 前进也不会丢窗口）；手动沿用触发时的提交。
+      # 发 checkout 当下 main 的 tip：排队期间 main 前进了，就发更新的那个。
       - id: sha
-        env:
-          EVENT: ${{ github.event_name }}
-          EVENT_SHA: ${{ github.sha }}
-        run: |
-          if [ "$EVENT" = schedule ]; then
-            echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          else
-            echo "sha=$EVENT_SHA" >> "$GITHUB_OUTPUT"
-          fi
-      # 窗口只发 `Web checks` 已在 main 上成功的 tip；没跑完或失败就跳过本窗口（不报错）。
-      - id: gate
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      # 只发 `Web checks` 已在 main 上成功的 tip；没跑完或失败直接报错，等检查通过后重新触发。
+      - name: Require Web checks on main
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ steps.sha.outputs.sha }}
-          EVENT: ${{ github.event_name }}
         run: |
-          if [ "$EVENT" != schedule ]; then
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           # success：有成功记录；running：无成功但有未完成；failure：只有失败；none：没有记录
           state=$(
             gh api "repos/$REPO/actions/workflows/web.yml/runs?head_sha=$SHA&event=push&branch=main&per_page=100" \
               --jq 'if any(.workflow_runs[]?; .status == "completed" and .conclusion == "success") then "success" elif any(.workflow_runs[]?; .status != "completed") then "running" elif (.workflow_runs | length) == 0 then "none" else "failure" end'
           ) || state=unavailable
           if [ "$state" != success ]; then
-            # failure 会一直挡住后续窗口，直到 main 上有新提交；用 warning 让它出现在运行摘要里。
-            level=notice
-            [ "$state" = failure ] && level=warning
-            echo "::$level::Web checks for $SHA on main is '$state'; skipping this window."
-            echo "ok=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            echo "::error::Web checks for $SHA on main is '$state'; release it after the checks pass."
+            exit 1
           fi
-          echo "ok=true" >> "$GITHUB_OUTPUT"
       - id: decide
-        if: steps.gate.outputs.ok == 'true'
         env:
           PAGES_ENV: ${{ secrets.PAGES_ENV }}
           SHA: ${{ steps.sha.outputs.sha }}
-          EVENT: ${{ github.event_name }}
+          MODE: ${{ inputs.mode || 'incremental' }}
         run: |
           printf '%s\n' "$PAGES_ENV" > "$RUNNER_TEMP/pages.env"
           # shellcheck source=/dev/null
           . "$RUNNER_TEMP/pages.env"
           # The enterprise domain is served by the same Pages project, so the muvloom origin speaks for it.
           WEB_ORIGINS="$PAID_PUBLIC_ORIGIN" ADMIN_ORIGIN="${ADMIN_PUBLIC_ORIGIN:-}" \
-            scripts/ci-deploy-target.sh "$SHA" "$EVENT" "$PAID_BFF_BASE_URL"
+            scripts/ci-deploy-target.sh "$SHA" "$MODE" "$PAID_BFF_BASE_URL"
+      - name: Summarize the release
+        env:
+          SHA: ${{ steps.sha.outputs.sha }}
+          MODE: ${{ inputs.mode || 'incremental' }}
+          REASON: ${{ inputs.reason }}
+          ACTOR: ${{ github.actor }}
+          API: ${{ steps.decide.outputs.deploy_api }}
+          WEB: ${{ steps.decide.outputs.deploy_web }}
+          ADMIN: ${{ steps.decide.outputs.deploy_admin }}
+        run: |
+          previous=$(git describe --tags --abbrev=0 --match 'v*' "$SHA^" 2>/dev/null || true)
+          {
+            echo "### 生产发布"
+            echo "- 提交：\`$SHA\`（$MODE），触发人：$ACTOR"
+            [ -z "$REASON" ] || echo "- 说明：$REASON"
+            echo "- 发布：API=$API，muvloom 前端=$WEB，Admin=$ADMIN"
+            if [ -n "$previous" ]; then
+              echo
+              echo "#### 自 $previous 以来的提交"
+              git log --no-merges --format='- %s' "$previous..$SHA"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
   release:
     name: Tag the release
