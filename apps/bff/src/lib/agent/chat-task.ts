@@ -1,3 +1,4 @@
+import { resolvedTaskRequestPayload } from '@image-playground/db'
 import type { AgentTurnCost, AgentTurnUsage } from '@image-playground/shared'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
@@ -165,9 +166,10 @@ async function collectTurnCost(conversationId: string, turnId: string): Promise<
     .select({
       id: schema.tasks.id,
       kind: schema.tasks.kind,
-      video: sql<string | null>`${schema.tasks.request_payload} ->> 'video'`,
+      video: sql<string | null>`${resolvedTaskRequestPayload} ->> 'video'`,
     })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(
       and(
         // 前导列不给全就用不上 idx_tasks_agent_turn，退化成全表扫。

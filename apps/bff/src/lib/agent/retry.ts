@@ -1,3 +1,4 @@
+import { resolvedTaskRequestPayload } from '@image-playground/db'
 import type {
   AgentMessageView,
   AgentToolErrorCode,
@@ -260,8 +261,9 @@ async function submitRetryTask(
   },
 ): Promise<SubmitOutcome> {
   const [original] = await db
-    .select({ provider: schema.tasks.provider, request: schema.tasks.request_payload })
+    .select({ provider: schema.tasks.provider, request: resolvedTaskRequestPayload })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(
       and(
         eq(schema.tasks.id, plan.job.taskId),

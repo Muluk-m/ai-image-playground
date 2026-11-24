@@ -1,3 +1,4 @@
+import { resolvedTaskResultPayload } from '@image-playground/db'
 import {
   type ProductionContent,
   type ProductionMediaReference,
@@ -55,9 +56,10 @@ export async function validateProductionMediaReferences(
         .select({
           status: schema.tasks.status,
           provider: schema.tasks.provider,
-          result: schema.tasks.result_payload,
+          result: resolvedTaskResultPayload,
         })
         .from(schema.tasks)
+        .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
         .where(
           and(
             taskAccessWhere(parsed.generationId, userId),

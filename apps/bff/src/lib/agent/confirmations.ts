@@ -1,3 +1,4 @@
+import { resolvedTaskRequestPayload } from '@image-playground/db'
 import type {
   AgentBackgroundJob,
   AgentContentBlock,
@@ -505,8 +506,9 @@ async function taskOfCommand(
   draft: DraftRow,
 ): Promise<{ readonly taskId: string; readonly prompt: string } | null> {
   const [task] = await tx
-    .select({ id: schema.tasks.id, request: schema.tasks.request_payload })
+    .select({ id: schema.tasks.id, request: resolvedTaskRequestPayload })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(
       and(
         eq(schema.tasks.client_request_id, draft.id),

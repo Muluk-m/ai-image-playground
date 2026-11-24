@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { resolvedTaskResultPayload } from '@image-playground/db'
 import { mediaObject } from '@image-playground/shared'
 import { and, eq, gt } from 'drizzle-orm'
 import { config } from '../config'
@@ -66,8 +67,13 @@ export async function promoteQueueVideo(userId: string, taskId: string, outputIn
 
 async function promote(userId: string, taskId: string, outputIndex: number) {
   const [task] = await db
-    .select()
+    .select({
+      status: schema.tasks.status,
+      provider: schema.tasks.provider,
+      result_payload: resolvedTaskResultPayload,
+    })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(and(eq(schema.tasks.id, taskId), eq(schema.tasks.user_id, userId)))
   if (!task) throw new MediaError(404, 'task_not_found')
   if (task.status !== 'completed') throw new MediaError(409, 'task_not_ready')

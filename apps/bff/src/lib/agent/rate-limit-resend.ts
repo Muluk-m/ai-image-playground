@@ -1,3 +1,4 @@
+import { resolvedTaskRequestPayload } from '@image-playground/db'
 import { and, eq, gte, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
@@ -26,6 +27,7 @@ export async function recentlyRateLimited(
   const [hit] = await executor
     .select({ id: schema.tasks.id })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(
       and(
         // 走 idx_tasks_agent_turn（会话打头）；agent_jobs 只有「未投递」的部分索引，失败的早已投递。
@@ -34,7 +36,7 @@ export async function recentlyRateLimited(
         eq(schema.tasks.status, 'failed'),
         eq(schema.tasks.error_type, 'rate_limited'),
         gte(schema.tasks.completed_at, since),
-        sql`${schema.tasks.request_payload}->>'prompt' = ${input.prompt}`,
+        sql`${resolvedTaskRequestPayload}->>'prompt' = ${input.prompt}`,
       ),
     )
     .limit(1)

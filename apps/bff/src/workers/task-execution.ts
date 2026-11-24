@@ -1,5 +1,9 @@
 import { hostname } from 'node:os'
 import {
+  taskHasArchivePayloadSqlForAlias,
+  taskRequestPayloadSubquerySql,
+} from '@image-playground/db'
+import {
   type PersistedSubmitRequest,
   type QueueProvider,
   queueTask,
@@ -19,11 +23,12 @@ import { cancelLateUpstreamTasks } from '../lib/upstream-cancel'
 import {
   finishTask,
   heldBy,
+  patchTaskPayload,
+  readTaskPayloads,
   reconcileTasks,
   requeueTask,
   requeueTaskArchive,
   saveArchiveCheckpoint,
-  syncTaskPayloads,
   type TerminalTaskUpdate,
 } from '../modules/execution'
 import { checkIdleSlot, lockIdleSlotClaims, providerConcurrencyLimit } from './idle-concurrency'
@@ -220,11 +225,13 @@ class TaskExecutionHandle implements TaskExecution {
         .set({
           // Bun SQL binds string params for `::jsonb` as JSON string scalars, which turns `||`
           // into a 2-element array instead of merging objects; cast via `::text::jsonb` (see common.ts).
-          request_payload: sql`${schema.tasks.request_payload} || ${JSON.stringify({ image26_degrade: record })}::text::jsonb`,
+          request_payload: sql`${taskRequestPayloadSubquerySql} || ${JSON.stringify({ image26_degrade: record })}::text::jsonb`,
         })
         .where(this.#own())
-        .returning({ id: schema.tasks.id })
-      if (updated.length > 0) await syncTaskPayloads(tx, [this.taskId])
+        .returning({ id: schema.tasks.id, requestPayload: schema.tasks.request_payload })
+      if (updated.length > 0) {
+        await patchTaskPayload(tx, this.taskId, { request_payload: updated[0]!.requestPayload })
+      }
     })
   }
 
@@ -355,7 +362,7 @@ class TaskExecutionHandle implements TaskExecution {
         .where(this.#own())
         .returning({ id: schema.tasks.id })
       if (updated.length === 0) return null
-      await syncTaskPayloads(tx, [this.taskId])
+      await patchTaskPayload(tx, this.taskId, { request_payload: next })
       return next
     })
   }
@@ -440,7 +447,7 @@ export function retryHoldsSlot(alias: string, now: number): SQL {
   const t = sql.identifier(alias)
   return sql`(${t}.status = 'queued'
     and ${t}.attempt_count > 0
-    and ${t}.archive_payload is null
+    and not ${taskHasArchivePayloadSqlForAlias(alias)}
     and ${t}.next_retry_at > to_timestamp(${now} / 1000.0)
     and ${t}.next_retry_at <= to_timestamp(${now + RETRY_SLOT_HOLD_MS} / 1000.0))`
 }
@@ -689,8 +696,17 @@ export async function claimTaskExecution(
         gpt_route: schema.tasks.gpt_route,
         traceparent: schema.tasks.traceparent,
       })
-    if (row) await publishGenerations(tx, [id])
-    return row
+    if (!row) return null
+    const payload = (await readTaskPayloads(tx, [id])).get(id)
+    await publishGenerations(tx, [id])
+    return payload
+      ? {
+          ...row,
+          request_payload: payload.request_payload,
+          metering: payload.metering,
+          archive_payload: payload.archive_payload,
+        }
+      : row
   })
   if (!claimed) return null
   if (idleSlot)

@@ -729,6 +729,13 @@
       "when": 1795500000000,
       "tag": "0105_task_payloads",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1795600000000,
+      "tag": "0106_queue_tasks_payload_view",
+      "breakpoints": true
     }
   ]
 }

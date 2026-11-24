@@ -1,3 +1,8 @@
+import {
+  resolvedTaskArchivePayload,
+  resolvedTaskRequestPayload,
+  resolvedTaskResultPayload,
+} from '@image-playground/db'
 import { and, eq, isNull, or } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 
@@ -42,13 +47,14 @@ export async function findAccessibleTaskStatus(
       error_message: schema.tasks.error_message,
       error_type: schema.tasks.error_type,
       provider: schema.tasks.provider,
-      request_payload: schema.tasks.request_payload,
-      result_payload: schema.tasks.result_payload,
-      archive_payload: schema.tasks.archive_payload,
+      request_payload: resolvedTaskRequestPayload,
+      result_payload: resolvedTaskResultPayload,
+      archive_payload: resolvedTaskArchivePayload,
       upstream_task_ids: schema.tasks.upstream_task_ids,
       lease_expires_at: schema.tasks.lease_expires_at,
     })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(taskAccessWhere(taskId, userId, serviceIdentity))
     .limit(1)
   return task ?? null
@@ -64,12 +70,13 @@ export async function findAccessibleTaskResult(
       id: schema.tasks.id,
       status: schema.tasks.status,
       provider: schema.tasks.provider,
-      request_payload: schema.tasks.request_payload,
-      result_payload: schema.tasks.result_payload,
+      request_payload: resolvedTaskRequestPayload,
+      result_payload: resolvedTaskResultPayload,
       error_message: schema.tasks.error_message,
       error_type: schema.tasks.error_type,
     })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(taskAccessWhere(taskId, userId, serviceIdentity))
     .limit(1)
   return task ?? null
@@ -83,10 +90,11 @@ export async function findAccessibleTaskInput(
   const [task] = await db
     .select({
       provider: schema.tasks.provider,
-      request_payload: schema.tasks.request_payload,
+      request_payload: resolvedTaskRequestPayload,
       user_id: schema.tasks.user_id,
     })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(taskAccessWhere(taskId, userId, serviceIdentity))
     .limit(1)
   return task ?? null
@@ -102,10 +110,11 @@ export async function findAccessibleTaskOutput(
       id: schema.tasks.id,
       status: schema.tasks.status,
       provider: schema.tasks.provider,
-      result_payload: schema.tasks.result_payload,
+      result_payload: resolvedTaskResultPayload,
       user_id: schema.tasks.user_id,
     })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(taskAccessWhere(taskId, userId, serviceIdentity))
     .limit(1)
   return task ?? null
@@ -116,9 +125,10 @@ export async function findAccessibleTaskSourceVideo(taskId: string, userId: stri
     .select({
       status: schema.tasks.status,
       provider: schema.tasks.provider,
-      result_payload: schema.tasks.result_payload,
+      result_payload: resolvedTaskResultPayload,
     })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(taskAccessWhere(taskId, userId))
     .limit(1)
   return task ?? null

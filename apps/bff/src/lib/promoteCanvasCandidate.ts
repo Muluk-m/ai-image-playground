@@ -1,8 +1,9 @@
+import { resolvedTaskRequestPayload, resolvedTaskResultPayload } from '@image-playground/db'
 import type { GenerationDetail, PersistedSubmitRequest } from '@image-playground/shared'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { publishGenerations } from '../db/generation-events'
-import { syncTaskPayloads } from '../modules/execution'
+import { patchTaskPayload, readTaskPayloads } from '../modules/execution'
 import {
   archiveCandidateSelection,
   CandidateExpiredError,
@@ -35,11 +36,12 @@ export async function promoteCanvasCandidate(
       kind: schema.tasks.kind,
       status: schema.tasks.status,
       provider: schema.tasks.provider,
-      request: schema.tasks.request_payload,
-      result: schema.tasks.result_payload,
+      request: resolvedTaskRequestPayload,
+      result: resolvedTaskResultPayload,
       agentConversationId: schema.tasks.agent_conversation_id,
     })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(and(eq(schema.tasks.id, taskId), eq(schema.tasks.user_id, userId)))
     .limit(1)
   if (!task || !isCanvasTask(task)) return { ok: false, error: 'not_found' }
@@ -57,7 +59,7 @@ export async function promoteCanvasCandidate(
   const createdIds: string[] = []
   try {
     await db.transaction(async (tx) => {
-      const [locked] = await tx
+      const [lockedRow] = await tx
         .select({
           status: schema.tasks.status,
           request: schema.tasks.request_payload,
@@ -69,6 +71,12 @@ export async function promoteCanvasCandidate(
         .where(and(eq(schema.tasks.id, taskId), eq(schema.tasks.user_id, userId)))
         .limit(1)
         .for('update')
+      const payload = lockedRow ? (await readTaskPayloads(tx, [taskId])).get(taskId) : undefined
+      const locked = lockedRow
+        ? payload
+          ? { ...lockedRow, request: payload.request_payload, result: payload.result_payload }
+          : lockedRow
+        : undefined
       if (
         !locked ||
         locked.status !== 'completed' ||
@@ -88,13 +96,14 @@ export async function promoteCanvasCandidate(
           ),
         )
         .limit(1)
+      const nextRequest = { ...locked.request, output_retention: 'canvas' as const }
       await tx
         .update(schema.tasks)
         .set({
-          request_payload: { ...locked.request, output_retention: 'canvas' },
+          request_payload: nextRequest,
         })
         .where(eq(schema.tasks.id, taskId))
-      await syncTaskPayloads(tx, [taskId])
+      await patchTaskPayload(tx, taskId, { request_payload: nextRequest })
       await publishGenerations(tx, [taskId])
       if (!linked) {
         const links = await archiveCandidateSelection(
@@ -159,7 +168,7 @@ function isCanvasTask(task: {
 
 async function markCanvas(userId: string, taskId: string): Promise<void> {
   await db.transaction(async (tx: Transaction) => {
-    const [locked] = await tx
+    const [lockedRow] = await tx
       .select({
         status: schema.tasks.status,
         request: schema.tasks.request_payload,
@@ -170,12 +179,19 @@ async function markCanvas(userId: string, taskId: string): Promise<void> {
       .where(and(eq(schema.tasks.id, taskId), eq(schema.tasks.user_id, userId)))
       .limit(1)
       .for('update')
+    const payload = lockedRow ? (await readTaskPayloads(tx, [taskId])).get(taskId) : undefined
+    const locked = lockedRow
+      ? payload
+        ? { ...lockedRow, request: payload.request_payload }
+        : lockedRow
+      : undefined
     if (!locked || locked.status !== 'completed' || !isCanvasTask(locked)) return
+    const nextRequest = { ...locked.request, output_retention: 'canvas' as const }
     await tx
       .update(schema.tasks)
-      .set({ request_payload: { ...locked.request, output_retention: 'canvas' } })
+      .set({ request_payload: nextRequest })
       .where(eq(schema.tasks.id, taskId))
-    await syncTaskPayloads(tx, [taskId])
+    await patchTaskPayload(tx, taskId, { request_payload: nextRequest })
     await publishGenerations(tx, [taskId])
     await tx
       .update(schema.generation_records)

@@ -1,3 +1,4 @@
+import { resolvedTaskRequestPayload } from '@image-playground/db'
 import type {
   AgentCompactionRecord,
   AgentContentBlock,
@@ -498,8 +499,9 @@ async function hydrateAgentMessages(
   if (taskIds.length) {
     // 只认挂在这个已经确权的会话下的任务：产物 id 本身证明不了归属。
     const tasks = await db
-      .select({ id: schema.tasks.id, request: schema.tasks.request_payload })
+      .select({ id: schema.tasks.id, request: resolvedTaskRequestPayload })
       .from(schema.tasks)
+      .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
       .where(
         and(
           inArray(schema.tasks.id, taskIds),

@@ -22,3 +22,13 @@ export {
   sqlSumIntegerFromDigitText,
 } from './safe-integer'
 export * from './schema'
+export {
+  resolvedTaskArchivePayload,
+  resolvedTaskMetering,
+  resolvedTaskRequestPayload,
+  resolvedTaskResultPayload,
+  resolvedTaskUpstreamBody,
+  taskHasArchivePayloadSql,
+  taskHasArchivePayloadSqlForAlias,
+  taskRequestPayloadSubquerySql,
+} from './task-payload-fallback'

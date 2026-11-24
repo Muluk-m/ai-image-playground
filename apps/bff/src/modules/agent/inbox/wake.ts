@@ -1,3 +1,4 @@
+import { resolvedTaskResultPayload } from '@image-playground/db'
 import { and, asc, eq, gt, inArray, isNull, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../../db/client'
 import type { BffTransaction } from '../../../lib/private-overlay'
@@ -77,7 +78,7 @@ export async function deliverAgentWakes(
       wakeOnSuccess: jobs.wake_on_success,
       status: tasks.status,
       provider: tasks.provider,
-      result_payload: tasks.result_payload,
+      result_payload: resolvedTaskResultPayload,
       error_message: tasks.error_message,
       error_type: tasks.error_type,
       completedAt: tasks.completed_at,
@@ -85,6 +86,7 @@ export async function deliverAgentWakes(
     })
     .from(jobs)
     .leftJoin(tasks, eq(tasks.id, jobs.task_id))
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, tasks.id))
     .where(and(eq(jobs.conversation_id, conversationId), isNull(jobs.delivered_at)))
     .orderBy(asc(jobs.submitted_at), asc(jobs.task_id))
   if (rows.length === 0) return 0

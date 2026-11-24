@@ -919,6 +919,154 @@ describe('runMigrations', () => {
     })
   }, 30_000)
 
+  it('switches queue_tasks cold payload columns to task_payloads with fallback and preserves grants', async () => {
+    await withEmptyDatabase('queue_tasks_payload_view_upgrade', async (url) => {
+      await migrateUntil(url, '0105_task_payloads')
+      const sql = new SQL(url, { max: 1 })
+      try {
+        await sql`GRANT SELECT ON queue_tasks TO PUBLIC`
+        await sql`CREATE VIEW queue_tasks_payload_reader AS SELECT id, request_payload FROM queue_tasks`
+        await runMigrations(url)
+
+        await sql`
+          INSERT INTO tasks (id, provider, model, status, request_payload, result_payload, upstream_body, submitted_at)
+          VALUES
+            ('backfilled', 'openai-compat', 'gpt-image-2', 'completed', '{"prompt":"old","device_id":"d1"}'::jsonb, '{"stale":true}'::jsonb, 'old err', now()),
+            ('unbackfilled', 'openai-compat', 'gpt-image-2', 'completed', '{"prompt":"legacy","device_id":"d1"}'::jsonb, '{"legacy":1}'::jsonb, 'legacy err', now())
+        `
+        await sql`
+          INSERT INTO task_payloads (task_id, request_payload, result_payload, upstream_body)
+          VALUES ('backfilled', '{"prompt":"new","device_id":"d1"}'::jsonb, NULL, 'new err')
+        `
+
+        const rows = await sql`
+          SELECT id, request_payload, result_payload, upstream_body
+          FROM queue_tasks
+          ORDER BY id
+        `
+        expect(rows).toEqual([
+          {
+            id: 'backfilled',
+            request_payload: { prompt: 'new', device_id: 'd1' },
+            result_payload: null,
+            upstream_body: 'new err',
+          },
+          {
+            id: 'unbackfilled',
+            request_payload: { prompt: 'legacy', device_id: 'd1' },
+            result_payload: { legacy: 1 },
+            upstream_body: 'legacy err',
+          },
+        ])
+        expect(
+          await sql`SELECT id, request_payload FROM queue_tasks_payload_reader ORDER BY id`,
+        ).toEqual([
+          { id: 'backfilled', request_payload: { prompt: 'new', device_id: 'd1' } },
+          { id: 'unbackfilled', request_payload: { prompt: 'legacy', device_id: 'd1' } },
+        ])
+        expect(
+          await sql`SELECT privilege_type FROM information_schema.table_privileges
+            WHERE table_schema = 'public' AND table_name = 'queue_tasks' AND grantee = 'PUBLIC'`,
+        ).toEqual([{ privilege_type: 'SELECT' }])
+
+        // Hot-column updates must not trigger sync into task_payloads.
+        await sql`UPDATE tasks SET status = 'failed' WHERE id = 'unbackfilled'`
+        expect(await sql`SELECT task_id FROM task_payloads WHERE task_id = 'unbackfilled'`).toEqual(
+          [],
+        )
+
+        // Direct cold-column updates (e.g. a pre-5.2 container draining during rolling deploy) must
+        // mirror ONLY the changed column(s) into task_payloads without clobbering untouched columns.
+        await sql`
+          UPDATE tasks
+          SET result_payload = '{"from_legacy_writer":true}'::jsonb
+          WHERE id = 'backfilled'
+        `
+        expect(
+          await sql`SELECT request_payload, result_payload, upstream_body FROM task_payloads WHERE task_id = 'backfilled'`,
+        ).toEqual([
+          {
+            request_payload: { prompt: 'new', device_id: 'd1' },
+            result_payload: { from_legacy_writer: true },
+            upstream_body: 'new err',
+          },
+        ])
+        expect(
+          await sql`SELECT request_payload, result_payload, upstream_body FROM queue_tasks WHERE id = 'backfilled'`,
+        ).toEqual([
+          {
+            request_payload: { prompt: 'new', device_id: 'd1' },
+            result_payload: { from_legacy_writer: true },
+            upstream_body: 'new err',
+          },
+        ])
+
+        // Even when tasks.result_payload is already NULL while task_payloads holds a non-NULL value,
+        // an explicit `UPDATE tasks SET result_payload = NULL` must fire the per-column trigger and
+        // clear task_payloads.result_payload without touching other columns.
+        await sql`
+          INSERT INTO tasks (id, provider, model, status, request_payload, result_payload, upstream_body, submitted_at)
+          VALUES ('null-clear', 'openai-compat', 'gpt-image-2', 'in_progress', '{"prompt":"old-null","device_id":"d1"}'::jsonb, NULL, 'old-up', now())
+        `
+        await sql`
+          INSERT INTO task_payloads (task_id, request_payload, result_payload, upstream_body)
+          VALUES ('null-clear', '{"prompt":"cold-null","device_id":"d1"}'::jsonb, '{"stale_cold":1}'::jsonb, 'cold-up')
+        `
+        await sql`UPDATE tasks SET result_payload = NULL WHERE id = 'null-clear'`
+        expect(
+          await sql`SELECT request_payload, result_payload, upstream_body FROM task_payloads WHERE task_id = 'null-clear'`,
+        ).toEqual([
+          {
+            request_payload: { prompt: 'cold-null', device_id: 'd1' },
+            result_payload: null,
+            upstream_body: 'cold-up',
+          },
+        ])
+
+        await sql.unsafe(
+          await Bun.file(
+            join(migrationsDirectory, 'rollback/0106_queue_tasks_payload_view.down.sql'),
+          ).text(),
+        )
+        // Rollback must back-sync authoritative task_payloads values onto tasks before switching
+        // queue_tasks back, so stale legacy values are never resurrected.
+        const rolledBackRows = await sql`
+          SELECT id, request_payload, result_payload, upstream_body
+          FROM queue_tasks
+          WHERE id IN ('backfilled', 'null-clear', 'unbackfilled')
+          ORDER BY id
+        `
+        expect(rolledBackRows).toEqual([
+          {
+            id: 'backfilled',
+            request_payload: { prompt: 'new', device_id: 'd1' },
+            result_payload: { from_legacy_writer: true },
+            upstream_body: 'new err',
+          },
+          {
+            id: 'null-clear',
+            request_payload: { prompt: 'cold-null', device_id: 'd1' },
+            result_payload: null,
+            upstream_body: 'cold-up',
+          },
+          {
+            id: 'unbackfilled',
+            request_payload: { prompt: 'legacy', device_id: 'd1' },
+            result_payload: { legacy: 1 },
+            upstream_body: 'legacy err',
+          },
+        ])
+        expect(
+          await sql`SELECT privilege_type FROM information_schema.table_privileges
+            WHERE table_schema = 'public' AND table_name = 'queue_tasks' AND grantee = 'PUBLIC'`,
+        ).toEqual([{ privilege_type: 'SELECT' }])
+        await sql`DROP VIEW queue_tasks_payload_reader`
+      } finally {
+        await sql.close()
+      }
+    })
+  }, 30_000)
+
   // loaded runner (run 39234295912), with nothing else touching this database.
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
