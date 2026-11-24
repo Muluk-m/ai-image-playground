@@ -1,10 +1,11 @@
 import { Elysia } from 'elysia'
 import { isCapabilityEnabled } from '../../lib/capabilities'
 import { requireInternalService } from '../../lib/user-auth'
+import { privateTaskHooks } from './hooks'
 import { orderRoutes } from './order-routes'
+import { ensureChatModelPrice, syncModelPricesFromChannels } from './pricing'
 import { referralRoutes } from './referral-routes'
 import { billingRoutes } from './routes'
-import { ensureChatModelPrice, privateTaskHooks, syncModelPricesFromChannels } from './service'
 
 const extensions = new Elysia({ prefix: '/internal/admin' })
   .use(requireInternalService)

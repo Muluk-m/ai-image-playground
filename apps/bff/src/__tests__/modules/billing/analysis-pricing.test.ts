@@ -15,7 +15,7 @@ await ensureBillingMigrations(databaseUrl)
 const { config } = await import('../../../config')
 const { db, schema } = await import('../../../db/client')
 const { close } = await import('../../../db/client')
-const { privateTaskHooks } = await import('../../../modules/billing/service')
+const { privateTaskHooks } = await import('../../../modules/billing/hooks')
 const operator = config.operator
 const model = 'analysis-fixture-model'
 afterAll(close)

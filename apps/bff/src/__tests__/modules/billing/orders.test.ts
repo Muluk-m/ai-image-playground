@@ -270,7 +270,7 @@ it('notifies once at creation and never again for a claim or confirmation', asyn
     { preconnect: originalFetch.preconnect },
   )
   try {
-    const { privateTaskHooks } = await import('../../../modules/billing/service')
+    const { privateTaskHooks } = await import('../../../modules/billing/hooks')
     await privateTaskHooks.runMaintenance(Date.now())
     expect(deliveries).toHaveLength(0)
     await privateTaskHooks.runWorkerMaintenance?.(Date.now())
@@ -374,7 +374,7 @@ it('closes legacy paid writes while allowing historical payment replay and free 
   }
   const path = `/internal/admin/private/billing/users/${userId}/subscriptions`
   expect((await request('POST', path, body)).json.error).toBe('orders_required')
-  const { grantSubscription } = await import('../../../modules/billing/service')
+  const { grantSubscription } = await import('../../../modules/billing/commerce')
   await grantSubscription({
     userId,
     planId: plan.id,
@@ -639,7 +639,7 @@ it('marks missing notification configuration as failed without retrying an exist
       { cookie },
     )
   ).json
-  const { privateTaskHooks } = await import('../../../modules/billing/service')
+  const { privateTaskHooks } = await import('../../../modules/billing/hooks')
   await privateTaskHooks.runWorkerMaintenance?.(Date.now())
   expect(
     (await request('GET', `/internal/admin/private/billing/orders/${order.id}`)).json

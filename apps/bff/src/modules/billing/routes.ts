@@ -4,25 +4,25 @@ import { capabilityUnavailable, isCapabilityEnabled } from '../../lib/capabiliti
 import { requireInternalService, requireUser } from '../../lib/user-auth'
 import { adminOperator, validateAdminOperator } from './admin-operator'
 import { InvalidRangeError } from './calculations'
-import { getConfirmedPayments, isHistoricalPayment } from './payments'
 import {
-  adjustRechargeCredits,
   adjustSubscriptionCredits,
   adjustSubscriptionExpiry,
-  getAccountSnapshot,
-  getBillingOverview,
-  getCatalog,
-  getChatUsageSummary,
-  getLedgerPage,
-  getPublicCatalog,
-  getSpendActivity,
-  getUserSummaries,
   grantSubscription,
-  scanDueAccounts,
-  updateModelPrice,
   updatePlan,
   updateSettings,
-} from './service'
+} from './commerce'
+import { scanDueAccounts } from './entitlement'
+import { adjustRechargeCredits } from './ledger'
+import { getConfirmedPayments, isHistoricalPayment } from './payments'
+import { getCatalog, getPublicCatalog, updateModelPrice } from './pricing'
+import {
+  getAccountSnapshot,
+  getBillingOverview,
+  getChatUsageSummary,
+  getLedgerPage,
+  getSpendActivity,
+  getUserSummaries,
+} from './queries'
 
 const activityRange = {
   query: t.Object({
