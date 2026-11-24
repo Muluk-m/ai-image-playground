@@ -217,7 +217,6 @@ async function explainPlanNodes(query: { toSQL(): { sql: string; params: unknown
 }
 
 it('uses the reconciling partial indexes for due reconciliation and overdue alert scans', async () => {
-  const padding = 'x'.repeat(1024)
   const fillers = Array.from({ length: 400 }, (_, index) => ({
     id: `filler-${index}`,
     provider: 'openai-compat' as const,
@@ -225,23 +224,49 @@ it('uses the reconciling partial indexes for due reconciliation and overdue aler
     kind: index % 10 === 0 ? ('chat' as const) : ('queue' as const),
     status: index % 3 === 0 ? ('queued' as const) : ('completed' as const),
     reconciliation_required: false,
-    request_payload: { prompt: `${padding}-${index}`, device_id: 'reconcile-device' },
+    request_payload: { prompt: `filler-${index}`, device_id: 'reconcile-device' },
     submitted_at: now - (index + 10) * minute,
     next_retry_at: index % 2 === 0 ? now - minute : null,
   }))
-  await db.insert(schema.tasks).values(fillers)
-  await insertReconciling('due-timed', {
-    next_retry_at: now - 2 * minute,
-    reconcile_started_at: now - QUEUE_TIMEOUTS.RECONCILE_ALERT_AFTER_MS - 5 * minute,
-  })
+  // 模拟上游故障时积压的 reconciling 行：60 条已告警且待退避的未来任务 + 6 条已到期 + 1 条 legacy NULL next_retry_at。
+  // 当 reconciling 超过 LIMIT 时，宽泛的 idx_tasks_status 必须回表并排序全部 reconciling 行，
+  // 而两条局部索引可按时间顺序直达并提前截断，且完全跳过已告警行。
+  const backedOffAlerted = Array.from({ length: 60 }, (_, index) => ({
+    id: `already-alerted-${String(index).padStart(2, '0')}`,
+    provider: 'openai-compat' as const,
+    model: 'gpt-image-2',
+    kind: 'queue' as const,
+    status: 'reconciling' as const,
+    reconciliation_required: true,
+    request_payload: { prompt: `alerted-${index}`, device_id: 'reconcile-device' },
+    submitted_at: now - (120 + index) * minute,
+    upstream_task_ids: [`imgtask_alerted_${index}`],
+    upstream_invocation_count: 1,
+    next_retry_at: now + (index + 10) * minute,
+    reconcile_started_at: now - QUEUE_TIMEOUTS.RECONCILE_ALERT_AFTER_MS - (index + 10) * minute,
+    reconcile_alerted_at: now - 5 * minute,
+  }))
+  const dueTimed = Array.from({ length: 4 }, (_, index) => ({
+    id: `due-timed-${index}`,
+    provider: 'openai-compat' as const,
+    model: 'gpt-image-2',
+    kind: 'queue' as const,
+    status: 'reconciling' as const,
+    reconciliation_required: true,
+    request_payload: { prompt: `due-${index}`, device_id: 'reconcile-device' },
+    submitted_at: now - (90 + index) * minute,
+    upstream_task_ids: [`imgtask_due_${index}`],
+    upstream_invocation_count: 1,
+    next_retry_at: now - (4 - index) * minute,
+    reconcile_started_at:
+      index < 2
+        ? now - QUEUE_TIMEOUTS.RECONCILE_ALERT_AFTER_MS - (2 - index) * minute
+        : now - 5 * minute,
+  }))
+  await db.insert(schema.tasks).values([...fillers, ...backedOffAlerted, ...dueTimed])
   await insertReconciling('due-null-retry', {
     next_retry_at: null,
     reconcile_started_at: now - 5 * minute,
-  })
-  await insertReconciling('already-alerted', {
-    next_retry_at: now + 10 * minute,
-    reconcile_started_at: now - QUEUE_TIMEOUTS.RECONCILE_ALERT_AFTER_MS - 10 * minute,
-    reconcile_alerted_at: now - 5 * minute,
   })
   await db.$client.unsafe('ANALYZE tasks')
 
@@ -250,14 +275,22 @@ it('uses the reconciling partial indexes for due reconciliation and overdue aler
     'idx_tasks_reconciling_next_retry',
   )
   expect(dueNodes.map((node) => node['Node Type'])).not.toContain('Seq Scan')
+  expect(dueNodes.map((node) => node['Node Type'])).not.toContain('Sort')
   const dueRows = await buildDueReconcilingTasksQuery(now)
-  expect(dueRows.map((row) => row.id)).toEqual(['due-timed', 'due-null-retry'])
+  expect(dueRows.map((row) => row.id)).toEqual([
+    'due-timed-0',
+    'due-timed-1',
+    'due-timed-2',
+    'due-timed-3',
+    'due-null-retry',
+  ])
 
   const alertNodes = await explainPlanNodes(buildOverdueReconcileAlertQuery(now))
   expect(alertNodes.map((node) => node['Index Name']).filter(Boolean)).toContain(
     'idx_tasks_reconciling_alert',
   )
   expect(alertNodes.map((node) => node['Node Type'])).not.toContain('Seq Scan')
+  expect(alertNodes.map((node) => node['Node Type'])).not.toContain('Sort')
   const alertRows = await buildOverdueReconcileAlertQuery(now)
-  expect(alertRows.map((row) => row.id)).toEqual(['due-timed'])
+  expect(alertRows.map((row) => row.id)).toEqual(['due-timed-0', 'due-timed-1'])
 })
