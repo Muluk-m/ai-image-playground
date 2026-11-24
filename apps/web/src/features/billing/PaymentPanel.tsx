@@ -1,5 +1,6 @@
 import type { PurchaseOrder } from '@image-playground/shared'
 import { useEffect, useRef, useState } from 'react'
+import { copyTextToClipboard } from '../../lib/clipboard'
 import { Button, Dialog, DialogSurface, Icon, Overlay } from '../../lib/privateHost'
 import { formatCredits, formatMoney, refreshBillingAfterSettlement } from './billing-store'
 import { tBilling, useTranslation } from './i18n'
@@ -12,6 +13,7 @@ export function PaymentSurface({
   onClose,
   now,
   confirmClaim = false,
+  confirmCancel = false,
 }: {
   order: PurchaseOrder
   busy: boolean
@@ -19,8 +21,27 @@ export function PaymentSurface({
   onClose: () => void
   now: number
   confirmClaim?: boolean
+  confirmCancel?: boolean
 }) {
   useTranslation()
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const copyTimer = useRef<number | null>(null)
+  useEffect(
+    () => () => {
+      if (copyTimer.current !== null) window.clearTimeout(copyTimer.current)
+    },
+    [],
+  )
+  const copyRemark = async () => {
+    try {
+      await copyTextToClipboard(order.code)
+      setCopyState('copied')
+    } catch {
+      setCopyState('failed')
+    }
+    if (copyTimer.current !== null) window.clearTimeout(copyTimer.current)
+    copyTimer.current = window.setTimeout(() => setCopyState('idle'), 1600)
+  }
   const pending = order.status === 'pending' && order.expires_at > now
   const payable = pending && order.payment_available
   const status = order.status === 'pending' && !pending ? 'expired' : order.status
@@ -58,14 +79,22 @@ export function PaymentSurface({
             <div className="text-xs text-muted-foreground">{tBilling('orders.remark')}</div>
             <Button
               type="button"
-              onClick={() => void navigator.clipboard.writeText(order.code)}
+              onClick={() => void copyRemark()}
               variant="ghost"
               size="lg"
               className="mt-1 font-mono"
             >
               <span className="text-xl font-semibold tracking-widest">{order.code}</span>
-              <Icon name="copy" />
-              <span>{tBilling('orders.copy')}</span>
+              <Icon name={copyState === 'copied' ? 'check' : 'copy'} />
+              <span>
+                {tBilling(
+                  copyState === 'copied'
+                    ? 'orders.copied'
+                    : copyState === 'failed'
+                      ? 'orders.copyFailed'
+                      : 'orders.copy',
+                )}
+              </span>
             </Button>
           </div>
           <img
@@ -156,15 +185,22 @@ export function PaymentSurface({
               {tBilling('orders.refreshCode')}
             </Button>
           ) : null}
+          {confirmCancel ? (
+            <p role="status" className="text-sm text-destructive">
+              {tBilling('orders.cancelReminder')}
+            </p>
+          ) : null}
           <div className="flex gap-2">
             <Button
               disabled={busy}
               type="button"
-              variant="outline"
-              className="flex-1"
-              onClick={() => onAction('cancel')}
+              variant={confirmCancel ? 'destructive' : 'ghost'}
+              className={
+                confirmCancel ? 'flex-1' : 'flex-1 text-muted-foreground hover:text-destructive'
+              }
+              onClick={() => onAction(confirmCancel ? 'confirm-cancel' : 'cancel')}
             >
-              {tBilling('orders.cancel')}
+              {tBilling(confirmCancel ? 'orders.confirmCancel' : 'orders.cancel')}
             </Button>
             <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
               {tBilling('orders.later')}
@@ -193,7 +229,8 @@ export function PaymentPanel({
     [now, setNow] = useState(Date.now()),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(false),
-    [confirmClaim, setConfirmClaim] = useState(false)
+    [confirmClaim, setConfirmClaim] = useState(false),
+    [confirmCancel, setConfirmCancel] = useState(false)
   useTranslation()
   const sequence = useRef(0)
   useEffect(() => {
@@ -224,20 +261,26 @@ export function PaymentPanel({
   }, [order.status])
   const act = async (action: string) => {
     if (action === 'claim') {
+      setConfirmCancel(false)
       setConfirmClaim(true)
+      return
+    }
+    if (action === 'cancel') {
+      setConfirmClaim(false)
+      setConfirmCancel(true)
       return
     }
     setBusy(true)
     setError(false)
     ++sequence.current
     try {
-      const next = await orderRequest<PurchaseOrder>(
-        `/${order.id}/${action === 'confirm-claim' ? 'claim' : action}`,
-        {},
-      )
+      const endpoint =
+        action === 'confirm-claim' ? 'claim' : action === 'confirm-cancel' ? 'cancel' : action
+      const next = await orderRequest<PurchaseOrder>(`/${order.id}/${endpoint}`, {})
       ++sequence.current
       setOrder(next)
       setConfirmClaim(false)
+      setConfirmCancel(false)
     } catch {
       setError(true)
     } finally {
@@ -257,6 +300,7 @@ export function PaymentPanel({
           now={now}
           busy={busy}
           confirmClaim={confirmClaim}
+          confirmCancel={confirmCancel}
           onAction={(action) => void act(action)}
           onClose={onClose}
         />

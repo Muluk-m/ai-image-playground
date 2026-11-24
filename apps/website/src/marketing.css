@@ -109,15 +109,15 @@
 .cbox {
   position: relative;
   width: min(440px, 100%);
-  background: #101210;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
   border-radius: 20px;
   padding: 28px 24px 22px;
-  box-shadow: 0 40px 100px rgba(0, 0, 0, 0.6);
-  color: #f4f6f1;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.28);
+  color: hsl(var(--foreground));
 }
 .cbox h3 { font-size: 22px; font-weight: 700; margin: 0; }
-.cbox > p { margin: 8px 0 0; font-size: 14.5px; line-height: 1.7; color: rgba(244, 246, 241, 0.62); }
+.cbox > p { margin: 8px 0 0; font-size: 14.5px; line-height: 1.7; color: hsl(var(--muted-foreground)); }
 .cbox .cx {
   position: absolute;
   top: 14px;
@@ -126,13 +126,13 @@
   height: 32px;
   border-radius: 99px;
   border: 0;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(244, 246, 241, 0.62);
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
   cursor: pointer;
   display: grid;
   place-items: center;
 }
-.cbox .cx:hover { color: #f4f6f1; background: rgba(255, 255, 255, 0.1); }
+.cbox .cx:hover { color: hsl(var(--foreground)); background: hsl(var(--accent)); }
 /* 关闭钮外观仍是 32px，可点区域扩到 44×44。 */
 .cbox .cx::before {
   content: '';
@@ -150,9 +150,9 @@
   align-items: center;
   gap: 12px;
   padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid hsl(var(--border));
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.03);
+  background: hsl(var(--muted) / 0.45);
 }
 .cbox .cmain {
   display: flex;
@@ -168,18 +168,18 @@
   height: 38px;
   flex: none;
   border-radius: 11px;
-  background: rgba(255, 255, 255, 0.07);
+  background: hsl(var(--muted));
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #f4f6f1;
+  color: hsl(var(--foreground));
   object-fit: cover;
 }
 .cbox .ct { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .cbox .ct b { font-size: 14px; font-weight: 600; }
 .cbox .ct span {
   font-size: 12.5px;
-  color: rgba(244, 246, 241, 0.62);
+  color: hsl(var(--muted-foreground));
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -198,9 +198,9 @@
   font-weight: 600;
   padding: 8px 13px;
   border-radius: 99px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  border: 1px solid hsl(var(--border));
   background: transparent;
-  color: #f4f6f1;
+  color: hsl(var(--foreground));
   cursor: pointer;
   white-space: nowrap;
   text-decoration: none;

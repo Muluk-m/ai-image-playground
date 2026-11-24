@@ -2,7 +2,7 @@ import PageHeader from '../../../components/patterns/PageHeader'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
-import { APP_MODE_LABELS } from '../../../store'
+import { APP_MODE_LABELS, useStore } from '../../../store'
 import type { ToolDefinition } from '../lib/tool'
 import { useToolboxStore } from '../store'
 
@@ -35,7 +35,19 @@ export function IntakeActions({
         {t('intake.addFolder')}
       </Button>
       {count > 0 && (
-        <Button variant="ghost" size="sm" disabled={busy} onClick={clear}>
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={busy}
+          onClick={() =>
+            useStore.getState().setConfirmDialog({
+              title: t('intake.clearTitle'),
+              message: t('intake.clearMessage', { count }),
+              tone: 'danger',
+              action: clear,
+            })
+          }
+        >
           <Icon name="delete" />
           {t('intake.clear')}
         </Button>

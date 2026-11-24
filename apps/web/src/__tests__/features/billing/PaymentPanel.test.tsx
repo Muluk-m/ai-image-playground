@@ -106,6 +106,23 @@ it('asks for the remark before submitting a payment claim and lets the user clos
   )
   await click('确认已付款')
   expect(action).toHaveBeenCalledWith('confirm-claim')
+  await click('取消订单')
+  expect(action).toHaveBeenCalledWith('cancel')
+  await act(async () =>
+    root!.render(
+      <PaymentSurface
+        order={order}
+        busy={false}
+        onAction={action}
+        onClose={close}
+        now={Date.now()}
+        confirmCancel
+      />,
+    ),
+  )
+  expect(container.textContent).toContain('取消后该订单将失效')
+  await click('确认取消订单')
+  expect(action).toHaveBeenCalledWith('confirm-cancel')
   await click('关闭')
   expect(close).toHaveBeenCalledOnce()
 })

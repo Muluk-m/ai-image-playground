@@ -44,6 +44,8 @@
   "intake": {
     "imported_other": "已导入 {{count}} 张",
     "clear": "清空",
+    "clearTitle": "清空已导入图片",
+    "clearMessage_other": "确定清空全部 {{count}} 张图片及当前调整吗？",
     "addImages": "添加图片",
     "addFolder": "文件夹",
     "hint": "拖入图片或文件夹，也可以直接粘贴",
@@ -117,7 +119,8 @@
   "combine": {
     "slices_other": "{{count}} 张切图",
     "up": "前移",
-    "down": "后移"
+    "down": "后移",
+    "sourceLimitHint_other": "当前工具仅使用前 {{count}} 张图片"
   },
   "export": {
     "title": "导出",
@@ -188,7 +191,8 @@
     "open": "对比 {{name}}",
     "slider": "前后对比",
     "before": "原图",
-    "after": "处理后"
+    "after": "处理后",
+    "exit": "退出对比"
   },
   "stats": {
     "images": "图片",

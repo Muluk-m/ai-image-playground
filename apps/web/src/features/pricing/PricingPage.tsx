@@ -6,6 +6,7 @@ import { i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
 import { formatCount, formatNumber } from '../../i18n/format'
 import { useLocalePicker } from '../../i18n/useLocalePicker'
 import { navigate } from '../../lib/pathname'
+import { openPricing, openRecharge } from '../billing/billing-store'
 import { GUIDE_PATHS } from '../guide/paths'
 import {
   BILLING_CYCLES,
@@ -128,10 +129,15 @@ export default function PricingPage({
     setRechargeYuan(amounts[Math.floor((amounts.length - 1) / 2)] ?? amounts[0] ?? 0)
   }, [catalog, rechargeYuan])
 
-  const enter = () => {
+  const enter = (intent: 'pricing' | 'recharge' | 'workspace' = 'workspace') => {
     if (embedded) {
       closePricingSheet()
-      if (auth.enabled && !auth.user) auth.login()
+      if (auth.enabled && !auth.user) {
+        auth.login()
+        return
+      }
+      if (intent === 'pricing') openPricing()
+      else if (intent === 'recharge') openRecharge()
       return
     }
     if (auth.enabled && !auth.user) {
@@ -139,6 +145,8 @@ export default function PricingPage({
       return
     }
     navigate('/image')
+    if (intent === 'pricing') requestAnimationFrame(() => openPricing())
+    else if (intent === 'recharge') requestAnimationFrame(() => openRecharge())
   }
 
   const leave = () => {
@@ -334,7 +342,7 @@ export default function PricingPage({
                   cycle={cycle}
                   unit={unit}
                   imageAnchor={anchor}
-                  onUpgrade={enter}
+                  onUpgrade={() => enter('pricing')}
                 />
               ))}
             </div>
@@ -369,7 +377,7 @@ export default function PricingPage({
                               </div>
                               <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
                                 type="button"
-                                onClick={enter}
+                                onClick={() => enter('pricing')}
                                 className="mt-3 h-8 rounded-full bg-white px-4 text-xs font-semibold text-[var(--pricing-ink)] hover:bg-[var(--pricing-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
                               >
                                 {t('compare.upgrade')}
@@ -565,7 +573,7 @@ export default function PricingPage({
                 </div>
                 <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
                   type="button"
-                  onClick={enter}
+                  onClick={() => enter('recharge')}
                   className="mt-6 h-11 rounded-full bg-[var(--pricing-lime)] px-6 text-sm font-semibold text-[var(--pricing-ink-strong)] hover:bg-[var(--pricing-lime-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
                 >
                   {t('recharge.pay', { amount: formatCount(rechargeYuan) })}
@@ -621,7 +629,7 @@ export default function PricingPage({
             </p>
             <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
               type="button"
-              onClick={enter}
+              onClick={() => enter('workspace')}
               className="mt-8 h-12 rounded-full bg-[var(--pricing-lime)] px-8 text-sm font-semibold text-[var(--pricing-ink-strong)] hover:bg-[var(--pricing-lime-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
             >
               {t('close.action')}
