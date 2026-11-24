@@ -210,17 +210,28 @@ function PaymentFields({
   return (
     <div className="space-y-3">
       <div className="space-y-2">
-        <label htmlFor={`${id}-funding`} className="text-sm font-medium">
-          入账性质
-        </label>
-        <Select value={funding} onValueChange={onFundingChange} disabled={pending}>
-          <SelectTrigger id={`${id}-funding`}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="free">免费赠送 / 补偿 / 调整</SelectItem>
-          </SelectContent>
-        </Select>
+        {funding === 'free' ? (
+          <>
+            <p className="text-sm font-medium">入账性质</p>
+            <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+              免费赠送 / 补偿 / 调整
+            </p>
+          </>
+        ) : (
+          <>
+            <label htmlFor={`${id}-funding`} className="text-sm font-medium">
+              入账性质
+            </label>
+            <Select value={funding} onValueChange={onFundingChange} disabled={pending}>
+              <SelectTrigger id={`${id}-funding`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="free">免费赠送 / 补偿 / 调整</SelectItem>
+              </SelectContent>
+            </Select>
+          </>
+        )}
       </div>
       {funding === 'paid' ? (
         <div className="space-y-2">

@@ -1,6 +1,6 @@
 import type { AgentProfileKey, ManagedModel, ManagedModelsView } from '@image-playground/shared'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { ChevronRight, Search } from 'lucide-react'
+import { ChevronRight, Search, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { DangerConfirmDialog } from '@/components/DangerConfirmDialog'
 import { FuzzyTime } from '@/components/FuzzyTime'
@@ -209,7 +209,10 @@ function AvailabilityConfirm({
     <DangerConfirmDialog
       open={pendingActive !== null}
       onOpenChange={(open) => {
-        if (!open) setPendingActive(null)
+        if (!open) {
+          mutation.reset()
+          setPendingActive(null)
+        }
       }}
       title={`${nextActive ? '上架' : '下架'}模型 ${model.label}?`}
       impact={availabilityImpactText(model, nextActive)}
@@ -217,6 +220,7 @@ function AvailabilityConfirm({
       confirmLabel={nextActive ? '确认上架' : '确认下架'}
       destructive={!nextActive}
       pending={mutation.isPending}
+      error={mutation.isError ? '保存失败，请刷新后重试' : null}
       onConfirm={(reason) => {
         if (pendingActive === null) return
         mutation.mutate({ active: pendingActive, reason })
@@ -623,10 +627,28 @@ export function ModelCatalogWorkspace({
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape' && !event.nativeEvent.isComposing && search) {
+                    event.preventDefault()
+                    setSearch('')
+                  }
+                }}
                 placeholder="搜索名称、ID 或渠道…"
                 aria-label="搜索模型"
-                className="pl-9"
+                className="pl-9 pr-8"
               />
+              {search ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="清空搜索"
+                  className="absolute right-1.5 top-1/2 h-6 w-6 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setSearch('')}
+                >
+                  <X className="size-3.5" />
+                </Button>
+              ) : null}
             </div>
           </div>
 

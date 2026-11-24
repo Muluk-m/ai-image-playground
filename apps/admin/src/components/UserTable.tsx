@@ -242,8 +242,8 @@ export function UserTable({
                 type="button"
                 variant="ghost"
                 size="icon-xs"
-                title="移动端添加备注"
-                aria-label={`${user.username}：移动端添加备注`}
+                title="添加备注"
+                aria-label={`${user.username}：添加备注`}
                 className="mt-2 text-muted-foreground"
                 onClick={() => setEditingNote(user)}
               >

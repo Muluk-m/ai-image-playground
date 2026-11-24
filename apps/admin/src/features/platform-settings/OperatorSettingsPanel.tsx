@@ -76,6 +76,12 @@ export function OperatorSettingsPanel() {
   const [dialog, setDialog] = useState<PendingDialogState | null>(null)
   const [reason, setReason] = useState('')
 
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(null), 4000)
+    return () => window.clearTimeout(timer)
+  }, [notice])
+
   const settings = query.data?.settings ?? []
 
   const stats = useMemo(() => {
@@ -287,6 +293,12 @@ export function OperatorSettingsPanel() {
             <Input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && !event.nativeEvent.isComposing && search) {
+                  event.preventDefault()
+                  setSearch('')
+                }
+              }}
               placeholder="搜索名称、配置键或说明"
               aria-label="搜索能力与配额"
               className="h-9 pl-9 pr-8"
@@ -425,17 +437,27 @@ export function OperatorSettingsPanel() {
 
       {/* Mutation Status & Error Alerts */}
       {notice ? (
-        <p
+        <div
           role="status"
-          className="rounded-xl border border-success/30 bg-success/10 px-4 py-3 text-sm text-success"
+          className="sticky top-3 z-20 flex items-center justify-between gap-3 rounded-xl border border-success/30 bg-background/95 px-4 py-3 text-sm text-success shadow-md backdrop-blur-sm"
         >
-          {notice}
-        </p>
+          <span>{notice}</span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label="关闭提示"
+            className="h-6 w-6 text-success/80 hover:text-success"
+            onClick={() => setNotice(null)}
+          >
+            <X className="size-3.5" />
+          </Button>
+        </div>
       ) : null}
       {error ? (
         <div
           role="alert"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+          className="sticky top-3 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/40 bg-background/95 px-4 py-3 text-sm text-destructive shadow-md backdrop-blur-sm"
         >
           <span className="flex items-center gap-2">
             <AlertCircle className="size-4 shrink-0" />
