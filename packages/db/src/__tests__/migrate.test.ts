@@ -893,6 +893,32 @@ describe('runMigrations', () => {
     })
   }, 30_000)
 
+  it('stages prerequisite migrations from pre-0073 databases before building 0104 indexes concurrently', async () => {
+    await withEmptyDatabase('staged_concurrent_indexes_pre_0073', async (url) => {
+      await migrateUntil(url, '0072_inspiration_thumb_dimensions')
+      const client = new SQL(url, { max: 1 })
+      try {
+        await client`
+          INSERT INTO tasks (id, provider, model, status, reconciliation_required, request_payload, submitted_at)
+          VALUES ('pre-0073-sentinel', 'openai-compat', 'fixture', 'reconciling', true, '{"device_id":"fixture","prompt":"sentinel","n":1}'::jsonb, now())
+        `
+        const builtConcurrently: string[] = []
+        await runMigrations(url, {
+          onConcurrentIndexBuilt: (name) => builtConcurrently.push(name),
+        })
+        expect(builtConcurrently).toEqual([
+          'idx_tasks_reconciling_next_retry',
+          'idx_tasks_reconciling_alert',
+        ])
+        await expect(verifySchema(url)).resolves.toMatchObject({
+          migrations: journal.entries.length,
+        })
+      } finally {
+        await client.close()
+      }
+    })
+  }, 30_000)
+
   // loaded runner (run 39234295912), with nothing else touching this database.
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
