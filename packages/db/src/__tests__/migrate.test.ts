@@ -9,7 +9,7 @@ import { drizzle } from 'drizzle-orm/bun-sql'
 import { migrate } from 'drizzle-orm/bun-sql/migrator'
 import journal from '../../drizzle/meta/_journal.json'
 import { createDb } from '../client'
-import { runMigrations } from '../migrate'
+import { ensureConcurrentIndexes, runMigrations } from '../migrate'
 import { resetTestDatabase } from '../testing'
 import { verifySchema } from '../verify-schema'
 
@@ -857,6 +857,42 @@ describe('runMigrations', () => {
 
   // Same budget as the upgrade above: every rollback plus a replay of all migrations on the suite
   // database. It finished well under a second locally but crossed bun's five-second default on a
+  it('builds 0104 reconciling partial indexes concurrently before the migration transaction', async () => {
+    await withEmptyDatabase('concurrent_reconciling_indexes', async (url) => {
+      await migrateUntil(url, '0103_gemini_direct_keys')
+      const client = new SQL(url, { max: 1 })
+      try {
+        const readIndexes = () =>
+          client<{ relname: string; oid: number; indisvalid: boolean }[]>`
+            SELECT c.relname, c.oid::int AS oid, i.indisvalid
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            JOIN pg_index i ON i.indexrelid = c.oid
+            WHERE n.nspname = 'public'
+              AND c.relname IN ('idx_tasks_reconciling_next_retry', 'idx_tasks_reconciling_alert')
+            ORDER BY c.relname
+          `
+        expect(await readIndexes()).toEqual([])
+
+        await ensureConcurrentIndexes(client)
+        const built = await readIndexes()
+        expect(built.map((row) => ({ relname: row.relname, indisvalid: row.indisvalid }))).toEqual([
+          { relname: 'idx_tasks_reconciling_alert', indisvalid: true },
+          { relname: 'idx_tasks_reconciling_next_retry', indisvalid: true },
+        ])
+
+        await runMigrations(url)
+        // 0104 sees both indexes are already valid and skips DDL completely (same OIDs, zero lock).
+        expect(await readIndexes()).toEqual(built)
+        await expect(verifySchema(url)).resolves.toMatchObject({
+          migrations: journal.entries.length,
+        })
+      } finally {
+        await client.close()
+      }
+    })
+  }, 30_000)
+
   // loaded runner (run 39234295912), with nothing else touching this database.
   it('applies every rollback in reverse order and can migrate forward again', async () => {
     const rollbackDirectory = new URL('../../drizzle/rollback/', import.meta.url)
