@@ -43,7 +43,10 @@ function site(routes: Record<string, () => Response | Promise<Response>>) {
 async function manifest() {
   return JSON.parse(await readFile(join(dist, 'assets-manifest.json'), 'utf8'))
 }
-const run = (fetchImpl: ReturnType<typeof site>, options: { maxFiles?: number } = {}) =>
+const run = (
+  fetchImpl: ReturnType<typeof site>,
+  options: { maxFiles?: number; maxManifestBytes?: number } = {},
+) =>
   retainPagesAssets({
     distDir: dist,
     origin: ORIGIN,
@@ -139,6 +142,26 @@ it(`keeps every release from the last ${KEEP_DAYS} days, however many, and nothi
   )
   expect(await exists('assets/r19-RRRRRR19.js')).toBe(true)
   expect(await exists('assets/stale-STALE000.js')).toBe(false)
+})
+
+it('drops the oldest releases to keep the written manifest readable next time', async () => {
+  const releases = Array.from({ length: 6 }, (_, index) => ({
+    publishedAt: daysAgo(index + 1),
+    files: [`assets/m${index}-MMMMMMM${index}.js`],
+  }))
+  const routes: Record<string, () => Response> = {
+    '/assets-manifest.json': () => json({ version: 1, releases }),
+  }
+  for (const release of releases) routes[`/${release.files[0]}`] = () => js('old')
+  await run(site(routes), { maxManifestBytes: 600 })
+  const written = await readFile(join(dist, 'assets-manifest.json'), 'utf8')
+  expect(Buffer.byteLength(written)).toBeLessThanOrEqual(600)
+  const kept = JSON.parse(written).releases
+  expect(kept.length).toBeGreaterThan(1)
+  expect(kept.length).toBeLessThan(7)
+  // Newest first: what survives is the most recent releases.
+  expect(kept[1].publishedAt).toBe(releases[0].publishedAt)
+  expect(log.mock.calls.flat().join('\n')).toContain('to keep assets-manifest.json under 600 bytes')
 })
 
 it('drops a previous release whose files are all gone', async () => {

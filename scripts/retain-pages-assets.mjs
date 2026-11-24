@@ -24,6 +24,8 @@ export const MAX_FILES = 15_000
 export const MAX_FILE_BYTES = 25 * 1024 * 1024
 export const MAX_TOTAL_BYTES = 200 * 1024 * 1024
 const MAX_MANIFEST_BYTES = 5 * 1024 * 1024
+/** Releases are kept by age, so cap the written manifest well below what the next release reads. */
+export const MAX_WRITTEN_MANIFEST_BYTES = MAX_MANIFEST_BYTES / 2
 const ROOTS = ['assets', 'website-assets']
 /** Vite's default `[name]-[hash].[ext]`: 8 url-safe base64 characters. */
 const HASHED = /-[A-Za-z0-9_-]{8}\.[A-Za-z0-9]+$/
@@ -179,6 +181,7 @@ export async function retainPagesAssets({
   now = new Date(),
   retryDelayMs = 1000,
   maxFiles = MAX_FILES,
+  maxManifestBytes = MAX_WRITTEN_MANIFEST_BYTES,
   log = console.log,
 }) {
   const current = await listHashedFiles(distDir)
@@ -247,10 +250,14 @@ export async function retainPagesAssets({
       }))
       .filter((release) => release.files.length > 0),
   ]
-  await writeFile(
-    join(distDir, MANIFEST),
-    `${JSON.stringify({ version: 1, releases }, null, 2)}\n`,
-  )
+  // An oversized manifest would read as invalid next time and drop every older release at once.
+  let manifest = `${JSON.stringify({ version: 1, releases }, null, 2)}\n`
+  while (releases.length > 1 && Buffer.byteLength(manifest) > maxManifestBytes) {
+    const dropped = releases.pop()
+    log(`WARNING: dropping the release from ${dropped.publishedAt} to keep ${MANIFEST} under ${maxManifestBytes} bytes.`)
+    manifest = `${JSON.stringify({ version: 1, releases }, null, 2)}\n`
+  }
+  await writeFile(join(distDir, MANIFEST), manifest)
   if (bytes >= MAX_TOTAL_BYTES) {
     log(`WARNING: stopped downloading at ${MAX_TOTAL_BYTES} bytes; the rest is skipped.`)
   }
