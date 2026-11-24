@@ -168,6 +168,7 @@ export function AccountSettings({
   const [passwordError, setPasswordError] = useState<string | null>(null)
   const [cropUrl, setCropUrl] = useState<string | null>(preview === 'crop' ? PREVIEW_AVATAR : null)
   const [deleteOpen, setDeleteOpen] = useState(false)
+  const [confirmUnlink, setConfirmUnlink] = useState(false)
   const [deletePassword, setDeletePassword] = useState('')
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(
@@ -344,6 +345,7 @@ export function AccountSettings({
 
   async function onUnlink(): Promise<void> {
     if (pending) return
+    setConfirmUnlink(false)
     setPending('unlink')
     setAlert(null)
     try {
@@ -623,16 +625,47 @@ export function AccountSettings({
                 </p>
               </div>
               {methods.google.linked ? (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="shrink-0"
-                  disabled={pending !== null}
-                  onClick={() => void onUnlink()}
-                >
-                  {tBilling('settings.unlink')}
-                </Button>
+                confirmUnlink ? (
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={pending !== null}
+                      onClick={() => setConfirmUnlink(false)}
+                    >
+                      {tBilling('settings.cancel')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      disabled={pending !== null}
+                      onClick={() => void onUnlink()}
+                    >
+                      {tBilling('settings.confirmUnlink')}
+                    </Button>
+                  </div>
+                ) : (
+                  (() => {
+                    const onlyLoginMethod = !methods.password && (methods.linkedCount ?? 1) <= 1
+                    return (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0"
+                        disabled={pending !== null || onlyLoginMethod}
+                        title={
+                          onlyLoginMethod ? tBilling('settings.unlinkLastMethodHint') : undefined
+                        }
+                        onClick={() => setConfirmUnlink(true)}
+                      >
+                        {tBilling('settings.unlink')}
+                      </Button>
+                    )
+                  })()
+                )
               ) : (
                 <Button
                   type="button"

@@ -135,12 +135,13 @@ describe('LoginMethodsPanel', () => {
     await render()
 
     await clickButton('解绑')
+    await clickButton('确认解绑')
 
     expect(document.body.textContent).toContain('已解绑')
     expect(buttonLabels()).toContain('绑定')
   })
 
-  it('refuses to drop the only login method', async () => {
+  it('disables unlinking the only login method with an explanatory title', async () => {
     stubBff(
       {
         password: false,
@@ -150,9 +151,13 @@ describe('LoginMethodsPanel', () => {
     )
     await render()
 
-    await clickButton('解绑')
-
-    expect(document.body.textContent).toContain('解绑后将无法登录，请先设置密码')
+    const unlinkButton = Array.from(document.body.querySelectorAll('button')).find(
+      (btn) => btn.textContent?.trim() === '解绑',
+    )
+    expect(unlinkButton?.disabled).toBe(true)
+    expect(unlinkButton?.getAttribute('aria-description')).toContain(
+      '解绑后将无法登录，请先设置密码',
+    )
   })
 
   it('shows a link failure once and clears it from the address bar', async () => {
