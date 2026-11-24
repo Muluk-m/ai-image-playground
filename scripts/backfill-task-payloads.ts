@@ -113,8 +113,14 @@ async function main(): Promise<void> {
         },
       })
       console.log(
-        `[backfill-task-payloads] done batches=${result.batches} scanned=${result.scanned} written=${result.written} completed=${result.completed}`,
+        `[backfill-task-payloads] done batches=${result.batches} scanned=${result.scanned} written=${result.written} completed=${result.completed} lastId=${result.lastId ?? 'none'}`,
       )
+      if (!result.completed) {
+        console.log(
+          `[backfill-task-payloads] slice paused; resume with --after-id=${result.lastId ?? ''} (skipping full-table consistency scan until completed or --verify-only)`,
+        )
+        return
+      }
     }
     const report = await verifyTaskPayloadsConsistency(client)
     console.log(JSON.stringify(report, null, 2))
