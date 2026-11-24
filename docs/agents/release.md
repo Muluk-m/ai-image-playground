@@ -18,7 +18,7 @@ Agent 从 PR 到上线的完整链路，以及每一步谁能拍板。命令与�
 | 带数据库迁移的 PR 合并 main | Agent，检查齐了即可 | 迁移必须兼容新旧两代后端并带回滚 SQL；改编号前按 AGENTS.md 先查两个库已跑过的迁移 |
 | 发布 CLI（打 `cli-vX.Y.Z` 标签） | Agent，检查齐了即可 | 见 [CLI 发布](cli-release.md)；发布后先用官方安装脚本试装，确认安装与版本正常 |
 | 生产常规回滚（revert PR） | Agent | 冒烟不过或出事故时直接开 revert PR 合并，并触发 Deploy production 发出；事后在汇报里写清现象、影响和回滚目标 |
-| 触发 Deploy production（发布当前 main） | **需 Nain 说发布**（回滚除外） | 默认 `mode=incremental`；`full` 全部重发。Nain 说了发布，Agent 直接触发并跟进，不再另行确认 |
+| 触发 Deploy production（发布当前 main） | **需 Nain 说发布**（回滚与可选的 macmini2 静默合批除外） | 一律走幂等入口 `scripts/release.sh [--include <sha>]`，禁止裸跑 `gh workflow run deploy.yml`。默认 `mode=incremental`；`full` 全部重发。Nain 说了发布，Agent 直接执行并跟进，不再另行确认 |
 | 重跑失败的 Deploy production job | Agent | 只按失败 job 重跑，不重跑整单 |
 | 绕过流水线手动发布 / 手工前端回滚（`scripts/pages-release.sh`） | **需 Nain 批准** | 正常路径是 Deploy production workflow；绕过它（macmini2 构建、手工上传）没有检查和自动回滚 |
 | 改服务器上的 `app.env` / `operator-config.json` | **需 Nain 批准** | 手工改，先备份，见下文 |
@@ -57,21 +57,28 @@ git push origin HEAD:test
 
 跟进 Deploy test 跑完，再核对测试站的版本并实测改动，见下面的「上线核对」。测试环境用真实供应商 key，生成照样花钱，冒烟控制在最小用量。测试通过不代表可以上生产。
 
-## 三、生产发布（按需）
+## 三、生产发布（幂等入口与可选静默合批）
 
-合并 `main` 不会上线。合并后的改动处于「待发布」，什么时候发由 Nain 决定：
+合并 `main` 不会立刻上线。合并后的改动处于「待发布」，Nain 说发布（或回滚）时，所有 Agent 与人都统一走幂等入口 `scripts/release.sh`，**不要裸跑 `gh workflow run deploy.yml`**，避免多 Agent 并行时各自重复触发构建：
 
 ```sh
-scripts/release-status.sh                                        # 只读：API、前端、Admin 各还差哪些改到自己的提交
-gh workflow run deploy.yml --ref main                            # Nain 说发布后：默认 incremental
-gh workflow run deploy.yml --ref main -f mode=full -f reason='…'  # 全部重发
-gh run list --workflow deploy.yml --event workflow_dispatch --limit 3 --json databaseId,createdAt,status
-gh run watch <databaseId>
+scripts/release-status.sh                                           # 只读：API、前端、Admin 各还差哪些改到自己的提交
+scripts/release.sh --include <你的合并提交>                          # 推荐：若已在线跳过；若有在跑/排队单已包含则直接 watch；否则等 CI 绿后触发一单
+scripts/release.sh --reason '…'                                     # 发布当前 origin/main（默认 incremental）
+scripts/release.sh --mode full --reason '…'                         # 全部重发（不走跳过与复用）
+scripts/release.sh --pin-sha --reason '…'                           # 锁死触发时刻的提交，不自动推进到排队期间的新 main
 ```
 
-`gh workflow run` 返回后要过几秒 run 才出现，先用 `gh run list` 确认 `createdAt` 是刚才那次，再 watch；直接取第一条可能拿到上一单。
+`scripts/release.sh` 内置四步去重：
 
-1. `.github/workflows/deploy.yml`（Deploy production）只有手动触发（`workflow_dispatch`）。发触发时 main 的提交（排队期间 main 前进也不换），该提交在 main 上的 `Web checks` 必须已成功，未完成或失败直接报错，等检查通过后再触发；同一时间只跑一单（并发组 `production-deploy`）。运行摘要在切换前按各部分线上实际版本列出本次带上的提交，冒烟按这份清单逐项核对。
+1. **已在线跳过（`outcome=already_live`）**：`--include <sha>` 触及的每一边线上都已运行该提交或其后代（或全量线上已覆盖 `origin/main` 全部可发布改动）时直接退出。
+2. **搭便车复用（`outcome=piggybacked`）**：若已有 `in_progress` 或 `queued` 的 `Deploy production` 且其提交已包含 `--include`（或 `origin/main`），不发新单，直接 `gh run watch` 复用它。
+3. **CI 门禁后再复查**：若 `main` 的 `Web checks` 尚未结束，先轮询等待变绿（失败则拒绝触发），通过后再做一次 1/2 复查，防并行会话在等待窗口内已发过单。
+4. **单次触发并精确跟踪（`outcome=dispatched`）**：触发一次 `deploy.yml`，按 `id > before_id` 解析新 run ID 并 `gh run watch`（加 `--no-watch` 只触发不阻塞）。
+
+workflow 本身的机制：
+
+1. `.github/workflows/deploy.yml`（Deploy production）由 `workflow_dispatch` 触发，同一时间只跑一单（并发组 `production-deploy`，不取消在跑单，排队只留最新一单）。拿到发布锁后由 `scripts/ci-pick-release-sha.sh` 选定目标提交：**默认（`pin_sha=false`）自动推进到 `[触发提交, origin/main HEAD]` 中最新已通过 `Web checks` 的提交**，把排队期间合入且已过检的 PR 自动并进同一单；传 `pin_sha=true` 时锁死触发时刻的提交。若所选提交在 `main` 上的 `Web checks` 未通过或失败则直接报错。运行摘要在切换前按各部分线上实际版本列出本次带上的提交，冒烟按这份清单逐项核对。
 2. `target` 判定哪些部分要发（共享 muvloom API、muvloom Pages 项目、Admin）；产品前端扫描 `PAID_PUBLIC_ORIGIN`，同一项目的全部产品域名随之更新。已在跑后代提交的部分不回退；`release` 打 `vMAJOR.MINOR.PATCH` 标签。
 3. **后端只构建和发布 muvloom runtime。** `backend` 在 Actions 用 `build-vps-release.sh paid` 构建单仓发布镜像，以及 backup、segmenter 配套镜像，经 SSH 受限命令执行 `deploy <id> paid <run>`；`rollout-runtime.sh` 先跑兼容迁移，再做新旧两代排空切换。生产目标只有 `paid`，隔离测试目标为 `test`。
 4. `pages-muvloom`（显示名 `Pages (muvloom project, every product domain)`）只发布一个 muvloom Pages 项目：一个项目、多个域名（`muvloom.online`、`image.nainma.online`、企业域名 `image-playground.qiliangjia.one`）。`pages-release.sh muvloom` 把 `ENTERPRISE_PUBLIC_ORIGIN → ENTERPRISE_BFF_BASE_URL` 并入 `baseUrlsByOrigin`，并给企业域名加 host 级 `X-Robots-Tag: noindex`。API 本次发布时，先等共享 muvloom API 与企业 API hostname `/health` 报出新版本，再发布并跑 Chromium 验收；企业域名在 muvloom 项目的 Cloudflare 自定义域名列表中时同样验收且失败即失败，未绑定只告警，不能据此宣称企业站已交付。`admin-pages` 保留对 `pages-muvloom` 的成功 / 跳过依赖。
@@ -80,6 +87,19 @@ gh run watch <databaseId>
    - 失败后的重跑：同一发布 ID 已接收后只能按失败 job 重跑，不能重跑整单，避免同一发布目录冲突。
 
 合并后 Agent 在汇报里列出待发布的改动；Nain 说发布后触发 workflow、跟进到跑完，冒烟在发布完成后做。失败就看日志处理（可按失败 job 重跑），不绕过 workflow 补发。一次带上的改动越多，出问题越难定位：有关键流程或数据库迁移的改动，建议单独发布、单独冒烟。
+
+### macmini2 静默合批自动发布（可选）
+
+多 Agent 持续合入 PR 时，如果希望“不用每个会话都喊上线，等一波合并停下来后自动合批上一单”，可在 `macmini2` 安装本仓库自带的 `launchd` 定时器（每 2 分钟检查一次，纯只读查询 + 满足静默窗后发一单 `incremental`）：
+
+- **合批规则**：当 `main` 有未上线提交且 `Web checks` 已绿，等待连续 `DEPLOY_DEBOUNCE_MINUTES`（默认 10 分钟）无新合并后触发一单；若连续合并超过 `DEPLOY_MAX_WAIT_MINUTES`（默认 45 分钟）也会强制发一单防饿死。已有发布在跑/排队、已有成功单/发布标签覆盖当前 HEAD、或线上三边已最新时直接跳过。
+- **安装（在 `macmini2` 上执行，需 Nain 准备最小权限 PAT）**：
+  1. 创建仅对 `Muluk-m/ai-image-playground` 拥有 `Actions: Read and write` 与 `Contents: Read-only` 权限的 fine-grained PAT，写入 `~/.config/ai-image-playground/deploy-dispatch.token` 并设权限 `chmod 600`（脚本通过 `curl --config -` 标准输入传令牌，不出现在进程参数里）。
+  2. 运行 `scripts/install-deploy-debounce-timer.sh` 安装 `~/.local/bin/muvloom-deploy-debounce-tick.sh` 与 `~/Library/LaunchAgents/com.muvloom.deploy-debounce.plist`。
+- **暂停 / 恢复 / 卸载**：
+  - 暂停：`touch ~/.config/ai-image-playground/deploy-auto.pause`（删掉即恢复）
+  - 日志：`~/Library/Logs/ai-image-playground/deploy-debounce.log`
+  - 卸载：`launchctl bootout "gui/$(id -u)/com.muvloom.deploy-debounce" && rm -f ~/Library/LaunchAgents/com.muvloom.deploy-debounce.plist`
 
 ### 计费与企业能力发布
 

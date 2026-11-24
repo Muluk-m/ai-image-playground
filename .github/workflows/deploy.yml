@@ -3,9 +3,10 @@
 # with its own API hostname and a host-scoped noindex.
 # Runbook, secrets and break-glass manual release: docs/deploy/image-release.md.
 name: Deploy production
-# 按需发布：合并 main 不会自动上线，由 Nain 决定何时发（Actions 页面 Run workflow，或
-# `gh workflow run deploy.yml --ref main`）。发触发时 main 的提交，且该提交在 main 上的
-# `Web checks` 必须已成功。默认 incremental，只发自上次以来有改动的那几部分；full 全部重发（不回退）。
+# 按需发布：合并 main 不会自动上线，由 Nain 决定何时发（推荐 `scripts/release.sh`，或在 Actions 页面
+# Run workflow）。默认自动推进到拿到发布锁时 main 上最新已通过 `Web checks` 的提交（排队期间合入的
+# PR 会自动合并进同一单）；设 pin_sha=true 可锁死触发时刻的提交。默认 incremental，只发有改动的部分；
+# full 全部重发（不回退）。
 on:
   workflow_dispatch:
     inputs:
@@ -18,6 +19,10 @@ on:
         description: 发布说明（可选，写入 job summary）
         type: string
         required: false
+      pin_sha:
+        description: 锁死触发时刻的提交，不自动推进到排队期间已过 Web checks 的最新 main
+        type: boolean
+        default: false
 permissions:
   contents: read
 # One deployment at a time. A queued run waits; a newer queued run replaces it.
@@ -60,27 +65,16 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
           persist-credentials: false
-      # 发触发时 main 的提交，即 Nain 决定发的那个；排队期间 main 前进了也不换成更新的提交。
+      # 默认在拿到发布锁后自动推进到 main 上最新已通过 `Web checks` 的提交（合并排队期间的新 PR）；
+      # pin_sha=true 时锁死触发时刻的 github.sha。
       - id: sha
-        env:
-          EVENT_SHA: ${{ github.sha }}
-        run: echo "sha=$EVENT_SHA" >> "$GITHUB_OUTPUT"
-      # 只发 `Web checks` 已在 main 上成功的提交；没跑完或失败直接报错，等检查通过后重新触发。
-      - name: Require Web checks on main
+        name: Pick latest green main commit
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          SHA: ${{ steps.sha.outputs.sha }}
-        run: |
-          # success：有成功记录；running：无成功但有未完成；failure：只有失败；none：没有记录
-          state=$(
-            gh api "repos/$REPO/actions/workflows/web.yml/runs?head_sha=$SHA&event=push&branch=main&per_page=100" \
-              --jq 'if any(.workflow_runs[]?; .status == "completed" and .conclusion == "success") then "success" elif any(.workflow_runs[]?; .status != "completed") then "running" elif (.workflow_runs | length) == 0 then "none" else "failure" end'
-          ) || state=unavailable
-          if [ "$state" != success ]; then
-            echo "::error::Web checks for $SHA on main is '$state'; release it after the checks pass."
-            exit 1
-          fi
+          EVENT_SHA: ${{ github.sha }}
+          PIN_SHA: ${{ inputs.pin_sha || false }}
+        run: scripts/ci-pick-release-sha.sh "$EVENT_SHA" "$PIN_SHA" "$REPO"
       - id: decide
         env:
           PAGES_ENV: ${{ secrets.PAGES_ENV }}
@@ -97,6 +91,8 @@ jobs:
       - name: Summarize the release
         env:
           SHA: ${{ steps.sha.outputs.sha }}
+          EVENT_SHA: ${{ github.sha }}
+          ADVANCED: ${{ steps.sha.outputs.advanced }}
           MODE: ${{ inputs.mode || 'incremental' }}
           REASON: ${{ inputs.reason }}
           ACTOR: ${{ github.actor }}
@@ -107,7 +103,11 @@ jobs:
         run: |
           {
             echo "### 生产发布"
-            echo "- 提交：\`$SHA\`（$MODE），触发人：$ACTOR"
+            if [ "$ADVANCED" = true ]; then
+              echo "- 提交：\`$SHA\`（由触发提交 \`$EVENT_SHA\` 自动推进至最新绿色 main，$MODE），触发人：$ACTOR"
+            else
+              echo "- 提交：\`$SHA\`（$MODE），触发人：$ACTOR"
+            fi
             [ -z "$REASON" ] || echo "- 说明：$REASON"
             echo "- 发布：API=$API，muvloom 前端=$WEB，Admin=$ADMIN"
             echo
