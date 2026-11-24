@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { GeminiDirectAdminView, GeminiDirectKeyStatus } from '@image-playground/shared'
 import { eq, gte, sql } from 'drizzle-orm'
 import { config } from '../../config'
@@ -34,20 +35,32 @@ const BUDGET_TIME_ZONE = 'Asia/Taipei'
 
 type KeyStateRow = typeof schema.gemini_direct_key_state.$inferSelect
 
+/**
+ * 所有 Gemini 密钥均因停用或月预算耗尽而不可用。
+ * 文案面向终端用户与 Agent，不暴露内部密钥池/月预算/后台运维细节，也不触发模型自动下架。
+ */
 export class GeminiDirectKeysExhaustedError extends Error {
   readonly causeError: unknown
   readonly upstreamStatus?: number
   readonly retryable = false
 
-  constructor(
-    cause?: unknown,
-    message = 'Gemini 直连密钥均已达到月预算上限或不可用，请在后台补充或恢复密钥',
-  ) {
+  constructor(cause?: unknown, message = '当前模型服务暂时繁忙，请稍后重试或切换其他模型') {
     super(message)
     this.name = 'GeminiDirectKeysExhaustedError'
     this.causeError = cause
     const status = (cause as { upstreamStatus?: unknown } | null)?.upstreamStatus
     if (typeof status === 'number') this.upstreamStatus = status
+  }
+}
+
+/** 读密钥状态或预算库表失败时的瞬时异常，交由任务级重试，不能伪装成密钥池耗尽。 */
+export class GeminiDirectPoolReadError extends Error {
+  readonly retryable = true
+
+  constructor(cause: unknown) {
+    super('当前模型服务暂时繁忙，请稍后重试')
+    this.name = 'GeminiDirectPoolReadError'
+    this.cause = cause
   }
 }
 
@@ -136,7 +149,7 @@ export async function walkGeminiDirectKeys(input: {
     state = input.state ?? (await loadKeyState())
   } catch (err) {
     log.warn({ event: 'gemini.direct_key_state_read_failed', err }, 'gemini key state read failed')
-    return null
+    throw new GeminiDirectPoolReadError(err)
   }
   for (const key of keys) {
     if (input.exclude?.has(key.fingerprint) || key.enabled === false) continue
@@ -164,7 +177,7 @@ export async function walkGeminiDirectKeys(input: {
         { event: 'gemini.direct_budget_read_failed', err, fingerprint: key.label },
         'gemini direct budget read failed',
       )
-      return null
+      throw new GeminiDirectPoolReadError(err)
     }
   }
   return null
@@ -174,6 +187,7 @@ export async function selectGeminiDirectKey(input: {
   estimateMicroUsd: number
   exclude?: ReadonlySet<string>
   now?: number
+  allowCooldown?: boolean
   state?: ReadonlyMap<string, KeyStateRow>
 }): Promise<GeminiDirectKey | null> {
   const picked = await walkGeminiDirectKeys(input)
@@ -263,7 +277,7 @@ export async function markGeminiKeyCooldown(key: GeminiDirectKey, error: unknown
   }
 }
 
-/** 后台手动恢复一把停用或冷却中的 Gemini 密钥。 */
+/** 后台手动恢复一把停用或冷却中的 Gemini 密钥，并记录操作审计。 */
 export async function restoreGeminiDirectKey(
   fingerprint: string,
   operator?: string,
@@ -271,9 +285,22 @@ export async function restoreGeminiDirectKey(
   const keys = configuredGeminiDirectKeys()
   const key = keys.find((entry) => entry.fingerprint === fingerprint)
   if (!key) return false
-  await db
-    .delete(schema.gemini_direct_key_state)
-    .where(eq(schema.gemini_direct_key_state.fingerprint, fingerprint))
+  const now = Date.now()
+  const operatorId = (operator?.trim() || 'admin').slice(0, 200)
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(schema.gemini_direct_key_state)
+      .where(eq(schema.gemini_direct_key_state.fingerprint, fingerprint))
+    await tx.insert(schema.operator_audits).values({
+      id: randomUUID(),
+      operator_id: operatorId,
+      action: 'gemini_direct_key.restore',
+      target_type: 'gemini_direct_key',
+      target_id: key.id ?? fingerprint,
+      details: { fingerprint: key.label },
+      created_at: now,
+    })
+  })
   forgetGeminiDirectKeyDisabled(fingerprint)
   log.info(
     {

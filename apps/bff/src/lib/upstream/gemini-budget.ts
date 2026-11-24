@@ -265,7 +265,7 @@ export async function releaseGeminiReservation(id: string): Promise<void> {
 
 /**
  * 记录一次 Gemini 直连请求的结果与估算花费，并在同一事务里释放对应的预算预占。
- * 写失败只记日志，不阻塞已出图的交付。
+ * 写失败只记日志，不阻塞已出图的交付；返回是否成功落账并释放预占。
  */
 export async function recordGeminiUsage(input: {
   taskId?: string
@@ -273,15 +273,19 @@ export async function recordGeminiUsage(input: {
   imageSize?: string
   images: number
   status: 'ok' | 'rate_limited' | 'error'
+  /** 已派发但超时/断连结果未知时仍按估算记入花费，避免绕过月预算封顶。 */
+  billUnknown?: boolean
   upstreamStatus?: number
   keyFingerprint?: string
   payload?: unknown
   reservationId?: string
-}): Promise<void> {
+}): Promise<boolean> {
   const usage = input.payload === undefined ? null : readGeminiUsage(input.payload)
+  const billableImages =
+    input.status === 'ok' ? input.images : input.billUnknown ? Math.max(1, input.images) : 0
   const cost =
-    input.status === 'ok' && input.images > 0
-      ? estimateGeminiCostMicroUsd(input.model, input.imageSize, input.images, usage)
+    billableImages > 0
+      ? estimateGeminiCostMicroUsd(input.model, input.imageSize, billableImages, usage)
       : 0
   const now = Date.now()
   try {
@@ -292,7 +296,7 @@ export async function recordGeminiUsage(input: {
         task_id: input.taskId ?? null,
         model: input.model,
         image_size: input.imageSize ?? null,
-        images: Math.max(0, input.images),
+        images: input.status === 'ok' ? Math.max(0, input.images) : 0,
         input_tokens: usage ? usage.promptTokens : null,
         output_tokens: usage ? usage.outputTokens : null,
         cost_micro_usd: cost,
@@ -309,6 +313,7 @@ export async function recordGeminiUsage(input: {
       }
     })
     forgetSpent(input.keyFingerprint)
+    return true
   } catch (err) {
     log.warn(
       {
@@ -320,5 +325,6 @@ export async function recordGeminiUsage(input: {
       },
       'gemini direct usage record failed',
     )
+    return false
   }
 }

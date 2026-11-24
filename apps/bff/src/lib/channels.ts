@@ -492,7 +492,9 @@ export function parseChannelsConfig(
     }
 
     const secret = envLookup(ch.auth.secretRef)?.trim() ?? ''
-    const adminDirectKeys = ch.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0
+    const adminDirectKeys =
+      (ch.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0) ||
+      (ch.auth.secretRef === 'VERTEX_API_KEY' && geminiDirectEnabledKeyCount() > 0)
     const image26WithoutDirectKey =
       process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true' &&
       ch.models.some((model) => isGptImage26Model(model.id))
@@ -617,7 +619,7 @@ export function refreshChannelsIfChanged(filePath = defaultChannelsPath()): void
   } catch (error) {
     if (!isFileNotFoundError(error)) throw error
   }
-  const signature = `${filePath}:${fileVersion}:${upstreamSecretRevision()}:${gptDirectEnabledKeyCount()}:${gptDirectSizeEnabled()}`
+  const signature = `${filePath}:${fileVersion}:${upstreamSecretRevision()}:${gptDirectEnabledKeyCount()}:${gptDirectSizeEnabled()}:${geminiDirectEnabledKeyCount()}`
   if (signature === refreshSignature) return
   initChannels(filePath)
   refreshSignature = signature

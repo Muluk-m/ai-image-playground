@@ -1,6 +1,7 @@
 import type { HydratedSubmitRequest } from '../../imageArchive'
 import { log } from '../../logger'
 import { planDispatchedImage, stampReceipt } from '../adapters'
+import { UpstreamResultUnknownError, UpstreamTimeoutError } from '../errors'
 import { fanOutRequests } from '../fanout'
 import { mergeGeminiCandidateResults } from '../gemini'
 import {
@@ -127,14 +128,28 @@ export const geminiImageExecutor: UpstreamExecutor = {
     const primaryBodyObj = (dispatched.plan.freshBody?.() ??
       dispatched.plan.calls[0].body) as Record<string, unknown>
     const body = JSON.stringify(primaryBodyObj)
-    const usePool = vertex && hasGeminiDirectPool()
+    // 无 DATABASE_URL 的纯内存单测即便宿主环境含 VERTEX_API_KEY 也退回单 key 直发，不依赖数据库表。
+    const usePool = vertex && hasGeminiDirectPool() && Boolean(process.env.DATABASE_URL?.trim())
+
+    const throwIfAborted = () => {
+      if (session.deadline.timedOut) throw new UpstreamTimeoutError()
+      if (session.externalSignal?.aborted) {
+        throw session.externalSignal.reason ?? new DOMException('Aborted', 'AbortError')
+      }
+      if (session.deadline.signal.aborted) {
+        throw session.deadline.signal.reason ?? new DOMException('Aborted', 'AbortError')
+      }
+    }
 
     const executeSingleFetch = async (
       target: GeminiTarget,
       apiKey: string,
       capAt?: number,
       withRetry = vertex,
-      onRateLimit?: () => Promise<void>,
+      hooks?: {
+        onDispatched?: () => void
+        onRateLimit?: () => Promise<void>
+      },
     ): Promise<UpstreamCallResult> => {
       const capLeftMs = capAt === undefined ? undefined : capAt - Date.now()
       if (capLeftMs !== undefined && capLeftMs <= 0) throw new VertexTimeCapError()
@@ -154,6 +169,7 @@ export const geminiImageExecutor: UpstreamExecutor = {
         : undefined
       const headers = buildHeaders(apiKey)
       const send = async () => {
+        hooks?.onDispatched?.()
         try {
           return await session.parseResponse(
             await session.performFetch(
@@ -164,7 +180,7 @@ export const geminiImageExecutor: UpstreamExecutor = {
             ),
           )
         } catch (error) {
-          if (isRateLimited(error) && onRateLimit) await onRateLimit()
+          if (isRateLimited(error) && hooks?.onRateLimit) await hooks.onRateLimit()
           throw error
         }
       }
@@ -194,12 +210,13 @@ export const geminiImageExecutor: UpstreamExecutor = {
       const exclude = new Set<string>()
       let lastError: unknown
 
-      while (!session.deadline.signal.aborted) {
+      while (true) {
+        throwIfAborted()
         let reserved = await reserveGeminiDirectKey({ estimateMicroUsd: estimate, exclude })
         let usedCooldownFallback = false
-        if (!reserved && exclude.size === 0) {
-          // 所有未超预算且未停用的 key 都在 429 冷却中时，挑一把继续走退避重试与模型回落，
-          // 而不是因为瞬时冷却把整单直接硬拒；若全部超预算/停用则依然返回 null 报错。
+        if (!reserved) {
+          // 常规选钥无可用（含前一把刚失效/冷却后其余都在 429 冷却）时，在未排除集合内允许借冷却中
+          // 且未超预算、未停用的 key 继续走退避与模型回落；全部超预算或停用则仍返回 null。
           reserved = await reserveGeminiDirectKey({
             estimateMicroUsd: estimate,
             exclude,
@@ -208,39 +225,49 @@ export const geminiImageExecutor: UpstreamExecutor = {
           usedCooldownFallback = reserved !== null
         }
         if (!reserved) {
+          throwIfAborted()
           if (lastError !== undefined) throw lastError
+          log.error(
+            { event: 'gemini.direct_keys_exhausted', model: target.model },
+            'all gemini direct keys are disabled or over monthly budget',
+          )
           throw new GeminiDirectKeysExhaustedError()
         }
         const { key: activeKey, reservationId } = reserved
         exclude.add(activeKey.fingerprint)
 
-        const another = usedCooldownFallback
-          ? null
-          : await selectGeminiDirectKey({ estimateMicroUsd: estimate, exclude })
+        const another = await selectGeminiDirectKey({
+          estimateMicroUsd: estimate,
+          exclude,
+          allowCooldown: usedCooldownFallback,
+        })
         const hasNextKey = another !== null
 
         let reservationSettled = false
+        let requestDispatched = false
         try {
-          const result = await executeSingleFetch(
-            target,
-            activeKey.secret,
-            capAt,
-            !hasNextKey,
-            hasNextKey
-              ? undefined
-              : async () => {
-                  await markGeminiKeyCooldown(activeKey, { upstreamStatus: 429 })
-                  await recordGeminiUsage({
-                    ...(params.taskId ? { taskId: params.taskId } : {}),
-                    model: target.model,
-                    ...(target.imageSize ? { imageSize: target.imageSize } : {}),
-                    images: 0,
-                    status: 'rate_limited',
-                    upstreamStatus: 429,
-                    keyFingerprint: activeKey.fingerprint,
-                  })
-                },
-          )
+          const result = await executeSingleFetch(target, activeKey.secret, capAt, !hasNextKey, {
+            onDispatched: () => {
+              requestDispatched = true
+            },
+            ...(hasNextKey
+              ? {}
+              : {
+                  onRateLimit: async () => {
+                    await markGeminiKeyCooldown(activeKey, { upstreamStatus: 429 })
+                    await recordGeminiUsage({
+                      ...(params.taskId ? { taskId: params.taskId } : {}),
+                      model: target.model,
+                      ...(target.imageSize ? { imageSize: target.imageSize } : {}),
+                      images: 0,
+                      status: 'rate_limited',
+                      upstreamStatus: 429,
+                      keyFingerprint: activeKey.fingerprint,
+                    })
+                  },
+                }),
+          })
+          // 请求已成功出图：即便落账写库失败也不应释放预占，留着预占到租期结束守住月预算。
           reservationSettled = true
           await recordGeminiUsage({
             ...(params.taskId ? { taskId: params.taskId } : {}),
@@ -260,8 +287,7 @@ export const geminiImageExecutor: UpstreamExecutor = {
           const status = upstreamStatusOf(error)
           if (failure === 'cooldown' && hasNextKey) {
             await markGeminiKeyCooldown(activeKey, error)
-            reservationSettled = true
-            await recordGeminiUsage({
+            reservationSettled = await recordGeminiUsage({
               ...(params.taskId ? { taskId: params.taskId } : {}),
               model: target.model,
               ...(target.imageSize ? { imageSize: target.imageSize } : {}),
@@ -283,8 +309,7 @@ export const geminiImageExecutor: UpstreamExecutor = {
           }
           if (failure === 'invalid' || failure === 'quota') {
             await markGeminiKeyDisabled(activeKey, failure, error)
-            reservationSettled = true
-            await recordGeminiUsage({
+            reservationSettled = await recordGeminiUsage({
               ...(params.taskId ? { taskId: params.taskId } : {}),
               model: target.model,
               ...(target.imageSize ? { imageSize: target.imageSize } : {}),
@@ -305,24 +330,41 @@ export const geminiImageExecutor: UpstreamExecutor = {
             )
             continue
           }
-          // 429 在 !hasNextKey 分支已由 onRateLimit 记过 rate_limited，这里只释放预占；
-          // 其它错误（非 429、非 VertexTimeCapError）记一次 error 并释放预占。
-          if (!reservationSettled) {
+          // 未出队列就取消或超时：请求从未发往 Vertex，不计入密钥统计，直接释放预占。
+          if (!requestDispatched) {
+            throw error
+          }
+          // 已派发但超时/断连结果未知：按估算计入本月花费守住预算；写库失败时保留预占直到租期。
+          if (
+            error instanceof UpstreamResultUnknownError ||
+            error instanceof UpstreamTimeoutError
+          ) {
             reservationSettled = true
-            if (isRateLimited(error) || error instanceof VertexTimeCapError) {
-              await releaseGeminiReservation(reservationId)
-            } else {
-              await recordGeminiUsage({
-                ...(params.taskId ? { taskId: params.taskId } : {}),
-                model: target.model,
-                ...(target.imageSize ? { imageSize: target.imageSize } : {}),
-                images: 0,
-                status: 'error',
-                ...(status !== undefined ? { upstreamStatus: status } : {}),
-                keyFingerprint: activeKey.fingerprint,
-                reservationId,
-              })
-            }
+            await recordGeminiUsage({
+              ...(params.taskId ? { taskId: params.taskId } : {}),
+              model: target.model,
+              ...(target.imageSize ? { imageSize: target.imageSize } : {}),
+              images: 1,
+              status: 'error',
+              billUnknown: true,
+              keyFingerprint: activeKey.fingerprint,
+              reservationId,
+            })
+            throw error
+          }
+          // 429 在 !hasNextKey 分支已由 onRateLimit 记过 rate_limited，这里由 finally 释放预占；
+          // 其它已派发错误（如 400 / 5xx）记一条 error；若记账写库失败则由 finally 兜底释放预占。
+          if (!isRateLimited(error) && !(error instanceof VertexTimeCapError)) {
+            reservationSettled = await recordGeminiUsage({
+              ...(params.taskId ? { taskId: params.taskId } : {}),
+              model: target.model,
+              ...(target.imageSize ? { imageSize: target.imageSize } : {}),
+              images: 0,
+              status: 'error',
+              ...(status !== undefined ? { upstreamStatus: status } : {}),
+              keyFingerprint: activeKey.fingerprint,
+              reservationId,
+            })
           }
           throw error
         } finally {
@@ -331,7 +373,6 @@ export const geminiImageExecutor: UpstreamExecutor = {
           }
         }
       }
-      throw lastError ?? new GeminiDirectKeysExhaustedError()
     }
 
     const sendVia = (target: GeminiTarget, capAt?: number) =>

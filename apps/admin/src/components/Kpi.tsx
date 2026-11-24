@@ -9,12 +9,13 @@ interface KpiProps {
   note?: ReactNode
   /** card 自带卡片外框；inline 用于已经在卡片里的事实行。 */
   variant?: 'card' | 'inline'
-  tone?: 'default' | 'success' | 'danger'
+  tone?: 'default' | 'success' | 'warning' | 'danger'
 }
 
 const TONE_CLASS: Record<NonNullable<KpiProps['tone']>, string> = {
   default: '',
   success: 'text-success',
+  warning: 'text-warning',
   danger: 'text-danger',
 }
 

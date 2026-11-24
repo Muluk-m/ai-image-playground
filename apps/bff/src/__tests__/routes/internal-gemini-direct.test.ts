@@ -151,6 +151,14 @@ describe('Gemini direct key pool & stats', () => {
     expect(panel.keys.map((k) => k.ordinal)).toEqual([1, 2])
     expect(panel.total_budget_micro_usd).toBe(400_000_000)
 
+    // Invalid budgetUsd validation error must NEVER echo plaintext apiKey
+    const badReq = await request('/internal/admin/gemini-direct/keys', 'POST', {
+      apiKey: 'AIzaSy-must-not-echo-validation',
+      budgetUsd: 'not-a-number',
+    })
+    expect(badReq.status).toBe(400)
+    expect(await badReq.text()).not.toContain('AIzaSy-must-not-echo-validation')
+
     // Duplicate key rejected
     const dup = await request('/internal/admin/gemini-direct/keys', 'POST', {
       apiKey: KEY_A,
@@ -252,11 +260,13 @@ describe('Gemini direct key pool & stats', () => {
     expect(panel.by_model).toHaveLength(1)
     expect(panel.by_model[0]!.model).toBe('gemini-nano-banana-2.1')
 
-    // Restore cooled-down key A
+    // Restore cooled-down key A and verify audit record written
     const restored = await request(`/internal/admin/gemini-direct/keys/${fpA}/restore`, 'POST')
     expect(restored.status).toBe(200)
     const afterRestore = (await restored.json()) as GeminiDirectAdminView
     expect(afterRestore.keys.find((k) => k.fingerprint === fpA)!.status).toBe('available')
+    const audits = await db.select().from(schema.operator_audits)
+    expect(audits.some((row) => row.action === 'gemini_direct_key.restore')).toBe(true)
   })
 
   it('disables invalid keys, enforces monthly budget cap, and throws non-retryable exhausted error', async () => {
@@ -301,6 +311,7 @@ describe('Gemini direct key pool & stats', () => {
     expect(fetchCalls).toBe(0)
     expect(caught).toBeInstanceOf(GeminiDirectKeysExhaustedError)
     expect((caught as GeminiDirectKeysExhaustedError).retryable).toBe(false)
+    expect((caught as GeminiDirectKeysExhaustedError).message).not.toMatch(/密钥|预算|后台/)
   })
 
   it('parses usageMetadata and estimates per-model/resolution cost cleanly', () => {
