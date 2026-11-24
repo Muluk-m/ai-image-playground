@@ -1014,9 +1014,11 @@ export async function reclaimUnreferencedAssetMedia(
           await store.deletePrefix(row.stagingKey)
           if (row.objectKey) await store.deletePrefix(row.objectKey)
         }
+        // 已持 lockMediaOwner + 目标行 FOR UPDATE 锁，不会有新引用或同步并发落库；
+        // 对象存储删除一旦成功必须无条件清理账本行，避免无关 tasks/agent_executions 写入使 DB 滞留 ready。
         const removedRows = await tx
           .delete(media)
-          .where(and(eq(media.id, row.id), not(protection)))
+          .where(eq(media.id, row.id))
           .returning({ id: media.id })
         if (removedRows.length > 0 && row.assetImageId) {
           await tx

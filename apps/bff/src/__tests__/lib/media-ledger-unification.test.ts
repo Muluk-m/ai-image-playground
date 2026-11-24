@@ -11,7 +11,7 @@ const TEST_DB = await resetTestDatabase('bff_media_ledger_unification')
 process.env.PORT = '0'
 process.env.CORS_ALLOWED_ORIGINS = 'https://app.example.com'
 process.env.DATABASE_URL = TEST_DB
-process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../sync-assets-operator-config.json')
+process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../projects-operator-config.json')
 
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
@@ -354,9 +354,23 @@ describe('unified media ledger (PR-5.4a)', () => {
       )
     expect(afterFail?.status).toBe('ready')
 
-    // Next sweep succeeds cleanly.
+    // Next sweep succeeds cleanly even if an unrelated task is inserted mid-deleteObject.
+    objectStorage.beforeDeletePrefix = async () => {
+      objectStorage.beforeDeletePrefix = undefined
+      await db.insert(schema.tasks).values({
+        id: 'concurrent-unrelated-task',
+        user_id: 'ledger-user',
+        provider: 'openai-compat',
+        model: 'gpt-image-2',
+        status: 'queued',
+        request_payload: { prompt: 'concurrent' },
+        submitted_at: Date.now(),
+      })
+    }
     expect(await reclaimUnreferencedAssetMedia(now + 100_000, 0)).toBe(1)
     expect(objectStorage.objects.has(assetObjectKey('ledger-user', 'img-retry'))).toBe(false)
+    expect(await findAssetImageMeta(db, 'ledger-user', 'img-retry')).toBeNull()
+    await db.delete(schema.tasks).where(eq(schema.tasks.id, 'concurrent-unrelated-task'))
 
     // If a row is explicitly marked deleting, storeAssetImage refuses concurrent PUT (409 asset_media_deleting).
     await storeAssetImage('ledger-user', 'img-del-lock', new Uint8Array(16), 'image/png')
