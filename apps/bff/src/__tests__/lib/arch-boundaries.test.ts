@@ -73,10 +73,13 @@ describe('check-arch-boundaries', () => {
   it('enforces ADR 0034 module facade, core-to-app DAG, and agent sub-layer order for both runtime and type-only imports', async () => {
     const dir = createTempTree({
       'modules/media/index.ts': 'export const mediaFacade = 1\n',
+      'modules/media/contracts/index.ts': 'export const mediaContract = 1\n',
       'modules/media/internal.ts':
         'export interface MediaSecret { id: string }\nexport const mediaSecret = 2\n',
       'modules/execution/ok.ts':
         "import { mediaFacade } from '../media'\nexport const ok = mediaFacade\n",
+      'modules/execution/bad-media-contracts.ts':
+        "import { mediaContract } from '../media/contracts'\nexport const badContract = mediaContract\n",
       'modules/execution/bad-deep.ts':
         "import { mediaSecret } from '../media/internal'\nexport const bad = mediaSecret\n",
       'modules/execution/bad-deep-type.ts':
@@ -109,6 +112,8 @@ describe('check-arch-boundaries', () => {
       'lib/agent/tools/helper.ts': 'export const helper = 1\n',
       'modules/agent/conversation/bad.ts':
         "import type { RuntimeState } from '../runtime/exec'\nexport type C = RuntimeState\n",
+      'modules/agent/conversation/bad-facade.ts':
+        "import type { AgentFacade } from '..'\nexport type BadFacade = AgentFacade\n",
       'modules/agent/conversation/bad-legacy.ts':
         "import type { Legacy } from '../../../lib/agent/legacy'\nexport type BadConvLegacy = Legacy\n",
       'modules/agent/inbox/bad-legacy.ts':
@@ -209,10 +214,24 @@ describe('check-arch-boundaries', () => {
     ).toBe(true)
     expect(
       violations.some((v) =>
+        v.includes(
+          '[module-encapsulation] modules/execution/bad-media-contracts.ts -> modules/media/contracts/index.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-layer] modules/agent/conversation/bad-facade.ts -> modules/agent/index.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
         v.includes('[agent-core -> tools] lib/agent/core-bad.ts -> lib/agent/tools/helper.ts'),
       ),
     ).toBe(true)
-    expect(violations).toHaveLength(14)
+    expect(violations).toHaveLength(16)
     expect(violations.some((v) => v.includes('lib/agent/pure-ok.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('modules/execution/ok.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('modules/agent/runtime/exec.ts ->'))).toBe(false)

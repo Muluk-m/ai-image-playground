@@ -323,7 +323,10 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
       }
 
       if (toModule && fromModule?.name !== toModule.name && !file.startsWith('bootstrap/')) {
-        if (toModule.rest !== 'index.ts' && toModule.rest !== 'contracts/index.ts') {
+        if (
+          toModule.rest !== 'index.ts' &&
+          !(toModule.name === 'agent' && toModule.rest === 'contracts/index.ts')
+        ) {
           violations.push(
             `[module-encapsulation] ${edge} bypasses modules/${toModule.name}/index.ts facade`,
           )
@@ -363,7 +366,15 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
       if (fromModule?.name === 'agent' && toModule?.name === 'agent') {
         const fromLayer = agentLayerOf(fromModule.rest)
         const toLayer = agentLayerOf(toModule.rest)
-        if (fromLayer && toLayer && AGENT_LAYER_RANK[fromLayer]! < AGENT_LAYER_RANK[toLayer]!) {
+        if (fromLayer && toModule.rest === 'index.ts') {
+          violations.push(
+            `[agent-layer] ${edge} violates ADR 0034 agent sub-layer order (${fromLayer} -> facade index.ts)`,
+          )
+        } else if (
+          fromLayer &&
+          toLayer &&
+          AGENT_LAYER_RANK[fromLayer]! < AGENT_LAYER_RANK[toLayer]!
+        ) {
           violations.push(
             `[agent-layer] ${edge} violates ADR 0034 agent sub-layer order (${fromLayer} -> ${toLayer})`,
           )
