@@ -27,6 +27,7 @@ The exit code is the same in both modes.
 | `jobs get` / `wait` / `list` / `cancel` | Job `status`, `terminal`, `artifacts`, `actual_credits`; a list shows each job's artifact ids in its `artifacts` column, plus `next_cursor` |
 | `media …` / `artifacts …` | Uploaded references (`media_id`) and generated results (`artifact_id`); downloads report the saved `path` |
 | `update self`, `update skill`, `update check`, `skill status`, `version` | Self-update CLI binary, hot-update installed Skills, daily release check, installed Skills, CLI version |
+| `skill install --dir DIR`, `skill show` | Install into any host's skills directory and keep it updated; print the whole Skill for a host that cannot install one |
 
 IDs: `job_id` is a generation task, `artifact_id` a generated image, `media_id` an uploaded reference image. They are not interchangeable.
 Model `--model` accepts either the id or the label (for example `gpt-image-2.5-flare` or `GPT Image 2.5 Flare`).

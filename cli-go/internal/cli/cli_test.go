@@ -656,6 +656,36 @@ func TestSkillInstallGenericAndRejectedHosts(t *testing.T) {
 	}
 }
 
+func TestSkillInstallDirIsTrackedAndShowPrintsTheSkill(t *testing.T) {
+	dir := t.TempDir()
+	app := newApp(t, newFakeServer(t), dir)
+	skills := filepath.Join(t.TempDir(), "agent-skills")
+	if r := execute(t, app, "skill", "install", "--dir", skills, "--host", "codex"); r.code != ExitInvalid {
+		t.Fatalf("--dir with --host = %d %s", r.code, r.stdout)
+	}
+	r := execute(t, app, "skill", "install", "--dir", skills)
+	if r.code != ExitOK || r.out["data"].(map[string]any)["path"] != filepath.Join(skills, "muvloom") {
+		t.Fatalf("--dir install = %d %s", r.code, r.stdout)
+	}
+	status := execute(t, app, "skill", "status")
+	installed := status.out["data"].(map[string]any)["installed"].([]any)
+	if len(installed) != 1 || installed[0].(map[string]any)["host"] != "custom" || installed[0].(map[string]any)["current"] != true {
+		t.Fatalf("status after --dir install = %s", status.stdout)
+	}
+
+	shown := execute(t, app, "skill", "show")
+	content, _ := shown.out["data"].(map[string]any)["content"].(string)
+	bundled, err := os.ReadFile(filepath.Join(skills, "muvloom", "SKILL.md"))
+	if err != nil || shown.code != ExitOK || !strings.Contains(content, string(bundled)) {
+		t.Fatalf("skill show = %d, SKILL.md included = %v", shown.code, strings.Contains(content, string(bundled)))
+	}
+	var text bytes.Buffer
+	app.Out = &text
+	if code := app.Run([]string{"skill", "show"}); code != ExitOK || !strings.HasPrefix(text.String(), "<!-- muvloom skill file: SKILL.md -->\n") {
+		t.Fatalf("text skill show = %d %.80q", code, text.String())
+	}
+}
+
 func TestSkillInstallRefusesAProjectWithoutRoot(t *testing.T) {
 	f := newFakeServer(t)
 	app := newApp(t, f, t.TempDir())
