@@ -373,6 +373,9 @@ export default function AgentPanel({
   /** 离开底部期间来了新内容：浮出「有新消息」，回到底部即收起。 */
   const [unseen, setUnseen] = useState(false)
   const [search, setSearch] = useState('')
+  useEffect(() => {
+    if (!searchOpen) setSearch('')
+  }, [searchOpen])
   // 每次定位都换一个序号：同一步被点第二次（中间被用户收起过）也要重新展开。
   const [located, setLocated] = useState<{ id: string; seq: number } | null>(null)
   const searchResults = useMemo(() => {
@@ -611,6 +614,19 @@ export default function AgentPanel({
               autoFocus
               value={search}
               onChange={(event) => setSearch(event.target.value)}
+              onClear={() => setSearch('')}
+              onKeyDown={(event) => {
+                if (
+                  event.key === 'Escape' &&
+                  !event.nativeEvent.isComposing &&
+                  event.keyCode !== 229 &&
+                  !search
+                ) {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  onCloseSearch?.()
+                }
+              }}
               placeholder={t('panel.search')}
               aria-label={t('panel.search')}
               className="h-8 min-w-0 max-w-none flex-1"
@@ -619,7 +635,10 @@ export default function AgentPanel({
               type="button"
               variant="ghost"
               size="icon-sm"
-              onClick={onCloseSearch}
+              onClick={() => {
+                setSearch('')
+                onCloseSearch?.()
+              }}
               aria-label={t('panel.closeSearch')}
             >
               <Icon name="close" />

@@ -283,7 +283,8 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
         onPointerDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
           event.stopPropagation()
-          if (event.key === 'Escape' && expanded) close()
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return
+          if (event.key === 'Escape' && expanded && !pending) close()
         }}
       >
         <div
@@ -406,6 +407,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
               className="resize-none"
               onChange={(event) => setPrompt(event.target.value)}
               onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing || event.keyCode === 229) return
                 if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
                   event.preventDefault()
                   void send()

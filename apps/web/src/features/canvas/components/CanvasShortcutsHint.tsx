@@ -3,9 +3,13 @@ import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 
-/** macOS 显示 ⌘ 符号，其余平台显示 Ctrl。 */
+/** macOS 显示 ⌘ / ⇧ / ⌥ / ⌫ / ⏎，其余平台显示 Ctrl+ / Shift+ / Alt+ / Del / Enter。 */
 const IS_MAC = typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test(navigator.platform ?? '')
-const MOD = IS_MAC ? '⌘' : 'Ctrl'
+const MOD = IS_MAC ? '⌘' : 'Ctrl+'
+const SHIFT = IS_MAC ? '⇧' : 'Shift+'
+const ALT = IS_MAC ? '⌥' : 'Alt+'
+const DEL = IS_MAC ? '⌫' : 'Del'
+const ENTER = IS_MAC ? '⏎' : 'Enter'
 
 /** 用户手动收起后记住选择，下次不再默认展开（引导只需一次）。 */
 const COLLAPSED_STORAGE_KEY = 'canvas-shortcuts-collapsed'
@@ -23,16 +27,19 @@ export default function CanvasShortcutsHint() {
   /** 精选最常用的一屏速查，保持面板小巧。 */
   const shortcutRows: Array<{ label: string; keys: string[] }> = [
     { label: t('shortcuts.row.copyPaste'), keys: [`${MOD}C`, `${MOD}V`] },
-    { label: t('shortcuts.row.delete'), keys: ['⌫', `${MOD}⌫`] },
-    { label: t('shortcuts.row.selectAll'), keys: [`${MOD}A`, `⇧${t('shortcuts.key.click')}`] },
+    { label: t('shortcuts.row.delete'), keys: [DEL, `${MOD}${DEL}`] },
+    {
+      label: t('shortcuts.row.selectAll'),
+      keys: [`${MOD}A`, `${SHIFT}${t('shortcuts.key.click')}`],
+    },
     { label: t('shortcuts.row.duplicate'), keys: [`${MOD}D`] },
-    { label: t('shortcuts.row.undoRedo'), keys: [`${MOD}Z`, `⇧${MOD}Z`] },
+    { label: t('shortcuts.row.undoRedo'), keys: [`${MOD}Z`, IS_MAC ? '⇧⌘Z' : 'Ctrl+Shift+Z'] },
     { label: t('shortcuts.row.selectHand'), keys: ['V', 'H'] },
     { label: t('shortcuts.row.penEraser'), keys: ['D', 'E'] },
     { label: t('shortcuts.row.arrowText'), keys: ['A', 'T'] },
     { label: t('shortcuts.row.zoomPan'), keys: [`${MOD}${t('shortcuts.key.wheel')}`, 'Space'] },
-    { label: t('shortcuts.row.freeDrag'), keys: [`⌥${t('shortcuts.key.drag')}`] },
-    { label: t('shortcuts.row.submitBack'), keys: [`${MOD}⏎`, 'Esc'] },
+    { label: t('shortcuts.row.freeDrag'), keys: [`${ALT}${t('shortcuts.key.drag')}`] },
+    { label: t('shortcuts.row.submitBack'), keys: [`${MOD}${ENTER}`, 'Esc'] },
   ]
 
   const toggle = () => {

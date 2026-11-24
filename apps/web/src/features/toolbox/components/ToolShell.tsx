@@ -1,7 +1,8 @@
-import type { ReactNode } from 'react'
+import { type ReactNode, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
+import { useStore } from '../../../store'
 import { type DeliverableImage, downloadImages, sendImagesToComposer } from '../lib/deliver'
 import type { ToolDefinition } from '../lib/tool'
 import { useToolboxStore } from '../store'
@@ -93,7 +94,44 @@ export default function ToolShell({
   const count = useToolboxStore((state) => state.items.length)
   const { dragging, dropZoneProps, inputs, openFiles, openFolder } = useToolboxIntake(busy)
   const name = t(`tool.${tool.id}.name`)
-  const downloadReady = canDownload ?? deliverables.length > 0
+  const [localDownloading, setLocalDownloading] = useState(false)
+  const [sending, setSending] = useState(false)
+  const downloadingRef = useRef(false)
+  const sendingRef = useRef(false)
+  const isDownloading = downloadBusy || localDownloading
+  const downloadReady = (canDownload ?? deliverables.length > 0) && !isDownloading
+
+  const handleDownload = () => {
+    if (onDownload) {
+      onDownload()
+      return
+    }
+    if (downloadingRef.current || deliverables.length === 0) return
+    downloadingRef.current = true
+    setLocalDownloading(true)
+    void downloadImages(deliverables, `${name}.zip`)
+      .catch(() => {
+        useStore.getState().showToast(t('result.failed'), 'error')
+      })
+      .finally(() => {
+        downloadingRef.current = false
+        setLocalDownloading(false)
+      })
+  }
+
+  const handleSendToComposer = () => {
+    if (sendingRef.current || deliverables.length === 0) return
+    sendingRef.current = true
+    setSending(true)
+    void sendImagesToComposer(deliverables)
+      .catch(() => {
+        useStore.getState().showToast(t('result.failed'), 'error')
+      })
+      .finally(() => {
+        sendingRef.current = false
+        setSending(false)
+      })
+  }
 
   return (
     <main
@@ -172,22 +210,20 @@ export default function ToolShell({
             {showSendToComposer && (
               <Button
                 variant="outline"
-                disabled={deliverables.length === 0}
-                onClick={() => void sendImagesToComposer(deliverables)}
+                disabled={deliverables.length === 0 || sending}
+                onClick={handleSendToComposer}
               >
-                <Icon name="sendToComposer" />
+                <Icon
+                  name={sending ? 'loading' : 'sendToComposer'}
+                  className={sending ? 'animate-spin' : undefined}
+                />
                 {t('footer.sendToComposer')}
               </Button>
             )}
-            <Button
-              disabled={!downloadReady}
-              onClick={() =>
-                onDownload ? onDownload() : void downloadImages(deliverables, `${name}.zip`)
-              }
-            >
+            <Button disabled={!downloadReady} onClick={handleDownload}>
               <Icon
-                name={downloadBusy ? 'loading' : 'download'}
-                className={downloadBusy ? 'animate-spin' : undefined}
+                name={isDownloading ? 'loading' : 'download'}
+                className={isDownloading ? 'animate-spin' : undefined}
               />
               {downloadLabel ??
                 (deliverables.length > 1

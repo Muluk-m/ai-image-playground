@@ -223,10 +223,20 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
       )
     }
     const onKeyDown = (e: KeyboardEvent) => {
-      if (isTyping(e)) return
+      if (e.defaultPrevented || isTyping(e)) return
+      const target = e.target instanceof HTMLElement ? e.target : null
+      if (
+        target?.closest(
+          '[role="dialog"],[role="menu"],[role="listbox"],[role="combobox"],.studio-sidebar,.studio-agent-job-inbox',
+        )
+      )
+        return
       // 模态确认开着时焦点可能被 Tab 到背景，快捷键仍不能改动它正要处理的那批元素。
       if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
+      const onInteractive = Boolean(target?.closest('button, a, [role="button"]'))
+      const onCanvasToolbar = Boolean(target?.closest('[data-canvas-toolbar]'))
       if (e.key === ' ') {
+        if (onInteractive) return
         setSpaceDown(true)
         e.preventDefault()
         return
@@ -257,6 +267,7 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
         }
         return
       }
+      if (onInteractive && !onCanvasToolbar && e.key !== 'Escape') return
       switch (e.key) {
         case 'v':
         case 'V':
@@ -988,8 +999,10 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
           onFocus={(e) => e.currentTarget.select()}
           onBlur={(e) => commitText(e.currentTarget.value)}
           onKeyDown={(e) => {
+            if (e.nativeEvent.isComposing || e.keyCode === 229) return
             if (e.key === 'Escape' || ((e.metaKey || e.ctrlKey) && e.key === 'Enter')) {
               e.preventDefault()
+              e.stopPropagation()
               e.currentTarget.blur()
             }
           }}

@@ -11,6 +11,7 @@ import { Input } from '../../../components/ui/input'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { cn } from '../../../lib/utils'
+import { useStore } from '../../../store'
 
 const FIELDS = ['genre', 'audience', 'era', 'hook', 'style', 'structure', 'episodes'] as const
 
@@ -28,13 +29,33 @@ export default function ScriptBriefDialog({
 }) {
   const { t } = useTranslation('canvas')
   const [brief, setBrief] = useState(() => copyBrief(SCRIPT_BRIEFS[0]!))
-  const setField = (field: (typeof FIELDS)[number], value: string) =>
+  const [dirty, setDirty] = useState(false)
+  const setField = (field: (typeof FIELDS)[number], value: string) => {
+    setDirty(true)
     setBrief((current) => ({ ...current, [field]: value }))
-  const setCharacter = (index: number, patch: Partial<ScriptCharacter>) =>
+  }
+  const setCharacter = (index: number, patch: Partial<ScriptCharacter>) => {
+    setDirty(true)
     setBrief((current) => ({
       ...current,
       characters: current.characters.map((one, at) => (at === index ? { ...one, ...patch } : one)),
     }))
+  }
+  const pickTemplate = (item: ScriptBrief) => {
+    if (item.id === brief.id && !dirty) return
+    if (!dirty) {
+      setBrief(copyBrief(item))
+      return
+    }
+    useStore.getState().setConfirmDialog({
+      title: t('scriptBrief.switchConfirmTitle'),
+      message: t('scriptBrief.switchConfirmMessage', { title: item.title }),
+      action: () => {
+        setBrief(copyBrief(item))
+        setDirty(false)
+      },
+    })
+  }
   const labels = {
     genre: t('scriptBrief.genre'),
     audience: t('scriptBrief.audience'),
@@ -77,7 +98,7 @@ export default function ScriptBriefDialog({
               'h-auto w-28 shrink-0 flex-col items-stretch justify-start gap-0 overflow-hidden whitespace-normal rounded-xl p-0 text-left font-normal ring-1 hover:bg-transparent',
               brief.id === item.id ? 'ring-primary' : 'ring-hairline',
             )}
-            onClick={() => setBrief(copyBrief(item))}
+            onClick={() => pickTemplate(item)}
           >
             {item.coverUrl && (
               <img src={item.coverUrl} alt="" className="h-16 w-full object-cover" />
@@ -91,7 +112,10 @@ export default function ScriptBriefDialog({
           {t('scriptBrief.name')}
           <Input
             value={brief.title}
-            onChange={(event) => setBrief((current) => ({ ...current, title: event.target.value }))}
+            onChange={(event) => {
+              setDirty(true)
+              setBrief((current) => ({ ...current, title: event.target.value }))
+            }}
           />
         </label>
         {FIELDS.map((field) => (
@@ -115,9 +139,10 @@ export default function ScriptBriefDialog({
           <Textarea
             value={brief.outline}
             rows={4}
-            onChange={(event) =>
+            onChange={(event) => {
+              setDirty(true)
               setBrief((current) => ({ ...current, outline: event.target.value }))
-            }
+            }}
           />
         </label>
         <div className="flex flex-col gap-2 sm:col-span-2">
@@ -142,9 +167,10 @@ export default function ScriptBriefDialog({
           <Textarea
             value={brief.episode1}
             rows={4}
-            onChange={(event) =>
+            onChange={(event) => {
+              setDirty(true)
               setBrief((current) => ({ ...current, episode1: event.target.value }))
-            }
+            }}
           />
         </label>
       </div>

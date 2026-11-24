@@ -80,11 +80,18 @@ export default function CanvasToolbar({
     doc.zoomAt(viewport.width / 2, viewport.height / 2, camera.zoom * (dir === 1 ? 1.25 : 0.8))
   }
 
+  const isCoarsePointer =
+    typeof window !== 'undefined' && Boolean(window.matchMedia?.('(pointer: coarse)').matches)
+  const isMac =
+    typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test(navigator.platform ?? '')
+  const withHotkey = (label: string, hotkey: string) =>
+    isCoarsePointer ? label : t('toolbar.toolTitle', { label, hotkey })
+
   const tools = TOOLS.map(({ tool: candidate, hotkey, icon }) => (
     <ToolButton
       key={candidate}
       active={tool === candidate}
-      title={t('toolbar.toolTitle', { label: toolLabels[candidate], hotkey })}
+      title={withHotkey(toolLabels[candidate], hotkey)}
       onClick={() => doc.setTool(candidate)}
     >
       <Icon name={icon} />
@@ -92,20 +99,34 @@ export default function CanvasToolbar({
   ))
   const history = (
     <>
-      <ToolButton title={t('toolbar.undo')} disabled={!doc.canUndo} onClick={() => doc.undo()}>
+      <ToolButton
+        title={withHotkey(t('toolbar.undo'), isMac ? '⌘Z' : 'Ctrl+Z')}
+        disabled={!doc.canUndo}
+        onClick={() => doc.undo()}
+      >
         <Icon name="undo" />
       </ToolButton>
-      <ToolButton title={t('toolbar.redo')} disabled={!doc.canRedo} onClick={() => doc.redo()}>
+      <ToolButton
+        title={withHotkey(t('toolbar.redo'), isMac ? '⌘⇧Z' : 'Ctrl+Shift+Z')}
+        disabled={!doc.canRedo}
+        onClick={() => doc.redo()}
+      >
         <Icon name="redo" />
       </ToolButton>
     </>
   )
   const selectionActions = selection.size > 0 && (
     <>
-      <ToolButton title={t('toolbar.duplicate')} onClick={() => duplicateSelection(doc)}>
+      <ToolButton
+        title={withHotkey(t('toolbar.duplicate'), isMac ? '⌘D' : 'Ctrl+D')}
+        onClick={() => duplicateSelection(doc)}
+      >
         <Icon name="duplicate" />
       </ToolButton>
-      <ToolButton title={t('toolbar.deleteSelected')} onClick={() => doc.deleteSelection()}>
+      <ToolButton
+        title={isCoarsePointer ? t('shortcuts.row.delete') : t('toolbar.deleteSelected')}
+        onClick={() => doc.deleteSelection()}
+      >
         <Icon name="delete" />
       </ToolButton>
     </>

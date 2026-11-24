@@ -839,8 +839,14 @@ export default function AgentComposer({
           return
         }
       }
-      // 写着字时按钮是发送，中止没有可点的入口；Esc 补上它，不必先清空输入框。
-      if (event.key === 'Escape' && running && !stopping) {
+      // 写着字时按钮是发送，中止没有可点的入口；Esc 补上它，不必先清空输入框（避开 IME 组字态）。
+      if (
+        event.key === 'Escape' &&
+        !event.nativeEvent.isComposing &&
+        event.keyCode !== 229 &&
+        running &&
+        !stopping
+      ) {
         event.preventDefault()
         void useAgentStore.getState().abort()
         return

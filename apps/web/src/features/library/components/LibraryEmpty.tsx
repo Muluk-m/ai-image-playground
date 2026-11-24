@@ -4,13 +4,13 @@ import { useTranslation } from '../../../i18n'
 
 export function AssetsEmpty() {
   const { t } = useTranslation('library')
+  const isTouch =
+    typeof window !== 'undefined' && Boolean(window.matchMedia?.('(pointer: coarse)').matches)
 
   return (
     <EmptyState
       icon={<Icon name="imageAdd" size="lg" />}
-      title={t('empty.assetsTitle')}
-      // 「长按」只在触屏上成立，精确指针下不显示。
-      description={<span className="[@media(pointer:fine)]:hidden">{t('empty.assetsMobile')}</span>}
+      title={t(isTouch ? 'empty.assetsMobile' : 'empty.assetsTitle')}
     />
   )
 }
