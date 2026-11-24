@@ -68,7 +68,10 @@ const MEDIA_ERROR_CODES: Partial<Record<number, CliErrorCode>> = {
 }
 
 export interface CliBoundaryOptions {
-  readonly resolveConnection?: (token: string) => Promise<CliConnection | null>
+  readonly resolveConnection?: (
+    token: string,
+    userAgent?: string | null,
+  ) => Promise<CliConnection | null>
   readonly enabled?: () => boolean
   readonly limiter?: CliRateLimiter
   readonly addressLimiter?: CliRateLimiter
@@ -103,8 +106,12 @@ export function cliBoundary(options: CliBoundaryOptions = {}) {
           headers: { 'retry-after': String(result.retryAfterSeconds) },
         })
     })
-    .resolve({ as: 'scoped' }, async ({ request }) => {
-      const cli = await resolveConnection(bearerToken(request) ?? '')
+    .resolve({ as: 'scoped' }, async ({ request, server }) => {
+      const { userAgent } = sessionClientFromRequest(
+        request,
+        server?.requestIP(request)?.address ?? null,
+      )
+      const cli = await resolveConnection(bearerToken(request) ?? '', userAgent)
       if (!cli) throw new CliRequestError('UNAUTHENTICATED')
       return { cli }
     })

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Button } from '../../components/ui/button'
 import { Icon } from '../../components/ui/icon'
 import { useTranslation } from '../../i18n'
@@ -8,6 +8,15 @@ import {
   fetchCliConnections,
   revokeCliConnection,
 } from '../../lib/authClient'
+import {
+  connectionCapabilities,
+  formatRecentActivity,
+  formatShortDate,
+  isExpiringSoon,
+  isRecentlyActive,
+  parseCliUserAgent,
+  shortConnectionId,
+} from './cliConnectionMeta'
 
 const POLL_INTERVAL_MS = 4000
 
@@ -123,6 +132,8 @@ export default function CliConnectionsSection({
 
   if (state === 'unavailable') return null
 
+  const now = Date.now()
+
   return (
     <section
       className={
@@ -132,10 +143,24 @@ export default function CliConnectionsSection({
       }
       aria-labelledby="cli-connections-title"
     >
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <h4 id="cli-connections-title" className="text-body-sm font-medium text-foreground">
-          {t('cliConnections.title')}
-        </h4>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <h4
+            id="cli-connections-title"
+            className={
+              standalone
+                ? 'text-title-sm font-semibold text-foreground'
+                : 'text-body-sm font-medium text-foreground'
+            }
+          >
+            {t('cliConnections.title')}
+          </h4>
+          {state === 'ready' && connections.length > 0 ? (
+            <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-secondary px-1.5 font-mono text-label-sm tabular-nums text-muted-foreground">
+              {connections.length}
+            </span>
+          ) : null}
+        </div>
         <Button
           type="button"
           variant="ghost"
@@ -151,55 +176,196 @@ export default function CliConnectionsSection({
           <Icon name="refresh" />
         </Button>
       </div>
+
       {state === 'loading' ? (
-        <p className="text-body-sm text-muted-foreground" role="status">
-          {t('cliConnections.loading')}
-        </p>
+        <div
+          className="rounded-xl border border-border/70 bg-background/50 px-4 py-6 text-center"
+          role="status"
+        >
+          <p className="text-body-sm text-muted-foreground">{t('cliConnections.loading')}</p>
+        </div>
       ) : state === 'failed' ? (
-        <p className="text-body-sm text-destructive" role="alert">
-          {t('cliConnections.loadFailed')}
-        </p>
+        <div
+          className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3"
+          role="alert"
+        >
+          <p className="text-body-sm text-destructive">{t('cliConnections.loadFailed')}</p>
+        </div>
       ) : connections.length === 0 ? (
-        <p className="text-body-sm text-muted-foreground">{t('cliConnections.empty')}</p>
+        <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/80 bg-background/40 px-4 py-8 text-center">
+          <Icon name="terminal" size="md" className="text-muted-foreground/60" />
+          <p className="text-body-sm text-muted-foreground">{t('cliConnections.empty')}</p>
+        </div>
       ) : (
-        <ul className="space-y-3">
-          {connections.map((connection) => (
-            <li key={connection.id} className="rounded-xl border border-border px-3 py-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="min-w-0 break-words text-body-sm font-medium">
-                  {connection.client_name}
+        <ul className="divide-y divide-border/70 overflow-hidden rounded-xl border border-border/80 bg-background/60">
+          {connections.map((connection) => {
+            const parsed = parseCliUserAgent(connection.user_agent)
+            const active = isRecentlyActive(connection.last_used_at, now)
+            const expiringSoon = isExpiringSoon(connection.expires_at, now)
+            const capabilities = connectionCapabilities(connection.scopes)
+
+            const metadataItems: Array<{ key: string; node: ReactNode }> = [
+              {
+                key: 'lastUsed',
+                node:
+                  connection.last_used_at === null ? (
+                    <span>{t('cliConnections.neverUsed')}</span>
+                  ) : (
+                    <span
+                      title={new Date(connection.last_used_at).toLocaleString(i18n.language)}
+                      className={active ? 'text-foreground/85' : undefined}
+                    >
+                      {t('cliConnections.lastUsedAt', {
+                        date: formatRecentActivity(connection.last_used_at, now, i18n.language),
+                      })}
+                    </span>
+                  ),
+              },
+            ]
+
+            if (connection.job_count !== undefined) {
+              metadataItems.push({
+                key: 'jobs',
+                node: (
+                  <span
+                    className={
+                      connection.job_count > 0 ? 'font-medium text-foreground/85' : undefined
+                    }
+                  >
+                    {t('cliConnections.jobCount', { count: connection.job_count })}
+                  </span>
+                ),
+              })
+            }
+
+            metadataItems.push({
+              key: 'connected',
+              node: (
+                <span title={new Date(connection.created_at).toLocaleString(i18n.language)}>
+                  {t('cliConnections.connectedAt', {
+                    date: formatShortDate(connection.created_at, i18n.language),
+                  })}
                 </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="shrink-0 text-destructive"
-                  disabled={revoking !== null}
-                  onClick={() => void revoke(connection.id)}
-                >
-                  {t(
-                    revoking === connection.id
-                      ? 'cliConnections.revoking'
-                      : 'cliConnections.revoke',
-                  )}
-                </Button>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t('cliConnections.connectedAt', {
-                  date: new Date(connection.created_at).toLocaleString(i18n.language),
-                })}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {connection.last_used_at === null
-                  ? t('cliConnections.neverUsed')
-                  : t('cliConnections.lastUsedAt', {
-                      date: new Date(connection.last_used_at).toLocaleString(i18n.language),
+              ),
+            })
+
+            if (connection.expires_at !== undefined) {
+              metadataItems.push({
+                key: 'expires',
+                node: (
+                  <span
+                    title={new Date(connection.expires_at).toLocaleString(i18n.language)}
+                    className={expiringSoon ? 'text-warning' : undefined}
+                  >
+                    {t('cliConnections.expiresAt', {
+                      date: formatShortDate(connection.expires_at, i18n.language),
                     })}
-              </p>
-            </li>
-          ))}
+                  </span>
+                ),
+              })
+            }
+
+            return (
+              <li
+                key={connection.id}
+                className={`transition-colors hover:bg-secondary/30 ${
+                  standalone ? 'px-4 py-3.5' : 'px-3 py-3'
+                }`}
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 items-start gap-3">
+                    {standalone ? (
+                      <div className="relative mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-secondary/60 text-foreground/80">
+                        <Icon name="terminal" size="sm" />
+                        <span
+                          aria-hidden="true"
+                          className={`absolute -right-0.5 -bottom-0.5 size-2.5 rounded-full ring-2 ring-background ${
+                            active ? 'bg-success' : 'bg-muted-foreground/45'
+                          }`}
+                        />
+                      </div>
+                    ) : null}
+
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        {!standalone ? (
+                          <span
+                            aria-hidden="true"
+                            className={`size-2 shrink-0 rounded-full ${
+                              active ? 'bg-success' : 'bg-muted-foreground/45'
+                            }`}
+                          />
+                        ) : null}
+                        <span className="min-w-0 break-words text-body-sm font-semibold text-foreground">
+                          {connection.client_name}
+                        </span>
+                        {parsed.version ? (
+                          <span className="rounded-md bg-primary/15 px-1.5 py-0.5 font-mono text-label-sm leading-none text-primary">
+                            {parsed.version}
+                          </span>
+                        ) : null}
+                        {parsed.platform ? (
+                          <span className="rounded-md bg-secondary px-1.5 py-0.5 text-label-sm leading-none text-foreground/85">
+                            {parsed.platform}
+                          </span>
+                        ) : null}
+                        <span
+                          className="font-mono text-label-sm text-muted-foreground/80"
+                          title={connection.id}
+                        >
+                          {shortConnectionId(connection.id)}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs tabular-nums text-muted-foreground">
+                        {metadataItems.map((item, index) => (
+                          <span key={item.key} className="inline-flex items-center gap-2">
+                            {index > 0 ? (
+                              <span aria-hidden="true" className="text-border">
+                                ·
+                              </span>
+                            ) : null}
+                            {item.node}
+                          </span>
+                        ))}
+                      </div>
+
+                      {standalone && capabilities.length > 0 ? (
+                        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                          {capabilities.map((capability) => (
+                            <span
+                              key={capability}
+                              className="rounded-md border border-border/70 bg-card/70 px-1.5 py-0.5 text-label-sm leading-none text-muted-foreground"
+                            >
+                              {t(`cliDevice.capabilities.${capability}`)}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    className="shrink-0 self-start border-border/80 bg-transparent text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive sm:self-center"
+                    disabled={revoking !== null}
+                    onClick={() => void revoke(connection.id)}
+                  >
+                    {t(
+                      revoking === connection.id
+                        ? 'cliConnections.revoking'
+                        : 'cliConnections.revoke',
+                    )}
+                  </Button>
+                </div>
+              </li>
+            )
+          })}
         </ul>
       )}
+
       {notice ? (
         <p
           className={`mt-3 text-body-sm ${notice === 'revokeFailed' ? 'text-destructive' : 'text-muted-foreground'}`}

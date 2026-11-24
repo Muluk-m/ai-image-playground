@@ -5,7 +5,7 @@ import {
   deviceDecisionEvent,
   isSessionRefreshRequestKey,
 } from '@image-playground/shared'
-import { and, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { accountProfileView } from '../account-profile-view'
 import { log } from '../logger'
@@ -427,6 +427,7 @@ export async function exchangeDeviceCode(
   deviceCode: string,
   clientId: string,
   requestKey: CliRequestKey | null = null,
+  userAgent: string | null = null,
 ): Promise<TokenGrantResult> {
   const now = Date.now()
   return db.transaction(async (tx) => {
@@ -481,6 +482,7 @@ export async function exchangeDeviceCode(
       now,
       requestKey ? successorRefresh(deviceCode, requestKey, 'device', row.id) : undefined,
       'device_code',
+      userAgent,
     )
   })
 }
@@ -493,6 +495,7 @@ async function createConnection(
   now: number,
   refresh: string | undefined,
   via: 'device_code' | 'authorization_code',
+  userAgent: string | null = null,
 ): Promise<TokenGrantResult> {
   if (!deviceAuthorization.allows(row.status, 'consume')) {
     return { ok: false, error: 'invalid_grant' }
@@ -519,6 +522,7 @@ async function createConnection(
     ...issued.columns,
     created_at: now,
     last_used_at: now,
+    user_agent: userAgent,
     revoked_at: null,
   })
   await audit(tx, {
@@ -542,6 +546,7 @@ export async function exchangeAuthorizationCode(
   redirectUri: string,
   clientId: string,
   requestKey: CliRequestKey | null = null,
+  userAgent: string | null = null,
 ): Promise<TokenGrantResult> {
   const now = Date.now()
   return db.transaction(async (tx) => {
@@ -572,7 +577,7 @@ export async function exchangeAuthorizationCode(
         : { ok: false, error: 'invalid_grant' }
     if (row.status !== 'approved' || !row.user_id || row.authorization_code_expires_at <= now)
       return { ok: false, error: 'invalid_grant' }
-    return createConnection(tx, row, row.user_id, now, refresh, 'authorization_code')
+    return createConnection(tx, row, row.user_id, now, refresh, 'authorization_code', userAgent)
   })
 }
 
@@ -609,6 +614,7 @@ export async function refreshCliToken(
   refreshToken: string,
   clientId: string,
   requestKey: CliRequestKey | null = null,
+  userAgent: string | null = null,
 ): Promise<TokenGrantResult> {
   const now = Date.now()
   const hash = hashCliSecret(refreshToken)
@@ -717,7 +723,11 @@ export async function refreshCliToken(
 
     await tx
       .update(schema.cli_connections)
-      .set({ ...issued.columns, last_used_at: now })
+      .set({
+        ...issued.columns,
+        last_used_at: now,
+        ...(userAgent ? { user_agent: userAgent } : {}),
+      })
       .where(eq(schema.cli_connections.id, row.id))
     return { ok: true, tokens: issued.response }
   })
@@ -752,7 +762,10 @@ export interface CliConnection {
 }
 
 /** 每个请求只查这一次：吊销、过期、账号停用都在这里拒绝。 */
-export async function resolveCliConnection(accessToken: string): Promise<CliConnection | null> {
+export async function resolveCliConnection(
+  accessToken: string,
+  userAgent: string | null = null,
+): Promise<CliConnection | null> {
   if (!accessToken) return null
   const now = Date.now()
   const [row] = await db
@@ -760,6 +773,7 @@ export async function resolveCliConnection(accessToken: string): Promise<CliConn
       id: schema.cli_connections.id,
       scopes: schema.cli_connections.scopes,
       lastUsedAt: schema.cli_connections.last_used_at,
+      userAgent: schema.cli_connections.user_agent,
       user: schema.users,
     })
     .from(schema.cli_connections)
@@ -773,9 +787,14 @@ export async function resolveCliConnection(accessToken: string): Promise<CliConn
     )
     .limit(1)
   if (!row || row.user.status !== 'active') return null
-  if (row.lastUsedAt === null || now - row.lastUsedAt > LAST_USED_TOUCH_MS) {
+  const touchTime = row.lastUsedAt === null || now - row.lastUsedAt > LAST_USED_TOUCH_MS
+  const updateUserAgent = Boolean(userAgent) && row.userAgent !== userAgent
+  if (touchTime || updateUserAgent) {
     db.update(schema.cli_connections)
-      .set({ last_used_at: now })
+      .set({
+        ...(touchTime ? { last_used_at: now } : {}),
+        ...(updateUserAgent ? { user_agent: userAgent } : {}),
+      })
       .where(eq(schema.cli_connections.id, row.id))
       .catch((err: unknown) =>
         log.warn({ event: 'cli.connection_touch_failed', err }, 'cli connection touch failed'),
@@ -789,19 +808,38 @@ export interface CliConnectionSummary {
   readonly client_name: string
   readonly created_at: number
   readonly last_used_at: number | null
+  readonly expires_at: number
+  readonly scopes: readonly string[]
+  readonly user_agent: string | null
+  readonly job_count: number
 }
 
-/** 账号设置里的「已连接的 CLI」：只列仍然有效的连接。 */
+/** 账号设置与接入页的「已连接的插件」：只列仍然有效的连接，按最近活跃时间倒序。 */
 export async function listCliConnections(userId: string): Promise<CliConnectionSummary[]> {
+  const jobCounts = db
+    .select({
+      connectionId: schema.cli_jobs.connection_id,
+      count: sql<number>`count(*)::int`.as('job_count'),
+    })
+    .from(schema.cli_jobs)
+    .where(and(eq(schema.cli_jobs.user_id, userId), isNotNull(schema.cli_jobs.connection_id)))
+    .groupBy(schema.cli_jobs.connection_id)
+    .as('cli_connection_job_counts')
+
   const rows = await db
     .select({
       id: schema.cli_connections.id,
       clientName: schema.oauth_clients.name,
       createdAt: schema.cli_connections.created_at,
       lastUsedAt: schema.cli_connections.last_used_at,
+      expiresAt: schema.cli_connections.refresh_expires_at,
+      scopes: schema.cli_connections.scopes,
+      userAgent: schema.cli_connections.user_agent,
+      jobCount: sql<number>`coalesce(${jobCounts.count}, 0)::int`,
     })
     .from(schema.cli_connections)
     .innerJoin(schema.oauth_clients, eq(schema.oauth_clients.id, schema.cli_connections.client_id))
+    .leftJoin(jobCounts, eq(jobCounts.connectionId, schema.cli_connections.id))
     .where(
       and(
         eq(schema.cli_connections.user_id, userId),
@@ -809,11 +847,21 @@ export async function listCliConnections(userId: string): Promise<CliConnectionS
         gt(schema.cli_connections.refresh_expires_at, Date.now()),
       ),
     )
+    .orderBy(
+      desc(
+        sql`coalesce(${schema.cli_connections.last_used_at}, ${schema.cli_connections.created_at})`,
+      ),
+      desc(schema.cli_connections.created_at),
+    )
   return rows.map((row) => ({
     id: row.id,
     client_name: row.clientName,
     created_at: row.createdAt,
     last_used_at: row.lastUsedAt,
+    expires_at: row.expiresAt,
+    scopes: row.scopes.split(' ').filter(Boolean),
+    user_agent: row.userAgent,
+    job_count: Number(row.jobCount ?? 0),
   }))
 }
 

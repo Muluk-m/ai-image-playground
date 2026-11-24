@@ -150,11 +150,15 @@ export const cliOAuthRoutes = new Elysia()
       const requestKey = body.request_id === undefined ? null : parseCliRequestKey(body.request_id)
       if (body.request_id !== undefined && !requestKey)
         return oauthJson({ error: 'invalid_request' }, 400)
+      const { userAgent } = sessionClientFromRequest(
+        request,
+        server?.requestIP(request)?.address ?? null,
+      )
       const result =
         body.grant_type === 'urn:ietf:params:oauth:grant-type:device_code' && body.device_code
-          ? await exchangeDeviceCode(body.device_code, CLI_CLIENT_ID, requestKey)
+          ? await exchangeDeviceCode(body.device_code, CLI_CLIENT_ID, requestKey, userAgent)
           : body.grant_type === 'refresh_token' && body.refresh_token
-            ? await refreshCliToken(body.refresh_token, CLI_CLIENT_ID, requestKey)
+            ? await refreshCliToken(body.refresh_token, CLI_CLIENT_ID, requestKey, userAgent)
             : body.grant_type === 'authorization_code' &&
                 body.code &&
                 body.code_verifier &&
@@ -165,6 +169,7 @@ export const cliOAuthRoutes = new Elysia()
                   body.redirect_uri,
                   CLI_CLIENT_ID,
                   requestKey,
+                  userAgent,
                 )
               : null
       if (!result) return oauthJson({ error: 'unsupported_grant_type' }, 400)

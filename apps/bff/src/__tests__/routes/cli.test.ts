@@ -931,6 +931,65 @@ describe('CLI tokens', () => {
     ).toBe(401)
   })
 
+  it('lists connections sorted by recent activity with user_agent, scopes, expiry, and job_count', async () => {
+    const user = await createUser('conn-meta')
+    const older = await connect(user)
+    const newer = await connect(user)
+    const olderRows = await db
+      .select({ id: schema.cli_connections.id })
+      .from(schema.cli_connections)
+      .where(eq(schema.cli_connections.access_token_hash, hashCliSecret(older.access_token)))
+    const newerRows = await db
+      .select({ id: schema.cli_connections.id })
+      .from(schema.cli_connections)
+      .where(eq(schema.cli_connections.access_token_hash, hashCliSecret(newer.access_token)))
+    const olderId = olderRows[0]!.id
+    const newerId = newerRows[0]!.id
+
+    // Make `older` appear more recently active and give it a job + user_agent update via Bearer call.
+    const now = Date.now()
+    await db
+      .update(schema.cli_connections)
+      .set({ created_at: now - 10_000, last_used_at: now - 10_000 })
+      .where(eq(schema.cli_connections.id, newerId))
+    await db
+      .update(schema.cli_connections)
+      .set({ created_at: now - 20_000, last_used_at: now - 120_000, user_agent: null })
+      .where(eq(schema.cli_connections.id, olderId))
+
+    const meRes = await call('GET', '/v1/me', {
+      headers: { ...bearer(older.access_token), 'user-agent': 'muvloom-cli/0.2.7 (darwin/arm64)' },
+    })
+    expect(meRes.status).toBe(200)
+    // Wait briefly for the non-blocking connection touch update to settle.
+    await Bun.sleep(50)
+
+    const jobRes = await call('POST', '/v1/image-jobs', {
+      body: imageJob(),
+      headers: { ...bearer(older.access_token), 'user-agent': 'muvloom-cli/0.2.7 (darwin/arm64)' },
+    })
+    expect(jobRes.status).toBe(200)
+
+    const listed = await call('GET', '/api/me/cli-connections', {
+      headers: { cookie: user.cookie },
+    })
+    expect(listed.status).toBe(200)
+    expect(listed.json.connections).toHaveLength(2)
+    expect(listed.json.connections[0]).toMatchObject({
+      id: olderId,
+      client_name: 'Muvloom CLI',
+      user_agent: 'muvloom-cli/0.2.7 (darwin/arm64)',
+      job_count: 1,
+      scopes: ['images:read', 'images:write', 'media:read', 'media:write'],
+    })
+    expect(typeof listed.json.connections[0].expires_at).toBe('number')
+    expect(listed.json.connections[0].expires_at).toBeGreaterThan(now)
+    expect(listed.json.connections[1]).toMatchObject({
+      id: newerId,
+      job_count: 0,
+    })
+  })
+
   it('enforces the scopes stored on the connection', async () => {
     const user = await createUser('read-only')
     const tokens = await connect(user)

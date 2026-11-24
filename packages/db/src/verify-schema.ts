@@ -295,6 +295,7 @@ export const EXPECTED_COLUMNS = [
   'user_sessions.family_id',
   'user_retired_refresh_tokens.request_key_hash',
   'cli_retired_refresh_tokens.request_key_hash',
+  'cli_connections.user_agent',
   'device_authorizations.redirect_uri',
   'device_authorizations.code_challenge',
   'device_authorizations.authorization_code_hash',
