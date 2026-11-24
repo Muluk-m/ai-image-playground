@@ -106,49 +106,48 @@ export function GptDirectPanel({
         <Kpi
           label="直连本月花费"
           value={usd(view.total_spent_micro_usd)}
-          note={`已使用月预算 ${budgetPercent}%（按 token 估算）`}
+          note={`已用预算 ${budgetPercent}%`}
         />
         <Kpi
           label="直连月度预算"
           value={usd(view.total_budget_micro_usd)}
-          note="达 80% 触发告警，满额回退 sub2api"
+          note="80% 告警 · 满额回退 sub2api"
         />
         <Kpi
           label="直连可用余量"
           value={usd(view.remaining_micro_usd)}
           tone={view.remaining_micro_usd === 0 ? 'danger' : 'default'}
-          note={`密钥源：${view.source === 'admin' ? '后台加密池' : '环境变量'}`}
+          note={view.source === 'admin' ? '后台密钥池' : '环境变量'}
         />
       </div>
 
       <Card>
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <CardTitle className="text-base">OpenAI GPT Image 直连密钥池与预算护栏</CardTitle>
-              <p className="mt-1 text-xs text-muted-foreground">
-                按优先级顺序分配流量；单把 429 冷却或满预算自动切下一把，全部不可用时回退 sub2api。
-              </p>
+            <CardTitle className="text-base">OpenAI GPT Image 直连密钥池</CardTitle>
+            <div className="flex items-center gap-3 font-mono text-xs text-muted-foreground">
+              {view.total_budget_micro_usd > 0 ? (
+                <span className="tabular-nums">
+                  {usd(view.total_spent_micro_usd)} / {usd(view.total_budget_micro_usd)} (
+                  {budgetPercent}%)
+                </span>
+              ) : null}
+              <span>HMAC: {view.fingerprint_mac_source}</span>
             </div>
-            <span className="font-mono text-xs text-muted-foreground">
-              HMAC: {view.fingerprint_mac_source}
-            </span>
           </div>
           {view.total_budget_micro_usd > 0 ? (
-            <div className="mt-3 space-y-1">
-              <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                <div
-                  className={cn(
-                    'h-full transition-all',
-                    budgetPercent >= 100
-                      ? 'bg-danger'
-                      : budgetPercent >= 80
-                        ? 'bg-warning'
-                        : 'bg-success',
-                  )}
-                  style={{ width: `${budgetPercent}%` }}
-                />
-              </div>
+            <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className={cn(
+                  'h-full transition-all',
+                  budgetPercent >= 100
+                    ? 'bg-danger'
+                    : budgetPercent >= 80
+                      ? 'bg-warning'
+                      : 'bg-success',
+                )}
+                style={{ width: `${budgetPercent}%` }}
+              />
             </div>
           ) : null}
         </CardHeader>
@@ -165,7 +164,7 @@ export function GptDirectPanel({
           ) : null}
           {view.source === 'env' ? (
             <p className="text-xs text-muted-foreground">
-              当前读取部署环境变量；在下方添加后台密钥后将只走后台密钥池。
+              当前读取部署环境变量；添加后台密钥后将只走后台密钥池。
             </p>
           ) : null}
 
@@ -187,7 +186,7 @@ export function GptDirectPanel({
               value={draftKey}
               placeholder="输入新 OpenAI API Key…"
               aria-label="新密钥"
-              className="max-w-xs bg-background"
+              className="h-8 max-w-xs flex-1 bg-background text-xs"
               onChange={(event) => setDraftKey(event.target.value)}
             />
             <div className="flex items-center gap-1.5">
@@ -199,7 +198,7 @@ export function GptDirectPanel({
                 step={1}
                 value={draftBudget}
                 aria-label="月预算"
-                className="w-24 bg-background font-mono"
+                className="h-8 w-24 bg-background font-mono text-xs tabular-nums"
                 onChange={(event) => setDraftBudget(event.target.value)}
               />
             </div>
@@ -218,18 +217,19 @@ export function GptDirectPanel({
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="w-24">优先级</TableHead>
+                  <TableHead className="w-24 pl-4">优先级</TableHead>
                   <TableHead>安全指纹</TableHead>
                   <TableHead>状态</TableHead>
-                  <TableHead className="text-right">本月消耗 / 封顶</TableHead>
+                  <TableHead className="text-right">本月消耗</TableHead>
+                  <TableHead>月预算（$）</TableHead>
                   <TableHead>最近异常</TableHead>
-                  <TableHead className="text-right">操作</TableHead>
+                  <TableHead className="pr-4 text-right">操作</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {view.keys.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-8 text-center text-muted-foreground">
+                    <TableCell colSpan={7} className="py-8 text-center text-muted-foreground">
                       没有配置直连密钥
                     </TableCell>
                   </TableRow>
@@ -296,7 +296,9 @@ export function GptDirectPanel({
               <CardTitle className="text-base">平台按日估算消耗</CardTitle>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 窗口合计{' '}
-                <span className="font-mono text-foreground">{usd(windowEstimatedTotal)}</span>
+                <span className="font-mono tabular-nums text-foreground">
+                  {usd(windowEstimatedTotal)}
+                </span>
               </p>
             </div>
             {rangeControl}
@@ -306,9 +308,9 @@ export function GptDirectPanel({
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>日期（UTC+8）</TableHead>
+                    <TableHead className="pl-4">日期（UTC+8）</TableHead>
                     <TableHead className="text-right">估算花费</TableHead>
-                    <TableHead className="text-right">出图张数</TableHead>
+                    <TableHead className="pr-4 text-right">出图张数</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -321,11 +323,11 @@ export function GptDirectPanel({
                   ) : (
                     view.daily.map((day) => (
                       <TableRow key={day.day}>
-                        <TableCell className="font-mono text-xs">{day.day}</TableCell>
+                        <TableCell className="pl-4 font-mono text-xs">{day.day}</TableCell>
                         <TableCell className="text-right font-mono text-xs tabular-nums">
                           {usd(day.cost_micro_usd)}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-xs tabular-nums">
+                        <TableCell className="pr-4 text-right font-mono text-xs tabular-nums">
                           {day.images}
                         </TableCell>
                       </TableRow>
@@ -343,14 +345,13 @@ export function GptDirectPanel({
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <CardTitle className="text-base">OpenAI 官方 Costs 对账（UTC）</CardTitle>
                 {windowOfficialTotal !== null ? (
-                  <span className="font-mono text-xs text-muted-foreground">
-                    官方窗口合计 {usd(windowOfficialTotal)}
+                  <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                    合计 {usd(windowOfficialTotal)}
                   </span>
                 ) : null}
               </div>
               <p className="text-xs text-muted-foreground">
-                对照 OpenAI Costs API 实扣账单（按 UTC 日桶统计，与左侧台北自然日口径存在 8
-                小时日界线偏移，仅供各自窗口核对）。
+                按 UTC 自然日统计，与左侧 UTC+8 存在 8 小时日界线偏移。
               </p>
             </CardHeader>
             <CardContent>
@@ -359,8 +360,8 @@ export function GptDirectPanel({
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>日期（UTC）</TableHead>
-                        <TableHead className="text-right">官方账单</TableHead>
+                        <TableHead className="pl-4">日期（UTC）</TableHead>
+                        <TableHead className="pr-4 text-right">官方账单</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -373,8 +374,8 @@ export function GptDirectPanel({
                       ) : (
                         view.official.days.map((day) => (
                           <TableRow key={day.day}>
-                            <TableCell className="font-mono text-xs">{day.day}</TableCell>
-                            <TableCell className="text-right font-mono text-xs tabular-nums">
+                            <TableCell className="pl-4 font-mono text-xs">{day.day}</TableCell>
+                            <TableCell className="pr-4 text-right font-mono text-xs tabular-nums">
                               {usd(day.cost_micro_usd)}
                             </TableCell>
                           </TableRow>
@@ -426,11 +427,13 @@ function KeyRow({
     row.budget_micro_usd > 0
       ? Math.min(100, Math.round((row.spent_micro_usd / row.budget_micro_usd) * 100))
       : 0
-  const budgetChanged = Number(budget) !== row.budget_usd
+  const parsedBudget = Number(budget)
+  const budgetValid = Number.isInteger(parsedBudget) && parsedBudget > 0
+  const budgetChanged = parsedBudget !== row.budget_usd
 
   return (
     <TableRow>
-      <TableCell className="font-mono text-xs tabular-nums">
+      <TableCell className="py-2.5 pl-4 font-mono text-xs tabular-nums">
         <div className="flex items-center gap-1">
           <span className="w-5">#{row.ordinal}</span>
           {admin ? (
@@ -459,16 +462,16 @@ function KeyRow({
           ) : null}
         </div>
       </TableCell>
-      <TableCell className="font-mono text-xs">{row.label}</TableCell>
-      <TableCell>
+      <TableCell className="py-2.5 font-mono text-xs">{row.label}</TableCell>
+      <TableCell className="py-2.5">
         <KeyStatus status={row.status} />
       </TableCell>
-      <TableCell className="min-w-[160px] text-right font-mono text-xs tabular-nums">
+      <TableCell className="min-w-[144px] py-2.5 text-right font-mono text-xs tabular-nums">
         <div>
           {usd(row.spent_micro_usd)}
           <span className="text-muted-foreground"> / {usd(row.budget_micro_usd)}</span>
         </div>
-        <div className="mt-1 ml-auto h-1.5 w-28 overflow-hidden rounded-full bg-muted">
+        <div className="mt-1 ml-auto h-1.5 w-24 overflow-hidden rounded-full bg-muted">
           <div
             className={cn(
               'h-full',
@@ -478,7 +481,38 @@ function KeyRow({
           />
         </div>
       </TableCell>
-      <TableCell className="max-w-[220px]">
+      <TableCell className="w-[152px] py-2.5">
+        {admin ? (
+          <div className="flex items-center gap-1.5">
+            <Input
+              type="number"
+              min={1}
+              step={1}
+              value={budget}
+              aria-label={`${row.label} 月预算`}
+              className="h-7 w-20 px-2 font-mono text-xs tabular-nums"
+              onChange={(event) => setBudget(event.target.value)}
+            />
+            <Button
+              type="button"
+              size="xs"
+              variant={budgetChanged ? 'default' : 'outline'}
+              disabled={!writable || pending !== null || !budgetChanged || !budgetValid}
+              onClick={() => {
+                if (!budgetValid) return
+                onBudget(parsedBudget)
+              }}
+            >
+              保存
+            </Button>
+          </div>
+        ) : (
+          <span className="font-mono text-xs tabular-nums text-muted-foreground">
+            ${row.budget_usd}
+          </span>
+        )}
+      </TableCell>
+      <TableCell className="max-w-[200px] py-2.5">
         {row.last_error ? (
           <span className="block truncate text-xs text-muted-foreground" title={row.last_error}>
             {row.last_error} {row.last_error_at ? <FuzzyTime ts={row.last_error_at} /> : null}
@@ -487,8 +521,8 @@ function KeyRow({
           <span className="text-xs text-muted-foreground">—</span>
         )}
       </TableCell>
-      <TableCell>
-        <div className="flex flex-wrap items-center justify-end gap-1.5">
+      <TableCell className="py-2.5 pr-4">
+        <div className="flex items-center justify-end gap-1.5">
           {row.status === 'disabled' ? (
             <Button
               type="button"
@@ -502,30 +536,6 @@ function KeyRow({
           ) : null}
           {admin ? (
             <>
-              <div className="flex items-center gap-1">
-                <Input
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={budget}
-                  aria-label={`${row.label} 月预算`}
-                  className="h-7 w-20 px-2 font-mono text-xs"
-                  onChange={(event) => setBudget(event.target.value)}
-                />
-                <Button
-                  type="button"
-                  size="xs"
-                  variant={budgetChanged ? 'default' : 'outline'}
-                  disabled={!writable || pending !== null}
-                  onClick={() => {
-                    const budgetUsd = Number(budget)
-                    if (!Number.isInteger(budgetUsd) || budgetUsd <= 0) return
-                    onBudget(budgetUsd)
-                  }}
-                >
-                  预算
-                </Button>
-              </div>
               <Button
                 type="button"
                 size="xs"
@@ -539,6 +549,7 @@ function KeyRow({
                 type="button"
                 size="xs"
                 variant="ghost"
+                className="text-muted-foreground hover:text-destructive"
                 disabled={!writable || pending !== null}
                 onClick={onDelete}
               >

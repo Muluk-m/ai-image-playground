@@ -88,4 +88,18 @@ describe('GptDirectPanel', () => {
     expect(screen.queryByText(secret)).not.toBeInTheDocument()
     expect(state.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['gpt-direct'] })
   })
+
+  it('enables budget save button only after changing a key monthly budget', async () => {
+    state.update.mockResolvedValue(view)
+    render(<GptDirectPanel view={view} />)
+
+    const saveBtn = screen.getByRole('button', { name: '保存' })
+    expect(saveBtn).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('abcd1234 · 6789 月预算'), { target: { value: '350' } })
+    expect(saveBtn).not.toBeDisabled()
+
+    fireEvent.click(saveBtn)
+    await waitFor(() => expect(state.update).toHaveBeenCalledWith('key-1', { budgetUsd: 350 }))
+  })
 })

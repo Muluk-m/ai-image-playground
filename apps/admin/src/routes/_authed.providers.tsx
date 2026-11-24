@@ -72,9 +72,6 @@ function GatewayAndBillingPage() {
   const pausedCount = models.filter((model) => modelState(model) === 'paused').length
 
   const pageTitle = billingEnabled ? '模型与计费' : '模型与网关'
-  const pageDescription = billingEnabled
-    ? '统一管理全模态模型目录、Agent 档位路由、密钥预算护栏与商业计费策略'
-    : '统一管理全模态模型目录、Agent 档位路由、上游渠道拓扑与密钥预算护栏'
 
   const refreshing = modelsQuery.isFetching || directQuery.isFetching
 
@@ -91,7 +88,6 @@ function GatewayAndBillingPage() {
   return (
     <Page
       crumbs={[{ label: pageTitle }]}
-      description={pageDescription}
       actions={
         <div className="flex items-center gap-2">
           {pausedCount > 0 ? <Badge variant="warning">{pausedCount} 个模型自动暂停</Badge> : null}

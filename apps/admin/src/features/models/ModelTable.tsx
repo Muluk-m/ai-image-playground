@@ -1,6 +1,6 @@
 import type { AgentProfileKey, ManagedModel, ManagedModelsView } from '@image-playground/shared'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Search, SlidersHorizontal } from 'lucide-react'
+import { ChevronRight, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { DangerConfirmDialog } from '@/components/DangerConfirmDialog'
 import { FuzzyTime } from '@/components/FuzzyTime'
@@ -95,13 +95,13 @@ function ModelStatus({ model }: { model: ManagedModel }) {
   const state = modelState(model)
   return (
     <div className="min-w-0">
-      <div className="flex items-center gap-2 text-sm">
+      <div className="flex items-center gap-2 whitespace-nowrap text-sm">
         <span className={cn('size-2 shrink-0 rounded-full', STATE_DOTS[state])} aria-hidden />
         <span>{STATE_LABELS[state]}</span>
       </div>
       {state === 'paused' && model.paused_at ? (
         <div className="mt-0.5 text-xs text-muted-foreground">
-          上游无可用账号 · <FuzzyTime ts={model.paused_at} />
+          上游耗尽 · <FuzzyTime ts={model.paused_at} />
         </div>
       ) : null}
     </div>
@@ -117,7 +117,9 @@ function ModelSpecSummary({ model }: { model: ManagedModel }) {
       .join(' · ')
     return (
       <div className="space-y-1">
-        {tokenSpec ? <div className="font-mono text-xs text-foreground">{tokenSpec}</div> : null}
+        {tokenSpec ? (
+          <div className="whitespace-nowrap font-mono text-xs text-foreground">{tokenSpec}</div>
+        ) : null}
         {model.agent_profiles?.length ? (
           <div className="flex flex-wrap gap-1">
             {model.agent_profiles.map((profile) => (
@@ -127,7 +129,7 @@ function ModelSpecSummary({ model }: { model: ManagedModel }) {
             ))}
           </div>
         ) : (
-          <div className="text-xs text-muted-foreground">未绑定思考档位</div>
+          <div className="text-xs text-muted-foreground">未绑定档位</div>
         )}
       </div>
     )
@@ -226,22 +228,33 @@ function AvailabilityConfirm({
 function ModelTableRow({
   model,
   billingEnabled,
+  selected,
   onInspect,
 }: {
   model: ManagedModel
   billingEnabled: boolean
+  selected: boolean
   onInspect: (modelId: string) => void
 }) {
   const { pendingActive, setPendingActive, mutation } = useModelAvailabilityToggle(model)
   const paused = modelState(model) === 'paused'
 
   return (
-    <TableRow>
-      <TableCell className="min-w-[200px] align-top">
+    <TableRow
+      data-state={selected ? 'selected' : undefined}
+      className="cursor-pointer"
+      onClick={(event) => {
+        const target = event.target as HTMLElement | null
+        if (!target || !event.currentTarget.contains(target)) return
+        if (target.closest('button, a, input, [role="switch"], [role="dialog"]')) return
+        onInspect(model.id)
+      }}
+    >
+      <TableCell className="min-w-[196px] py-3 pl-4 align-middle">
         <div className="font-medium text-foreground">{model.label}</div>
         <div className="mt-0.5 font-mono text-xs text-muted-foreground">{model.id}</div>
       </TableCell>
-      <TableCell className="min-w-[160px] align-top">
+      <TableCell className="min-w-[156px] py-3 align-middle">
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge variant="outline" className="px-2 py-0 text-xs font-medium">
             {KIND_LABELS[model.kind]}
@@ -252,29 +265,38 @@ function ModelTableRow({
         </div>
         {model.source_id ? (
           <div className="mt-1 flex items-center gap-1.5 font-mono text-xs text-muted-foreground">
-            <span>{model.source_id}</span>
+            <span className="truncate">{model.source_id}</span>
             {model.secret_configured === false ? (
-              <span className="font-sans text-warning">· 密钥未配</span>
+              <span className="shrink-0 font-sans text-warning">· 缺密钥</span>
             ) : null}
           </div>
         ) : null}
       </TableCell>
-      <TableCell className="min-w-[180px] align-top">
+      <TableCell className="min-w-[176px] py-3 align-middle">
         <ModelSpecSummary model={model} />
       </TableCell>
-      <TableCell className="w-[140px] align-top">
+      <TableCell className="w-[120px] py-3 align-middle">
         <ModelStatus model={model} />
       </TableCell>
       {billingEnabled ? (
-        <TableCell className="min-w-[240px] align-top">
-          <PrivateAdminModelPricing model={model.id} kind={model.kind} />
+        <TableCell className="min-w-[260px] py-3 align-middle">
+          <PrivateAdminModelPricing
+            model={model.id}
+            kind={model.kind}
+            mode="summary"
+            onEdit={() => onInspect(model.id)}
+          />
         </TableCell>
       ) : null}
-      <TableCell className="w-[148px] align-top">
+      <TableCell
+        className="w-[144px] py-3 pr-4 align-middle"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="flex items-center justify-end gap-2">
           {paused ? (
             <Button
-              size="sm"
+              type="button"
+              size="xs"
               variant="outline"
               disabled={mutation.isPending}
               onClick={() => setPendingActive(true)}
@@ -291,13 +313,12 @@ function ModelTableRow({
           )}
           <Button
             type="button"
-            size="sm"
+            size="icon-xs"
             variant="ghost"
             onClick={() => onInspect(model.id)}
             aria-label={`检视 ${model.label}`}
           >
-            <SlidersHorizontal className="size-3.5" />
-            详情
+            <ChevronRight />
           </Button>
         </div>
         {mutation.isError ? (
@@ -339,7 +360,18 @@ function ModelInspectorSheet({
           <SheetTitle className="mt-1 text-lg">{model.label}</SheetTitle>
           <SheetDescription className="font-mono text-xs">{model.id}</SheetDescription>
         </SheetHeader>
-        <div className="flex-1 space-y-5 overflow-y-auto p-6">
+
+        <div className="flex-1 space-y-4 overflow-y-auto p-6">
+          {billingEnabled ? (
+            <section className="space-y-3 rounded-xl border p-4">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold">积分结算单价</h3>
+                <Badge variant="private">商业计费</Badge>
+              </div>
+              <PrivateAdminModelPricing model={model.id} kind={model.kind} mode="editor" />
+            </section>
+          ) : null}
+
           <section className="space-y-3 rounded-xl border p-4">
             <h3 className="text-sm font-semibold">上游归属与密钥状态</h3>
             <dl className="grid grid-cols-2 gap-3 text-sm">
@@ -380,7 +412,7 @@ function ModelInspectorSheet({
                       : null,
                     model.max_tokens ? `${formatTokensCompact(model.max_tokens)} out` : null,
                     model.max_concurrency !== undefined ? `并发 ≤${model.max_concurrency}` : null,
-                    model.eta_seconds !== undefined ? `预计 ~${model.eta_seconds}s` : null,
+                    model.eta_seconds !== undefined ? `~${model.eta_seconds}s` : null,
                   ]
                     .filter(Boolean)
                     .join(' · ') || '默认配额'}
@@ -400,7 +432,7 @@ function ModelInspectorSheet({
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">未声明特定能力标签</p>
+              <p className="text-xs text-muted-foreground">无声明能力标签</p>
             )}
             {model.kind === 'chat' ? (
               <div className="border-t pt-3">
@@ -415,52 +447,44 @@ function ModelInspectorSheet({
                   </div>
                 ) : (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    当前未被任何产品档位引用，可在「Agent 路由与渠道」页签中绑定。
+                    未绑定，可在「Agent 路由与渠道」配置。
                   </p>
                 )}
               </div>
             ) : null}
           </section>
-
-          {billingEnabled ? (
-            <section className="space-y-3 rounded-xl border p-4">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-sm font-semibold">积分结算单价</h3>
-                <Badge variant="private">商业计费</Badge>
-              </div>
-              <PrivateAdminModelPricing model={model.id} kind={model.kind} />
-            </section>
-          ) : null}
-
-          <InspectorAvailabilitySection model={model} />
         </div>
+
+        <InspectorAvailabilityFooter model={model} />
       </SheetContent>
     </Sheet>
   )
 }
 
-function InspectorAvailabilitySection({ model }: { model: ManagedModel }) {
+function InspectorAvailabilityFooter({ model }: { model: ManagedModel }) {
   const { pendingActive, setPendingActive, mutation } = useModelAvailabilityToggle(model)
   const state = modelState(model)
   const routedLabels = model.agent_profiles?.map((key) => `${PROFILE_LABELS[key]}档`).join('、')
 
   return (
-    <section className="space-y-3 rounded-xl border p-4">
+    <div className="border-t bg-background px-6 py-3.5">
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold">可用性与上下架</h3>
+        <div className="min-w-0">
+          <div className="text-xs font-medium text-foreground">模型状态控制</div>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {model.kind === 'chat'
               ? routedLabels
-                ? `正被 ${routedLabels} 引用；下架会直接拦截该档位新对话轮，请先切路由再下架。`
-                : '下架后服务端拒绝该对话模型的新调用，已在途请求不受影响。'
-              : '下架后从创作页模型选择器隐藏，已在途生成任务仍按原模型走完。'}
+                ? `正被 ${routedLabels} 引用，下架会拦截对应档位`
+                : '下架后拒绝新对话调用，在途请求照常完成'
+              : '下架后从选模器隐藏，在途任务照常完成'}
           </p>
         </div>
         {state === 'paused' ? (
           <Button
+            type="button"
             size="sm"
             variant="brand"
+            className="shrink-0"
             disabled={mutation.isPending}
             onClick={() => setPendingActive(true)}
           >
@@ -468,8 +492,10 @@ function InspectorAvailabilitySection({ model }: { model: ManagedModel }) {
           </Button>
         ) : (
           <Button
+            type="button"
             size="sm"
             variant={model.active ? 'destructive' : 'brand'}
+            className="shrink-0"
             disabled={mutation.isPending}
             onClick={() => setPendingActive(!model.active)}
           >
@@ -478,7 +504,7 @@ function InspectorAvailabilitySection({ model }: { model: ManagedModel }) {
         )}
       </div>
       {mutation.isError ? (
-        <div role="alert" className="text-xs text-danger">
+        <div role="alert" className="mt-1.5 text-xs text-danger">
           保存失败
         </div>
       ) : null}
@@ -488,7 +514,7 @@ function InspectorAvailabilitySection({ model }: { model: ManagedModel }) {
         setPendingActive={setPendingActive}
         mutation={mutation}
       />
-    </section>
+    </div>
   )
 }
 
@@ -574,17 +600,13 @@ export function ModelCatalogWorkspace({
           note={`对话 ${stats.chat} · 图片 ${stats.image} · 视频 ${stats.video}`}
         />
         <Kpi
-          label="异常自动暂停"
+          label="异常暂停"
           value={stats.paused}
           tone={stats.paused > 0 ? 'danger' : 'default'}
-          note={stats.paused > 0 ? '上游容量耗尽，补齐后可恢复' : '全部上游通道正常'}
+          note={stats.paused > 0 ? '上游容量耗尽' : '全部通道正常'}
         />
-        <Kpi
-          label="Agent 路由引用"
-          value={stats.routed}
-          note="已绑定到默认 / 快速 / 普通 / 深度档位"
-        />
-        <Kpi label="手动下架" value={stats.inactive} note="选模器隐藏，在途任务照旧完成" />
+        <Kpi label="Agent 路由引用" value={stats.routed} note="默认 / 快速 / 普通 / 深度" />
+        <Kpi label="手动下架" value={stats.inactive} note="选模器已隐藏" />
       </div>
 
       <Card>
@@ -601,7 +623,7 @@ export function ModelCatalogWorkspace({
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="搜索模型名称、ID 或渠道…"
+                placeholder="搜索名称、ID 或渠道…"
                 aria-label="搜索模型"
                 className="pl-9"
               />
@@ -615,12 +637,12 @@ export function ModelCatalogWorkspace({
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>模型</TableHead>
+                    <TableHead className="pl-4">模型</TableHead>
                     <TableHead>模态 / 归属</TableHead>
                     <TableHead>规格与路由</TableHead>
                     <TableHead>状态</TableHead>
                     {billingEnabled ? <TableHead>积分计价</TableHead> : null}
-                    <TableHead className="text-right">操作</TableHead>
+                    <TableHead className="pr-4 text-right">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -629,6 +651,7 @@ export function ModelCatalogWorkspace({
                       key={model.id}
                       model={model}
                       billingEnabled={billingEnabled}
+                      selected={inspectedId === model.id}
                       onInspect={setInspectedId}
                     />
                   ))}
@@ -663,12 +686,12 @@ export function ModelTable({ title, models }: { title?: string; models: readonly
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>模型</TableHead>
+              <TableHead className="pl-4">模型</TableHead>
               <TableHead>模态 / 归属</TableHead>
               <TableHead>规格与路由</TableHead>
               <TableHead>状态</TableHead>
               {billingEnabled ? <TableHead>积分计价</TableHead> : null}
-              <TableHead className="text-right">操作</TableHead>
+              <TableHead className="pr-4 text-right">操作</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -677,6 +700,7 @@ export function ModelTable({ title, models }: { title?: string; models: readonly
                 key={model.id}
                 model={model}
                 billingEnabled={billingEnabled}
+                selected={inspectedId === model.id}
                 onInspect={setInspectedId}
               />
             ))}

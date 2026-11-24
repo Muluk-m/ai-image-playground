@@ -121,6 +121,12 @@ it('lets operators add a model draft and retains edits when saving fails', () =>
   )
   fireEvent.click(screen.getByRole('button', { name: '添加自定义模型' }))
   expect(screen.getByRole('textbox', { name: 'example 模型 2 · 模型 ID' })).toHaveValue('')
+  // Existing saved model starts collapsed as a compact summary row until expanded
+  expect(
+    screen.queryByRole('textbox', { name: 'example 模型 1 · 模型 ID' }),
+  ).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '编辑' }))
+  expect(screen.getByRole('textbox', { name: 'example 模型 1 · 模型 ID' })).toHaveValue('model-a')
   fireEvent.change(screen.getByRole('textbox', { name: 'example · 密钥环境变量名' }), {
     target: { value: 'NEW_API_KEY' },
   })
