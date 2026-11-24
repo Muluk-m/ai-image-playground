@@ -381,13 +381,77 @@ export async function checkDirAcyclic(rootDir: string, label: string): Promise<s
   )
 }
 
+/**
+ * 共享只读模型包护栏（ADR 0034 Phase 3 PR-3.3）：
+ * 1. `packages/read-models/src` 内部保持无环 DAG；
+ * 2. 禁止在包内调用 `createDb` 自建连接池（只接受调用方注入句柄，确保 Admin 只读角色校验不被绕过）；
+ * 3. `types.ts` 保持纯类型与浏览器安全，禁止引入 `drizzle-orm` 或 `@image-playground/db`。
+ */
+export async function checkReadModelsBoundaries(rootDir: string): Promise<string[]> {
+  const violations = await checkDirAcyclic(rootDir, 'packages/read-models/src')
+  const normalizedRoot = resolve(rootDir)
+  if (!existsSync(normalizedRoot)) return violations
+
+  for await (const file of sourceGlob.scan({ cwd: normalizedRoot, onlyFiles: true })) {
+    const normalized = file.replaceAll('\\', '/')
+    if (normalized.includes('__tests__')) continue
+    const text = await Bun.file(resolve(normalizedRoot, normalized)).text()
+    const specifiers = scanAllSpecifiers(normalized, text)
+    if (specifiers.includes('bun')) {
+      violations.push(
+        `[read-models-pool] packages/read-models/src/${normalized} must not import bun (inject DbHandle instead of creating SQL pools)`,
+      )
+    }
+    if (normalized === 'types.ts') {
+      for (const spec of specifiers) {
+        if (
+          spec === 'drizzle-orm' ||
+          spec.startsWith('drizzle-orm/') ||
+          spec === '@image-playground/db' ||
+          spec.startsWith('@image-playground/db/')
+        ) {
+          violations.push(
+            `[read-models-types] packages/read-models/src/types.ts must not import ${spec} (keep browser-safe)`,
+          )
+        }
+      }
+    }
+    const sourceFile = ts.createSourceFile(normalized, text, ts.ScriptTarget.Latest, false)
+    let importsCreateDb = false
+    const visit = (node: ts.Node): void => {
+      if (
+        ts.isImportDeclaration(node) &&
+        ts.isStringLiteral(node.moduleSpecifier) &&
+        (node.moduleSpecifier.text === '@image-playground/db' ||
+          node.moduleSpecifier.text.startsWith('@image-playground/db/')) &&
+        node.importClause?.namedBindings &&
+        ts.isNamedImports(node.importClause.namedBindings)
+      ) {
+        for (const el of node.importClause.namedBindings.elements) {
+          const imported = (el.propertyName ?? el.name).text
+          if (imported === 'createDb') importsCreateDb = true
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(sourceFile)
+    if (importsCreateDb) {
+      violations.push(
+        `[read-models-pool] packages/read-models/src/${normalized} must not import createDb (inject DbHandle instead)`,
+      )
+    }
+  }
+  return violations
+}
+
 if (import.meta.main) {
   const repoRoot = resolve(import.meta.dir, '..')
-  const [bffViolations, dbViolations] = await Promise.all([
+  const [bffViolations, dbViolations, readModelsViolations] = await Promise.all([
     checkBffBoundaries(resolve(repoRoot, 'apps/bff/src')),
     checkDirAcyclic(resolve(repoRoot, 'packages/db/src'), 'packages/db/src'),
+    checkReadModelsBoundaries(resolve(repoRoot, 'packages/read-models/src')),
   ])
-  const allViolations = [...bffViolations, ...dbViolations]
+  const allViolations = [...bffViolations, ...dbViolations, ...readModelsViolations]
   if (allViolations.length > 0) {
     console.error(
       `Architecture boundary violations (${allViolations.length}):\n${allViolations.join('\n')}`,

@@ -26,6 +26,7 @@ COPY apps/bff/package.json ./apps/bff/
 COPY apps/admin/package.json ./apps/admin/
 COPY packages/db/package.json ./packages/db/
 COPY packages/node-kit/package.json ./packages/node-kit/
+COPY packages/read-models/package.json ./packages/read-models/
 COPY packages/shared/package.json ./packages/shared/
 
 # Compile with the builder's native CPU (Bun/JSC cannot reliably run under QEMU).
@@ -82,6 +83,7 @@ COPY apps/admin/server ./apps/admin/server
 COPY apps/admin/contracts.ts ./apps/admin/contracts.ts
 COPY packages/db ./packages/db
 COPY packages/node-kit ./packages/node-kit
+COPY packages/read-models ./packages/read-models
 COPY packages/shared ./packages/shared
 # pnpm 10 refuses to deploy a workspace unless dependencies are injected, so the
 # output is a real copy instead of a symlink back into this stage. The setting
@@ -102,8 +104,10 @@ RUN printf '\ninjectWorkspacePackages: true\n' >> pnpm-workspace.yaml \
        /out/bff/node_modules/sharp \
        /out/bff/node_modules/@image-playground/db/drizzle/meta/_journal.json \
        /out/bff/node_modules/@image-playground/db/drizzle-billing/meta/_journal.json \
+       /out/bff/node_modules/@image-playground/read-models/src/index.ts \
        /out/admin/server/index.ts \
-       /out/admin/contracts.ts; do \
+       /out/admin/contracts.ts \
+       /out/admin/node_modules/@image-playground/read-models/src/index.ts; do \
        test -e "$path" || { echo "missing $path" >&2; exit 1; }; \
      done \
   && for root in /out/bff /out/admin; do \

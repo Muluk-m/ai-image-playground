@@ -71,15 +71,15 @@ web_bundle_changed() {
 }
 # shellcheck disable=SC2329 # called through decide
 admin_bundle_changed() {
-  printf '%s\n' "$1" | grep -Eq '^(apps/admin/|packages/shared/|pnpm-workspace\.yaml$)' ||
-    lock_changed "$1" . apps/admin packages/shared
+  printf '%s\n' "$1" | grep -Eq '^(apps/admin/|packages/read-models/|packages/shared/|pnpm-workspace\.yaml$)' ||
+    lock_changed "$1" . apps/admin packages/read-models packages/shared
 }
 # shellcheck disable=SC2329 # called through decide
 api_tree_changed() {
   # Build and deployment protocol changes require a new release. Deployment code itself lives
   # in the fixed VPS runtime and must be installed separately from the data-only release.
   printf '%s\n' "$1" | grep -Eq '^(apps/bff/|apps/admin/|packages/|Dockerfile$|deploy/|pnpm-workspace\.yaml$|scripts/build-vps-release\.sh$|scripts/docker-entrypoint\.sh$|scripts/vps-deploy\.sh$|scripts/app-compose\.sh$|scripts/rollout-runtime\.sh$|scripts/check-test-isolation\.sh$|scripts/segmenter-deploy\.sh$|scripts/lib/deploy-common\.sh$)' ||
-    lock_changed "$1" . apps/bff apps/admin packages/db packages/node-kit packages/shared
+    lock_changed "$1" . apps/bff apps/admin packages/db packages/node-kit packages/read-models packages/shared
 }
 
 git merge-base --is-ancestor "$target" origin/main 2>/dev/null || skip "$target is not on origin/main"
