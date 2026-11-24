@@ -167,7 +167,7 @@ export function evaluatePr({ files, body }) {
     const text = section(body, '成本与影响') ?? ''
     if (!explained(text)) {
       fails.push(
-        `改到可能影响成本的文件（${cost.length} 个，如 \`${cost[0]}\`），「成本与影响」需要写清改了什么、成本怎么变，不涉及也要写明为什么（至少 ${MIN_REASON} 个字）；涉及结算的在标题或正文标明「涉及结算，需 Nain 亲自审」。`,
+        `改到可能影响成本的文件（${cost.length} 个，如 \`${cost[0]}\`），「成本与影响」需要写清改了什么、成本怎么变，不涉及也要写明为什么（至少 ${MIN_REASON} 个字）；涉及结算的在标题或正文标明「涉及结算」并在汇报里重点提示。`,
       )
     }
   }
