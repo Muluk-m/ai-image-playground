@@ -6,6 +6,7 @@ export {
 export {
   AgentToolError,
   BATCH_EXECUTION_UNAVAILABLE_MESSAGE,
+  BatchAnalysisLimit,
   createToolFailureLog,
   queueRefusalCode,
   type ToolFailureLog,
@@ -28,6 +29,8 @@ export {
   registerInterruptedTurnRecoverer,
   requireInterruptedTurnRecoverer,
 } from './interrupted-recovery'
+export { MaskedOutputError } from './masked-errors'
+export { createMaskedEditPlan } from './masked-plan'
 export {
   AGENT_IMAGE_FALLBACK_MODEL,
   confirmedSubmissionText,

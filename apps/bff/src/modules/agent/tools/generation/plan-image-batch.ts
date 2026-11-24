@@ -1,8 +1,8 @@
 import { Type } from 'typebox'
-import { BatchAnalysisLimit } from '../../../../lib/agent/batch-analysis-limit'
-import { batchExecutionAvailable } from '../../../../lib/agent/batch-execution'
-import { batchPlansAvailable, createAgentBatchPlan } from '../../../../lib/agent/batch-plans'
 import { AgentToolError, aspectRatioParameter } from '../../contracts'
+import { BatchAnalysisLimit } from '../../orchestration/batch/analysis-limit'
+import { batchExecutionAvailable } from '../../orchestration/batch/execution'
+import { batchPlansAvailable, createAgentBatchPlan } from '../../orchestration/batch/plans'
 import { defineAgentTool } from '../adapter'
 
 export const planImageBatch = defineAgentTool({

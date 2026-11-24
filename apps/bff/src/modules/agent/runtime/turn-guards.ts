@@ -2,11 +2,11 @@ import type { AgentTool } from '@earendil-works/pi-agent-core'
 import { createAutoSubmitBudget } from '../../../lib/agent/auto-submit'
 import { wholeImageEditIntent } from '../../../lib/agent/edit-intent'
 import { createImageCombinationGuard } from '../../../lib/agent/image-combinations'
-import { createMaskedEditPlan } from '../../../lib/agent/masked-plan'
 import { createAgentToolGate } from '../../../lib/agent/tool-gate'
 import type { ChatAttempt } from '../../../lib/chatCompletion'
 import {
   type AgentImageSource,
+  createMaskedEditPlan,
   createToolFailureLog,
   type ImageCombinationGuard,
   type MaskedEditPlan,

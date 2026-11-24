@@ -4,7 +4,6 @@ import './bootstrap/agent-runtime'
 import { config } from './config'
 import { close as closeDb, db, schema } from './db/client'
 import { purgeOldTasks, purgeOrphanedAssetObjects } from './db/maintenance'
-import { expireStaleStageAuthorizations } from './lib/agent/stage-authorizations'
 import { loadAccountLifecyclePort } from './lib/billing-ports'
 import { canvasSyncRooms } from './lib/canvasSyncRooms'
 import { isCapabilityEnabled } from './lib/capabilities'
@@ -26,6 +25,7 @@ import { refreshUpstreamKeySources } from './lib/upstream/gpt-direct-admin'
 import { logFingerprintMacSourceOnce } from './lib/upstream/gpt-key-config'
 import { UPSTREAM_SECRET_REFRESH_MS } from './lib/upstream-secrets'
 import { purgeOldAgentTurnEvents } from './modules/agent'
+import { expireStaleStageAuthorizations } from './modules/agent/orchestration'
 
 initTelemetry('bff')
 const stopServerLogs = startServerLogs()

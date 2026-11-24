@@ -52,15 +52,12 @@ import {
   readUserMessageContent,
 } from '../lib/agent/conversation-service'
 import { readAgentFollowUps } from '../lib/agent/follow-ups'
-import { MASK_PROMPT_POINTS_MAX, refineEditRegion } from '../lib/agent/mask-proposal'
 import {
   advanceAgentRetryQueueSafely,
   cancelAgentRetry,
   retryAgentToolCall,
 } from '../lib/agent/retry'
 import { markAgentSaveCardSaved } from '../lib/agent/saves'
-import { segmentRateLimiter } from '../lib/agent/segment-rate-limit'
-import { segmenterStatus } from '../lib/agent/segmentation'
 import { agentTurnRateLimited } from '../lib/agent/turn-rate-limit'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { bffDrain } from '../lib/drain'
@@ -117,6 +114,12 @@ import {
   validateSelections,
   withAgentLifecycle,
 } from '../modules/agent'
+import {
+  MASK_PROMPT_POINTS_MAX,
+  refineEditRegion,
+  segmenterStatus,
+} from '../modules/agent/orchestration'
+import { segmentRateLimiter } from '../modules/agent/orchestration/masked/pure'
 import { agentBatchRoutes } from './agent-batches'
 
 /** 归属不依赖登录能力：有会话 cookie 就挂用户，否则挂设备。 */

@@ -16,13 +16,13 @@ import {
   sql,
 } from 'drizzle-orm'
 import { config } from '../config'
-import { snapshotAgentBatchesBeforePurge } from '../lib/agent/batch-progress'
 import { durableMediaStore } from '../lib/durableMediaStore'
 import { log } from '../lib/logger'
 import { objectStore } from '../lib/objectStore'
 import { planNextAttempt, type RetryPlan } from '../lib/retry'
 import { ASSET_OBJECT_ROOT, assetOwnerPrefix } from '../lib/sync-assets'
 import { settleAgentConversationJobs } from '../modules/agent'
+import { snapshotAgentBatchesBeforePurge } from '../modules/agent/orchestration'
 import {
   finishTask,
   reconcileTasks,

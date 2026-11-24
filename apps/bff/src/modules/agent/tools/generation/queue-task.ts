@@ -3,7 +3,6 @@ import { productionClipVideo } from '@image-playground/shared'
 import { submitAgentGeneration } from '../../../../lib/agent/auto-submit'
 import { saveGenerationDraft } from '../../../../lib/agent/confirmations'
 import { resolveAgentModel } from '../../../../lib/agent/model-resolution'
-import { bindProductionGeneration } from '../../../../lib/agent/production-generation-binding'
 import {
   AGENT_IMAGE_FALLBACK_MODEL,
   type AgentToolContext,
@@ -22,6 +21,7 @@ import {
   requestedImageCount,
   withAspectRatio,
 } from '../../contracts'
+import { bindProductionGeneration } from '../../orchestration/production/generation-binding'
 
 export {
   AGENT_IMAGE_FALLBACK_MODEL,

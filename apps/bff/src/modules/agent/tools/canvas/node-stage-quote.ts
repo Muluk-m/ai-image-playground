@@ -12,12 +12,6 @@ import {
 } from '@image-playground/shared'
 import { resolveAgentModel } from '../../../../lib/agent/model-resolution'
 import {
-  readStageProposal,
-  StageAuthorizationError,
-  type StageChargeInput,
-  type StageProposalInput,
-} from '../../../../lib/agent/stage-authorizations'
-import {
   agentVideoAvailable,
   agentVideoModels,
   videoNodeModeRejection,
@@ -32,6 +26,12 @@ import {
   type StageStoryboardSummaryRef,
 } from '../../../canvas'
 import type { AgentToolContext } from '../../contracts'
+import {
+  readStageProposal,
+  StageAuthorizationError,
+  type StageChargeInput,
+  type StageProposalInput,
+} from '../../orchestration/production/stage-authorizations'
 import { invalidCanvasToolParam, throwNoVideoModel } from './node-shared'
 
 function stageExecution(

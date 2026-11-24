@@ -1,11 +1,11 @@
 import { Type } from 'typebox'
+import { isCapabilityEnabled } from '../../../../lib/capabilities'
+import { AgentToolError } from '../../contracts'
 import {
   proposeProductionEdit as proposeEdit,
   readProduction as readDocument,
   writeProduction as writeDocument,
-} from '../../../../lib/agent/production'
-import { isCapabilityEnabled } from '../../../../lib/capabilities'
-import { AgentToolError } from '../../contracts'
+} from '../../orchestration/production/production'
 import { defineAgentTool } from '../adapter'
 
 const contentSchema = Type.Object({

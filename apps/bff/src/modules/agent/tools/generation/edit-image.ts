@@ -1,6 +1,5 @@
 import { agentTitleLine } from '@image-playground/shared'
 import { Type } from 'typebox'
-import { prepareMaskedEdit } from '../../../../lib/agent/masked-edit'
 import {
   AgentToolError,
   agentModelImageCount,
@@ -10,6 +9,7 @@ import {
   reviewParameter,
 } from '../../contracts'
 import { requireAgentImages } from '../../conversation/images'
+import { prepareMaskedEdit } from '../../orchestration/masked/masked-edit'
 import { defineAgentTool } from '../adapter'
 import { draftQueueTask, resolveAgentModel } from './queue-task'
 

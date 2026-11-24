@@ -9,11 +9,6 @@ import type {
   AgentTurnParams,
 } from '@image-playground/shared'
 import { clarificationTool } from '../../../lib/agent/clarification'
-import {
-  MASK_PROPOSAL_GUIDANCE,
-  maskProposalDeclaration,
-  maskProposalTool,
-} from '../../../lib/agent/mask-proposal'
 import { isCapabilityEnabled } from '../../../lib/capabilities'
 import { log } from '../../../lib/logger'
 import type {
@@ -27,6 +22,11 @@ import type {
   AgentToolSpec,
 } from '../contracts'
 import { AgentToolError, type ToolFailureLog } from '../contracts'
+import {
+  MASK_PROPOSAL_GUIDANCE,
+  maskProposalDeclaration,
+  maskProposalTool,
+} from '../orchestration/masked/mask-proposal'
 import {
   type AgentToolOutcome,
   type AgentToolStart,

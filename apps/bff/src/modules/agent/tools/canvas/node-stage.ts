@@ -11,11 +11,6 @@ import {
 import { Type } from 'typebox'
 import * as Y from 'yjs'
 import { agentCanvasProject } from '../../../../lib/agent/node-canvas-view'
-import {
-  proposeStageAuthorization,
-  proposeStageAuthorizationInTransaction,
-  readStageAuthorization,
-} from '../../../../lib/agent/stage-authorizations'
 import { agentVideoModel } from '../../../../lib/agent/video-models'
 import {
   accessCanvasDocument,
@@ -29,6 +24,11 @@ import {
   selectRunnableStageNodes,
   unknownStoryboardShotsMessage,
 } from '../../../canvas'
+import {
+  proposeStageAuthorization,
+  proposeStageAuthorizationInTransaction,
+  readStageAuthorization,
+} from '../../orchestration/production/stage-authorizations'
 import { defineAgentTool } from '../adapter'
 import {
   invalidCanvasToolParam,

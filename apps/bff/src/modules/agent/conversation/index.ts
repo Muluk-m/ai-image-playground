@@ -76,6 +76,13 @@ export {
   withConversationExecution,
 } from './execution'
 export {
+  discardConversationDraftInputs,
+  discardDraftInputs,
+  type GenerationDraftInput,
+  lockConversation,
+  saveGenerationDraft,
+} from './generation-drafts'
+export {
   activeAgentReferences,
   addConversationMediaClaims,
   archiveAgentReferences,

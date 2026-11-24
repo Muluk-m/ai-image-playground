@@ -11,7 +11,6 @@ import {
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
 import { accountProfileView } from '../lib/account-profile-view'
-import { endStageAuthorizationsForUser } from '../lib/agent/stage-authorizations'
 import { passwordEntryAllowed, registrationEntryAllowed } from '../lib/auth-origin-policy'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { clientAddress } from '../lib/http'
@@ -44,6 +43,7 @@ import {
   USER_REFRESH_COOKIE,
   USER_SESSION_COOKIE,
 } from '../lib/user-session'
+import { endStageAuthorizationsForUser } from '../modules/agent/orchestration'
 
 // 固定的无效账号 hash 仅用于等时校验，不是凭证或 secret。
 function cookieValue(value: unknown): string {

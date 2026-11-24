@@ -1,4 +1,4 @@
-import type { AgentToolErrorCode } from '@image-playground/shared'
+import type { AgentBatchAnalysisLimit, AgentToolErrorCode } from '@image-playground/shared'
 import type { CreateQueueTaskOutcome } from '../../execution'
 
 /**
@@ -18,6 +18,29 @@ export class AgentToolError extends Error {
   ) {
     super(message)
     this.name = 'AgentToolError'
+  }
+}
+
+export class BatchAnalysisLimit extends Error {
+  readonly details: AgentBatchAnalysisLimit
+  constructor(
+    error: Error,
+    imageIds: readonly string[],
+    reason: AgentBatchAnalysisLimit['reason'] = error instanceof AgentToolError
+      ? 'visual_limit'
+      : 'context_overflow',
+  ) {
+    super(
+      '尚未完成联合比较。当前共同查看范围超出限制，请选择减少共同查看的图片，或指定必要区域；逐图摘要不能代替完整联合比较。',
+      { cause: error },
+    )
+    this.name = 'BatchAnalysisLimit'
+    this.details = {
+      reason,
+      requiredImageIds: [...imageIds],
+      jointComparisonCompleted: false,
+      choices: ['select_images', 'select_regions'],
+    }
   }
 }
 
