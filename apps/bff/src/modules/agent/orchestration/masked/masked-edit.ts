@@ -1,5 +1,4 @@
-import { AgentToolError } from '../../contracts'
-import type { ResolvedAgentImage } from '../../conversation/images'
+import { AgentToolError, type ResolvedAgentImage } from '../../contracts'
 import {
   editActionIntent,
   type ImageSelection,

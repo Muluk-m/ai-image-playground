@@ -1,5 +1,5 @@
 export { executeCanvasCommand } from '../../lib/canvasCommands'
-export { accessCanvasDocument } from '../../lib/canvasSyncStore'
+export { accessCanvasDocument, CanvasSyncError } from '../../lib/canvasSyncStore'
 export { CanvasValidationError, throwCanvasInvalid } from './errors'
 export {
   arrangeCanvasNodes,

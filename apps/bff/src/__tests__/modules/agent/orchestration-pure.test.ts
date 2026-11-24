@@ -16,11 +16,11 @@ describe('modules/agent/orchestration/masked/pure (no-DB import safety)', () => 
     expect(maskedEditSettings.output.dimensionMultiple).toBe(16)
 
     const mask = new Uint8Array([0, 0, 0, 0, 1, 1, 0, 1, 1])
-    const components = labelComponents(mask, 3, 3)
-    expect(components.count).toBe(1)
-    expect(components.areas[1]).toBe(4)
+    const components = labelComponents(mask, true, 3, 3, false)
+    expect(components.areas).toEqual([0, 4])
 
-    const distance = inwardMaskDistance(mask, 3, 3)
+    const rgba = new Uint8Array(3 * 3 * 4)
+    const distance = inwardMaskDistance(rgba, 3, 3, 2)
     expect(distance.length).toBe(9)
 
     const limiter = createSegmentRateLimiter(2)
