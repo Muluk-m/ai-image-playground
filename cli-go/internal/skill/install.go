@@ -26,7 +26,7 @@ const BundleVersion = "0.2.7"
 // For prompt-only hot-updates shipped via Web deploy without a new CLI binary, bump
 // SkillVersion to a dotted patch (e.g. "0.2.7.1") so installed CLIs auto-update safely
 // without downgrading.
-const SkillVersion = "0.2.7.3"
+const SkillVersion = "0.2.7.4"
 
 //go:embed assets
 var bundled embed.FS
@@ -38,8 +38,11 @@ type InstallOptions struct {
 	// <Output>/muvloom). Empty means the current working directory. It is ignored
 	// for claude-code and codex, which always use their host skill directories.
 	Output string
-	Home   string
-	CWD    string
+	// Dir is a skills directory chosen by the host (`skill install --dir`); the Skill is
+	// written to <Dir>/muvloom and registered so status and refresh find it later.
+	Dir  string
+	Home string
+	CWD  string
 	// onlyIf, when set, decides under the install lock whether to replace the copy at the
 	// destination; false skips the install with errNotNeeded, an error stops it.
 	onlyIf func(destination string) (bool, error)
@@ -126,11 +129,11 @@ func IsSupportedHost(name string) bool {
 }
 
 // DetectAutoHosts chooses which host(s) `--host auto` should install into:
-// 1. If process environment variables identify the calling agent host, install ONLY into that
-//    host (avoiding cross-host writes that may trip another host's desktop sandbox).
-// 2. Otherwise (e.g. a human terminal session), install into every supported host whose config
-//    directory already exists under root (home for user scope, project root for project scope).
-// 3. If no host directory exists yet on a fresh machine, install into the default core hosts.
+//  1. If process environment variables identify the calling agent host, install ONLY into that
+//     host (avoiding cross-host writes that may trip another host's desktop sandbox).
+//  2. Otherwise (e.g. a human terminal session), install into every supported host whose config
+//     directory already exists under root (home for user scope, project root for project scope).
+//  3. If no host directory exists yet on a fresh machine, install into the default core hosts.
 func DetectAutoHosts(scope, home, cwd string, getenv func(string) string) ([]string, error) {
 	if getenv == nil {
 		getenv = os.Getenv
@@ -352,6 +355,9 @@ func hostDirForScope(name, scope string) (string, bool) {
 }
 
 func Install(opts InstallOptions) (Result, error) {
+	if opts.Dir != "" {
+		return installDir(opts)
+	}
 	if opts.Host == "generic" {
 		return installGeneric(opts)
 	}
@@ -648,10 +654,10 @@ func checkReplaceableSkillDir(destination string, allowLegacyWorkbuddyZip bool) 
 
 // isOfficialZipSkillDir strictly verifies a user-scoped WorkBuddy Muvloom Skill directory
 // unpacked from an older official ZIP (before .muvloom-skill.json was bundled):
-// - SKILL.md must be a regular file (never a symlink)
-// - YAML frontmatter (LF or CRLF) must have exact keys `name: muvloom` and `author: Muvloom`
-// - The directory must contain no symlinks and no unexpected user-added files outside the
-//   known official file layout (`SKILL.md` and `references/*.md`).
+//   - SKILL.md must be a regular file (never a symlink)
+//   - YAML frontmatter (LF or CRLF) must have exact keys `name: muvloom` and `author: Muvloom`
+//   - The directory must contain no symlinks and no unexpected user-added files outside the
+//     known official file layout (`SKILL.md` and `references/*.md`).
 func isOfficialZipSkillDir(destination string) bool {
 	skillPath := filepath.Join(destination, "SKILL.md")
 	info, err := os.Lstat(skillPath)

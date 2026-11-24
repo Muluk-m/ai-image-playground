@@ -229,8 +229,9 @@ var commandList = []struct {
 	}},
 	{"SETUP", []command{
 		{"setup", "[--origin URL] [--host auto|...] [--no-wait] [--timeout SECONDS] [--switch-service]", "Install the Skill, connect your account and verify readiness in one step", cmdSetup},
-		{"skill install", "--host auto|claude-code|codex|workbuddy|cursor|windsurf|cline|openclaw|generic [--scope user|project]", "Install the bundled agent Skill", cmdSkillInstall},
+		{"skill install", "--host auto|claude-code|codex|workbuddy|cursor|windsurf|cline|openclaw|generic [--scope user|project] | --dir <skills dir>", "Install the bundled agent Skill", cmdSkillInstall},
 		{"skill status", "", "Where the agent Skill is installed and its version", cmdSkillStatus},
+		{"skill show", "", "Print the bundled agent Skill for hosts that cannot install one", cmdSkillShow},
 		{"update check", "", "Check for a newer CLI release (cached for the day)", cmdUpdateCheck},
 		{"update self", "[--check] [--auto on|off]", "Check or self-update the muvloom CLI binary", cmdUpdateSelf},
 		{"update skill", "[--check] [--auto on|off]", "Check or update installed agent Skills from Muvloom", cmdUpdateSkill},

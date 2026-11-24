@@ -94,6 +94,10 @@ func (a *App) writeText(data any) error {
 	}
 	var b strings.Builder
 	switch a.command {
+	case "skill show":
+		o, _ := value.(object)
+		b.WriteString(scalar(o.get("content")))
+		b.WriteString("\n")
 	case "version":
 		o, _ := value.(object)
 		fmt.Fprintf(&b, "muvloom %s (%s/%s)\n", scalar(o.get("version")), scalar(o.get("os")), scalar(o.get("arch")))

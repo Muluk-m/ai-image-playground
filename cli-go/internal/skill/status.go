@@ -128,7 +128,7 @@ func Installed(home, cwd string) ([]Installation, error) {
 			result = append(result, item)
 		}
 	}
-	return result, nil
+	return append(result, registeredInstallations(result)...), nil
 }
 
 // inspectAtPath inspects a single Skill directory without reading any sibling host directories.
@@ -256,8 +256,12 @@ func RefreshOutdated(home, cwd string) ([]Installation, []Refresh, error) {
 			continue
 		}
 		attempted = true
+		dir := ""
+		if item.foundHost == customHost {
+			dir = filepath.Dir(item.Path)
+		}
 		_, err := Install(InstallOptions{
-			Host: item.foundHost, Scope: item.foundScope, Home: home, CWD: cwd,
+			Host: item.foundHost, Scope: item.foundScope, Dir: dir, Home: home, CWD: cwd,
 			onlyIf: func(destination string) (bool, error) {
 				current, err := Installed(home, cwd)
 				if err != nil {
