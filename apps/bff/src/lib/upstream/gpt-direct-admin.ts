@@ -10,6 +10,7 @@ import {
   sealSecret,
   UpstreamSecretError,
 } from '../upstream-secrets'
+import { refreshGeminiDirectKeys } from './gemini-direct-admin'
 import { fingerprintMacSource, setAdminDirectKeySnapshot } from './gpt-direct-availability'
 import {
   type DirectKey,
@@ -81,6 +82,11 @@ export async function refreshUpstreamKeySources(): Promise<void> {
   }
   try {
     await refreshGptDirectKeys()
+  } catch (error) {
+    failures.push(error)
+  }
+  try {
+    await refreshGeminiDirectKeys()
   } catch (error) {
     failures.push(error)
   }

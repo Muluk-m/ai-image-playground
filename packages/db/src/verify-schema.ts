@@ -63,6 +63,10 @@ export const EXPECTED_TABLES = [
   'gpt_direct_key_state',
   'gpt_direct_admin_keys',
   'gpt_direct_budget_holds',
+  'gemini_direct_usage',
+  'gemini_direct_key_state',
+  'gemini_direct_admin_keys',
+  'gemini_direct_budget_holds',
   'server_logs',
   'container_samples',
   'host_samples',
@@ -280,6 +284,15 @@ export const EXPECTED_INDEXES = [
   'gpt_direct_admin_keys_ordinal_key',
   'gpt_direct_budget_holds_pkey',
   'idx_gpt_direct_budget_holds_key',
+  'gemini_direct_usage_pkey',
+  'idx_gemini_direct_usage_created',
+  'idx_gemini_direct_usage_key_created',
+  'gemini_direct_key_state_pkey',
+  'gemini_direct_admin_keys_pkey',
+  'gemini_direct_admin_keys_fingerprint_key',
+  'gemini_direct_admin_keys_ordinal_key',
+  'gemini_direct_budget_holds_pkey',
+  'idx_gemini_direct_budget_holds_key',
 ] as const
 
 export const EXPECTED_COLUMNS = [

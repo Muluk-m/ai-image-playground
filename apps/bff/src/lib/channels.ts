@@ -52,6 +52,7 @@ import {
 import { findCatalogModel, publishModelCapabilities } from '@image-playground/shared/model-catalog'
 import { isObject } from './type-guards'
 import { capabilitiesForModel } from './upstream/adapters'
+import { geminiDirectEnabledKeyCount, hasGeminiDirectPool } from './upstream/gemini-key-config'
 import {
   gptDirectEnabledKeyCount,
   gptDirectSizeEnabled,
@@ -491,7 +492,9 @@ export function parseChannelsConfig(
     }
 
     const secret = envLookup(ch.auth.secretRef)?.trim() ?? ''
-    const adminDirectKeys = ch.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0
+    const adminDirectKeys =
+      (ch.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0) ||
+      (ch.auth.secretRef === 'VERTEX_API_KEY' && geminiDirectEnabledKeyCount() > 0)
     const image26WithoutDirectKey =
       process.env.GPT_IMAGE_26_ENABLED?.trim().toLowerCase() === 'true' &&
       ch.models.some((model) => isGptImage26Model(model.id))
@@ -513,6 +516,11 @@ export function parseChannelsConfig(
         return
       }
       if (ch.requiresSecret) {
+        // 仅配了后台 Gemini 密钥池或 VERTEX_API_KEYS 但当前全部停用时，仍保留为 retired 路由，
+        // 避免存量排队任务回落到 sub2api 通用网关而绕过密钥池耗尽报错。
+        if (ch.auth.secretRef === 'VERTEX_API_KEY' && hasGeminiDirectPool()) {
+          disabled.push(toInternal(ch, resolved.baseUrl, secret))
+        }
         warnings.push(
           `channel '${ch.id}': env '${ch.auth.secretRef}' is empty or unset; the channel is disabled and will not be advertised`,
         )
@@ -616,7 +624,7 @@ export function refreshChannelsIfChanged(filePath = defaultChannelsPath()): void
   } catch (error) {
     if (!isFileNotFoundError(error)) throw error
   }
-  const signature = `${filePath}:${fileVersion}:${upstreamSecretRevision()}:${gptDirectEnabledKeyCount()}:${gptDirectSizeEnabled()}`
+  const signature = `${filePath}:${fileVersion}:${upstreamSecretRevision()}:${gptDirectEnabledKeyCount()}:${gptDirectSizeEnabled()}:${geminiDirectEnabledKeyCount()}:${hasGeminiDirectPool()}`
   if (signature === refreshSignature) return
   initChannels(filePath)
   refreshSignature = signature
@@ -692,6 +700,7 @@ export function isChannelCredentialReady(
   const envFallback = channel.auth.secret || (process.env[channel.auth.secretRef]?.trim() ?? '')
   if (runtimeSecret(channel.auth.secretRef, envFallback)) return true
   if (channel.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0) return true
+  if (channel.auth.secretRef === 'VERTEX_API_KEY' && geminiDirectEnabledKeyCount() > 0) return true
   if (usesImage26Sub2apiFallback(channel)) {
     return hasSub2apiOpenAICredential()
   }
@@ -734,7 +743,8 @@ export function getChannelTopology(): ManagedChannelSummary[] {
         ? isChannelCredentialReady(active)
         : Boolean(
             runtimeSecret(ch.auth.secretRef, process.env[ch.auth.secretRef]?.trim() ?? '') ||
-              (ch.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0),
+              (ch.auth.secretRef === 'OPENAI_API_KEY' && gptDirectEnabledKeyCount() > 0) ||
+              (ch.auth.secretRef === 'VERTEX_API_KEY' && geminiDirectEnabledKeyCount() > 0),
           )
       const secretRef = sub2apiFallback ? 'UPSTREAM_API_KEY (2.6 兜底)' : ch.auth.secretRef
       const sourceModels = active ? active.models : ch.models

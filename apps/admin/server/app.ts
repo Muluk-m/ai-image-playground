@@ -12,6 +12,7 @@ import { authRoutes } from './routes/auth'
 import { clientErrorsRoutes } from './routes/client-errors'
 import { devicesRoutes } from './routes/devices'
 import { feedbackRoutes } from './routes/feedback'
+import { geminiDirectRoutes } from './routes/gemini-direct'
 import { googleAuthRoutes } from './routes/google-auth'
 import { gptDirectRoutes } from './routes/gpt-direct'
 import { imagesRoutes } from './routes/images'
@@ -46,6 +47,7 @@ const apiApp = new Elysia()
   .use(overviewRoutes)
   .use(opsRoutes)
   .use(gptDirectRoutes)
+  .use(geminiDirectRoutes)
   .use(agentModelRoutes)
   .use(modelRoutes)
   .use(agentPromptsRoutes)
