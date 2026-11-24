@@ -75,6 +75,61 @@ describe('backfillTaskPayloads', () => {
     expect(second).toMatchObject({ scanned: 7, written: 0, completed: true })
   })
 
+  it('resumes bounded maxBatches slices via afterId until every row is backfilled', async () => {
+    const rows = Array.from({ length: 5 }, (_, i) =>
+      sampleTask(`slice-${String(i).padStart(2, '0')}`, `prompt-${i}`),
+    )
+    await handle.db.insert(schema.tasks).values(rows)
+
+    const slice1 = await backfillTaskPayloads(handle.client, {
+      batchSize: 2,
+      maxBatches: 1,
+      delayMs: 0,
+    })
+    expect(slice1).toEqual({
+      batches: 1,
+      scanned: 2,
+      written: 2,
+      lastId: 'slice-01',
+      completed: false,
+    })
+
+    const slice2 = await backfillTaskPayloads(handle.client, {
+      batchSize: 2,
+      maxBatches: 1,
+      afterId: slice1.lastId,
+      delayMs: 0,
+    })
+    expect(slice2).toEqual({
+      batches: 1,
+      scanned: 2,
+      written: 2,
+      lastId: 'slice-03',
+      completed: false,
+    })
+
+    const slice3 = await backfillTaskPayloads(handle.client, {
+      batchSize: 2,
+      maxBatches: 2,
+      afterId: slice2.lastId,
+      delayMs: 0,
+    })
+    expect(slice3).toEqual({
+      batches: 1,
+      scanned: 1,
+      written: 1,
+      lastId: 'slice-04',
+      completed: true,
+    })
+
+    expect(await verifyTaskPayloadsConsistency(handle.client)).toMatchObject({
+      totalTasks: 5,
+      totalPayloads: 5,
+      missingCount: 0,
+      mismatchCount: 0,
+    })
+  })
+
   it('preserves existing task_payloads rows by default and repairs drift when repairMismatches is set', async () => {
     await handle.db.insert(schema.tasks).values([sampleTask('task-a', 'fresh-prompt')])
     await handle.db.insert(schema.task_payloads).values({

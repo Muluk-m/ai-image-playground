@@ -7,6 +7,8 @@ export interface BackfillTaskPayloadsOptions {
   readonly delayMs?: number
   /** Stop after this many batches if set (useful for bounded maintenance slices). */
   readonly maxBatches?: number
+  /** Resume cursor from a previous bounded slice (`result.lastId`); scans strictly `id > afterId`. */
+  readonly afterId?: string | null
   /**
    * When true, runs a lock-free drift scan per batch and only takes `FOR SHARE` on the subset of
    * rows that are missing or differ from `tasks` (post-rollout catch-up after old non-dual-writing
@@ -210,6 +212,7 @@ async function runRepairBatch(
         )
         SELECT id, request_payload, metering, result_payload, archive_payload, upstream_body
         FROM locked
+        WHERE true
         ON CONFLICT (task_id) DO UPDATE SET
           request_payload = EXCLUDED.request_payload,
           metering = EXCLUDED.metering,
@@ -253,7 +256,7 @@ export async function backfillTaskPayloads(
     throw new RangeError(`maxBatches must be a positive integer, got ${maxBatches}`)
   }
 
-  let lastId: string | null = null
+  let lastId: string | null = options.afterId ?? null
   let batches = 0
   let scanned = 0
   let written = 0

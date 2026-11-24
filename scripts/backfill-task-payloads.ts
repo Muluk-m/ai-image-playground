@@ -12,7 +12,7 @@ import {
 } from '../packages/db/src/backfill-task-payloads'
 
 const USAGE =
-  'Usage: DATABASE_URL=... bun run scripts/backfill-task-payloads.ts [--batch-size=1000] [--delay-ms=50] [--repair] [--verify-only] [--help]'
+  'Usage: DATABASE_URL=... bun run scripts/backfill-task-payloads.ts [--batch-size=1000] [--delay-ms=50] [--max-batches=N] [--after-id=ID] [--repair] [--verify-only] [--help]'
 
 interface CliOptions {
   readonly help: boolean
@@ -20,6 +20,8 @@ interface CliOptions {
   readonly repairMismatches: boolean
   readonly batchSize: number
   readonly delayMs: number
+  readonly maxBatches?: number
+  readonly afterId?: string
 }
 
 function parseNonEmptyNumber(raw: string, flag: string): number {
@@ -36,6 +38,8 @@ function parseArgs(args: readonly string[]): CliOptions {
   let repairMismatches = false
   let batchSize = 1000
   let delayMs = 50
+  let maxBatches: number | undefined
+  let afterId: string | undefined
   for (const arg of args) {
     if (arg === '--help' || arg === '-h') {
       help = true
@@ -57,9 +61,19 @@ function parseArgs(args: readonly string[]): CliOptions {
       delayMs = parseNonEmptyNumber(arg.slice('--delay-ms='.length), '--delay-ms')
       continue
     }
+    if (arg.startsWith('--max-batches=')) {
+      maxBatches = parseNonEmptyNumber(arg.slice('--max-batches='.length), '--max-batches')
+      continue
+    }
+    if (arg.startsWith('--after-id=')) {
+      const value = arg.slice('--after-id='.length)
+      if (!value) throw new Error('Missing value for --after-id')
+      afterId = value
+      continue
+    }
     throw new Error(`Unknown argument: ${arg}\n${USAGE}`)
   }
-  return { help, verifyOnly, repairMismatches, batchSize, delayMs }
+  return { help, verifyOnly, repairMismatches, batchSize, delayMs, maxBatches, afterId }
 }
 
 async function main(): Promise<void> {
@@ -89,6 +103,8 @@ async function main(): Promise<void> {
       const result = await backfillTaskPayloads(client, {
         batchSize: options.batchSize,
         delayMs: options.delayMs,
+        maxBatches: options.maxBatches,
+        afterId: options.afterId,
         repairMismatches: options.repairMismatches,
         onBatch: (batch) => {
           console.log(
