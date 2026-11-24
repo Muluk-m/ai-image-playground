@@ -561,7 +561,7 @@ export const plugins: GuidePage = {
         ),
         steps(
           '**发送安装提示词**：打开幕芽[插件集成](/connect)，选 [[WorkBuddy]]，在 [[让 Agent 安装]] 下点击 [[复制提示词]]。到 WorkBuddy 新建任务，粘贴并发送整段提示词，等它装好幕芽技能并发起账号连接。',
-          '**浏览器确认授权**：WorkBuddy 会调起系统默认浏览器打开授权页（`/device`）；若未自动弹出，点击对话里的授权链接。登录你要保存作品的幕芽账号，核对权限后点击 [[授权]]。看到连接成功后回到客户端，等它确认就绪。',
+          '**浏览器确认授权**：WorkBuddy 会调起系统默认浏览器打开授权页（`/device`）；若未自动弹出，点击对话里的授权链接。登录你要保存作品的幕芽账号，核对权限后点击 [[允许]]。看到连接成功后回到客户端，等它确认就绪。',
           '**一句话生成海报**：在 WorkBuddy 新建任务，输入 `/muv` 并从菜单选中 `muvloom`，发送下方的咖啡海报提示词。',
           '**在两端查看结果**：生成完成后，在 WorkBuddy 回复里直接点开海报；同时回到幕芽网页打开[资产](/assets)，在 [[作品]] 页签下也能看到并下载同一张图。',
         ),
@@ -570,7 +570,7 @@ export const plugins: GuidePage = {
           '生成一张竖版咖啡海报。奶油白的背景上放一把橘红色摩卡壶，旁边是一杯冰拿铁，午后阳光从侧面照进来。画面不要文字。只做一张，1K，生成后直接展示。',
         ),
         note(
-          '授权码有效期 20 分钟，只通过浏览器 `/device` 页面批准。不要把账号密码、邮箱验证码、Cookie 或令牌发进任何 Agent 对话。生图会消耗当前连接账号的积分。',
+          '授权链接有效期 20 分钟，只通过浏览器 `/device` 页面批准。不要把账号密码、邮箱验证码、Cookie 或令牌发进任何 Agent 对话。生图会消耗当前连接账号的积分。',
         ),
       ],
     },
@@ -629,7 +629,7 @@ export const plugins: GuidePage = {
           ],
           [
             'muvloom auth login [--no-wait] [--timeout 秒] [--switch-service]',
-            '发起或继续设备码登录授权',
+            '发起或继续浏览器授权',
           ],
           ['muvloom auth status / auth logout', '查看连接状态、当前服务与可用积分；或撤销本机连接'],
           ['muvloom capabilities', '列出当前账号可用的模型、分辨率档位、GIF/SVG 限制与基础单价'],
@@ -725,7 +725,7 @@ export const plugins: GuidePage = {
           ],
           [
             'AUTH_EXPIRED / AUTH_DENIED',
-            '`AUTH_EXPIRED` 表示 20 分钟设备码过期，重新执行 `auth login`；`AUTH_DENIED` 表示用户点了拒绝，停止重试（均为退出码 3）。',
+            '`AUTH_EXPIRED` 表示授权链接已过期（有效期 20 分钟），重新执行 `auth login`；`AUTH_DENIED` 表示用户点了拒绝，停止重试（均为退出码 3）。',
           ],
           [
             'SERVICE_MISMATCH',
@@ -777,7 +777,7 @@ export const plugins: GuidePage = {
           },
           {
             q: '授权页面没有自动打开，或者我在远程服务器 / 云端 Agent 里怎么授权？',
-            a: '点击对话里打印的完整授权链接（包含 user_code），在你电脑的系统默认浏览器中打开并点「授权」。在 SSH 或云端环境里，可以用 MUVLOOM_NO_BROWSER=1 muvloom auth login --no-wait 获取链接，授权后再跑 muvloom auth login --timeout 30 完成连接。',
+            a: '点击对话里打印的授权链接，在你电脑的系统默认浏览器中打开并点「允许」。在 SSH 或云端环境里，可以用 MUVLOOM_NO_BROWSER=1 muvloom auth login --no-wait 获取链接，授权后再跑 muvloom auth login --timeout 30 完成连接。',
           },
           {
             q: '想要断开某台电脑或某个 Agent 的连接，或者卸载 CLI 怎么做？',

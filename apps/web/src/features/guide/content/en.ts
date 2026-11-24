@@ -1318,7 +1318,7 @@ const plugins: GuidePage = {
           'Create one vertical coffee poster at 1K. Put an orange-red moka pot and a glass of iced latte against a cream background, with afternoon sunlight coming in from the side. Leave out all text and show me the finished image here.',
         ),
         note(
-          'Device codes last 20 minutes and are approved only on `/device` in your browser. Never paste your password, verification code, cookies or tokens into an agent chat. Generation uses credits from the connected Muvloom account.',
+          'Authorization links last 20 minutes and are approved only on `/device` in your browser. Never paste your password, verification code, cookies or tokens into an agent chat. Generation uses credits from the connected Muvloom account.',
         ),
       ],
     },
@@ -1377,7 +1377,7 @@ const plugins: GuidePage = {
           ],
           [
             'muvloom auth login [--no-wait] [--timeout SECONDS] [--switch-service]',
-            'Start or resume device-code authorization',
+            'Start or resume browser authorization',
           ],
           [
             'muvloom auth status / auth logout',
@@ -1497,7 +1497,7 @@ const plugins: GuidePage = {
           ],
           [
             'AUTH_EXPIRED / AUTH_DENIED',
-            '`AUTH_EXPIRED` means the 20-minute code expired—start a new `auth login`. `AUTH_DENIED` means approval was declined—stop retrying (both exit 3).',
+            '`AUTH_EXPIRED` means the 20-minute authorization link expired—start a new `auth login`. `AUTH_DENIED` means approval was declined—stop retrying (both exit 3).',
           ],
           [
             'SERVICE_MISMATCH',

@@ -1,9 +1,8 @@
-import { type FormEvent, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { promptLogin } from '../../auth/loginPrompt'
 import { Button } from '../../components/ui/button'
 import { Icon } from '../../components/ui/icon'
-import { Input } from '../../components/ui/input'
 import { i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
 import { authenticatedBffFetch } from '../../lib/authClient'
 import { bffBaseUrl } from '../../lib/runtimeConfig'
@@ -122,7 +121,6 @@ export default function CliDevicePage() {
   const { t } = useTranslation('auth')
   const user = useAuth().user
   const [code, setCode] = useState(codeFromAddress)
-  const [draft, setDraft] = useState(code)
   const [phase, setPhase] = useState<Phase>({ kind: 'idle' })
   const [scopesOpen, setScopesOpen] = useState(false)
   const [startedSignedOut] = useState(() => !user)
@@ -130,9 +128,9 @@ export default function CliDevicePage() {
   const request = useRef<AbortController | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [closeBlocked, setCloseBlocked] = useState(false)
-  const [outcome] = useState(outcomeFromAddress)
-  // 只有 CLI 在本机打开的链接带 state；手输授权码（可能在另一台设备上）照旧等 CLI 轮询。
-  const [loopbackState] = useState(loopbackStateFromAddress)
+  const [outcome, setOutcome] = useState(outcomeFromAddress)
+  // 只有 CLI 在本机打开的链接带 state；未带 state 时照旧等 CLI 轮询。
+  const [loopbackState, setLoopbackState] = useState(loopbackStateFromAddress)
 
   const scopeLabels: Record<string, string> = {
     'images:read': t('cliDevice.scopes.imagesRead'),
@@ -160,9 +158,9 @@ export default function CliDevicePage() {
 
   useEffect(() => {
     const restoreCode = () => {
-      const next = codeFromAddress()
-      setCode(next)
-      setDraft(next)
+      setCode(codeFromAddress())
+      setOutcome(outcomeFromAddress())
+      setLoopbackState(loopbackStateFromAddress())
     }
     window.addEventListener('popstate', restoreCode)
     return () => window.removeEventListener('popstate', restoreCode)
@@ -248,16 +246,6 @@ export default function CliDevicePage() {
     if (!window.closed) setCloseBlocked(true)
   }
 
-  function submitCode(event: FormEvent) {
-    event.preventDefault()
-    const next = draft.trim()
-    if (!next) return
-    const url = new URL(window.location.href)
-    url.searchParams.set('user_code', next)
-    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
-    setCode(next)
-  }
-
   const showLoginStep = startedSignedOut || !user
   const currentStep: 'login' | 'approve' | 'return' =
     outcome === 'connected' || phase.kind === 'approved' || phase.kind === 'returning'
@@ -269,6 +257,7 @@ export default function CliDevicePage() {
   const accountLabel = user?.nickname?.trim() || user?.username || ''
   const accountInitial = (accountLabel.slice(0, 1) || 'M').toUpperCase()
   const showStepper =
+    (Boolean(code) || outcome === 'connected') &&
     outcome !== 'failed' &&
     phase.kind !== 'denied' &&
     phase.kind !== 'invalid' &&
@@ -317,24 +306,14 @@ export default function CliDevicePage() {
             </p>
           </div>
         ) : !code ? (
-          <div className="space-y-6">
-            <div className="space-y-4 text-center">
-              <BridgeVisual active={false} />
-              <h1 className="text-xl font-semibold">{t('cliDevice.manualCodeHeading')}</h1>
+          <div className="flex flex-col items-center space-y-4 text-center">
+            <BridgeVisual active={false} />
+            <div className="space-y-2">
+              <h1 className="text-xl font-semibold">{t('cliDevice.linkRequiredHeading')}</h1>
+              <p className="text-body-sm text-muted-foreground">
+                {t('cliDevice.linkRequiredHint')}
+              </p>
             </div>
-            <form className="space-y-3" onSubmit={submitCode}>
-              <Input
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                placeholder="XXXX-XXXX"
-                aria-label={t('cliDevice.codeLabel')}
-                autoComplete="one-time-code"
-                className="text-center font-mono uppercase tracking-widest"
-              />
-              <Button type="submit" className="w-full" disabled={!draft.trim()}>
-                {t('cliDevice.continue')}
-              </Button>
-            </form>
           </div>
         ) : !user ? (
           <div className="space-y-6 text-center">
@@ -359,9 +338,7 @@ export default function CliDevicePage() {
               <h1 className="text-xl font-semibold">{t('cliDevice.approveHeading')}</h1>
               <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background px-2.5 py-1 font-mono text-xs text-muted-foreground">
                 <Icon name="terminal" size="xs" />
-                {loopbackState
-                  ? phase.authorization.client_name
-                  : `${phase.authorization.client_name} · ${code.toUpperCase()}`}
+                {phase.authorization.client_name}
               </span>
             </div>
 

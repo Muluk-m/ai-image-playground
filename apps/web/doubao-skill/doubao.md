@@ -21,13 +21,13 @@
 用户点完授权后你应当继续等待或检查状态。
 
 1. 先运行 `muvloom auth status`。确认 `api_url` 对应本次接入的服务，`state: ready` 时直接验证 `muvloom capabilities`，保留已有连接。`state: unreachable` 不是未登录：按安装指南第 5 节重试（最多三次，间隔 5 秒、再 15 秒），不要发起新的授权。
-2. 路径 A（无浏览器控制，推荐用于云端宿主）：在回复里告诉用户即将给出授权链接，请在系统默认浏览器中打开并点「授权」。设置 `MUVLOOM_NO_BROWSER=1`，运行 `muvloom auth login --no-wait`，把 `verification_uri_complete` 和 `user_code` 清楚贴到对话里。然后用 `muvloom auth login --timeout N` 等待（使用宿主能接受的较短时长，用户还在授权时可以重复等待）。它会接着同一次登录，不会打开新页面。
-3. 路径 B（仅当确实能在用户本机打开浏览器）：先在这一条回复里告诉用户授权页马上在系统默认浏览器打开，点完会自动继续，不需要回复我。**不要结束本回合。** 紧接着前台运行 `muvloom auth login`（命令超时设为宿主允许的最长值），让 CLI 自己打开系统默认浏览器。CLI 打不开时，改走路径 A，把完整链接交给用户。
+2. 路径 A（无浏览器控制，推荐用于云端宿主）：在回复里告诉用户即将给出授权链接，请在系统默认浏览器中打开并点「允许」。设置 `MUVLOOM_NO_BROWSER=1`，运行 `muvloom auth login --no-wait`，只把 `verification_uri_complete` 授权链接清楚贴到对话里（不要向用户展示或提及授权码）。然后用 `muvloom auth login --timeout N` 等待（使用宿主能接受的较短时长，用户还在授权时可以重复等待）。它会接着同一次登录，不会打开新页面。
+3. 路径 B（仅当确实能在用户本机打开浏览器）：先在这一条回复里告诉用户授权页马上在系统默认浏览器打开，点完会自动继续，不需要回复我。**不要结束本回合。** 紧接着前台运行 `muvloom auth login`（命令超时设为宿主允许的最长值），让 CLI 自己打开系统默认浏览器。CLI 打不开时，改走路径 A，只把完整链接交给用户。
 4. 等待结果：
    - `state: ready`：授权完成，取消 `MUVLOOM_API_URL`，继续第 5 步。
    - `AUTH_PENDING` 或命令被宿主截断：用户还没点完，再等一次，不要新开授权页。
    - `AUTH_DENIED`：用户拒绝了，停止并说明。
-   - `AUTH_EXPIRED`：授权码已过期（有效期 20 分钟），这时才重新运行登录，并再次提示用户。
+   - `AUTH_EXPIRED`：授权链接已过期（有效期 20 分钟），这时才重新运行登录，并再次提示用户。
 5. 运行 `muvloom auth status` 确认 `ready`，再运行 `muvloom capabilities`，并用 `muvloom images validate --prompt "setup smoke"` 做零花费报价。短暂失败按同样的三次重试策略处理；仍失败就告诉用户稍后重试，保留已有连接。
 
 ## 本地写入或清理受限
@@ -38,7 +38,7 @@
 
 凭据由 CLI 管理。不要手动读取、复制、覆盖或删除凭据文件，不把 token 写入 Skill、提示词或聊天，也不修改全局权限或安全规则来绕过拦截。`auth status` 里若出现 `credential_store: file` 且 `credential_store_issue: unavailable`，只表示当前环境无法使用系统钥匙串、登录改存在配置目录的文件里，不是安装失败。
 
-`AUTH_REQUIRED` 提示码无效或已使用时，先检查现有连接；它不等于码过期。只有 CLI 明确返回 `AUTH_EXPIRED` 才按过期处理。确认本地权限问题已经解决、状态仍未登录后，再向用户说明需要重新授权一次。
+`AUTH_REQUIRED` 提示授权链接无效或已使用时，先检查现有连接；它不等于链接过期。只有 CLI 明确返回 `AUTH_EXPIRED` 才按过期处理。确认本地权限问题已经解决、状态仍未登录后，再向用户说明需要重新授权一次。
 
 ## 安装完成条件
 

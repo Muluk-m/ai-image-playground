@@ -33,9 +33,9 @@ muvloom skill install --host workbuddy
 
 1. 前台运行 `muvloom auth status`，已经 `ready` 就保留连接。`unreachable` 是短暂故障，按 [安装指南](setup.md) 第 5 节重试，不要因此发起新的登录。
 2. 未登录且当前环境能在用户本机打开浏览器时，先在这一条回复里告诉用户「授权页马上在系统默认浏览器打开，你点完授权我会自动继续，不需要回复我」；**不要结束本回合**。
-3. 授权必须使用系统默认浏览器。用户可能已经在默认浏览器里登录了幕芽。不要指定 Chrome 或任何其他浏览器，不要用 `Start-Process` 打开浏览器，不要用「操作电脑」去寻找浏览器，不要为打开网址申请提高权限。本机可打开浏览器时，紧接着前台执行 `muvloom --json auth login --timeout 15`，宿主的命令超时设为至少 30 秒。CLI 会尝试打开默认浏览器，点完授权即返回 `ready`。第一次返回 `AUTH_PENDING` 时，立即把同一次授权的 `verification_uri_complete` 和 `user_code` 发给用户，供没有看到弹窗时手动打开，再用 `muvloom auth login --timeout 15` 继续等待。如果宿主打断命令，先用 `muvloom --json auth status` 取回待授权的链接与授权码。若当前环境控制不了用户的浏览器（云端/远程），改走安装指南第 4 节路径 A：`MUVLOOM_NO_BROWSER=1 muvloom auth login --no-wait`，把链接贴进对话，再用 `auth login --timeout N` 等待。返回 `AUTH_PENDING` 或被宿主截断时再执行一次，它会接着同一次登录、不再打开新页面，直到 `ready`、`AUTH_DENIED` 或 `AUTH_EXPIRED`（授权码 20 分钟有效）。
+3. 授权必须使用系统默认浏览器。用户可能已经在默认浏览器里登录了幕芽。不要指定 Chrome 或任何其他浏览器，不要用 `Start-Process` 打开浏览器，不要用「操作电脑」去寻找浏览器，不要为打开网址申请提高权限。本机可打开浏览器时，紧接着前台执行 `muvloom --json auth login --timeout 15`，宿主的命令超时设为至少 30 秒。CLI 会尝试打开默认浏览器，点完授权即返回 `ready`。第一次返回 `AUTH_PENDING` 时，只把同一次授权的 `verification_uri_complete` 链接发给用户，供没有看到弹窗时手动打开（不要向用户展示或提及授权码），再用 `muvloom auth login --timeout 15` 继续等待。如果宿主打断命令，先用 `muvloom --json auth status` 取回待授权的链接。若当前环境控制不了用户的浏览器（云端/远程），改走安装指南第 4 节路径 A：`MUVLOOM_NO_BROWSER=1 muvloom auth login --no-wait`，只把授权链接贴进对话，再用 `auth login --timeout N` 等待。返回 `AUTH_PENDING` 或被宿主截断时再执行一次，它会接着同一次登录、不再打开新页面，直到 `ready`、`AUTH_DENIED` 或 `AUTH_EXPIRED`（授权链接 20 分钟有效）。
 4. 只有等待被宿主连续两次打断时，才退回到让用户点完授权后回复一句，再用 `muvloom auth login --timeout 15` 收尾。
-5. 遇到本地写入失败时，暂停并说明必要权限；不要将其说成授权码过期，也不要循环发码。
+5. 遇到本地写入失败时，暂停并说明必要权限；不要将其说成授权链接过期，也不要反复生成新链接。
 
 认证不使用后台任务，不引导用户开启全局完全访问。凭据仍由 CLI 安全存储管理，Agent 不手动操作凭据文件。
 

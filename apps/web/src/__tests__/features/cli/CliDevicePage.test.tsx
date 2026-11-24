@@ -79,7 +79,8 @@ describe('CliDevicePage', () => {
     )
     vi.stubGlobal('fetch', fetcher)
     await render()
-    expect(host.textContent).toContain('Muvloom CLI · BCDF-GHJK')
+    expect(host.textContent).toContain('Muvloom CLI')
+    expect(host.textContent).not.toContain('BCDF-GHJK')
     // 已登录用户直接进入授权确认，步骤条跳过「登录」。
     expect(host.querySelector('[aria-label="授权步骤"]')?.textContent).not.toContain('登录')
     // 按 scopes 动态展示能力胶囊（本用例不含 media:write，不展示「参考图编辑」），并默认显示消耗积分提示。
@@ -224,22 +225,21 @@ describe('CliDevicePage', () => {
     expect(host.textContent).toContain('已授权。')
   })
 
-  it('preserves an entered code and hash through the existing login and OAuth path', async () => {
-    window.history.replaceState(null, '', '/device?keep=1#approval')
+  it('asks the user to open the authorization link when /device has no code and preserves link query/hash through login', async () => {
+    window.history.replaceState(null, '', '/device')
     const fetcher = vi.fn(async () => Response.json(AUTHORIZATION))
     vi.stubGlobal('fetch', fetcher)
     await render(null)
-    const input = host.querySelector('input')
-    if (!input) throw new Error('Missing code input')
+    expect(host.querySelector('input')).toBeNull()
+    expect(host.textContent).toContain('请通过授权链接打开')
+    expect(host.textContent).not.toContain('授权码')
+    expect(fetcher).not.toHaveBeenCalled()
+
+    window.history.replaceState(null, '', '/device?keep=1&user_code=BCDF-GHJK#approval')
     await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
-        input,
-        'BCDF-GHJK',
-      )
-      input.dispatchEvent(new Event('input', { bubbles: true }))
+      window.dispatchEvent(new PopStateEvent('popstate'))
     })
-    await act(async () => button('继续').click())
-    // 输入授权码后未登录，自动触发登录弹框（也可手动点「登录后继续」再次打开）。
+    // 打开授权链接但未登录时，自动触发登录弹框并保留原始查询参数与 hash。
     expect(promptLogin).toHaveBeenCalledWith('gated-action')
     expect(fetcher).not.toHaveBeenCalled()
     for (const provider of ['feishu', 'google', 'enterprise-sso']) {

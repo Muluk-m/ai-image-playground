@@ -189,13 +189,14 @@ the host kills the command on timeout, so do not rely on that here.
 1. In one reply, tell the user you will give them an approval link to open in
    their **system default browser**, and that you will wait after they approve.
 2. Set `MUVLOOM_NO_BROWSER=1` and run `muvloom auth login --no-wait` (keep
-   `MUVLOOM_API_URL` set as in step 2). Paste both
-   `verification_uri_complete` and `user_code` into the chat, clearly, and ask
-   the user to open that link in their default browser, sign in, and approve.
+   `MUVLOOM_API_URL` set as in step 2). Paste only the
+   `verification_uri_complete` approval link into the chat (never display or
+   mention an authorization code separately), and ask the user to open that
+   link in their default browser, sign in, and approve.
 3. Then wait with `muvloom auth login --timeout N` (use a short, host-safe N
    such as 15–30 seconds, and repeat while the user is still approving). It
    resumes the same login and does not open a new page. Stop on `AUTH_DENIED`;
-   start over only on `AUTH_EXPIRED` (the code lasts 20 minutes).
+   start over only on `AUTH_EXPIRED` (the approval link lasts 20 minutes).
 4. After `state: ready`, unset `MUVLOOM_API_URL`.
 
 ### B. A local browser can be opened (local WorkBuddy, Claude Code, Codex, or a local desktop agent)
@@ -207,24 +208,26 @@ the host kills the command on timeout, so do not rely on that here.
    foreground and let the CLI open the default browser itself. It returns
    `state: ready` as soon as the user approves.
 3. `AUTH_PENDING`, or a command the host cut off, means the user has not
-   approved yet: on the first `AUTH_PENDING`, immediately share
-   `verification_uri_complete` in chat in case the browser did not pop to front,
-   then run `muvloom auth login --timeout 15` (or `muvloom auth login`) again.
+   approved yet: on the first `AUTH_PENDING`, immediately share only
+   `verification_uri_complete` in chat in case the browser did not pop to front
+   (never display or mention an authorization code separately), then run
+   `muvloom auth login --timeout 15` (or `muvloom auth login`) again.
    It resumes the same login and does not open another page. Stop on
    `AUTH_DENIED`; start over only on `AUTH_EXPIRED`.
-4. If the CLI cannot open a browser, print `verification_uri_complete` (and
-   `user_code`) clearly and ask the user to open that link in their default
-   browser, then continue waiting as in path A. Do not switch browsers.
+4. If the CLI cannot open a browser, print only `verification_uri_complete`
+   clearly (never display or mention an authorization code separately) and ask
+   the user to open that link in their default browser, then continue waiting
+   as in path A. Do not switch browsers.
 5. After `state: ready`, unset `MUVLOOM_API_URL`.
 
-If the user declines (`AUTH_DENIED`), stop. If the code expires
+If the user declines (`AUTH_DENIED`), stop. If the approval link expires
 (`AUTH_EXPIRED`), start a new login. Do not ask for passwords, browser cookies,
 or tokens, and do not print stored credentials. If the host interrupts login
 for a permission approval or replays the command, run `muvloom auth status`
 before starting another login. A `ready` state means the connection succeeded.
-Do not describe an invalid or already-used code as expired, or repeatedly open
-new authorization pages after the user has approved. Never disable the host's
-file or credential protection.
+Do not describe an invalid or already-used approval link as expired, or
+repeatedly open new authorization pages after the user has approved. Never
+disable the host's file or credential protection.
 
 ## 5. Confirm readiness
 
