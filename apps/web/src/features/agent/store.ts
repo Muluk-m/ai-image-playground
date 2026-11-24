@@ -97,6 +97,7 @@ import {
   submitDraft,
 } from './lib/draftSubmission'
 import { agentDraft, bindNewAgentDraft, DraftSession } from './lib/drafts'
+import { createHistoryCacheWriter } from './lib/historyCacheWriter'
 import {
   configureAgentJobActivity,
   markAgentConversationSeen,
@@ -562,53 +563,9 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     if (state.appMode !== previous.appMode) seeCurrent()
   })
   if (typeof document !== 'undefined') document.addEventListener('visibilitychange', seeCurrent)
-  let cache: ReturnType<typeof conversationCache> | null = null
-  let pendingCacheWrite: (() => void) | undefined
-  let cacheTimer: ReturnType<typeof setTimeout> | undefined
-  const flushCache = () => {
-    clearTimeout(cacheTimer)
-    cacheTimer = undefined
-    pendingCacheWrite?.()
-    pendingCacheWrite = undefined
-  }
-  const forgetHistory = async (conversationId: string) => {
-    flushCache()
-    await conversationCache(conversationId).remove()
-  }
-  store.subscribe((state, previous) => {
-    if (state.conversationId !== previous.conversationId) {
-      flushCache()
-      cache = state.conversationId ? conversationCache(state.conversationId) : null
-      return
-    }
-    if (
-      !state.messages.length ||
-      !cache?.isCurrent() ||
-      state.historyCached ||
-      state.historyLoading ||
-      state.historyFailed ||
-      (state.messages === previous.messages && state.turns === previous.turns)
-    )
-      return
-    const owner = cache
-    pendingCacheWrite = () => {
-      const panel = {
-        messages: state.messages
-          .filter((message) => message.kind !== 'text' || !message.pending)
-          .map((message) => (message.kind === 'text' ? { ...message, streaming: false } : message)),
-        turns: state.turns,
-      }
-      void owner.write(panel)
-    }
-    if (state.turn === 'running') {
-      if (!cacheTimer)
-        cacheTimer = setTimeout(() => {
-          cacheTimer = undefined
-          flushCache()
-        }, 500)
-    } else flushCache()
-  })
-  globalThis.addEventListener?.('pagehide', flushCache)
+  const historyCache = createHistoryCacheWriter()
+  store.subscribe(historyCache.observe)
+  globalThis.addEventListener?.('pagehide', historyCache.flush)
   const delivery = createArtifactDelivery((messageId, status) =>
     set((state) => ({
       messages: state.messages.map((message) =>
@@ -826,10 +783,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
    * 刚好跑完——续播端点对已经结束的轮同样重放，用户照样看得到它的内容。
    */
   const openConversation = async (conversationId: string, turnId?: string) => {
-    flushCache()
     const currentDelivery = resetDelivery()
-    const owner = conversationCache(conversationId)
-    cache = owner
+    const owner = historyCache.bind(conversationCache(conversationId))
     const isCurrent = () => currentDelivery() && owner.isCurrent()
     const same = get().conversationId === conversationId
     set({
@@ -868,7 +823,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       if (gone) {
         remoteSettled = true
         set({ messages: [], turns: {}, historyCached: false })
-        void forgetHistory(conversationId)
+        void historyCache.forget(conversationId)
       }
       if (gone && project?.conversationId === conversationId) {
         try {
@@ -1627,7 +1582,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         conversations: state.conversations.filter((one) => one.id !== conversationId),
       }))
       if (get().conversationId === conversationId) get().startNewConversation()
-      await forgetHistory(conversationId)
+      await historyCache.forget(conversationId)
     },
 
     startNewConversation() {
