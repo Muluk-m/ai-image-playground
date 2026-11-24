@@ -41,10 +41,12 @@ function makeCatalog(updatedAt: number, outputCredits: number): Catalog {
 
 describe('ModelPricing', () => {
   it('shows 积分/千tok unit in summary mode and blocks saving on concurrent server price update', async () => {
+    const initialCatalog = makeCatalog(1000, 30)
+    state.get.mockResolvedValue(initialCatalog)
     const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
+      defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
     })
-    client.setQueryData(['private-billing', 'catalog'], makeCatalog(1000, 30))
+    client.setQueryData(['private-billing', 'catalog'], initialCatalog)
 
     const { rerender } = render(
       <QueryClientProvider client={client}>
