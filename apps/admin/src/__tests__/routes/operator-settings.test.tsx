@@ -330,4 +330,38 @@ describe('operator settings panel', () => {
     expect(parseSettingInput('1.5 GB', 'bytes')).toBe(1_610_612_736)
     expect(parseSettingInput('1.5', 'count')).toBeNaN()
   })
+
+  it('allows pinning current baseline value and reconfirming baseline-changed overrides', async () => {
+    render(<OperatorSettingsPanel />)
+
+    // Pin current value on un-overridden capability
+    const cliRow = getSettingRow('CLI API')
+    fireEvent.click(within(cliRow).getByRole('button', { name: '固定CLI API当前值为覆盖' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), {
+      target: { value: 'pin off' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '继续' }))
+    await waitFor(() =>
+      expect(state.save).toHaveBeenCalledWith('cli:api', {
+        value: false,
+        reason: 'pin off',
+        expectedRevision: 3,
+      }),
+    )
+
+    // Reconfirm existing override after baseline changed
+    const quotaRow = getSettingRow('每日配额')
+    fireEvent.click(within(quotaRow).getByRole('button', { name: '重新确认覆盖' }))
+    fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), {
+      target: { value: 'keep 20 after baseline update' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '继续' }))
+    await waitFor(() =>
+      expect(state.save).toHaveBeenCalledWith('quota:daily', {
+        value: 20,
+        reason: 'keep 20 after baseline update',
+        expectedRevision: 3,
+      }),
+    )
+  })
 })

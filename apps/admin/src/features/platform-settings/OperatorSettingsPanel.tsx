@@ -4,11 +4,13 @@ import {
   AlertTriangle,
   ArrowRight,
   Check,
+  CheckCheck,
   History,
   Layers,
   Link2,
   Lock,
   PencilLine,
+  Pin,
   RefreshCw,
   RotateCcw,
   Search,
@@ -555,20 +557,30 @@ export function OperatorSettingsPanel() {
                 </code>
               </div>
               <div className="flex flex-wrap items-center gap-1.5 font-mono">
-                <span className="text-muted-foreground">
-                  {formatSettingValue(
-                    dialog.action === 'clear'
-                      ? (dialog.row.override ?? dialog.row.effective)
-                      : dialog.row.effective,
-                    dialog.row.unit,
-                  )}
-                </span>
-                <ArrowRight className="size-3 text-muted-foreground" />
-                <strong className="text-foreground">
-                  {dialog.action === 'clear'
-                    ? `${formatSettingValue(dialog.row.baseline, dialog.row.unit)}（恢复基线）`
-                    : formatSettingValue(dialog.nextValue!, dialog.row.unit)}
-                </strong>
+                {dialog.action === 'save' && dialog.nextValue === dialog.row.effective ? (
+                  <strong className="text-foreground">
+                    {dialog.row.baselineChanged
+                      ? `保持覆盖值 ${formatSettingValue(dialog.nextValue, dialog.row.unit)}（同步新基线 ${formatSettingValue(dialog.row.baseline, dialog.row.unit)}）`
+                      : `固定当前值 ${formatSettingValue(dialog.nextValue, dialog.row.unit)} 为覆盖`}
+                  </strong>
+                ) : (
+                  <>
+                    <span className="text-muted-foreground">
+                      {formatSettingValue(
+                        dialog.action === 'clear'
+                          ? (dialog.row.override ?? dialog.row.effective)
+                          : dialog.row.effective,
+                        dialog.row.unit,
+                      )}
+                    </span>
+                    <ArrowRight className="size-3 text-muted-foreground" />
+                    <strong className="text-foreground">
+                      {dialog.action === 'clear'
+                        ? `${formatSettingValue(dialog.row.baseline, dialog.row.unit)}（恢复基线）`
+                        : formatSettingValue(dialog.nextValue!, dialog.row.unit)}
+                    </strong>
+                  </>
+                )}
               </div>
             </div>
           ) : null}
@@ -727,7 +739,7 @@ function SettingRowView({
     <li
       data-setting-key={row.key}
       className={cn(
-        'flex flex-col gap-3 px-4 py-3.5 transition-colors hover:bg-muted/20 sm:flex-row sm:items-center sm:justify-between sm:gap-6',
+        'group flex flex-col gap-3 px-4 py-3.5 transition-colors hover:bg-muted/20 sm:flex-row sm:items-center sm:justify-between sm:gap-6',
         row.invalid && 'bg-danger/[0.04]',
         !row.invalid && row.override !== null && 'bg-info/[0.03]',
       )}
@@ -844,6 +856,33 @@ function SettingRowView({
             </>
           ) : row.kind === 'capability' ? (
             <>
+              {row.override === null ? (
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={`固定${row.name}当前值为覆盖`}
+                  aria-description="将当前基线值保存为显式覆盖，后续发布变更基线时不受影响"
+                  className="text-muted-foreground/70 opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                  disabled={pending}
+                  onClick={() => onRequestSave(row, row.effective)}
+                >
+                  <Pin className="size-3.5" />
+                </Button>
+              ) : null}
+              {row.baselineChanged && row.override !== null && !row.invalid ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 gap-1 px-2 text-xs text-warning hover:text-warning"
+                  disabled={pending}
+                  onClick={() => onRequestSave(row, row.override!)}
+                >
+                  <CheckCheck className="size-3.5" />
+                  重新确认覆盖
+                </Button>
+              ) : null}
               {row.override !== null ? (
                 <Button
                   type="button"
@@ -877,6 +916,33 @@ function SettingRowView({
             </>
           ) : (
             <>
+              {!quotaDirty && row.override === null ? (
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={`固定${row.name}当前值为覆盖`}
+                  aria-description="将当前基线值保存为显式覆盖，后续发布变更基线时不受影响"
+                  className="text-muted-foreground/70 opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                  disabled={pending}
+                  onClick={() => onRequestSave(row, row.effective)}
+                >
+                  <Pin className="size-3.5" />
+                </Button>
+              ) : null}
+              {!quotaDirty && row.baselineChanged && row.override !== null && !row.invalid ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 gap-1 px-2 text-xs text-warning hover:text-warning"
+                  disabled={pending}
+                  onClick={() => onRequestSave(row, row.override!)}
+                >
+                  <CheckCheck className="size-3.5" />
+                  重新确认覆盖
+                </Button>
+              ) : null}
               {row.override !== null && (row.invalid || !quotaDirty) ? (
                 <Button
                   type="button"
