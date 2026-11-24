@@ -104,12 +104,19 @@ export default function CombineView({ tool }: { tool: CombineTool }) {
           ]
         : []
 
+  const decodableCount = useMemo(() => items.filter((item) => item.decodable).length, [items])
+  const stageHint =
+    sourceLimit != null && decodableCount > sourceLimit
+      ? t('combine.sourceLimitHint', { count: sourceLimit })
+      : undefined
+
   return (
     <ToolShell
       tool={tool}
       controls={controller.controls}
       deliverables={deliverables}
       stats={stats}
+      stageHint={stageHint}
       processing={state.status === 'pending' && used.length > 0}
     >
       {({ openFiles }) => (
@@ -206,6 +213,8 @@ export default function CombineView({ tool }: { tool: CombineTool }) {
                 alt=""
                 className="max-h-[60vh] max-w-full rounded-lg object-contain"
               />
+            ) : items.length > 0 && used.length === 0 ? (
+              <div className="text-sm text-destructive">{t('result.undecodable')}</div>
             ) : (
               <div className="text-sm text-muted-foreground">{t('result.processing')}</div>
             )}
