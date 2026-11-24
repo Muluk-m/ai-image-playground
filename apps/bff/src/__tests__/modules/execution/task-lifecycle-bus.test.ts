@@ -374,5 +374,34 @@ describe('TaskLifecycleBus transactional execution', () => {
       ),
     ).rejects.toThrow('tx abort')
     expect(events).toEqual([])
+
+    // External tx passes onCommit hooks to be dispatched only after outer tx commits.
+    _resetTaskLifecycleListenersForTesting()
+    registerDefaultTaskLifecycleListeners()
+    const externalEvents: string[] = []
+    registerTaskLifecycleListener({
+      id: 'post-commit-external-tx',
+      stage: 'after-settlement',
+      async afterTasksCancelled(event) {
+        externalEvents.push(`ext:${event.tasks.map((task) => task.taskId).join(',')}`)
+      },
+    })
+    await insertTask('bus-ext-cancel', 'queued', {
+      mode: 'none',
+      model: 'gpt-image-2',
+      quantity: 1,
+      unitMultiplier: 1,
+    })
+    const postCommitHooks: Array<() => Promise<void>> = []
+    await db.transaction(async (tx) => {
+      await cancelTasks(eq(schema.tasks.id, 'bus-ext-cancel'), {
+        tx,
+        onCommit: (hook) => postCommitHooks.push(hook),
+      })
+      expect(externalEvents).toEqual([])
+    })
+    expect(postCommitHooks).toHaveLength(1)
+    for (const hook of postCommitHooks) await hook()
+    expect(externalEvents).toEqual(['ext:bus-ext-cancel'])
   })
 })

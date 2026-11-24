@@ -501,6 +501,126 @@ describe('生成前确认', () => {
     ).toBeUndefined()
   })
 
+  it('同消息多任务并发结算通过 CAS 重试完整合并，且先终态后写卡的竞态窗口可即时落库', async () => {
+    const conversationId = await startConversation()
+    const turnId = 'turn-concurrent-cas'
+    const now = Date.now()
+    const taskA = 'task-cas-a'
+    const taskB = 'task-cas-b'
+    const taskFast = 'task-fast-race'
+    await db.insert(schema.tasks).values([
+      {
+        id: taskA,
+        provider: 'openai-compat',
+        model: 'gpt-image-2',
+        status: 'completed',
+        request_payload: { prompt: 'A', device_id: DEVICE },
+        result_payload: TEST_RESULT_PAYLOAD,
+        submitted_at: now,
+        completed_at: now,
+        agent_conversation_id: conversationId,
+        agent_turn_id: turnId,
+      },
+      {
+        id: taskB,
+        provider: 'openai-compat',
+        model: 'gpt-image-2',
+        status: 'completed',
+        request_payload: { prompt: 'B', device_id: DEVICE },
+        result_payload: TEST_RESULT_PAYLOAD,
+        submitted_at: now,
+        completed_at: now,
+        agent_conversation_id: conversationId,
+        agent_turn_id: turnId,
+      },
+      {
+        id: taskFast,
+        provider: 'openai-compat',
+        model: 'gpt-image-2',
+        status: 'completed',
+        request_payload: { prompt: 'Fast', device_id: DEVICE },
+        result_payload: TEST_RESULT_PAYLOAD,
+        submitted_at: now,
+        completed_at: now,
+        agent_conversation_id: conversationId,
+        agent_turn_id: 'turn-fast-race',
+      },
+    ])
+    const sharedMessageId = 'msg-shared-two-jobs'
+    await db.insert(schema.agent_messages).values({
+      conversation_id: conversationId,
+      id: sharedMessageId,
+      turn_id: turnId,
+      seq: 1,
+      role: 'assistant',
+      created_at: now,
+      content: [
+        {
+          type: 'toolResult',
+          toolCallId: 'call-a',
+          toolName: 'generateImage',
+          status: 'submitted',
+          title: 'A',
+          job: { taskId: taskA, media: 'image' },
+        },
+        {
+          type: 'toolResult',
+          toolCallId: 'call-b',
+          toolName: 'generateImage',
+          status: 'submitted',
+          title: 'B',
+          job: { taskId: taskB, media: 'image' },
+        },
+      ],
+    })
+    const { settleAgentJobsForTasks, settleSubmittedTaskIfTerminal } = await import(
+      '../../lib/agent/background-jobs'
+    )
+    await Promise.all([
+      settleAgentJobsForTasks(conversationId, [{ taskId: taskA, turnId }]),
+      settleAgentJobsForTasks(conversationId, [{ taskId: taskB, turnId }]),
+    ])
+    const [merged] = await db
+      .select({ content: schema.agent_messages.content })
+      .from(schema.agent_messages)
+      .where(eq(schema.agent_messages.id, sharedMessageId))
+    expect(merged!.content).toMatchObject([
+      { type: 'toolResult', toolCallId: 'call-a', status: 'succeeded' },
+      { type: 'toolResult', toolCallId: 'call-b', status: 'succeeded' },
+    ])
+
+    // 任务先到终态，之后才写结果卡：写卡后调 settleSubmittedTaskIfTerminal 立即补写落库。
+    const fastMessageId = 'msg-fast-race'
+    await db.insert(schema.agent_messages).values({
+      conversation_id: conversationId,
+      id: fastMessageId,
+      turn_id: 'turn-fast-race',
+      seq: 2,
+      role: 'assistant',
+      created_at: now,
+      content: [
+        {
+          type: 'toolResult',
+          toolCallId: 'call-fast',
+          toolName: 'generateImage',
+          status: 'submitted',
+          title: 'Fast',
+          job: { taskId: taskFast, media: 'image' },
+        },
+      ],
+    })
+    await settleSubmittedTaskIfTerminal(conversationId, taskFast, 'turn-fast-race')
+    const [fastPersisted] = await db
+      .select({ content: schema.agent_messages.content })
+      .from(schema.agent_messages)
+      .where(eq(schema.agent_messages.id, fastMessageId))
+    expect(fastPersisted!.content[0]).toMatchObject({
+      type: 'toolResult',
+      toolCallId: 'call-fast',
+      status: 'succeeded',
+    })
+  })
+
   it('清理任务前取不到实扣时保留任务行供下次补账', async () => {
     const calls: AgentCall[] = []
     draftingTurn(calls, 'generateImage', { prompt: GREEN_DRAFT })

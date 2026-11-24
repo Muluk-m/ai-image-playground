@@ -136,6 +136,56 @@ describe('agentClient 的设备标识传输位置', () => {
     )
     expect(state.nextBeforeSeq).toBe(12)
   })
+
+  it('读消息未显式分页时自动跟随 nextBeforeSeq 合并完整历史并去重', async () => {
+    const calls: Call[] = []
+    const fetcher = (url: string, init?: RequestInit) => {
+      calls.push({ url, init })
+      if (calls.length === 1) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              messages: [
+                { id: 'm-3', turnId: 't-2', role: 'user', content: [], createdAt: 3 },
+                { id: 'm-4', turnId: 't-2', role: 'assistant', content: [], createdAt: 4 },
+              ],
+              turns: [{ turnId: 't-2', durationMs: 10, stopReason: 'end_turn', createdAt: 4 }],
+              activeTurn: null,
+              cursor: 40,
+              nextBeforeSeq: 3,
+            }),
+            { status: 200 },
+          ),
+        )
+      }
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            messages: [
+              { id: 'm-1', turnId: 't-1', role: 'user', content: [], createdAt: 1 },
+              { id: 'm-2', turnId: 't-1', role: 'assistant', content: [], createdAt: 2 },
+              { id: 'm-3', turnId: 't-2', role: 'user', content: [], createdAt: 3 },
+            ],
+            turns: [],
+            activeTurn: null,
+            cursor: 20,
+            nextBeforeSeq: null,
+          }),
+          { status: 200 },
+        ),
+      )
+    }
+
+    const state = await fetchMessages('conv-1', fetcher)
+
+    expect(calls.map((call) => call.url)).toEqual([
+      'https://bff.test/api/agent/conversations/conv-1/messages',
+      'https://bff.test/api/agent/conversations/conv-1/messages?beforeSeq=3',
+    ])
+    expect(state.messages.map((message) => message.id)).toEqual(['m-1', 'm-2', 'm-3', 'm-4'])
+    expect(state.cursor).toBe(40)
+    expect(state.nextBeforeSeq).toBeNull()
+  })
 })
 
 describe('插话请求', () => {

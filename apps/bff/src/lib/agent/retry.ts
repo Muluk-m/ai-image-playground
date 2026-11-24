@@ -12,7 +12,7 @@ import { hydrateInputImages } from '../imageArchive'
 import { log } from '../logger'
 import type { BffTransaction } from '../private-overlay'
 import { asQueueProvider } from '../queueProvider'
-import { settleAgentJobs } from './background-jobs'
+import { settleAgentJobs, settleSubmittedTaskIfTerminal } from './background-jobs'
 import { appendAgentMessage } from './conversations'
 import { queueRefusalCode } from './tools/errors'
 import { agentVideoRequestError } from './video-models'
@@ -370,6 +370,13 @@ export async function retryAgentToolCall(input: AgentRetryInput): Promise<AgentR
   const record = outcome.kind === 'created' ? outcome.message.content[0] : undefined
   if (record?.type === 'toolResult' && record.status === 'queued')
     watchRetryQueue(input.conversationId)
+  if (record?.type === 'toolResult' && record.status === 'submitted' && record.job) {
+    await settleSubmittedTaskIfTerminal(
+      input.conversationId,
+      record.job.taskId,
+      outcome.kind === 'created' ? outcome.message.turnId : undefined,
+    )
+  }
   return outcome
 }
 
@@ -453,7 +460,10 @@ async function submitQueuedRecord(
         await cancelTasks(eq(schema.tasks.id, submitted.job.taskId), failedAs ? { failedAs } : {})
         throw error
       }
-      if (written) return null
+      if (written) {
+        await settleSubmittedTaskIfTerminal(conversationId, submitted.job.taskId, record.turnId)
+        return null
+      }
       // 记录在锁外被改过（不该发生）：任务不能留着花钱。
       await cancelTasks(eq(schema.tasks.id, submitted.job.taskId), failedAs ? { failedAs } : {})
       return 'written_elsewhere'

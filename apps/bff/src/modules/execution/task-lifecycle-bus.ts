@@ -21,6 +21,7 @@ export interface TaskFinishedEvent {
   readonly taskId: string
   readonly taskKind?: string
   readonly agentConversationId?: string | null
+  readonly agentTurnId?: string | null
   readonly userId: string | null
   readonly model: string
   readonly status: TerminalTaskStatus
@@ -38,6 +39,7 @@ export interface CancelledTaskRecord {
   readonly taskId: string
   readonly taskKind?: string
   readonly agentConversationId?: string | null
+  readonly agentTurnId?: string | null
   readonly userId: string | null
   readonly meteringMode: 'credits' | 'none'
   readonly upstreamInvocationCount: number

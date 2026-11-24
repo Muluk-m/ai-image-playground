@@ -245,14 +245,17 @@ export function gptSettledUsage(
  * 返回是否真的改到了行。
  * worker 一律经执行句柄（`workers/task-execution`）调它；回收扫描与对话轮结算自己给 fence。
  */
+export interface ExternalExecutionTransaction {
+  readonly tx: ExecutionTransaction
+  /** 外部事务调用方必须登记并在事务提交后执行提交后钩子，防止静默跳过终态投影。 */
+  readonly onCommit: (hook: () => Promise<void>) => void
+}
+
 export async function finishTask(
   id: string,
   update: TerminalTaskUpdate,
   fence: SQL,
-  reconciliation?: {
-    tx: ExecutionTransaction
-    onCommit?: (hook: () => Promise<void>) => void
-  },
+  reconciliation?: ExternalExecutionTransaction,
 ): Promise<boolean> {
   await prepareTaskLifecycleStage('settlement')
   let committedEvent: TaskFinishedEvent | null = null
@@ -286,6 +289,7 @@ export async function finishTask(
         id: schema.tasks.id,
         kind: schema.tasks.kind,
         agentConversationId: schema.tasks.agent_conversation_id,
+        agentTurnId: schema.tasks.agent_turn_id,
         userId: schema.tasks.user_id,
         model: schema.tasks.model,
         metering: schema.tasks.metering,
@@ -299,6 +303,7 @@ export async function finishTask(
       taskId: finished.id,
       taskKind: finished.kind,
       agentConversationId: finished.agentConversationId,
+      agentTurnId: finished.agentTurnId,
       userId: finished.userId,
       model: finished.model,
       status,
@@ -323,7 +328,7 @@ export async function finishTask(
   }
   if (reconciliation) {
     const written = await finish(reconciliation.tx)
-    if (written && committedEvent && reconciliation.onCommit) {
+    if (written && committedEvent) {
       const event = committedEvent
       reconciliation.onCommit(() => emitTaskFinishedAfterCommit(event))
     }
@@ -336,20 +341,21 @@ export async function finishTask(
   return written
 }
 
+export type CancelTasksOptions =
+  | {
+      readonly failedAs?: AgentToolErrorCode
+      readonly tx?: undefined
+      readonly onCommit?: undefined
+    }
+  | ({ readonly failedAs?: AgentToolErrorCode } & ExternalExecutionTransaction)
+
 /**
  * 取消状态和积分退回必须在同一事务中提交；调用方提供任务归属范围。
  * `failedAs`：这次撤回在用户看来是一次失败（智能体等不到结果撤掉的任务算超时），项目里预留的
  * 位置留作带这个码的失败占位；缺席即用户主动取消，预留位置直接收掉。
- * `tx`：调用方已经开了事务（删会话时取消要与墓碑同一次提交），给出时就在它上面做。
+ * `tx`：调用方已经开了事务（删会话、CLI 取消等）时必须同步传入 `onCommit`，由外层在事务提交后执行提交后钩子。
  */
-export async function cancelTasks(
-  access: SQL,
-  options: {
-    failedAs?: AgentToolErrorCode
-    tx?: ExecutionTransaction
-    onCommit?: (hook: () => Promise<void>) => void
-  } = {},
-) {
+export async function cancelTasks(access: SQL, options: CancelTasksOptions = {}) {
   await prepareTaskLifecycleStage('settlement')
   let committedEvent: TasksCancelledEvent | null = null
   const cancel = async (tx: ExecutionTransaction) => {
@@ -370,6 +376,7 @@ export async function cancelTasks(
         id: schema.tasks.id,
         kind: schema.tasks.kind,
         agentConversationId: schema.tasks.agent_conversation_id,
+        agentTurnId: schema.tasks.agent_turn_id,
         userId: schema.tasks.user_id,
         metering: schema.tasks.metering,
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
@@ -379,6 +386,7 @@ export async function cancelTasks(
         taskId: row.id,
         taskKind: row.kind,
         agentConversationId: row.agentConversationId,
+        agentTurnId: row.agentTurnId,
         userId: row.userId,
         meteringMode: row.metering?.mode === 'none' ? 'none' : 'credits',
         upstreamInvocationCount: row.upstreamInvocationCount,
@@ -403,7 +411,7 @@ export async function cancelTasks(
   }
   if (options.tx) {
     const rows = await cancel(options.tx)
-    if (committedEvent && options.onCommit) {
+    if (committedEvent) {
       const event = committedEvent
       options.onCommit(() => emitTasksCancelledAfterCommit(event))
     }
