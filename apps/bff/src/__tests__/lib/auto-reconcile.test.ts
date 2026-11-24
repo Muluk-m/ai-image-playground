@@ -14,9 +14,12 @@ const billing = installRecordingTaskHooks()
 
 const { close, db, schema } = await import('../../db/client')
 const { reconcileTasks } = await import('../../modules/execution')
-const { autoReconcileTasks, setAutoReconcileAlertSenderForTesting } = await import(
-  '../../lib/auto-reconcile'
-)
+const {
+  autoReconcileTasks,
+  buildDueReconcilingTasksQuery,
+  buildOverdueReconcileAlertQuery,
+  setAutoReconcileAlertSenderForTesting,
+} = await import('../../lib/auto-reconcile')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { setUpstreamFetchForTesting } = await import('../../lib/upstream')
 
@@ -184,4 +187,110 @@ it('retries the thirty-minute alert when the webhook rejects it', async () => {
     },
   ])
   expect((await readTask('alert-retry'))?.reconcile_alerted_at).toBe(now + minute)
+})
+
+interface ExplainNode {
+  'Node Type'?: string
+  'Index Name'?: string
+  Plans?: ExplainNode[]
+}
+
+function collectPlanNodes(root: ExplainNode): ExplainNode[] {
+  const nodes: ExplainNode[] = [root]
+  for (const child of root.Plans ?? []) {
+    nodes.push(...collectPlanNodes(child))
+  }
+  return nodes
+}
+
+async function explainPlanNodes(query: { toSQL(): { sql: string; params: unknown[] } }) {
+  const compiled = query.toSQL()
+  const rows = await db.$client.unsafe<Array<{ 'QUERY PLAN': unknown }>>(
+    `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ${compiled.sql}`,
+    compiled.params,
+  )
+  const rawPlan = rows[0]?.['QUERY PLAN']
+  const parsed = (typeof rawPlan === 'string' ? JSON.parse(rawPlan) : rawPlan) as Array<{
+    Plan: ExplainNode
+  }>
+  return collectPlanNodes(parsed[0]!.Plan)
+}
+
+it('uses the reconciling partial indexes for due reconciliation and overdue alert scans', async () => {
+  const fillers = Array.from({ length: 400 }, (_, index) => ({
+    id: `filler-${index}`,
+    provider: 'openai-compat' as const,
+    model: 'gpt-image-2',
+    kind: index % 10 === 0 ? ('chat' as const) : ('queue' as const),
+    status: index % 3 === 0 ? ('queued' as const) : ('completed' as const),
+    reconciliation_required: false,
+    request_payload: { prompt: `filler-${index}`, device_id: 'reconcile-device' },
+    submitted_at: now - (index + 10) * minute,
+    next_retry_at: index % 2 === 0 ? now - minute : null,
+  }))
+  // 模拟上游故障时积压的 reconciling 行：150 条已告警且待退避的未来任务 + 4 条已到期 + 1 条 legacy NULL next_retry_at。
+  // 当 reconciling 超过 LIMIT 时，宽泛的 idx_tasks_status / idx_tasks_status_submitted 必须回表并排序全部 reconciling 行，
+  // 而两条局部索引可按时间顺序直达并提前截断，且完全跳过已告警行。
+  const backedOffAlerted = Array.from({ length: 150 }, (_, index) => ({
+    id: `already-alerted-${String(index).padStart(3, '0')}`,
+    provider: 'openai-compat' as const,
+    model: 'gpt-image-2',
+    kind: 'queue' as const,
+    status: 'reconciling' as const,
+    reconciliation_required: true,
+    request_payload: { prompt: `alerted-${index}`, device_id: 'reconcile-device' },
+    submitted_at: now - (200 + index) * minute,
+    upstream_task_ids: [`imgtask_alerted_${index}`],
+    upstream_invocation_count: 1,
+    next_retry_at: now + (index + 10) * minute,
+    reconcile_started_at: now - QUEUE_TIMEOUTS.RECONCILE_ALERT_AFTER_MS - (index + 10) * minute,
+    reconcile_alerted_at: now - 5 * minute,
+  }))
+  const dueTimed = Array.from({ length: 4 }, (_, index) => ({
+    id: `due-timed-${index}`,
+    provider: 'openai-compat' as const,
+    model: 'gpt-image-2',
+    kind: 'queue' as const,
+    status: 'reconciling' as const,
+    reconciliation_required: true,
+    request_payload: { prompt: `due-${index}`, device_id: 'reconcile-device' },
+    submitted_at: now - (90 + index) * minute,
+    upstream_task_ids: [`imgtask_due_${index}`],
+    upstream_invocation_count: 1,
+    next_retry_at: now - (4 - index) * minute,
+    reconcile_started_at:
+      index < 2
+        ? now - QUEUE_TIMEOUTS.RECONCILE_ALERT_AFTER_MS - (2 - index) * minute
+        : now - 5 * minute,
+  }))
+  await db.insert(schema.tasks).values([...fillers, ...backedOffAlerted, ...dueTimed])
+  await insertReconciling('due-null-retry', {
+    next_retry_at: null,
+    reconcile_started_at: now - 5 * minute,
+  })
+  await db.$client.unsafe('VACUUM ANALYZE tasks')
+
+  const dueNodes = await explainPlanNodes(buildDueReconcilingTasksQuery(now))
+  expect(dueNodes.map((node) => node['Index Name']).filter(Boolean)).toContain(
+    'idx_tasks_reconciling_next_retry',
+  )
+  expect(dueNodes.map((node) => node['Node Type'])).not.toContain('Seq Scan')
+  expect(dueNodes.map((node) => node['Node Type'])).not.toContain('Sort')
+  const dueRows = await buildDueReconcilingTasksQuery(now)
+  expect(dueRows.map((row) => row.id)).toEqual([
+    'due-timed-0',
+    'due-timed-1',
+    'due-timed-2',
+    'due-timed-3',
+    'due-null-retry',
+  ])
+
+  const alertNodes = await explainPlanNodes(buildOverdueReconcileAlertQuery(now))
+  expect(alertNodes.map((node) => node['Index Name']).filter(Boolean)).toContain(
+    'idx_tasks_reconciling_alert',
+  )
+  expect(alertNodes.map((node) => node['Node Type'])).not.toContain('Seq Scan')
+  expect(alertNodes.map((node) => node['Node Type'])).not.toContain('Sort')
+  const alertRows = await buildOverdueReconcileAlertQuery(now)
+  expect(alertRows.map((row) => row.id)).toEqual(['due-timed-0', 'due-timed-1'])
 })

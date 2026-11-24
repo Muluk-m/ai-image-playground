@@ -126,6 +126,15 @@ export const tasks = pgTable(
     index('idx_tasks_lease_expires').on(t.lease_expires_at).where(sql`${t.status} = 'in_progress'`),
     index('idx_tasks_submitted_at').on(t.submitted_at),
     index('idx_tasks_next_retry_at').on(t.next_retry_at).where(sql`${t.next_retry_at} IS NOT NULL`),
+    // 自动对账与 30 分钟超时告警按状态和 kind 扫描 reconciling 队列任务；谓词允许 NULL 时间列以匹配 OR IS NULL 条件。
+    index('idx_tasks_reconciling_next_retry')
+      .on(t.next_retry_at, t.id)
+      .where(sql`${t.kind} = 'queue' AND ${t.status} = 'reconciling'`),
+    index('idx_tasks_reconciling_alert')
+      .on(t.reconcile_started_at, t.id)
+      .where(
+        sql`${t.kind} = 'queue' AND ${t.status} = 'reconciling' AND ${t.reconcile_alerted_at} IS NULL`,
+      ),
     uniqueIndex('idx_tasks_anonymous_client_request_id')
       .on(t.client_request_id)
       .where(sql`${t.user_id} IS NULL AND ${t.client_request_id} IS NOT NULL`),

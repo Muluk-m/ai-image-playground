@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto'
+import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { SQL } from 'bun'
@@ -7,6 +9,40 @@ import { migrate } from 'drizzle-orm/bun-sql/migrator'
 
 const migrationsFolder = fileURLToPath(new URL('../drizzle', import.meta.url))
 const MIGRATION_LOCK = 'ai-image-playground:migrations'
+
+interface ConcurrentIndexSpec {
+  readonly migrationTag: string
+  readonly name: string
+  readonly table: string
+  readonly requiredColumns: readonly string[]
+  readonly createSql: string
+}
+
+/**
+ * Indexes added to existing high-write tables (such as `tasks`) are built outside Drizzle's
+ * migration transaction with `CREATE INDEX CONCURRENTLY` so live BFF/worker writes are never
+ * blocked by a `SHARE` lock during rolling deploys. Each paired `.sql` migration skips DDL when
+ * `pg_index.indisvalid` is already true, acquiring zero locks on the hot table while keeping fresh
+ * empty databases self-contained.
+ */
+const concurrentIndexes: readonly ConcurrentIndexSpec[] = [
+  {
+    migrationTag: '0104_tasks_reconciling_index',
+    name: 'idx_tasks_reconciling_next_retry',
+    table: 'tasks',
+    requiredColumns: ['kind', 'status', 'next_retry_at', 'id'],
+    createSql:
+      'CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_tasks_reconciling_next_retry" ON "tasks" USING btree ("next_retry_at","id") WHERE "kind" = \'queue\' AND "status" = \'reconciling\'',
+  },
+  {
+    migrationTag: '0104_tasks_reconciling_index',
+    name: 'idx_tasks_reconciling_alert',
+    table: 'tasks',
+    requiredColumns: ['kind', 'status', 'reconcile_started_at', 'reconcile_alerted_at', 'id'],
+    createSql:
+      'CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_tasks_reconciling_alert" ON "tasks" USING btree ("reconcile_started_at","id") WHERE "kind" = \'queue\' AND "status" = \'reconciling\' AND "reconcile_alerted_at" IS NULL',
+  },
+]
 
 // Journal idx 13 and 80 were never issued. See packages/db/README.md before adding a migration.
 // Audited equivalences, not a general exemption for missing historical migrations.
@@ -108,18 +144,175 @@ export async function countVerifiedSupersededMigrations(
   return count
 }
 
+export interface RunMigrationsOptions {
+  /** Optional observer invoked after each hot-table index is built via `CREATE INDEX CONCURRENTLY`. */
+  readonly onConcurrentIndexBuilt?: (indexName: string) => void
+}
+
+interface MigrationJournal {
+  readonly version: string
+  readonly dialect: string
+  readonly entries: readonly {
+    idx: number
+    version: string
+    when: number
+    tag: string
+    breakpoints: boolean
+  }[]
+}
+
+async function readMigrationJournal(): Promise<MigrationJournal> {
+  return Bun.file(join(migrationsFolder, 'meta/_journal.json')).json()
+}
+
+async function migratePrefix(
+  client: SQL,
+  journal: MigrationJournal,
+  endExclusive: number,
+): Promise<void> {
+  const entries = journal.entries.slice(0, endExclusive)
+  const dir = await mkdtemp(join(tmpdir(), 'aip-migrate-stage-'))
+  try {
+    await mkdir(join(dir, 'meta'))
+    await Bun.write(
+      join(dir, 'meta/_journal.json'),
+      JSON.stringify({ version: journal.version, dialect: journal.dialect, entries }),
+    )
+    for (const entry of entries) {
+      await symlink(join(migrationsFolder, `${entry.tag}.sql`), join(dir, `${entry.tag}.sql`))
+    }
+    await migrate(drizzle(client), { migrationsFolder: dir })
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+}
+
 /** Apply committed PostgreSQL migrations and release the migration connection. */
-export async function runMigrations(databaseUrl: string): Promise<void> {
+export async function runMigrations(
+  databaseUrl: string,
+  options?: RunMigrationsOptions,
+): Promise<void> {
   const client = new SQL(databaseUrl, { max: 1 })
   let locked = false
   try {
     await client`SELECT pg_advisory_lock(hashtext(${MIGRATION_LOCK}))`
     locked = true
     await assertNoSkippedMigrations(client)
+    await applyPendingConcurrentIndexStages(client, options)
     await migrate(drizzle(client), { migrationsFolder })
   } finally {
     if (locked) await client`SELECT pg_advisory_unlock(hashtext(${MIGRATION_LOCK}))`
     await client.close()
+  }
+}
+
+/**
+ * On an existing database, stages prerequisite migrations before each pending concurrent-index
+ * migration so required columns commit first, then builds the hot-table indexes outside any
+ * transaction with `CREATE INDEX CONCURRENTLY` before Drizzle records the index migration.
+ */
+async function applyPendingConcurrentIndexStages(
+  client: SQL,
+  options?: RunMigrationsOptions,
+): Promise<void> {
+  if (!concurrentIndexes.length) return
+  const [table] = await client`SELECT to_regclass('drizzle.__drizzle_migrations') AS name`
+  if (!table?.name) return
+  const rows: { created_at: string | number }[] =
+    await client`SELECT created_at FROM drizzle.__drizzle_migrations`
+  if (!rows.length) return
+  const applied = new Set(rows.map((row) => Number(row.created_at)))
+  const newestApplied = Math.max(...applied)
+  const journal = await readMigrationJournal()
+
+  const pendingTags = [...new Set(concurrentIndexes.map((spec) => spec.migrationTag))]
+    .map((tag) => {
+      const index = journal.entries.findIndex((entry) => entry.tag === tag)
+      if (index < 0) {
+        throw new Error(`Concurrent index references unknown migration tag: ${tag}`)
+      }
+      return { tag, index, entry: journal.entries[index]! }
+    })
+    .filter(({ entry }) => !applied.has(entry.when))
+    .sort((a, b) => a.index - b.index)
+
+  let currentNewest = newestApplied
+  for (const { tag, index } of pendingTags) {
+    // Commit prerequisite migrations strictly before `tag` when any exist so columns added by
+    // earlier migrations (e.g. 0073 before 0104) are visible to `CREATE INDEX CONCURRENTLY`.
+    const previous = index > 0 ? journal.entries[index - 1] : undefined
+    if (previous && previous.when > currentNewest) {
+      await migratePrefix(client, journal, index)
+      currentNewest = previous.when
+    }
+    await ensureConcurrentIndexes(client, { migrationTag: tag, ...options })
+  }
+}
+
+/**
+ * Pre-builds pending hot-table indexes outside any transaction using `CREATE INDEX CONCURRENTLY`,
+ * cleaning up any invalid index left behind by an earlier interrupted build before retrying.
+ */
+export async function ensureConcurrentIndexes(
+  client: SQL,
+  options?: RunMigrationsOptions & { readonly migrationTag?: string },
+): Promise<void> {
+  const specs = options?.migrationTag
+    ? concurrentIndexes.filter((spec) => spec.migrationTag === options.migrationTag)
+    : concurrentIndexes
+  if (!specs.length) return
+  const [table] = await client`SELECT to_regclass('drizzle.__drizzle_migrations') AS name`
+  if (!table?.name) return
+  const rows: { created_at: string | number }[] =
+    await client`SELECT created_at FROM drizzle.__drizzle_migrations`
+  if (!rows.length) return
+  const applied = new Set(rows.map((row) => Number(row.created_at)))
+  const journal = await readMigrationJournal()
+  const stampByTag = new Map(journal.entries.map((entry) => [entry.tag, entry.when]))
+
+  for (const spec of specs) {
+    const when = stampByTag.get(spec.migrationTag)
+    if (when === undefined) {
+      throw new Error(`Concurrent index references unknown migration tag: ${spec.migrationTag}`)
+    }
+    if (applied.has(when)) continue
+
+    const columnRows: { column_name: string }[] = await client`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = ${spec.table}
+    `
+    const existingColumns = new Set(columnRows.map((row) => row.column_name))
+    const missingColumns = spec.requiredColumns.filter((column) => !existingColumns.has(column))
+    if (missingColumns.length) {
+      throw new Error(
+        `Cannot concurrently build ${spec.name} before ${spec.migrationTag}: missing ${spec.table} column(s) ${missingColumns.join(', ')}`,
+      )
+    }
+
+    const [existing] = await client<{ indisvalid: boolean }[]>`
+      SELECT i.indisvalid
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      JOIN pg_index i ON i.indexrelid = c.oid
+      WHERE n.nspname = 'public' AND c.relname = ${spec.name}
+    `
+    if (existing?.indisvalid) continue
+    if (existing && !existing.indisvalid) {
+      await client.unsafe(`DROP INDEX CONCURRENTLY IF EXISTS "${spec.name}"`)
+    }
+    await client.unsafe(spec.createSql)
+    const [verified] = await client<{ indisvalid: boolean }[]>`
+      SELECT i.indisvalid
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      JOIN pg_index i ON i.indexrelid = c.oid
+      WHERE n.nspname = 'public' AND c.relname = ${spec.name}
+    `
+    if (!verified?.indisvalid) {
+      throw new Error(`Concurrent index ${spec.name} is invalid after creation`)
+    }
+    options?.onConcurrentIndexBuilt?.(spec.name)
   }
 }
 
