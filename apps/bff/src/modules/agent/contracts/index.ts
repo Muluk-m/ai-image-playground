@@ -1,4 +1,9 @@
 export {
+  settleAgentBackgroundWorkForTesting,
+  settleAgentTailsForTesting,
+  trackAgentBackgroundWork,
+} from './background-work'
+export {
   AgentToolError,
   BATCH_EXECUTION_UNAVAILABLE_MESSAGE,
   createToolFailureLog,
@@ -15,6 +20,14 @@ export {
   type TurnEventFeed,
   type TurnEventLog,
 } from './events'
+export {
+  getInterruptedTurnRecoverer,
+  type InterruptedTurnRecoverer,
+  type InterruptedTurnRecovery,
+  MissingInterruptedTurnRecovererError,
+  registerInterruptedTurnRecoverer,
+  requireInterruptedTurnRecoverer,
+} from './interrupted-recovery'
 export {
   AGENT_IMAGE_FALLBACK_MODEL,
   confirmedSubmissionText,
@@ -36,6 +49,7 @@ export {
   withAspectRatio,
 } from './queue-params'
 export { selectionSettings } from './selection-settings'
+export { agentReplayStream, agentTurnStream } from './sse'
 export {
   type AgentReplayedSubmission,
   type AgentSubmissionReplay,
@@ -79,6 +93,16 @@ export {
   toolErrorText,
   toolResultBlock,
 } from './tool-results'
+export {
+  type AgentInterjectOptions,
+  abortRunningTurnsForTesting,
+  type RunningTurn,
+  registerRunningTurn,
+  runningTurn,
+  runningTurnsForTesting,
+  type TurnBroker,
+} from './turn-broker'
+export { agentTurnFailure } from './turn-failure'
 export {
   mergedWakePrompt,
   type WakeJob,
