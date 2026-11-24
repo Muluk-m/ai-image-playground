@@ -18,7 +18,7 @@ Agent 从 PR 到上线的完整链路，以及每一步谁能拍板。命令与�
 | 带数据库迁移的 PR 合并 main | Agent，检查齐了即可 | 迁移必须兼容新旧两代后端并带回滚 SQL；改编号前按 AGENTS.md 先查两个库已跑过的迁移 |
 | 发布 CLI（打 `cli-vX.Y.Z` 标签） | Agent，检查齐了即可 | 见 [CLI 发布](cli-release.md)；发布后先用官方安装脚本试装，确认安装与版本正常 |
 | 生产常规回滚（revert PR） | Agent | 冒烟不过或出事故时直接开 revert PR 合并，并触发 Deploy production 发出；事后在汇报里写清现象、影响和回滚目标 |
-| 触发 Deploy production（发布当前 main） | **需 Nain 说发布**（回滚与可选的 macmini2 静默合批除外） | 一律走幂等入口 `scripts/release.sh [--include <sha>]`，禁止裸跑 `gh workflow run deploy.yml`。默认 `mode=incremental`；`full` 全部重发。Nain 说了发布，Agent 直接执行并跟进，不再另行确认 |
+| 触发 Deploy production（发布当前 main） | **需 Nain 说发布**（回滚除外） | 一律走幂等入口 `scripts/release.sh [--include <sha>]`，禁止裸跑 `gh workflow run deploy.yml`。默认 `mode=incremental`；`full` 全部重发。Nain 说了发布，Agent 直接执行并跟进，不再另行确认 |
 | 重跑失败的 Deploy production job | Agent | 只按失败 job 重跑，不重跑整单 |
 | 绕过流水线手动发布 / 手工前端回滚（`scripts/pages-release.sh`） | **需 Nain 批准** | 正常路径是 Deploy production workflow；绕过它（macmini2 构建、手工上传）没有检查和自动回滚 |
 | 改服务器上的 `app.env` / `operator-config.json` | **需 Nain 批准** | 手工改，先备份，见下文 |
@@ -57,9 +57,9 @@ git push origin HEAD:test
 
 跟进 Deploy test 跑完，再核对测试站的版本并实测改动，见下面的「上线核对」。测试环境用真实供应商 key，生成照样花钱，冒烟控制在最小用量。测试通过不代表可以上生产。
 
-## 三、生产发布（幂等入口与可选静默合批）
+## 三、生产发布（按需手动，幂等入口）
 
-合并 `main` 不会立刻上线。合并后的改动处于「待发布」，Nain 说发布（或回滚）时，所有 Agent 与人都统一走幂等入口 `scripts/release.sh`，**不要裸跑 `gh workflow run deploy.yml`**，避免多 Agent 并行时各自重复触发构建：
+合并 `main` 不会上线。合并后的改动处于「待发布」，什么时候发由 Nain 决定；Nain 说发布（或回滚）时，所有 Agent 与人都统一走幂等入口 `scripts/release.sh`，**不要裸跑 `gh workflow run deploy.yml`**，避免多 Agent 并行时各自重复触发构建：
 
 ```sh
 scripts/release-status.sh                                           # 只读：API、前端、Admin 各还差哪些改到自己的提交
@@ -87,19 +87,6 @@ workflow 本身的机制：
    - 失败后的重跑：同一发布 ID 已接收后只能按失败 job 重跑，不能重跑整单，避免同一发布目录冲突。
 
 合并后 Agent 在汇报里列出待发布的改动；Nain 说发布后触发 workflow、跟进到跑完，冒烟在发布完成后做。失败就看日志处理（可按失败 job 重跑），不绕过 workflow 补发。一次带上的改动越多，出问题越难定位：有关键流程或数据库迁移的改动，建议单独发布、单独冒烟。
-
-### macmini2 静默合批自动发布（可选）
-
-多 Agent 持续合入 PR 时，如果希望“不用每个会话都喊上线，等一波合并停下来后自动合批上一单”，可在 `macmini2` 安装本仓库自带的 `launchd` 定时器（每 2 分钟检查一次，纯只读查询 + 满足静默窗后发一单 `incremental`）：
-
-- **合批规则**：当 `main` 有未上线改动（按线上 `/health` 与 `/version.json` 结合 GitHub Compare 路径规则实时核对）且 `Web checks` 已绿，等待连续 `DEPLOY_DEBOUNCE_MINUTES`（默认 10 分钟）`main` 无新变化后触发一单；若首条待发改动累计等待超过 `DEPLOY_MAX_WAIT_MINUTES`（默认 45 分钟，含 CI 运行时长）也会强制发一单防饿死。已有任意非终态发布单或线上各端已覆盖当前改动时直接跳过；发单后跟踪该 `dispatch_id` 对应 run，失败/取消后按冷却期有上限重试（默认最多 2 次，间隔 15 分钟）。
-- **安装（在 `macmini2` 上执行，需 Nain 准备最小权限 PAT）**：
-  1. 创建仅对 `Muluk-m/ai-image-playground` 拥有 `Actions: Read and write` 与 `Contents: Read-only` 权限的 fine-grained PAT，写入 `~/.config/ai-image-playground/deploy-dispatch.token` 并设权限 `chmod 600`（脚本通过 `curl --config -` 标准输入传令牌，不出现在进程参数里）。
-  2. 运行 `scripts/install-deploy-debounce-timer.sh` 安装 `~/.local/bin/muvloom-deploy-debounce-tick.sh` 与 `~/Library/LaunchAgents/com.muvloom.deploy-debounce.plist`。
-- **暂停 / 恢复 / 卸载**：
-  - 暂停：`touch ~/.config/ai-image-playground/deploy-auto.pause`（删掉即恢复）
-  - 日志：`~/Library/Logs/ai-image-playground/deploy-debounce.log`
-  - 卸载：`launchctl bootout "gui/$(id -u)/com.muvloom.deploy-debounce" && rm -f ~/Library/LaunchAgents/com.muvloom.deploy-debounce.plist`
 
 ### 计费与企业能力发布
 
