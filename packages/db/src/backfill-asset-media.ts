@@ -604,48 +604,93 @@ async function runCliRefsBatch(
  */
 async function runPruneStaleSyncedRefsBatch(
   client: SQL,
+  lastUserId: string | null,
   batchSize: number,
-): Promise<{ scanned: number; deleted: number }> {
-  const candidates = await client<{ user_id: string }[]>`
-    SELECT DISTINCT r.user_id
-    FROM media_references r
-    JOIN media_objects m ON m.id = r.media_id
-    WHERE (
-      r.owner_kind = 'asset'
-      AND NOT EXISTS (
-        SELECT 1
-        FROM user_assets ua
-        WHERE ua.user_id = r.user_id
-          AND ua.id = r.owner_id
-          AND ua.deleted_at IS NULL
-          AND (
-            ua.image_id = m.asset_image_id
-            OR EXISTS (
+): Promise<{ scanned: number; deleted: number; lastUserId: string | null }> {
+  const candidates =
+    lastUserId === null
+      ? await client<{ user_id: string }[]>`
+          SELECT DISTINCT r.user_id
+          FROM media_references r
+          JOIN media_objects m ON m.id = r.media_id
+          WHERE (
+            r.owner_kind = 'asset'
+            AND NOT EXISTS (
               SELECT 1
-              FROM jsonb_array_elements(COALESCE(ua.views, '[]'::jsonb)) AS v
-              WHERE v->>'imageId' = m.asset_image_id
+              FROM user_assets ua
+              WHERE ua.user_id = r.user_id
+                AND ua.id = r.owner_id
+                AND ua.deleted_at IS NULL
+                AND (
+                  ua.image_id = m.asset_image_id
+                  OR EXISTS (
+                    SELECT 1
+                    FROM jsonb_array_elements(COALESCE(ua.views, '[]'::jsonb)) AS v
+                    WHERE v->>'imageId' = m.asset_image_id
+                  )
+                )
             )
           )
-      )
-    )
-    OR (
-      r.owner_kind = 'look'
-      AND NOT EXISTS (
-        SELECT 1
-        FROM user_looks ul
-        WHERE ul.user_id = r.user_id
-          AND ul.id = r.owner_id
-          AND ul.deleted_at IS NULL
-          AND (
-            ul.cover_image_id = m.asset_image_id
-            OR COALESCE(ul.reference_image_ids, '[]'::jsonb) ? m.asset_image_id
+          OR (
+            r.owner_kind = 'look'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM user_looks ul
+              WHERE ul.user_id = r.user_id
+                AND ul.id = r.owner_id
+                AND ul.deleted_at IS NULL
+                AND (
+                  ul.cover_image_id = m.asset_image_id
+                  OR COALESCE(ul.reference_image_ids, '[]'::jsonb) ? m.asset_image_id
+                )
+            )
           )
-      )
-    )
-    ORDER BY r.user_id ASC
-    LIMIT ${batchSize}
-  `
-  if (!candidates.length) return { scanned: 0, deleted: 0 }
+          ORDER BY r.user_id ASC
+          LIMIT ${batchSize}
+        `
+      : await client<{ user_id: string }[]>`
+          SELECT DISTINCT r.user_id
+          FROM media_references r
+          JOIN media_objects m ON m.id = r.media_id
+          WHERE r.user_id > ${lastUserId}
+            AND (
+              (
+                r.owner_kind = 'asset'
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM user_assets ua
+                  WHERE ua.user_id = r.user_id
+                    AND ua.id = r.owner_id
+                    AND ua.deleted_at IS NULL
+                    AND (
+                      ua.image_id = m.asset_image_id
+                      OR EXISTS (
+                        SELECT 1
+                        FROM jsonb_array_elements(COALESCE(ua.views, '[]'::jsonb)) AS v
+                        WHERE v->>'imageId' = m.asset_image_id
+                      )
+                    )
+                )
+              )
+              OR (
+                r.owner_kind = 'look'
+                AND NOT EXISTS (
+                  SELECT 1
+                  FROM user_looks ul
+                  WHERE ul.user_id = r.user_id
+                    AND ul.id = r.owner_id
+                    AND ul.deleted_at IS NULL
+                    AND (
+                      ul.cover_image_id = m.asset_image_id
+                      OR COALESCE(ul.reference_image_ids, '[]'::jsonb) ? m.asset_image_id
+                    )
+                )
+              )
+            )
+          ORDER BY r.user_id ASC
+          LIMIT ${batchSize}
+        `
+  if (!candidates.length) return { scanned: 0, deleted: 0, lastUserId: null }
 
   let deleted = 0
   for (const { user_id: userId } of candidates) {
@@ -718,7 +763,11 @@ async function runPruneStaleSyncedRefsBatch(
     })
     deleted += count
   }
-  return { scanned: candidates.length, deleted }
+  return {
+    scanned: candidates.length,
+    deleted,
+    lastUserId: candidates.at(-1)?.user_id ?? null,
+  }
 }
 
 /**
@@ -856,9 +905,10 @@ export async function backfillAssetMedia(
   }
 
   // Phase 5: prune any stale synced asset/look references left by concurrent tombstones/edits
+  let staleUserCursor: string | null = null
   while (true) {
     if (!canContinue()) return makeResult(false)
-    const pruned = await runPruneStaleSyncedRefsBatch(client, batchSize)
+    const pruned = await runPruneStaleSyncedRefsBatch(client, staleUserCursor, batchSize)
     if (pruned.scanned === 0) break
     batches++
     staleRefsPruned += pruned.deleted
@@ -868,7 +918,8 @@ export async function backfillAssetMedia(
       scanned: pruned.scanned,
       written: pruned.deleted,
     })
-    if (pruned.scanned < batchSize) break
+    if (pruned.scanned < batchSize || !pruned.lastUserId) break
+    staleUserCursor = pruned.lastUserId
     await throttle()
   }
 

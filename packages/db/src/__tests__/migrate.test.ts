@@ -874,7 +874,7 @@ describe('runMigrations', () => {
           `
         expect(await readIndexes()).toEqual([])
 
-        await ensureConcurrentIndexes(client)
+        await ensureConcurrentIndexes(client, { migrationTag: '0104_tasks_reconciling_index' })
         const built = await readIndexes()
         expect(built.map((row) => ({ relname: row.relname, indisvalid: row.indisvalid }))).toEqual([
           { relname: 'idx_tasks_reconciling_alert', indisvalid: true },
@@ -1130,7 +1130,12 @@ describe('runMigrations', () => {
         `
 
         // Direct deletion of a referenced media_objects row must still fail with FK violation.
-        await expect(sql`DELETE FROM media_objects WHERE id = 'm-cascade'`).rejects.toThrow()
+        // Wrap Bun's lazy SQLQuery in an async IIFE so expect().rejects receives a native Promise.
+        await expect(
+          (async () => {
+            await sql`DELETE FROM media_objects WHERE id = 'm-cascade'`
+          })(),
+        ).rejects.toThrow()
         // Deleting the owning user must cascade both media_objects and media_references cleanly.
         await sql`DELETE FROM users WHERE id = 'u-cascade'`
         expect(await sql`SELECT id FROM media_objects WHERE user_id = 'u-cascade'`).toEqual([])
