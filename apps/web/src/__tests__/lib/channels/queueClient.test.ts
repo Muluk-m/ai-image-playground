@@ -791,4 +791,19 @@ describe('预签名直传输入图（PR-5.5）', () => {
     })
     expect(uploadSpy).not.toHaveBeenCalled()
   })
+
+  it('直传挂起超时后立即回退原始内联 data URL 并中止 signal，不无限等待并发槽位', async () => {
+    let observedSignal: AbortSignal | undefined
+    const uploadSpy = vi.fn().mockImplementation(
+      (_url: string, options?: { signal?: AbortSignal }) =>
+        new Promise(() => {
+          observedSignal = options?.signal
+        }),
+    )
+    const { prepareDirectSubmitInputs } = await enableDirectUpload(uploadSpy)
+
+    const result = await prepareDirectSubmitInputs([largeDataUrl], { timeoutMs: 25 })
+    expect(result).toEqual({ inputs: [largeDataUrl], exactIndices: [] })
+    expect(observedSignal?.aborted).toBe(true)
+  })
 })

@@ -104,34 +104,24 @@ export async function resolveMediaInputs(
     if (row.bytes > config.operator.quotas['sync:asset-image-bytes'])
       throw new MediaInputError('输入图片过大')
   }
-  const variants = new Map<string, { readonly id: string; readonly wantExact: boolean }>()
+  const needExact = new Set<string>()
+  const needCompressed = new Set<string>()
   for (let index = 0; index < indexedIds.length; index += 1) {
     const id = indexedIds[index]
     if (!id) continue
-    const wantExact = options.masked || Boolean(options.exactIndices?.has(index))
-    const key = `${id}:${wantExact ? 1 : 0}`
-    if (!variants.has(key)) variants.set(key, { id, wantExact })
+    if (options.masked || options.exactIndices?.has(index)) needExact.add(id)
+    else needCompressed.add(id)
   }
-  const rawById = new Map<string, Promise<Uint8Array>>()
-  const readOnce = (id: string): Promise<Uint8Array> => {
-    const cached = rawById.get(id)
-    if (cached) return cached
-    const row = found.get(id)!
-    const pending = readInput(id, row.key!, row.storageScope, options.signal)
-    rawById.set(id, pending)
-    return pending
-  }
+  // 按媒体 ID 调度并在单次读取内产出该 ID 所需的精确/压缩变体，完成后立即释放原图字节，
+  // 将在途原图内存峰值严格限制在 LOAD_CONCURRENCY（3 张）以内。
   const resolved = new Map<string, string>()
-  const queue = [...variants.entries()]
+  const queue = [...ids]
   const worker = async () => {
-    for (let item = queue.shift(); item; item = queue.shift()) {
-      const [variantKey, { id, wantExact }] = item
+    for (let id = queue.shift(); id; id = queue.shift()) {
       const row = found.get(id)!
-      const bytes = await readOnce(id)
-      resolved.set(
-        variantKey,
-        wantExact ? await exact(bytes, row.contentType) : await compressed(bytes, row.contentType),
-      )
+      const bytes = await readInput(id, row.key!, row.storageScope, options.signal)
+      if (needExact.has(id)) resolved.set(`${id}:1`, await exact(bytes, row.contentType))
+      if (needCompressed.has(id)) resolved.set(`${id}:0`, await compressed(bytes, row.contentType))
     }
   }
   await Promise.all(Array.from({ length: Math.min(LOAD_CONCURRENCY, queue.length) }, worker))

@@ -148,18 +148,33 @@ export async function prepareDirectSubmitInputs(
     const existing = inFlight.get(url)
     if (existing) return existing
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), timeoutMs)
-    const pending = uploadMediaSource(url, {
-      signal: controller.signal,
-      purpose: 'conversation-attachment',
+    const pending = new Promise<{ readonly url: string; readonly promoted: boolean }>((resolve) => {
+      let settled = false
+      const finish = (result: { readonly url: string; readonly promoted: boolean }) => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        resolve(result)
+      }
+      // 独立超时竞争：即使 uploadMediaSource 正在等全局上传并发槽位（不监听 signal），
+      // 超时也能立刻回退原始 data URL，不阻塞提交流程，同时中止后台上传。
+      const timer = setTimeout(() => {
+        controller.abort()
+        finish({ url, promoted: false })
+      }, timeoutMs)
+      uploadMediaSource(url, {
+        signal: controller.signal,
+        purpose: 'conversation-attachment',
+      })
+        .then((uploaded) =>
+          finish(
+            uploaded?.id
+              ? { url: `aip-media:${uploaded.id}`, promoted: true }
+              : { url, promoted: false },
+          ),
+        )
+        .catch(() => finish({ url, promoted: false }))
     })
-      .then((uploaded) =>
-        uploaded?.id
-          ? { url: `aip-media:${uploaded.id}`, promoted: true }
-          : { url, promoted: false },
-      )
-      .catch(() => ({ url, promoted: false }))
-      .finally(() => clearTimeout(timer))
     inFlight.set(url, pending)
     return pending
   }
