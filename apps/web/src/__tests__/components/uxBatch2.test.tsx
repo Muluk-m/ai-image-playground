@@ -31,15 +31,18 @@ vi.mock('../../store', async (importOriginal) => {
 })
 
 const mockVideoSupport: VideoModelSupport = {
+  label: 'Test Video',
   aspectRatios: ['16:9', '9:16'],
   durations: [5, 10],
   resolutions: ['720p', '1080p'],
-  supportsFirstFrame: true,
-  supportsLastFrame: false,
-  supportsReferenceImages: false,
-  supportsAudio: false,
-  supportsVoices: true,
-  maxVoices: 2,
+  resolutionMultipliers: { '720p': 1, '1080p': 1.6 },
+  firstFrame: true,
+  lastFrame: false,
+  extend: false,
+  edit: false,
+  voices: { max: 2 },
+  typicalSeconds: 40,
+  tagline: 'Test',
 }
 
 vi.mock('../../lib/channels/videoChannels', () => ({
@@ -210,8 +213,8 @@ describe('libraryStore.attachAsset targetZone, imageId and shouldCommit', () => 
     id: 'asset-1',
     name: 'Mug',
     views: [
-      { imageId: 'img-a', label: 'front' },
-      { imageId: 'img-b', label: 'side' },
+      { imageId: 'img-a', label: 'front', source: 'upload' },
+      { imageId: 'img-b', label: 'side', source: 'upload' },
     ],
     createdAt: 1,
     updatedAt: 1,
