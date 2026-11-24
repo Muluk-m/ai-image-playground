@@ -289,6 +289,9 @@ export async function deleteOwnAccount(
         await tx.delete(schema.analysis_tasks).where(eq(schema.analysis_tasks.user_id, userId))
       }
 
+      // 显式摘掉该用户的媒体引用，避免依赖外键级联顺序或回滚到 RESTRICT 时阻塞注销。
+      await tx.delete(schema.media_references).where(eq(schema.media_references.user_id, userId))
+
       // tasks.user_id 是 NO ACTION，不先摘掉就删不掉用户。
       const tasks = await tx
         .delete(schema.tasks)

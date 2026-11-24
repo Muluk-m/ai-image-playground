@@ -30,6 +30,8 @@ export interface ObjectStore {
   /** 带大小与修改时间的列举。运维看板靠它看「真正落在桶里的备份」，而不是备份脚本的自述。 */
   listEntries(prefix: string): Promise<ObjectEntry[]>
   deletePrefix(prefix: string): Promise<void>
+  /** 按精确键删单个对象，避免 `img-1` 前缀误伤 `img-10`。 */
+  deleteObject?(key: string): Promise<void>
 }
 
 /** Metadata rejects oversized objects before any body is requested; the stream remains capped too. */
@@ -146,6 +148,10 @@ export class S3ObjectStore implements ObjectStore {
 
   deletePrefix(prefix: string): Promise<void> {
     return traced('delete', {}, () => this.deletePrefixUntraced(prefix))
+  }
+
+  deleteObject(key: string): Promise<void> {
+    return traced('delete', {}, () => this.client.delete(this.keyPrefix + key))
   }
 
   private async writeUntraced(

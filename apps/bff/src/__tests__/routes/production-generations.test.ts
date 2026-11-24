@@ -357,6 +357,16 @@ it('refuses a draft whose original reference disappeared before confirmation', a
       references: [{ reference }],
     })
   ).json()
+  const expiringMedia = await db
+    .select({ id: schema.media_objects.id })
+    .from(schema.media_objects)
+    .where(eq(schema.media_objects.asset_image_id, 'expiring-ref'))
+  for (const row of expiringMedia) {
+    await db.delete(schema.media_references).where(eq(schema.media_references.media_id, row.id))
+  }
+  await db
+    .delete(schema.media_objects)
+    .where(eq(schema.media_objects.asset_image_id, 'expiring-ref'))
   await db
     .delete(schema.user_asset_objects)
     .where(eq(schema.user_asset_objects.image_id, 'expiring-ref'))

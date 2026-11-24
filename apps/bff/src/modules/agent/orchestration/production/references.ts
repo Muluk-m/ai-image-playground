@@ -4,11 +4,12 @@ import {
   type ProductionMediaReference,
   parseProjectArtifactId,
 } from '@image-playground/shared'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { db, schema } from '../../../../db/client'
 import { resolveImageBytesRef } from '../../../../lib/extractImages'
 import type { BffTransaction } from '../../../../lib/private-overlay'
 import { asQueueProvider } from '../../../../lib/queueProvider'
+import { findAssetImageMeta } from '../../../../lib/sync-assets'
 import { taskAccessWhere } from '../../../../lib/task-access'
 import { productionMediaReferences, productionReferenceKey } from './asset-validation'
 
@@ -35,19 +36,9 @@ export async function validateProductionMediaReferences(
         .limit(1)
       if (!media?.contentType.startsWith(`${expectedMedia}/`)) return false
     } else if (reference.kind === 'asset') {
-      const [asset] = await executor
-        .select({
-          id: schema.user_asset_objects.image_id,
-          contentType: schema.user_asset_objects.content_type,
-        })
-        .from(schema.user_asset_objects)
-        .where(
-          and(
-            eq(schema.user_asset_objects.image_id, reference.imageId),
-            eq(schema.user_asset_objects.user_id, userId),
-          ),
-        )
-        .limit(1)
+      const asset = await findAssetImageMeta(executor, userId, reference.imageId, {
+        lockShare: true,
+      })
       if (!asset?.contentType.startsWith(`${expectedMedia}/`)) return false
     } else {
       const parsed = parseProjectArtifactId(reference.artifactId)
@@ -100,10 +91,30 @@ export async function reconcileProductionReferences(
   )
   if (!(await validateProductionMediaReferences(conversationId, userId, references, tx)))
     return false
-  const mediaIds = [
+  const assetImageIds = [
     ...new Set(
-      references.flatMap((reference) => (reference.kind === 'media' ? [reference.mediaId] : [])),
+      references.flatMap((reference) => (reference.kind === 'asset' ? [reference.imageId] : [])),
     ),
+  ]
+  const unifiedAssetMediaIds = assetImageIds.length
+    ? (
+        await tx
+          .select({ id: schema.media_objects.id })
+          .from(schema.media_objects)
+          .where(
+            and(
+              eq(schema.media_objects.user_id, userId),
+              inArray(schema.media_objects.asset_image_id, assetImageIds),
+              eq(schema.media_objects.status, 'ready'),
+            ),
+          )
+      ).map((row) => row.id)
+    : []
+  const mediaIds = [
+    ...new Set([
+      ...references.flatMap((reference) => (reference.kind === 'media' ? [reference.mediaId] : [])),
+      ...unifiedAssetMediaIds,
+    ]),
   ]
   if (mediaIds.length) {
     // Same ownership edge as attached conversation images; no copy or library asset is created.

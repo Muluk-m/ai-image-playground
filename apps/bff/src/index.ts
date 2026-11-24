@@ -18,7 +18,11 @@ import {
   refreshOperatorConfigIfChanged,
 } from './lib/operator-config-overrides'
 import { startPeriodicSteps } from './lib/periodic'
-import { purgeDeletingUnreferencedMedia, purgeExpiredAttachmentMedia } from './lib/projectMedia'
+import {
+  purgeDeletingUnreferencedMedia,
+  purgeExpiredAttachmentMedia,
+  reclaimUnreferencedAssetMedia,
+} from './lib/projectMedia'
 import { startServerLogs } from './lib/server-logs'
 import { initTelemetry, shutdownTelemetry } from './lib/telemetry'
 import { refreshUpstreamKeySources } from './lib/upstream/gpt-direct-admin'
@@ -153,6 +157,8 @@ const stopMaintenance = startPeriodicSteps(
             event: 'periodic.purge_attachments_failed',
             run: async (signal: AbortSignal) => {
               await purgeExpiredAttachmentMedia()
+              if (signal.aborted) return
+              await reclaimUnreferencedAssetMedia(Date.now(), undefined, signal)
               if (signal.aborted) return
               await purgeDeletingUnreferencedMedia(signal)
             },

@@ -1,5 +1,5 @@
 import { OAUTH_ONLY_PASSWORD_HASH, schema } from '@image-playground/db'
-import { eq, sql } from 'drizzle-orm'
+import { and, eq, notExists, sql } from 'drizzle-orm'
 import {
   decodeCursor,
   encodeCursor,
@@ -30,8 +30,39 @@ const PAGE_SIZE = 100
 const USER_VOLUME_RANGE: Range = '30d'
 
 /**
- * 单个用户已上传的旧版素材对象字节总和。
- * BFF（`sync:user-asset-bytes` / `mediaUsage`）与 Admin（`getUserDetail.asset_bytes`）共用此口径，
+ * 尚未迁移进 `media_objects` 的旧版 `user_asset_objects` 字节总和。
+ * `mediaUsage` 汇总 `media_objects.reserved_bytes` 后仅叠加此部分，避免双写/回填期间重复计费。
+ */
+export async function readUnmigratedUserAssetBytes(
+  executor: ReadModelsQueryExecutor,
+  userId: string,
+): Promise<number> {
+  const [row] = await executor
+    .select({ total: sql<string | number>`coalesce(sum(${schema.user_asset_objects.bytes}), 0)` })
+    .from(schema.user_asset_objects)
+    .where(
+      and(
+        eq(schema.user_asset_objects.user_id, userId),
+        notExists(
+          executor
+            .select({ id: schema.media_objects.id })
+            .from(schema.media_objects)
+            .where(
+              and(
+                eq(schema.media_objects.user_id, schema.user_asset_objects.user_id),
+                eq(schema.media_objects.asset_image_id, schema.user_asset_objects.image_id),
+              ),
+            ),
+        ),
+      ),
+    )
+  return Number(row?.total ?? 0)
+}
+
+/**
+ * 单个用户已上传的素材对象字节总和（统一 `media_objects` 账本 + 尚未回填的旧 `user_asset_objects`，严格去重）。
+ * 在单条 SQL 语句中求值，保证与在线回填并发时两部分看到同一 MVCC 快照，不漏计也不双计。
+ * BFF（`sync:user-asset-bytes`）与 Admin（`getUserDetail.asset_bytes`）共用此口径，
  * 避免两处各自计算导致限额校验与后台展示分叉。
  * sum() 出来是 bigint，别往 int4 上转——运营把每用户配额调过 2 GB 之后会溢出报错。
  */
@@ -39,11 +70,27 @@ export async function readUserAssetBytes(
   executor: ReadModelsQueryExecutor,
   userId: string,
 ): Promise<number> {
-  const [row] = await executor
-    .select({ total: sql<string | number>`coalesce(sum(${schema.user_asset_objects.bytes}), 0)` })
-    .from(schema.user_asset_objects)
-    .where(eq(schema.user_asset_objects.user_id, userId))
-  return Number(row?.total ?? 0)
+  const rows = (await executor.execute(sql`
+    SELECT (
+      COALESCE(
+        (SELECT SUM(m.bytes) FROM media_objects m
+         WHERE m.user_id = ${userId}
+           AND m.asset_image_id IS NOT NULL
+           AND m.status <> 'deleting'),
+        0
+      )
+      + COALESCE(
+        (SELECT SUM(a.bytes) FROM user_asset_objects a
+         WHERE a.user_id = ${userId}
+           AND NOT EXISTS (
+             SELECT 1 FROM media_objects m
+             WHERE m.user_id = a.user_id AND m.asset_image_id = a.image_id
+           )),
+        0
+      )
+    ) AS total
+  `)) as unknown as Array<{ total?: string | number }>
+  return Number(rows[0]?.total ?? 0)
 }
 
 function mapAdminUser(row: Row): AdminUserRow {
@@ -113,11 +160,28 @@ const ACTIVE_SESSION_JOIN = sql`
   ) session_stats ON TRUE
 `
 
-// 与 readUserAssetBytes 保持同一分母定义，别改成「活素材引用到的图片」。
+// 与 readUserAssetBytes 保持同一分母定义（统一 media_objects + 未回填的 user_asset_objects 去重求和），别改成「活素材引用到的图片」。
 const SYNC_FOOTPRINT = sql`
   (SELECT COUNT(*) FROM user_templates WHERE user_id = u.id AND deleted_at IS NULL) AS template_count,
   (SELECT COUNT(*) FROM user_assets WHERE user_id = u.id AND deleted_at IS NULL) AS asset_count,
-  (SELECT COALESCE(SUM(bytes), 0) FROM user_asset_objects WHERE user_id = u.id) AS asset_bytes
+  (
+    COALESCE(
+      (SELECT SUM(m.bytes) FROM media_objects m
+       WHERE m.user_id = u.id
+         AND m.asset_image_id IS NOT NULL
+         AND m.status <> 'deleting'),
+      0
+    )
+    + COALESCE(
+      (SELECT SUM(a.bytes) FROM user_asset_objects a
+       WHERE a.user_id = u.id
+         AND NOT EXISTS (
+           SELECT 1 FROM media_objects m
+           WHERE m.user_id = a.user_id AND m.asset_image_id = a.image_id
+         )),
+      0
+    )
+  ) AS asset_bytes
 `
 
 export async function listUsers(

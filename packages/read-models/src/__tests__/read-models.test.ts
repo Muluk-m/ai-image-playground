@@ -16,6 +16,7 @@ import {
   listDevices,
   listOperatorAudits,
   listUsers,
+  readUnmigratedUserAssetBytes,
   readUserAssetBytes,
   resetUserKpiCacheForTesting,
   resetWindowFacetsCacheForTesting,
@@ -261,5 +262,74 @@ describe('@image-playground/read-models', () => {
     })
     expect(page2.audits.map((a) => a.id)).toEqual(['audit-a'])
     expect(page2.nextCursor).toBeNull()
+  })
+
+  it('deduplicates asset bytes across unified media_objects and unmigrated user_asset_objects', async () => {
+    await handle.db.insert(handle.schema.media_objects).values([
+      // Mirrors legacy img-1 (1200 B): must not be double-counted.
+      {
+        id: 'rm-media-img-1',
+        user_id: 'rm-user-1',
+        sha256: 'asset:img-1',
+        bytes: 1200,
+        content_type: 'image/png',
+        status: 'ready',
+        attachment_managed: false,
+        reserved_bytes: 1200,
+        staging_key: 'users/rm-user-1/assets/img-1',
+        object_key: 'users/rm-user-1/assets/img-1',
+        preview_bytes: 0,
+        asset_image_id: 'img-1',
+        storage_scope: 'object',
+        expires_at: now,
+        created_at: now,
+        updated_at: now,
+      },
+      // Unified-only asset (500 B): counted once.
+      {
+        id: 'rm-media-img-3',
+        user_id: 'rm-user-1',
+        sha256: 'asset:img-3',
+        bytes: 500,
+        content_type: 'image/png',
+        status: 'ready',
+        attachment_managed: false,
+        reserved_bytes: 500,
+        staging_key: 'users/rm-user-1/assets/img-3',
+        object_key: 'users/rm-user-1/assets/img-3',
+        preview_bytes: 0,
+        asset_image_id: 'img-3',
+        storage_scope: 'object',
+        expires_at: now,
+        created_at: now,
+        updated_at: now,
+      },
+      // Deleting asset (999 B): excluded from both totals.
+      {
+        id: 'rm-media-img-del',
+        user_id: 'rm-user-1',
+        sha256: 'asset:img-del',
+        bytes: 999,
+        content_type: 'image/png',
+        status: 'deleting',
+        attachment_managed: false,
+        reserved_bytes: 999,
+        staging_key: 'users/rm-user-1/assets/img-del',
+        object_key: 'users/rm-user-1/assets/img-del',
+        preview_bytes: 0,
+        asset_image_id: 'img-del',
+        storage_scope: 'object',
+        expires_at: now,
+        created_at: now,
+        updated_at: now,
+      },
+    ])
+
+    // Only img-2 (3400 B) remains unmigrated in user_asset_objects.
+    expect(await readUnmigratedUserAssetBytes(handle.db, 'rm-user-1')).toBe(3400)
+    // Total = img-1 (1200) + img-2 (3400) + img-3 (500) = 5100.
+    expect(await readUserAssetBytes(handle.db, 'rm-user-1')).toBe(5100)
+    const detail = await getUserDetail(handle, 'rm-user-1', false)
+    expect(detail?.asset_bytes).toBe(5100)
   })
 })

@@ -1,7 +1,13 @@
 import { and, desc, eq, isNull, lt, or, type SQL } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { durableMediaStore } from '../durableMediaStore'
-import { accessMedia, completeMedia, mediaSummary, reserveMedia } from '../projectMedia'
+import {
+  accessMedia,
+  completeMedia,
+  lockMediaOwner,
+  mediaSummary,
+  reserveMedia,
+} from '../projectMedia'
 import { CliRequestError } from './envelope'
 import { artifactId, parseArtifactId } from './jobs'
 
@@ -42,10 +48,24 @@ export async function reserveReferenceMedia(
     bytes: input.bytes,
     contentType: input.content_type,
   })
-  await db
-    .insert(schema.cli_reference_media)
-    .values({ media_id: reserved.id, user_id: userId, created_at: Date.now() })
-    .onConflictDoNothing()
+  const now = Date.now()
+  await db.transaction(async (tx) => {
+    await lockMediaOwner(tx, userId)
+    await tx
+      .insert(schema.cli_reference_media)
+      .values({ media_id: reserved.id, user_id: userId, created_at: now })
+      .onConflictDoNothing()
+    await tx
+      .insert(schema.media_references)
+      .values({
+        user_id: userId,
+        media_id: reserved.id,
+        owner_kind: 'cli_reference',
+        owner_id: reserved.id,
+        created_at: now,
+      })
+      .onConflictDoNothing()
+  })
   return {
     ...toCliMedia(reserved),
     ...('uploadUrl' in reserved
