@@ -51,14 +51,6 @@ import {
   isConversationBoundToCanvasProject,
   readUserMessageContent,
 } from '../lib/agent/conversation-service'
-import {
-  isSealLease,
-  lastConversationEventSeq,
-  openTurnEventBase,
-  readConversationEvents,
-  readTurnEvents,
-  sealAbandonedTurns,
-} from '../lib/agent/events'
 import { readAgentFollowUps } from '../lib/agent/follow-ups'
 import { MASK_PROMPT_POINTS_MAX, refineEditRegion } from '../lib/agent/mask-proposal'
 import {
@@ -66,13 +58,10 @@ import {
   cancelAgentRetry,
   retryAgentToolCall,
 } from '../lib/agent/retry'
-import { type RunningTurn, runningTurn } from '../lib/agent/runningTurns'
 import { markAgentSaveCardSaved } from '../lib/agent/saves'
 import { segmentRateLimiter } from '../lib/agent/segment-rate-limit'
 import { segmenterStatus } from '../lib/agent/segmentation'
-import { agentReplayStream, agentTurnStream } from '../lib/agent/sse'
 import { agentTurnRateLimited } from '../lib/agent/turn-rate-limit'
-import { agentTurnSettled, listAgentTurnSummaries } from '../lib/agent/turn-summary'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { bffDrain } from '../lib/drain'
 import { durableMediaStore } from '../lib/durableMediaStore'
@@ -94,7 +83,10 @@ import {
   type AgentOwner,
   agentInstance,
   agentJobViews,
+  agentReplayStream,
   agentSubmissionEntry,
+  agentTurnSettled,
+  agentTurnStream,
   cancelAgentJob,
   conversationExecution,
   createAgentConversation,
@@ -102,15 +94,24 @@ import {
   forwardActiveTurn,
   type InboxEntry,
   InvalidSelectionError,
+  isSealLease,
+  lastConversationEventSeq,
   listAgentConversationsPage,
   listAgentMessages,
   listAgentMessagesPage,
+  listAgentTurnSummaries,
+  openTurnEventBase,
   parseAgentConversationCursor,
   queuedAgentMessages,
+  type RunningTurn,
+  readConversationEvents,
   readConversationMedia,
+  readTurnEvents,
   readyCanvasMediaIds,
   removeAgentConversationReferences,
   reserveAgentSubmissionCancellation,
+  runningTurn,
+  sealAbandonedTurns,
   selectionPreview,
   validateConversationMediaSelections,
   validateSelections,

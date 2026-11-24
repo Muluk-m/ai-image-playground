@@ -42,7 +42,7 @@ export default function ToolResultCard({
   const resized = done && (done.output.width !== item.width || done.output.height !== item.height)
   return (
     <div
-      className={`group overflow-hidden rounded-2xl border bg-card ${
+      className={`group overflow-hidden rounded-2xl border bg-card transition-colors duration-fast ease-motion-out ${
         picked && done ? 'border-primary/70' : 'border-border'
       }`}
     >
@@ -74,7 +74,7 @@ export default function ToolResultCard({
             type="button"
             onClick={onRemove}
             aria-label={t('result.remove')}
-            className="absolute right-2 top-2 z-10 opacity-0 shadow transition-opacity focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+            className="absolute right-2 top-2 z-10 opacity-0 shadow transition-opacity duration-fast ease-motion-out focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
           >
             <Icon name="close" />
           </Button>

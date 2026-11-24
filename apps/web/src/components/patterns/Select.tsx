@@ -279,7 +279,7 @@ export default function Select({
         <Icon
           name="chevronDown"
           size="xs"
-          className={`text-muted-foreground transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+          className={`text-muted-foreground transition-transform duration-fast ease-motion-out motion-reduce:transition-none ${isOpen ? 'rotate-180' : ''}`}
         />
       </div>
 

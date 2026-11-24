@@ -109,6 +109,8 @@
     "linkedEmail": "Linked · {{email}}",
     "notLinked": "Not linked",
     "unlink": "Unlink",
+    "confirmUnlink": "Confirm unlink",
+    "unlinkLastMethodHint": "Set a password first before unlinking your only sign-in method",
     "link": "Link",
     "password": "Password",
     "passwordSet": "Set",

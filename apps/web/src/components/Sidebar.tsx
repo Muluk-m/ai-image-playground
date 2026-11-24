@@ -215,7 +215,7 @@ export default function Sidebar() {
           onClick={appMode === 'canvas' ? () => setAppMode('image') : toggleSidebar}
           aria-label={t(appMode === 'canvas' ? 'brand.home' : 'header.nav')}
           autoTooltip={false}
-          className="app-floating-mark fixed left-3 top-3 z-40 hidden bg-card/80 text-muted-foreground shadow-lg backdrop-blur-md hover:text-foreground md:inline-flex"
+          className="app-floating-mark animate-popover-in fixed left-3 top-3 z-40 hidden bg-card/80 text-muted-foreground shadow-lg backdrop-blur-md hover:text-foreground md:inline-flex"
         >
           <img src="/brand/muvloom-mark.svg" alt="" className="h-7 w-7" />
         </Button>
@@ -345,7 +345,7 @@ export default function Sidebar() {
             <Icon
               name="arrowRight"
               size="xs"
-              className="transition-transform group-hover:translate-x-0.5"
+              className="transition-transform duration-instant ease-motion-out group-hover:translate-x-0.5 motion-reduce:transition-none"
             />
           </Button>
           {/* 列表短时把指南推到栏底；列表长时也和上面隔开一段，不贴着最后一条。 */}

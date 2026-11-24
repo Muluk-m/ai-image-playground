@@ -29,7 +29,7 @@ export function ThinkingIndicator({
       <AgentSpark active />
       <ShimmerLabel
         key={label}
-        className="fade-in slide-in-from-bottom-1 animate-in relative inline-block leading-none duration-300"
+        className="fade-in slide-in-from-bottom-1 animate-in relative inline-block leading-none duration-normal ease-motion-out motion-reduce:animate-none"
       >
         {label}
       </ShimmerLabel>

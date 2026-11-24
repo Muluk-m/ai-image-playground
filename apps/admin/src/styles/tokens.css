@@ -89,6 +89,16 @@
     --shadow-sticky-x: 8px 0 16px -6px rgb(0 0 0 / 0.14);
     --duration-fast: 120ms;
     --duration-normal: 200ms;
+    /* 统一动效语言：与主站 theme.css 保持同一组物理曲线与节奏。 */
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-in-out: cubic-bezier(0.32, 0.72, 0, 1);
+    --ease-in: cubic-bezier(0.4, 0, 1, 1);
+    --ease-spring: cubic-bezier(0.2, 0.9, 0.3, 1.08);
+    --motion-instant: 100ms;
+    --motion-fast: 160ms;
+    --motion-normal: 220ms;
+    --motion-slow: 300ms;
+    --motion-ambient: 1800ms;
 
     /* ============================ SEMANTIC ============================= */
 
@@ -267,5 +277,109 @@
       --sidebar-border: var(--neutral-800);
       --sidebar-ring: var(--neutral-ring-dark);
     }
+  }
+}
+
+/* 共享动效原语：与 apps/web/src/styles/theme.css 对齐，保证共享 ui/ 原语表现一致。 */
+.motion-press {
+  transition-property: color, background-color, border-color, box-shadow, opacity, scale;
+  transition-duration: var(--motion-instant);
+  transition-timing-function: var(--ease-out);
+}
+.motion-press:active:where(:not(:disabled):not([aria-disabled='true'])) {
+  scale: 0.97;
+}
+
+@keyframes motion-check-pop {
+  from {
+    opacity: 0;
+    scale: 0.55;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+.motion-check-pop {
+  animation: motion-check-pop var(--motion-fast) var(--ease-spring) backwards;
+}
+
+/* 权重 (0,3,0) 高于 tailwindcss-animate 的 .data-[state=open]:animate-in (0,2,0)，确保时长与曲线不被 150ms 默认值覆盖。 */
+.motion-popover-surface.motion-popover-surface[data-state='open'],
+.motion-popover-surface.motion-popover-surface[data-state='delayed-open'],
+.motion-popover-surface.motion-popover-surface[data-state='instant-open'] {
+  animation-duration: var(--motion-fast);
+  animation-timing-function: var(--ease-out);
+}
+.motion-popover-surface.motion-popover-surface[data-state='closed'] {
+  animation-duration: 120ms;
+  animation-timing-function: var(--ease-in);
+}
+
+.motion-sheet-surface.motion-sheet-surface[data-state='open'] {
+  animation-duration: var(--motion-slow);
+  animation-timing-function: var(--ease-in-out);
+}
+.motion-sheet-surface.motion-sheet-surface[data-state='closed'] {
+  animation-duration: var(--motion-normal);
+  animation-timing-function: var(--ease-in);
+}
+
+.motion-dialog-surface.motion-dialog-surface[data-state='open'] {
+  animation-duration: var(--motion-normal);
+  animation-timing-function: var(--ease-out);
+}
+.motion-dialog-surface.motion-dialog-surface[data-state='closed'] {
+  animation-duration: 140ms;
+  animation-timing-function: var(--ease-in);
+}
+
+.motion-overlay-backdrop.motion-overlay-backdrop[data-state='open'] {
+  animation-duration: var(--motion-normal);
+  animation-timing-function: var(--ease-out);
+}
+.motion-overlay-backdrop.motion-overlay-backdrop[data-state='closed'] {
+  animation-duration: 140ms;
+  animation-timing-function: var(--ease-in);
+}
+
+.motion-switch-thumb {
+  transition:
+    transform var(--motion-normal) var(--ease-spring),
+    scale var(--motion-instant) var(--ease-out);
+}
+[role='switch']:active:not(:disabled) > .motion-switch-thumb {
+  scale: 1.1 0.94;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0.01ms;
+    --duration-normal: 0.01ms;
+    --motion-instant: 0.01ms;
+    --motion-fast: 0.01ms;
+    --motion-normal: 0.01ms;
+    --motion-slow: 0.01ms;
+  }
+  .motion-press:active:where(:not(:disabled):not([aria-disabled='true'])) {
+    scale: 1;
+  }
+  .motion-check-pop {
+    animation: none;
+  }
+  .motion-popover-surface.motion-popover-surface[data-state='open'],
+  .motion-popover-surface.motion-popover-surface[data-state='delayed-open'],
+  .motion-popover-surface.motion-popover-surface[data-state='instant-open'],
+  .motion-popover-surface.motion-popover-surface[data-state='closed'],
+  .motion-sheet-surface.motion-sheet-surface[data-state='open'],
+  .motion-sheet-surface.motion-sheet-surface[data-state='closed'],
+  .motion-dialog-surface.motion-dialog-surface[data-state='open'],
+  .motion-dialog-surface.motion-dialog-surface[data-state='closed'],
+  .motion-overlay-backdrop.motion-overlay-backdrop[data-state='open'],
+  .motion-overlay-backdrop.motion-overlay-backdrop[data-state='closed'] {
+    animation-duration: 0.01ms;
+  }
+  [role='switch']:active:not(:disabled) > .motion-switch-thumb {
+    scale: 1;
   }
 }

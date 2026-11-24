@@ -101,6 +101,9 @@ const AGENT_LAYER_RANK: Readonly<Record<string, number>> = {
   orchestration: 5,
 }
 
+/** ADR 0034 Phase 4 PR-4.3：`modules/agent/runtime/` 单文件扇出硬上限（严格 < 12）。 */
+const MAX_AGENT_RUNTIME_FAN_OUT = 11
+
 const JS_EXTENSION_PATTERN = /\.(?:[cm]?js|jsx)$/
 
 function resolveInternalTarget(
@@ -185,13 +188,20 @@ interface ImportGraphs {
   runtimeAdjacency: Map<string, string[]>
   /** 完整依赖（含 import/export type 与动态导入），用于边界与封装门禁。 */
   allAdjacency: Map<string, string[]>
+  /** 每个源文件去重后的总导入模块数（含外部包与本地模块），用于单文件扇出门禁。 */
+  specifierCounts: Map<string, number>
 }
 
 async function buildImportGraphs(rootDir: string): Promise<ImportGraphs> {
   const normalizedRoot = resolve(rootDir)
   const files: string[] = []
   if (!existsSync(normalizedRoot)) {
-    return { files, runtimeAdjacency: new Map(), allAdjacency: new Map() }
+    return {
+      files,
+      runtimeAdjacency: new Map(),
+      allAdjacency: new Map(),
+      specifierCounts: new Map(),
+    }
   }
 
   for await (const file of sourceGlob.scan({ cwd: normalizedRoot, onlyFiles: true })) {
@@ -203,6 +213,7 @@ async function buildImportGraphs(rootDir: string): Promise<ImportGraphs> {
 
   const runtimeAdjacency = new Map<string, string[]>()
   const allAdjacency = new Map<string, string[]>()
+  const specifierCounts = new Map<string, number>()
   for (const file of files) {
     const text = await Bun.file(resolve(normalizedRoot, file)).text()
     const transpiler = file.endsWith('.tsx') ? tsxTranspiler : tsTranspiler
@@ -218,15 +229,17 @@ async function buildImportGraphs(rootDir: string): Promise<ImportGraphs> {
       const target = resolveInternalTarget(normalizedRoot, file, imp.path)
       if (target && target !== file) runtimeTargets.add(target)
     }
+    const allSpecifiers = scanAllSpecifiers(file, text)
     const allTargets = new Set<string>(runtimeTargets)
-    for (const specifier of scanAllSpecifiers(file, text)) {
+    for (const specifier of allSpecifiers) {
       const target = resolveInternalTarget(normalizedRoot, file, specifier)
       if (target && target !== file) allTargets.add(target)
     }
     runtimeAdjacency.set(file, [...runtimeTargets].sort())
     allAdjacency.set(file, [...allTargets].sort())
+    specifierCounts.set(file, allSpecifiers.length)
   }
-  return { files, runtimeAdjacency, allAdjacency }
+  return { files, runtimeAdjacency, allAdjacency, specifierCounts }
 }
 
 export function findStronglyConnectedCycles(
@@ -286,11 +299,24 @@ function agentLayerOf(rest: string): string | null {
 }
 
 export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
-  const { files, runtimeAdjacency, allAdjacency } = await buildImportGraphs(bffRoot)
+  const { files, runtimeAdjacency, allAdjacency, specifierCounts } =
+    await buildImportGraphs(bffRoot)
   const violations: string[] = []
 
   for (const file of files) {
     const fromModule = moduleOf(file)
+    if (
+      fromModule?.name === 'agent' &&
+      agentLayerOf(fromModule.rest) === 'runtime' &&
+      fromModule.rest !== 'runtime/index.ts'
+    ) {
+      const fanOut = specifierCounts.get(file) ?? 0
+      if (fanOut > MAX_AGENT_RUNTIME_FAN_OUT) {
+        violations.push(
+          `[agent-runtime-fanout] ${file} imports ${fanOut} modules (max ${MAX_AGENT_RUNTIME_FAN_OUT})`,
+        )
+      }
+    }
 
     for (const target of allAdjacency.get(file) ?? []) {
       const edge = `${file} -> ${target}`
@@ -386,6 +412,10 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
         if (layer === 'contracts' || layer === 'conversation' || layer === 'inbox') {
           violations.push(
             `[agent-${layer} -> legacy-agent] ${edge} is not allowed (${layer} layer must stay free of lib/agent deps)`,
+          )
+        } else if (layer === 'runtime' && target.startsWith('lib/agent/tools/')) {
+          violations.push(
+            `[agent-runtime -> legacy-tools] ${edge} is not allowed (inject tool capabilities via TurnRuntimePorts instead)`,
           )
         }
       }

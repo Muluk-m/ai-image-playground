@@ -119,5 +119,9 @@ export default function MediaImage({
       ? resolved.value
       : undefined
     : src
-  return <img {...props} src={value} />
+  const className =
+    deferred && value
+      ? [props.className, 'animate-fade-in'].filter(Boolean).join(' ')
+      : props.className
+  return <img {...props} className={className} src={value} />
 }

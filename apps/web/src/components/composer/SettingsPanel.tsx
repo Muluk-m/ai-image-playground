@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { useSlidingIndicator } from '../../hooks/useSlidingIndicator'
 import { useTranslation } from '../../i18n'
 import { parseRatio } from '../../lib/size'
 import { cn } from '../../lib/utils'
@@ -190,17 +191,20 @@ export function SettingsSubpage({
     return () => returnFocusRef?.current?.focus()
   }, [returnFocusRef])
   return (
-    <section className="space-y-3" aria-label={title}>
+    <section className="animate-subpage-in space-y-3" aria-label={title}>
       <Button
         ref={backRef}
         type="button"
         variant="ghost"
         size="sm"
-        className="-ml-2 gap-1 font-medium"
+        className="group -ml-2 gap-1 font-medium"
         aria-label={t('settings.back', { title })}
         onClick={onBack}
       >
-        <Icon name="chevronLeft" />
+        <Icon
+          name="chevronLeft"
+          className="transition-transform duration-instant ease-motion-out group-hover:-translate-x-0.5 motion-reduce:transition-none"
+        />
         {title}
       </Button>
       {children}
@@ -225,13 +229,16 @@ export function SettingsLinkRow({
       ref={ref}
       type="button"
       variant="ghost"
-      className="-mx-2 h-9 w-[calc(100%+1rem)] justify-between px-2 font-normal"
+      className="group -mx-2 h-9 w-[calc(100%+1rem)] justify-between px-2 font-normal"
       onClick={onClick}
     >
       <span className="text-body-sm text-foreground">{label}</span>
       <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
         <span className="truncate">{value}</span>
-        <Icon name="chevronRight" />
+        <Icon
+          name="chevronRight"
+          className="transition-transform duration-instant ease-motion-out group-hover:translate-x-0.5 motion-reduce:transition-none"
+        />
       </span>
     </Button>
   )
@@ -270,9 +277,9 @@ interface SegmentOption<T extends string | number> {
 const SEGMENT_TRACK = cn(field, 'rounded-full p-0.5')
 const GRID_TRACK = cn(field, 'rounded-2xl p-0.5')
 const SEGMENT_ITEM =
-  'text-xs font-normal text-muted-foreground transition-[background-color,color] duration-150 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground aria-pressed:bg-background aria-pressed:font-medium aria-pressed:text-foreground aria-pressed:shadow-sm'
+  'text-xs font-normal text-muted-foreground transition-colors duration-fast ease-motion-out hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground aria-pressed:bg-background aria-pressed:font-medium aria-pressed:text-foreground aria-pressed:shadow-sm motion-reduce:transition-none'
 
-/** 分段选择：互斥的几档并排，选中项浮起来。 */
+/** 分段选择：互斥的几档并排，单行模式选中胶囊平顺滑动。 */
 export function SettingsSegmented<T extends string | number>({
   label,
   options,
@@ -286,15 +293,26 @@ export function SettingsSegmented<T extends string | number>({
   onChange: (value: T) => void
 }) {
   const grid = options.length > 10
+  const { containerRef, indicatorStyle, visible } = useSlidingIndicator(grid ? null : value)
+  const slideActive = !grid && visible
   return (
     <div
+      ref={grid ? undefined : containerRef}
       role="group"
       aria-label={label}
       className={cn(
+        'relative',
         grid ? 'grid grid-cols-5 gap-1' : 'flex gap-0.5',
         grid ? GRID_TRACK : SEGMENT_TRACK,
       )}
     >
+      {slideActive && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute left-0 top-0 z-0 rounded-full bg-background shadow-sm"
+          style={indicatorStyle}
+        />
+      )}
       {options.map((option) => (
         <Button
           variant="ghost"
@@ -305,10 +323,11 @@ export function SettingsSegmented<T extends string | number>({
           disabled={option.disabled}
           onClick={() => onChange(option.value)}
           className={cn(
-            'min-w-0 flex-1 truncate rounded-full tabular-nums',
+            'relative z-[1] min-w-0 flex-1 truncate rounded-full tabular-nums hover:bg-transparent',
             // 档位多（数量 1–10）时收窄内边距，两位数也放得下。
             options.length > 6 ? 'px-0.5' : 'px-2',
             SEGMENT_ITEM,
+            slideActive && 'aria-pressed:bg-transparent aria-pressed:shadow-none',
           )}
         >
           {option.label}

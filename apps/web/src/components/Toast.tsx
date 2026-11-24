@@ -1,11 +1,30 @@
-import { useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useStore } from '../store'
 import { Icon } from './ui/icon'
+
+const TOAST_EXIT_MS = 160
 
 export default function Toast() {
   const toast = useStore((s) => s.toast)
   const appMode = useStore((s) => s.appMode)
   const hostRef = useRef<HTMLDivElement>(null)
+  const [rendered, setRendered] = useState(toast)
+  const [exiting, setExiting] = useState(false)
+
+  useEffect(() => {
+    if (toast) {
+      setRendered(toast)
+      setExiting(false)
+      return
+    }
+    if (!rendered) return
+    setExiting(true)
+    const timer = window.setTimeout(() => {
+      setRendered(null)
+      setExiting(false)
+    }, TOAST_EXIT_MS)
+    return () => window.clearTimeout(timer)
+  }, [toast, rendered])
 
   const getIcon = (type: NonNullable<typeof toast>['type']) => {
     switch (type) {
@@ -55,24 +74,24 @@ export default function Toast() {
       window.removeEventListener('resize', place)
       host.style.top = ''
     }
-  }, [toast, appMode])
+  }, [rendered, appMode])
 
   return (
     <div
       ref={hostRef}
       role="status"
       aria-live="polite"
-      className="fixed left-1/2 top-16 z-[1400] pointer-events-none"
+      className="fixed left-1/2 top-16 z-[1400] -translate-x-1/2 pointer-events-none"
     >
-      {toast && (
+      {rendered && (
         <div
-          key={toast.message}
-          className="toast-enter flex items-center gap-2.5 w-max max-w-[calc(100vw-32px)] sm:max-w-[min(28rem,60vw)] px-5 py-3.5 bg-card/95 backdrop-blur-xl border border-border/60 rounded-full shadow-popover ring-1 ring-hairline text-sm font-medium text-foreground"
+          key={`${rendered.type}:${rendered.message}`}
+          className={`${exiting ? 'toast-exit' : 'toast-enter'} flex items-center gap-2.5 w-max max-w-[calc(100vw-32px)] sm:max-w-[min(28rem,60vw)] px-5 py-3.5 bg-card/95 backdrop-blur-xl border border-border/60 rounded-full shadow-popover ring-1 ring-hairline text-sm font-medium text-foreground`}
         >
           <span className="flex-shrink-0" aria-hidden="true">
-            {getIcon(toast.type)}
+            {getIcon(rendered.type)}
           </span>
-          <span className="leading-5 whitespace-pre-line text-center">{toast.message}</span>
+          <span className="leading-5 whitespace-pre-line text-center">{rendered.message}</span>
         </div>
       )}
     </div>

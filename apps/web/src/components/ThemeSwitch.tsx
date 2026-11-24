@@ -21,12 +21,25 @@ export default function ThemeSwitch({ className }: { className?: string }) {
   const { t } = useTranslation('common')
   const { choice, setChoice } = useTheme()
 
+  const activeIndex = Math.max(
+    0,
+    SEGMENTS.findIndex((segment) => segment.choice === choice),
+  )
+
   return (
     <div
       role="group"
       aria-label={t('theme.label')}
-      className={cn('flex rounded-full bg-muted p-0.5', className)}
+      className={cn('relative grid grid-cols-3 rounded-full bg-muted p-0.5', className)}
     >
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-y-0.5 left-0.5 z-0 rounded-full bg-card shadow-sm transition-transform duration-normal ease-motion-in-out motion-reduce:transition-none"
+        style={{
+          width: 'calc((100% - 4px) / 3)',
+          transform: `translate3d(${activeIndex * 100}%, 0, 0)`,
+        }}
+      />
       {SEGMENTS.map((segment) => {
         const active = choice === segment.choice
         return (
@@ -38,10 +51,8 @@ export default function ThemeSwitch({ className }: { className?: string }) {
             aria-label={t(THEME_LABEL_KEY[segment.choice])}
             aria-pressed={active}
             className={cn(
-              'rounded-full',
-              active
-                ? 'bg-card text-foreground shadow-sm hover:bg-card'
-                : 'text-muted-foreground hover:bg-transparent',
+              'relative z-[1] rounded-full hover:bg-transparent',
+              active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
             )}
             onClick={() => setChoice(segment.choice)}
           >

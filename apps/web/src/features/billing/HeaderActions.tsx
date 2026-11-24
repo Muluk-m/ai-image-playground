@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { useAnimatedNumber } from '../../hooks/useAnimatedNumber'
 import {
   BRAND_WORDMARK,
   Button,
@@ -36,9 +37,10 @@ export function HeaderCreditAction() {
   const { account } = useBilling()
   const { tier } = useMembershipState()
   useTranslation()
+  const total = availableCredits(account)
+  const { display, direction } = useAnimatedNumber(total)
   if (!enabled || account?.access_state === 'access_denied' || account?.unmetered?.enabled)
     return null
-  const total = availableCredits(account)
   return (
     <Button
       type="button"
@@ -53,8 +55,15 @@ export function HeaderCreditAction() {
       size="sm"
       className="hidden tabular-nums sm:inline-flex"
     >
-      <CreditIcon className="h-3.5 w-3.5" style={{ color: TIER_COLORS[tier] }} />
-      {total === null ? '—' : formatCredits(total)}
+      <CreditIcon
+        className={`h-3.5 w-3.5 transition-transform duration-fast ease-motion-spring motion-reduce:transition-none motion-reduce:scale-100 ${direction ? 'scale-110' : ''}`}
+        style={{ color: TIER_COLORS[tier] }}
+      />
+      <span
+        className={`transition-colors duration-normal ease-motion-out ${direction === 'up' ? 'text-success' : ''}`}
+      >
+        {display === null ? '—' : formatCredits(display)}
+      </span>
     </Button>
   )
 }
@@ -300,7 +309,7 @@ export function HeaderActions({
         {menuOpen ? (
           <div
             role="menu"
-            className="absolute right-0 top-[calc(100%+0.75rem)] z-50 max-h-[calc(100dvh-5rem)] w-[400px] max-w-[calc(100vw-1.5rem)] overflow-y-auto overscroll-contain rounded-2xl border border-border bg-card p-4 text-foreground shadow-popover"
+            className="animate-popover-in origin-top-right absolute right-0 top-[calc(100%+0.75rem)] z-50 max-h-[calc(100dvh-5rem)] w-[400px] max-w-[calc(100vw-1.5rem)] overflow-y-auto overscroll-contain rounded-2xl border border-border bg-card p-4 text-foreground shadow-popover ring-1 ring-hairline"
           >
             <div className="flex items-center gap-3">
               <div className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-primary text-sm font-semibold text-primary-foreground">

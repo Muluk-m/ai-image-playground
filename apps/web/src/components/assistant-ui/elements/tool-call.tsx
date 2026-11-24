@@ -47,7 +47,7 @@ export function ToolCall({
           <Icon
             name="chevronRight"
             className={cn(
-              ' opacity-0 transition motion-reduce:transition-none group-hover:opacity-60 group-focus-visible:opacity-60',
+              'opacity-0 transition-[opacity,transform] duration-fast ease-motion-out motion-reduce:transition-none group-hover:opacity-60 group-focus-visible:opacity-60',
               open && 'rotate-90 opacity-60',
             )}
           />
@@ -56,7 +56,10 @@ export function ToolCall({
       <div
         id={id}
         hidden={!open}
-        className="ml-1.5 mt-0.5 border-l border-border py-0.5 pl-4 text-xs text-muted-foreground has-[>div:empty]:hidden"
+        className={cn(
+          'ml-1.5 mt-0.5 border-l border-border py-0.5 pl-4 text-xs text-muted-foreground has-[>div:empty]:hidden',
+          open && 'animate-reveal-down',
+        )}
       >
         {children}
       </div>
