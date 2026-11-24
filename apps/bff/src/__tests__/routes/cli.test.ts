@@ -1093,6 +1093,25 @@ describe('native GIF and SVG', () => {
     expect(JSON.stringify(task)).toContain('"size":"768x768"')
   })
 
+  it('picks a model that can make the requested GIF or SVG when none is named', async () => {
+    const user = await createUser('format-default')
+    const { access_token } = await connect(user)
+    for (const format of ['gif', 'svg']) {
+      const preview = await call('POST', '/v1/image-jobs/validate', {
+        body: imageJob({ output_format: format }),
+        headers: bearer(access_token),
+      })
+      expect(preview.status).toBe(200)
+      expect(preview.json.data.normalized).toMatchObject({ model: IMAGE_26, output_format: format })
+    }
+    // A plain image keeps the listed default.
+    const plain = await call('POST', '/v1/image-jobs/validate', {
+      body: imageJob(),
+      headers: bearer(access_token),
+    })
+    expect(plain.json.data.normalized.model).toBe('gemini-3-pro-image')
+  })
+
   it('treats png as a regular image, keeping the request hash', async () => {
     const user = await createUser('png-alias')
     const { access_token } = await connect(user)

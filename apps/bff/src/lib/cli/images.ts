@@ -691,15 +691,21 @@ async function submittableTiers(tx: BffTransaction, userId: string, model: CliIm
 
 /**
  * 不指定模型时提交的模型：该账号能提交的第一个，与能力清单的 `default_model` 同一个判断。
+ * 要了 GIF / SVG 时只在能直出该格式的模型（能力清单 `output_formats`）里挑。
  * 一个都提交不了时退回清单第一个，由后续校验给出明确的拒绝原因。
  */
 export async function defaultImageModelId(
   userId: string,
   models: readonly CliImageModel[],
+  outputFormat?: string,
 ): Promise<string | undefined> {
   if (models.length === 0) return undefined
+  const special = outputFormat === 'gif' || outputFormat === 'svg' ? outputFormat : undefined
+  const candidates = special
+    ? models.filter((model) => outputFormatsFor(model.id).includes(special))
+    : models
   const found = await db.transaction(async (tx) => {
-    for (const model of models) {
+    for (const model of candidates) {
       if ((await submittableTiers(tx, userId, model)).tiers.length) return model.id
     }
     return undefined
