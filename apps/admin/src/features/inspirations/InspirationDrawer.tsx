@@ -282,13 +282,15 @@ function InspirationEditor({
       try {
         await setStatus.mutateAsync({ id, status: 'draft' })
       } catch (statusError) {
-        setError(inspirationErrorMessage(statusError))
+        if (mountedRef.current) setError(inspirationErrorMessage(statusError))
         return
       }
     }
+    if (!mountedRef.current) return
     const unchanged = draftRevisionRef.current === rev
     if (unchanged) setSavedNotice('已保存草稿')
-    if (!item) onCreated(id, unchanged ? '已保存草稿' : undefined)
+    // 保存期间用户继续输入时留在当前编辑器（已记录 createdId 与未保存脏状态），避免重挂丢稿。
+    if (!item && unchanged) onCreated(id, '已保存草稿')
   }
 
   async function runConfirmed(): Promise<void> {
@@ -299,10 +301,12 @@ function InspirationEditor({
     setSavedNotice(null)
     try {
       if (action === 'publish') {
+        const rev = draftRevisionRef.current
         const id = await save()
         if (!id) return
         await setStatus.mutateAsync({ id, status: 'published' })
-        if (!item) onCreated(id)
+        if (!mountedRef.current) return
+        if (!item && draftRevisionRef.current === rev) onCreated(id)
         return
       }
       if (!savedId) return
@@ -311,9 +315,9 @@ function InspirationEditor({
         return
       }
       await remove.mutateAsync(savedId)
-      onClose()
+      if (mountedRef.current) onClose()
     } catch (actionError) {
-      setError(inspirationErrorMessage(actionError))
+      if (mountedRef.current) setError(inspirationErrorMessage(actionError))
     }
   }
 
