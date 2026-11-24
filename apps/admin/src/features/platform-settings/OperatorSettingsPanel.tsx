@@ -863,7 +863,7 @@ function SettingRowView({
                   variant="ghost"
                   aria-label={`固定${row.name}当前值为覆盖`}
                   aria-description="将当前基线值保存为显式覆盖，后续发布变更基线时不受影响"
-                  className="text-muted-foreground/70 opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                  className="text-muted-foreground/60 transition-opacity hover:text-foreground [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:group-hover:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:focus-visible:opacity-100"
                   disabled={pending}
                   onClick={() => onRequestSave(row, row.effective)}
                 >
@@ -923,7 +923,7 @@ function SettingRowView({
                   variant="ghost"
                   aria-label={`固定${row.name}当前值为覆盖`}
                   aria-description="将当前基线值保存为显式覆盖，后续发布变更基线时不受影响"
-                  className="text-muted-foreground/70 opacity-0 transition-opacity hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+                  className="text-muted-foreground/60 transition-opacity hover:text-foreground [@media(hover:hover)_and_(pointer:fine)]:opacity-0 [@media(hover:hover)_and_(pointer:fine)]:group-hover:opacity-100 [@media(hover:hover)_and_(pointer:fine)]:focus-visible:opacity-100"
                   disabled={pending}
                   onClick={() => onRequestSave(row, row.effective)}
                 >
