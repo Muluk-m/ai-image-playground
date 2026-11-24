@@ -25,7 +25,7 @@ on:
         type: boolean
         default: false
       dispatch_id:
-        description: 调用方关联标识（由 scripts/release.sh 或自动合批器生成，手工触发留空即可）
+        description: 调用方关联标识（由 scripts/release.sh 生成，手工触发留空即可）
         type: string
         required: false
 permissions:
