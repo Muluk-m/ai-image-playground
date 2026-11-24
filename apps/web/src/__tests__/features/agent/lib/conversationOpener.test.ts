@@ -202,6 +202,24 @@ describe('createConversationOpener', () => {
     expect(h.state()).toMatchObject({ messages: [text('m1')], historyCached: false })
   })
 
+  it.each([
+    ['服务端历史为空', (h: ReturnType<typeof harness>) => h.remote.resolve(snapshot())],
+    [
+      '会话已不存在',
+      (h: ReturnType<typeof harness>) => h.remote.reject(new AgentRequestError(404, 'not_found')),
+    ],
+  ])('%s 后迟到的本机快照不再当预览', async (_, settle) => {
+    const h = harness()
+    h.setProject(undefined)
+    const done = h.open('c1')
+    settle(h)
+    await done
+    h.cachedPanel.resolve({ messages: [text('cached')], turns: {} })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(h.state()).toMatchObject({ messages: [], historyCached: false })
+  })
+
   it('面板已有内容（重开同一会话）时本机快照不覆盖', async () => {
     const h = harness({ conversationId: 'c1' })
     void h.open('c1')
@@ -265,6 +283,22 @@ describe('createConversationOpener', () => {
     expect(h.state()).toMatchObject({ historyLoading: false, historyFailed: true })
     expect(h.deps.fail).toHaveBeenCalledWith(UNREADABLE())
     expect(h.deps.project.open).not.toHaveBeenCalled()
+  })
+
+  it('从项目摘会话期间又切了会话：不回到旧项目、不清掉新会话', async () => {
+    const h = harness()
+    h.deps.project.detach.mockImplementationOnce(async () => {
+      h.supersede()
+      h.deps.set({ conversationId: 'c2' })
+    })
+    const done = h.open('c1')
+    h.remote.reject(new AgentRequestError(404, 'not_found'))
+    await done
+    expect(h.deps.project.detach).toHaveBeenCalledWith('p1')
+    expect(h.deps.project.open).not.toHaveBeenCalled()
+    expect(h.deps.sessionReset).not.toHaveBeenCalledWith(null)
+    expect(h.state().conversationId).toBe('c2')
+    expect(h.deps.fail).not.toHaveBeenCalled()
   })
 
   it.each([
