@@ -1,71 +1,103 @@
 /*
  * 按渠道或「渠道/模型」限制同时在途的上游请求数（`channels.json` 的 `maxConcurrency` /
- * `models[].maxConcurrency`，键由 upstream.ts 的 concurrencyFor 决定）。
+ * `models[].maxConcurrency`，键由 upstream/routes.ts 的 concurrencyFor 决定）。
  *
  * Vertex AI 直连实测（2026-10-22）：限流按模型各算各的，每个模型连着只放过 2–3 条，之后大约每
  * 40–50 秒放一条，所以每个模型配 2。一单多张在 BFF 里拆成 N 条请求，多个任务也会同时出图，排队必须
  * 放在任务之上。上限只管同时在途，挡不住持续超速；超出的 429 由 upstream/vertex.ts 在请求内退避重发。
  *
- * 计数在进程内，这对现在的部署就是全局的：
- * - generateContent 只由 worker 发出。BFF 进程里唯一调 callUpstream 的是任务核查：它只对有上游
- *   任务 id 的任务查结果（Gemini 同步请求没有），而且 `beforeRequest` 会在发出前拒绝任何新请求。
- * - deploy/compose.app.yaml 只跑一个 worker 副本。
- * 唯一的例外是发版交接：旧 worker 排空（WORKER_DRAIN_TIMEOUT_MS，默认 55 秒）期间新旧两个进程各有
- * 一份位，同一模型最多 4 条。那段时间多出来的 429 走现有重试策略（retry.ts 把 429 当可重试）。
- * 要扩成多个 worker 副本时，这里得换成跨进程的租约（例如数据库里带过期时间的槽位表）。
+ * 计数默认在进程内（InMemoryConcurrencyGate），通过 ConcurrencyGate 端口抽象预留扩展点：
+ * 未来扩成多个 worker 副本时，可直接替换为跨进程租约实现（例如数据库或 Redis 槽位表），
+ * 上游执行器无需改动。
  */
+
+export interface ConcurrencyGate {
+  /**
+   * 等到目标通道有空位再返回 release；`signal` 中止时放弃排队并抛出中止原因，不占位。
+   * release 只能调一次，重复调用会被忽略。
+   */
+  acquire(channelId: string, limit: number, signal?: AbortSignal): Promise<() => void>
+}
 
 interface Gate {
   active: number
   waiting: Array<() => void>
 }
 
-const gates = new Map<string, Gate>()
+export class InMemoryConcurrencyGate implements ConcurrencyGate {
+  private readonly gates = new Map<string, Gate>()
+
+  async acquire(channelId: string, limit: number, signal?: AbortSignal): Promise<() => void> {
+    let gate = this.gates.get(channelId)
+    if (!gate) {
+      gate = { active: 0, waiting: [] }
+      this.gates.set(channelId, gate)
+    }
+    const current = gate
+    if (signal?.aborted) throw abortReason(signal)
+    if (current.active < limit) {
+      current.active += 1
+    } else {
+      // 空位由 release 直接交给队首，不经过 active 计数，避免同一刻新来的请求插队超额。
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => {
+          const index = current.waiting.indexOf(wake)
+          if (index >= 0) current.waiting.splice(index, 1)
+          if (signal) reject(abortReason(signal))
+        }
+        const wake = () => {
+          signal?.removeEventListener('abort', onAbort)
+          resolve()
+        }
+        current.waiting.push(wake)
+        signal?.addEventListener('abort', onAbort, { once: true })
+      })
+    }
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const next = current.waiting.shift()
+      if (next) return next()
+      current.active -= 1
+      // 闲下来就把 gate 丢掉，Map 只留有请求在途的渠道。
+      if (current.active === 0 && this.gates.get(channelId) === current)
+        this.gates.delete(channelId)
+    }
+  }
+
+  stateFor(channelId: string): { active: number; waiting: number } {
+    const gate = this.gates.get(channelId)
+    return { active: gate?.active ?? 0, waiting: gate?.waiting.length ?? 0 }
+  }
+
+  gateCount(): number {
+    return this.gates.size
+  }
+}
+
+export const defaultConcurrencyGate = new InMemoryConcurrencyGate()
+
+let activeConcurrencyGate: ConcurrencyGate = defaultConcurrencyGate
+
+export function getConcurrencyGate(): ConcurrencyGate {
+  return activeConcurrencyGate
+}
+
+export function setConcurrencyGateForTesting(gate?: ConcurrencyGate): void {
+  activeConcurrencyGate = gate ?? defaultConcurrencyGate
+}
 
 /**
  * 等到渠道有空位再返回 release；`signal` 中止时放弃排队并抛出中止原因，不占位。
  * release 只能调一次，重复调用会被忽略。
  */
-export async function acquireChannelSlot(
+export function acquireChannelSlot(
   channelId: string,
   limit: number,
   signal?: AbortSignal,
 ): Promise<() => void> {
-  let gate = gates.get(channelId)
-  if (!gate) {
-    gate = { active: 0, waiting: [] }
-    gates.set(channelId, gate)
-  }
-  const current = gate
-  if (signal?.aborted) throw abortReason(signal)
-  if (current.active < limit) {
-    current.active += 1
-  } else {
-    // 空位由 release 直接交给队首，不经过 active 计数，避免同一刻新来的请求插队超额。
-    await new Promise<void>((resolve, reject) => {
-      const onAbort = () => {
-        const index = current.waiting.indexOf(wake)
-        if (index >= 0) current.waiting.splice(index, 1)
-        if (signal) reject(abortReason(signal))
-      }
-      const wake = () => {
-        signal?.removeEventListener('abort', onAbort)
-        resolve()
-      }
-      current.waiting.push(wake)
-      signal?.addEventListener('abort', onAbort, { once: true })
-    })
-  }
-  let released = false
-  return () => {
-    if (released) return
-    released = true
-    const next = current.waiting.shift()
-    if (next) return next()
-    current.active -= 1
-    // 闲下来就把 gate 丢掉，Map 只留有请求在途的渠道。
-    if (current.active === 0 && gates.get(channelId) === current) gates.delete(channelId)
-  }
+  return activeConcurrencyGate.acquire(channelId, limit, signal)
 }
 
 function abortReason(signal: AbortSignal): unknown {
@@ -74,11 +106,10 @@ function abortReason(signal: AbortSignal): unknown {
 
 /** 测试用：看某个渠道当前占了几个位、排了几个。 */
 export function channelSlotStateForTesting(channelId: string): { active: number; waiting: number } {
-  const gate = gates.get(channelId)
-  return { active: gate?.active ?? 0, waiting: gate?.waiting.length ?? 0 }
+  return defaultConcurrencyGate.stateFor(channelId)
 }
 
 /** 测试用：当前还留着 gate 的渠道数（闲下来的渠道不该留）。 */
 export function channelGateCountForTesting(): number {
-  return gates.size
+  return defaultConcurrencyGate.gateCount()
 }
