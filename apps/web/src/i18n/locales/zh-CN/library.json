@@ -19,7 +19,8 @@
     "noMatchAssets": "没有匹配的素材",
     "noMatchTemplates": "没有匹配的提示词",
     "noMatchLooks": "没有匹配的模板",
-    "dropToSave": "松开即存为素材"
+    "dropToSave": "松开即存为素材",
+    "pickToAttach": "点击任意素材直接加入当前参考图"
   },
   "asset": {
     "new": "新建素材",
@@ -165,6 +166,7 @@
   },
   "hint": {
     "rightClickToSave": "右键可存为素材",
+    "touchToSave": "长按参考图可存为素材",
     "close": "关闭提示"
   },
   "mention": {

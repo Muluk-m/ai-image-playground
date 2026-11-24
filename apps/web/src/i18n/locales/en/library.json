@@ -19,7 +19,8 @@
     "noMatchAssets": "No matching assets",
     "noMatchTemplates": "No matching prompts",
     "noMatchLooks": "No matching templates",
-    "dropToSave": "Drop to save as an asset"
+    "dropToSave": "Drop to save as an asset",
+    "pickToAttach": "Click an asset to attach it as a reference"
   },
   "asset": {
     "new": "New asset",
@@ -170,6 +171,7 @@
   },
   "hint": {
     "rightClickToSave": "Right-click to save as an asset",
+    "touchToSave": "Long-press a reference to save as an asset",
     "close": "Dismiss hint"
   },
   "mention": {

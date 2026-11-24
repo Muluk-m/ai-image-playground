@@ -127,21 +127,14 @@ export default function LibraryPage() {
           className="ml-auto w-auto shrink-0"
           value={searchKeyword}
           onChange={(event) => setSearch(event.target.value)}
+          onClear={() => setSearch('')}
           placeholder={t(SEARCH_PLACEHOLDER[tab])}
         />
-        {tab === 'looks' && (
-          <>
-            <Button variant="outline" onClick={() => setCreating('look')}>
-              <Icon name="add" />
-              {t('look.new')}
-            </Button>
-            {agentReady && (
-              <Button onClick={() => handoffToAgent('/create-look ')}>
-                <Icon name="generate" />
-                {t('look.createWithAgent')}
-              </Button>
-            )}
-          </>
+        {tab === 'looks' && agentReady && (
+          <Button onClick={() => handoffToAgent('/create-look ')}>
+            <Icon name="generate" />
+            {t('look.createWithAgent')}
+          </Button>
         )}
       </PageHeader>
 

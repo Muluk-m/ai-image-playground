@@ -367,6 +367,7 @@
     "pointInclude": "添加",
     "pointExclude": "排除",
     "pointHint": "点击添加区域，按住 Alt（⌥）点击排除",
+    "pointHintTouch": "点选添加区域，切换「排除」后点选排除",
     "pointUnavailable": "智能点选暂不可用，请用画笔调整",
     "regions": "画面里有 {{count}} 个相似对象，点编号选择要改的",
     "region": "对象 {{number}}",

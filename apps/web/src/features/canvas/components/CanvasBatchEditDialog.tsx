@@ -3,6 +3,7 @@ import { LABEL, PANEL_SECTION, PANEL_TITLE } from '../../../components/panelStyl
 import Overlay from '../../../components/patterns/Overlay'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { Textarea } from '../../../components/ui/textarea'
 import { useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
@@ -22,7 +23,7 @@ export default function CanvasBatchEditDialog({
   images: readonly ImageEl[]
   onClose: () => void
 }) {
-  const { t } = useTranslation('canvas')
+  const { t } = useTranslation(['canvas', 'common'])
   const [prompt, setPrompt] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const settings = useStore((state) => state.settings)
@@ -49,13 +50,29 @@ export default function CanvasBatchEditDialog({
   return (
     <Overlay onClose={submitting ? () => {} : onClose} tier="raised">
       <div className="relative z-10 w-full max-w-md rounded-2xl border border-border bg-card p-4 shadow-2xl ring-1 ring-hairline animate-modal-in">
-        <h3 className={`${PANEL_TITLE} mb-3`}>{t('batch.editTitle', { count: images.length })}</h3>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <h3 className={PANEL_TITLE}>{t('batch.editTitle', { count: images.length })}</h3>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            autoTooltip={false}
+            disabled={submitting}
+            onClick={onClose}
+            aria-label={t('common:action.close')}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <Icon name="close" />
+          </Button>
+        </div>
         <div className={`${LABEL} mb-1.5`}>{t('imageEdit.promptLabel')}</div>
         <Textarea
           autoFocus
+          disabled={submitting}
           value={prompt}
           onChange={(event) => setPrompt(event.target.value)}
           onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return
             if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
               event.preventDefault()
               void submit()
@@ -74,15 +91,27 @@ export default function CanvasBatchEditDialog({
             blockedAction={guard.blockedAction}
             className="mb-1.5 text-label-sm"
           />
-          <Button
-            type="button"
-            size="sm"
-            className="w-full"
-            disabled={guard.blocked || submitting || !prompt.trim()}
-            onClick={() => void submit()}
-          >
-            {t('batch.editSubmit', { count: images.length })}
-          </Button>
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={submitting}
+              onClick={onClose}
+            >
+              {t('common:action.cancel')}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              className="flex-1"
+              disabled={guard.blocked || submitting || !prompt.trim()}
+              onClick={() => void submit()}
+            >
+              {submitting && <Icon name="loading" className="animate-spin" />}
+              {t('batch.editSubmit', { count: images.length })}
+            </Button>
+          </div>
         </div>
       </div>
     </Overlay>

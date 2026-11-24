@@ -17,11 +17,13 @@ export default function AssetHint() {
   }, [visible])
 
   if (!visible) return null
+  const isTouch =
+    typeof window !== 'undefined' && Boolean(window.matchMedia?.('(pointer: coarse)').matches)
 
   return (
     <div className="mb-2 flex items-center gap-1.5 rounded-lg bg-primary/[0.08] px-2 py-1 text-xs text-primary">
       <Icon name="assets" size="xs" className="shrink-0" />
-      <span className="flex-1">{t('hint.rightClickToSave')}</span>
+      <span className="flex-1">{t(isTouch ? 'hint.touchToSave' : 'hint.rightClickToSave')}</span>
       <Button
         type="button"
         variant="ghost"

@@ -389,6 +389,7 @@
     "pointInclude": "Add",
     "pointExclude": "Exclude",
     "pointHint": "Click to add, Alt (⌥)-click to exclude",
+    "pointHintTouch": "Tap to add a region, or switch to Exclude and tap to remove",
     "pointUnavailable": "Click selection is unavailable. Use the brush instead",
     "regions": "{{count}} similar objects. Pick the numbers to change",
     "region": "Object {{number}}",

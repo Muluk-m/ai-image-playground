@@ -57,6 +57,7 @@ export default function SearchBar({ compact = false }: { compact?: boolean } = {
       <SearchField
         value={searchQuery}
         onChange={(event) => setSearchQuery(event.target.value)}
+        onClear={() => setSearchQuery('')}
         placeholder={t('search.placeholder')}
         aria-label={t('search.placeholder')}
         className="z-10 min-w-0 max-w-none flex-1"

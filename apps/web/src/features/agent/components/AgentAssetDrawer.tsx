@@ -365,6 +365,7 @@ export default function AgentAssetDrawer({
             className="max-w-none"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
+            onClear={() => setSearch('')}
             placeholder={t('assets.search')}
             aria-label={t('assets.search')}
           />

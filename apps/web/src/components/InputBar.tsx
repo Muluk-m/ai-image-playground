@@ -45,6 +45,7 @@ import type { AgentDraft } from '../features/agent/lib/references'
 import { useAgentSkills } from '../features/agent/lib/useAgentSkills'
 import { useAttachmentStackProgress } from '../features/agent/lib/useAttachmentStackProgress'
 import CanvasVideoParams from '../features/canvas/components/CanvasVideoParams'
+import NodeAssetPicker from '../features/canvas/components/NodeAssetPicker'
 import { useActiveLook } from '../features/library/lib/activeLook'
 import {
   type AtMentionValue,
@@ -186,7 +187,15 @@ function referenceUploadGate(references: readonly { dataUrl: string }[]) {
 }
 
 export default function InputBar({ inline = false }: { inline?: boolean } = {}) {
-  const { t, i18n } = useTranslation(['composer', 'common', 'agent', 'lib', 'task', 'store'])
+  const { t, i18n } = useTranslation([
+    'composer',
+    'common',
+    'agent',
+    'lib',
+    'library',
+    'task',
+    'store',
+  ])
   const prompt = useStore((s) => s.prompt)
   const setPrompt = useStore((s) => s.setPrompt)
   const inputImages = useStore((s) => s.inputImages)
@@ -197,7 +206,6 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const setShowSettings = useStore((s) => s.setShowSettings)
   const setLightboxImageId = useStore((s) => s.setLightboxImageId)
   const showToast = useStore((s) => s.showToast)
-  const setAppMode = useStore((s) => s.setAppMode)
   const startNamingAsset = useLibraryStore((s) => s.startNaming)
   const assets = useLibraryStore((s) => s.assets)
   const loadAssets = useLibraryStore((s) => s.loadAssets)
@@ -233,6 +241,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   } | null>(null)
   // 附件按钮弹的「图片 / 文件夹」二选一，与画布工具条那颗回形针同一套菜单。
   const [attachMenu, setAttachMenu] = useState<{ x: number; y: number } | null>(null)
+  const [libraryPickerZone, setLibraryPickerZone] = useState<'loop' | 'shared' | null>(null)
   const attachZoneRef = useRef<'loop' | 'shared'>('loop')
   const [justMovedSharedId, setJustMovedSharedId] = useState<string | null>(null)
   const [batchSending, setBatchSending] = useState(false)
@@ -2225,13 +2234,35 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 icon={<Icon name="assets" />}
                 label={t('studio.library')}
                 onClick={() => {
+                  const zone = isBatchMode ? attachZoneRef.current : 'loop'
                   setAttachMenu(null)
-                  useLibraryStore.getState().setTab('assets')
-                  setAppMode('library')
+                  setLibraryPickerZone(zone)
                 }}
               />
             </ContextMenu>
-          )}{' '}
+          )}
+          {libraryPickerZone && (
+            <NodeAssetPicker
+              description={t('library:panel.pickToAttach')}
+              onClose={() => setLibraryPickerZone(null)}
+              onChoose={(asset, imageId) => {
+                const zone = libraryPickerZone
+                const targetAdmission = zone === 'shared' ? sharedAdmission : admission
+                const revision = attachmentRevision.current
+                setLibraryPickerZone(null)
+                void useLibraryStore
+                  .getState()
+                  .attachAsset(asset.id, targetAdmission, {
+                    targetZone: zone,
+                    imageId,
+                    shouldCommit: () => revision === attachmentRevision.current,
+                  })
+                  .catch(() => {
+                    showToast(t('library:toast.assetImageMissing'), 'error')
+                  })
+              }}
+            />
+          )}
         </CreationFrame>
       </div>
     </>

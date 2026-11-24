@@ -107,7 +107,15 @@ export interface LibraryState {
    * 第一张取到的视角；已在条里的复用原序号。一张都取不回来、或整组放不下时返回 null。
    * 准入默认按当前生图模型算；图不是给它用的（首屏「画布」档交给第一轮）由调用方给一份。
    */
-  attachAsset: (id: string, admission?: ReferenceAdmission) => Promise<number | null>
+  attachAsset: (
+    id: string,
+    admission?: ReferenceAdmission,
+    options?: {
+      targetZone?: 'loop' | 'shared'
+      imageId?: string
+      shouldCommit?: () => boolean
+    },
+  ) => Promise<number | null>
   /** 记一次使用。「最近用过」的排序是唯一读者，所以每条附加路径都要过它。 */
   noteAssetUsed: (id: string) => Promise<void>
 
@@ -241,15 +249,26 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     set((s) => ({ assets: s.assets.filter((a) => a.id !== id) }))
   },
 
-  attachAsset: async (id, admission) => {
+  attachAsset: async (id, admission, options) => {
     const asset = get().assets.find((a) => a.id === id)
     if (!asset) return null
-    const main = useStore.getState()
 
-    const views = await assetViewImages(asset)
+    const views = options?.imageId
+      ? await referencesForImageIds([options.imageId])
+      : await assetViewImages(asset)
+    if (options?.shouldCommit && !options.shouldCommit()) return null
+    const main = useStore.getState()
     if (views.length === 0) {
       main.showToast(i18next.t('library:toast.assetImageMissing'), 'error')
       return null
+    }
+    const targetZone = options?.targetZone ?? 'loop'
+    if (targetZone === 'shared') {
+      if (main.createTarget !== 'batch') return null
+      const indexes = main.attachBatchSharedImages(views, admission)
+      if (!indexes) return null
+      await writeAsset(set, asset.id, { lastUsedAt: Date.now() })
+      return indexes[0] ?? null
     }
     const before = main.inputImages.length
     // 组里全部视角是一组：整组落地或整组不落，准入与去重都归参考图草稿管。
