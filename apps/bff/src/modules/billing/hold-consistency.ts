@@ -1,4 +1,4 @@
-import { createDb, tasks } from '@image-playground/db'
+import { createDb, resolvedTaskMetering, task_payloads, tasks } from '@image-playground/db'
 import { taskHolds } from '@image-playground/db/billing'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 
@@ -107,7 +107,7 @@ function joinedKind(staleBefore: number) {
   WHEN ${tasks.status} = 'completed' AND ${taskHolds.status} = 'released' THEN 'delivered_not_charged'
   WHEN ${tasks.status} IN ('failed', 'cancelled') AND ${taskHolds.status} = 'committed' THEN 'charged_without_result'
   WHEN ${tasks.status} IN (${list(ACTIVE)}) AND ${taskHolds.status} IN ('committed', 'released') THEN 'early_settlement'
-  WHEN ${tasks.metering}->>'mode' = 'none' THEN 'hold_on_unmetered_task'
+  WHEN ${resolvedTaskMetering}->>'mode' = 'none' THEN 'hold_on_unmetered_task'
   WHEN (${taskHolds.status} = 'held') <> (${taskHolds.settled_at} IS NULL) THEN 'hold_state_incoherent'
   WHEN ${tasks.status} IN ('queued', 'in_progress') AND ${taskHolds.status} = 'held' AND ${tasks.submitted_at} < ${before} THEN 'stale_active_hold'
 END`
@@ -150,6 +150,7 @@ export async function checkHoldConsistency(input: {
         })
         .from(taskHolds)
         .innerJoin(tasks, eq(tasks.id, taskHolds.task_id))
+        .leftJoin(task_payloads, eq(task_payloads.task_id, tasks.id))
         .where(sql`${kindOf} IS NOT NULL`)
         .groupBy(kindOf)
       for (const row of grouped) {
@@ -173,6 +174,7 @@ export async function checkHoldConsistency(input: {
           })
           .from(taskHolds)
           .innerJoin(tasks, eq(tasks.id, taskHolds.task_id))
+          .leftJoin(task_payloads, eq(task_payloads.task_id, tasks.id))
           .where(sql`${kindOf} = ${kind}`)
           .orderBy(taskHolds.created_at)
           .limit(sampleLimit)
@@ -182,11 +184,12 @@ export async function checkHoldConsistency(input: {
       // 2. 需要计费的任务没有预扣记录。metering 为空的是开计费之前的任务，不算。
       // 分析任务在 billing:chat-free 下 metering.mode 仍写 credits，但按设计不预扣，
       // 它的 metering.pricing.exemption 记着豁免类型，这里只查 exemption 为 none（或没记）的。
-      const missing = sql`${tasks.metering}->>'mode' = 'credits' AND coalesce(${tasks.metering}->'pricing'->>'exemption', 'none') = 'none'`
+      const missing = sql`${resolvedTaskMetering}->>'mode' = 'credits' AND coalesce(${resolvedTaskMetering}->'pricing'->>'exemption', 'none') = 'none'`
       const [missingCount] = await tx
         .select({ tasks: sql<number>`count(*)::int` })
         .from(tasks)
         .leftJoin(taskHolds, eq(taskHolds.task_id, tasks.id))
+        .leftJoin(task_payloads, eq(task_payloads.task_id, tasks.id))
         .where(and(isNull(taskHolds.task_id), missing))
       counts.missing_hold = { tasks: missingCount?.tasks ?? 0, credits: 0 }
       if (counts.missing_hold.tasks > 0) {
@@ -201,6 +204,7 @@ export async function checkHoldConsistency(input: {
           })
           .from(tasks)
           .leftJoin(taskHolds, eq(taskHolds.task_id, tasks.id))
+          .leftJoin(task_payloads, eq(task_payloads.task_id, tasks.id))
           .where(and(isNull(taskHolds.task_id), missing))
           .orderBy(tasks.submitted_at)
           .limit(sampleLimit)

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { sqlBatchAttemptTarget } from '@image-playground/db'
+import { resolvedTaskResultPayload, sqlBatchAttemptTarget } from '@image-playground/db'
 import type {
   AgentBatchItem,
   AgentBatchItemExecution,
@@ -524,7 +524,7 @@ export async function readAgentBatchPlan(
           taskId: schema.agent_batch_attempts.task_id,
           status: schema.tasks.status,
           provider: schema.tasks.provider,
-          resultPayload: schema.tasks.result_payload,
+          resultPayload: resolvedTaskResultPayload,
           errorMessage: schema.tasks.error_message,
           errorType: schema.tasks.error_type,
           snapshot: schema.agent_batch_attempts.terminal_snapshot,
@@ -532,6 +532,7 @@ export async function readAgentBatchPlan(
         })
         .from(schema.agent_batch_attempts)
         .leftJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
+        .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
         .where(and(attemptScope, inArray(schema.agent_batch_attempts.item_key, pageKeys)))
       attemptRows.sort((a, b) => a.attempt - b.attempt)
       const attempts = attemptRows.map((one) => ({

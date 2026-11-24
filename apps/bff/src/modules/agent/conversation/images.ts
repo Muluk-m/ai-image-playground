@@ -1,3 +1,4 @@
+import { resolvedTaskResultPayload } from '@image-playground/db'
 import type {
   AgentMediaReference,
   AgentMessageView,
@@ -236,9 +237,10 @@ async function readTaskOutput(
     .select({
       status: schema.tasks.status,
       provider: schema.tasks.provider,
-      result_payload: schema.tasks.result_payload,
+      result_payload: resolvedTaskResultPayload,
     })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .leftJoin(schema.generation_records, eq(schema.generation_records.id, schema.tasks.id))
     // No-sync deployments and old records without source metadata still use retained tasks.
     // Never bypass deletion or a modern durable output's unavailable original.

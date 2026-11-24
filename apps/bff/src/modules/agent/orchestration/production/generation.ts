@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
+import { resolvedTaskResultPayload } from '@image-playground/db'
 import type {
   AgentToolResultBlock,
   ProductionContent,
@@ -251,9 +252,10 @@ export async function listProductionGenerations(
             id: schema.tasks.id,
             status: schema.tasks.status,
             provider: schema.tasks.provider,
-            result_payload: schema.tasks.result_payload,
+            result_payload: resolvedTaskResultPayload,
           })
           .from(schema.tasks)
+          .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
           .where(
             and(
               inArray(schema.tasks.id, taskIds),

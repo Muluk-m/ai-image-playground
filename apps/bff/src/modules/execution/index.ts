@@ -49,7 +49,7 @@ export {
   queueTaskOutcome,
   setQueueTaskPollingForTesting,
 } from './task-outcome'
-export { syncTaskPayloads } from './task-payloads'
+export { patchTaskPayload, readTaskPayloads, syncTaskPayloads } from './task-payloads'
 export {
   findAccessibleTaskInput,
   findAccessibleTaskOutput,

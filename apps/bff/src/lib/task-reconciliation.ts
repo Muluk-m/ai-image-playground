@@ -4,7 +4,7 @@ import sharp from 'sharp'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { protectMaskedOutput } from '../modules/agent/orchestration/masked/pure'
-import { finishTask, heldBy, type TerminalTaskUpdate } from '../modules/execution'
+import { finishTask, heldBy, readTaskPayloads, type TerminalTaskUpdate } from '../modules/execution'
 import { isCapabilityEnabled } from './capabilities'
 import { extractMeta, resolveImageBytesRef } from './extractImages'
 import {
@@ -26,7 +26,15 @@ export class ReconciliationError extends Error {
 }
 
 export async function readTaskReconciliation(taskId: string) {
-  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)).limit(1)
+  const [task] = await db
+    .select({
+      status: schema.tasks.status,
+      reconciliation_required: schema.tasks.reconciliation_required,
+      upstream_task_ids: schema.tasks.upstream_task_ids,
+    })
+    .from(schema.tasks)
+    .where(eq(schema.tasks.id, taskId))
+    .limit(1)
   if (!task) throw new ReconciliationError('task_not_found', 404)
   const dispatches = await db
     .select({
@@ -109,12 +117,23 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
     .digest('hex')}`
   const token = crypto.randomUUID()
   const claim = await db.transaction(async (tx) => {
-    const [task] = await tx
+    const [lockedTask] = await tx
       .select()
       .from(schema.tasks)
       .where(eq(schema.tasks.id, taskId))
       .for('update')
-    if (!task) throw new ReconciliationError('task_not_found', 404)
+    if (!lockedTask) throw new ReconciliationError('task_not_found', 404)
+    const payload = (await readTaskPayloads(tx, [lockedTask.id])).get(lockedTask.id)
+    const task = payload
+      ? {
+          ...lockedTask,
+          request_payload: payload.request_payload,
+          metering: payload.metering,
+          result_payload: payload.result_payload,
+          archive_payload: payload.archive_payload,
+          upstream_body: payload.upstream_body,
+        }
+      : lockedTask
     const [prior] = await tx
       .select()
       .from(schema.operator_audits)
