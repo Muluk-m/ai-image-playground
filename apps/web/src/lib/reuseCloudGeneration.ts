@@ -101,6 +101,9 @@ export async function reuseCloudGeneration(source: CloudReuseSource, signal: Abo
     activeProfileId: profile.id,
   })
   state.setParams(params)
+  if (state.createTarget === 'batch') {
+    useStore.setState({ createTarget: 'generate', batchSharedImages: [], batchZoneNotice: null })
+  }
   // 条与提示词一起换：这句话按这条记录自己的参考图序号写成，分两步写会按旧条把它重排坏。
   state.replaceInputImages(inputs, {
     prompt: guarded ? source.prompt.slice(guard.length) : source.prompt,

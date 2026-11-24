@@ -200,6 +200,7 @@ import { taskCancelled } from '../lib/taskError'
 import { removeKeyedBackgroundFromDataUrl } from '../lib/transparentImage'
 import {
   addCompletedCanvasTask,
+  clearData,
   confirmDialogAsync,
   editOutputImage,
   getPersistedState,
@@ -2108,7 +2109,62 @@ describe('快速生成的逐张生成', () => {
 
   afterEach(() => {
     setChannels([])
-    useStore.setState({ batchGenerate: false })
+    useStore.setState({
+      batchGenerate: false,
+      createTarget: 'generate',
+      batchSharedImages: [],
+      batchZoneNotice: null,
+    })
+  })
+
+  it('批量生图模式带共用参考时：每条任务发 [当前遍历图, ...共用参考] 并准确解析 @当前图 与 @参考1', async () => {
+    await setupBatchState(2, false)
+    const db = await import('../lib/db')
+    const shared = { id: 'shared-1', dataUrl: 'data:image/png;base64,shared1' }
+    await db.putImage({ ...shared, source: 'upload', createdAt: Date.now() })
+    const { getSelectedImageMentionLabel } = await import('../lib/promptImageMentions')
+    useStore.setState({
+      createTarget: 'batch',
+      batchSharedImages: [shared],
+      prompt: `把 ${getSelectedImageMentionLabel(0)} 的商品换成 ${getSelectedImageMentionLabel(1)}`,
+    })
+
+    await submitTask()
+    await waitUntil(
+      () => vi.mocked(callImageApi).mock.calls.length === 2,
+      'batch dual-zone requests were not sent',
+    )
+
+    const calls = vi.mocked(callImageApi).mock.calls
+    expect(calls.map((c) => c[0].inputImageDataUrls)).toEqual([
+      ['data:image/png;base64,ref1', 'data:image/png;base64,shared1'],
+      ['data:image/png;base64,ref2', 'data:image/png;base64,shared1'],
+    ])
+    expect(calls.map((c) => c[0].prompt)).toEqual([
+      '把 [image 1] 的商品换成 [image 2]',
+      '把 [image 1] 的商品换成 [image 2]',
+    ])
+  })
+
+  it('从图片生成切入批量生图时自动将已 @ 引用的图归入共用参考，且支持一键撤销', async () => {
+    await setupBatchState(2, false)
+    const { getSelectedImageMentionLabel } = await import('../lib/promptImageMentions')
+    useStore.setState({
+      createTarget: 'generate',
+      prompt: `把主图换成 ${getSelectedImageMentionLabel(1)}`,
+    })
+
+    useStore.getState().setCreateTarget('batch')
+    const afterSwitch = useStore.getState()
+    expect(afterSwitch.inputImages.map((img) => img.id)).toEqual(['ref-1'])
+    expect(afterSwitch.batchSharedImages.map((img) => img.id)).toEqual(['ref-2'])
+    expect(afterSwitch.batchZoneNotice).not.toBeNull()
+
+    useStore.getState().undoBatchZoneNotice()
+    const afterUndo = useStore.getState()
+    expect(afterUndo.inputImages.map((img) => img.id)).toEqual(['ref-1', 'ref-2'])
+    expect(afterUndo.batchSharedImages).toEqual([])
+    expect(afterUndo.batchZoneNotice).toBeNull()
   })
 
   it('每张参考图各发一条 n=1 的任务，只带自己那张图，同属一组', async () => {
@@ -3466,5 +3522,200 @@ describe('多图作品只删一张', () => {
     await removeTaskOutput(useStore.getState().tasks[0] as TaskRecord, 0)
     expect(deleteRemoteGenerationOutput).not.toHaveBeenCalled()
     expect((useStore.getState().tasks[0] as TaskRecord).outputImages).toEqual(['b'])
+  })
+})
+
+describe('batch dual-zone mode draft and submitTask guards', () => {
+  const editProfile: ClientProfile = {
+    id: 'openai-edit',
+    source: 'builtin-edge',
+    channelId: 'openai-edit',
+    selectedModelId: 'gpt-image-2',
+  }
+  const textOnlyProfile: ClientProfile = {
+    id: 'text-only',
+    source: 'builtin-edge',
+    channelId: 'text-only',
+    selectedModelId: 'text-only-model',
+  }
+  const imgA = { id: 'batch-a', dataUrl: 'data:image/png;base64,a' }
+  const imgB = { id: 'batch-b', dataUrl: 'data:image/png;base64,b' }
+
+  beforeEach(() => {
+    setChannels([
+      {
+        id: 'openai-edit',
+        kind: 'openai-queue',
+        label: 'OpenAI',
+        models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+      {
+        id: 'text-only',
+        kind: 'openai-queue',
+        label: 'TextOnly',
+        models: [{ id: 'text-only-model', label: 'Text Only', capabilities: ['generate'] }],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+    ])
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [editProfile, textOnlyProfile],
+        activeProfileId: editProfile.id,
+      }),
+      createTarget: 'generate',
+      prompt: '',
+      inputImages: [],
+      batchSharedImages: [],
+      batchZoneNotice: null,
+      maskDraft: null,
+      params: { ...DEFAULT_PARAMS },
+      tasks: [],
+      showToast: vi.fn(),
+    })
+  })
+
+  it('blocks submitTask in batch mode when model does not accept references or loop images are empty', async () => {
+    const showToast = vi.fn()
+    useStore.setState({
+      createTarget: 'batch',
+      prompt: '统一换成纯白底',
+      inputImages: [],
+      batchSharedImages: [],
+      showToast,
+    })
+
+    await submitTask()
+    expect(useStore.getState().tasks).toEqual([])
+    expect(showToast).toHaveBeenCalledTimes(1)
+
+    showToast.mockClear()
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [editProfile, textOnlyProfile],
+        activeProfileId: textOnlyProfile.id,
+      }),
+      inputImages: [imgA],
+    })
+
+    await submitTask()
+    expect(useStore.getState().tasks).toEqual([])
+    expect(showToast).toHaveBeenCalledTimes(1)
+  })
+
+  it('splits referenced images into shared on switching to batch, restores createTarget on undo, and clears notice on edit', () => {
+    const initialPrompt = `把主体换成 ${getSelectedImageMentionLabel(1)}`
+    useStore.setState({
+      createTarget: 'generate',
+      prompt: initialPrompt,
+      inputImages: [imgA, imgB],
+      batchSharedImages: [],
+    })
+
+    useStore.getState().setCreateTarget('batch')
+    const afterSwitch = useStore.getState()
+    expect(afterSwitch.createTarget).toBe('batch')
+    expect(afterSwitch.inputImages.map((i) => i.id)).toEqual(['batch-a'])
+    expect(afterSwitch.batchSharedImages.map((i) => i.id)).toEqual(['batch-b'])
+    expect(afterSwitch.batchZoneNotice).not.toBeNull()
+
+    useStore.getState().undoBatchZoneNotice()
+    const afterUndo = useStore.getState()
+    expect(afterUndo.createTarget).toBe('generate')
+    expect(afterUndo.prompt).toBe(initialPrompt)
+    expect(afterUndo.inputImages.map((i) => i.id)).toEqual(['batch-a', 'batch-b'])
+    expect(afterUndo.batchSharedImages).toEqual([])
+    expect(afterUndo.batchZoneNotice).toBeNull()
+
+    // Editing prompt clears any pending undo notice so stale snapshots cannot overwrite newer edits.
+    useStore.getState().setCreateTarget('batch')
+    expect(useStore.getState().batchZoneNotice).not.toBeNull()
+    useStore.getState().setPrompt('新提示词')
+    expect(useStore.getState().batchZoneNotice).toBeNull()
+  })
+
+  it('persists batch mode and both zones separately when persistInputOnRestart is enabled', () => {
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        persistInputOnRestart: true,
+        profiles: [editProfile],
+        activeProfileId: editProfile.id,
+      }),
+      createTarget: 'batch',
+      prompt: `参考 ${getSelectedImageMentionLabel(1)}`,
+      inputImages: [imgA],
+      batchSharedImages: [imgB],
+    })
+
+    const persisted = getPersistedState(useStore.getState())
+    expect(persisted.createTarget).toBe('batch')
+    expect(persisted.inputImages?.map((i) => i.id)).toEqual(['batch-a'])
+    expect(persisted.batchSharedImages?.map((i) => i.id)).toEqual(['batch-b'])
+    expect(persisted.prompt).toBe(`参考 ${getSelectedImageMentionLabel(1)}`)
+  })
+
+  it('clears both loop and shared batch zones plus undo notice in clearData', async () => {
+    useStore.setState({
+      createTarget: 'batch',
+      prompt: `参考 ${getSelectedImageMentionLabel(1)}`,
+      inputImages: [imgA],
+      batchSharedImages: [imgB],
+      batchZoneNotice: {
+        message: 'moved',
+        snapshot: { prompt: '', inputImages: [imgA], batchSharedImages: [] },
+      },
+    })
+
+    await clearData({ clearTasks: true, clearConfig: false })
+    const state = useStore.getState()
+    expect(state.inputImages).toEqual([])
+    expect(state.batchSharedImages).toEqual([])
+    expect(state.batchZoneNotice).toBeNull()
+  })
+
+  it('remaps shared mentions when initStore drops a missing persisted shared image', async () => {
+    await clearImages()
+    await putImage({
+      id: 'shared-kept',
+      dataUrl: 'data:image/png;base64,kept',
+      createdAt: Date.now(),
+    })
+    useStore.setState({
+      createTarget: 'batch',
+      prompt: `把 ${getSelectedImageMentionLabel(0)} 换成 ${getSelectedImageMentionLabel(2)}`,
+      inputImages: [],
+      batchSharedImages: [
+        { id: 'shared-missing', dataUrl: '' },
+        { id: 'shared-kept', dataUrl: '' },
+      ],
+    })
+
+    await initStore()
+    const state = useStore.getState()
+    expect(state.batchSharedImages).toEqual([
+      { id: 'shared-kept', dataUrl: 'data:image/png;base64,kept' },
+    ])
+    expect(state.prompt).toBe(
+      `把 ${getSelectedImageMentionLabel(0)} 换成 ${getSelectedImageMentionLabel(1)}`,
+    )
+  })
+
+  it('exits batch mode and merges zones when opening mask editor or setting maskDraft', () => {
+    useStore.setState({
+      createTarget: 'batch',
+      prompt: `把 ${getSelectedImageMentionLabel(0)} 换成 ${getSelectedImageMentionLabel(1)}`,
+      inputImages: [imgA],
+      batchSharedImages: [imgB],
+    })
+
+    useStore.getState().setMaskEditorImageId(imgA.id)
+    const state = useStore.getState()
+    expect(state.createTarget).toBe('generate')
+    expect(state.batchSharedImages).toEqual([])
+    expect(state.inputImages.map((i) => i.id)).toEqual(['batch-a', 'batch-b'])
+    expect(state.maskEditorImageId).toBe(imgA.id)
   })
 })

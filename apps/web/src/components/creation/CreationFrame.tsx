@@ -1,6 +1,8 @@
 import type { ComponentProps, ReactNode, Ref } from 'react'
 import { useTranslation } from '../../i18n'
 import { Hint } from '../assistant-ui/elements/tooltip-icon-button'
+import Badge from '../patterns/Badge'
+import FeatureDot from '../patterns/FeatureDot'
 import { Button } from '../ui/button'
 import { Icon, type IconName } from '../ui/icon'
 import { useOverflowTitle } from '../ui/overflowTitle'
@@ -130,12 +132,21 @@ export function CreationOptionPicker<T extends string>({
   options,
   label,
   side = 'top',
+  hasNew = false,
 }: {
   value: T
   onChange: (value: T) => void
-  options: readonly { value: T; label: string; shortLabel: string; icon: IconName }[]
+  options: readonly {
+    value: T
+    label: string
+    shortLabel: string
+    icon: IconName
+    badge?: string
+  }[]
   label: string
   side?: 'top' | 'bottom'
+  /** 列表里有未看过的新功能：在触发按钮右上角亮一颗芽绿点。 */
+  hasNew?: boolean
 }) {
   const selected = options.find((option) => option.value === value) ?? options[0]
   const fullName = useOverflowTitle<HTMLSpanElement>(selected?.label ?? '', { whenHidden: true })
@@ -148,7 +159,7 @@ export function CreationOptionPicker<T extends string>({
       }}
     >
       <Hint tooltip={fullName.title}>
-        <SelectTrigger aria-label={label} className="creation-mode-trigger">
+        <SelectTrigger aria-label={label} className="creation-mode-trigger relative">
           <SelectValue>
             <span className="creation-mode-value">
               {selected && <Icon name={selected.icon} />}
@@ -158,6 +169,7 @@ export function CreationOptionPicker<T extends string>({
               <span className="creation-mode-short">{selected?.shortLabel}</span>
             </span>
           </SelectValue>
+          {hasNew && <FeatureDot />}
         </SelectTrigger>
       </Hint>
       <SelectContent side={side} align="start" sideOffset={10} className="creation-mode-menu">
@@ -165,7 +177,12 @@ export function CreationOptionPicker<T extends string>({
           <SelectItem key={option.value} value={option.value} className="creation-mode-option">
             <span className="flex items-center gap-3">
               <Icon name={option.icon} />
-              {option.label}
+              <span>{option.label}</span>
+              {option.badge && (
+                <Badge tone="primary" className="shrink-0">
+                  {option.badge}
+                </Badge>
+              )}
             </span>
           </SelectItem>
         ))}
