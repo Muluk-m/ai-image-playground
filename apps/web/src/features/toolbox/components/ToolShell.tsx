@@ -109,7 +109,7 @@ export default function ToolShell({
     if (downloadingRef.current || deliverables.length === 0) return
     downloadingRef.current = true
     setLocalDownloading(true)
-    void downloadImages(deliverables, `${name}.zip`)
+    void Promise.resolve(downloadImages(deliverables, `${name}.zip`))
       .catch(() => {
         useStore.getState().showToast(t('result.failed'), 'error')
       })
@@ -123,7 +123,7 @@ export default function ToolShell({
     if (sendingRef.current || deliverables.length === 0) return
     sendingRef.current = true
     setSending(true)
-    void sendImagesToComposer(deliverables)
+    void Promise.resolve(sendImagesToComposer(deliverables))
       .catch(() => {
         useStore.getState().showToast(t('result.failed'), 'error')
       })
