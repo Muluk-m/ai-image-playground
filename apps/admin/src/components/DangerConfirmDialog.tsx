@@ -40,7 +40,13 @@ export function DangerConfirmDialog({
   }, [open])
   const trimmed = reason.trim()
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && pending) return
+        onOpenChange(next)
+      }}
+    >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>

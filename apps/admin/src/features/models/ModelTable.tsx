@@ -210,6 +210,7 @@ function AvailabilityConfirm({
       open={pendingActive !== null}
       onOpenChange={(open) => {
         if (!open) {
+          if (mutation.isPending) return
           mutation.reset()
           setPendingActive(null)
         }
