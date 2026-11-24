@@ -69,6 +69,7 @@ export function OperatorSettingsPanel() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [domainFilter, setDomainFilter] = useState<string>('all')
+  const [notice, setNotice] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [stale, setStale] = useState(false)
   const [pendingKey, setPendingKey] = useState<string | null>(null)
@@ -144,6 +145,7 @@ export function OperatorSettingsPanel() {
 
   async function executeSave(row: OperatorSettingRow, value: boolean | number, nextReason: string) {
     if (pendingKey !== null) return
+    setNotice(null)
     setError(null)
     setStale(false)
     setPendingKey(row.key)
@@ -155,6 +157,7 @@ export function OperatorSettingsPanel() {
       })
       await client.cancelQueries({ queryKey: operatorSettingsQueryKey })
       client.setQueryData(operatorSettingsQueryKey, snapshot)
+      setNotice(`已保存「${row.name}」`)
     } catch (cause) {
       const result = mutationError(cause)
       setError(result.message)
@@ -166,6 +169,7 @@ export function OperatorSettingsPanel() {
 
   async function executeClear(row: OperatorSettingRow, nextReason: string) {
     if (pendingKey !== null) return
+    setNotice(null)
     setError(null)
     setStale(false)
     setPendingKey(row.key)
@@ -176,6 +180,7 @@ export function OperatorSettingsPanel() {
       })
       await client.cancelQueries({ queryKey: operatorSettingsQueryKey })
       client.setQueryData(operatorSettingsQueryKey, snapshot)
+      setNotice(`已清除「${row.name}」的覆盖`)
     } catch (cause) {
       const result = mutationError(cause)
       setError(result.message)
@@ -186,6 +191,7 @@ export function OperatorSettingsPanel() {
   }
 
   async function refresh() {
+    setNotice(null)
     setError(null)
     setStale(false)
     await query.refetch()
@@ -417,7 +423,15 @@ export function OperatorSettingsPanel() {
         ) : null}
       </div>
 
-      {/* Mutation Error Alert */}
+      {/* Mutation Status & Error Alerts */}
+      {notice ? (
+        <p
+          role="status"
+          className="rounded-xl border border-success/30 bg-success/10 px-4 py-3 text-sm text-success"
+        >
+          {notice}
+        </p>
+      ) : null}
       {error ? (
         <div
           role="alert"

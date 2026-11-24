@@ -50,8 +50,16 @@ export function DangerConfirmDialog({
               原因 <span className="text-danger">*</span>
             </span>
             <Textarea
+              autoFocus
               value={reason}
               onChange={(event) => setReason(event.target.value.slice(0, REASON_MAX))}
+              onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing) return
+                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                  event.preventDefault()
+                  if (!pending && trimmed.length > 0) onConfirm(trimmed)
+                }
+              }}
               maxLength={REASON_MAX}
               rows={3}
               required

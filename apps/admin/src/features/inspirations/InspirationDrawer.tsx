@@ -7,7 +7,7 @@ import type {
 } from '@image-playground/shared'
 import { INSPIRATION_KINDS } from '@image-playground/shared'
 import { Loader2, Trash2 } from 'lucide-react'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 
 import { ErrorState, PendingState } from '@/components/Page'
 import { Badge } from '@/components/ui/badge'
@@ -74,59 +74,93 @@ export function InspirationDrawer({
 }: InspirationDrawerProps) {
   const detail = useInspiration(creating ? null : itemId)
   const [createdNotice, setCreatedNotice] = useState<{ id: string; text: string } | null>(null)
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const dirtyRef = useRef(false)
   const open = creating || itemId !== null
 
   useEffect(() => {
-    if (!open) setCreatedNotice(null)
+    if (!open) {
+      setCreatedNotice(null)
+      setConfirmDiscard(false)
+      dirtyRef.current = false
+    }
   }, [open])
 
+  const handleDirtyChange = useCallback((dirty: boolean) => {
+    dirtyRef.current = dirty
+  }, [])
+
+  const closeImmediately = () => {
+    dirtyRef.current = false
+    setConfirmDiscard(false)
+    setCreatedNotice(null)
+    onClose()
+  }
+
   const handleCreated = (id: string, notice?: string) => {
+    dirtyRef.current = false
     setCreatedNotice(notice ? { id, text: notice } : null)
     onCreated(id)
   }
 
   return (
-    <Sheet
-      open={open}
-      onOpenChange={(next) => {
-        if (!next) {
-          setCreatedNotice(null)
-          onClose()
-        }
-      }}
-    >
-      <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-2xl">
-        <SheetHeader className="border-b px-4 py-4 sm:px-6">
-          <SheetTitle>
-            {creating ? '新建灵感条目' : (detail.data?.title ?? '编辑灵感条目')}
-          </SheetTitle>
-          <SheetDescription className="sr-only">
-            {creating ? '新建灵感条目' : '编辑灵感条目'}
-          </SheetDescription>
-        </SheetHeader>
-        {creating ? (
-          <InspirationEditor
-            item={null}
-            categories={categories}
-            onClose={onClose}
-            onCreated={handleCreated}
-          />
-        ) : detail.isPending ? (
-          <PendingState label="加载条目" />
-        ) : detail.isError ? (
-          <ErrorState label="加载条目失败" error={detail.error} />
-        ) : (
-          <InspirationEditor
-            key={detail.data.id}
-            item={detail.data}
-            initialNotice={createdNotice?.id === detail.data.id ? createdNotice.text : null}
-            categories={categories}
-            onClose={onClose}
-            onCreated={handleCreated}
-          />
-        )}
-      </SheetContent>
-    </Sheet>
+    <>
+      <Sheet
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) {
+            if (dirtyRef.current) {
+              setConfirmDiscard(true)
+              return
+            }
+            closeImmediately()
+          }
+        }}
+      >
+        <SheetContent className="flex w-full flex-col gap-0 p-0 sm:max-w-2xl">
+          <SheetHeader className="border-b px-4 py-4 sm:px-6">
+            <SheetTitle>
+              {creating ? '新建灵感条目' : (detail.data?.title ?? '编辑灵感条目')}
+            </SheetTitle>
+            <SheetDescription className="sr-only">
+              {creating ? '新建灵感条目' : '编辑灵感条目'}
+            </SheetDescription>
+          </SheetHeader>
+          {creating ? (
+            <InspirationEditor
+              item={null}
+              categories={categories}
+              onClose={closeImmediately}
+              onCreated={handleCreated}
+              onDirtyChange={handleDirtyChange}
+            />
+          ) : detail.isPending ? (
+            <PendingState label="加载条目" />
+          ) : detail.isError ? (
+            <ErrorState label="加载条目失败" error={detail.error} />
+          ) : (
+            <InspirationEditor
+              key={detail.data.id}
+              item={detail.data}
+              initialNotice={createdNotice?.id === detail.data.id ? createdNotice.text : null}
+              categories={categories}
+              onClose={closeImmediately}
+              onCreated={handleCreated}
+              onDirtyChange={handleDirtyChange}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
+      <ConfirmDialog
+        open={confirmDiscard}
+        onOpenChange={setConfirmDiscard}
+        title="放弃未保存的修改？"
+        description="关闭后本次未保存的编辑内容将会丢失。"
+        confirmLabel="放弃并关闭"
+        destructive
+        onConfirm={closeImmediately}
+      />
+    </>
   )
 }
 
@@ -157,12 +191,14 @@ function InspirationEditor({
   categories,
   onClose,
   onCreated,
+  onDirtyChange,
 }: {
   item: InspirationAdminItem | null
   initialNotice?: string | null
   categories: InspirationCategory[]
   onClose: () => void
   onCreated: (id: string, notice?: string) => void
+  onDirtyChange: (dirty: boolean) => void
 }) {
   const [draft, setDraft] = useState<InspirationWriteInput>(() =>
     item ? toWriteInput(item) : emptyDraft(categories[0]?.id ?? ''),
@@ -171,10 +207,12 @@ function InspirationEditor({
   const [error, setError] = useState<string | null>(null)
   const [savedNotice, setSavedNotice] = useState<string | null>(initialNotice)
   const draftRevisionRef = useRef(0)
+  const savedRevisionRef = useRef(0)
   const [confirming, setConfirming] = useState<PendingConfirm | null>(null)
   // 新建成功后先别急着换抽屉：紧跟着的发布校验可能被拒，错误得有地方显示。
   // 等这一轮动作整个做完才 onCreated（它会改 URL 并按新 id 重挂编辑器）。
   const [createdId, setCreatedId] = useState<string | null>(null)
+  const [createdStatus, setCreatedStatus] = useState<InspirationAdminItem['status'] | null>(null)
   const skills = useAgentSkillCatalog()
   const assetBase = useInspirationAssetBase()
   const create = useCreateInspiration()
@@ -183,34 +221,55 @@ function InspirationEditor({
   const setStatus = useSetInspirationStatus()
   const busy = create.isPending || update.isPending || remove.isPending || setStatus.isPending
   const savedId = item?.id ?? createdId
-  // 服务端此刻的状态：新建出来的条目一定是草稿。
-  const savedStatus = item?.status ?? (createdId ? 'draft' : null)
+  // 服务端此刻的状态：新建条目保留本地编辑时，也随每次发布/草稿/下架同步真实状态。
+  const savedStatus = item?.status ?? createdStatus
+
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    mountedRef.current = true
+    onDirtyChange(false)
+    return () => {
+      mountedRef.current = false
+      onDirtyChange(false)
+    }
+  }, [onDirtyChange])
 
   function patch(next: Partial<InspirationWriteInput>): void {
     draftRevisionRef.current += 1
+    onDirtyChange(draftRevisionRef.current !== savedRevisionRef.current)
     setSavedNotice(null)
     setDraft((current) => ({ ...current, ...next }))
   }
 
   function patchParams(next: Partial<InspirationParams>): void {
     draftRevisionRef.current += 1
+    onDirtyChange(draftRevisionRef.current !== savedRevisionRef.current)
     setSavedNotice(null)
     setDraft((current) => ({ ...current, params: { ...current.params, ...next } }))
   }
 
   /** 保存返回条目 id；失败时返回 null，错误已经写进提示栏。 */
   async function save(): Promise<string | null> {
+    const rev = draftRevisionRef.current
     setError(null)
     try {
       if (savedId) {
         await update.mutateAsync({ ...draft, id: savedId })
+        if (!mountedRef.current) return null
+        savedRevisionRef.current = rev
+        onDirtyChange(draftRevisionRef.current !== savedRevisionRef.current)
         return savedId
       }
       const created = await create.mutateAsync(draft)
+      if (!mountedRef.current) return null
+      savedRevisionRef.current = rev
+      onDirtyChange(draftRevisionRef.current !== savedRevisionRef.current)
       setCreatedId(created.item.id)
+      setCreatedStatus(created.item.status)
       return created.item.id
     } catch (saveError) {
-      setError(inspirationErrorMessage(saveError))
+      if (mountedRef.current) setError(inspirationErrorMessage(saveError))
       return null
     }
   }
@@ -224,14 +283,17 @@ function InspirationEditor({
     if (savedStatus && savedStatus !== 'draft') {
       try {
         await setStatus.mutateAsync({ id, status: 'draft' })
+        if (mountedRef.current && !item) setCreatedStatus('draft')
       } catch (statusError) {
-        setError(inspirationErrorMessage(statusError))
+        if (mountedRef.current) setError(inspirationErrorMessage(statusError))
         return
       }
     }
+    if (!mountedRef.current) return
     const unchanged = draftRevisionRef.current === rev
     if (unchanged) setSavedNotice('已保存草稿')
-    if (!item) onCreated(id, unchanged ? '已保存草稿' : undefined)
+    // 保存期间用户继续输入时留在当前编辑器（已记录 createdId 与未保存脏状态），避免重挂丢稿。
+    if (!item && unchanged) onCreated(id, '已保存草稿')
   }
 
   async function runConfirmed(): Promise<void> {
@@ -242,21 +304,25 @@ function InspirationEditor({
     setSavedNotice(null)
     try {
       if (action === 'publish') {
+        const rev = draftRevisionRef.current
         const id = await save()
         if (!id) return
         await setStatus.mutateAsync({ id, status: 'published' })
-        if (!item) onCreated(id)
+        if (!mountedRef.current) return
+        if (!item) setCreatedStatus('published')
+        if (!item && draftRevisionRef.current === rev) onCreated(id)
         return
       }
       if (!savedId) return
       if (action === 'archive') {
         await setStatus.mutateAsync({ id: savedId, status: 'archived' })
+        if (mountedRef.current && !item) setCreatedStatus('archived')
         return
       }
       await remove.mutateAsync(savedId)
-      onClose()
+      if (mountedRef.current) onClose()
     } catch (actionError) {
-      setError(inspirationErrorMessage(actionError))
+      if (mountedRef.current) setError(inspirationErrorMessage(actionError))
     }
   }
 
