@@ -160,7 +160,7 @@ export default function AssetDetail({
                 </Button>
               </div>
             </form>
-          ) : (
+          ) : description.trim().length > 0 ? (
             <div className="mb-5">
               <h4 className="text-sm font-medium text-foreground">
                 {t('createAsset.description')}
@@ -169,7 +169,7 @@ export default function AssetDetail({
                 {description}
               </p>
             </div>
-          )}
+          ) : null}
           <ul className="grid grid-cols-3 gap-2">
             {asset.views.map((view, index) => (
               <li key={view.imageId} className="flex flex-col gap-1">
@@ -239,9 +239,9 @@ export default function AssetDetail({
             type="button"
             size="sm"
             disabled={saving || asset.views.length === 0}
-            onClick={() => {
-              void attachAsset(asset.id)
-              onClose()
+            onClick={async () => {
+              const attached = await attachAsset(asset.id)
+              if (attached !== null) onClose()
             }}
           >
             {t('asset.addAsReference')}

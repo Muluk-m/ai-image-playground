@@ -104,7 +104,6 @@ async function doApply(item: InspirationItem): Promise<void> {
     current.showToast(
       i18next.t('apply.noProfile', {
         ns: 'inspiration',
-        provider: item.recommendedProvider,
         model: item.recommendedModel,
       }),
       'info',

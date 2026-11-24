@@ -126,7 +126,7 @@ export default function ProjectTrash({
           )}
         </div>
       )}
-      {!loading && !projects.length && !localCopies.length && (
+      {!loading && !error && !projects.length && !localCopies.length && (
         <p className="py-8 text-muted-foreground">{t('trash.empty')}</p>
       )}
       {projects.map((project) => {

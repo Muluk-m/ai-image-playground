@@ -125,9 +125,16 @@ export default function NodeCanvasToolbar({
         <NodeTool icon="redo" label={t('nodes.redo')} disabled={!canRedo} onClick={onRedo} />
         <span className="studio-node-tool-divider" />
         <NodeTool
-          icon={mode === 'select' ? 'select' : 'pan'}
-          label={mode === 'select' ? `${t('nodes.pan')} (H)` : `${t('nodes.select')} (V)`}
-          onClick={() => onMode(mode === 'select' ? 'pan' : 'select')}
+          icon="select"
+          label={`${t('nodes.select')} (V)`}
+          pressed={mode === 'select'}
+          onClick={() => onMode('select')}
+        />
+        <NodeTool
+          icon="pan"
+          label={`${t('nodes.pan')} (H)`}
+          pressed={mode === 'pan'}
+          onClick={() => onMode('pan')}
         />
         <span className="studio-node-tool-divider" />
         <NodeTool

@@ -8,8 +8,8 @@
   },
   "task": {
     "interrupted": "请求中断",
-    "byokUnrecoverable": "这条自带密钥的任务无法再恢复，请重新生成",
-    "timeout": "请求超时：超过 {{timeoutSeconds}} 秒仍未完成，请稍后重试或提高超时时间。",
+    "byokUnrecoverable": "这条任务无法跨会话恢复，请重新生成",
+    "timeout": "请求超时（超过 {{timeoutSeconds}} 秒仍未完成），请稍后重试。",
     "profileMissing": "找不到这次生成所用的模型，请换个模型重试",
     "inputImageMissing": "输入图片已不存在",
     "maskImageMissing": "遮罩图片已不存在"

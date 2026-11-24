@@ -110,13 +110,20 @@ export default function CreateRecordDialog(props: Props) {
         await props.onSave({ files, name: name.trim(), purpose, description: description.trim() })
       }
       props.onClose()
+    } catch {
+      useStore.getState().showToast(t(isAsset ? 'asset.saveFailed' : 'look.saveFailed'), 'error')
     } finally {
       setSaving(false)
     }
   }
 
+  const handleClose = () => {
+    if (saving) return
+    props.onClose()
+  }
+
   return (
-    <Overlay onClose={props.onClose} tier="raised" label={t(`${ns}.title`)}>
+    <Overlay onClose={handleClose} tier="raised" label={t(`${ns}.title`)}>
       <form
         onSubmit={(e) => {
           e.preventDefault()
@@ -140,9 +147,11 @@ export default function CreateRecordDialog(props: Props) {
           )}
           <Button
             type="button"
+            variant="ghost"
             autoTooltip={false}
             size="icon-sm"
-            onClick={props.onClose}
+            disabled={saving}
+            onClick={handleClose}
             aria-label={t('common:action.close')}
             className="text-muted-foreground hover:bg-muted hover:text-foreground"
           >
@@ -170,13 +179,15 @@ export default function CreateRecordDialog(props: Props) {
                   />
                   <Button
                     type="button"
+                    variant="ghost"
                     autoTooltip={false}
                     size="icon-xs"
+                    disabled={saving}
                     onClick={() => setFiles((current) => current.filter((_, j) => j !== i))}
                     aria-label={t('common:action.delete')}
-                    className="absolute -right-1.5 -top-1.5"
+                    className="absolute -right-1.5 -top-1.5 size-5 rounded-full bg-scrim/70 p-0 text-on-media hover:bg-scrim hover:text-on-media"
                   >
-                    <Icon name="close" />
+                    <Icon name="close" size="xs" />
                   </Button>
                 </li>
               ))}
@@ -312,12 +323,14 @@ export default function CreateRecordDialog(props: Props) {
           <Button
             type="button"
             variant="ghost"
-            onClick={props.onClose}
+            disabled={saving}
+            onClick={handleClose}
             className="text-muted-foreground"
           >
             {t('common:action.cancel')}
           </Button>
           <Button type="submit" disabled={!canSave}>
+            {saving && <Icon name="loading" size="xs" className="animate-spin" />}
             {t(`${ns}.save`)}
           </Button>
         </div>
