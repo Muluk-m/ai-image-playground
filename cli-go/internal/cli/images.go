@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"net/http"
 	"net/url"
@@ -100,7 +101,11 @@ func (f *imageFlags) body(ctx context.Context, a *App, c *client.HTTPClient) (ma
 	if len(f.refs) > 0 {
 		ids := make([]string, 0, len(f.refs))
 		for _, ref := range f.refs {
-			if info, err := os.Stat(ref); err == nil && !info.IsDir() {
+			info, err := os.Stat(ref)
+			if err == nil {
+				if info.IsDir() {
+					return nil, fail("INVALID_REQUEST", "--ref expects a file, not a directory: %s", ref)
+				}
 				media, err := a.uploadMedia(ctx, c, ref)
 				if err != nil {
 					return nil, err
@@ -108,11 +113,25 @@ func (f *imageFlags) body(ctx context.Context, a *App, c *client.HTTPClient) (ma
 				ids = append(ids, media.MediaID)
 				continue
 			}
+			if errors.Is(err, os.ErrNotExist) && looksLikeLocalPath(ref) {
+				return nil, fail("INVALID_REQUEST", "Reference file not found: %s", ref)
+			}
 			ids = append(ids, ref)
 		}
 		body["reference_media_ids"] = ids
 	}
 	return body, nil
+}
+
+func looksLikeLocalPath(ref string) bool {
+	if strings.ContainsAny(ref, `/\`) || strings.HasPrefix(ref, ".") || strings.HasPrefix(ref, "~") {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(ref)) {
+	case ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff", ".avif", ".heic", ".svg":
+		return true
+	}
+	return false
 }
 
 func cmdImagesValidate(ctx context.Context, a *App, args []string) (any, error) {
@@ -183,10 +202,23 @@ func cmdImagesCreate(ctx context.Context, a *App, args []string) (any, error) {
 	fs := newFlags("images create")
 	flags := bindImageFlags(fs)
 	key := fs.String("idempotency-key", "", "Key that makes retrying the same request safe (8-64 of A-Z a-z 0-9 _ . : -); omitted: generated")
-	wait := fs.Int("wait", 0, "Wait up to SECONDS (max 3600) for the job to finish; 0 returns once submitted")
-	downloadDir := fs.String("download", "", "After a successful wait, save the results into DIR")
+	wait := fs.Int("wait", 0, "Wait up to SECONDS (max 3600) for the job to finish; 0 returns once submitted (defaults to 300 when --download is set)")
+	downloadDir := fs.String("download", "", "Wait for completion and save the results into DIR")
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
+	}
+	waitSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "wait" {
+			waitSet = true
+		}
+	})
+	if *downloadDir != "" {
+		if !waitSet {
+			*wait = 300
+		} else if *wait <= 0 {
+			return nil, fail("USAGE", "--download requires waiting for completion; omit --wait or pass --wait > 0")
+		}
 	}
 	c, err := a.apiClient(ctx)
 	if err != nil {
