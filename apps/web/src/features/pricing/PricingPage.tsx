@@ -6,7 +6,7 @@ import { i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
 import { formatCount, formatNumber } from '../../i18n/format'
 import { useLocalePicker } from '../../i18n/useLocalePicker'
 import { navigate } from '../../lib/pathname'
-import { openPricing, openRecharge } from '../billing/billing-store'
+import { openPricing, openRecharge, queueBillingModal } from '../billing/billing-store'
 import { GUIDE_PATHS } from '../guide/paths'
 import {
   BILLING_CYCLES,
@@ -144,9 +144,8 @@ export default function PricingPage({
       auth.login()
       return
     }
+    if (intent === 'pricing' || intent === 'recharge') queueBillingModal(intent)
     navigate('/image')
-    if (intent === 'pricing') requestAnimationFrame(() => openPricing())
-    else if (intent === 'recharge') requestAnimationFrame(() => openRecharge())
   }
 
   const leave = () => {

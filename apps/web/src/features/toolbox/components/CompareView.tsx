@@ -1,6 +1,7 @@
-import { type PointerEvent, useEffect, useRef, useState } from 'react'
+import { type PointerEvent, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
+import { useCloseOnEscape } from '../../../hooks/useCloseOnEscape'
 import { useTranslation } from '../../../i18n'
 
 const clamp = (value: number) => Math.min(100, Math.max(0, value))
@@ -19,15 +20,7 @@ export default function CompareView({
   const [split, setSplit] = useState(50)
   const box = useRef<HTMLDivElement>(null)
   const dragging = useRef(false)
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return
-      event.preventDefault()
-      onExit()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onExit])
+  useCloseOnEscape(true, onExit)
   const follow = (event: PointerEvent) => {
     const rect = box.current?.getBoundingClientRect()
     if (rect?.width) setSplit(clamp(((event.clientX - rect.left) / rect.width) * 100))
@@ -80,7 +73,6 @@ export default function CompareView({
           const step = event.shiftKey ? 10 : 2
           if (event.key === 'ArrowLeft') setSplit((value) => clamp(value - step))
           else if (event.key === 'ArrowRight') setSplit((value) => clamp(value + step))
-          else if (event.key === 'Escape') onExit()
           else return
           event.preventDefault()
         }}
@@ -98,7 +90,7 @@ export default function CompareView({
           event.stopPropagation()
           onExit()
         }}
-        className="absolute right-2 top-2 z-10 rounded-md bg-scrim/60 px-2 text-on-media hover:bg-scrim/80 hover:text-on-media"
+        className="absolute left-2 top-2 z-10 rounded-md bg-scrim/60 px-2 text-on-media hover:bg-scrim/80 hover:text-on-media"
       >
         <Icon name="close" size="xs" />
         {t('compare.exit')}

@@ -16,6 +16,7 @@ import { AccountPanel, type AccountView, CreditIcon } from './AccountPanel'
 import { noActiveSubscriptionLabel } from './billing-display'
 import {
   availableCredits,
+  consumePendingBillingModal,
   formatCredits,
   OPEN_BILLING_EVENT,
   OPEN_PRICING_EVENT,
@@ -163,6 +164,22 @@ export function HeaderActions({
     }
     window.addEventListener(OPEN_PRICING_EVENT, listener)
     return () => window.removeEventListener(OPEN_PRICING_EVENT, listener)
+  }, [enabled])
+
+  useEffect(() => {
+    if (!enabled) return
+    const pending = consumePendingBillingModal()
+    if (pending === 'pricing') {
+      setMenuOpen(false)
+      setAccountOpen(false)
+      setRechargeOpen(false)
+      setPricingOpen(true)
+    } else if (pending === 'recharge') {
+      setMenuOpen(false)
+      setAccountOpen(false)
+      setPricingOpen(false)
+      setRechargeOpen(true)
+    }
   }, [enabled])
 
   useEffect(() => {
