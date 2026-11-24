@@ -209,14 +209,14 @@ export const TASK_COLUMNS: readonly TaskColumnDef[] = [
   { id: 'status', label: '状态', width: 104, sortField: 'status' },
   { id: 'submitted_at', label: '提交时间', width: 144, sortField: 'submitted_at' },
   { id: 'task_id', label: '任务 ID', width: 172 },
+  { id: 'run_ms', label: '执行耗时', width: 96, align: 'right', sortField: 'run_ms' },
+  { id: 'queue_ms', label: '排队等待', width: 96, align: 'right', sortField: 'queue_ms' },
   { id: 'actor', label: '用户 / 归属', width: 200 },
   { id: 'prompt', label: '需求 / 提示词', width: 300 },
   { id: 'model', label: '模型', width: 188 },
   { id: 'source', label: '来源', width: 76 },
   { id: 'provider', label: '供应商', width: 132 },
   { id: 'route', label: '通道 / 指纹', width: 196 },
-  { id: 'run_ms', label: '执行耗时', width: 96, align: 'right', sortField: 'run_ms' },
-  { id: 'queue_ms', label: '排队等待', width: 96, align: 'right', sortField: 'queue_ms' },
   { id: 'total_ms', label: '总耗时', width: 92, align: 'right', sortField: 'total_ms' },
   { id: 'attempts', label: '尝试 / 上游', width: 110, align: 'right', sortField: 'attempt_count' },
   {
@@ -279,9 +279,10 @@ export function writeTasksTablePrefs(prefs: TasksTablePrefs): void {
 export function formatDurationMs(ms: number | null): string {
   if (ms === null || !Number.isFinite(ms) || ms < 0) return '—'
   if (ms < 1000) return `${Math.round(ms)}ms`
-  const sec = ms / 1000
-  if (sec < 60) return `${sec < 10 ? sec.toFixed(1) : Math.round(sec)}s`
-  const minutes = Math.floor(sec / 60)
-  const rem = Math.round(sec % 60)
+  if (ms < 9_950) return `${(ms / 1000).toFixed(1)}s`
+  const totalSec = Math.round(ms / 1000)
+  if (totalSec < 60) return `${totalSec}s`
+  const minutes = Math.floor(totalSec / 60)
+  const rem = totalSec % 60
   return rem === 0 ? `${minutes}m` : `${minutes}m ${String(rem).padStart(2, '0')}s`
 }

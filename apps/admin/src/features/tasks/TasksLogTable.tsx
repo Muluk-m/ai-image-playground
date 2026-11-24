@@ -38,6 +38,9 @@ interface TasksLogTableProps {
   tasks: readonly GenerationTaskItem[]
   summary?: GenerationTasksSummary
   total: number
+  /** 为 true 时在途任务耗时每秒推进；暂停刷新或固定时间范围时冻结在 snapshotAt。 */
+  liveElapsed?: boolean
+  snapshotAt?: number
   selectedTaskId?: string
   sortField: TaskSortField
   sortDir: SortDirection
@@ -70,10 +73,43 @@ function msDiff(start: number | null, end: number | null): number | null {
   return end - start
 }
 
+function isInFlightStatus(status: GenerationTaskItem['status']): boolean {
+  return status === 'queued' || status === 'in_progress' || status === 'reconciling'
+}
+
+/** 仅当自动刷新开启且当前页存在在途任务时每秒推进；暂停刷新或固定时间窗时冻结在快照时刻。 */
+function useElapsedNow(active: boolean, snapshotAt?: number): number {
+  const [now, setNow] = useState(() => snapshotAt ?? Date.now())
+  useEffect(() => {
+    if (!active) return
+    let timer: number | undefined
+    const tick = () => setNow(Date.now())
+    const schedule = () => {
+      if (timer !== undefined) window.clearInterval(timer)
+      timer = undefined
+      if (document.visibilityState !== 'hidden') timer = window.setInterval(tick, 1000)
+    }
+    const onVisibility = () => {
+      if (document.visibilityState !== 'hidden') tick()
+      schedule()
+    }
+    tick()
+    schedule()
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => {
+      if (timer !== undefined) window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
+  }, [active])
+  return active ? Math.max(now, snapshotAt ?? 0) : (snapshotAt ?? now)
+}
+
 export function TasksLogTable({
   tasks,
   summary,
   total,
+  liveElapsed = true,
+  snapshotAt,
   selectedTaskId,
   sortField,
   sortDir,
@@ -92,6 +128,8 @@ export function TasksLogTable({
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const [scrolledX, setScrolledX] = useState(false)
   const [hasMoreRight, setHasMoreRight] = useState(false)
+  const hasInFlight = useMemo(() => tasks.some((task) => isInFlightStatus(task.status)), [tasks])
+  const now = useElapsedNow(liveElapsed && hasInFlight, snapshotAt)
 
   const hiddenSet = useMemo(() => new Set<TaskColumnId>(hiddenCols), [hiddenCols])
   const columns = useMemo(() => {
@@ -258,7 +296,7 @@ export function TasksLogTable({
                   3 列（状态 · 时间 · 任务）
                 </SelectItem>
                 <SelectItem value="4" className="text-xs">
-                  4 列（+ 用户）
+                  4 列（+ 耗时）
                 </SelectItem>
               </SelectContent>
             </Select>
@@ -411,7 +449,18 @@ export function TasksLogTable({
                         : ''}
                     </span>
                   ) : null}
-                  <span className="font-mono">{duration(task.started_at, task.completed_at)}</span>
+                  <span className="font-mono">
+                    {task.completed_at
+                      ? duration(task.started_at, task.completed_at)
+                      : task.status === 'queued' && task.started_at == null
+                        ? `排队 ${formatDurationMs(Math.max(0, now - task.submitted_at))}`
+                        : task.status === 'queued'
+                          ? `重试等待 · 总计 ${formatDurationMs(Math.max(0, now - task.submitted_at))}`
+                          : (task.status === 'in_progress' || task.status === 'reconciling') &&
+                              task.started_at != null
+                            ? `已跑 ${formatDurationMs(Math.max(0, now - task.started_at))}`
+                            : '—'}
+                  </span>
                 </div>
                 {task.error_type ? (
                   <p className="mt-2 font-mono text-xs text-danger">{task.error_type}</p>
@@ -533,6 +582,8 @@ export function TasksLogTable({
                           <TaskCell
                             col={col}
                             task={task}
+                            now={now}
+                            liveElapsed={liveElapsed}
                             onOpenTask={onOpenTask}
                             onQuickFilterUser={onQuickFilterUser}
                             onQuickFilterDevice={onQuickFilterDevice}
@@ -570,12 +621,16 @@ export function TasksLogTable({
 function TaskCell({
   col,
   task,
+  now,
+  liveElapsed,
   onOpenTask,
   onQuickFilterUser,
   onQuickFilterDevice,
 }: {
   col: TaskColumnDef
   task: GenerationTaskItem
+  now: number
+  liveElapsed: boolean
   onOpenTask: (taskId: string) => void
   onQuickFilterUser: (userId: string) => void
   onQuickFilterDevice: (deviceId: string) => void
@@ -735,9 +790,23 @@ function TaskCell({
     }
 
     case 'run_ms': {
-      const ms = msDiff(task.started_at, task.completed_at)
+      const finishedMs = msDiff(task.started_at, task.completed_at)
+      const isLiveRun =
+        finishedMs === null &&
+        (task.status === 'in_progress' || task.status === 'reconciling') &&
+        task.started_at != null
+      const ms = isLiveRun ? Math.max(0, now - task.started_at!) : finishedMs
+      const label = formatDurationMs(ms)
+      const statusLabel = task.status === 'reconciling' ? '待核查' : '运行中'
       return (
         <span
+          title={
+            isLiveRun
+              ? liveElapsed
+                ? `${statusLabel}，已执行 ${label}`
+                : `截至快照时刻：${statusLabel}，已执行 ${label}`
+              : undefined
+          }
           className={cn(
             'font-mono text-xs tabular-nums',
             ms === null
@@ -746,33 +815,72 @@ function TaskCell({
                 ? 'font-medium text-danger'
                 : ms >= 30_000
                   ? 'font-medium text-warning'
-                  : 'text-foreground',
+                  : isLiveRun
+                    ? 'font-medium text-info'
+                    : 'text-foreground',
           )}
         >
-          {formatDurationMs(ms)}
+          {label}
         </span>
       )
     }
 
     case 'queue_ms': {
-      const ms = msDiff(task.submitted_at, task.started_at)
+      const finishedMs = msDiff(task.submitted_at, task.started_at)
+      const isLiveQueue = finishedMs === null && task.status === 'queued' && task.started_at == null
+      const ms = isLiveQueue ? Math.max(0, now - task.submitted_at) : finishedMs
+      const label = formatDurationMs(ms)
       return (
         <span
+          title={
+            isLiveQueue
+              ? liveElapsed
+                ? `排队中，已等待 ${label}`
+                : `截至快照时刻：排队中，已等待 ${label}`
+              : undefined
+          }
           className={cn(
             'font-mono text-xs tabular-nums',
-            ms !== null && ms >= 10_000 ? 'font-medium text-warning' : 'text-muted-foreground',
+            ms === null
+              ? 'text-muted-foreground'
+              : isLiveQueue && ms >= 60_000
+                ? 'font-medium text-danger'
+                : isLiveQueue || ms >= 10_000
+                  ? 'font-medium text-warning'
+                  : 'text-muted-foreground',
           )}
         >
-          {formatDurationMs(ms)}
+          {label}
         </span>
       )
     }
 
     case 'total_ms': {
-      const ms = msDiff(task.submitted_at, task.completed_at)
+      const finishedMs = msDiff(task.submitted_at, task.completed_at)
+      const isLiveTotal = finishedMs === null && isInFlightStatus(task.status)
+      const ms = isLiveTotal ? Math.max(0, now - task.submitted_at) : finishedMs
+      const label = formatDurationMs(ms)
       return (
-        <span className="font-mono text-xs tabular-nums text-muted-foreground">
-          {formatDurationMs(ms)}
+        <span
+          title={
+            isLiveTotal
+              ? liveElapsed
+                ? `进行中，已提交 ${label}`
+                : `截至快照时刻：进行中，已提交 ${label}`
+              : undefined
+          }
+          className={cn(
+            'font-mono text-xs tabular-nums',
+            ms === null
+              ? 'text-muted-foreground'
+              : isLiveTotal && ms >= 60_000
+                ? 'font-medium text-warning'
+                : isLiveTotal
+                  ? 'text-info'
+                  : 'text-muted-foreground',
+          )}
+        >
+          {label}
         </span>
       )
     }

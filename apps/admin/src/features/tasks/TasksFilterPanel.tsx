@@ -512,7 +512,7 @@ export function TasksFilterPanel({
 
       {/* Row 3: Structured Multi-Facet Filter Grid */}
       {advancedOpen ? (
-        <div className="grid grid-cols-1 gap-2.5 border-t p-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-2.5 border-t p-3 sm:grid-cols-2 xl:grid-cols-4">
           {/* 1. 模型 */}
           <MultiSelectField
             label="模型"
