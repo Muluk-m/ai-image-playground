@@ -137,6 +137,13 @@ function GuideBlock({
   locale: Locale
 }) {
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const copyTimer = useRef<number | null>(null)
+  useEffect(
+    () => () => {
+      if (copyTimer.current !== null) window.clearTimeout(copyTimer.current)
+    },
+    [],
+  )
   switch (block.type) {
     case 'p':
       return (
@@ -236,6 +243,8 @@ function GuideBlock({
               try {
                 await copyTextToClipboard(block.text)
                 setCopyStatus('copied')
+                if (copyTimer.current !== null) window.clearTimeout(copyTimer.current)
+                copyTimer.current = window.setTimeout(() => setCopyStatus('idle'), 1600)
               } catch {
                 setCopyStatus('failed')
               }
@@ -335,6 +344,12 @@ export function Guide({ page }: { page: SitePage }) {
           placeholder={guide.chrome.search}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && query) {
+              e.preventDefault()
+              setQuery('')
+            }
+          }}
         />
         {normalized ? (
           <div className="guide-results" aria-live="polite">
