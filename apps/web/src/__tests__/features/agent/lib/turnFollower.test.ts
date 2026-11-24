@@ -19,6 +19,7 @@ import {
 import {
   createTurnFollower,
   type TurnFollowerClient,
+  type TurnFollowerDeps,
 } from '../../../../features/agent/lib/turnFollower'
 import { i18next } from '../../../../i18n'
 
@@ -43,13 +44,16 @@ const turnEnd = (turnId: string): AgentTurnEvent => ({
   usage: null,
 })
 
-const queued = (id: string, failure?: string): AgentQueuedMessageView => ({
+const queued = (
+  id: string,
+  failure?: AgentQueuedMessageView['failure'],
+): AgentQueuedMessageView => ({
   id,
   clientMessageId: `c-${id}`,
   text: '再来一张',
   referenceCount: 0,
   createdAt: 1,
-  ...(failure ? { failure: failure as never } : {}),
+  ...(failure ? { failure } : {}),
 })
 
 const receipt = (
@@ -132,40 +136,34 @@ function harness(initial: Partial<State> = {}) {
     reconcileSubmission: vi.fn<TurnFollowerClient['reconcileSubmission']>(),
     pollFollowUps: vi.fn(async () => null),
   }
+  const set: TurnFollowerDeps['set'] = (patch) => {
+    const next = typeof patch === 'function' ? patch(state) : patch
+    state = { ...state, ...(next as Partial<State>) }
+  }
   const deps = {
     get: () => state,
-    set: (patch: unknown) => {
-      const next = typeof patch === 'function' ? patch(state) : patch
-      state = { ...state, ...(next as Partial<State>) }
-    },
-    apply: vi.fn(
-      (
-        event: AgentTurnEvent,
-        pendingUserText: string | null,
-        turnId: string,
-        delivery: TurnArtifactDelivery,
-        conversationId: string,
-      ) => {
+    set,
+    apply: vi.fn<TurnFollowerDeps['apply']>(
+      (event, pendingUserText, turnId, delivery, conversationId) => {
         if (delivery.isCurrent())
-          deps.set(reduceTurnEvent(state, event, { turnId, pendingUserText, conversationId }))
+          set(reduceTurnEvent(state, event, { turnId, pendingUserText, conversationId }))
       },
     ),
-    fail: vi.fn((message?: string) => deps.set(failPatch(state, message))),
-    adoptSnapshot: vi.fn(
-      (_conversationId: string, taken: AgentConversationState, options?: { join?: string }) => {
-        deps.set({
-          queue: [...(taken.queue ?? [])],
-          ...(options?.join ? { turn: 'running', activeTurn: { turnId: options.join } } : {}),
-        })
-      },
-    ),
-    openConversation: vi.fn(async () => {}),
-    claimStageRunOrigins: vi.fn(),
+    fail: vi.fn<TurnFollowerDeps['fail']>((message) => set(failPatch(state, message))),
+    adoptSnapshot: vi.fn<TurnFollowerDeps['adoptSnapshot']>((_conversationId, taken, options) => {
+      set({
+        queue: [...(taken.queue ?? [])],
+        ...(options?.join ? { turn: 'running', activeTurn: { turnId: options.join } } : {}),
+      })
+    }),
+    openConversation: vi.fn<TurnFollowerDeps['openConversation']>(async () => {}),
+    claimStageRunOrigins: vi.fn<TurnFollowerDeps['claimStageRunOrigins']>(),
     beginTurn: () => fakeDelivery(),
+    // 假的事件流只实现跟轮会读到的那几项。
     client: client as unknown as Partial<TurnFollowerClient>,
-    delay: vi.fn(async () => {}),
-  }
-  const follower = createTurnFollower(deps as never)
+    delay: vi.fn<NonNullable<TurnFollowerDeps['delay']>>(async () => {}),
+  } satisfies TurnFollowerDeps
+  const follower = createTurnFollower(deps)
   return {
     follower,
     deps,

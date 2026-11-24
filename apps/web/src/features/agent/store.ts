@@ -448,7 +448,6 @@ function firstMessageTitle(text: string): string {
     .slice(0, PROJECT_NAME_MAX_LENGTH)
 }
 
-/** 上一轮收尾后找服务端接着开的那一轮：最多看这么多次，每次隔这么久。 */
 /** 停止请求没拿到响应时，连同第一次一共发这么多次。 */
 const STOP_ATTEMPTS = 3
 /**
@@ -469,10 +468,6 @@ export function setAgentTitleRewriteDelayForTesting(ms?: number): void {
   titleRewriteMs = ms ?? DEFAULT_TITLE_REWRITE_MS
 }
 
-/**
- * 挂上快照里那一轮：快照先行、增量接在它的游标之后。游标只对快照里那一轮成立——409 兜底给的
- * 轮可能已经跑完，它在游标之前，只能按轮从头重放。
- */
 /**
  * 换会话时要清掉的一切：属于上一个会话的消息、页脚、排队、草稿卡上改过的字、任务进度、
  * 工具起跑时刻、重试被拒盖在占位上的那一层，连同断线提示与上一次的报错。

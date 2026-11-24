@@ -22,10 +22,14 @@ import { type AgentTurnFields, applyTurnSessionEvent } from './turnSession'
 
 const TURN_RATE_LIMITED = () => i18next.t('error.rateLimited', { ns: 'agent' })
 
+/** 上一轮收尾后找服务端接着开的那一轮：最多看这么多次，每次隔这么久。 */
 const QUEUE_PICKUP_ATTEMPTS = 8
 const QUEUE_PICKUP_DELAY_MS = 250
 
-/** 挂上快照里的某一轮：在跑的那一轮带着快照游标续播，否则按轮标识从头要。 */
+/**
+ * 挂上快照里那一轮：快照先行、增量接在它的游标之后。游标只对快照里那一轮成立——409 兜底给的
+ * 轮可能已经跑完，它在游标之前，只能按轮从头重放。
+ */
 export const turnSource = (taken: AgentConversationState, turnId: string): AgentTurnSource =>
   taken.activeTurn?.turnId === turnId && taken.cursor !== undefined
     ? { turnId, cursor: taken.cursor }
