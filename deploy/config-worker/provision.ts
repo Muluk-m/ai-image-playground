@@ -5,7 +5,7 @@
  *
  *   provision.ts secrets push <prod|test|host> <file>   把 NAME=value 文件写进 Secrets Store（新增或覆盖）
  *   provision.ts secrets list                            只列名字
- *   provision.ts access <prod|test> --token-out <file>   确保 service token 和 Access 应用存在；
+ *   provision.ts access <prod|test|host> --token-out <file>   确保 service token 和 Access 应用存在；
  *                                                        新建 token 时把 client id/secret 写进 file（0600）
  *   provision.ts deploy                                  按 Secrets Store 现有名字生成 wrangler.jsonc 并部署
  *
@@ -118,8 +118,9 @@ interface AccessApp {
   aud: string
 }
 
-async function ensureAccess(deployment: 'prod' | 'test', tokenOut: string | undefined) {
-  const tokenName = `aip-config-${deployment}`
+async function ensureAccess(deployment: 'prod' | 'test' | 'host', tokenOut: string | undefined) {
+  // host 的密钥给 prod 的 token：管这台机器的就是生产部署。
+  const tokenName = `aip-config-${deployment === 'host' ? 'prod' : deployment}`
   const tokens = await api<ServiceToken[]>('GET', '/access/service_tokens')
   let serviceToken = tokens.find((one) => one.name === tokenName)
   if (!serviceToken) {
@@ -151,7 +152,7 @@ async function ensureAccess(deployment: 'prod' | 'test', tokenOut: string | unde
   return app.aud
 }
 
-async function audienceOf(deployment: 'prod' | 'test'): Promise<string> {
+async function audienceOf(deployment: 'prod' | 'test' | 'host'): Promise<string> {
   const apps = await api<AccessApp[]>('GET', '/access/apps')
   const app = apps.find((one) => one.name === `aip-config ${deployment}`)
   if (!app) throw new Error(`Access app for ${deployment} is missing; run access ${deployment} first`)
@@ -162,7 +163,7 @@ async function deploy() {
   const store = await storeId()
   const names = (await listSecrets(store))
     .map((one) => one.name)
-    .filter((name) => /^(PROD|TEST)__[A-Z][A-Z0-9_]*$/.test(name))
+    .filter((name) => /^(PROD|TEST|HOST)__[A-Z][A-Z0-9_]*$/.test(name))
     .sort()
   const config = {
     $schema: 'node_modules/wrangler/config-schema.json',
@@ -176,13 +177,14 @@ async function deploy() {
       ACCESS_TEAM_DOMAIN: TEAM_DOMAIN,
       ACCESS_AUD_PROD: await audienceOf('prod'),
       ACCESS_AUD_TEST: await audienceOf('test'),
+      ACCESS_AUD_HOST: await audienceOf('host'),
     },
     secrets_store_secrets: names.map((name) => ({ binding: name, store_id: store, secret_name: name })),
   }
   const target = join(import.meta.dir, 'wrangler.jsonc')
   await writeFile(
     target,
-    `// 由 provision.ts deploy 生成：binding 与 Secrets Store 里 PROD__/TEST__ 开头的名字一一对应。\n${JSON.stringify(config, null, 2)}\n`,
+    `// 由 provision.ts deploy 生成：binding 与 Secrets Store 里 PROD__/TEST__/HOST__ 开头的名字一一对应。\n${JSON.stringify(config, null, 2)}\n`,
   )
   console.log(`wrote ${target} with ${names.length} bindings`)
   const child = Bun.spawn(['npx', '--yes', 'wrangler@4', 'deploy', '--config', target], {
@@ -206,13 +208,13 @@ async function main(argv: string[]) {
     for (const name of names) console.log(name)
     return
   }
-  if (command === 'access' && (sub === 'prod' || sub === 'test')) {
+  if (command === 'access' && (sub === 'prod' || sub === 'test' || sub === 'host')) {
     const at = rest.indexOf('--token-out')
     await ensureAccess(sub, at === -1 ? undefined : rest[at + 1])
     return
   }
   if (command === 'deploy') return deploy()
-  throw new Error('usage: provision.ts secrets push <scope> <file> | secrets list | access <prod|test> [--token-out <file>] | deploy')
+  throw new Error('usage: provision.ts secrets push <scope> <file> | secrets list | access <prod|test|host> [--token-out <file>] | deploy')
 }
 
 if (import.meta.main) {

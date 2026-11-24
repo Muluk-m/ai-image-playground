@@ -16,13 +16,22 @@ import {
   DEPLOYMENT_NAMES,
   type Deployment,
   type DeploymentName,
+  descriptorProblems,
   formatEnvFile,
+  type Host,
   parseDeployment,
+  parseHost,
   renderDeployment,
+  renderHost,
   SECRETS,
 } from '@image-playground/shared/deploy-config'
 
 const descriptorsDir = resolve(import.meta.dir, '../../../deploy/deployments')
+const hostFile = resolve(import.meta.dir, '../../../deploy/host.json')
+
+async function loadHost(): Promise<Host> {
+  return parseHost(JSON.parse(await readFile(hostFile, 'utf8')), hostFile)
+}
 
 export async function loadDeployment(
   name: DeploymentName,
@@ -49,10 +58,15 @@ export function parseSecretsFile(text: string): Record<string, string> {
   return values
 }
 
-/** 主机 `bootstrap.env`：`CONFIG_CENTER_URL`，以及每个部署一对 `<PROD|TEST>_CONFIG_ACCESS_CLIENT_ID/SECRET`。 */
-export function bootstrapFor(text: string, name: DeploymentName) {
+type Scope = DeploymentName | 'host'
+
+/**
+ * 主机 `bootstrap.env`：`CONFIG_CENTER_URL`，以及每个部署一对 `<PROD|TEST>_CONFIG_ACCESS_CLIENT_ID/SECRET`。
+ * 宿主机级密钥（共享 PostgreSQL、GHCR）跟 prod 同一个 token：能管这台机器的人本来就管着生产。
+ */
+export function bootstrapFor(text: string, name: Scope) {
   const values = parseSecretsFile(text)
-  const prefix = name.toUpperCase()
+  const prefix = name === 'host' ? 'PROD' : name.toUpperCase()
   const url = values.CONFIG_CENTER_URL?.replace(/\/+$/, '')
   const id = values[`${prefix}_CONFIG_ACCESS_CLIENT_ID`]
   const secret = values[`${prefix}_CONFIG_ACCESS_CLIENT_SECRET`]
@@ -64,10 +78,7 @@ export function bootstrapFor(text: string, name: DeploymentName) {
   return { url, id, secret }
 }
 
-async function fetchSecrets(
-  name: DeploymentName,
-  bootstrapFile: string,
-): Promise<Record<string, string>> {
+async function fetchSecrets(name: Scope, bootstrapFile: string): Promise<Record<string, string>> {
   const { url, id, secret } = bootstrapFor(await readFile(bootstrapFile, 'utf8'), name)
   const response = await fetch(`${url}/v1/${name}/secrets`, {
     headers: { 'CF-Access-Client-Id': id, 'CF-Access-Client-Secret': secret },
@@ -103,7 +114,13 @@ async function writeRendered(out: string, files: Record<string, string>) {
   await rename(out, prev).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== 'ENOENT') throw error
   })
-  await rename(next, out)
+  try {
+    await rename(next, out)
+  } catch (error) {
+    // 换不上新目录就把旧的放回去，别让服务启动时找不到配置。
+    await rename(prev, out).catch(() => undefined)
+    throw error
+  }
   await rm(prev, { recursive: true, force: true })
 }
 
@@ -123,19 +140,33 @@ export function secretsFromLegacy(input: {
   for (const [name, value] of Object.entries(app)) {
     if (wanted.has(name) && value !== '') secrets[name] = value
   }
-  const password = (url: string | undefined) => {
+  // 解析失败只报变量名：URL 和 JSON 的解析错误会带上原文，原文里就是密码。
+  const password = (name: string, url: string | undefined) => {
     if (!url) return undefined
-    const parsed = new URL(url)
+    let parsed: URL
+    try {
+      parsed = new URL(url)
+    } catch {
+      throw new Error(`${name} is not a valid connection string`)
+    }
     return parsed.password ? decodeURIComponent(parsed.password) : undefined
   }
   const fromUrls: Array<[string, string | undefined]> = [
-    ['POSTGRES_APP_PASSWORD', password(app.APP_DATABASE_URL)],
-    ['POSTGRES_ADMIN_PASSWORD', password(app.ADMIN_DATABASE_URL)],
-    ['POSTGRES_MIGRATOR_PASSWORD', password(migrate.MIGRATOR_DATABASE_URL)],
+    ['POSTGRES_APP_PASSWORD', password('APP_DATABASE_URL', app.APP_DATABASE_URL)],
+    ['POSTGRES_ADMIN_PASSWORD', password('ADMIN_DATABASE_URL', app.ADMIN_DATABASE_URL)],
+    [
+      'POSTGRES_MIGRATOR_PASSWORD',
+      password('MIGRATOR_DATABASE_URL', migrate.MIGRATOR_DATABASE_URL),
+    ],
   ]
   for (const [name, value] of fromUrls) if (value) secrets[name] = value
-  if (input.tunnelCredentials)
-    secrets.TUNNEL_CREDENTIALS = JSON.stringify(JSON.parse(input.tunnelCredentials))
+  if (input.tunnelCredentials) {
+    try {
+      secrets.TUNNEL_CREDENTIALS = JSON.stringify(JSON.parse(input.tunnelCredentials))
+    } catch {
+      throw new Error('cloudflared/credentials.json is not valid JSON')
+    }
+  }
   const ignored = Object.keys(app).filter((name) => !wanted.has(name))
   return { secrets, ignored }
 }
@@ -171,7 +202,9 @@ async function main(argv: string[]): Promise<number> {
     const problems = catalogProblems()
     for (const name of DEPLOYMENT_NAMES) {
       try {
-        await loadDeployment(name)
+        for (const problem of descriptorProblems(await loadDeployment(name))) {
+          problems.push(`${name}: ${problem}`)
+        }
       } catch (error) {
         problems.push(error instanceof Error ? error.message : String(error))
       }
@@ -201,13 +234,16 @@ async function main(argv: string[]): Promise<number> {
     const secrets = secretsFile
       ? parseSecretsFile(await readFile(secretsFile, 'utf8'))
       : await fetchSecrets(name, bootstrapFile as string)
-    const { rendered, problems } = renderDeployment(deployment, secrets)
+    const { rendered, problems } = renderDeployment(deployment, secrets, await loadHost())
     if (problems.length > 0) {
       for (const problem of problems) console.error(problem)
       console.error(`render ${name}: ${problems.length} problem(s); ${out} left unchanged`)
       return 1
     }
-    const files: Record<string, string> = { ...rendered.files }
+    const files: Record<string, string> = {
+      ...rendered.files,
+      'deploy.env': formatEnvFile(rendered.deploy),
+    }
     for (const [service, values] of Object.entries(rendered.env)) {
       files[`env/${service}.env`] = formatEnvFile(values)
     }
@@ -216,6 +252,31 @@ async function main(argv: string[]): Promise<number> {
       ([service, values]) => `${service}=${Object.keys(values).length}`,
     )
     console.log(`rendered ${name} into ${out}: ${counts.join(' ')}`)
+    return 0
+  }
+  if (command === 'render-host') {
+    const out = option(args, '--out')
+    const bootstrapFile = option(args, '--bootstrap')
+    const secretsFile = option(args, '--secrets-file')
+    if (!out || Boolean(secretsFile) === Boolean(bootstrapFile)) {
+      throw new Error(
+        'render-host needs --out <dir> and one of --bootstrap <file> or --secrets-file <file>',
+      )
+    }
+    const secrets = secretsFile
+      ? parseSecretsFile(await readFile(secretsFile, 'utf8'))
+      : await fetchSecrets('host', bootstrapFile as string)
+    const { rendered, problems } = renderHost(await loadHost(), secrets)
+    if (problems.length > 0) {
+      for (const problem of problems) console.error(problem)
+      console.error(`render-host: ${problems.length} problem(s); ${out} left unchanged`)
+      return 1
+    }
+    await writeRendered(resolve(out), {
+      ...rendered.files,
+      'postgres.env': formatEnvFile(rendered.postgres),
+    })
+    console.log(`rendered host into ${out}`)
     return 0
   }
   if (command === 'import-legacy') {

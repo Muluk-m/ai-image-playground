@@ -128,8 +128,13 @@ export const SECRETS: readonly SecretDef[] = [
   // Cloudflare Tunnel。
   {
     name: 'TUNNEL_CREDENTIALS',
-    doc: 'cloudflared credentials.json 的完整内容（JSON）',
+    doc: '本部署 Tunnel 的 cloudflared credentials.json（JSON）',
     required: always,
+  },
+  {
+    name: 'ENTERPRISE_TUNNEL_CREDENTIALS',
+    doc: '企业域名 Tunnel 的 cloudflared credentials.json（JSON）',
+    required: (d) => d.tunnels.enterprise !== undefined,
   },
 ]
 
@@ -493,18 +498,6 @@ const BASE_SETTINGS: SettingDef[] = [
     doc: '宿主机资源告警',
     value: (c) => String(c.deployment.ops.hostAlerts),
   },
-  {
-    env: 'AGENT_SEGMENTER_URL',
-    services: APP,
-    doc: '共享分割服务',
-    value: (c) => (c.deployment.segmenter ? 'http://segmenter:8080' : ''),
-  },
-  {
-    env: 'AGENT_SEGMENTER_NAMESPACE',
-    services: APP,
-    doc: '分割服务里区分部署',
-    value: (c) => (c.deployment.segmenter ? c.deployment.legacy.composeProject : ''),
-  },
 
   // 可观测性：应用侧只拿导出地址和只读代理令牌。
   {
@@ -797,6 +790,7 @@ export function catalogProblems(): string[] {
     'OBS_S3_ACCESS_KEY_ID',
     'OBS_S3_SECRET_ACCESS_KEY',
     'TUNNEL_CREDENTIALS',
+    'ENTERPRISE_TUNNEL_CREDENTIALS',
   ])
   for (const one of SECRETS) {
     if (!delivered.has(one.name)) problems.push(`secret ${one.name} is never delivered`)
@@ -821,6 +815,8 @@ export const NOT_DEPLOYMENT_CONFIG: Readonly<Record<string, string>> = {
   WORKER_START_PAUSED: 'rollout-runtime.sh 按代次传入',
   LEGACY_EXECUTOR_ORIGIN: 'rollout-runtime.sh 按代次传入',
   CHANNELS_FILE: '本地开发覆盖渠道清单',
+  AGENT_SEGMENTER_URL: 'vps-deploy.sh 按分割服务是否健康注入（部署描述 segmenter 决定是否接入）',
+  AGENT_SEGMENTER_NAMESPACE: 'vps-deploy.sh 注入',
   HOST_DISK_PROBE: 'host-collector 本地运行时覆盖挂载路径',
   HOST_MEMINFO: 'host-collector 本地运行时覆盖挂载路径',
   HOST_PROC_STAT: 'host-collector 本地运行时覆盖挂载路径',

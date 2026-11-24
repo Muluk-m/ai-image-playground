@@ -4,9 +4,12 @@ import { join } from 'node:path'
 import {
   catalogProblems,
   type Deployment,
+  descriptorProblems,
   formatEnvFile,
+  type Host,
   parseDeployment,
-  renderDeployment,
+  parseHost,
+  renderDeployment as renderWithHost,
   SECRETS,
 } from '../deploy-config'
 
@@ -17,6 +20,12 @@ const descriptor = (name: 'prod' | 'test'): Deployment =>
     ),
   )
 
+const host: Host = parseHost(
+  JSON.parse(readFileSync(join(import.meta.dir, '../../../../deploy/host.json'), 'utf8')),
+)
+const renderDeployment = (deployment: Deployment, secrets: Record<string, string>) =>
+  renderWithHost(deployment, secrets, host)
+
 /** 每个已登记的密钥都给一个可辨认的假值。 */
 function fakeSecrets(deployment: Deployment): Record<string, string> {
   const values: Record<string, string> = {}
@@ -25,6 +34,9 @@ function fakeSecrets(deployment: Deployment): Record<string, string> {
     values[one.name] = `fake-${one.name.toLowerCase()}`
   }
   values.TUNNEL_CREDENTIALS = JSON.stringify({ AccountTag: 'a', TunnelID: 't', TunnelSecret: 's' })
+  if (deployment.tunnels.enterprise) {
+    values.ENTERPRISE_TUNNEL_CREDENTIALS = JSON.stringify({ TunnelID: 'e', TunnelSecret: 's' })
+  }
   values.POSTGRES_APP_PASSWORD = 'p@ss/word'
   return values
 }
@@ -63,6 +75,38 @@ describe('deploy config catalog', () => {
     })
   })
 
+  it('routes each tunnel hostname to the bff router or admin, enterprise tunnel included', () => {
+    const prod = descriptor('prod')
+    const { rendered } = renderDeployment(prod, fakeSecrets(prod))
+    expect(rendered.files['cloudflared/main/config.yml']).toContain(
+      '  - hostname: admin-api.muvloom.online\n    service: http://admin:37378',
+    )
+    expect(rendered.files['cloudflared/enterprise/config.yml']).toContain('tunnel: e\n')
+    expect(rendered.files['cloudflared/enterprise/config.yml']).toContain(
+      '  - hostname: image-api.qiliangjia.one\n    service: http://release-router:37377',
+    )
+    expect(rendered.deploy.OBS_PROXY_HOST_PORT).toBe('15090')
+  })
+
+  it('rejects retired or unknown operator keys and misspelled tunables', () => {
+    const prod = descriptor('prod')
+    expect(descriptorProblems(prod)).toEqual([])
+    const broken: Deployment = {
+      ...prod,
+      tunables: { ...prod.tunables, AGENT_CHAT_MODLE: 'x' },
+      operator: {
+        capabilities: { ...prod.operator.capabilities, 'matte:server': true, 'no:such': true },
+        quotas: { ...prod.operator.quotas, 'agent:compaction-max-folds': 3 },
+      },
+    }
+    expect(descriptorProblems(broken)).toEqual([
+      'tunables.AGENT_CHAT_MODLE is not a registered tunable',
+      'operator.capabilities.matte:server is retired; remove it',
+      'operator.capabilities.no:such is not a capability',
+      'operator.quotas.agent:compaction-max-folds is retired; remove it',
+    ])
+  })
+
   it('derives every origin from the web, api and admin sections', () => {
     const prod = descriptor('prod')
     const bff = renderDeployment(prod, fakeSecrets(prod)).rendered.env.bff ?? {}
@@ -89,7 +133,18 @@ describe('deploy config catalog', () => {
     )
     // 没开可观测性的部署不生成那三个服务。
     expect(rendered.env.openobserve).toBeUndefined()
-    expect(rendered.files['cloudflared/credentials.json']).toContain('TunnelSecret')
+    expect(rendered.files['cloudflared/main/credentials.json']).toContain('TunnelSecret')
+    expect(rendered.files['cloudflared/main/config.yml']).toContain(
+      '  - hostname: test-api.muvloom.online\n    service: http://release-router:37377',
+    )
+    expect(rendered.files['cloudflared/enterprise/config.yml']).toBeUndefined()
+    expect(rendered.deploy).toMatchObject({
+      COMPOSE_PROJECT: 'image-playground-test',
+      OBSERVABILITY_ENABLED: 'false',
+      SEGMENTER_ENABLED: 'true',
+      ENTERPRISE_TUNNEL_ENABLED: 'false',
+      INFRA_NETWORK_NAME: 'image-playground-infra',
+    })
   })
 
   it('refuses to render without a required secret, without echoing any value', () => {

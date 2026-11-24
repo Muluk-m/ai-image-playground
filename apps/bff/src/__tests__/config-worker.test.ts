@@ -70,6 +70,7 @@ describe('config worker', () => {
       ACCESS_TEAM_DOMAIN: TEAM,
       ACCESS_AUD_PROD: 'aud-prod',
       ACCESS_AUD_TEST: 'aud-test',
+      ACCESS_AUD_HOST: 'aud-host',
       PROD__S3_SECRET_ACCESS_KEY: { get: async () => 'prod-s3' },
       TEST__S3_SECRET_ACCESS_KEY: { get: async () => 'test-s3' },
       HOST__POSTGRES_PASSWORD: { get: async () => 'host-pg' },
@@ -89,7 +90,11 @@ describe('config worker', () => {
     expect(await ok.json()).toEqual({ secrets: { S3_SECRET_ACCESS_KEY: 'test-s3' } })
     // test 的 Access 应用签出来的 token 读不了 prod。
     expect((await call('/v1/prod/secrets', 'aud-test')).status).toBe(403)
-    expect((await call('/v1/host/secrets', 'aud-prod')).status).toBe(404)
+    expect((await call('/v1/host/secrets', 'aud-prod')).status).toBe(403)
+    expect(await (await call('/v1/host/secrets', 'aud-host')).json()).toEqual({
+      secrets: { POSTGRES_PASSWORD: 'host-pg' },
+    })
+    expect((await call('/v1/other/secrets', 'aud-prod')).status).toBe(404)
     const anonymous = await worker.fetch(new Request('https://config.example/v1/prod/secrets'), env)
     expect(anonymous.status).toBe(403)
   })
@@ -107,5 +112,7 @@ describe('config worker', () => {
       secret: 'prod-secret',
     })
     expect(() => bootstrapFor(text, 'test')).toThrow('TEST_CONFIG_ACCESS_CLIENT_ID')
+    // 宿主机级密钥用 prod 的 token。
+    expect(bootstrapFor(text, 'host').id).toBe('prod-id')
   })
 })

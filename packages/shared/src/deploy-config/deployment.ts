@@ -24,6 +24,12 @@ const LoginMethods = Type.Object(
   { additionalProperties: false },
 )
 
+const Hostname = Type.String({ pattern: '^[a-z0-9.-]+$' })
+const TunnelSchema = Type.Object(
+  { routes: Type.Record(Hostname, Type.Union([Type.Literal('api'), Type.Literal('admin')])) },
+  { additionalProperties: false },
+)
+
 const WebOrigin = Type.Object(
   {
     /** 这个前端连哪个 API；省略时用 api.primary。 */
@@ -125,6 +131,17 @@ export const DeploymentSchema = Type.Object(
       ),
     ),
     ops: Type.Object({ hostAlerts: Type.Boolean() }, { additionalProperties: false }),
+    /**
+     * Cloudflare Tunnel：每个 Tunnel 的主机名分别转给哪个服务（api = 当前代次的 bff，admin = Admin）。
+     * main 是本部署自己的 Tunnel；enterprise 是企业域名所在账号的 Tunnel，凭据分开存。
+     */
+    tunnels: Type.Object(
+      {
+        main: TunnelSchema,
+        enterprise: Type.Optional(TunnelSchema),
+      },
+      { additionalProperties: false },
+    ),
     /**
      * 业务调参，键就是容器里的变量名（未列出的用代码默认值）。
      * 只允许 catalog.ts 里登记为 `tunable` 的键，值是字符串、数字或布尔。

@@ -10,6 +10,7 @@ import { join, relative } from 'node:path'
 import {
   catalogProblems,
   DEPLOYMENT_NAMES,
+  descriptorProblems,
   NOT_DEPLOYMENT_CONFIG,
   parseDeployment,
   parseHost,
@@ -29,6 +30,7 @@ for (const name of DEPLOYMENT_NAMES) {
   try {
     const deployment = parseDeployment(JSON.parse(read(path)), path)
     if (deployment.name !== name) problems.push(`${path}: name must be ${name}`)
+    for (const problem of descriptorProblems(deployment)) problems.push(`${path}: ${problem}`)
   } catch (error) {
     problems.push(error instanceof Error ? error.message : String(error))
   }

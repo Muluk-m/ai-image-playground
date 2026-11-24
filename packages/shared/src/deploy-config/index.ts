@@ -26,6 +26,7 @@ export {
   renderHostSchema,
 } from './deployment'
 export {
+  descriptorProblems,
   formatEnvFile,
   type RenderedDeployment,
   type RenderedHost,

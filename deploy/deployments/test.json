@@ -49,6 +49,13 @@
   "ops": {
     "hostAlerts": false
   },
+  "tunnels": {
+    "main": {
+      "routes": {
+        "test-api.muvloom.online": "api"
+      }
+    }
+  },
   "tunables": {
     "AGENT_CHAT_MODEL": "gpt-6-luna",
     "AGENT_CHAT_CONTEXT_WINDOW": 40000,
@@ -85,16 +92,10 @@
       "agent:production": true,
       "billing:chat-free": true,
       "billing:credits": true,
-      "canvas:nodes": true,
       "cli:api": true,
-      "generation:byok": false,
-      "generation:storyboard": true,
       "generation:video": true,
-      "matte:server": true,
       "operator:console": true,
-      "quota:daily": false,
-      "remix:analyze": true,
-      "remix:listing": true
+      "quota:daily": false
     },
     "quotas": {
       "agent:analysis-concurrency": 1,
@@ -109,7 +110,6 @@
       "agent:compaction-cooldown-minutes": 60,
       "agent:compaction-failure-threshold": 3,
       "agent:compaction-keep-tokens": 6000,
-      "agent:compaction-max-folds": 5,
       "agent:compaction-output-reserve-tokens": 8000,
       "agent:compaction-verbatim-tokens": 6000,
       "agent:turn-model-parallelism": 3,

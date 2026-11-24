@@ -1,4 +1,4 @@
-// 由 provision.ts deploy 生成：binding 与 Secrets Store 里 PROD__/TEST__ 开头的名字一一对应。
+// 由 provision.ts deploy 生成：binding 与 Secrets Store 里 PROD__/TEST__/HOST__ 开头的名字一一对应。
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "aip-config-center",
@@ -15,9 +15,20 @@
   "vars": {
     "ACCESS_TEAM_DOMAIN": "nain-ma.cloudflareaccess.com",
     "ACCESS_AUD_PROD": "7d27940963caef8921c5bc96741b2423e20670677499669559cc2619dc0cca83",
-    "ACCESS_AUD_TEST": "8aeafaec462a32aaaab6838b7017dc77eb569b61ca297f172a9cf69a69ae5682"
+    "ACCESS_AUD_TEST": "8aeafaec462a32aaaab6838b7017dc77eb569b61ca297f172a9cf69a69ae5682",
+    "ACCESS_AUD_HOST": "cd7fe74d7ad8c545403aee28e517ebfde264d27a0aa79559ccd31e55f198fab1"
   },
   "secrets_store_secrets": [
+    {
+      "binding": "HOST__GHCR_PULL_TOKEN",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "HOST__GHCR_PULL_TOKEN"
+    },
+    {
+      "binding": "HOST__POSTGRES_PASSWORD",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "HOST__POSTGRES_PASSWORD"
+    },
     {
       "binding": "PROD__ADMIN_COOKIE_SECRET",
       "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
@@ -47,6 +58,11 @@
       "binding": "PROD__EMAIL_CODE_SECRET",
       "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
       "secret_name": "PROD__EMAIL_CODE_SECRET"
+    },
+    {
+      "binding": "PROD__ENTERPRISE_TUNNEL_CREDENTIALS",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__ENTERPRISE_TUNNEL_CREDENTIALS"
     },
     {
       "binding": "PROD__GEMINI_API_KEY",

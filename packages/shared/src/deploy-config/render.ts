@@ -1,3 +1,4 @@
+import { CAPABILITIES, QUOTAS, RETIRED_CAPABILITIES, RETIRED_QUOTAS } from '../capabilities'
 import {
   HOST_SECRETS,
   type RenderContext,
@@ -9,6 +10,28 @@ import {
 } from './catalog'
 import type { Deployment, Host } from './deployment'
 
+/**
+ * 只有对照清单和能力表才查得出的描述错误：调参键名、未知或已下线的能力与配额。
+ * bff 的 loader 对已下线的键静默忽略，描述文件里留着只会误导人，所以这里直接报错。
+ */
+export function descriptorProblems(deployment: Deployment): string[] {
+  const problems: string[] = []
+  for (const name of Object.keys(deployment.tunables)) {
+    if (!(name in TUNABLES)) problems.push(`tunables.${name} is not a registered tunable`)
+  }
+  for (const key of Object.keys(deployment.operator.capabilities)) {
+    if (RETIRED_CAPABILITIES.includes(key))
+      problems.push(`operator.capabilities.${key} is retired; remove it`)
+    else if (!(key in CAPABILITIES))
+      problems.push(`operator.capabilities.${key} is not a capability`)
+  }
+  for (const key of Object.keys(deployment.operator.quotas)) {
+    if (RETIRED_QUOTAS.includes(key)) problems.push(`operator.quotas.${key} is retired; remove it`)
+    else if (!(key in QUOTAS)) problems.push(`operator.quotas.${key} is not a quota`)
+  }
+  return problems
+}
+
 /** 只在部署开了可观测性时才生成的服务。 */
 const OBSERVABILITY_SERVICES: ReadonlySet<Service> = new Set([
   'openobserve',
@@ -19,6 +42,11 @@ const OBSERVABILITY_SERVICES: ReadonlySet<Service> = new Set([
 export interface RenderedDeployment {
   /** 每个服务一份 env（键已排序）。没开可观测性时不含那三个服务。 */
   env: Partial<Record<Service, Record<string, string>>>
+  /**
+   * 给发布脚本和 compose 插值用的非密钥值（`deploy.env`）：compose 项目名、端口、开关。
+   * 只含 `[A-Za-z0-9_.:/-]`，可以直接被 sh 读入。
+   */
+  deploy: Record<string, string>
   /** 需要以文件形式交给容器的配置，路径相对生成目录。 */
   files: Record<string, string>
 }
@@ -36,6 +64,7 @@ export interface RenderResult {
 export function renderDeployment(
   deployment: Deployment,
   secrets: Readonly<Record<string, string>>,
+  host: Host,
 ): RenderResult {
   const problems: string[] = []
   const known = new Set(SECRETS.map((one) => one.name))
@@ -48,9 +77,7 @@ export function renderDeployment(
       problems.push(`secret ${one.name} is required for ${deployment.name} (${one.doc})`)
     }
   }
-  for (const name of Object.keys(deployment.tunables)) {
-    if (!(name in TUNABLES)) problems.push(`tunables.${name} is not a registered tunable`)
-  }
+  problems.push(...descriptorProblems(deployment))
 
   const ctx: RenderContext = {
     deployment,
@@ -84,20 +111,71 @@ export function renderDeployment(
   const files: Record<string, string> = {
     'operator-config.json': `${JSON.stringify(deployment.operator, null, 2)}\n`,
   }
-  const tunnel = ctx.secret('TUNNEL_CREDENTIALS')
-  if (tunnel !== undefined) {
+  for (const [name, tunnel] of Object.entries(deployment.tunnels)) {
+    if (!tunnel) continue
+    const secretName = name === 'main' ? 'TUNNEL_CREDENTIALS' : 'ENTERPRISE_TUNNEL_CREDENTIALS'
+    const raw = ctx.secret(secretName)
+    if (raw === undefined) continue
+    let credentials: Record<string, unknown>
     try {
-      const parsed = JSON.parse(tunnel) as Record<string, unknown>
-      if (typeof parsed.TunnelID !== 'string' || typeof parsed.TunnelSecret !== 'string') {
-        problems.push('TUNNEL_CREDENTIALS must have TunnelID and TunnelSecret')
-      }
-      files['cloudflared/credentials.json'] = `${JSON.stringify(parsed)}\n`
+      credentials = JSON.parse(raw) as Record<string, unknown>
     } catch {
       // 不回显内容：里面就是密钥。
-      problems.push('TUNNEL_CREDENTIALS is not valid JSON')
+      problems.push(`${secretName} is not valid JSON`)
+      continue
     }
+    if (typeof credentials.TunnelID !== 'string' || typeof credentials.TunnelSecret !== 'string') {
+      problems.push(`${secretName} must have TunnelID and TunnelSecret`)
+      continue
+    }
+    files[`cloudflared/${name}/credentials.json`] = `${JSON.stringify(credentials)}\n`
+    files[`cloudflared/${name}/config.yml`] = tunnelConfig(credentials.TunnelID, tunnel.routes)
   }
-  return { rendered: { env, files }, problems }
+
+  const deploy: Record<string, string> = {
+    DEPLOYMENT: deployment.name,
+    COMPOSE_PROJECT: deployment.legacy.composeProject,
+    INFRA_NETWORK_NAME: host.infraNetwork,
+    DEPLOY_KEEP_IMAGES: String(host.deploy.keepImages),
+    DEPLOY_MIN_FREE_GB: String(host.deploy.minFreeGb),
+    SEGMENTER_ENABLED: String(deployment.segmenter),
+    OBSERVABILITY_ENABLED: String(deployment.observability !== undefined),
+    OBS_UI_HOST_PORT: String(deployment.observability?.uiHostPort ?? ''),
+    OBS_PROXY_HOST_PORT: String(deployment.observability?.proxyHostPort ?? ''),
+    ENTERPRISE_TUNNEL_ENABLED: String(deployment.tunnels.enterprise !== undefined),
+  }
+  for (const [key, value] of Object.entries(deploy)) {
+    if (!/^[A-Za-z0-9_.:/-]*$/.test(value))
+      problems.push(`deploy.env ${key} has characters sh would interpret`)
+  }
+  return { rendered: { env, deploy, files }, problems }
+}
+
+const TUNNEL_TARGETS = { api: 'http://release-router:37377', admin: 'http://admin:37378' } as const
+
+/**
+ * cloudflared 配置。api 一律指向发布路由器；第一次部署还没有路由器时，config-render.sh 会把它
+ * 换成 compose 的 bff（rollout-runtime.sh 交接时再换回来）。
+ */
+function tunnelConfig(tunnelId: string, routes: Record<string, 'api' | 'admin'>): string {
+  const lines = [
+    `tunnel: ${tunnelId}`,
+    'credentials-file: /etc/cloudflared/credentials.json',
+    '',
+    'ingress:',
+  ]
+  for (const [hostname, target] of Object.entries(routes)) {
+    lines.push(
+      `  - hostname: ${hostname}`,
+      `    service: ${TUNNEL_TARGETS[target]}`,
+      '    originRequest:',
+      '      connectTimeout: 30s',
+      '      keepAliveTimeout: 90s',
+      '      keepAliveConnections: 100',
+    )
+  }
+  lines.push('  - service: http_status:404', 'protocol: http2', '')
+  return lines.join('\n')
 }
 
 export interface RenderedHost {

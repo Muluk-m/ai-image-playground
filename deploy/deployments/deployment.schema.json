@@ -11,6 +11,7 @@
     "database",
     "storage",
     "ops",
+    "tunnels",
     "tunables",
     "operator"
   ],
@@ -297,6 +298,67 @@
       "properties": {
         "hostAlerts": {
           "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "tunnels": {
+      "type": "object",
+      "required": [
+        "main"
+      ],
+      "properties": {
+        "main": {
+          "type": "object",
+          "required": [
+            "routes"
+          ],
+          "properties": {
+            "routes": {
+              "type": "object",
+              "patternProperties": {
+                "^[a-z0-9.-]+$": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "api"
+                    },
+                    {
+                      "type": "string",
+                      "const": "admin"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "enterprise": {
+          "type": "object",
+          "required": [
+            "routes"
+          ],
+          "properties": {
+            "routes": {
+              "type": "object",
+              "patternProperties": {
+                "^[a-z0-9.-]+$": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "const": "api"
+                    },
+                    {
+                      "type": "string",
+                      "const": "admin"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

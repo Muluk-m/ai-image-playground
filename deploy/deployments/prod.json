@@ -9,27 +9,42 @@
     "primary": "https://muvloom.online",
     "origins": {
       "https://muvloom.online": {
-        "login": { "password": true, "registration": true, "providers": ["google"] }
+        "login": {
+          "password": true,
+          "registration": true,
+          "providers": [
+            "google"
+          ]
+        }
       },
       "https://image.nainma.online": {
         "api": "https://api.nainma.online",
-        "login": { "password": true, "registration": true, "providers": ["google"] }
-      },
-      "https://test.muvloom.online": {
-        "login": { "password": true, "registration": true, "providers": ["google"] }
-      },
-      "https://muvloom-test.pages.dev": {
-        "login": { "password": true, "registration": true, "providers": ["google"] }
+        "login": {
+          "password": true,
+          "registration": true,
+          "providers": [
+            "google"
+          ]
+        }
       },
       "https://image-playground.qiliangjia.one": {
         "api": "https://image-api.qiliangjia.one",
-        "login": { "password": false, "registration": false, "providers": ["feishu"] }
+        "login": {
+          "password": false,
+          "registration": false,
+          "providers": [
+            "feishu"
+          ]
+        }
       }
     }
   },
   "api": {
     "primary": "https://api.muvloom.online",
-    "aliases": ["https://image-api.qiliangjia.one", "https://api.nainma.online"]
+    "aliases": [
+      "https://image-api.qiliangjia.one",
+      "https://api.nainma.online"
+    ]
   },
   "admin": {
     "frontend": "https://admin.muvloom.online",
@@ -44,13 +59,22 @@
   },
   "database": {
     "name": "image_playground_paid",
-    "users": { "app": "paid_app", "admin": "paid_admin", "migrator": "paid_migrator" },
-    "extraSchemas": ["private_billing"]
+    "users": {
+      "app": "paid_app",
+      "admin": "paid_admin",
+      "migrator": "paid_migrator"
+    },
+    "extraSchemas": [
+      "private_billing"
+    ]
   },
   "storage": {
     "bucket": "ai-images",
     "keyPrefix": "image-playground-paid/",
-    "publicAssets": { "bucket": "aip-public-assets", "baseUrl": "https://assets.muvloom.online" }
+    "publicAssets": {
+      "bucket": "aip-public-assets",
+      "baseUrl": "https://assets.muvloom.online"
+    }
   },
   "observability": {
     "retentionDays": 30,
@@ -59,7 +83,24 @@
     "uiHostPort": 15080,
     "proxyHostPort": 15090
   },
-  "ops": { "hostAlerts": true },
+  "ops": {
+    "hostAlerts": true
+  },
+  "tunnels": {
+    "main": {
+      "routes": {
+        "api.muvloom.online": "api",
+        "api.nainma.online": "api",
+        "admin-api.muvloom.online": "admin",
+        "admin.muvloom.online": "admin"
+      }
+    },
+    "enterprise": {
+      "routes": {
+        "image-api.qiliangjia.one": "api"
+      }
+    }
+  },
   "tunables": {
     "AGENT_CHAT_MODEL": "gpt-6-luna",
     "AGENT_CHAT_CONTEXT_WINDOW": 40000,
@@ -77,7 +118,6 @@
     "WELCOME_CREDITS": 2000
   },
   "operator": {
-
     "capabilities": {
       "accounts:email-verification": true,
       "accounts:login": true,
@@ -91,14 +131,9 @@
       "agent:chat": true,
       "billing:chat-free": true,
       "billing:credits": true,
-      "generation:byok": false,
-      "generation:storyboard": true,
       "generation:video": true,
-      "matte:server": true,
       "operator:console": true,
-      "quota:daily": false,
-      "remix:analyze": true,
-      "remix:listing": true
+      "quota:daily": false
     },
     "quotas": {
       "agent:analysis-concurrency": 1,
@@ -113,7 +148,6 @@
       "agent:compaction-cooldown-minutes": 60,
       "agent:compaction-failure-threshold": 3,
       "agent:compaction-keep-tokens": 6000,
-      "agent:compaction-max-folds": 5,
       "agent:compaction-output-reserve-tokens": 8000,
       "agent:compaction-verbatim-tokens": 6000,
       "agent:turn-model-parallelism": 3,

@@ -1,7 +1,7 @@
 /**
  * Config Worker（ADR 0035）：把 Secrets Store 里某个部署的密钥交给那个部署的主机。
  *
- * GET /v1/<prod|test>/secrets → { "secrets": { "S3_SECRET_ACCESS_KEY": "...", ... } }
+ * GET /v1/<prod|test|host>/secrets → { "secrets": { "S3_SECRET_ACCESS_KEY": "...", ... } }
  *
  * - 前面是 Cloudflare Access：每个部署一个 Access 应用，只放行该部署的 service token。
  *   这里再校验一遍 Access JWT 的签名、iss、aud 和有效期，路径里的部署必须和 aud 对得上，
@@ -18,10 +18,12 @@ interface Env {
   ACCESS_TEAM_DOMAIN: string
   ACCESS_AUD_PROD: string
   ACCESS_AUD_TEST: string
+  ACCESS_AUD_HOST: string
   [binding: string]: unknown
 }
 
-const DEPLOYMENTS = { prod: 'ACCESS_AUD_PROD', test: 'ACCESS_AUD_TEST' } as const
+/** host 是宿主机级密钥（共享 PostgreSQL、GHCR），它的 Access 应用只放行 prod 的 token。 */
+const DEPLOYMENTS = { prod: 'ACCESS_AUD_PROD', test: 'ACCESS_AUD_TEST', host: 'ACCESS_AUD_HOST' } as const
 type Deployment = keyof typeof DEPLOYMENTS
 
 const json = (status: number, body: unknown) =>
@@ -100,7 +102,7 @@ export async function verifyAccessJwt(
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const match = /^\/v1\/(prod|test)\/secrets$/.exec(new URL(request.url).pathname)
+    const match = /^\/v1\/(prod|test|host)\/secrets$/.exec(new URL(request.url).pathname)
     if (!match) return json(404, { error: 'not_found' })
     if (request.method !== 'GET') return json(405, { error: 'method_not_allowed' })
     const deployment = match[1] as Deployment
