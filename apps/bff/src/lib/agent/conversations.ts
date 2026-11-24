@@ -25,7 +25,11 @@ import {
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
 import { projectSettledAgentJobs, settleAgentJobs } from './background-jobs'
-import { collectUserReplyText, sanitizeAssistantMessages } from './reply-script'
+import {
+  collectUserReplyText,
+  createReplyScriptContextAccumulator,
+  sanitizeAssistantMessages,
+} from './reply-script'
 
 /** 归属互斥由 `agent_conversations_owner_check` 兜底，这里用联合类型让调用方无从写出两者并存。 */
 export type AgentOwner =
@@ -404,9 +408,23 @@ export async function settleAgentConversationJobs(conversationId: string): Promi
   await settleAgentJobs(conversationId, rows.map(messageView), { requireCharges: true })
 }
 
-async function conversationUserReplyText(conversationId: string): Promise<string> {
-  const rows = await db
-    .select({ content: schema.agent_messages.content })
+const USER_SCRIPT_SCAN_BATCH = 200
+const USER_SCRIPT_CACHE_MAX = 512
+const userScriptContextCache = new Map<
+  string,
+  { readonly fingerprint: string; readonly summaryText: string }
+>()
+
+/**
+ * 仅在分页窗口触发文字系统清洗时调用：先按 `(count, max_seq)` 校验进程内有界缓存（新增或软删用户消息都会立即失效），
+ * 未命中时按 `seq` 游标每批 200 条流式累加，只保留每种文字系统 1 个代表字符与中英文计数，避免无界内存占用与多页重复全扫。
+ */
+async function conversationUserReplyScriptSummary(conversationId: string): Promise<string> {
+  const [stats] = await db
+    .select({
+      count: sql<number>`count(*)::int`,
+      maxSeq: sql<number>`coalesce(max(${schema.agent_messages.seq}), 0)::int`,
+    })
     .from(schema.agent_messages)
     .where(
       and(
@@ -415,7 +433,40 @@ async function conversationUserReplyText(conversationId: string): Promise<string
         isNull(schema.agent_messages.deleted_at),
       ),
     )
-  return collectUserReplyText(rows.map((row) => ({ role: 'user' as const, content: row.content })))
+  const fingerprint = `${stats?.count ?? 0}:${stats?.maxSeq ?? 0}`
+  const cached = userScriptContextCache.get(conversationId)
+  if (cached && cached.fingerprint === fingerprint) return cached.summaryText
+
+  const accumulator = createReplyScriptContextAccumulator()
+  let afterSeq = 0
+  while (true) {
+    const batch = await db
+      .select({ seq: schema.agent_messages.seq, content: schema.agent_messages.content })
+      .from(schema.agent_messages)
+      .where(
+        and(
+          eq(schema.agent_messages.conversation_id, conversationId),
+          eq(schema.agent_messages.role, 'user'),
+          isNull(schema.agent_messages.deleted_at),
+          gt(schema.agent_messages.seq, afterSeq),
+        ),
+      )
+      .orderBy(asc(schema.agent_messages.seq))
+      .limit(USER_SCRIPT_SCAN_BATCH)
+    if (batch.length === 0) break
+    accumulator.feed(
+      collectUserReplyText(batch.map((row) => ({ role: 'user' as const, content: row.content }))),
+    )
+    afterSeq = batch.at(-1)!.seq
+    if (batch.length < USER_SCRIPT_SCAN_BATCH) break
+  }
+  const summaryText = accumulator.toSummaryText()
+  if (userScriptContextCache.size >= USER_SCRIPT_CACHE_MAX) {
+    const oldestKey = userScriptContextCache.keys().next().value
+    if (oldestKey !== undefined) userScriptContextCache.delete(oldestKey)
+  }
+  userScriptContextCache.set(conversationId, { fingerprint, summaryText })
+  return summaryText
 }
 
 async function hydrateAgentMessages(
@@ -474,7 +525,7 @@ async function hydrateAgentMessages(
   const pageSanitized = sanitizeAssistantMessages(enriched)
   // 分页窗口里若触发了文字系统清洗，再按整段会话的用户原文重算白名单，避免跨页的俄文/阿拉伯文等合法回复被误删。
   if (options.isPartialPage && pageSanitized !== enriched) {
-    const fullUserText = await conversationUserReplyText(conversationId)
+    const fullUserText = await conversationUserReplyScriptSummary(conversationId)
     return sanitizeAssistantMessages(enriched, fullUserText)
   }
   return pageSanitized

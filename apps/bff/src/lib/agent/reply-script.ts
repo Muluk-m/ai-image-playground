@@ -1,10 +1,12 @@
 export {
   collectUserReplyText,
   compileReplyScripts,
+  createReplyScriptContextAccumulator,
   createReplyScriptGate,
   REPLY_SCRIPT_FALLBACK_EN,
   REPLY_SCRIPT_FALLBACK_ZH,
   type ReplyScriptAllowance,
+  type ReplyScriptContextAccumulator,
   type ReplyScriptGate,
   sanitizeAssistantMessages,
   sanitizeReplyText,

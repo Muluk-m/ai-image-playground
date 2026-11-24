@@ -284,8 +284,40 @@ export function sanitizeReplyText(text: string, userText = ''): string {
   return gate.text()
 }
 
-/**
- * 历史读回时再清一次。允许哪些泄漏文字，看这批消息里的全部用户原文，
+/** 流式累加器：分批扫描用户正文后折叠成极小代表串（≤ 40 字符），供分页清洗复用且占常数内存。 */
+export interface ReplyScriptContextAccumulator {
+  feed(text: string): void
+  toSummaryText(): string
+}
+
+export function createReplyScriptContextAccumulator(): ReplyScriptContextAccumulator {
+  const sampleByScript = new Map<OtherScript, string>()
+  let han = 0
+  let latin = 0
+  return {
+    feed(text) {
+      for (const char of text) {
+        if (HAN.test(char)) {
+          han += 1
+          continue
+        }
+        if (LATIN.test(char)) {
+          latin += 1
+          continue
+        }
+        if (ALWAYS_KEPT.test(char) || !DROPPABLE.test(char)) continue
+        const name = scriptOf(char)
+        if (name && !sampleByScript.has(name)) sampleByScript.set(name, char)
+      }
+    },
+    toSummaryText() {
+      const langMarker = latin > han ? 'a' : han > 0 ? '汉' : ''
+      return `${langMarker}${[...sampleByScript.values()].join('')}`
+    },
+  }
+}
+
+/** 历史读回时再清一次。允许哪些泄漏文字，看这批消息里的全部用户原文，
  * 和流式闸门的 `collectUserReplyText` 是同一套，避免直播保留、刷新又删。
  * 洗完只剩标点或空白时，换成和流式收尾同一句兜底。
  */
