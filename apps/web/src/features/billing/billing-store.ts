@@ -229,15 +229,29 @@ export function useBilling(): BillingSnapshot {
   return value
 }
 
+let pendingBillingModal: 'pricing' | 'recharge' | null = null
+
+export function queueBillingModal(modal: 'pricing' | 'recharge'): void {
+  pendingBillingModal = modal
+}
+
+export function consumePendingBillingModal(): 'pricing' | 'recharge' | null {
+  const next = pendingBillingModal
+  pendingBillingModal = null
+  return next
+}
+
 export function openBilling(): void {
   window.dispatchEvent(new Event(OPEN_BILLING_EVENT))
 }
 
 export function openPricing(): void {
+  pendingBillingModal = null
   window.dispatchEvent(new Event(OPEN_PRICING_EVENT))
 }
 
 export function openRecharge(): void {
+  pendingBillingModal = null
   window.dispatchEvent(new Event(OPEN_RECHARGE_EVENT))
 }
 

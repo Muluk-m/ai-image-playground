@@ -67,16 +67,18 @@ export default function ToolResultCard({
             )}
           </>
         )}
-        <Button
-          variant="outline"
-          size="icon-xs"
-          type="button"
-          onClick={onRemove}
-          aria-label={t('result.remove')}
-          className="absolute right-2 top-2 z-10 opacity-0 shadow transition-opacity focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
-        >
-          <Icon name="close" />
-        </Button>
+        {!(picked && done) && (
+          <Button
+            variant="outline"
+            size="icon-xs"
+            type="button"
+            onClick={onRemove}
+            aria-label={t('result.remove')}
+            className="absolute right-2 top-2 z-10 opacity-0 shadow transition-opacity focus-visible:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100"
+          >
+            <Icon name="close" />
+          </Button>
+        )}
       </div>
       <div className="space-y-0.5 px-3 py-2.5 text-xs">
         <OverflowText as="div" text={item.name} className="truncate" />
