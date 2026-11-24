@@ -82,6 +82,19 @@ const ALLOWED_RUNTIME_CYCLE_EDGES = new Set([
  */
 const ALLOWED_AGENT_CORE_TO_TOOLS = new Set<string>([])
 
+/**
+ * 存量 `lib/agent/* -> modules/agent/tools/*` 边棘轮（PR-4.4）：
+ * 将原 5 处 `lib/agent/* -> lib/agent/tools/index.ts` 迁至 `modules/agent/tools/index.ts` 后，
+ * 继续锁死仅此 5 个编排入口可依赖工具层，防止其余 `lib/agent/*` 文件新增对工具层的耦合。
+ */
+const ALLOWED_LEGACY_AGENT_TO_MODULE_TOOLS = new Set([
+  'lib/agent/interrupted.ts -> modules/agent/tools/index.ts',
+  'lib/agent/model-history.ts -> modules/agent/tools/index.ts',
+  'lib/agent/turn-input.ts -> modules/agent/tools/index.ts',
+  'lib/agent/turn-preparation.ts -> modules/agent/tools/index.ts',
+  'lib/agent/turn.ts -> modules/agent/tools/index.ts',
+])
+
 const CORE_PLATFORM_MODULES = new Set(['identity', 'catalog', 'media', 'execution'])
 const UPPER_APP_MODULES = new Set(['agent', 'canvas', 'library', 'cms'])
 
@@ -94,14 +107,11 @@ const AGENT_LAYER_RANK: Readonly<Record<string, number>> = {
   orchestration: 5,
 }
 
-const AGENT_TOOL_DOMAINS = new Set(['generation', 'canvas', 'library', 'web'])
-
 /** 已迁入 `modules/agent/{contracts,conversation,inbox,runtime}` 的旧 `lib/agent/*` 兼容壳，工具层禁止回流依赖。 */
 const LEGACY_AGENT_MIGRATED_SHIMS = new Set([
   'lib/agent/background-jobs.ts',
   'lib/agent/background-work.ts',
   'lib/agent/compaction-transform.ts',
-  'lib/agent/context-pipeline.ts',
   'lib/agent/conversation-images.ts',
   'lib/agent/conversation-state.ts',
   'lib/agent/conversations.ts',
@@ -110,6 +120,7 @@ const LEGACY_AGENT_MIGRATED_SHIMS = new Set([
   'lib/agent/images.ts',
   'lib/agent/inbox-pickup.ts',
   'lib/agent/inbox.ts',
+  'lib/agent/job-artifacts.ts',
   'lib/agent/lifecycle.ts',
   'lib/agent/modelImage.ts',
   'lib/agent/review-images.ts',
@@ -327,8 +338,7 @@ function agentLayerOf(rest: string): string | null {
 
 function agentToolDomainOf(rest: string): string | null {
   const match = /^tools\/([^/]+)\//.exec(rest)
-  if (!match) return null
-  return AGENT_TOOL_DOMAINS.has(match[1]!) ? match[1]! : null
+  return match ? match[1]! : null
 }
 
 export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
@@ -467,6 +477,15 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
           violations.push(
             `[agent-tools -> registry] ${edge} is not allowed (domain tools must not import tools facade or registry)`,
           )
+        } else if (
+          fromModule.rest === 'tools/adapter.ts' &&
+          (toToolDomain !== null ||
+            toModule.rest === 'tools/index.ts' ||
+            toModule.rest === 'tools/registry.ts')
+        ) {
+          violations.push(
+            `[agent-tools -> adapter-upward] ${edge} is not allowed (tools/adapter.ts must stay below domain tools and registry)`,
+          )
         }
       }
 
@@ -499,6 +518,17 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
       ) {
         violations.push(
           `[agent-core -> tools] ${edge} is not allowed (import shared contracts from modules/agent instead)`,
+        )
+      }
+
+      if (
+        file.startsWith('lib/agent/') &&
+        !file.startsWith('lib/agent/tools/') &&
+        target.startsWith('modules/agent/tools/') &&
+        !ALLOWED_LEGACY_AGENT_TO_MODULE_TOOLS.has(edge)
+      ) {
+        violations.push(
+          `[agent-core -> module-tools] ${edge} is not allowed (keep legacy lib/agent core decoupled from modules/agent/tools)`,
         )
       }
     }
