@@ -11,7 +11,7 @@ import { costFiles } from './cost-impact.mjs'
 export const CRITICAL_FLOWS = {
   注册登录: [
     /^apps\/bff\/src\/routes\/(auth|oauth|account|cli)\.ts$/,
-    /^apps\/bff\/src\/lib\/(auth-origin-config|auth-origin-policy|password-reset|registration-verification|user-auth|user-session)\.ts$/,
+    /^apps\/bff\/src\/lib\/(auth-origin-config|auth-origin-policy|password-reset|registration-verification|user-auth|user-login|user-session)\.ts$/,
     /^apps\/bff\/src\/lib\/oauth\//,
     /^apps\/bff\/src\/modules\/identity\//,
     /^apps\/web\/src\/lib\/(authClient|authScope|sessionRefreshJournal)\.ts$/,
@@ -31,7 +31,7 @@ export const CRITICAL_FLOWS = {
     /^apps\/bff\/src\/routes\/(submit|cancel|result|generations|production-generations|agent-batches)\.ts$/,
     /^apps\/bff\/src\/lib\/generations\.ts$/,
     /^apps\/bff\/src\/lib\/agent\/production-generation\.ts$/,
-    /^apps\/bff\/src\/modules\/execution\/(task-lifecycle-bus|task-submission|task-outcome|submission-admission|submission-tier|submission-prepare|submission-idempotency|task-submission-plugins|task-execution-hooks)\.ts$/,
+    /^apps\/bff\/src\/modules\/execution\/(task-lifecycle-bus|task-queries|task-submission|task-outcome|submission-admission|submission-tier|submission-prepare|submission-idempotency|task-submission-plugins|task-execution-hooks)\.ts$/,
     /^apps\/bff\/src\/bootstrap\/(task-lifecycle|task-submission|task-execution)\.ts$/,
     /^apps\/bff\/src\/workers\/(task-execution|task-runner|task-scheduler|agent-batch-loop|runnable-tasks)\.ts$/,
     /^apps\/web\/src\/lib\/(generationJob|batchGenerate|placeCloudGeneration)\.ts$/,

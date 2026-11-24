@@ -9,9 +9,7 @@ import {
   SESSION_REFRESH_REQUEST_HEADER,
   USERNAME_MAX_LENGTH,
 } from '@image-playground/shared'
-import { eq } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
-import { db, schema } from '../db/client'
 import { accountProfileView } from '../lib/account-profile-view'
 import { endStageAuthorizationsForUser } from '../lib/agent/stage-authorizations'
 import { passwordEntryAllowed, registrationEntryAllowed } from '../lib/auth-origin-policy'
@@ -31,9 +29,9 @@ import {
   UserOperationError,
 } from '../lib/user-admin'
 import { resolveAuthUser } from '../lib/user-auth'
+import { completePasswordLogin, findUserByUsername } from '../lib/user-login'
 import {
   clearUserSessionCookie,
-  issueUserSession,
   readAccessExpiry,
   reclaimSwitchedAccount,
   refreshWebSessionToken,
@@ -283,9 +281,7 @@ export const userAuthRoutes = new Elysia()
       if (sourceLimiter.isLocked(key) || accountLimiter.isLocked(username)) {
         return status(429, { error: 'rate_limited' })
       }
-      const [user] = isValidUsername(username)
-        ? await db.select().from(schema.users).where(eq(schema.users.username, username)).limit(1)
-        : []
+      const user = isValidUsername(username) ? await findUserByUsername(username) : null
 
       let passwordMatches = false
       try {
@@ -306,42 +302,11 @@ export const userAuthRoutes = new Elysia()
         })
       }
 
-      const authenticated = await db.transaction(async (tx) => {
-        const [current] = await tx
-          .select({
-            id: schema.users.id,
-            password_hash: schema.users.password_hash,
-            status: schema.users.status,
-            username: schema.users.username,
-            nickname: schema.users.nickname,
-            bio: schema.users.bio,
-            avatar_key: schema.users.avatar_key,
-            updated_at: schema.users.updated_at,
-          })
-          .from(schema.users)
-          .where(eq(schema.users.id, user.id))
-          .for('update')
-        if (
-          !current ||
-          current.status !== 'active' ||
-          current.password_hash !== user.password_hash
-        ) {
-          return null
-        }
-
-        const now = Date.now()
-        await tx
-          .update(schema.users)
-          .set({ last_login_at: now, updated_at: now })
-          .where(eq(schema.users.id, current.id))
-
-        const issued = await issueUserSession(
-          current.id,
-          tx,
-          sessionClientFromRequest(request, peer),
-        )
-        return { issued, user: accountProfileView({ ...current, updated_at: now }) }
-      })
+      const authenticated = await completePasswordLogin(
+        user.id,
+        user.password_hash,
+        sessionClientFromRequest(request, peer),
+      )
       if (!authenticated) {
         sourceLimiter.recordFailure(key)
         accountLimiter.recordFailure(username)

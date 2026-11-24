@@ -5,9 +5,7 @@ import {
   GPT_IMAGE_26_GIF_FRAME_MAX,
   GPT_IMAGE_26_GIF_FRAME_MIN,
 } from '@image-playground/shared'
-import { and, asc, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
-import { db, schema } from '../db/client'
 import { proposeBatchAnalysis } from '../lib/agent/batch-analysis-proposal'
 import {
   batchExecutionAvailable,
@@ -26,6 +24,7 @@ import {
   updateAgentBatchPlan,
 } from '../lib/agent/batch-plans'
 import { readBatchWakeReceipt } from '../lib/agent/batch-wake'
+import { listConversationBatches } from '../lib/agent/conversation-service'
 import { capabilityUnavailable, isCapabilityEnabled } from '../lib/capabilities'
 import { badRequestOnValidation } from '../lib/http'
 import { resolveAuthUser } from '../lib/user-auth'
@@ -113,27 +112,8 @@ export const agentBatchRoutes = new Elysia({ name: 'agent-batches' })
     '/api/agent/conversations/:id/batches',
     async ({ params, authUser, status }) => {
       if (!authUser) return status(401, { error: 'unauthorized' })
-      const [conversation] = await db
-        .select({ id: schema.agent_conversations.id })
-        .from(schema.agent_conversations)
-        .where(
-          and(
-            eq(schema.agent_conversations.id, params.id),
-            eq(schema.agent_conversations.user_id, authUser.id),
-            isNull(schema.agent_conversations.deleted_at),
-          ),
-        )
-      if (!conversation) return status(404, { error: 'conversation_not_found' })
-      const batches = await db
-        .select({ id: schema.agent_batches.id })
-        .from(schema.agent_batches)
-        .where(
-          and(
-            eq(schema.agent_batches.user_id, authUser.id),
-            eq(schema.agent_batches.conversation_id, params.id),
-          ),
-        )
-        .orderBy(asc(schema.agent_batches.created_at), asc(schema.agent_batches.id))
+      const batches = await listConversationBatches(authUser.id, params.id)
+      if (!batches) return status(404, { error: 'conversation_not_found' })
       return { batches }
     },
     { params: t.Object({ id: t.String() }) },

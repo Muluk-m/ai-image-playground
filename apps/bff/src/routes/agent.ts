@@ -32,23 +32,11 @@ import {
   parseAgentCanvasSnapshot,
   SYNC_NAME_MAX_LENGTH,
 } from '@image-playground/shared'
-import { and, eq, isNull } from 'drizzle-orm'
 import { Elysia, t } from 'elysia'
 import sharp from 'sharp'
 import { config } from '../config'
-import { db, schema } from '../db/client'
-import {
-  agentJobViews,
-  cancelAgentConversationJobs,
-  cancelAgentJob,
-} from '../lib/agent/background-jobs'
-import { discardConversationBatchDrafts } from '../lib/agent/batch-plans'
-import { detachConversationBatches } from '../lib/agent/batch-progress'
-import {
-  confirmAgentGeneration,
-  discardConversationDraftInputs,
-  lockConversation,
-} from '../lib/agent/confirmations'
+import { agentJobViews, cancelAgentJob } from '../lib/agent/background-jobs'
+import { confirmAgentGeneration, discardConversationDraftInputs } from '../lib/agent/confirmations'
 import {
   announceQueuedMessage,
   pickUpGateContinuation,
@@ -59,12 +47,17 @@ import {
   withdrawFromConversationInbox,
 } from '../lib/agent/conversation-inbox'
 import {
+  deleteAgentConversationCascade,
+  findUserMessageId,
+  isConversationBoundToCanvasProject,
+  readUserMessageContent,
+} from '../lib/agent/conversation-service'
+import {
   type AgentOwner,
   createAgentConversation,
   findAgentConversation,
   listAgentConversations,
   listAgentMessages,
-  softDeleteAgentConversation,
 } from '../lib/agent/conversations'
 import {
   isSealLease,
@@ -553,19 +546,8 @@ export const agentRoutes = new Elysia()
         ownerOf(authUser, headers[DEVICE_ID_HEADER]),
       )
       if (!conversation) return status(404, NOT_FOUND)
-      const [message] = await db
-        .select({ content: schema.agent_messages.content })
-        .from(schema.agent_messages)
-        .where(
-          and(
-            eq(schema.agent_messages.id, params.messageId),
-            eq(schema.agent_messages.conversation_id, conversation.id),
-            eq(schema.agent_messages.role, 'user'),
-            isNull(schema.agent_messages.deleted_at),
-          ),
-        )
-        .limit(1)
-      const references = message?.content.flatMap((block) =>
+      const content = await readUserMessageContent(conversation.id, params.messageId)
+      const references = content?.flatMap((block) =>
         block.type === 'text' ? (block.references ?? []) : [],
       )
       const reference = references?.[params.index]
@@ -1120,29 +1102,13 @@ export const agentRoutes = new Elysia()
       return withAgentLifecycle(owner, async () => {
         if (await conversationBusy(conversation.id))
           return status(409, { error: 'conversation_busy' })
-        if (owner.kind === 'user') {
-          const [project] = await db
-            .select({ id: schema.canvas_projects.id })
-            .from(schema.canvas_projects)
-            .where(
-              and(
-                eq(schema.canvas_projects.user_id, owner.userId),
-                eq(schema.canvas_projects.conversation_id, conversation.id),
-              ),
-            )
-            .limit(1)
-          if (project) return status(409, { error: 'project_conversation_bound' })
+        if (
+          owner.kind === 'user' &&
+          (await isConversationBoundToCanvasProject(owner.userId, conversation.id))
+        ) {
+          return status(409, { error: 'project_conversation_bound' })
         }
-        // 删除与确认生成走同一把会话锁：确认不会把任务建进一个刚删掉的会话，
-        // 墓碑与取消也同一次提交，没有「删完又冒出一条任务」的缝。
-        await db.transaction(async (tx) => {
-          await lockConversation(tx, conversation.id, owner.kind === 'user' ? owner.userId : null)
-          await discardConversationBatchDrafts(conversation.id, tx)
-          await softDeleteAgentConversation(conversation.id, owner, tx)
-          await detachConversationBatches(conversation.id, tx)
-          // 删掉的会话不该接着花钱：没结束的后台任务一并取消，按原桶退回。
-          await cancelAgentConversationJobs(conversation.id, tx)
-        })
+        await deleteAgentConversationCascade(conversation.id, owner)
         // 字节在事务之外清：删对象不可回滚，放进事务只会让「墓碑已提交、对象删失败」
         // 变成「整笔回滚但对象已经没了」。两个前缀都清——参考图按会话存，
         // 草稿输入图按草稿存，会话没了两者都再没有读路径。
@@ -1230,18 +1196,8 @@ export const agentRoutes = new Elysia()
       if (forwarded) return forwarded
       const submittedId = body.clientMessageId ? `interjection:${body.clientMessageId}` : undefined
       if (submittedId) {
-        const [existing] = await db
-          .select({ id: schema.agent_messages.id })
-          .from(schema.agent_messages)
-          .where(
-            and(
-              eq(schema.agent_messages.conversation_id, conversation.id),
-              eq(schema.agent_messages.id, submittedId),
-              eq(schema.agent_messages.role, 'user'),
-            ),
-          )
-          .limit(1)
-        if (existing) return { messageId: existing.id }
+        const existingId = await findUserMessageId(conversation.id, submittedId)
+        if (existingId) return { messageId: existingId }
       }
       const activeTurn = await activeTurnOf(params, body.deviceId, authUser)
       if (!activeTurn) return status(404, TURN_NOT_FOUND)

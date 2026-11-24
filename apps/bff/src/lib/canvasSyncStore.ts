@@ -15,7 +15,7 @@ import {
   synchronizeLegacyElements,
   validateCloudCanvas,
 } from '@image-playground/shared'
-import { and, asc, count, eq, inArray, lte, sql } from 'drizzle-orm'
+import { and, asc, count, eq, inArray, isNull, lte, sql } from 'drizzle-orm'
 import * as Y from 'yjs'
 import { config } from '../config'
 import { db, schema } from '../db/client'
@@ -453,4 +453,23 @@ export async function copyCanvasProject(
       loaded.doc.destroy()
     }
   })
+}
+
+export async function renameCanvasProject(
+  userId: string,
+  projectId: string,
+  name: string,
+): Promise<boolean> {
+  const renamed = await db
+    .update(schema.canvas_projects)
+    .set({ name: name.trim(), updated_at: Date.now() })
+    .where(
+      and(
+        eq(schema.canvas_projects.id, projectId),
+        eq(schema.canvas_projects.user_id, userId),
+        isNull(schema.canvas_projects.deleted_at),
+      ),
+    )
+    .returning({ id: schema.canvas_projects.id })
+  return renamed.length > 0
 }

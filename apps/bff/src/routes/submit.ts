@@ -13,7 +13,6 @@ import {
   videoRequestRejection,
 } from '@image-playground/shared'
 import { Elysia, t } from 'elysia'
-import { db, schema } from '../db/client'
 import { StageAuthorizationError } from '../lib/agent/stage-authorizations'
 import { isModelDisabled, resolveModelMedia } from '../lib/channels'
 import { resolveImageBytesRef } from '../lib/extractImages'
@@ -27,9 +26,12 @@ import { log } from '../lib/logger'
 import { MEDIA_INPUT_PATTERN, MediaInputError, resolveMediaInputs } from '../lib/mediaInputs'
 import { asQueueProvider } from '../lib/queueProvider'
 import { submissionRefusalResponse } from '../lib/submissionRefusal'
-import { taskAccessWhere } from '../lib/task-access'
 import { requireUser } from '../lib/user-auth'
-import { createQueueTask, findTaskByIdempotencyKey } from '../modules/execution'
+import {
+  createQueueTask,
+  findAccessibleTaskSourceVideo,
+  findTaskByIdempotencyKey,
+} from '../modules/execution'
 
 /** 与归档时的解码口径一致：base64 编码的 data URL。 */
 const DATA_URL_PATTERN = '^data:[^;,]+;base64,'
@@ -121,15 +123,7 @@ async function resolveSourceVideo(
   video: VideoRequest,
   userId: string | null,
 ): Promise<{ ref: StoredImageRef } | { reason: string }> {
-  const [task] = await db
-    .select({
-      status: schema.tasks.status,
-      provider: schema.tasks.provider,
-      result_payload: schema.tasks.result_payload,
-    })
-    .from(schema.tasks)
-    .where(taskAccessWhere(video.source_task_id ?? '', userId))
-    .limit(1)
+  const task = await findAccessibleTaskSourceVideo(video.source_task_id ?? '', userId)
   if (!task) return { reason: '源视频不存在或不属于你' }
   if (task.status !== 'completed') return { reason: '源视频还没生成完成' }
 
