@@ -175,3 +175,94 @@ export const gpt_direct_budget_holds = pgTable(
   },
   (t) => [index('idx_gpt_direct_budget_holds_key').on(t.fingerprint, t.month_start)],
 )
+
+/**
+ * Gemini 直连（Vertex / Nano Banana）每次请求的用量与估算成本，按月累计做预算封顶，
+ * 并记录 ok / rate_limited / error 用于后台按 Key、按日、按模型统计。
+ */
+export const gemini_direct_usage = pgTable(
+  'gemini_direct_usage',
+  {
+    id: text('id').primaryKey(),
+    task_id: text('task_id'),
+    model: text('model').notNull(),
+    image_size: text('image_size'),
+    images: integer('images').notNull(),
+    input_tokens: integer('input_tokens'),
+    output_tokens: integer('output_tokens'),
+    cost_micro_usd: bigint('cost_micro_usd', { mode: 'number' }).notNull(),
+    estimated: boolean('estimated').notNull(),
+    status: text('status').$type<'ok' | 'rate_limited' | 'error'>().notNull().default('ok'),
+    upstream_status: integer('upstream_status'),
+    key_fingerprint: text('key_fingerprint'),
+    created_at: epochMs('created_at').notNull(),
+  },
+  (t) => [
+    index('idx_gemini_direct_usage_created').on(t.created_at),
+    index('idx_gemini_direct_usage_key_created').on(t.key_fingerprint, t.created_at),
+    check('gemini_direct_usage_status_check', sql`${t.status} IN ('ok', 'rate_limited', 'error')`),
+  ],
+)
+
+/**
+ * 一把 Gemini 直连密钥的跨 worker 运行状态（按 8 位指纹记录停用与 429 冷却）。
+ */
+export const gemini_direct_key_state = pgTable(
+  'gemini_direct_key_state',
+  {
+    fingerprint: text('fingerprint').primaryKey(),
+    disabled_reason: text('disabled_reason').$type<'quota' | 'invalid' | null>(),
+    cooldown_until: epochMs('cooldown_until'),
+    last_error: text('last_error'),
+    last_error_at: epochMs('last_error_at'),
+    updated_at: epochMs('updated_at').notNull(),
+  },
+  (t) => [
+    check(
+      'gemini_direct_key_state_reason_check',
+      sql`${t.disabled_reason} IS NULL OR ${t.disabled_reason} IN ('quota', 'invalid')`,
+    ),
+  ],
+)
+
+/**
+ * 后台配置的 Gemini 直连密钥。密文字段与 upstream_api_secrets 相同，使用独立 AAD 前缀。
+ * 没有行时退回环境变量 VERTEX_API_KEYS / VERTEX_API_KEY。明文不入库。
+ */
+export const gemini_direct_admin_keys = pgTable(
+  'gemini_direct_admin_keys',
+  {
+    id: text('id').primaryKey(),
+    ordinal: integer('ordinal').notNull(),
+    fingerprint: text('fingerprint').notNull(),
+    budget_usd: integer('budget_usd').notNull(),
+    enabled: boolean('enabled').notNull().default(true),
+    nonce: text('nonce').notNull(),
+    tag: text('tag').notNull(),
+    ciphertext: text('ciphertext').notNull(),
+    updated_at: epochMs('updated_at').notNull(),
+    updated_by: text('updated_by').notNull(),
+  },
+  (t) => [
+    unique('gemini_direct_admin_keys_fingerprint_key').on(t.fingerprint),
+    unique('gemini_direct_admin_keys_ordinal_key').on(t.ordinal),
+    check('gemini_direct_admin_keys_ordinal_check', sql`${t.ordinal} > 0`),
+    check('gemini_direct_admin_keys_budget_check', sql`${t.budget_usd} > 0`),
+  ],
+)
+
+/**
+ * 选中一把 Gemini 直连 key 时预占的估算额度，避免并发请求超月预算。
+ */
+export const gemini_direct_budget_holds = pgTable(
+  'gemini_direct_budget_holds',
+  {
+    id: text('id').primaryKey(),
+    fingerprint: text('fingerprint').notNull(),
+    month_start: epochMs('month_start').notNull(),
+    micro_usd: bigint('micro_usd', { mode: 'number' }).notNull(),
+    created_at: epochMs('created_at').notNull(),
+    expires_at: epochMs('expires_at').notNull(),
+  },
+  (t) => [index('idx_gemini_direct_budget_holds_key').on(t.fingerprint, t.month_start)],
+)
