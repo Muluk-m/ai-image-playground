@@ -1,7 +1,7 @@
 import type { ServerLogEntry, ServerLogsResult } from '@image-playground/shared'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { TaskDetailView } from '@/components/TaskDetailView'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { apiClient } from '@/lib/api-client'
@@ -48,8 +48,20 @@ export function TaskDetailSheet({ taskId, onOpenChange }: TaskDetailSheetProps) 
 
 function TaskDrawerTabs({ taskId }: { taskId: string }) {
   const task = useTask(taskId)
+  const running = task.data ? task.data.completed_at === null : false
+  // 没结束的任务（排队、执行中、卡住）一直查到现在，每 30 秒前移一次窗口刷新日志和链路；
+  // 结束后固定到完成时间。
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!running) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 30_000)
+    return () => clearInterval(timer)
+  }, [running])
   const logTo = task.data
-    ? Math.min(Date.now() + 60_000, (task.data.completed_at ?? task.data.submitted_at) + 60_000)
+    ? task.data.completed_at === null
+      ? now + 60_000
+      : Math.min(now + 60_000, task.data.completed_at + 60_000)
     : null
   const logFrom =
     task.data && logTo !== null

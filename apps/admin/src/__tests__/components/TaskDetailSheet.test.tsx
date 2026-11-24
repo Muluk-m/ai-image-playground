@@ -4,7 +4,10 @@ import type { ReactNode } from 'react'
 import { expect, it, vi } from 'vitest'
 import { TaskDetailSheet } from '../../components/TaskDetailSheet'
 
-const { get } = vi.hoisted(() => ({ get: vi.fn() }))
+const { get, task } = vi.hoisted(() => ({
+  get: vi.fn(),
+  task: { completed_at: Date.UTC(2026, 10, 24, 2, 0, 25) as number | null },
+}))
 vi.mock('../../lib/api-client', () => ({ apiClient: { get } }))
 vi.mock('../../components/TaskDetailView', () => ({ TaskDetailView: () => null }))
 vi.mock('../../lib/queries', () => ({
@@ -12,7 +15,7 @@ vi.mock('../../lib/queries', () => ({
     data: {
       submitted_at: Date.UTC(2026, 10, 24, 2),
       started_at: Date.UTC(2026, 10, 24, 2),
-      completed_at: Date.UTC(2026, 10, 24, 2, 0, 25),
+      completed_at: task.completed_at,
       status: 'completed',
       attempt_count: 1,
       error_type: null,
@@ -123,4 +126,23 @@ it('leaves the trace tab out when the deployment has no OpenObserve', async () =
   )
   expect(await screen.findByRole('tab', { name: '服务端日志 1' })).toBeInTheDocument()
   expect(screen.queryByRole('tab', { name: /^链路/ })).toBeNull()
+})
+
+it('keeps looking up to now for a task that has not finished, so a late execution still shows', async () => {
+  task.completed_at = null
+  get.mockReset()
+  get.mockResolvedValue({ entries: [], traces: [], more: false })
+  const before = Date.now()
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <TaskDetailSheet taskId="task-1" onOpenChange={() => {}} />
+    </QueryClientProvider>,
+  )
+  await vi.waitFor(() => expect(get).toHaveBeenCalled())
+  for (const [path] of get.mock.calls) {
+    const to = Number(new URL(String(path), 'http://admin').searchParams.get('to'))
+    // 提交在几天前，窗口上界仍是现在，而不是提交后一分钟。
+    expect(to).toBeGreaterThanOrEqual(before + 60_000)
+  }
+  task.completed_at = Date.UTC(2026, 10, 24, 2, 0, 25)
 })
