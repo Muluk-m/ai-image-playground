@@ -31,6 +31,8 @@
       "removeAttachment": "Remove screenshot",
       "discardTitle": "Discard unsent feedback?",
       "discardMessage": "Closing now will discard your draft message or attached screenshot.",
+      "discardConfirm": "Discard & close",
+      "continueEditing": "Keep editing",
       "previewAttachment": "View full image",
       "attachmentAlt": "Feedback screenshot",
       "attachmentLoadFailed": "Could not load screenshot",

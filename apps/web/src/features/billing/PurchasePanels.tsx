@@ -332,7 +332,7 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
 
 export function RechargePanel({ onClose }: { onClose: () => void }) {
   useTranslation()
-  const { catalog, status } = useBilling()
+  const { catalog, status, error } = useBilling()
   const [amount, setAmount] = useState(50)
   const purchase = usePurchaseOrder()
   const { order, setOrder, busy } = purchase

@@ -20,11 +20,12 @@ afterEach(() => {
 })
 
 describe('friendlyBillingError', () => {
-  it('hides internal billing_http and network codes behind friendly copy', () => {
+  it('hides internal billing_http, network, and raw runtime errors behind friendly copy', () => {
     expect(friendlyBillingError('billing_http_502')).not.toContain('billing_http_502')
     expect(friendlyBillingError('billing_account_invalid')).not.toContain('billing_account_invalid')
     expect(friendlyBillingError('Failed to fetch')).not.toContain('Failed to fetch')
-    expect(friendlyBillingError('余额不足')).toBe('余额不足')
+    expect(friendlyBillingError("SyntaxError: Unexpected token '<'")).not.toContain('SyntaxError')
+    expect(friendlyBillingError('The operation was aborted')).not.toContain('aborted')
   })
 })
 

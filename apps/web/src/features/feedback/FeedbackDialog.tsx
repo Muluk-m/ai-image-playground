@@ -23,7 +23,6 @@ import { Icon } from '../../components/ui/icon'
 import { Textarea } from '../../components/ui/textarea'
 import { useTranslation } from '../../i18n'
 import { cn } from '../../lib/utils'
-import { useStore } from '../../store'
 import {
   FeedbackClientError,
   fetchFeedbackAttachmentBlobUrl,
@@ -353,18 +352,23 @@ export default function FeedbackDialog({
     (draft.trim().length > 0 || attachment !== null) && !submitting && !loading && !loadError
 
   const hasUnsentDraft = draft.trim().length > 0 || attachment !== null
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+
+  useEffect(() => {
+    if (!hasUnsentDraft && confirmDiscard) setConfirmDiscard(false)
+  }, [hasUnsentDraft, confirmDiscard])
+
   const requestClose = () => {
     if (submitting) return
     if (!hasUnsentDraft) {
       onClose()
       return
     }
-    useStore.getState().setConfirmDialog({
-      title: t('header.feedback.discardTitle'),
-      message: t('header.feedback.discardMessage'),
-      tone: 'danger',
-      action: onClose,
-    })
+    if (confirmDiscard) {
+      setConfirmDiscard(false)
+      return
+    }
+    setConfirmDiscard(true)
   }
 
   return (
@@ -591,6 +595,36 @@ export default function FeedbackDialog({
                   </Button>
                 </div>
               </div>
+
+              {confirmDiscard ? (
+                <div
+                  role="alertdialog"
+                  aria-label={t('header.feedback.discardTitle')}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3.5 py-2.5 text-sm"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-foreground">
+                      {t('header.feedback.discardTitle')}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {t('header.feedback.discardMessage')}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setConfirmDiscard(false)}
+                    >
+                      {t('header.feedback.continueEditing')}
+                    </Button>
+                    <Button type="button" size="sm" variant="destructive" onClick={onClose}>
+                      {t('header.feedback.discardConfirm')}
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
 
               {errorText ? (
                 <p role="alert" className="text-xs text-destructive">
