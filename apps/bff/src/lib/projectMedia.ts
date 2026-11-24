@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { readUserAssetBytes } from '@image-playground/read-models'
 import { mediaObject } from '@image-playground/shared'
 import {
   and,
@@ -75,11 +76,8 @@ export async function mediaUsage(tx: BffTransaction, userId: string, now = Date.
         ),
       ),
     )
-  const [legacy] = await tx
-    .select({ total: sql<string>`coalesce(sum(${schema.user_asset_objects.bytes}), 0)` })
-    .from(schema.user_asset_objects)
-    .where(eq(schema.user_asset_objects.user_id, userId))
-  return Number(durable?.total ?? 0) + Number(legacy?.total ?? 0)
+  const legacyBytes = await readUserAssetBytes(tx, userId)
+  return Number(durable?.total ?? 0) + legacyBytes
 }
 
 export function mediaSummary(row: Media) {
