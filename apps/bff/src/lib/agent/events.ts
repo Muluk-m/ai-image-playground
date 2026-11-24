@@ -12,6 +12,7 @@ import {
   sealAbandonedTurns,
 } from '../../modules/agent'
 import {
+  getInterruptedTurnRecoverer,
   isSealLease,
   SEAL_SEQ_GAP,
   type StoredAgentEvent,
@@ -19,10 +20,12 @@ import {
   type TurnEventLog,
 } from '../../modules/agent/contracts'
 
-// 兼容未经过 `app.ts` 组合根启动的单测（如 `events.test.ts`）：按需惰性注册默认恢复器。
-registerInterruptedTurnRecoverer((conversationId, turnId) =>
-  import('./interrupted').then((it) => it.recoverInterruptedTurn(conversationId, turnId)),
-)
+// 兼容未经过 `app.ts` 组合根启动的单测（如 `events.test.ts`）：仅在未注册时按需惰性注册默认恢复器。
+if (!getInterruptedTurnRecoverer()) {
+  registerInterruptedTurnRecoverer((conversationId, turnId) =>
+    import('./interrupted').then((it) => it.recoverInterruptedTurn(conversationId, turnId)),
+  )
+}
 
 export {
   appendAgentTurnEvents,

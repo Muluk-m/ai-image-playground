@@ -204,7 +204,7 @@ export async function executeAgentTurn(
         waitDispatchAccounting: () => stream.waitDispatchAccounting(),
         settlement: () => stream.settlement(),
         saveHistoryAfterTurn: (saveInput) => contextPipeline.saveHistoryAfterTurn(saveInput),
-        steered: interjections.hasUnconsumedSteering(),
+        hasUnconsumedSteering: () => interjections.hasUnconsumedSteering(),
         getAgentMessages: () => agent.state.messages,
       }),
     )

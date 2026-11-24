@@ -63,10 +63,10 @@ export async function finalizeAgentTurn(input: {
     readonly storedMessages: TurnModelHistorySaveInput['expectedHistory']
     readonly messages: TurnModelHistorySaveInput['messages']
   }) => Promise<void>
-  readonly steered: boolean
+  readonly hasUnconsumedSteering: () => boolean
   readonly getAgentMessages: () => TurnModelHistorySaveInput['messages']
 }): Promise<void> {
-  const { prepared, state, startedAt, modelId, events, store, steered } = input
+  const { prepared, state, startedAt, modelId, events, store } = input
   const { conversationId, turnId, settle, execution } = prepared
 
   state.acceptingInterjections = false
@@ -199,7 +199,7 @@ export async function finalizeAgentTurn(input: {
   if (!state.confirmationGuarded) {
     await input.saveHistoryAfterTurn({
       outcome,
-      steered,
+      steered: input.hasUnconsumedSteering(),
       storedMessages: store.storedMessageValues(),
       messages: input.getAgentMessages(),
     })

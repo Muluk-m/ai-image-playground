@@ -13,6 +13,16 @@ export type InterruptedTurnRecoverer = (
   turnId: string,
 ) => Promise<InterruptedTurnRecovery | null>
 
+/** 未通过组合根注册中断轮恢复器时 fail-closed 报错，防止静默封口永久丢失续跑与结果卡。 */
+export class MissingInterruptedTurnRecovererError extends Error {
+  constructor() {
+    super(
+      'InterruptedTurnRecoverer is not registered; import bootstrap/agent-runtime or pass an explicit recoverer to sealAbandonedTurnsWith/recoverAbandonedExecutionWith/createLocalTurnBroker',
+    )
+    this.name = 'MissingInterruptedTurnRecovererError'
+  }
+}
+
 let defaultRecoverer: InterruptedTurnRecoverer | null = null
 
 /** 组合根注册中断轮恢复实现，避免 `runtime/stream-broker` 静态或动态依赖 `lib/agent/interrupted`。 */
@@ -21,5 +31,10 @@ export function registerInterruptedTurnRecoverer(recoverer: InterruptedTurnRecov
 }
 
 export function getInterruptedTurnRecoverer(): InterruptedTurnRecoverer | null {
+  return defaultRecoverer
+}
+
+export function requireInterruptedTurnRecoverer(): InterruptedTurnRecoverer {
+  if (!defaultRecoverer) throw new MissingInterruptedTurnRecovererError()
   return defaultRecoverer
 }

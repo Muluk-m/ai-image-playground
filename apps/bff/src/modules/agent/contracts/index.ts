@@ -24,7 +24,9 @@ export {
   getInterruptedTurnRecoverer,
   type InterruptedTurnRecoverer,
   type InterruptedTurnRecovery,
+  MissingInterruptedTurnRecovererError,
   registerInterruptedTurnRecoverer,
+  requireInterruptedTurnRecoverer,
 } from './interrupted-recovery'
 export {
   AGENT_IMAGE_FALLBACK_MODEL,

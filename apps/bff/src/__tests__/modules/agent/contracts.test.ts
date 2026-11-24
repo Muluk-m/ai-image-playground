@@ -8,6 +8,7 @@ import {
   createToolFailureLog,
   getInterruptedTurnRecoverer,
   isSealLease,
+  MissingInterruptedTurnRecovererError,
   mergeMaskedPlanCarries,
   noModelMessage,
   queueArtifacts,
@@ -15,6 +16,7 @@ import {
   queueRefusalCode,
   registerInterruptedTurnRecoverer,
   registerRunningTurn,
+  requireInterruptedTurnRecoverer,
   runningTurn,
   SEAL_LEASE_PREFIX,
   safeFetchToolError,
@@ -133,9 +135,12 @@ describe('modules/agent/contracts', () => {
     trackAgentBackgroundWork(Promise.resolve())
     const previousRecoverer = getInterruptedTurnRecoverer()
     const stubRecoverer = async () => null
-    registerInterruptedTurnRecoverer(stubRecoverer)
     try {
+      registerInterruptedTurnRecoverer(null)
+      expect(() => requireInterruptedTurnRecoverer()).toThrow(MissingInterruptedTurnRecovererError)
+      registerInterruptedTurnRecoverer(stubRecoverer)
       expect(getInterruptedTurnRecoverer()).toBe(stubRecoverer)
+      expect(requireInterruptedTurnRecoverer()).toBe(stubRecoverer)
     } finally {
       registerInterruptedTurnRecoverer(previousRecoverer)
     }

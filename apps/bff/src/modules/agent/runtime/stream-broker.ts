@@ -7,12 +7,12 @@ import { and, asc, desc, eq, gt, inArray, lt, sql } from 'drizzle-orm'
 import { db, schema } from '../../../db/client'
 import { log } from '../../../lib/logger'
 import {
-  getInterruptedTurnRecoverer,
   type InterruptedTurnRecoverer,
   isSealLease,
   type RunningTurn,
   registerInterruptedTurnRecoverer,
   registerRunningTurn,
+  requireInterruptedTurnRecoverer,
   runningTurn,
   SEAL_LEASE_PREFIX,
   SEAL_SEQ_GAP,
@@ -317,7 +317,7 @@ async function unterminatedTurns(conversationId: string): Promise<UnterminatedTu
 async function writeSeals(
   conversationId: string,
   turns: readonly UnterminatedTurn[],
-  recover: InterruptedTurnRecoverer | null,
+  recover: InterruptedTurnRecoverer | null | undefined,
 ) {
   if (turns.length === 0) return
   const summaries = new Map(
@@ -344,8 +344,11 @@ async function writeSeals(
     const summary = summaries.get(turn.turnId)
     const durationMs = summary?.duration_ms ?? Math.max(turn.lastAt - turn.firstAt, 0)
     // 没有页脚：这一轮是被打断的（服务重启、执行者被接管），不是只丢了终帧。先把它提交过的
-    // 后台任务的结果卡补上，再算要不要续一次。通过端口回调恢复，避免静态依赖工具注册表与 pi。
-    const recovery = summary || !recover ? null : await recover(conversationId, turn.turnId)
+    // 后台任务的结果卡补上，再算要不要续一次。`recover === undefined` 要求默认恢复器已注册
+    // （fail-closed，防止静默封口丢弃续跑）；显式传 `null` 才表示调用方明确禁用恢复。
+    const resolvedRecover =
+      summary || recover === null ? null : (recover ?? requireInterruptedTurnRecoverer())
+    const recovery = resolvedRecover ? await resolvedRecover(conversationId, turn.turnId) : null
     // 排上了续跑的轮按「已中断」收尾：界面凭这个错误码不把它报成失败（ADR 0006）。页脚先落、
     // 终帧后补的那种（进程死在两步之间）照收件箱里有没有它的续跑认。
     const interrupted = summary
@@ -414,7 +417,7 @@ async function writeSeals(
 export async function sealAbandonedTurnsWith(
   conversationId: string,
   owned = false,
-  recover: InterruptedTurnRecoverer | null = getInterruptedTurnRecoverer(),
+  recover?: InterruptedTurnRecoverer | null,
 ): Promise<void> {
   const found = await unterminatedTurns(conversationId)
   if (found.length === 0) return
@@ -433,7 +436,7 @@ export async function sealAbandonedTurnsWith(
 }
 
 export async function sealAbandonedTurns(conversationId: string, owned = false): Promise<void> {
-  return sealAbandonedTurnsWith(conversationId, owned, getInterruptedTurnRecoverer())
+  return sealAbandonedTurnsWith(conversationId, owned)
 }
 
 /**
@@ -442,7 +445,7 @@ export async function sealAbandonedTurns(conversationId: string, owned = false):
  */
 export async function recoverAbandonedExecutionWith(
   conversationId: string,
-  recover: InterruptedTurnRecoverer | null = getInterruptedTurnRecoverer(),
+  recover?: InterruptedTurnRecoverer | null,
 ): Promise<void> {
   const sealId = `${SEAL_LEASE_PREFIX}${crypto.randomUUID()}`
   if (!(await claimConversation(conversationId, sealId))) return
@@ -454,12 +457,11 @@ export async function recoverAbandonedExecutionWith(
 }
 
 export async function recoverAbandonedExecution(conversationId: string): Promise<void> {
-  return recoverAbandonedExecutionWith(conversationId, getInterruptedTurnRecoverer())
+  return recoverAbandonedExecutionWith(conversationId)
 }
 
 /** 默认单实例 `TurnBroker` 实现：进程内实时扇出 + PostgreSQL 持久化事件日志。 */
 export function createLocalTurnBroker(recover?: InterruptedTurnRecoverer | null): TurnBroker {
-  const resolveRecover = () => (recover === undefined ? getInterruptedTurnRecoverer() : recover)
   return {
     openEventLog: openTurnEventLog,
     registerTurn: registerRunningTurn,
@@ -469,9 +471,9 @@ export function createLocalTurnBroker(recover?: InterruptedTurnRecoverer | null)
     readTurnEvents,
     readConversationEvents,
     sealAbandonedTurns: (conversationId, owned) =>
-      sealAbandonedTurnsWith(conversationId, owned, resolveRecover()),
+      sealAbandonedTurnsWith(conversationId, owned, recover),
     recoverAbandonedExecution: (conversationId) =>
-      recoverAbandonedExecutionWith(conversationId, resolveRecover()),
+      recoverAbandonedExecutionWith(conversationId, recover),
   }
 }
 
