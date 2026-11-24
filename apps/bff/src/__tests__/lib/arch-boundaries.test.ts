@@ -139,6 +139,35 @@ describe('check-arch-boundaries', () => {
         "import { l } from 'pkg-12'",
         'export const all = [a, b, c, d, e, f, g, h, i, j, k, l]',
       ].join('\n'),
+      'modules/canvas/index.ts': 'export const canvasOp = 1\n',
+      'modules/canvas/bad-agent.ts':
+        "import { tag } from '../agent/contracts'\nexport const badCanvasAgent = tag\n",
+      'modules/canvas/bad-legacy.ts':
+        "import type { Legacy } from '../../lib/agent/legacy'\nexport type BadCanvasLegacy = Legacy\n",
+      'modules/agent/inbox/item.ts': 'export const inboxItem = 1\n',
+      'modules/agent/tools/index.ts': "export { reg } from './registry'\n",
+      'modules/agent/tools/registry.ts': 'export const reg = 1\n',
+      'modules/agent/tools/generation/gen.ts': 'export const genTool = 1\n',
+      'modules/agent/tools/canvas/ok.ts':
+        "import { canvasOp } from '../../../canvas'\nimport { tag } from '../../contracts'\nexport const okCanvasTool = [canvasOp, tag]\n",
+      'modules/agent/tools/canvas/bad-runtime.ts':
+        "import { rt } from '../../runtime/exec'\nexport const badRt = rt\n",
+      'modules/agent/tools/canvas/bad-inbox.ts':
+        "import { inboxItem } from '../../inbox/item'\nexport const badIn = inboxItem\n",
+      'modules/agent/tools/canvas/bad-inter-tool.ts':
+        "import { genTool } from '../generation/gen'\nexport const badInter = genTool\n",
+      'modules/agent/tools/canvas/bad-registry.ts':
+        "import { reg } from '../registry'\nexport const badReg = reg\n",
+      'modules/agent/tools/web/bad-legacy-tools.ts':
+        "import { helper } from '../../../../lib/agent/tools/helper'\nexport const badLT = helper\n",
+      'modules/agent/tools/web/bad-shim.ts':
+        "import { ev } from '../../../../lib/agent/events'\nexport const badShim = ev\n",
+      'lib/agent/events.ts': 'export const ev = 1\n',
+      'lib/agent/tools/index.ts': 'export const legacyTools = 1\n',
+      'lib/agent/turn.ts':
+        "import { legacyTools } from './tools'\nexport const badTurnCore = legacyTools\n",
+      'lib/agent/ok-tools-caller.ts':
+        "import { reg } from '../../modules/agent/tools'\nexport const okCaller = reg\n",
     })
 
     const violations = await checkBffBoundaries(dir)
@@ -260,8 +289,69 @@ describe('check-arch-boundaries', () => {
         v.includes('[agent-core -> tools] lib/agent/core-bad.ts -> lib/agent/tools/helper.ts'),
       ),
     ).toBe(true)
-    expect(violations).toHaveLength(18)
+    expect(
+      violations.some((v) =>
+        v.includes('[agent-core -> tools] lib/agent/turn.ts -> lib/agent/tools/index.ts'),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[canvas -> agent] modules/canvas/bad-agent.ts -> modules/agent/contracts/index.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes('[canvas -> agent] modules/canvas/bad-legacy.ts -> lib/agent/legacy.ts'),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-tools -> runtime] modules/agent/tools/canvas/bad-runtime.ts -> modules/agent/runtime/exec.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-tools -> inbox] modules/agent/tools/canvas/bad-inbox.ts -> modules/agent/inbox/item.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-tools -> inter-tool] modules/agent/tools/canvas/bad-inter-tool.ts -> modules/agent/tools/generation/gen.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-tools -> registry] modules/agent/tools/canvas/bad-registry.ts -> modules/agent/tools/registry.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-tools -> legacy-tools] modules/agent/tools/web/bad-legacy-tools.ts -> lib/agent/tools/helper.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
+          '[agent-tools -> legacy-agent-layer] modules/agent/tools/web/bad-shim.ts -> lib/agent/events.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(violations).toHaveLength(27)
     expect(violations.some((v) => v.includes('lib/agent/pure-ok.ts ->'))).toBe(false)
+    expect(violations.some((v) => v.includes('lib/agent/ok-tools-caller.ts ->'))).toBe(false)
+    expect(violations.some((v) => v.includes('modules/agent/tools/canvas/ok.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('modules/execution/ok.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('modules/agent/runtime/exec.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('bootstrap/container.ts ->'))).toBe(false)

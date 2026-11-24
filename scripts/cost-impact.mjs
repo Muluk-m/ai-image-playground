@@ -26,6 +26,7 @@ export const COST_PATHS = [
   /^apps\/bff\/src\/lib\/agent\/(chat-task|background-jobs|auto-submit|turn-preparation|turn-authorization|stage-authorizations)\.ts$/,
   /^apps\/bff\/src\/modules\/agent\/conversation\/(background-jobs|model-image)\.ts$/,
   /^apps\/bff\/src\/modules\/agent\/runtime\/(compaction-transform|context-pipeline|turn-events|turn-executor|turn-guards|turn-settlement|turn-stream)\.ts$/,
+  /^apps\/bff\/src\/modules\/agent\/tools\/(registry\.ts|generation\/(queue-task|generate-image|edit-image|generate-video|plan-image-batch|propose-batch-analysis|propose-batch-generation|production|production-assets|propose-storyboard)\.ts|canvas\/(node-stage|node-stage-quote)\.ts)$/,
   // 批量分析与批量生成：模型解析、配额与任务派发
   /^apps\/bff\/src\/lib\/agent\/batch-[^/]*\.ts$/,
   // 任务提交、状态流转与计费模块
