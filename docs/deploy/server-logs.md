@@ -83,7 +83,7 @@ bun scripts/obs.ts sql 'SELECT upstream_model, COUNT(*) FROM "app" WHERE span_st
 
 ## 断流告警
 
-worker 的应用告警每分钟经只读代理读一次 OpenObserve 最近 1 小时最新一条日志的时间（#1940）：超过 10 分钟没有新日志（`OPS_THRESHOLDS.SERVER_LOGS_MAX_AGE_MS`）就经值班 webhook 告警，恢复后发已恢复。低流量部署每分钟也有备份、宿主机采样等周期日志，正常不会踩线。最近 1 小时一条都没有时，持续 10 分钟才报，新部署因此有宽限。读不到 OpenObserve 算这一块失明，连续失明另有告警。没配 `OBS_PROXY_URL` 的部署（测试环境）不观测。
+worker 的应用告警每分钟经只读代理读一次 OpenObserve 最近 1 小时最新一条日志的时间（#1940）：超过 10 分钟没有新日志（`OPS_THRESHOLDS.SERVER_LOGS_MAX_AGE_MS`）就经值班 webhook 告警，恢复后发已恢复。因为 `/internal/*`（含宿主机每分钟上报）不进访问日志，开启观测时 worker 会每 5 分钟（`OPS_THRESHOLDS.SERVER_LOGS_HEARTBEAT_INTERVAL_MS`）打一条 `info` 级的 `ops.log_pipeline_heartbeat` 心跳日志作为端到端探针，保证低流量时段正常不会踩线（`LOG_LEVEL` 需不高于 `info`）。最近 1 小时一条都没有时，持续 10 分钟才报，新部署因此有宽限。读不到 OpenObserve 算这一块失明，连续失明另有告警。没配 `OBS_PROXY_URL` 的部署（测试环境）不观测，也不打这条心跳。
 
 ## 上游告警
 
