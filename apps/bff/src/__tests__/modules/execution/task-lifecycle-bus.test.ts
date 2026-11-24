@@ -80,6 +80,7 @@ describe('TaskLifecycleBus registration', () => {
     expect(listTaskLifecycleListenerIds('after-settlement')).toEqual([
       'model-availability',
       'agent-wake',
+      'agent-job-settlement',
     ])
   })
 
@@ -297,5 +298,81 @@ describe('TaskLifecycleBus transactional execution', () => {
       .from(schema.tasks)
       .where(eq(schema.tasks.id, 'bus-cancel-rollback'))
     expect(stillQueued?.status).toBe('queued')
+  })
+
+  it('runs afterTaskFinished and afterTasksCancelled only after commit and isolates listener failures', async () => {
+    const events: string[] = []
+    registerDefaultTaskLifecycleListeners()
+    registerTaskLifecycleListener({
+      id: 'post-commit-broken',
+      stage: 'after-settlement',
+      async afterTaskFinished(event) {
+        events.push(`broken-finish:${event.taskId}`)
+        throw new Error('post-commit finish boom')
+      },
+      async afterTasksCancelled(event) {
+        events.push(`broken-cancel:${event.tasks.map((task) => task.taskId).join(',')}`)
+        throw new Error('post-commit cancel boom')
+      },
+    })
+    registerTaskLifecycleListener({
+      id: 'post-commit-observer',
+      stage: 'after-settlement',
+      async afterTaskFinished(event) {
+        events.push(`ok-finish:${event.taskId}:${event.taskKind}`)
+      },
+      async afterTasksCancelled(event) {
+        events.push(`ok-cancel:${event.tasks.map((task) => task.taskId).join(',')}`)
+      },
+    })
+
+    await insertTask('bus-post-finish', 'in_progress', {
+      mode: 'none',
+      model: 'gpt-image-2',
+      quantity: 1,
+      unitMultiplier: 1,
+    })
+    const finished = await finishTask(
+      'bus-post-finish',
+      { status: 'completed', completedAt: Date.now() },
+      heldBy(WORKER_TOKEN),
+    )
+    expect(finished).toBe(true)
+    expect(events).toEqual(['broken-finish:bus-post-finish', 'ok-finish:bus-post-finish:queue'])
+
+    events.length = 0
+    await insertTask('bus-post-cancel', 'queued', {
+      mode: 'none',
+      model: 'gpt-image-2',
+      quantity: 1,
+      unitMultiplier: 1,
+    })
+    const cancelled = await cancelTasks(eq(schema.tasks.id, 'bus-post-cancel'))
+    expect(cancelled.map((row) => row.id)).toEqual(['bus-post-cancel'])
+    expect(events).toEqual(['broken-cancel:bus-post-cancel', 'ok-cancel:bus-post-cancel'])
+
+    // Rollback inside tx must never fire afterTaskFinished.
+    events.length = 0
+    await insertTask('bus-post-rollback', 'in_progress', {
+      mode: 'none',
+      model: 'gpt-image-2',
+      quantity: 1,
+      unitMultiplier: 1,
+    })
+    registerTaskLifecycleListener({
+      id: 'tx-rollback-before-post',
+      stage: 'after-settlement',
+      async onTaskFinished() {
+        throw new Error('tx abort')
+      },
+    })
+    await expect(
+      finishTask(
+        'bus-post-rollback',
+        { status: 'completed', completedAt: Date.now() },
+        heldBy(WORKER_TOKEN),
+      ),
+    ).rejects.toThrow('tx abort')
+    expect(events).toEqual([])
   })
 })

@@ -9,7 +9,7 @@ import {
   agentTool,
   taskFailureCode,
 } from '@image-playground/shared'
-import { and, eq, inArray, or, sql } from 'drizzle-orm'
+import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { cancelTasks, type QueueTaskTerminalRow, queueTaskOutcome } from '../../modules/execution'
 import { accountConcurrencyLimit, accountQueuePositions } from '../account-concurrency'
@@ -66,13 +66,15 @@ export function settledJobBlock(
 }
 
 /**
- * 把这些消息里已经结束的后台任务结算成终局，落库后返回改写过的消息。调用方负责确权：
- * 消息必须来自已经按归属查出来的会话，任务也只认挂在这个会话下的。
+ * 把这些消息里已经结束的后台任务结算成终局。
+ * - `persist = true`（默认，用于终态提交后监听、清任务前强制兜底、单张重试等写路径）：将结果回写落库；
+ * - `persist = false`（{@link projectSettledAgentJobs}，用于会话读路径）：仅在内存中投影视图，不执行任何 DB 写操作。
+ * 调用方负责确权：消息必须来自已经按归属查出来的会话，任务也只认挂在这个会话下的。
  */
 export async function settleAgentJobs(
   conversationId: string,
   messages: readonly AgentMessageView[],
-  options: { readonly requireCharges?: boolean } = {},
+  options: { readonly requireCharges?: boolean; readonly persist?: boolean } = {},
 ): Promise<AgentMessageView[]> {
   const pendingIds = messages.flatMap((message) =>
     message.content.filter(pendingJob).map((block) => block.job.taskId),
@@ -158,21 +160,80 @@ export async function settleAgentJobs(
       settled.push(message)
       continue
     }
-    // 只在这条消息还是读到时的样子才写：两个读者同时结算，算出来的是同一份，谁先写都一样。
-    await db
-      .update(schema.agent_messages)
-      .set({ content })
-      .where(
-        and(
-          eq(schema.agent_messages.conversation_id, conversationId),
-          eq(schema.agent_messages.id, message.id),
-          // 参数先定成 text 再转：直接写 `::jsonb`，驱动会把这串 JSON 再编码成一个 jsonb 字符串。
-          sql`${schema.agent_messages.content} = ${JSON.stringify(message.content)}::text::jsonb`,
-        ),
-      )
+    if (options.persist !== false) {
+      // 只在这条消息还是读到时的样子才写：两个读者同时结算，算出来的是同一份，谁先写都一样。
+      await db
+        .update(schema.agent_messages)
+        .set({ content })
+        .where(
+          and(
+            eq(schema.agent_messages.conversation_id, conversationId),
+            eq(schema.agent_messages.id, message.id),
+            // 参数先定成 text 再转：直接写 `::jsonb`，驱动会把这串 JSON 再编码成一个 jsonb 字符串。
+            sql`${schema.agent_messages.content} = ${JSON.stringify(message.content)}::text::jsonb`,
+          ),
+        )
+    }
     settled.push({ ...message, content })
   }
   return settled
+}
+
+/**
+ * 纯只读投影：会话消息读取路径不再触发 `UPDATE agent_messages` 写副作用。
+ * 正常任务终态由 TaskLifecycleBus 提交后监听落库；此处仅在内存为历史未落账卡片或并发竞态窗口补齐展示视图。
+ */
+export function projectSettledAgentJobs(
+  conversationId: string,
+  messages: readonly AgentMessageView[],
+): Promise<AgentMessageView[]> {
+  return settleAgentJobs(conversationId, messages, { persist: false })
+}
+
+/**
+ * 任务终态提交后按 `(conversationId, taskIds)` 精准定向结算并回写对应的结果卡消息，
+ * 不扫描整段会话历史，也不在读路径产生写操作。
+ */
+export async function settleAgentJobsForTasks(
+  conversationId: string,
+  taskIds: readonly string[],
+): Promise<void> {
+  const uniqueTaskIds = [...new Set(taskIds)]
+  if (uniqueTaskIds.length === 0) return
+  const rows = await db
+    .select({
+      id: schema.agent_messages.id,
+      turn_id: schema.agent_messages.turn_id,
+      role: schema.agent_messages.role,
+      content: schema.agent_messages.content,
+      created_at: schema.agent_messages.created_at,
+    })
+    .from(schema.agent_messages)
+    .where(
+      and(
+        eq(schema.agent_messages.conversation_id, conversationId),
+        isNull(schema.agent_messages.deleted_at),
+        or(
+          ...uniqueTaskIds.map(
+            (taskId) =>
+              sql`${schema.agent_messages.content} @> ${JSON.stringify([
+                { type: 'toolResult', job: { taskId } },
+              ])}::text::jsonb`,
+          ),
+        ),
+      ),
+    )
+  if (rows.length === 0) return
+  await settleAgentJobs(
+    conversationId,
+    rows.map((row) => ({
+      id: row.id,
+      turnId: row.turn_id,
+      role: row.role,
+      content: row.content,
+      createdAt: row.created_at,
+    })),
+  )
 }
 
 /**

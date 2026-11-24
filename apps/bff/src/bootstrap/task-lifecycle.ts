@@ -107,12 +107,63 @@ const agentWakeListener: TaskLifecycleListener = {
   },
 }
 
+const agentJobSettlementListener: TaskLifecycleListener = {
+  id: 'agent-job-settlement',
+  stage: 'after-settlement',
+  async afterTaskFinished(event) {
+    if (event.taskKind !== 'queue' || !event.agentConversationId) return
+    try {
+      const { settleAgentJobsForTasks } = await import('../lib/agent/background-jobs')
+      await settleAgentJobsForTasks(event.agentConversationId, [event.taskId])
+    } catch (err) {
+      const { log } = await import('../lib/logger')
+      log.warn(
+        {
+          event: 'agent.job_settlement_post_commit_failed',
+          conversationId: event.agentConversationId,
+          taskId: event.taskId,
+          err,
+        },
+        'post-commit agent job settlement failed; read projection and pre-purge sweep will recover',
+      )
+    }
+  },
+  async afterTasksCancelled(event) {
+    const byConversation = new Map<string, string[]>()
+    for (const task of event.tasks) {
+      if (task.taskKind !== 'queue' || !task.agentConversationId) continue
+      const list = byConversation.get(task.agentConversationId)
+      if (list) list.push(task.taskId)
+      else byConversation.set(task.agentConversationId, [task.taskId])
+    }
+    if (byConversation.size === 0) return
+    const { settleAgentJobsForTasks } = await import('../lib/agent/background-jobs')
+    for (const [conversationId, taskIds] of byConversation) {
+      try {
+        await settleAgentJobsForTasks(conversationId, taskIds)
+      } catch (err) {
+        const { log } = await import('../lib/logger')
+        log.warn(
+          {
+            event: 'agent.job_settlement_post_commit_failed',
+            conversationId,
+            taskIds,
+            err,
+          },
+          'post-commit agent job settlement failed; read projection and pre-purge sweep will recover',
+        )
+      }
+    }
+  },
+}
+
 const DEFAULT_TASK_LIFECYCLE_LISTENERS: readonly TaskLifecycleListener[] = [
   generationMediaListener,
   projectArchiveListener,
   billingSettlementListener,
   modelAvailabilityListener,
   agentWakeListener,
+  agentJobSettlementListener,
 ]
 
 /**

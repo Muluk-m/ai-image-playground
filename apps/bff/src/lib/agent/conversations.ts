@@ -10,7 +10,7 @@ import { agentConversationTitle, restoreQueuePrompt } from '@image-playground/sh
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, type SQL, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { BffTransaction } from '../private-overlay'
-import { settleAgentJobs } from './background-jobs'
+import { projectSettledAgentJobs, settleAgentJobs } from './background-jobs'
 import { sanitizeAssistantMessages } from './reply-script'
 
 /** 归属互斥由 `agent_conversations_owner_check` 兜底，这里用联合类型让调用方无从写出两者并存。 */
@@ -356,8 +356,8 @@ async function readAgentMessages(
       ),
     )
     .orderBy(asc(schema.agent_messages.seq))
-  // 已经结束的后台任务先结算成终局：快照、续轮的历史与任务列表读到的都是这一份。
-  const messages = await settleAgentJobs(conversationId, rows.map(messageView))
+  // 终态由 TaskLifecycleBus 提交后监听落库；读路径只做纯内存只读投影，不触发 DB 写入。
+  const messages = await projectSettledAgentJobs(conversationId, rows.map(messageView))
   const taskIds = [
     ...new Set(
       messages.flatMap((message) =>

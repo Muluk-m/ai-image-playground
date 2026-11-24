@@ -18,7 +18,9 @@ import {
   type ExecutionTaskUsage,
   type ExecutionTransaction,
   emitTaskFinished,
+  emitTaskFinishedAfterCommit,
   emitTasksCancelled,
+  emitTasksCancelledAfterCommit,
   type GenerationMediaLink,
   prepareTaskLifecycleStage,
   type TaskFinishedEvent,
@@ -247,9 +249,13 @@ export async function finishTask(
   id: string,
   update: TerminalTaskUpdate,
   fence: SQL,
-  reconciliation?: { tx: ExecutionTransaction },
+  reconciliation?: {
+    tx: ExecutionTransaction
+    onCommit?: (hook: () => Promise<void>) => void
+  },
 ): Promise<boolean> {
   await prepareTaskLifecycleStage('settlement')
+  let committedEvent: TaskFinishedEvent | null = null
   const finish = async (tx: ExecutionTransaction) => {
     const status = queueTerminalStatus(update.status)
     const [finished] = await tx
@@ -278,6 +284,8 @@ export async function finishTask(
       )
       .returning({
         id: schema.tasks.id,
+        kind: schema.tasks.kind,
+        agentConversationId: schema.tasks.agent_conversation_id,
         userId: schema.tasks.user_id,
         model: schema.tasks.model,
         metering: schema.tasks.metering,
@@ -289,6 +297,8 @@ export async function finishTask(
     const meteringMode = finished.metering?.mode === 'none' ? 'none' : 'credits'
     const event: TaskFinishedEvent = {
       taskId: finished.id,
+      taskKind: finished.kind,
+      agentConversationId: finished.agentConversationId,
       userId: finished.userId,
       model: finished.model,
       status,
@@ -308,9 +318,22 @@ export async function finishTask(
     }
     await emitTaskFinished(tx, 'after-settlement', event)
     await publishGenerations(tx, [finished.id])
+    committedEvent = event
     return true
   }
-  return reconciliation ? finish(reconciliation.tx) : db.transaction(finish)
+  if (reconciliation) {
+    const written = await finish(reconciliation.tx)
+    if (written && committedEvent && reconciliation.onCommit) {
+      const event = committedEvent
+      reconciliation.onCommit(() => emitTaskFinishedAfterCommit(event))
+    }
+    return written
+  }
+  const written = await db.transaction(finish)
+  if (written && committedEvent) {
+    await emitTaskFinishedAfterCommit(committedEvent)
+  }
+  return written
 }
 
 /**
@@ -321,9 +344,14 @@ export async function finishTask(
  */
 export async function cancelTasks(
   access: SQL,
-  options: { failedAs?: AgentToolErrorCode; tx?: ExecutionTransaction } = {},
+  options: {
+    failedAs?: AgentToolErrorCode
+    tx?: ExecutionTransaction
+    onCommit?: (hook: () => Promise<void>) => void
+  } = {},
 ) {
   await prepareTaskLifecycleStage('settlement')
+  let committedEvent: TasksCancelledEvent | null = null
   const cancel = async (tx: ExecutionTransaction) => {
     // Serialize cancellation with the dispatch-intent write; no request can slip between them.
     await tx
@@ -340,6 +368,8 @@ export async function cancelTasks(
       .where(and(access, inArray(schema.tasks.status, ['queued', 'in_progress'])))
       .returning({
         id: schema.tasks.id,
+        kind: schema.tasks.kind,
+        agentConversationId: schema.tasks.agent_conversation_id,
         userId: schema.tasks.user_id,
         metering: schema.tasks.metering,
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
@@ -347,6 +377,8 @@ export async function cancelTasks(
     const event: TasksCancelledEvent = {
       tasks: rows.map((row) => ({
         taskId: row.id,
+        taskKind: row.kind,
+        agentConversationId: row.agentConversationId,
         userId: row.userId,
         meteringMode: row.metering?.mode === 'none' ? 'none' : 'credits',
         upstreamInvocationCount: row.upstreamInvocationCount,
@@ -361,6 +393,7 @@ export async function cancelTasks(
         await emitTasksCancelled(tx, 'settlement', event)
       }
       await emitTasksCancelled(tx, 'after-settlement', event)
+      committedEvent = event
     }
     await publishGenerations(
       tx,
@@ -368,5 +401,17 @@ export async function cancelTasks(
     )
     return rows
   }
-  return options.tx ? cancel(options.tx) : db.transaction(cancel)
+  if (options.tx) {
+    const rows = await cancel(options.tx)
+    if (committedEvent && options.onCommit) {
+      const event = committedEvent
+      options.onCommit(() => emitTasksCancelledAfterCommit(event))
+    }
+    return rows
+  }
+  const rows = await db.transaction(cancel)
+  if (committedEvent) {
+    await emitTasksCancelledAfterCommit(committedEvent)
+  }
+  return rows
 }

@@ -457,6 +457,17 @@ describe('生成前确认', () => {
       await workerSettles(task!.id, { status: 'completed', resultPayload: TEST_RESULT_PAYLOAD }),
     ).toBe(true)
 
+    // 终态提交后监听已经落库写回结果卡，读路径无需再改写数据库。
+    const [persistedBeforeRead] = await db
+      .select({ content: schema.agent_messages.content })
+      .from(schema.agent_messages)
+      .where(eq(schema.agent_messages.id, pending.messageId))
+    expect(persistedBeforeRead!.content[0]).toMatchObject({
+      type: 'toolResult',
+      status: 'succeeded',
+      job: { taskId: task!.id, chargedCredits: 100 },
+    })
+
     const [settled] = toolCards(await readMessages(conversationId))
     expect(settled!.block).toMatchObject({
       status: 'succeeded',
@@ -464,7 +475,7 @@ describe('生成前确认', () => {
     })
     expect(toolCards(await readMessages(conversationId))[0]!.block.job?.chargedCredits).toBe(100)
 
-    // 旧版本留下的终局卡没有金额：只要任务账还在，历史读取就补上并持久化。
+    // 旧版本留下的终局卡没有金额：读路径纯内存投影出实扣，不产生 DB 写副作用。
     const [row] = await db
       .select({ content: schema.agent_messages.content })
       .from(schema.agent_messages)
@@ -480,6 +491,14 @@ describe('生成前确认', () => {
       })
       .where(eq(schema.agent_messages.id, pending.messageId))
     expect(toolCards(await readMessages(conversationId))[0]!.block.job?.chargedCredits).toBe(100)
+    const [afterRead] = await db
+      .select({ content: schema.agent_messages.content })
+      .from(schema.agent_messages)
+      .where(eq(schema.agent_messages.id, pending.messageId))
+    const cardAfterRead = afterRead!.content[0]
+    expect(
+      cardAfterRead?.type === 'toolResult' ? cardAfterRead.job?.chargedCredits : 'unexpected',
+    ).toBeUndefined()
   })
 
   it('清理任务前取不到实扣时保留任务行供下次补账', async () => {
@@ -490,9 +509,6 @@ describe('生成前确认', () => {
     const pending = await pendingCard(conversationId)
     await confirm(conversationId, pending.messageId, WHITE_PROMPT)
     const [task] = await generationTasks(conversationId)
-    expect(
-      await workerSettles(task!.id, { status: 'completed', resultPayload: TEST_RESULT_PAYLOAD }),
-    ).toBe(true)
 
     const overlay = await loadPrivateBffOverlay()
     _setPrivateBffOverlayForTesting({
@@ -505,6 +521,9 @@ describe('生成前确认', () => {
       },
     })
     try {
+      expect(
+        await workerSettles(task!.id, { status: 'completed', resultPayload: TEST_RESULT_PAYLOAD }),
+      ).toBe(true)
       const { purgeOldTasks } = await import('../../db/maintenance')
       await purgeOldTasks(-1)
       expect(
