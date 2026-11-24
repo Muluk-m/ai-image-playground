@@ -481,6 +481,6 @@ describe('task_payloads switch-read with legacy fallback', () => {
     expect(byKey.get('from-cold')?.artifacts).toHaveLength(1)
     expect(byKey.get('from-cold')?.errorCode).toBeNull()
     expect(byKey.get('cleared-cold')?.artifacts).toEqual([])
-    expect(byKey.get('cleared-cold')?.errorCode).toBe('upstream_no_image')
+    expect(byKey.get('cleared-cold')?.errorCode).toBe('no_output')
   })
 })
