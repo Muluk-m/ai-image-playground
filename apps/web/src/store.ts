@@ -65,6 +65,7 @@ import {
   putTask,
   storeImage,
 } from './lib/db'
+import { markFeatureSeen } from './lib/featureDiscovery'
 import {
   activityFromRecord,
   applyGenerationActivity,
@@ -506,14 +507,23 @@ function currentSidebarExperience(): 'chat' | 'canvas' | null {
 
 export function getPersistedState(state: AppState) {
   const settings = normalizeSettings(state.settings)
+  // 批量模式未持久化 createTarget，重启会回到图片生成：提前按普通坐标系合并两区，避免共用参考丢失与引用错绑。
+  const persistedDraft =
+    settings.persistInputOnRestart && state.createTarget === 'batch'
+      ? mergeDraftFromBatchMode({
+          prompt: state.prompt,
+          inputImages: state.inputImages,
+          batchSharedImages: state.batchSharedImages,
+        })
+      : { prompt: state.prompt, inputImages: state.inputImages }
   return {
     settings,
     params: state.params,
     ...(settings.persistInputOnRestart
       ? {
-          prompt: state.prompt,
+          prompt: persistedDraft.prompt,
           slotValues: state.slotValues,
-          inputImages: state.inputImages.map((img) => ({ id: img.id, dataUrl: '' })),
+          inputImages: persistedDraft.inputImages.map((img) => ({ id: img.id, dataUrl: '' })),
           maskDraft: persistedMaskDraft(state),
         }
       : {}),
@@ -669,7 +679,12 @@ interface AppState {
   /** 跨区拖拽 / `@` 自动归类后的可撤销提示条（不持久化）。 */
   batchZoneNotice: {
     message: string
-    snapshot: { prompt: string; inputImages: InputImage[]; batchSharedImages: InputImage[] }
+    snapshot: {
+      prompt: string
+      inputImages: InputImage[]
+      batchSharedImages: InputImage[]
+      createTarget?: AppState['createTarget']
+    }
   } | null
   setBatchZoneNotice: (notice: AppState['batchZoneNotice']) => void
   undoBatchZoneNotice: () => void
@@ -792,7 +807,7 @@ export const useStore = create<AppState>()(
 
       // Input
       prompt: '',
-      setPrompt: (prompt) => set({ prompt }),
+      setPrompt: (prompt) => set({ prompt, batchZoneNotice: null }),
       slotValues: {},
       setSlotValues: (name, values) =>
         set((s) => ({ slotValues: { ...s.slotValues, [name]: values } })),
@@ -807,20 +822,24 @@ export const useStore = create<AppState>()(
           showToast(referenceRefusalMessage(result.reason, effective.limit), 'error')
           return null
         }
-        set({ inputImages: [...result.draft.references] })
+        set({ inputImages: [...result.draft.references], batchZoneNotice: null })
         return [...result.indexes]
       },
       removeInputImage: (idx) =>
         set((s) => {
           if (s.createTarget === 'batch') {
             if (idx < 0 || idx >= s.inputImages.length) return s
-            return { inputImages: s.inputImages.filter((_, i) => i !== idx) }
+            return {
+              inputImages: s.inputImages.filter((_, i) => i !== idx),
+              batchZoneNotice: null,
+            }
           }
           const shouldClearMask = s.inputImages[idx]?.id === s.maskDraft?.targetImageId
           const draft = removeReference({ prompt: s.prompt, references: s.inputImages }, idx)
           return {
             inputImages: [...draft.references],
             prompt: draft.prompt,
+            batchZoneNotice: null,
             ...(shouldClearMask ? { maskDraft: null, maskEditorImageId: null } : {}),
           }
         }),
@@ -828,13 +847,19 @@ export const useStore = create<AppState>()(
         set((s) => {
           for (const img of s.inputImages) imageCache.delete(img.id)
           if (s.createTarget === 'batch') {
-            return { inputImages: [], maskDraft: null, maskEditorImageId: null }
+            return {
+              inputImages: [],
+              maskDraft: null,
+              maskEditorImageId: null,
+              batchZoneNotice: null,
+            }
           }
           return {
             inputImages: [],
             prompt: replaceReferences({ prompt: s.prompt, references: s.inputImages }, []).prompt,
             maskDraft: null,
             maskEditorImageId: null,
+            batchZoneNotice: null,
           }
         }),
       batchSharedImages: [],
@@ -851,7 +876,7 @@ export const useStore = create<AppState>()(
           showToast(referenceRefusalMessage(result.reason, effective.limit), 'error')
           return null
         }
-        set({ batchSharedImages: [...result.draft.references] })
+        set({ batchSharedImages: [...result.draft.references], batchZoneNotice: null })
         return [...result.indexes]
       },
       removeBatchSharedImage: (idx) =>
@@ -864,6 +889,7 @@ export const useStore = create<AppState>()(
           return {
             batchSharedImages: next.batchSharedImages,
             prompt: next.prompt,
+            batchZoneNotice: null,
           }
         }),
       clearBatchSharedImages: () =>
@@ -872,6 +898,7 @@ export const useStore = create<AppState>()(
           return {
             batchSharedImages: [],
             prompt: clearBatchSharedImagesFromDraft(s.prompt),
+            batchZoneNotice: null,
           }
         }),
       promoteInputImageToShared: (loopIdx) => {
@@ -925,16 +952,24 @@ export const useStore = create<AppState>()(
       undoBatchZoneNotice: () =>
         set((s) => {
           if (!s.batchZoneNotice) return s
-          const { prompt, inputImages, batchSharedImages } = s.batchZoneNotice.snapshot
+          const { prompt, inputImages, batchSharedImages, createTarget } =
+            s.batchZoneNotice.snapshot
           return {
             prompt,
             inputImages: [...inputImages],
             batchSharedImages: [...batchSharedImages],
+            ...(createTarget ? { createTarget } : {}),
             batchZoneNotice: null,
           }
         }),
       replaceInputImages: (imgs, options) =>
         set((s) => {
+          if (s.createTarget === 'batch' && options?.prompt === undefined) {
+            return {
+              inputImages: [...imgs],
+              batchZoneNotice: null,
+            }
+          }
           const keepsMask =
             Boolean(s.maskDraft) && imgs.some((img) => img.id === s.maskDraft?.targetImageId)
           const references = keepsMask
@@ -948,6 +983,7 @@ export const useStore = create<AppState>()(
           return {
             inputImages: [...draft.references],
             prompt: draft.prompt,
+            batchZoneNotice: null,
             ...(s.maskDraft && !keepsMask ? { maskDraft: null, maskEditorImageId: null } : {}),
           }
         }),
@@ -1119,6 +1155,7 @@ export const useStore = create<AppState>()(
         // 离开「批量生图」：把共用参考合并回普通参考图条，保持引用不丢。
         let draftPatch: Partial<AppState> = { batchZoneNotice: null }
         if (createTarget === 'batch') {
+          markFeatureSeen('composer.batchMode')
           const split = splitDraftForBatchMode({
             prompt: state.prompt,
             inputImages: state.inputImages,
@@ -1142,6 +1179,7 @@ export const useStore = create<AppState>()(
                       prompt: state.prompt,
                       inputImages: [...state.inputImages],
                       batchSharedImages: [...state.batchSharedImages],
+                      createTarget: state.createTarget,
                     },
                   }
                 : null,
@@ -1467,8 +1505,9 @@ async function resolveImageSizeParamsList(
  * 任务列表和输入框同步核一遍，被用上的留着。
  */
 function referencedNow(imageId: string): boolean {
-  const { tasks, inputImages, maskDraft } = useStore.getState()
+  const { tasks, inputImages, batchSharedImages, maskDraft } = useStore.getState()
   if (inputImages.some((image) => image.id === imageId)) return true
+  if (batchSharedImages.some((image) => image.id === imageId)) return true
   if (maskDraft && (maskDraft.targetImageId === imageId || maskDraft.maskImageId === imageId)) {
     return true
   }
@@ -1484,8 +1523,9 @@ function referencedNow(imageId: string): boolean {
 
 async function imageIdsInUse(tasks: readonly TaskRecord[]): Promise<Set<string>> {
   const ids = await getReferencedImageIds(tasks)
-  const { inputImages, maskDraft } = useStore.getState()
+  const { inputImages, batchSharedImages, maskDraft } = useStore.getState()
   for (const image of inputImages) ids.add(image.id)
+  for (const image of batchSharedImages) ids.add(image.id)
   for (const draft of [maskDraft, pendingPersistedMaskDraft]) {
     if (!draft) continue
     ids.add(draft.targetImageId)
@@ -1938,11 +1978,22 @@ export async function submitTask(options: { holdClear?: Promise<unknown> } = {})
   const requestSettings = createSettingsForApiProfile(normalizeSettings(settings), activeProfile)
   // 批量生图模式按每张遍历原图发一条（可带共用参考）；旧 batchGenerate 开关仍向后兼容。
   const isBatchMode = createTarget === 'batch'
+  const activeAdmission = referenceAdmission(activeProfile)
+  if (isBatchMode) {
+    if (!activeAdmission.acceptsReferences) {
+      showToast(referenceRefusalMessage('noEdit', activeAdmission.limit), 'error')
+      return
+    }
+    if (inputImages.length === 0) {
+      showToast(i18next.t('batch.needLoopImages', { ns: 'composer' }), 'error')
+      return
+    }
+  }
   const eachImage =
     !maskDraft &&
     (isBatchMode
       ? inputImages.length > 0
-      : batchPerImage(inputImages.length, batchGenerate, referenceAdmission(activeProfile).limit))
+      : batchPerImage(inputImages.length, batchGenerate, activeAdmission.limit))
   const orderedInputImages = maskDraft
     ? orderInputImagesForMask(inputImages, maskDraft.targetImageId)
     : inputImages
@@ -2718,6 +2769,10 @@ async function reuseLocalConfig(task: TaskRecord) {
     if (dataUrl) {
       imgs.push({ id: imgId, dataUrl })
     }
+  }
+  // 复用历史配置面向单次生图坐标系：若当前在批量模式先清掉共用参考并回到普通图片生成。
+  if (useStore.getState().createTarget === 'batch') {
+    useStore.setState({ createTarget: 'generate', batchSharedImages: [], batchZoneNotice: null })
   }
   // 条与提示词一起换：这句话是按这条记录自己的参考图序号写的，分两步写会按旧条重排坏。
   replaceInputImages(imgs, { prompt: task.prompt })

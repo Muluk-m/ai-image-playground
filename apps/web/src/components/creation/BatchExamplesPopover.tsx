@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useTranslation } from '../../i18n'
 import { getSelectedImageMentionLabel } from '../../lib/promptImageMentions'
 import { cn } from '../../lib/utils'
@@ -33,6 +33,7 @@ export function BatchExamplesPopover({
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<'gallery' | 'live'>('gallery')
   const [exampleId, setExampleId] = useState<ExampleId>('replaceProduct')
+  const suppressFocusReturnRef = useRef(false)
 
   const loopCount = loopImages.length
   const sharedCount = sharedImages.length
@@ -54,6 +55,7 @@ export function BatchExamplesPopover({
             ref: sharedCount > 0 ? ref1 : t('batch.sharedMention', { n: 1 }),
           })
         : t('batch.examples.whiteBgPrompt', { current })
+    suppressFocusReturnRef.current = true
     onApplyPrompt(template)
     setOpen(false)
   }
@@ -79,6 +81,12 @@ export function BatchExamplesPopover({
         align="end"
         sideOffset={8}
         collisionPadding={12}
+        onCloseAutoFocus={(event) => {
+          if (suppressFocusReturnRef.current) {
+            suppressFocusReturnRef.current = false
+            event.preventDefault()
+          }
+        }}
         className={cn(
           paper,
           'w-96 max-w-[calc(100vw-2rem)] rounded-2xl p-4 shadow-popover space-y-3',

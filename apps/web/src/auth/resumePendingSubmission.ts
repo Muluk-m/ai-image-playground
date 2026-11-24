@@ -78,8 +78,16 @@ export async function resumePendingSubmission(): Promise<void> {
       useStore.getState().params === start.params &&
       useStore.getState().slotValues === start.slotValues
     ) {
-      const { prompt, inputImages, params, slotValues } = pending.input
-      useStore.setState({ prompt, inputImages, params, slotValues: slotValues ?? {} })
+      const { prompt, inputImages, params, slotValues, eachImage, sharedImages } = pending.input
+      useStore.setState({
+        prompt,
+        inputImages,
+        params,
+        slotValues: slotValues ?? {},
+        ...(eachImage || sharedImages?.length
+          ? { createTarget: 'batch' as const, batchSharedImages: sharedImages ?? [] }
+          : {}),
+      })
     }
   } else if (
     !(await startCanvasFromComposer(

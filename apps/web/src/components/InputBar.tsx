@@ -103,6 +103,7 @@ import {
   createMentionLabels,
   getAtImageQuery,
   getSelectedImageMentionLabel,
+  getVisiblePrompt,
   type MentionLabelResolver,
   replaceImageMentionsForApi,
 } from '../lib/promptImageMentions'
@@ -296,7 +297,18 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const modelAdmission = useMemo(() => referenceAdmission(activeProfile), [activeProfile])
   const batchMergeLimit = modelAdmission.limit
   const batchActive = isBatchMode && !maskDraft && !activeLook && modelAdmission.acceptsReferences
-  const batchNeedsLoopImages = batchActive && inputImages.length === 0
+  const batchNoEditSupport =
+    isBatchMode && !maskDraft && !activeLook && !modelAdmission.acceptsReferences
+  const batchSharedLimit = batchSharedMax(batchMergeLimit)
+  const batchSharedOverflow =
+    isBatchMode && !maskDraft && !activeLook && batchSharedImages.length > batchSharedLimit
+  const batchNeedsLoopImages = isBatchMode && !maskDraft && !activeLook && inputImages.length === 0
+  const batchNoEditNotice = batchNoEditSupport
+    ? referenceRefusalMessage('noEdit', batchMergeLimit)
+    : null
+  const batchSharedOverflowNotice = batchSharedOverflow
+    ? referenceRefusalMessage('overflow', batchSharedLimit)
+    : null
   const generateOverflow =
     !isBatchMode && !toCanvas && !maskDraft && !activeLook && inputImages.length > batchMergeLimit
   // 逐张生成每张遍历原图按 n=1 出图，提示词槽展开几条就再乘几条，与实际发出的任务数一致。
@@ -481,15 +493,38 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         : [],
     [isBatchMode, quickSharedCheck.failures, oversizedSharedIndexes],
   )
-  const sharedOversizedNotice = oversizedSharedIndexes.length
-    ? oversizedReferenceMessage(oversizedSharedIndexes)
-    : null
+  const sharedFailedLines = failedSharedIndexes.map((index) =>
+    t('composer:studio.referenceIssue', {
+      index: index + 1,
+      reason: attachmentUploadErrorMessage(
+        quickSharedCheck.failures.get(index),
+        getAttachmentLimits(),
+      ),
+    }),
+  )
+  const sharedReferenceNotice =
+    [
+      ...(oversizedSharedIndexes.length
+        ? [
+            {
+              index: oversizedSharedIndexes[0]!,
+              text: oversizedReferenceMessage(oversizedSharedIndexes),
+            },
+          ]
+        : []),
+      ...failedSharedIndexes.map((index, at) => ({ index, text: sharedFailedLines[at]! })),
+    ]
+      .sort((a, b) => a.index - b.index)
+      .map((line) => line.text)
+      .join('\n') || null
   const canSubmit = Boolean(
     (!promptBlank || activeLook) &&
       hasSubmitApiConfig &&
       !submissionGuard.blocked &&
       !gifNotice &&
       !generateOverflow &&
+      !batchNoEditSupport &&
+      !batchSharedOverflow &&
       !batchNeedsLoopImages &&
       (lookCheck?.ok ?? true) &&
       oversizedIndexes.length === 0 &&
@@ -514,25 +549,28 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       : canSubmit && !skillNeedsCanvas)
   // 提交按钮悬停时说明为什么点不了；画布档不看出图的 API 配置，也就没有这些原因。
   const promptMissing = promptBlank && (toCanvas || !activeLook)
+  const batchBlockingNotice = batchNoEditNotice ?? batchSharedOverflowNotice
   const blockedByReferences =
-    referenceNotice ?? sharedOversizedNotice ?? (uploadsBlocked ? uploadProgress : null)
+    referenceNotice ?? sharedReferenceNotice ?? (uploadsBlocked ? uploadProgress : null)
   const submitBlockedTip =
     gifNotice ??
     (generateOverflow
       ? t('batch.overflowInImageMode', { max: batchMergeLimit, count: inputImages.length })
-      : batchNeedsLoopImages
-        ? t('batch.needLoopImages')
-        : blockedByReferences
-          ? blockedByReferences
-          : promptTooLong
-            ? t('submit.promptTooLong', { max: promptMax.toLocaleString() })
-            : skillNeedsCanvas
-              ? t('submit.skillNeedsCanvas')
-              : !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked)
-                ? (submissionGuard.disabledReason ?? t('submit.noModel'))
-                : promptMissing
-                  ? t('submit.promptRequired')
-                  : null)
+      : batchBlockingNotice
+        ? batchBlockingNotice
+        : batchNeedsLoopImages
+          ? t('batch.needLoopImages')
+          : blockedByReferences
+            ? blockedByReferences
+            : promptTooLong
+              ? t('submit.promptTooLong', { max: promptMax.toLocaleString() })
+              : skillNeedsCanvas
+                ? t('submit.skillNeedsCanvas')
+                : !toCanvas && (!hasSubmitApiConfig || submissionGuard.blocked)
+                  ? (submissionGuard.disabledReason ?? t('submit.noModel'))
+                  : promptMissing
+                    ? t('submit.promptRequired')
+                    : null)
   const submit = () => {
     if (image26Unavailable || gifNotice || lookSubmitting || batchSendingRef.current) return
     if (toCanvas) {
@@ -913,6 +951,16 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   }, [atImageMenu.dismiss, templateMenu.dismiss, promptEditor.focusAt, setPrompt])
 
   useEffect(() => {
+    if (!justMovedSharedId) return
+    const timer = window.setTimeout(() => setJustMovedSharedId(null), 1800)
+    return () => window.clearTimeout(timer)
+  }, [justMovedSharedId])
+
+  useEffect(() => {
+    if (!isBatchMode) setJustMovedSharedId(null)
+  }, [isBatchMode])
+
+  useEffect(() => {
     const normalizedParams = normalizeParamsForSettings(params, settings, {
       hasInputImages: inputImages.length > 0,
     })
@@ -1109,6 +1157,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
         for (const file of fitted) images.push(await storeImageFromFile(file))
         if (revision !== attachmentRevision.current) return
         if (targetZone === 'shared') {
+          if (useStore.getState().createTarget !== 'batch') return
           useStore.getState().attachBatchSharedImages(images, targetAdmission)
         } else {
           useStore.getState().attachInputImages(images, targetAdmission)
@@ -1152,30 +1201,34 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       return
     }
 
+    const hasFiles = (e: DragEvent) => Boolean(e.dataTransfer?.types.includes('Files'))
+
     const handleDragEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return
       e.preventDefault()
       e.stopPropagation()
       dragCounter.current++
-      if (e.dataTransfer?.types.includes('Files')) {
-        setIsDragging(true)
-      }
+      setIsDragging(true)
     }
 
     const handleDragOver = (e: DragEvent) => {
+      if (!hasFiles(e)) return
       e.preventDefault()
       e.stopPropagation()
     }
 
     const handleDragLeave = (e: DragEvent) => {
+      if (!hasFiles(e)) return
       e.preventDefault()
       e.stopPropagation()
-      dragCounter.current--
+      dragCounter.current = Math.max(0, dragCounter.current - 1)
       if (dragCounter.current === 0) {
         setIsDragging(false)
       }
     }
 
     const handleDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return
       e.preventDefault()
       e.stopPropagation()
       dragCounter.current = 0
@@ -1186,16 +1239,23 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       }
     }
 
+    const handleDragEnd = () => {
+      dragCounter.current = 0
+      setIsDragging(false)
+    }
+
     document.addEventListener('dragenter', handleDragEnter)
     document.addEventListener('dragover', handleDragOver)
     document.addEventListener('dragleave', handleDragLeave)
     document.addEventListener('drop', handleDrop)
+    document.addEventListener('dragend', handleDragEnd)
 
     return () => {
       document.removeEventListener('dragenter', handleDragEnter)
       document.removeEventListener('dragover', handleDragOver)
       document.removeEventListener('dragleave', handleDragLeave)
       document.removeEventListener('drop', handleDrop)
+      document.removeEventListener('dragend', handleDragEnd)
     }
   }, [dragActive])
 
@@ -1776,7 +1836,10 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                 variant="ghost"
                 size="xs"
                 className="bg-primary/15 text-primary hover:bg-primary/20 hover:text-primary"
-                onClick={() => useStore.getState().undoBatchZoneNotice()}
+                onClick={() => {
+                  setJustMovedSharedId(null)
+                  useStore.getState().undoBatchZoneNotice()
+                }}
               >
                 {t('batch.undo')}
               </Button>
@@ -1924,11 +1987,12 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     )
                     return
                   }
-                  if (target.classList.contains('mention-tag')) {
+                  const mentionTag = target.closest<HTMLElement>('.mention-tag')
+                  if (mentionTag) {
                     const sel = window.getSelection()
                     if (sel) {
                       const range = document.createRange()
-                      range.selectNode(target)
+                      range.selectNode(mentionTag)
                       sel.removeAllRanges()
                       sel.addRange(range)
                       syncMentionTagSelection(el)
@@ -1986,12 +2050,14 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           <CreationToolbar
             mode={inline ? <HomeTargetPicker /> : undefined}
             status={
-              // 参考区展开时原因句已在参考图上方，输入框下不再重复一遍。
+              // 参考区展开时原因句已在参考图上方，输入框下不再重复一遍；批量双区没有折叠条，始终在下方展示。
               gifNotice ||
-              sharedOversizedNotice ||
-              (referenceNotice && !(referencesExpanded && inputImages.length > 0)) ? (
+              batchBlockingNotice ||
+              sharedReferenceNotice ||
+              (referenceNotice &&
+                (isBatchMode || !(referencesExpanded && inputImages.length > 0))) ? (
                 <span role="alert" className="text-xs leading-snug text-destructive">
-                  {gifNotice ?? sharedOversizedNotice ?? referenceNotice}
+                  {gifNotice ?? batchBlockingNotice ?? sharedReferenceNotice ?? referenceNotice}
                 </span>
               ) : (
                 <>
@@ -2055,7 +2121,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     totalCredits={batchImageCount > 0 ? batchTotalCredits : undefined}
                     onApplyPrompt={(nextPrompt) => {
                       setPrompt(nextPrompt)
-                      promptEditor.focusAt(nextPrompt.length)
+                      promptEditor.focusAt(getVisiblePrompt(nextPrompt, mentionLabels).length)
                     }}
                   />
                 )}

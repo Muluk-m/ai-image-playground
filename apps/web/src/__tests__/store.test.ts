@@ -3523,3 +3523,134 @@ describe('多图作品只删一张', () => {
     expect((useStore.getState().tasks[0] as TaskRecord).outputImages).toEqual(['b'])
   })
 })
+
+describe('batch dual-zone mode draft and submitTask guards', () => {
+  const editProfile: ClientProfile = {
+    id: 'openai-edit',
+    source: 'builtin-edge',
+    channelId: 'openai-edit',
+    selectedModelId: 'gpt-image-2',
+  }
+  const textOnlyProfile: ClientProfile = {
+    id: 'text-only',
+    source: 'builtin-edge',
+    channelId: 'text-only',
+    selectedModelId: 'text-only-model',
+  }
+  const imgA = { id: 'batch-a', dataUrl: 'data:image/png;base64,a' }
+  const imgB = { id: 'batch-b', dataUrl: 'data:image/png;base64,b' }
+
+  beforeEach(() => {
+    setChannels([
+      {
+        id: 'openai-edit',
+        kind: 'openai-queue',
+        label: 'OpenAI',
+        models: [{ id: 'gpt-image-2', label: 'GPT Image 2', capabilities: ['generate', 'edit'] }],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+      {
+        id: 'text-only',
+        kind: 'openai-queue',
+        label: 'TextOnly',
+        models: [{ id: 'text-only-model', label: 'Text Only', capabilities: ['generate'] }],
+        defaults: { apiMode: 'images', timeout: 600 },
+      },
+    ])
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [editProfile, textOnlyProfile],
+        activeProfileId: editProfile.id,
+      }),
+      createTarget: 'generate',
+      prompt: '',
+      inputImages: [],
+      batchSharedImages: [],
+      batchZoneNotice: null,
+      maskDraft: null,
+      params: { ...DEFAULT_PARAMS },
+      tasks: [],
+      showToast: vi.fn(),
+    })
+  })
+
+  it('blocks submitTask in batch mode when model does not accept references or loop images are empty', async () => {
+    const showToast = vi.fn()
+    useStore.setState({
+      createTarget: 'batch',
+      prompt: '统一换成纯白底',
+      inputImages: [],
+      batchSharedImages: [],
+      showToast,
+    })
+
+    await submitTask()
+    expect(useStore.getState().tasks).toEqual([])
+    expect(showToast).toHaveBeenCalledTimes(1)
+
+    showToast.mockClear()
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        profiles: [editProfile, textOnlyProfile],
+        activeProfileId: textOnlyProfile.id,
+      }),
+      inputImages: [imgA],
+    })
+
+    await submitTask()
+    expect(useStore.getState().tasks).toEqual([])
+    expect(showToast).toHaveBeenCalledTimes(1)
+  })
+
+  it('splits referenced images into shared on switching to batch, restores createTarget on undo, and clears notice on edit', () => {
+    const initialPrompt = `把主体换成 ${getSelectedImageMentionLabel(1)}`
+    useStore.setState({
+      createTarget: 'generate',
+      prompt: initialPrompt,
+      inputImages: [imgA, imgB],
+      batchSharedImages: [],
+    })
+
+    useStore.getState().setCreateTarget('batch')
+    const afterSwitch = useStore.getState()
+    expect(afterSwitch.createTarget).toBe('batch')
+    expect(afterSwitch.inputImages.map((i) => i.id)).toEqual(['batch-a'])
+    expect(afterSwitch.batchSharedImages.map((i) => i.id)).toEqual(['batch-b'])
+    expect(afterSwitch.batchZoneNotice).not.toBeNull()
+
+    useStore.getState().undoBatchZoneNotice()
+    const afterUndo = useStore.getState()
+    expect(afterUndo.createTarget).toBe('generate')
+    expect(afterUndo.prompt).toBe(initialPrompt)
+    expect(afterUndo.inputImages.map((i) => i.id)).toEqual(['batch-a', 'batch-b'])
+    expect(afterUndo.batchSharedImages).toEqual([])
+    expect(afterUndo.batchZoneNotice).toBeNull()
+
+    // Editing prompt clears any pending undo notice so stale snapshots cannot overwrite newer edits.
+    useStore.getState().setCreateTarget('batch')
+    expect(useStore.getState().batchZoneNotice).not.toBeNull()
+    useStore.getState().setPrompt('新提示词')
+    expect(useStore.getState().batchZoneNotice).toBeNull()
+  })
+
+  it('merges batch loop + shared images into persisted inputImages when persistInputOnRestart is enabled', () => {
+    useStore.setState({
+      settings: normalizeSettings({
+        ...DEFAULT_SETTINGS,
+        persistInputOnRestart: true,
+        profiles: [editProfile],
+        activeProfileId: editProfile.id,
+      }),
+      createTarget: 'batch',
+      prompt: `参考 ${getSelectedImageMentionLabel(1)}`,
+      inputImages: [imgA],
+      batchSharedImages: [imgB],
+    })
+
+    const persisted = getPersistedState(useStore.getState())
+    expect(persisted.inputImages?.map((i) => i.id)).toEqual(['batch-a', 'batch-b'])
+    expect(persisted.prompt).toBe(`参考 ${getSelectedImageMentionLabel(1)}`)
+  })
+})

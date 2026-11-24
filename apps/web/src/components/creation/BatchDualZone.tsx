@@ -1,4 +1,4 @@
-import { type DragEvent, type MouseEvent, useState } from 'react'
+import { type DragEvent, type MouseEvent, useRef, useState } from 'react'
 import { useTranslation } from '../../i18n'
 import { BATCH_GENERATE_MAX, batchSharedMax } from '../../lib/batchGenerate'
 import { cn } from '../../lib/utils'
@@ -74,6 +74,7 @@ export function BatchDualZone({
   const [dragging, setDragging] = useState<DragPayload | null>(null)
   const [dropZone, setDropZone] = useState<BatchZoneKind | null>(null)
   const [sharedPickOpen, setSharedPickOpen] = useState(false)
+  const suppressFocusReturnRef = useRef(false)
 
   const sharedMax = batchSharedMax(mergeLimit)
   const allPreviewIds = [...loopImages.map((img) => img.id), ...sharedImages.map((img) => img.id)]
@@ -100,6 +101,7 @@ export function BatchDualZone({
   }
 
   const handleZoneDragOver = (target: BatchZoneKind) => (event: DragEvent<HTMLDivElement>) => {
+    if (disabled) return
     const hasFiles = Array.from(event.dataTransfer?.types ?? []).includes('Files')
     if (dragging && dragging.zone !== target) {
       event.preventDefault()
@@ -121,6 +123,7 @@ export function BatchDualZone({
   }
 
   const handleZoneDrop = (target: BatchZoneKind) => (event: DragEvent<HTMLDivElement>) => {
+    if (disabled) return
     let payload = dragging
     if (!payload) {
       try {
@@ -348,6 +351,12 @@ export function BatchDualZone({
                   align="end"
                   sideOffset={6}
                   collisionPadding={12}
+                  onCloseAutoFocus={(event) => {
+                    if (suppressFocusReturnRef.current) {
+                      suppressFocusReturnRef.current = false
+                      event.preventDefault()
+                    }
+                  }}
                   className="w-44 rounded-xl p-1.5 shadow-popover"
                 >
                   <div className="flex flex-col gap-0.5">
@@ -359,6 +368,7 @@ export function BatchDualZone({
                         size="sm"
                         className="w-full justify-start gap-2 px-2 text-xs font-normal"
                         onClick={() => {
+                          suppressFocusReturnRef.current = true
                           setSharedPickOpen(false)
                           onInsertSharedMention(idx)
                         }}

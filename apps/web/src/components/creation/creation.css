@@ -434,8 +434,14 @@
   @apply text-xs;
 }
 .creation-batch-examples-trigger {
-  height: 36px;
+  height: 40px;
   border-radius: 10px;
+}
+@container creation-composer (max-width: 520px) {
+  .creation-batch-examples-trigger {
+    height: 32px;
+    border-radius: 8px;
+  }
 }
 
 @container creation-composer (max-width: 560px) {
