@@ -2,7 +2,7 @@ import type { AgentMode } from '@image-playground/shared'
 import type { CreationMode } from './draft'
 
 /** 与 store.createTarget 同一组值，决定作曲器显示哪种创作档。 */
-export type ComposerCreateTarget = 'generate' | 'chat' | 'canvas' | 'video'
+export type ComposerCreateTarget = 'generate' | 'batch' | 'chat' | 'canvas' | 'video'
 
 /**
  * 作曲器 UI 档。`agent | image | video` 是给选择器和文案看的；
@@ -16,7 +16,7 @@ export function creationModeOf(
   // 工作台非 inline 的 InputBar 只做出图档，哪怕 createTarget 仍是 chat/video。
   if (options.inline === false) return 'image'
   if (createTarget === 'video') return 'video'
-  if (createTarget === 'generate') return 'image'
+  if (createTarget === 'generate' || createTarget === 'batch') return 'image'
   return 'agent'
 }
 

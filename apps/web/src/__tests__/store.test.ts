@@ -2108,7 +2108,62 @@ describe('快速生成的逐张生成', () => {
 
   afterEach(() => {
     setChannels([])
-    useStore.setState({ batchGenerate: false })
+    useStore.setState({
+      batchGenerate: false,
+      createTarget: 'generate',
+      batchSharedImages: [],
+      batchZoneNotice: null,
+    })
+  })
+
+  it('批量生图模式带共用参考时：每条任务发 [当前遍历图, ...共用参考] 并准确解析 @当前图 与 @参考1', async () => {
+    await setupBatchState(2, false)
+    const db = await import('../lib/db')
+    const shared = { id: 'shared-1', dataUrl: 'data:image/png;base64,shared1' }
+    await db.putImage({ ...shared, source: 'upload', createdAt: Date.now() })
+    const { getSelectedImageMentionLabel } = await import('../lib/promptImageMentions')
+    useStore.setState({
+      createTarget: 'batch',
+      batchSharedImages: [shared],
+      prompt: `把 ${getSelectedImageMentionLabel(0)} 的商品换成 ${getSelectedImageMentionLabel(1)}`,
+    })
+
+    await submitTask()
+    await waitUntil(
+      () => vi.mocked(callImageApi).mock.calls.length === 2,
+      'batch dual-zone requests were not sent',
+    )
+
+    const calls = vi.mocked(callImageApi).mock.calls
+    expect(calls.map((c) => c[0].inputImageDataUrls)).toEqual([
+      ['data:image/png;base64,ref1', 'data:image/png;base64,shared1'],
+      ['data:image/png;base64,ref2', 'data:image/png;base64,shared1'],
+    ])
+    expect(calls.map((c) => c[0].prompt)).toEqual([
+      '把 [image 1] 的商品换成 [image 2]',
+      '把 [image 1] 的商品换成 [image 2]',
+    ])
+  })
+
+  it('从图片生成切入批量生图时自动将已 @ 引用的图归入共用参考，且支持一键撤销', async () => {
+    await setupBatchState(2, false)
+    const { getSelectedImageMentionLabel } = await import('../lib/promptImageMentions')
+    useStore.setState({
+      createTarget: 'generate',
+      prompt: `把主图换成 ${getSelectedImageMentionLabel(1)}`,
+    })
+
+    useStore.getState().setCreateTarget('batch')
+    const afterSwitch = useStore.getState()
+    expect(afterSwitch.inputImages.map((img) => img.id)).toEqual(['ref-1'])
+    expect(afterSwitch.batchSharedImages.map((img) => img.id)).toEqual(['ref-2'])
+    expect(afterSwitch.batchZoneNotice).not.toBeNull()
+
+    useStore.getState().undoBatchZoneNotice()
+    const afterUndo = useStore.getState()
+    expect(afterUndo.inputImages.map((img) => img.id)).toEqual(['ref-1', 'ref-2'])
+    expect(afterUndo.batchSharedImages).toEqual([])
+    expect(afterUndo.batchZoneNotice).toBeNull()
   })
 
   it('每张参考图各发一条 n=1 的任务，只带自己那张图，同属一组', async () => {

@@ -24,9 +24,16 @@ import {
   BATCH_GENERATE_CONCURRENCY,
   BATCH_GENERATE_MAX,
   batchPerImage,
+  batchSharedAdmission,
+  clearBatchSharedImagesFromDraft,
+  demoteSharedImageToLoop,
+  mergeDraftFromBatchMode,
   oversizedReferenceIndexes,
   oversizedReferenceMessage,
+  promoteLoopImageToShared,
   quickGenerateAdmission,
+  removeBatchSharedImageFromDraft,
+  splitDraftForBatchMode,
 } from './lib/batchGenerate'
 import { validateMaskMatchesImage } from './lib/canvasImage'
 import { ensureChannelsLoaded } from './lib/channels/bootstrapChannels'
@@ -645,6 +652,27 @@ interface AppState {
   ) => number[] | null
   removeInputImage: (idx: number) => void
   clearInputImages: () => void
+  /** 批量生图模式「共用参考」区：每条遍历任务都会附带这一组固定参考图（最多 15 张）。 */
+  batchSharedImages: InputImage[]
+  attachBatchSharedImages: (
+    images: readonly InputImage[],
+    admission?: ReferenceAdmission,
+  ) => number[] | null
+  removeBatchSharedImage: (idx: number) => void
+  clearBatchSharedImages: () => void
+  promoteInputImageToShared: (
+    loopIdx: number,
+  ) => { sharedIndex: number; mentionIndex: number; image: InputImage } | null
+  demoteSharedImageToInput: (
+    sharedIdx: number,
+  ) => { image: InputImage; hadCitation: boolean } | null
+  /** 跨区拖拽 / `@` 自动归类后的可撤销提示条（不持久化）。 */
+  batchZoneNotice: {
+    message: string
+    snapshot: { prompt: string; inputImages: InputImage[]; batchSharedImages: InputImage[] }
+  } | null
+  setBatchZoneNotice: (notice: AppState['batchZoneNotice']) => void
+  undoBatchZoneNotice: () => void
   /** 整条换掉。带上 `prompt` 就是连提示词一起换，两件事在同一次写入里完成。 */
   replaceInputImages: (imgs: InputImage[], options?: ReplaceOptions) => void
   moveInputImage: (fromIdx: number, toIdx: number) => void
@@ -693,8 +721,8 @@ interface AppState {
   creationSelections: Partial<
     Record<'generate' | 'chat', { params: TaskParams; profileId: string; model: string }>
   >
-  createTarget: 'generate' | 'chat' | 'canvas' | 'video'
-  setCreateTarget: (target: 'generate' | 'chat' | 'canvas' | 'video') => void
+  createTarget: 'generate' | 'batch' | 'chat' | 'canvas' | 'video'
+  setCreateTarget: (target: 'generate' | 'batch' | 'chat' | 'canvas' | 'video') => void
   /** 图片生成档：多张参考图各自用同一句提示词生成，而不是合成一次。 */
   batchGenerate: boolean
   setBatchGenerate: (on: boolean) => void
@@ -784,6 +812,10 @@ export const useStore = create<AppState>()(
       },
       removeInputImage: (idx) =>
         set((s) => {
+          if (s.createTarget === 'batch') {
+            if (idx < 0 || idx >= s.inputImages.length) return s
+            return { inputImages: s.inputImages.filter((_, i) => i !== idx) }
+          }
           const shouldClearMask = s.inputImages[idx]?.id === s.maskDraft?.targetImageId
           const draft = removeReference({ prompt: s.prompt, references: s.inputImages }, idx)
           return {
@@ -795,11 +827,110 @@ export const useStore = create<AppState>()(
       clearInputImages: () =>
         set((s) => {
           for (const img of s.inputImages) imageCache.delete(img.id)
+          if (s.createTarget === 'batch') {
+            return { inputImages: [], maskDraft: null, maskEditorImageId: null }
+          }
           return {
             inputImages: [],
             prompt: replaceReferences({ prompt: s.prompt, references: s.inputImages }, []).prompt,
             maskDraft: null,
             maskEditorImageId: null,
+          }
+        }),
+      batchSharedImages: [],
+      attachBatchSharedImages: (images, admission) => {
+        const { batchSharedImages, settings, showToast } = get()
+        const base = referenceAdmission(getActiveApiProfile(settings))
+        const effective = admission ?? batchSharedAdmission(base)
+        const result = attachReferences(
+          { prompt: '', references: batchSharedImages },
+          images,
+          effective,
+        )
+        if (!result.ok) {
+          showToast(referenceRefusalMessage(result.reason, effective.limit), 'error')
+          return null
+        }
+        set({ batchSharedImages: [...result.draft.references] })
+        return [...result.indexes]
+      },
+      removeBatchSharedImage: (idx) =>
+        set((s) => {
+          const next = removeBatchSharedImageFromDraft({
+            prompt: s.prompt,
+            batchSharedImages: s.batchSharedImages,
+            sharedIndex: idx,
+          })
+          return {
+            batchSharedImages: next.batchSharedImages,
+            prompt: next.prompt,
+          }
+        }),
+      clearBatchSharedImages: () =>
+        set((s) => {
+          for (const img of s.batchSharedImages) imageCache.delete(img.id)
+          return {
+            batchSharedImages: [],
+            prompt: clearBatchSharedImagesFromDraft(s.prompt),
+          }
+        }),
+      promoteInputImageToShared: (loopIdx) => {
+        const s = get()
+        const mergeLimit = referenceAdmission(getActiveApiProfile(s.settings)).limit
+        const result = promoteLoopImageToShared({
+          inputImages: s.inputImages,
+          batchSharedImages: s.batchSharedImages,
+          loopIndex: loopIdx,
+          mergeLimit,
+        })
+        if (!result.ok) {
+          if (result.reason === 'overflow') {
+            s.showToast(referenceRefusalMessage('overflow', Math.max(0, mergeLimit - 1)), 'error')
+          }
+          return null
+        }
+        set({
+          inputImages: result.inputImages,
+          batchSharedImages: result.batchSharedImages,
+        })
+        return {
+          sharedIndex: result.sharedIndex,
+          mentionIndex: result.mentionIndex,
+          image: result.movedImage,
+        }
+      },
+      demoteSharedImageToInput: (sharedIdx) => {
+        const s = get()
+        const result = demoteSharedImageToLoop({
+          prompt: s.prompt,
+          inputImages: s.inputImages,
+          batchSharedImages: s.batchSharedImages,
+          sharedIndex: sharedIdx,
+        })
+        if (!result.ok) {
+          if (result.reason === 'overflow') {
+            s.showToast(referenceRefusalMessage('overflow', BATCH_GENERATE_MAX), 'error')
+          }
+          return null
+        }
+        set({
+          inputImages: result.inputImages,
+          batchSharedImages: result.batchSharedImages,
+          prompt: result.prompt,
+        })
+        return { image: result.movedImage, hadCitation: result.hadCitation }
+      },
+      batchZoneNotice: null,
+      setBatchZoneNotice: (batchZoneNotice) => set({ batchZoneNotice }),
+      undoBatchZoneNotice: () =>
+        set((s) => {
+          if (!s.batchZoneNotice) return s
+          const { prompt, inputImages, batchSharedImages } = s.batchZoneNotice.snapshot
+          return {
+            prompt,
+            inputImages: [...inputImages],
+            batchSharedImages: [...batchSharedImages],
+            batchZoneNotice: null,
           }
         }),
       replaceInputImages: (imgs, options) =>
@@ -949,8 +1080,10 @@ export const useStore = create<AppState>()(
       setCreateTarget: (createTarget) => {
         const state = get()
         if (createTarget === state.createTarget) return
-        const key = state.createTarget === 'generate' ? 'generate' : 'chat'
-        const nextKey = createTarget === 'generate' ? 'generate' : 'chat'
+        const isDirect = (target: AppState['createTarget']) =>
+          target === 'generate' || target === 'batch'
+        const key = isDirect(state.createTarget) ? 'generate' : 'chat'
+        const nextKey = isDirect(createTarget) ? 'generate' : 'chat'
         const profile = getActiveApiProfile(state.settings)
         // Text/references are shared. Only model selection and parameters belong to a mode.
         // Video parameters live in useVideoStore and never overwrite either image selection.
@@ -981,9 +1114,56 @@ export const useStore = create<AppState>()(
             ? candidate
             : undefined
         if (candidate && !saved) delete selections[nextKey]
+
+        // 切入「批量生图」：提示词里已 `@` 引用的图自动归入共用参考，并记录可撤销快照；
+        // 离开「批量生图」：把共用参考合并回普通参考图条，保持引用不丢。
+        let draftPatch: Partial<AppState> = { batchZoneNotice: null }
+        if (createTarget === 'batch') {
+          const split = splitDraftForBatchMode({
+            prompt: state.prompt,
+            inputImages: state.inputImages,
+            batchSharedImages: state.batchSharedImages,
+            mergeLimit: referenceAdmission(profile).limit,
+          })
+          draftPatch = {
+            prompt: split.prompt,
+            inputImages: split.inputImages,
+            batchSharedImages: split.batchSharedImages,
+            maskDraft: null,
+            maskEditorImageId: null,
+            batchZoneNotice:
+              split.promotedImages.length > 0
+                ? {
+                    message: i18next.t('batch.autoPromotedOnSwitch', {
+                      ns: 'composer',
+                      count: split.promotedImages.length,
+                    }),
+                    snapshot: {
+                      prompt: state.prompt,
+                      inputImages: [...state.inputImages],
+                      batchSharedImages: [...state.batchSharedImages],
+                    },
+                  }
+                : null,
+          }
+        } else if (state.createTarget === 'batch') {
+          const merged = mergeDraftFromBatchMode({
+            prompt: state.prompt,
+            inputImages: state.inputImages,
+            batchSharedImages: state.batchSharedImages,
+          })
+          draftPatch = {
+            prompt: merged.prompt,
+            inputImages: merged.inputImages,
+            batchSharedImages: [],
+            batchZoneNotice: null,
+          }
+        }
+
         set({
           createTarget,
           creationSelections: selections,
+          ...draftPatch,
           ...(saved ? { params: saved.params } : {}),
           ...(saved?.profileId && savedProfile
             ? {
@@ -1437,10 +1617,12 @@ export interface PreparedSubmission {
   /** 归属信息（套 / 镜头）；零散提交不带。 */
   origin?: TaskOrigin
   /**
-   * 逐张生成：每张参考图各发一条任务、各出 1 张，同一句提示词；这批任务折成「我的作品」里的一组。
+   * 逐张生成：每张遍历原图各发一条任务、各出 1 张，同一句提示词；这批任务折成「我的作品」里的一组。
    * 与遮罩、`origin` 互斥。
    */
   eachImage?: true
+  /** 逐张生成时每条任务都会附带的共用参考图（紧跟在当前遍历原图后面）。 */
+  sharedImages?: InputImage[]
 }
 
 /**
@@ -1556,22 +1738,29 @@ export async function submitPrepared(
   }
   const admission = referenceAdmission(profile)
   const eachImage = Boolean(input.eachImage) && !input.maskDraft && !input.mask
-  // 逐张生成时每条任务只带一张图，模型上限管不着整批；整批另按 BATCH_GENERATE_MAX 收口。
+  const sharedImages = eachImage ? (input.sharedImages ?? []) : []
+  // 逐张生成时每条任务带「1 张遍历原图 + 共用参考图」，单条受模型上限管，整批按 BATCH_GENERATE_MAX 收口。
   const referenceLimit = eachImage ? BATCH_GENERATE_MAX : admission.limit
+  const totalImages = input.inputImages.length + sharedImages.length
   if (
     input.inputImages.length > referenceLimit ||
-    (input.inputImages.length > 0 && !admission.acceptsReferences)
+    (eachImage && sharedImages.length > 0 && 1 + sharedImages.length > admission.limit) ||
+    (totalImages > 0 && !admission.acceptsReferences)
   ) {
+    const overflowLimit =
+      eachImage && 1 + sharedImages.length > admission.limit
+        ? Math.max(0, admission.limit - 1)
+        : referenceLimit
     showToast(
       referenceRefusalMessage(
-        input.inputImages.length > referenceLimit ? 'overflow' : 'noEdit',
-        referenceLimit,
+        totalImages > 0 && !admission.acceptsReferences ? 'noEdit' : 'overflow',
+        overflowLimit,
       ),
       'error',
     )
     return []
   }
-  const oversized = oversizedReferenceIndexes(input.inputImages)
+  const oversized = oversizedReferenceIndexes([...input.inputImages, ...sharedImages])
   if (oversized.length) {
     showToast(oversizedReferenceMessage(oversized), 'error')
     return []
@@ -1648,6 +1837,9 @@ export async function submitPrepared(
   for (const img of input.inputImages) {
     await storeImage(img.dataUrl)
   }
+  for (const img of sharedImages) {
+    await storeImage(img.dataUrl)
+  }
   const maskDataUrl = input.mask ? await ensureImageCached(input.mask.imageId) : undefined
   if (input.mask && !maskDataUrl) {
     showToast(i18next.t('task.maskImageMissing', { ns: 'store' }), 'error')
@@ -1655,8 +1847,10 @@ export async function submitPrepared(
   }
 
   if (!current()) return []
-  // 一组参考图对应一条变体：合并参考是整条一组，逐张生成是每张图自成一组。
-  const referenceGroups = eachImage ? input.inputImages.map((img) => [img]) : [input.inputImages]
+  // 一组参考图对应一条变体：合并参考是整条一组，逐张生成是每张遍历图拼上共用参考各自成组。
+  const referenceGroups = eachImage
+    ? input.inputImages.map((img) => [img, ...sharedImages])
+    : [input.inputImages]
   const jobs = startGeneration<WorkbenchJob, WorkbenchVariant>(
     {
       settings: requestSettings,
@@ -1720,8 +1914,18 @@ export async function submitPrepared(
  * 这里只管 composer 自己的事：孤儿遮罩草稿兜底、归一化参数写回、成功后的收尾。
  */
 export async function submitTask(options: { holdClear?: Promise<unknown> } = {}) {
-  const { settings, prompt, slotValues, inputImages, maskDraft, params, batchGenerate, showToast } =
-    useStore.getState()
+  const {
+    settings,
+    prompt,
+    slotValues,
+    inputImages,
+    batchSharedImages,
+    createTarget,
+    maskDraft,
+    params,
+    batchGenerate,
+    showToast,
+  } = useStore.getState()
 
   // 遮罩草稿的目标图已不在参考图条里：草稿留着也提交不了，清掉并提示重新选区。
   if (maskDraft && !inputImages.some((img) => img.id === maskDraft.targetImageId)) {
@@ -1732,14 +1936,22 @@ export async function submitTask(options: { holdClear?: Promise<unknown> } = {})
 
   const activeProfile = getActiveApiProfile(settings)
   const requestSettings = createSettingsForApiProfile(normalizeSettings(settings), activeProfile)
-  // 与输入框同一条判断：用户选了逐张，或图多到超过模型一次能带的张数。遮罩编辑不走逐张。
+  // 批量生图模式按每张遍历原图发一条（可带共用参考）；旧 batchGenerate 开关仍向后兼容。
+  const isBatchMode = createTarget === 'batch'
   const eachImage =
     !maskDraft &&
-    batchPerImage(inputImages.length, batchGenerate, referenceAdmission(activeProfile).limit)
+    (isBatchMode
+      ? inputImages.length > 0
+      : batchPerImage(inputImages.length, batchGenerate, referenceAdmission(activeProfile).limit))
   const orderedInputImages = maskDraft
     ? orderInputImagesForMask(inputImages, maskDraft.targetImageId)
     : inputImages
-  const taskParams = deriveTaskParams(params, requestSettings, orderedInputImages.length > 0)
+  const sharedImages = isBatchMode ? batchSharedImages : []
+  const taskParams = deriveTaskParams(
+    params,
+    requestSettings,
+    orderedInputImages.length > 0 || sharedImages.length > 0,
+  )
   const normalizedParamPatch = getChangedParams(params, taskParams)
   if (Object.keys(normalizedParamPatch).length) {
     useStore.getState().setParams(normalizedParamPatch)
@@ -1760,6 +1972,7 @@ export async function submitTask(options: { holdClear?: Promise<unknown> } = {})
         maskDraft,
         profileId: activeProfile.id,
         ...(eachImage ? { eachImage: true as const } : {}),
+        ...(eachImage && sharedImages.length > 0 ? { sharedImages } : {}),
       },
       {
         signal: controller.signal,
@@ -1784,12 +1997,15 @@ export async function submitTask(options: { holdClear?: Promise<unknown> } = {})
     const now = useStore.getState()
     const sameImages =
       now.inputImages.length === inputImages.length &&
-      now.inputImages.every((img, i) => img.id === inputImages[i]?.id)
+      now.inputImages.every((img, i) => img.id === inputImages[i]?.id) &&
+      now.batchSharedImages.length === sharedImages.length &&
+      now.batchSharedImages.every((img, i) => img.id === sharedImages[i]?.id)
     if (now.prompt !== prompt || !sameImages) return
   }
   if (settings.clearInputAfterSubmit) {
     useStore.getState().setPrompt('')
     useStore.getState().clearInputImages()
+    if (isBatchMode) useStore.getState().clearBatchSharedImages()
   }
 }
 
