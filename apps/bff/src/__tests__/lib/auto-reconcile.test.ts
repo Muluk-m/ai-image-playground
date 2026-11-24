@@ -246,16 +246,18 @@ it('uses the reconciling partial indexes for due reconciliation and overdue aler
   await db.$client.unsafe('ANALYZE tasks')
 
   const dueNodes = await explainPlanNodes(buildDueReconcilingTasksQuery(now))
-  expect(dueNodes.some((node) => node['Index Name'] === 'idx_tasks_reconciling_next_retry')).toBe(
-    true,
+  expect(dueNodes.map((node) => node['Index Name']).filter(Boolean)).toContain(
+    'idx_tasks_reconciling_next_retry',
   )
-  expect(dueNodes.some((node) => node['Node Type'] === 'Seq Scan')).toBe(false)
+  expect(dueNodes.map((node) => node['Node Type'])).not.toContain('Seq Scan')
   const dueRows = await buildDueReconcilingTasksQuery(now)
   expect(dueRows.map((row) => row.id)).toEqual(['due-timed', 'due-null-retry'])
 
   const alertNodes = await explainPlanNodes(buildOverdueReconcileAlertQuery(now))
-  expect(alertNodes.some((node) => node['Index Name'] === 'idx_tasks_reconciling_alert')).toBe(true)
-  expect(alertNodes.some((node) => node['Node Type'] === 'Seq Scan')).toBe(false)
+  expect(alertNodes.map((node) => node['Index Name']).filter(Boolean)).toContain(
+    'idx_tasks_reconciling_alert',
+  )
+  expect(alertNodes.map((node) => node['Node Type'])).not.toContain('Seq Scan')
   const alertRows = await buildOverdueReconcileAlertQuery(now)
   expect(alertRows.map((row) => row.id)).toEqual(['due-timed'])
 })

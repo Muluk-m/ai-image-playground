@@ -1,5 +1,5 @@
 import { type AlertMessage, QUEUE_TIMEOUTS } from '@image-playground/shared'
-import { and, asc, eq, isNull, lte, or } from 'drizzle-orm'
+import { and, asc, eq, isNull, lte, or, sql } from 'drizzle-orm'
 import { db, schema } from '../db/client'
 import { type AlertSender, createAlertSenderFromEnv } from '../ops/alert-sender'
 import { log } from './logger'
@@ -32,8 +32,9 @@ export function buildDueReconcilingTasksQuery(now: number) {
     .from(schema.tasks)
     .where(
       and(
-        eq(schema.tasks.status, 'reconciling'),
-        eq(schema.tasks.kind, 'queue'),
+        // 固定枚举写为 SQL 字面量而非绑定参数，确保 PostgreSQL 在缓存 generic plan 时仍能证明命中局部索引谓词。
+        sql`${schema.tasks.status} = 'reconciling'`,
+        sql`${schema.tasks.kind} = 'queue'`,
         or(isNull(schema.tasks.next_retry_at), lte(schema.tasks.next_retry_at, now)),
         or(isNull(schema.tasks.execution_token), lte(schema.tasks.lease_expires_at, now)),
       ),
@@ -54,8 +55,8 @@ export function buildOverdueReconcileAlertQuery(now: number) {
     .from(schema.tasks)
     .where(
       and(
-        eq(schema.tasks.status, 'reconciling'),
-        eq(schema.tasks.kind, 'queue'),
+        sql`${schema.tasks.status} = 'reconciling'`,
+        sql`${schema.tasks.kind} = 'queue'`,
         isNull(schema.tasks.reconcile_alerted_at),
         or(
           isNull(schema.tasks.reconcile_started_at),
