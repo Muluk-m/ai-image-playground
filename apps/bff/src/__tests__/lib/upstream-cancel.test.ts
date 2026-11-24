@@ -21,7 +21,7 @@ const { setUpstreamFetchForTesting, setAsyncPollBackoffForTesting } = await impo
   '../../lib/upstream'
 )
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
-const { cancelTasks } = await import('../../db/task-transitions')
+const { cancelTasks } = await import('../../modules/execution')
 const { cancelUpstreamOfCancelledTasks } = await import('../../lib/upstream-cancel')
 const { _setChannelsForTesting } = await import('../../lib/channels')
 type InternalChannel = import('../../lib/channels').InternalChannel

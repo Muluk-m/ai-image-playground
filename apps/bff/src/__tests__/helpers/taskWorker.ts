@@ -1,6 +1,7 @@
+import '../../bootstrap/task-lifecycle'
 import { eq } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import type { TerminalTaskUpdate } from '../../db/task-transitions'
+import type { TerminalTaskUpdate } from '../../modules/execution'
 import { claimTaskExecution, type TaskExecution } from '../../workers/task-execution'
 
 /** 收尾时给的那份终态，完成时刻可省。 */

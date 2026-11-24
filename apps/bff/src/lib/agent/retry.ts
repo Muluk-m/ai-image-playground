@@ -6,7 +6,7 @@ import type {
 import { agentTool, agentToolRetryable, restoreQueuePrompt } from '@image-playground/shared'
 import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import { cancelTasks } from '../../db/task-transitions'
+import { cancelTasks } from '../../modules/execution'
 import { resolveQueueModel } from '../channels'
 import { hydrateInputImages } from '../imageArchive'
 import { log } from '../logger'

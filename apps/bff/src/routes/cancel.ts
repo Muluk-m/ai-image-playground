@@ -1,10 +1,10 @@
 import { Elysia, t } from 'elysia'
 import { db, schema } from '../db/client'
-import { cancelTasks } from '../db/task-transitions'
 import { log } from '../lib/logger'
 import { taskAccessWhere } from '../lib/task-access'
 import { cancelUpstreamOfCancelledTasks } from '../lib/upstream-cancel'
 import { requireUser } from '../lib/user-auth'
+import { cancelTasks } from '../modules/execution'
 
 /**
  * PUT /v1/queue/requests/:id/cancel

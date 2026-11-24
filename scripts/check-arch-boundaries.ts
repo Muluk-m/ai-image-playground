@@ -19,7 +19,6 @@ const ALLOWED_ROUTE_TO_DB = new Set([
   'routes/agent.ts -> db/client.ts',
   'routes/auth.ts -> db/client.ts',
   'routes/cancel.ts -> db/client.ts',
-  'routes/cancel.ts -> db/task-transitions.ts',
   'routes/canvasSync.ts -> db/client.ts',
   'routes/internal-ops.ts -> db/client.ts',
   'routes/looks.ts -> db/client.ts',
@@ -39,15 +38,10 @@ const ALLOWED_DB_TO_OUTSIDE = new Set([
   'db/maintenance.ts -> lib/private-overlay.ts',
   'db/maintenance.ts -> lib/retry.ts',
   'db/maintenance.ts -> lib/sync-assets.ts',
+  'db/maintenance.ts -> modules/execution/index.ts',
   'db/migrate.ts -> config.ts',
   'db/migrate.ts -> lib/capabilities.ts',
   'db/migrate.ts -> lib/private-overlay.ts',
-  'db/task-transitions.ts -> lib/agent/wake.ts',
-  'db/task-transitions.ts -> lib/generationMedia.ts',
-  'db/task-transitions.ts -> lib/model-availability.ts',
-  'db/task-transitions.ts -> lib/private-overlay.ts',
-  'db/task-transitions.ts -> lib/projectArchive.ts',
-  'db/task-transitions.ts -> lib/upstream/partial.ts',
 ])
 
 const ALLOWED_WORKERS_TO_AGENT = new Set([
@@ -57,6 +51,10 @@ const ALLOWED_WORKERS_TO_AGENT = new Set([
   'workers/analysis-runner.ts -> lib/agent/visual-resources.ts',
   'workers/task-runner.ts -> lib/agent/masked-input.ts',
   'workers/task-runner.ts -> lib/agent/masked-output.ts',
+])
+
+const ALLOWED_EXECUTION_TO_LEGACY_LIB = new Set([
+  'modules/execution/task-transitions.ts -> lib/private-overlay.ts',
 ])
 
 /**
@@ -337,6 +335,14 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
       ) {
         violations.push(
           `[core -> legacy-agent] ${edge} violates ADR 0034 DAG (core platform must not depend on lib/agent)`,
+        )
+      } else if (
+        fromModule?.name === 'execution' &&
+        target.startsWith('lib/') &&
+        !ALLOWED_EXECUTION_TO_LEGACY_LIB.has(edge)
+      ) {
+        violations.push(
+          `[execution -> legacy-lib] ${edge} is not allowed (invert upward/legacy dependency via TaskLifecycleBus or port)`,
         )
       }
 

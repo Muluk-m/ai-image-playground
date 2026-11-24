@@ -78,6 +78,9 @@ describe('check-arch-boundaries', () => {
       'modules/execution/bad-import-equals.ts':
         "import type AgentRuntime = require('../agent/runtime/exec')\nexport type EqType = AgentRuntime.RuntimeState\n",
       'modules/execution/bad-upward-type.ts': "export type { AgentFacade } from '../agent'\n",
+      'modules/execution/bad-legacy-lib.ts':
+        "import { publishProjectOutputs } from '../../lib/projectArchive'\nexport const p = publishProjectOutputs\n",
+      'lib/projectArchive.ts': 'export const publishProjectOutputs = () => {}\n',
       'delivery/http/bad-deep.ts':
         "import { mediaSecret } from '../../modules/media/internal'\nexport const d = mediaSecret\n",
       'bootstrap/container.ts':
@@ -134,11 +137,18 @@ describe('check-arch-boundaries', () => {
     expect(
       violations.some((v) =>
         v.includes(
+          '[execution -> legacy-lib] modules/execution/bad-legacy-lib.ts -> lib/projectArchive.ts',
+        ),
+      ),
+    ).toBe(true)
+    expect(
+      violations.some((v) =>
+        v.includes(
           '[agent-layer] modules/agent/conversation/bad.ts -> modules/agent/runtime/exec.ts',
         ),
       ),
     ).toBe(true)
-    expect(violations).toHaveLength(7)
+    expect(violations).toHaveLength(8)
     expect(violations.some((v) => v.includes('modules/execution/ok.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('modules/agent/runtime/exec.ts ->'))).toBe(false)
     expect(violations.some((v) => v.includes('bootstrap/container.ts ->'))).toBe(false)

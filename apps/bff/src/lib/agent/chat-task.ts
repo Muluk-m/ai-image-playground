@@ -1,7 +1,7 @@
 import type { AgentTurnCost, AgentTurnUsage } from '@image-playground/shared'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import { finishTask, heldBy } from '../../db/task-transitions'
+import { finishTask, heldBy } from '../../modules/execution'
 import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
 import type {

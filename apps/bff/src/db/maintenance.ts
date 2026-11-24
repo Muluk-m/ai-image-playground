@@ -24,14 +24,14 @@ import { objectStore } from '../lib/objectStore'
 import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { planNextAttempt, type RetryPlan } from '../lib/retry'
 import { ASSET_OBJECT_ROOT, assetOwnerPrefix } from '../lib/sync-assets'
-import { db, schema } from './client'
 import {
   finishTask,
   reconcileTasks,
   requeueTask,
   requeueTaskArchive,
   requeueTasksForPolling,
-} from './task-transitions'
+} from '../modules/execution'
+import { db, schema } from './client'
 
 export interface RecoveredTasks {
   requeued: number

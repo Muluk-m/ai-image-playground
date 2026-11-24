@@ -1,7 +1,7 @@
 import { type CliJobStatus, projectCliJobStatus, type TaskStatus } from '@image-playground/shared'
 import { and, desc, eq, inArray, isNull, lt, or, type SQL } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import { cancelTasks } from '../../db/task-transitions'
+import { cancelTasks } from '../../modules/execution'
 import { loadPrivateBffOverlay } from '../private-overlay'
 import { taskProgressPhase } from '../task-progress'
 import { cancelUpstreamOfCancelledTasks } from '../upstream-cancel'

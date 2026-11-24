@@ -9,7 +9,7 @@ import {
 import { and, asc, eq, gt, inArray, isNull, lte } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
-import { heldBy } from '../db/task-transitions'
+import { heldBy } from '../modules/execution'
 import { compactionSettings } from './agent/compaction-settings'
 import { resolveOwnedMediaImages } from './agent/images'
 import { assertRequestWithinBudget, requestInputTokens } from './agent/request-budget'

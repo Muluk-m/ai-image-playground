@@ -9,17 +9,23 @@ import {
   QUEUE_TIMEOUTS,
   queueTask,
   type TaskErrorType,
-  taskFailureCode,
 } from '@image-playground/shared'
 import { and, eq, gt, inArray, type SQL, sql } from 'drizzle-orm'
-import { agentJobsEnded } from '../lib/agent/wake'
-import { type GenerationMediaLink, publishGenerationImages } from '../lib/generationMedia'
-import { pauseUnavailableModel } from '../lib/model-availability'
-import { type BffTransaction, loadPrivateBffOverlay, type TaskUsage } from '../lib/private-overlay'
-import { publishProjectOutputs } from '../lib/projectArchive'
-import { partialFailureOf } from '../lib/upstream/partial'
-import { db, schema } from './client'
-import { publishGenerations } from './generation-events'
+import { db, schema } from '../../db/client'
+import { publishGenerations } from '../../db/generation-events'
+import {
+  type BffTransaction,
+  loadPrivateBffOverlay,
+  type TaskUsage,
+} from '../../lib/private-overlay'
+import {
+  emitTaskFinished,
+  emitTasksCancelled,
+  type GenerationMediaLink,
+  type TaskFinishedEvent,
+  type TasksCancelledEvent,
+  type TerminalTaskStatus,
+} from './task-lifecycle-bus'
 
 /**
  * 「这一行还归这个执行者」：令牌对得上，租约还没过。过期的执行者可以跑完一次 fetch，
@@ -187,7 +193,7 @@ export async function reconcileTasks(
   return executor ? reconcile(executor) : db.transaction(reconcile)
 }
 
-function queueTerminalStatus(status: TerminalTaskUpdate['status']): TerminalTaskUpdate['status'] {
+function queueTerminalStatus(status: TerminalTaskStatus): TerminalTaskStatus {
   const event = status === 'completed' ? 'succeed' : status === 'failed' ? 'fail' : 'cancel'
   const next = queueTask.target(event)
   if (next !== 'completed' && next !== 'failed' && next !== 'cancelled') {
@@ -197,7 +203,7 @@ function queueTerminalStatus(status: TerminalTaskUpdate['status']): TerminalTask
 }
 
 export type TerminalTaskUpdate = {
-  status: 'completed' | 'failed' | 'cancelled'
+  status: TerminalTaskStatus
   completedAt: number
   attemptCount?: number
   /** 对话轮自己数上游调了几次；生图任务不传，沿用行上累计的那个数。 */
@@ -234,7 +240,8 @@ export function gptSettledUsage(
 }
 
 /**
- * 写终态并触发私有 overlay 的结算 / 退回。返回是否真的改到了行。
+ * 写终态并通过事务内 TaskLifecycleBus 触发媒体、画布、计费结算、模型下架与智能体唤醒。
+ * 返回是否真的改到了行。
  * worker 一律经执行句柄（`workers/task-execution`）调它；回收扫描与对话轮结算自己给 fence。
  */
 export async function finishTask(
@@ -280,20 +287,17 @@ export async function finishTask(
         gptRoute: schema.tasks.gpt_route,
       })
     if (!finished) return false
-    if (finished.userId && update.media) {
-      await publishGenerationImages(tx, finished.userId, id, update.media)
+    const event: TaskFinishedEvent = {
+      taskId: finished.id,
+      userId: finished.userId,
+      model: finished.model,
+      status,
+      completedAt: update.completedAt,
+      errorType: update.errorType,
+      resultPayload: update.resultPayload,
+      media: update.media,
     }
-    if (finished.userId)
-      await publishProjectOutputs(
-        tx,
-        finished.userId,
-        id,
-        update.media ?? [],
-        status === 'failed'
-          ? taskFailureCode(update.errorType)
-          : // 部分出图：没出的那几个预留位置留成失败占位，不悄悄收掉。
-            partialFailureCode(update.resultPayload),
-      )
+    await emitTaskFinished(tx, 'before-settlement', event)
     if (finished.metering?.mode !== 'none')
       await taskHooks.finalizeTask({
         tx,
@@ -304,16 +308,13 @@ export async function finishTask(
         upstreamStatus: update.upstreamStatus ?? null,
         actualUsage: gptSettledUsage(update, finished),
       })
-    if (status === 'failed' && update.errorType === 'model_unavailable') {
-      await pauseUnavailableModel(tx, finished.model, update.completedAt)
-    }
-    // 智能体的后台任务：同一个事务里判断要不要唤醒它，终态与唤醒要么一起落、要么都不落。
-    await agentJobsEnded(tx, [finished.id], update.completedAt)
+    await emitTaskFinished(tx, 'after-settlement', event)
     await publishGenerations(tx, [finished.id])
     return true
   }
   return reconciliation ? finish(reconciliation.tx) : db.transaction(finish)
 }
+
 /**
  * 取消状态和积分退回必须在同一事务中提交；调用方提供任务归属范围。
  * `failedAs`：这次撤回在用户看来是一次失败（智能体等不到结果撤掉的任务算超时），项目里预留的
@@ -334,9 +335,10 @@ export async function cancelTasks(
       .for('update')
     await reconcileTasks(access, '已提交的请求仍待核查，预扣暂时保留', tx)
     const status = queueTerminalStatus('cancelled')
+    const completedAt = Date.now()
     const rows = await tx
       .update(schema.tasks)
-      .set({ status, completed_at: Date.now() })
+      .set({ status, completed_at: completedAt })
       .where(and(access, inArray(schema.tasks.status, ['queued', 'in_progress'])))
       .returning({
         id: schema.tasks.id,
@@ -344,8 +346,15 @@ export async function cancelTasks(
         metering: schema.tasks.metering,
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
       })
+    const event: TasksCancelledEvent = {
+      tasks: rows.map((row) => ({ taskId: row.id, userId: row.userId })),
+      completedAt,
+      failedAs: options.failedAs,
+    }
+    if (rows.length > 0) {
+      await emitTasksCancelled(tx, 'before-settlement', event)
+    }
     for (const row of rows) {
-      if (row.userId) await publishProjectOutputs(tx, row.userId, row.id, [], options.failedAs)
       if (row.metering?.mode !== 'none')
         await taskHooks.finalizeTask({
           tx,
@@ -354,11 +363,9 @@ export async function cancelTasks(
           upstreamInvocationCount: row.upstreamInvocationCount,
         })
     }
-    // 取消的后台任务不唤醒，但它结束了：同一批里其余的可能正等着它。
-    await agentJobsEnded(
-      tx,
-      rows.map((row) => row.id),
-    )
+    if (rows.length > 0) {
+      await emitTasksCancelled(tx, 'after-settlement', event)
+    }
     await publishGenerations(
       tx,
       rows.map((row) => row.id),
@@ -366,9 +373,4 @@ export async function cancelTasks(
     return rows
   }
   return options.tx ? cancel(options.tx) : db.transaction(cancel)
-}
-
-function partialFailureCode(payload: unknown) {
-  const partial = partialFailureOf(payload)
-  return partial ? taskFailureCode(partial.type) : undefined
 }

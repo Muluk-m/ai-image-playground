@@ -11,7 +11,7 @@ import {
 } from '@image-playground/shared'
 import { and, eq, inArray, or, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import { cancelTasks } from '../../db/task-transitions'
+import { cancelTasks } from '../../modules/execution'
 import { accountConcurrencyLimit, accountQueuePositions } from '../account-concurrency'
 import { cancelAnalysisTasks } from '../analysis-tasks'
 import { isCapabilityEnabled } from '../capabilities'

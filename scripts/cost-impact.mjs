@@ -28,7 +28,8 @@ export const COST_PATHS = [
   /^apps\/bff\/src\/lib\/agent\/batch-[^/]*\.ts$/,
   // 任务提交、状态流转与计费模块
   /^apps\/bff\/src\/lib\/(taskSubmission|private-overlay|billing-hooks)\.ts$/,
-  /^apps\/bff\/src\/db\/task-transitions\.ts$/,
+  /^apps\/bff\/src\/modules\/execution\/task-transitions\.ts$/,
+  /^apps\/bff\/src\/bootstrap\/task-lifecycle\.ts$/,
   /^apps\/bff\/src\/modules\/billing\//,
   // 上游供应商调用
   /^apps\/bff\/src\/lib\/upstream(\.ts$|\/)/,

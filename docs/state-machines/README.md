@@ -9,6 +9,6 @@
 - 时间派生的视图（公告有效状态、任务进度阶段、CLI 六态）保持纯函数，不写回库存状态。
 - 前端上传、对话轮和历史视图使用同一套约定。对话轮 store 的 `turn` / `stopping` / `reconnecting` 经 `applyTurnSessionEvent` 写入；历史阶段仍是只读视图。
 
-计费预扣、结算、退款不改。`apps/bff/src/db/task-transitions.ts` 里的 `finishTask` / `cancelTasks` 与积分结算在同一个函数里，转移表已经描述这些边，接入留在提案里。
+计费预扣、结算、退款不改。`apps/bff/src/modules/execution/task-transitions.ts` 里的 `finishTask` / `cancelTasks` 与积分结算在同一个函数里，转移表已经描述这些边，接入留在提案里。
 
 每张已落地的表都有单测，图在同目录的 `<name>.md`。

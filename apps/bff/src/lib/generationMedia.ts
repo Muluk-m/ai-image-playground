@@ -3,6 +3,7 @@ import type { PersistedSubmitRequest, QueueProvider } from '@image-playground/sh
 import { and, eq, inArray } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
+import type { GenerationMediaLink } from '../modules/execution'
 import { durableMediaStore } from './durableMediaStore'
 import { extractMeta, type ImageBytesRef, resolveImageBytesRef } from './extractImages'
 import {
@@ -157,11 +158,7 @@ async function settleWithConcurrency<T, R>(
 
 type StoredRef = { object: string; mime: string; store?: string }
 
-export interface GenerationMediaLink {
-  role: 'input' | 'mask' | 'output'
-  position: number
-  mediaId: string
-}
+export type { GenerationMediaLink }
 
 /** Record deterministic destinations before writing bytes; PostgreSQL never stores inline originals. */
 export function generationSourceCheckpoint(id: string, provider: QueueProvider, payload: unknown) {
@@ -530,7 +527,7 @@ export async function publishGenerationImages(
   tx: BffTransaction,
   userId: string,
   id: string,
-  links: GenerationMediaLink[],
+  links: readonly GenerationMediaLink[],
 ) {
   if (!links.length) return
   await lockMediaOwner(tx, userId)
