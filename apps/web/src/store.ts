@@ -968,9 +968,11 @@ export const useStore = create<AppState>()(
           prompt,
           inputImages: [...inputImages],
           batchSharedImages: [...batchSharedImages],
-          ...(maskDraft !== undefined ? { maskDraft } : {}),
           batchZoneNotice: null,
         })
+        if (maskDraft !== undefined) {
+          get().setMaskDraft(maskDraft)
+        }
       },
       replaceInputImages: (imgs, options) =>
         set((s) => {
@@ -1635,28 +1637,44 @@ export async function initStore() {
     useStore.getState().replaceInputImages(restoredInputImages)
   }
   const restoredSharedImages = await hydrateList(persistedSharedImages)
-  if (
-    useStore.getState().batchSharedImages === persistedSharedImages &&
-    (restoredSharedImages.length !== persistedSharedImages.length ||
-      restoredSharedImages.some(
-        (img, index) => img.dataUrl !== persistedSharedImages[index]?.dataUrl,
-      ))
-  ) {
-    // 若读盘发现部分共用图已缺失，按旧→新 ID 映射重排提示词中的 @参考k，保留 @当前图（index 0）。
-    const nextSharedIndexById = new Map(restoredSharedImages.map((img, i) => [img.id, i + 1]))
-    const nextPrompt =
-      restoredSharedImages.length === persistedSharedImages.length
-        ? useStore.getState().prompt
-        : remapImageMentions(useStore.getState().prompt, (imageIndex) => {
-            if (imageIndex === 0) return 0
-            const oldShared = persistedSharedImages[imageIndex - 1]
-            if (!oldShared) return null
-            return nextSharedIndexById.get(oldShared.id) ?? -1
-          })
-    useStore.setState({
-      batchSharedImages: restoredSharedImages,
-      prompt: nextPrompt,
-    })
+  const currentShared = useStore.getState().batchSharedImages
+  if (currentShared.length > 0 && persistedSharedImages.length > 0) {
+    const persistedSharedIds = new Set(persistedSharedImages.map((img) => img.id))
+    const hydratedById = new Map(restoredSharedImages.map((img) => [img.id, img.dataUrl]))
+    const mergedShared: InputImage[] = []
+    let changed = false
+    for (const img of currentShared) {
+      if (img.dataUrl) {
+        mergedShared.push(img)
+        continue
+      }
+      const dataUrl = hydratedById.get(img.id)
+      if (dataUrl) {
+        mergedShared.push({ ...img, dataUrl })
+        changed = true
+      } else if (persistedSharedIds.has(img.id)) {
+        // 持久化的共用图在 IndexedDB 中已缺失，剔除并在下方重映射引用。
+        changed = true
+      } else {
+        mergedShared.push(img)
+      }
+    }
+    if (changed) {
+      const nextSharedIndexById = new Map(mergedShared.map((img, i) => [img.id, i + 1]))
+      const nextPrompt =
+        mergedShared.length === currentShared.length
+          ? useStore.getState().prompt
+          : remapImageMentions(useStore.getState().prompt, (imageIndex) => {
+              if (imageIndex === 0) return 0
+              const oldShared = currentShared[imageIndex - 1]
+              if (!oldShared) return null
+              return nextSharedIndexById.get(oldShared.id) ?? -1
+            })
+      useStore.setState({
+        batchSharedImages: mergedShared,
+        prompt: nextPrompt,
+      })
+    }
   }
   await restorePersistedMaskDraft(restoredInputImages)
 }
