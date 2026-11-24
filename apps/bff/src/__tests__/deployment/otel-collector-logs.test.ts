@@ -9,7 +9,11 @@ function extractOtelLogStatements(): string[] {
   const compose = Bun.YAML.parse(composeText) as {
     configs: { 'otel-collector': { content: string } }
   }
-  const otelContent = compose.configs['otel-collector'].content.replaceAll('$$', '$')
+  const rawContent = compose.configs['otel-collector'].content
+  // Docker Compose interpolates single `$` inside inline configs as env vars; every literal `$`
+  // (including regex `$` anchors, `$1` backrefs, and OTel `${env:...}`) must be escaped as `$$`.
+  expect(rawContent).not.toMatch(/(?<!\$)\$(?!\$)/)
+  const otelContent = rawContent.replaceAll('$$', '$')
   const otel = Bun.YAML.parse(otelContent) as {
     processors: {
       'transform/logs': {
@@ -24,9 +28,44 @@ function unescapeOttlString(raw: string): string {
   return JSON.parse(`"${raw}"`) as string
 }
 
+function splitTopLevelAnd(cond: string): string[] {
+  const parts: string[] = []
+  let inQuotes = false
+  let escaped = false
+  let start = 0
+  for (let i = 0; i < cond.length; i++) {
+    const ch = cond[i]!
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (inQuotes && ch === '\\') {
+      escaped = true
+      continue
+    }
+    if (ch === '"') {
+      inQuotes = !inQuotes
+      continue
+    }
+    if (!inQuotes && cond.startsWith(' and ', i)) {
+      parts.push(cond.slice(start, i))
+      i += 4
+      start = i + 1
+    }
+  }
+  if (inQuotes) {
+    throw new Error(`Unterminated string literal in OTTL condition: ${cond}`)
+  }
+  parts.push(cond.slice(start))
+  return parts
+}
+
+const STRUCTURED_LEVEL_COND_RE =
+  /^attributes\["level"\] == (?:\d+|"[a-z]+")(?: or attributes\["level"\] == (?:\d+|"[a-z]+"))*$/
+
 /**
- * 镜像 `deploy/compose.app.yaml` 中 `transform/logs` 的服务名归一化与文本日志级别语句，
- * 确保配置里的正则与先后顺序真实生效，不把 cloudflared 单连接回收误报成 ERROR，也不放过真故障。
+ * 按 `deploy/compose.app.yaml` 中 `transform/logs` 语句的实际顺序模拟纯文本容器日志的
+ * 服务名归一化与严重级别求值，确保配置顺序、Docker Compose `$$` 转义与正则严格生效。
  */
 function evaluatePlainTextSeverity(
   statements: readonly string[],
@@ -34,41 +73,91 @@ function evaluatePlainTextSeverity(
   body: string,
   source: 'stdout' | 'stderr' = 'stdout',
 ): { service: string; severity: 'FATAL' | 'ERROR' | 'WARN' | 'INFO' } {
-  const serviceRule = statements.find((s) =>
-    s.startsWith('replace_pattern(attributes["service"], '),
-  )
-  expect(serviceRule).toBeDefined()
-  const serviceMatch =
-    /^replace_pattern\(attributes\["service"\],\s*"((?:\\.|[^"])*)",\s*"\$1"\)$/.exec(serviceRule!)
-  expect(serviceMatch).not.toBeNull()
-  const service = containerName.replace(new RegExp(unescapeOttlString(serviceMatch![1]!)), '$1')
+  let service: string | undefined
+  let severity: 'FATAL' | 'ERROR' | 'WARN' | 'INFO' | undefined
 
-  const severityRules = statements.filter((s) =>
-    s.startsWith('set(severity_number, SEVERITY_NUMBER_'),
-  )
-  for (const stmt of severityRules) {
-    const levelMatch =
-      /^set\(severity_number, SEVERITY_NUMBER_(FATAL|ERROR|WARN|INFO)\) where (.+)$/.exec(stmt)
-    if (!levelMatch) continue
-    const level = levelMatch[1] as 'FATAL' | 'ERROR' | 'WARN' | 'INFO'
-    const cond = levelMatch[2]!
-    if (!cond.includes('severity_number == SEVERITY_NUMBER_UNSPECIFIED')) continue
-    if (cond.includes('attributes["service"] == "cloudflared"') && service !== 'cloudflared')
+  for (const stmt of statements) {
+    if (
+      stmt ===
+      'set(attributes["service"], attributes["container_name"]) where attributes["service"] == nil and attributes["container_name"] != nil'
+    ) {
+      if (service === undefined) {
+        service = containerName
+      }
       continue
-    if (cond.includes('attributes["source"] == "stderr"') && source !== 'stderr') continue
-    const bodyMatches = [...cond.matchAll(/IsMatch\(body, "((?:\\.|[^"])*)"\)/g)]
-    if (bodyMatches.every((m) => new RegExp(unescapeOttlString(m[1]!)).test(body))) {
-      return { service, severity: level }
+    }
+
+    if (stmt.startsWith('replace_pattern(attributes["service"], ')) {
+      const serviceMatch =
+        /^replace_pattern\(attributes\["service"\],\s*"((?:\\.|[^"])*)",\s*"\$1"\)$/.exec(stmt)
+      expect(serviceMatch).not.toBeNull()
+      if (service !== undefined) {
+        service = service.replace(new RegExp(unescapeOttlString(serviceMatch![1]!)), '$1')
+      }
+      continue
+    }
+
+    if (!stmt.startsWith('set(severity_number, SEVERITY_NUMBER_')) continue
+
+    const levelMatch =
+      /^set\(severity_number, SEVERITY_NUMBER_(TRACE|DEBUG|INFO|WARN|ERROR|FATAL)\) where (.+)$/.exec(
+        stmt,
+      )
+    if (!levelMatch) {
+      throw new Error(`Unrecognized severity statement: ${stmt}`)
+    }
+    const level = levelMatch[1]!
+    const cond = levelMatch[2]!
+    if (STRUCTURED_LEVEL_COND_RE.test(cond)) {
+      continue
+    }
+
+    const clauses = splitTopLevelAnd(cond)
+    let matched = true
+    for (const clause of clauses) {
+      if (clause === 'severity_number == SEVERITY_NUMBER_UNSPECIFIED') {
+        if (severity !== undefined) matched = false
+        continue
+      }
+      const serviceEq = /^attributes\["service"\] == "((?:\\.|[^"])*)"$/.exec(clause)
+      if (serviceEq) {
+        if (service !== unescapeOttlString(serviceEq[1]!)) matched = false
+        continue
+      }
+      const sourceEq = /^attributes\["source"\] == "((?:\\.|[^"])*)"$/.exec(clause)
+      if (sourceEq) {
+        if (source !== unescapeOttlString(sourceEq[1]!)) matched = false
+        continue
+      }
+      const bodyMatch = /^IsMatch\(body, "((?:\\.|[^"])*)"\)$/.exec(clause)
+      if (bodyMatch) {
+        if (!new RegExp(unescapeOttlString(bodyMatch[1]!)).test(body)) matched = false
+        continue
+      }
+      throw new Error(`Unsupported OTTL severity predicate "${clause}" in: ${stmt}`)
+    }
+
+    if (matched) {
+      if (level !== 'FATAL' && level !== 'ERROR' && level !== 'WARN' && level !== 'INFO') {
+        throw new Error(`Unexpected plain-text severity level: ${level}`)
+      }
+      severity = level
     }
   }
-  throw new Error(`No severity rule matched: ${body}`)
+
+  expect(service).toBeDefined()
+  expect(severity).toBeDefined()
+  return { service: service!, severity: severity! }
 }
 
 describe('deploy/compose.app.yaml otel-collector cloudflared log severity rules', () => {
   const statements = extractOtelLogStatements()
 
-  it('normalizes service before applying cloudflared-scoped severity downgrades', () => {
-    const serviceIdx = statements.findIndex((s) =>
+  it('populates and normalizes service before applying cloudflared-scoped severity downgrades', () => {
+    const setServiceIdx = statements.indexOf(
+      'set(attributes["service"], attributes["container_name"]) where attributes["service"] == nil and attributes["container_name"] != nil',
+    )
+    const replaceServiceIdx = statements.findIndex((s) =>
       s.startsWith('replace_pattern(attributes["service"], '),
     )
     const firstCloudflaredSeverityIdx = statements.findIndex(
@@ -76,8 +165,9 @@ describe('deploy/compose.app.yaml otel-collector cloudflared log severity rules'
         s.startsWith('set(severity_number, SEVERITY_NUMBER_WARN)') &&
         s.includes('attributes["service"] == "cloudflared"'),
     )
-    expect(serviceIdx).toBeGreaterThan(-1)
-    expect(firstCloudflaredSeverityIdx).toBeGreaterThan(serviceIdx)
+    expect(setServiceIdx).toBeGreaterThan(-1)
+    expect(replaceServiceIdx).toBeGreaterThan(setServiceIdx)
+    expect(firstCloudflaredSeverityIdx).toBeGreaterThan(replaceServiceIdx)
   })
 
   it('downgrades routine cloudflared control-stream teardown and client cancel ERR lines to WARN', () => {
