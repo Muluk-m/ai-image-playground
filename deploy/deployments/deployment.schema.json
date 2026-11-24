@@ -329,7 +329,8 @@
                     }
                   ]
                 }
-              }
+              },
+              "additionalProperties": false
             }
           },
           "additionalProperties": false
@@ -355,7 +356,8 @@
                     }
                   ]
                 }
-              }
+              },
+              "additionalProperties": false
             }
           },
           "additionalProperties": false
@@ -379,7 +381,8 @@
             }
           ]
         }
-      }
+      },
+      "additionalProperties": false
     },
     "operator": {
       "type": "object",

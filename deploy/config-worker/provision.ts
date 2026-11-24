@@ -5,8 +5,9 @@
  *
  *   provision.ts secrets push <prod|test|host> <file>   把 NAME=value 文件写进 Secrets Store（新增或覆盖）
  *   provision.ts secrets list                            只列名字
- *   provision.ts access <prod|test|host> --token-out <file>   确保 service token 和 Access 应用存在；
- *                                                        新建 token 时把 client id/secret 写进 file（0600）
+ *   provision.ts access <prod|test|host> [--token-out <file> [--rotate]]   确保 service token 和 Access 应用存在；
+ *                                                        新建 token 时把 client id/secret 写进 file（0600）；
+ *                                                        token 已存在时要 --rotate 才会删掉重建
  *   provision.ts deploy                                  按 Secrets Store 现有名字生成 wrangler.jsonc 并部署
  *
  * 任何时候都不打印密钥值。
@@ -134,42 +135,75 @@ interface AccessApp {
   aud: string
 }
 
-async function ensureAccess(deployment: 'prod' | 'test' | 'host', tokenOut: string | undefined) {
+/** client_secret 只在创建时返回一次：先占住输出文件，存不下来就删掉远端 token。 */
+async function createToken(
+  tokenName: string,
+  deployment: 'prod' | 'test' | 'host',
+  tokenOut: string,
+): Promise<ServiceToken> {
+  const file = await open(tokenOut, 'wx', 0o600)
+  let created: ServiceToken
+  try {
+    created = await api<ServiceToken>('POST', '/access/service_tokens', {
+      name: tokenName,
+      duration: 'forever',
+    })
+  } catch (error) {
+    await file.close().catch(() => undefined)
+    await rm(tokenOut, { force: true }).catch(() => undefined)
+    // 请求可能已在远端生效、只是响应丢了：提示去核对，下次用 --rotate 重建。
+    throw new Error(
+      `creating ${tokenName} failed (${error instanceof Error ? error.message : String(error)}); if it shows up in Access service tokens, rerun with --rotate`,
+    )
+  }
+  try {
+    // 键名与 bootstrap.env 一致（deploy-config-cli.ts 的 bootstrapFor）。
+    const prefix = (deployment === 'host' ? 'prod' : deployment).toUpperCase()
+    await file.writeFile(
+      `${prefix}_CONFIG_ACCESS_CLIENT_ID=${created.client_id}\n${prefix}_CONFIG_ACCESS_CLIENT_SECRET=${created.client_secret}\n`,
+    )
+    await file.close()
+    return created
+  } catch (error) {
+    await file.close().catch(() => undefined)
+    // 本地清理和远端删除各自独立：一个失败不影响另一个。
+    await rm(tokenOut, { force: true }).catch(() => undefined)
+    const deleted = await api('DELETE', `/access/service_tokens/${created.id}`).then(
+      () => true,
+      () => false,
+    )
+    const cause = error instanceof Error ? error.message : String(error)
+    throw new Error(
+      deleted
+        ? `writing ${tokenOut} failed (${cause}); the new token was deleted, retry`
+        : `writing ${tokenOut} failed (${cause}) and deleting token ${created.id} failed too; delete it in Zero Trust > Access > Service auth, then retry`,
+    )
+  }
+}
+
+async function ensureAccess(
+  deployment: 'prod' | 'test' | 'host',
+  tokenOut: string | undefined,
+  rotate: boolean,
+) {
   // host 的密钥给 prod 的 token：管这台机器的就是生产部署。
   const tokenName = `aip-config-${deployment === 'host' ? 'prod' : deployment}`
   const tokens = await listAll<ServiceToken>('/access/service_tokens')
   let serviceToken = tokens.find((one) => one.name === tokenName)
+  if (serviceToken && tokenOut) {
+    // 要凭据就得新建：已有 token 的 client_secret 再也拿不回来，不能当作开通成功。
+    if (!rotate) {
+      throw new Error(
+        `${tokenName} already exists and its secret cannot be read back; pass --rotate to delete and recreate it (hosts using it must get the new one)`,
+      )
+    }
+    await api('DELETE', `/access/service_tokens/${serviceToken.id}`)
+    console.log(`deleted service token ${tokenName} for rotation`)
+    serviceToken = undefined
+  }
   if (!serviceToken) {
     if (!tokenOut) throw new Error(`${tokenName} does not exist yet; pass --token-out <file> to create it`)
-    // client_secret 只在创建时返回一次：先占住输出文件，写不了就不创建。
-    const file = await open(tokenOut, 'wx', 0o600)
-    let created: ServiceToken
-    try {
-      created = await api<ServiceToken>('POST', '/access/service_tokens', {
-        name: tokenName,
-        duration: 'forever',
-      })
-    } catch (error) {
-      // 远端没建成：放掉占位文件，修好原因后可以原样重试。
-      await file.close()
-      await rm(tokenOut, { force: true })
-      throw error
-    }
-    try {
-      // 键名与 bootstrap.env 一致（deploy-config-cli.ts 的 bootstrapFor）。
-      const prefix = (deployment === 'host' ? 'prod' : deployment).toUpperCase()
-      await file.writeFile(
-        `${prefix}_CONFIG_ACCESS_CLIENT_ID=${created.client_id}\n${prefix}_CONFIG_ACCESS_CLIENT_SECRET=${created.client_secret}\n`,
-      )
-      await file.close()
-    } catch (error) {
-      // client_secret 只返回这一次，存不下来这个 token 就没用了：删掉远端 token，重试时重新建。
-      await file.close().catch(() => undefined)
-      await rm(tokenOut, { force: true })
-      await api('DELETE', `/access/service_tokens/${created.id}`).catch(() => undefined)
-      throw error
-    }
-    serviceToken = created
+    serviceToken = await createToken(tokenName, deployment, tokenOut)
     console.log(`created service token ${tokenName}; credentials written to ${tokenOut}`)
   } else {
     console.log(`service token ${tokenName} exists`)
@@ -252,11 +286,11 @@ async function main(argv: string[]) {
   }
   if (command === 'access' && (sub === 'prod' || sub === 'test' || sub === 'host')) {
     const at = rest.indexOf('--token-out')
-    await ensureAccess(sub, at === -1 ? undefined : rest[at + 1])
+    await ensureAccess(sub, at === -1 ? undefined : rest[at + 1], rest.includes('--rotate'))
     return
   }
   if (command === 'deploy') return deploy()
-  throw new Error('usage: provision.ts secrets push <scope> <file> | secrets list | access <prod|test|host> [--token-out <file>] | deploy')
+  throw new Error('usage: provision.ts secrets push <scope> <file> | secrets list | access <prod|test|host> [--token-out <file> [--rotate]] | deploy')
 }
 
 if (import.meta.main) {

@@ -17,17 +17,18 @@ import type { Deployment, Host } from './deployment'
 export function descriptorProblems(deployment: Deployment): string[] {
   const problems: string[] = []
   for (const name of Object.keys(deployment.tunables)) {
-    if (!(name in TUNABLES)) problems.push(`tunables.${name} is not a registered tunable`)
+    if (!Object.hasOwn(TUNABLES, name))
+      problems.push(`tunables.${name} is not a registered tunable`)
   }
   for (const key of Object.keys(deployment.operator.capabilities)) {
     if (RETIRED_CAPABILITIES.includes(key))
       problems.push(`operator.capabilities.${key} is retired; remove it`)
-    else if (!(key in CAPABILITIES))
+    else if (!Object.hasOwn(CAPABILITIES, key))
       problems.push(`operator.capabilities.${key} is not a capability`)
   }
   for (const key of Object.keys(deployment.operator.quotas)) {
     if (RETIRED_QUOTAS.includes(key)) problems.push(`operator.quotas.${key} is retired; remove it`)
-    else if (!(key in QUOTAS)) problems.push(`operator.quotas.${key} is not a quota`)
+    else if (!Object.hasOwn(QUOTAS, key)) problems.push(`operator.quotas.${key} is not a quota`)
   }
   return problems
 }
@@ -127,8 +128,14 @@ export function renderDeployment(
       problems.push(`${secretName} is not valid JSON`)
       continue
     }
-    if (typeof credentials.TunnelID !== 'string' || typeof credentials.TunnelSecret !== 'string') {
-      problems.push(`${secretName} must have TunnelID and TunnelSecret`)
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (
+      typeof credentials.TunnelID !== 'string' ||
+      !uuid.test(credentials.TunnelID) ||
+      typeof credentials.TunnelSecret !== 'string' ||
+      !credentials.TunnelSecret
+    ) {
+      problems.push(`${secretName} must have a UUID TunnelID and a non-empty TunnelSecret`)
       continue
     }
     files[`cloudflared/${name}/credentials.json`] = `${JSON.stringify(credentials)}\n`

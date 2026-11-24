@@ -213,11 +213,25 @@ function parseLegacyEnv(text: string): Record<string, string> {
     const match = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line)
     if (!match) continue
     let value = match[2]!
-    if (/^'.*'$/.test(value)) value = value.slice(1, -1)
-    else if (/^".*"$/.test(value)) {
+    // 只迁移能确定 compose 怎么读的写法；行尾注释、引号后跟内容、${...} 插值都拒绝，报变量名。
+    const reject = () => {
+      throw new Error(`${match[1]} uses comments or interpolation; simplify it before importing`)
+    }
+    if (value.startsWith("'")) {
+      const end = value.indexOf("'", 1)
+      if (end === -1 || value.slice(end + 1).trim()) reject()
+      value = value.slice(1, end)
+    } else if (value.startsWith('"')) {
+      let end = 1
+      while (end < value.length && value[end] !== '"') end += value[end] === '\\' ? 2 : 1
+      if (end >= value.length || value.slice(end + 1).trim()) reject()
+      const body = value.slice(1, end)
+      if (/\$\{?[A-Za-z_]/.test(body)) reject()
       // 按 compose 默认 env_file 的规则解码双引号里的转义，迁移后的值与旧容器里看到的一致。
       const escapes: Record<string, string> = { n: '\n', r: '\r', t: '\t', '"': '"', '\\': '\\' }
-      value = value.slice(1, -1).replace(/\\(.)/g, (whole, char: string) => escapes[char] ?? whole)
+      value = body.replace(/\\(.)/g, (whole, char: string) => escapes[char] ?? whole)
+    } else if (/\s#/.test(value) || /\$\{?[A-Za-z_]/.test(value)) {
+      reject()
     }
     values[match[1]!] = value
   }
@@ -331,6 +345,13 @@ async function main(argv: string[]): Promise<number> {
       migrateEnv: await read('migrate.env'),
       tunnelCredentials: tunnel,
     })
+    // 密钥文件一行一个值：带换行的值写出去就读不回来了。
+    const multiline = Object.keys(secrets).filter((name) => /[\r\n]/.test(secrets[name] ?? ''))
+    if (multiline.length > 0) {
+      throw new Error(
+        `these values contain line breaks and cannot be imported: ${multiline.join(' ')}`,
+      )
+    }
     await writeFile(out, formatEnvFile(secrets), { mode: 0o600, flag: 'wx' })
     console.log(`wrote ${Object.keys(secrets).length} secrets to ${out}`)
     console.log(`not secrets (now in the deployment file or derived): ${ignored.sort().join(' ')}`)

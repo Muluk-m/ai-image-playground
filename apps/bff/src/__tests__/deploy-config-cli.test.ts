@@ -22,6 +22,16 @@ describe('deploy-config-cli', () => {
       migrateEnv: '',
     })
     expect(secrets).toEqual({ S3_SECRET_ACCESS_KEY: 'ab"cd\\e', RESEND_API_KEY: 'lit\\eral' })
+    // compose 会去掉的注释、会展开的变量：读法拿不准就拒绝，只报变量名。
+    for (const line of [
+      'S3_SECRET_ACCESS_KEY=abc # note',
+      'S3_SECRET_ACCESS_KEY="abc" # note',
+      'S3_SECRET_ACCESS_KEY=${OTHER}',
+    ]) {
+      expect(() => secretsFromLegacy({ appEnv: line, migrateEnv: '' })).toThrow(
+        'S3_SECRET_ACCESS_KEY uses comments or interpolation',
+      )
+    }
   })
 
   it('pulls the catalog secrets out of the legacy layout, database passwords included', () => {

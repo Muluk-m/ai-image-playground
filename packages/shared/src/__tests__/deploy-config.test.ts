@@ -35,9 +35,16 @@ function fakeSecrets(deployment: Deployment): Record<string, string> {
     if (!one.required(deployment)) continue
     values[one.name] = `fake-${one.name.toLowerCase()}`
   }
-  values.TUNNEL_CREDENTIALS = JSON.stringify({ AccountTag: 'a', TunnelID: 't', TunnelSecret: 's' })
+  values.TUNNEL_CREDENTIALS = JSON.stringify({
+    AccountTag: 'a',
+    TunnelID: '00000000-0000-4000-8000-000000000001',
+    TunnelSecret: 's',
+  })
   if (deployment.tunnels.enterprise) {
-    values.ENTERPRISE_TUNNEL_CREDENTIALS = JSON.stringify({ TunnelID: 'e', TunnelSecret: 's' })
+    values.ENTERPRISE_TUNNEL_CREDENTIALS = JSON.stringify({
+      TunnelID: '00000000-0000-4000-8000-00000000000e',
+      TunnelSecret: 's',
+    })
   }
   values.POSTGRES_APP_PASSWORD = 'p@ss/word'
   return values
@@ -83,7 +90,9 @@ describe('deploy config catalog', () => {
     expect(rendered.files['cloudflared/main/config.yml']).toContain(
       '  - hostname: admin-api.muvloom.online\n    service: http://admin:37378',
     )
-    expect(rendered.files['cloudflared/enterprise/config.yml']).toContain('tunnel: e\n')
+    expect(rendered.files['cloudflared/enterprise/config.yml']).toContain(
+      'tunnel: 00000000-0000-4000-8000-00000000000e\n',
+    )
     expect(rendered.files['cloudflared/enterprise/config.yml']).toContain(
       '  - hostname: image-api.qiliangjia.one\n    service: http://release-router:37377',
     )
@@ -126,6 +135,43 @@ describe('deploy config catalog', () => {
     })
     expect(shapeOk).toContain('/api/primary: https://user@api.example.com is not a bare origin')
     expect(shapeOk).toContain('/database/users: app, admin and migrator must be different roles')
+  })
+
+  it('rejects tunnel routes off the hostname pattern, prototype keys and a bad tunnel id', () => {
+    const test = descriptor('test')
+    expect(
+      deploymentProblems({
+        ...test,
+        tunnels: { main: { routes: { 'api_example.com': 'ap1' } } },
+      }).length,
+    ).toBeGreaterThan(0)
+    expect(
+      descriptorProblems({
+        ...test,
+        tunables: { constructor: 'x' } as Deployment['tunables'],
+        operator: { capabilities: { constructor: true }, quotas: { toString: 1 } },
+      }),
+    ).toEqual([
+      'tunables.constructor is not a registered tunable',
+      'operator.capabilities.constructor is not a capability',
+      'operator.quotas.toString is not a quota',
+    ])
+    const { problems } = renderDeployment(test, {
+      ...fakeSecrets(test),
+      TUNNEL_CREDENTIALS: JSON.stringify({ TunnelID: 'x\ningress: []', TunnelSecret: 's' }),
+    })
+    expect(problems).toContain(
+      'TUNNEL_CREDENTIALS must have a UUID TunnelID and a non-empty TunnelSecret',
+    )
+  })
+
+  it('requires the Resend key whenever email verification is on', () => {
+    const test = descriptor('test')
+    const secrets = fakeSecrets(test)
+    delete secrets.RESEND_API_KEY
+    expect(renderDeployment(test, secrets).problems.join('\n')).toContain(
+      'RESEND_API_KEY is required',
+    )
   })
 
   it('rejects retired or unknown operator keys and misspelled tunables', () => {

@@ -26,7 +26,11 @@ const LoginMethods = Type.Object(
 
 const Hostname = Type.String({ pattern: '^[a-z0-9.-]+$' })
 const TunnelSchema = Type.Object(
-  { routes: Type.Record(Hostname, Type.Union([Type.Literal('api'), Type.Literal('admin')])) },
+  {
+    routes: Type.Record(Hostname, Type.Union([Type.Literal('api'), Type.Literal('admin')]), {
+      additionalProperties: false,
+    }),
+  },
   { additionalProperties: false },
 )
 
@@ -149,6 +153,7 @@ export const DeploymentSchema = Type.Object(
     tunables: Type.Record(
       Type.String({ pattern: '^[A-Z][A-Z0-9_]*$' }),
       Type.Union([Type.String(), Type.Number(), Type.Boolean()]),
+      { additionalProperties: false },
     ),
     /** operator-config.json 的全部内容（capabilities / quotas），由 bff 启动时再按自己的规则校验。 */
     operator: Type.Object(
