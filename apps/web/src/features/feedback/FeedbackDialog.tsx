@@ -200,6 +200,7 @@ export default function FeedbackDialog({
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const listEndRef = useRef<HTMLDivElement>(null)
+  const keepEditingRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (!canUseInApp) return
@@ -398,6 +399,12 @@ export default function FeedbackDialog({
   useEffect(() => {
     if (!hasUnsentDraft && confirmDiscard) setConfirmDiscard(false)
   }, [hasUnsentDraft, confirmDiscard])
+
+  useEffect(() => {
+    if (!confirmDiscard || submitting) return
+    keepEditingRef.current?.focus()
+    keepEditingRef.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [confirmDiscard, submitting])
 
   const requestClose = () => {
     if (submitting) return
@@ -633,18 +640,20 @@ export default function FeedbackDialog({
                 <div
                   role="alertdialog"
                   aria-label={t('header.feedback.discardTitle')}
+                  aria-describedby="feedback-discard-desc"
                   className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-3.5 py-2.5 text-sm"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="font-medium text-foreground">
                       {t('header.feedback.discardTitle')}
                     </div>
-                    <div className="text-xs text-muted-foreground">
+                    <div id="feedback-discard-desc" className="text-xs text-muted-foreground">
                       {t('header.feedback.discardMessage')}
                     </div>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     <Button
+                      ref={keepEditingRef}
                       type="button"
                       size="sm"
                       variant="outline"
