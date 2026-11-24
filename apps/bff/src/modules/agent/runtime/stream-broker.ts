@@ -10,6 +10,7 @@ import {
   getInterruptedTurnRecoverer,
   type InterruptedTurnRecoverer,
   isSealLease,
+  type RunningTurn,
   registerInterruptedTurnRecoverer,
   registerRunningTurn,
   runningTurn,

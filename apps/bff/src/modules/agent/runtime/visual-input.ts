@@ -1,5 +1,5 @@
 import type { ImageContent } from '@earendil-works/pi-ai'
-import type { ResolvedAgentImage } from '../conversation/images'
+import type { ResolvedAgentImage } from '../contracts'
 import {
   type EvidenceListing,
   evidenceManifest,

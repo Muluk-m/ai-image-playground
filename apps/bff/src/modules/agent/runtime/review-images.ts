@@ -1,5 +1,4 @@
-import { AgentToolError } from '../contracts'
-import type { AgentImageSource, ResolvedAgentImage } from '../conversation/images'
+import { type AgentImageSource, AgentToolError, type ResolvedAgentImage } from '../contracts'
 import { assertVisualBytes, visualByteLimit } from '../conversation/visual-resources'
 
 /** 复核这一轮实际随输入附上的产物，以及因图片预算没能附上的那几张。 */

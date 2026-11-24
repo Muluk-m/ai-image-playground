@@ -7,6 +7,7 @@ export {
   omittedReviewNote,
   type PreparedReviewImages,
   prepareReviewImages,
+  REVIEW_READ_PARALLELISM,
 } from './review-images'
 export {
   appendAgentTurnEvents,
@@ -50,6 +51,7 @@ export {
 } from './turn-types'
 export {
   prepareVisualEvidence,
+  registerVisualBlock,
   type VisualEvidence,
   type VisualEvidenceSource,
   visualEvidenceOf,
