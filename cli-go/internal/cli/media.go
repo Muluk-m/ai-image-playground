@@ -71,13 +71,13 @@ func (a *App) uploadMedia(ctx context.Context, c *client.HTTPClient, path string
 	a.progress("Uploading %s (%d bytes)", filepath.Base(path), size)
 	upload := a.startTransfer(ctx)
 	defer upload.stop()
-	req, err := http.NewRequestWithContext(upload.ctx, http.MethodPut, reserved.UploadURL, upload.track(file))
+	req, err := http.NewRequestWithContext(upload.ctx, http.MethodPut, reserved.UploadURL, file)
 	if err != nil {
 		return media{}, err
 	}
 	req.ContentLength = size
 	req.Header.Set("Content-Type", contentType)
-	resp, err := a.transferClient().Do(req)
+	resp, err := upload.http.Do(req)
 	if err != nil {
 		if upload.stalled() {
 			return media{}, upload.stalledFailure("Upload")
@@ -209,7 +209,7 @@ func (a *App) downloadTo(ctx context.Context, c *client.HTTPClient, path, target
 	if err != nil {
 		return download{}, err
 	}
-	resp, err := a.transferClient().Do(req)
+	resp, err := fetch.http.Do(req)
 	if err != nil {
 		if fetch.stalled() {
 			return download{}, fetch.stalledFailure("Download")
@@ -220,7 +220,7 @@ func (a *App) downloadTo(ctx context.Context, c *client.HTTPClient, path, target
 	if resp.StatusCode != http.StatusOK {
 		return download{}, fail("TEMPORARILY_UNAVAILABLE", "Download failed with HTTP %d; retry to get a new link", resp.StatusCode)
 	}
-	size, present, err := writeNew(target, fetch.track(resp.Body))
+	size, present, err := writeNew(target, resp.Body)
 	if err != nil {
 		// Only a failed read can mean a stall; FILE_EXISTS and local file errors stand as they are.
 		if asFailure(err).Code == "NETWORK_ERROR" && fetch.stalled() {

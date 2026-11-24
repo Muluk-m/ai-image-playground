@@ -2486,22 +2486,77 @@ func writeUpload(t *testing.T) string {
 	return path
 }
 
+// slowLink plays a slow uplink: each write sends at most 1 KiB and then takes 20ms, about
+// 50 KiB/s. A 32 KiB write therefore takes ~640ms, longer than the idle limit, while bytes keep
+// moving the whole time.
+type slowLink struct{ net.Conn }
+
+func (c slowLink) Write(b []byte) (int, error) {
+	written := 0
+	for written < len(b) {
+		n, err := c.Conn.Write(b[written:min(written+1024, len(b))])
+		written += n
+		if err != nil {
+			return written, err
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return written, nil
+}
+
 func TestSlowUploadThatKeepsMovingFinishes(t *testing.T) {
 	f := newFakeServer(t)
 	f.serveFile = func(w http.ResponseWriter, r *http.Request) {
-		buf := make([]byte, 8<<10)
-		for {
-			time.Sleep(250 * time.Millisecond) // 8-10 reads, past the 1.5s API timeout
-			if _, err := r.Body.Read(buf); err != nil {
-				break
-			}
-		}
+		_, _ = io.Copy(io.Discard, r.Body)
 		w.WriteHeader(http.StatusOK)
 	}
 	app := transferApp(t, f)
-	r := execute(t, app, "media", "upload", writeUpload(t))
+	app.TransferIdle = 400 * time.Millisecond
+	slow := app.HTTP.Transport.(*http.Transport).Clone()
+	slow.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		return slowLink{conn}, nil
+	}
+	app.HTTP.Transport = slow
+	path := filepath.Join(t.TempDir(), "ref.png")
+	// 128 KiB at ~50 KiB/s is ~2.6s, past the 1.5s API timeout.
+	if err := os.WriteFile(path, bytes.Repeat([]byte("P"), 128<<10), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := execute(t, app, "media", "upload", path)
 	if r.code != ExitOK || r.out["data"].(map[string]any)["status"] != "ready" {
 		t.Fatalf("slow upload = %d %s", r.code, r.stdout)
+	}
+}
+
+func TestTransferProgressRacingTheTimerNeverCancels(t *testing.T) {
+	app := &App{HTTP: &http.Client{}, TransferIdle: 20 * time.Millisecond}
+	moving := app.startTransfer(context.Background())
+	for end := time.Now().Add(300 * time.Millisecond); time.Now().Before(end); {
+		moving.extend(moving.idle) // progress right around every expiry
+		time.Sleep(5 * time.Millisecond)
+	}
+	if moving.stalled() || moving.ctx.Err() != nil {
+		t.Fatal("a transfer that kept moving was cancelled")
+	}
+	moving.stop()
+	if moving.stalled() {
+		t.Fatal("stopping a transfer must not read as a stall")
+	}
+	moving.extend(time.Hour) // progress after stop is ignored
+
+	idle := app.startTransfer(context.Background())
+	defer idle.stop()
+	select {
+	case <-idle.ctx.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("an idle transfer was never cancelled")
+	}
+	if !idle.stalled() {
+		t.Fatal("an idle transfer must end as stalled")
 	}
 }
 

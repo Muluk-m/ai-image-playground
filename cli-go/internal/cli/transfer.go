@@ -3,34 +3,41 @@ package cli
 import (
 	"context"
 	"errors"
-	"io"
+	"net"
 	"net/http"
+	"net/http/httptrace"
 	"sync"
 	"time"
 )
 
-// defaultTransferIdle ends an upload or download that has moved no bytes for this long.
-// Transfers have no total limit: a slow link that keeps moving data finishes.
+// defaultTransferIdle ends an upload or download whose connection has moved no bytes for this
+// long. Transfers have no total limit: a slow link that keeps moving data finishes.
 const defaultTransferIdle = 30 * time.Second
 
-// responseWaitFactor stretches the idle limit once an upload body has been fully read: the
-// kernel still has to put the buffered tail on the wire, and storage answers only after that.
+// responseWaitFactor stretches the idle limit once an upload request is fully written: the
+// kernel still has to put its buffered tail on the wire, and storage answers only after that.
 const responseWaitFactor = 4
+
+// progressChunk caps one socket write, so progress is seen while a slow link drains a large
+// write instead of only when the whole write returns.
+const progressChunk = 8 << 10
 
 var errTransferStalled = errors.New("transfer stalled")
 
-// transfer bounds one upload or download by idleness instead of a total timeout. Wrap the
-// bytes that move with track; the context is cancelled once none have moved for the current
-// window, and stalled reports whether that is why it ended. Call stop when done.
+// transfer bounds one upload or download by idleness instead of a total timeout. Progress is
+// any byte read from or written to the connection (see client); the context is cancelled once
+// none has moved before the deadline, and stalled reports whether that is why it ended.
 type transfer struct {
 	ctx    context.Context
 	idle   time.Duration
 	cancel context.CancelCauseFunc
 	timer  *time.Timer
+	http   *http.Client
 
-	mu      sync.Mutex
-	window  time.Duration
-	stopped bool
+	mu       sync.Mutex
+	window   time.Duration
+	deadline time.Time
+	stopped  bool
 }
 
 func (a *App) startTransfer(ctx context.Context) *transfer {
@@ -39,9 +46,43 @@ func (a *App) startTransfer(ctx context.Context) *transfer {
 		idle = defaultTransferIdle
 	}
 	ctx, cancel := context.WithCancelCause(ctx)
-	t := &transfer{ctx: ctx, idle: idle, cancel: cancel, window: idle}
-	t.timer = time.AfterFunc(idle, func() { cancel(errTransferStalled) })
+	t := &transfer{idle: idle, cancel: cancel, window: idle, deadline: time.Now().Add(idle)}
+	t.ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{
+		WroteRequest: func(httptrace.WroteRequestInfo) { t.extend(idle * responseWaitFactor) },
+	})
+	t.http = a.transferClient(t)
+	t.timer = time.AfterFunc(idle, t.expire)
 	return t
+}
+
+// expire runs when the timer fires. Progress may have moved the deadline after the timer was
+// already scheduled, so it re-checks under the lock and waits again instead of cancelling.
+func (t *transfer) expire() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.stopped {
+		return
+	}
+	if left := time.Until(t.deadline); left > 0 {
+		t.timer.Reset(left)
+		return
+	}
+	t.cancel(errTransferStalled)
+}
+
+// extend moves the deadline to now plus window, unless the transfer already ended.
+func (t *transfer) extend(window time.Duration) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.stopped {
+		return
+	}
+	shorter := window < t.window
+	t.window = window
+	t.deadline = time.Now().Add(window)
+	if shorter {
+		t.timer.Reset(window) // the pending timer would fire too late; expire re-checks anyway
+	}
 }
 
 func (t *transfer) stop() {
@@ -50,20 +91,8 @@ func (t *transfer) stop() {
 	t.mu.Unlock()
 	t.timer.Stop()
 	t.cancel(nil)
+	t.http.CloseIdleConnections()
 }
-
-// extend restarts the idle clock with the given window, unless the transfer already ended.
-func (t *transfer) extend(window time.Duration) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.stopped {
-		return
-	}
-	t.window = window
-	t.timer.Reset(window)
-}
-
-func (t *transfer) track(r io.Reader) io.Reader { return &progressReader{r: r, t: t} }
 
 func (t *transfer) stalled() bool { return errors.Is(context.Cause(t.ctx), errTransferStalled) }
 
@@ -74,26 +103,65 @@ func (t *transfer) stalledFailure(what string) error {
 	return fail("NETWORK_ERROR", "%s stalled: nothing moved for %s; retry", what, window)
 }
 
-type progressReader struct {
-	r io.Reader
+// transferClient is the API client without its total timeout and on its own transport, whose
+// connections report every byte they move to t.
+func (a *App) transferClient(t *transfer) *http.Client {
+	base, _ := a.HTTP.Transport.(*http.Transport)
+	if base == nil {
+		base = http.DefaultTransport.(*http.Transport)
+	}
+	tr := base.Clone()
+	dial := tr.DialContext
+	if dial == nil {
+		dial = (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	}
+	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := dial(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		return &progressConn{Conn: conn, t: t}, nil
+	}
+	if dialTLS := tr.DialTLSContext; dialTLS != nil {
+		tr.DialTLSContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			conn, err := dialTLS(ctx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+			return &progressConn{Conn: conn, t: t}, nil
+		}
+	}
+	c := *a.HTTP
+	c.Timeout = 0
+	c.Transport = tr
+	return &c
+}
+
+type progressConn struct {
+	net.Conn
 	t *transfer
 }
 
-func (p *progressReader) Read(b []byte) (int, error) {
-	n, err := p.r.Read(b)
-	switch {
-	case err == io.EOF:
-		p.t.extend(p.t.idle * responseWaitFactor)
-	case n > 0:
-		p.t.extend(p.t.idle)
+func (c *progressConn) Read(b []byte) (int, error) {
+	n, err := c.Conn.Read(b)
+	if n > 0 {
+		c.t.extend(c.t.idle)
 	}
 	return n, err
 }
 
-// transferClient is the API client without its total timeout; transfers are bounded by
-// idleness instead (see startTransfer).
-func (a *App) transferClient() *http.Client {
-	c := *a.HTTP
-	c.Timeout = 0
-	return &c
+func (c *progressConn) Write(b []byte) (int, error) {
+	written := 0
+	for written < len(b) {
+		end := min(written+progressChunk, len(b))
+		n, err := c.Conn.Write(b[written:end])
+		written += n
+		if n > 0 {
+			c.t.extend(c.t.idle)
+		}
+		if err != nil {
+			return written, err
+		}
+	}
+	return written, nil
 }
