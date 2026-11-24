@@ -153,7 +153,12 @@ export default function PricingPage({
       if (auth.enabled && !auth.user) {
         if (billingEnabled && (intent === 'pricing' || intent === 'recharge'))
           queueBillingModal(intent)
+        else clearPendingBillingModal()
         auth.login()
+        return
+      }
+      if (intent === 'workspace') {
+        clearPendingBillingModal()
         return
       }
       if (!billingEnabled) return
@@ -162,6 +167,7 @@ export default function PricingPage({
       return
     }
     if (billingEnabled && (intent === 'pricing' || intent === 'recharge')) queueBillingModal(intent)
+    else clearPendingBillingModal()
     if (auth.enabled && !auth.user) {
       auth.login()
       return
