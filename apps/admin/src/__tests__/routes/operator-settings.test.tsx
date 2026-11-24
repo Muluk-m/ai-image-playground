@@ -49,6 +49,8 @@ const state = vi.hoisted(() => {
         reason: 'capacity',
         revision: 3,
         unit: 'count' as const,
+        min: 1,
+        max: 100,
         baselineChanged: true,
         invalid: false,
       },
@@ -93,6 +95,7 @@ vi.mock('../../lib/queries', () => ({
     data: state.data,
     isPending: false,
     isError: false,
+    isFetching: false,
     refetch: state.refetch,
   }),
   saveOperatorSetting: state.save,
@@ -101,15 +104,41 @@ vi.mock('../../lib/queries', () => ({
 
 import { OperatorSettingsPanel } from '../../features/platform-settings/OperatorSettingsPanel'
 
+function getSettingRow(name: string): HTMLElement {
+  const row = screen.getByText(name).closest('li')
+  if (!row) throw new Error(`Missing setting row for ${name}`)
+  return row
+}
+
 describe('operator settings panel', () => {
-  it('rejects another quota unit and preserves an exact integer quota', async () => {
+  beforeEach(() => {
+    state.save.mockClear()
+    state.clear.mockClear()
+    state.refetch.mockClear()
+    state.setQueryData.mockClear()
+  })
+
+  it('rejects another quota unit, out-of-range values, and preserves an exact integer quota', async () => {
     render(<OperatorSettingsPanel />)
-    const row = screen.getByText('每日配额').closest('tr')!
+    const row = getSettingRow('每日配额')
     const input = within(row).getByRole('textbox', { name: '每日配额值' })
+
+    // Untouched quota row does not show noisy save button
+    expect(within(row).queryByRole('button', { name: '保存' })).not.toBeInTheDocument()
+
+    // Wrong unit disables save
     fireEvent.change(input, { target: { value: '2 GB' } })
     expect(within(row).getByRole('button', { name: '保存' })).toBeDisabled()
+
+    // Non-integer disables save
     fireEvent.change(input, { target: { value: '1.5' } })
     expect(within(row).getByRole('button', { name: '保存' })).toBeDisabled()
+
+    // Out-of-range disables save
+    fireEvent.change(input, { target: { value: '200' } })
+    expect(within(row).getByRole('button', { name: '保存' })).toBeDisabled()
+
+    // Valid integer enables save and submits exact integer
     fireEvent.change(input, { target: { value: '25' } })
     fireEvent.click(within(row).getByRole('button', { name: '保存' }))
     fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), {
@@ -128,8 +157,8 @@ describe('operator settings panel', () => {
   it('does not expose raw transport errors', async () => {
     state.save.mockRejectedValueOnce(new Error('private token and upstream URL'))
     render(<OperatorSettingsPanel />)
-    const row = screen.getByText('CLI API').closest('tr')!
-    fireEvent.click(within(row).getByRole('button', { name: '保存' }))
+    const row = getSettingRow('CLI API')
+    fireEvent.click(within(row).getByRole('switch', { name: 'CLI API' }))
     fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), {
       target: { value: 'enable' },
     })
@@ -138,27 +167,39 @@ describe('operator settings panel', () => {
     expect(screen.queryByText('private token and upstream URL')).not.toBeInTheDocument()
   })
 
-  beforeEach(() => {
-    state.save.mockClear()
-    state.clear.mockClear()
-    state.refetch.mockClear()
-    state.setQueryData.mockClear()
-  })
-
-  it('renders grouped rows, read-only state, baseline and invalid distinctions, and searches', () => {
+  it('renders grouped rows, read-only state, baseline distinctions, status filters, domain filters, and search', () => {
     render(<OperatorSettingsPanel />)
     expect(screen.getByRole('heading', { name: '命令行' })).toBeInTheDocument()
-    expect(screen.getByText('只读（需发布修改）')).toBeInTheDocument()
     expect(screen.getByText('基线已变（覆盖仍生效）')).toBeInTheDocument()
+    const loginRow = getSettingRow('登录')
+    expect(within(loginRow).getByText('仅发布修改')).toBeInTheDocument()
+
+    // Status filter: only overridden rows
+    const statusGroup = screen.getByRole('group', { name: '配置状态筛选' })
+    fireEvent.click(within(statusGroup).getByRole('button', { name: /已覆盖/ }))
+    expect(screen.getByText('每日配额')).toBeInTheDocument()
+    expect(screen.getByText('免费对话')).toBeInTheDocument()
+    expect(screen.queryByText('CLI API')).not.toBeInTheDocument()
+    expect(screen.queryByText('登录')).not.toBeInTheDocument()
+
+    // Reset back to all and test domain filter
+    fireEvent.click(within(statusGroup).getByRole('button', { name: /全部/ }))
+    const domainGroup = screen.getByRole('group', { name: '领域筛选' })
+    fireEvent.click(within(domainGroup).getByRole('button', { name: /命令行/ }))
+    expect(screen.getByText('CLI API')).toBeInTheDocument()
+    expect(screen.queryByText('每日配额')).not.toBeInTheDocument()
+
+    // Reset domain filter and search
+    fireEvent.click(within(domainGroup).getByRole('button', { name: /全部领域/ }))
     fireEvent.change(screen.getByLabelText('搜索能力与配额'), { target: { value: '每日配额' } })
     expect(screen.getByText('每日配额')).toBeInTheDocument()
     expect(screen.queryByText('CLI API')).not.toBeInTheDocument()
   })
 
-  it('requires a reason before saving and uses a separate cost confirmation', async () => {
+  it('requires a reason before saving via Switch and uses a separate cost confirmation', async () => {
     render(<OperatorSettingsPanel />)
-    const row = screen.getByText('免费对话').closest('tr')!
-    fireEvent.click(within(row).getByRole('button', { name: '保存' }))
+    const row = getSettingRow('免费对话')
+    fireEvent.click(within(row).getByRole('switch', { name: '免费对话' }))
     expect(screen.getByRole('dialog', { name: '保存覆盖' })).toBeInTheDocument()
     expect(
       within(screen.getByRole('dialog', { name: '保存覆盖' })).getByRole('button', {
@@ -173,16 +214,17 @@ describe('operator settings panel', () => {
     expect(state.save).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '确认保存' }))
     await waitFor(() =>
-      expect(state.save).toHaveBeenCalledWith(
-        'billing:chat-free',
-        expect.objectContaining({ reason: 'raise budget', expectedRevision: 3 }),
-      ),
+      expect(state.save).toHaveBeenCalledWith('billing:chat-free', {
+        value: false,
+        reason: 'raise budget',
+        expectedRevision: 3,
+      }),
     )
   })
 
   it('requires a reason and cost confirmation when clearing a risky override', async () => {
     render(<OperatorSettingsPanel />)
-    const row = screen.getByText('免费对话').closest('tr')!
+    const row = getSettingRow('免费对话')
     fireEvent.click(within(row).getByRole('button', { name: '清除覆盖' }))
     fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), {
       target: { value: 'end incident' },
@@ -205,30 +247,31 @@ describe('operator settings panel', () => {
     })
     state.save.mockImplementationOnce(() => promise)
     render(<OperatorSettingsPanel />)
-    const row = screen.getByText('CLI API').closest('tr')!
-    fireEvent.click(within(row).getByRole('button', { name: '保存' }))
+    const row = getSettingRow('CLI API')
+    fireEvent.click(within(row).getByRole('switch', { name: 'CLI API' }))
     fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), {
       target: { value: 'enable' },
     })
     fireEvent.click(screen.getByRole('button', { name: '继续' }))
-    await waitFor(() => expect(within(row).getByRole('button', { name: '保存' })).toBeDisabled())
-    const other = screen.getByText('每日配额').closest('tr')!
-    expect(within(other).getByRole('button', { name: '保存' })).toBeDisabled()
+    await waitFor(() => expect(within(row).getByRole('switch', { name: 'CLI API' })).toBeDisabled())
+    const other = getSettingRow('每日配额')
+    expect(within(other).getByRole('textbox', { name: '每日配额值' })).toBeDisabled()
     resolve(state.data)
   })
 
   it('offers actionable refresh for a stale revision', async () => {
     render(<OperatorSettingsPanel />)
     state.save.mockRejectedValueOnce(new ApiError(409, { error: 'stale_revision' }))
-    const row = screen.getByText('CLI API').closest('tr')!
-    fireEvent.click(within(row).getByRole('button', { name: '保存' }))
+    const row = getSettingRow('CLI API')
+    fireEvent.click(within(row).getByRole('switch', { name: 'CLI API' }))
     fireEvent.change(screen.getByRole('textbox', { name: '修改原因' }), {
       target: { value: 'enable' },
     })
     fireEvent.click(screen.getByRole('button', { name: '继续' }))
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('配置已被其他操作更新'))
-    expect(screen.getByRole('button', { name: '刷新配置' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '刷新配置' }))
+    const alert = screen.getByRole('alert')
+    expect(within(alert).getByRole('button', { name: '刷新配置' })).toBeInTheDocument()
+    fireEvent.click(within(alert).getByRole('button', { name: '刷新配置' }))
     await waitFor(() => expect(state.refetch).toHaveBeenCalled())
   })
 })
