@@ -110,7 +110,11 @@ export interface LibraryState {
   attachAsset: (
     id: string,
     admission?: ReferenceAdmission,
-    options?: { targetZone?: 'loop' | 'shared'; shouldCommit?: () => boolean },
+    options?: {
+      targetZone?: 'loop' | 'shared'
+      imageId?: string
+      shouldCommit?: () => boolean
+    },
   ) => Promise<number | null>
   /** 记一次使用。「最近用过」的排序是唯一读者，所以每条附加路径都要过它。 */
   noteAssetUsed: (id: string) => Promise<void>
@@ -249,7 +253,9 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     const asset = get().assets.find((a) => a.id === id)
     if (!asset) return null
 
-    const views = await assetViewImages(asset)
+    const views = options?.imageId
+      ? await referencesForImageIds([options.imageId])
+      : await assetViewImages(asset)
     if (options?.shouldCommit && !options.shouldCommit()) return null
     const main = useStore.getState()
     if (views.length === 0) {
