@@ -141,6 +141,8 @@ export default function MaskEditorModal() {
   const panGestureRef = useRef<PanGesture | null>(null)
   const undoStackRef = useRef<ImageData[]>([])
   const redoStackRef = useRef<ImageData[]>([])
+  const editDepthRef = useRef(0)
+  const cleanEditDepthRef = useRef<number | null>(0)
   const previewFrameRef = useRef<number | null>(null)
   const saveTokenRef = useRef(0)
   const sessionIdRef = useRef(0)
@@ -165,7 +167,9 @@ export default function MaskEditorModal() {
 
   const close = () => {
     if (isSaving) return
-    if (undoStackRef.current.length > 0) {
+    const hasUnsavedChanges =
+      cleanEditDepthRef.current === null || editDepthRef.current !== cleanEditDepthRef.current
+    if (hasUnsavedChanges) {
       setConfirmDialog({
         title: t('mask.discardTitle'),
         message: t('mask.discardMessage'),
@@ -444,8 +448,24 @@ export default function MaskEditorModal() {
     const ctx = canvas?.getContext('2d', { willReadFrequently: true })
     if (!canvas || !ctx) return
 
+    if (
+      redoStackRef.current.length > 0 &&
+      cleanEditDepthRef.current !== null &&
+      cleanEditDepthRef.current > editDepthRef.current
+    ) {
+      cleanEditDepthRef.current = null
+    }
     undoStackRef.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height))
-    if (undoStackRef.current.length > 40) undoStackRef.current.shift()
+    editDepthRef.current += 1
+    if (undoStackRef.current.length > 40) {
+      undoStackRef.current.shift()
+      if (
+        cleanEditDepthRef.current !== null &&
+        editDepthRef.current - undoStackRef.current.length > cleanEditDepthRef.current
+      ) {
+        cleanEditDepthRef.current = null
+      }
+    }
     redoStackRef.current = []
     syncHistoryState()
   }
@@ -534,6 +554,8 @@ export default function MaskEditorModal() {
       setViewTransform(DEFAULT_VIEW_TRANSFORM)
       undoStackRef.current = []
       redoStackRef.current = []
+      editDepthRef.current = 0
+      cleanEditDepthRef.current = 0
       syncHistoryState()
       return
     }
@@ -547,6 +569,8 @@ export default function MaskEditorModal() {
     setSize(null)
     undoStackRef.current = []
     redoStackRef.current = []
+    editDepthRef.current = 0
+    cleanEditDepthRef.current = 0
     syncHistoryState()
 
     async function loadCanvases() {
@@ -662,6 +686,7 @@ export default function MaskEditorModal() {
     if (!canvas || !ctx || !previous) return
 
     redoStackRef.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height))
+    editDepthRef.current -= 1
     restoreMask(previous)
     syncHistoryState()
   }
@@ -674,6 +699,7 @@ export default function MaskEditorModal() {
     if (!canvas || !ctx || !next) return
 
     undoStackRef.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height))
+    editDepthRef.current += 1
     restoreMask(next)
     syncHistoryState()
   }
