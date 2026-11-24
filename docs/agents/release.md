@@ -17,9 +17,9 @@ Agent 从 PR 到上线的完整链路，以及每一步谁能拍板。命令与�
 | 修 bug、功能或行为变更的 PR 合并 main（下一个窗口发生产） | Agent，检查齐了即可 | 检查见「合并前检查」；确认没问题即可直接 squash merge。涉及成本或结算的要在描述和汇报里写清并标出影响 |
 | 带数据库迁移的 PR 合并 main | Agent，检查齐了即可 | 迁移必须兼容新旧两代后端并带回滚 SQL；改编号前按 AGENTS.md 先查两个库已跑过的迁移 |
 | 发布 CLI（打 `cli-vX.Y.Z` 标签） | Agent，检查齐了即可 | 见 [CLI 发布](cli-release.md)；发布后先用官方安装脚本试装，确认安装与版本正常 |
-| 生产回滚（revert PR、前端回滚） | Agent | 冒烟不过或出事故时直接回滚，事后在汇报里写清现象、影响和回滚目标 |
+| 生产常规回滚（revert PR） | Agent | 冒烟不过或出事故时直接开 revert PR 合并（走流水线，紧急可配合 `workflow_dispatch`），事后在汇报里写清现象、影响和回滚目标 |
 | 重跑失败的 Deploy production job | Agent | 只按失败 job 重跑，不重跑整单 |
-| 绕过流水线手动发布 | **需 Nain 批准** | 正常路径是合并 main、窗口自动发布；紧急修复用 `workflow_dispatch` 并填 `reason` |
+| 绕过流水线手动发布 / 手工前端回滚（`scripts/pages-release.sh`） | **需 Nain 批准** | 正常路径是合并 main、窗口自动发布；紧急修复用 `workflow_dispatch` 并填 `reason` |
 | 改服务器上的 `app.env` / `operator-config.json` | **需 Nain 批准** | 手工改，先备份，见下文 |
 | 重启、重建、停止生产容器 | **需 Nain 批准** | 包括 `app-compose.sh up` |
 | 共享 segmenter 的 `up` / `rollback` / `detach` | **需 Nain 批准** | 全部部署共用一个实例 |
@@ -95,7 +95,7 @@ curl -fsS https://test.muvloom.online/version.json
 
 ## 五、回滚
 
-冒烟不过或出事故时由 Agent 直接回滚（开 revert PR，或按下面做前端回滚），事后在汇报里写清现象、影响范围和回滚到的提交或镜像。需要在服务器上手工操作的（改 `operator-config.json`、`app-compose.sh up`、VPS 上的镜像回滚）仍要 Nain 批准。
+冒烟不过或出事故时由 Agent 直接开 revert PR 回滚（走正常流水线，紧急可配合 `workflow_dispatch`），事后在汇报里写清现象、影响范围和回滚到的提交或镜像。绕过流水线或需要在服务器上手工操作的（改 `operator-config.json`、`app-compose.sh up`、VPS 上的镜像回滚、手工重跑 `scripts/pages-release.sh` 做前端回滚）仍要 Nain 批准。
 
 **先止血，再回滚。** 出问题的是单个功能或单个模型时，先关掉它，往往比回滚整个版本更快、波及更小：
 
@@ -105,7 +105,7 @@ curl -fsS https://test.muvloom.online/version.json
 
 - **常规**：开一个 revert PR，走正常检查后直接合并，由 Deploy production 发出。它是新提交，不会被「不回退」规则跳过。
 - **后端紧急回滚**：在 VPS 上用当前发布目录执行 `scripts/app-compose.sh rollback <project> <旧镜像>`。禁止用 `compose up --force-recreate`、`compose down` 或强停脚本绕过排空。数据库不会跟着回滚，迁移本来就要兼容新旧版本。见[部署手册「回滚与失败处理」](../deploy/image-release.md#回滚与失败处理)。
-- **前端回滚**：在独立检出恢复上一个已验证的提交，用同样的生产配置重跑对应的 `scripts/pages-release.sh`，再按「上线核对」验收。
+- **前端回滚（手工绕过流水线）**：经 Nain 批准后，在独立检出恢复上一个已验证的提交，用同样的生产配置重跑对应的 `scripts/pages-release.sh`，再按「上线核对」验收。
 - **segmenter 回滚**：`scripts/segmenter-deploy.sh rollback`，只能手动跑，会切所有部署，见下文。
 
 每一次回滚（revert PR 或紧急回滚）都要在 [review-evals](review-evals.md) 加一条：原 PR、从哪个提交到哪个提交、评审本该看出什么，供以后改 ocr 模型或提示词前回放。
