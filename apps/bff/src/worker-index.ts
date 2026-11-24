@@ -8,6 +8,7 @@ import { close as closeDb } from './db/client'
 import { purgeOldHostSamples, recoverAbandonedTasks, recoverTasksByIds } from './db/maintenance'
 import { recoverAnalysisTasks } from './lib/analysis-tasks'
 import { autoReconcileTasks } from './lib/auto-reconcile'
+import { loadAccountLifecyclePort } from './lib/billing-ports'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { initChannels, refreshChannelsIfChanged } from './lib/channels'
 import { purgeStaleHeartbeats, startHeartbeat } from './lib/heartbeat'
@@ -130,8 +131,8 @@ const staleScanTimer = setInterval(() => {
       })
   }
   if (!scheduler.drainStatus().draining && !privateMaintenance) {
-    privateMaintenance = loadPrivateBffOverlay()
-      .then((overlay) => overlay.taskHooks.runWorkerMaintenance?.(Date.now()))
+    privateMaintenance = loadAccountLifecyclePort()
+      .then((port) => port.runWorkerMaintenance?.(Date.now()))
       .catch((err) =>
         log.warn({ event: 'worker.private_maintenance_failed', err }, 'private maintenance failed'),
       )

@@ -2,14 +2,10 @@ import type { AgentBatchPriceSnapshot, ImageTierSnapshot } from '@image-playgrou
 import { eq } from 'drizzle-orm'
 import { config } from '../../config'
 import { schema } from '../../db/client'
+import { type BffTransaction, loadMeteringPort, type MeteringPort } from '../../lib/billing-ports'
 import { isCapabilityEnabled } from '../../lib/capabilities'
 import { meteringDecisionOrDenied } from '../../lib/metering-decision'
 import { modelUnavailable } from '../../lib/model-availability'
-import {
-  type BffTransaction,
-  loadPrivateBffOverlay,
-  type PrivateTaskHooks,
-} from '../../lib/private-overlay'
 import { tryConsumeQuotaInTransaction } from '../../lib/quota'
 import {
   type ImageTierAlignment,
@@ -54,8 +50,8 @@ export type ReservationCheckResult =
   | { readonly kind: 'reserved'; readonly reservedCredits: number }
   | { readonly kind: 'refused'; readonly outcome: CreateQueueTaskOutcome }
 
-export function loadSubmissionTaskHooks(): Promise<PrivateTaskHooks> {
-  return loadPrivateBffOverlay().then((overlay) => overlay.taskHooks)
+export function loadSubmissionTaskHooks(): Promise<MeteringPort> {
+  return loadMeteringPort()
 }
 
 /**
@@ -101,7 +97,7 @@ export async function resolveSubmissionMetering(
   input: CreateQueueTaskInput,
   aligned: ImageTierAlignment,
   pricing: TaskPricingUnits,
-  taskHooks: PrivateTaskHooks,
+  taskHooks: MeteringPort,
 ): Promise<AdmissionCheckResult> {
   let metering: TaskMeteringRecord = {
     mode: isCapabilityEnabled('billing:credits') ? 'credits' : 'none',
@@ -173,7 +169,7 @@ export async function reserveSubmissionBillingOrQuota(
     readonly pricing: TaskPricingUnits
     readonly metering: TaskMeteringRecord
     readonly unmeteredByDecision: boolean
-    readonly taskHooks: PrivateTaskHooks
+    readonly taskHooks: MeteringPort
     readonly dailyQuotaEnabled: boolean
     readonly dailyImageQuota: number
   },

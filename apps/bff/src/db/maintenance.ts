@@ -21,7 +21,6 @@ import { settleAgentConversationJobs } from '../lib/agent/conversations'
 import { durableMediaStore } from '../lib/durableMediaStore'
 import { log } from '../lib/logger'
 import { objectStore } from '../lib/objectStore'
-import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { planNextAttempt, type RetryPlan } from '../lib/retry'
 import { ASSET_OBJECT_ROOT, assetOwnerPrefix } from '../lib/sync-assets'
 import {
@@ -171,12 +170,6 @@ async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
     )
   }
   return { requeued, failed, resumedPolling }
-}
-
-/** Runs optional private-tree maintenance (for example, the billing fallback scan). */
-export async function runPrivateMaintenance(now = Date.now()): Promise<void> {
-  const taskHooks = (await loadPrivateBffOverlay()).taskHooks
-  await taskHooks.runMaintenance(now)
 }
 
 /**

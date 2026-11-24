@@ -1,7 +1,7 @@
 import { Elysia } from 'elysia'
 import { isCapabilityEnabled } from '../../lib/capabilities'
 import { requireInternalService } from '../../lib/user-auth'
-import { privateTaskHooks } from './hooks'
+import { billingPorts, privateTaskHooks } from './hooks'
 import { orderRoutes } from './order-routes'
 import { ensureChatModelPrice, syncModelPricesFromChannels } from './pricing'
 import { referralRoutes } from './referral-routes'
@@ -27,7 +27,7 @@ export async function initBillingModule(): Promise<void> {
   await ensureChatModelPrice()
 }
 
-export { privateTaskHooks as billingTaskHooks }
+export { billingPorts, privateTaskHooks as billingTaskHooks }
 export const billingBffRoutes = new Elysia({ name: 'billing-bff-module' })
   .use(extensions)
   .use(billingRoutes)

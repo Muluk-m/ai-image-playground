@@ -43,6 +43,43 @@ const projectArchiveListener: TaskLifecycleListener = {
   },
 }
 
+const billingSettlementListener: TaskLifecycleListener = {
+  id: 'billing-settlement',
+  stage: 'settlement',
+  async prepare() {
+    const { loadMeteringPort } = await import('../lib/billing-ports')
+    await loadMeteringPort()
+  },
+  async onTaskFinished(tx, event) {
+    if (event.meteringMode === 'none') return
+    const { loadMeteringPort } = await import('../lib/billing-ports')
+    const metering = await loadMeteringPort()
+    await metering.finalizeTask({
+      tx,
+      taskId: event.taskId,
+      outcome: event.status,
+      upstreamInvocationCount: event.upstreamInvocationCount,
+      errorType: event.errorType,
+      upstreamStatus: event.upstreamStatus ?? null,
+      actualUsage: event.actualUsage,
+    })
+  },
+  async onTasksCancelled(tx, event) {
+    const billable = event.tasks.filter((task) => task.meteringMode !== 'none')
+    if (billable.length === 0) return
+    const { loadMeteringPort } = await import('../lib/billing-ports')
+    const metering = await loadMeteringPort()
+    for (const task of billable) {
+      await metering.finalizeTask({
+        tx,
+        taskId: task.taskId,
+        outcome: 'cancelled',
+        upstreamInvocationCount: task.upstreamInvocationCount,
+      })
+    }
+  },
+}
+
 const modelAvailabilityListener: TaskLifecycleListener = {
   id: 'model-availability',
   stage: 'after-settlement',
@@ -73,13 +110,14 @@ const agentWakeListener: TaskLifecycleListener = {
 const DEFAULT_TASK_LIFECYCLE_LISTENERS: readonly TaskLifecycleListener[] = [
   generationMediaListener,
   projectArchiveListener,
+  billingSettlementListener,
   modelAvailabilityListener,
   agentWakeListener,
 ]
 
 /**
  * 组合根注册内置的任务终态事务内监听器（幂等）：
- * 保持 `modules/execution` 与上层模块（media / projectArchive / model-availability / agent）单向解耦。
+ * 保持 `modules/execution` 与上层模块（media / projectArchive / billing / model-availability / agent）单向解耦。
  * 监听器内部采用惰性 import，避免在配置未初始化或单测部分 mock 阶段提前求值业务模块。
  */
 export function registerDefaultTaskLifecycleListeners(): void {

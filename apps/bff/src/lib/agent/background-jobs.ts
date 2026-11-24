@@ -14,10 +14,9 @@ import { db, schema } from '../../db/client'
 import { cancelTasks, type QueueTaskTerminalRow, queueTaskOutcome } from '../../modules/execution'
 import { accountConcurrencyLimit, accountQueuePositions } from '../account-concurrency'
 import { cancelAnalysisTasks } from '../analysis-tasks'
+import { type BffTransaction, loadMeteringPort } from '../billing-ports'
 import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
-import type { BffTransaction } from '../private-overlay'
-import { loadPrivateBffOverlay } from '../private-overlay'
 import { taskProgressPhase } from '../task-progress'
 import { cancelUpstreamOfCancelledTasks } from '../upstream-cancel'
 import { queueArtifacts } from './tools/queueTask'
@@ -119,8 +118,8 @@ export async function settleAgentJobs(
   ]
   if (billableIds.length) {
     try {
-      const overlay = await loadPrivateBffOverlay()
-      credits = await overlay.taskHooks.taskCredits({ taskIds: billableIds })
+      const metering = await loadMeteringPort()
+      credits = await metering.taskCredits({ taskIds: billableIds })
     } catch (err) {
       if (options.requireCharges) throw err
       // 报价不可用时照常交付产物；缺席金额不冒充零扣费。

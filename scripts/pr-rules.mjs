@@ -20,9 +20,9 @@ export const CRITICAL_FLOWS = {
     /^apps\/website\/src\/components\/SiteAuth\.tsx$/,
   ],
   支付计费: [
-    /^apps\/bff\/src\/lib\/(private-overlay|billing-hooks)\.ts$/,
+    /^apps\/bff\/src\/lib\/(private-overlay|billing-hooks|billing-ports)\.ts$/,
     /^apps\/bff\/src\/modules\/billing\//,
-    /^apps\/bff\/src\/modules\/execution\/(task-transitions|task-submission|task-submission-plugins|submission-admission|submission-idempotency|submission-tier)\.ts$/,
+    /^apps\/bff\/src\/modules\/execution\/(task-lifecycle-bus|task-transitions|task-submission|task-submission-plugins|submission-admission|submission-idempotency|submission-tier)\.ts$/,
     /^apps\/bff\/src\/bootstrap\/(task-lifecycle|task-submission)\.ts$/,
     /^apps\/web\/src\/features\/(pricing|billing)\//,
     /^apps\/web\/src\/components\/(Credits|SubmissionBillingAction)\.tsx$/,

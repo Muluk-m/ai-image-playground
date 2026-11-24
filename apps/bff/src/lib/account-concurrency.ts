@@ -1,5 +1,5 @@
 import type { AgentJobQueuePosition } from '@image-playground/shared'
-import { type BffTransaction, loadPrivateBffOverlay } from './private-overlay'
+import { type BffTransaction, loadEntitlementPort } from './billing-ports'
 
 /**
  * 这个账号此刻能同时生成几张。由部署的计费层按套餐给出（没订阅是 1）；没有计费层时是 3。
@@ -10,8 +10,8 @@ export async function accountConcurrencyLimit(
   userId: string,
   now: number,
 ): Promise<number> {
-  const overlay = await loadPrivateBffOverlay()
-  const entitled = (await overlay.taskHooks.accountConcurrencyLimit?.({ tx, userId, now })) ?? 3
+  const entitlement = await loadEntitlementPort()
+  const entitled = (await entitlement.accountConcurrencyLimit?.({ tx, userId, now })) ?? 3
   return Number.isInteger(entitled) && entitled > 0 ? entitled : 1
 }
 
@@ -39,12 +39,11 @@ export async function accountEffectiveConcurrencyLimit(
   now: number,
   idleConcurrencyEnabled: boolean,
 ): Promise<number> {
-  const overlay = await loadPrivateBffOverlay()
-  const hooks = overlay.taskHooks
-  if (!idleConcurrencyEnabled || !hooks.accountConcurrencyEntitlement) {
+  const port = await loadEntitlementPort()
+  if (!idleConcurrencyEnabled || !port.accountConcurrencyEntitlement) {
     return accountConcurrencyLimit(tx, userId, now)
   }
-  const entitlement = await hooks.accountConcurrencyEntitlement({ tx, userId, now })
+  const entitlement = await port.accountConcurrencyEntitlement({ tx, userId, now })
   return resolveEffectiveConcurrency(
     entitlement.guaranteed,
     entitlement.idle,

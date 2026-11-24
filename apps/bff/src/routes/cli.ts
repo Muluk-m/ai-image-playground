@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia'
 import { config } from '../config'
+import { loadEntitlementPort } from '../lib/billing-ports'
 import { isCapabilityEnabled } from '../lib/capabilities'
 import {
   CLI_CLIENT_ID,
@@ -49,7 +50,6 @@ import {
 } from '../lib/cli/media'
 import { log } from '../lib/logger'
 import { resolveMediaInputs } from '../lib/mediaInputs'
-import { loadPrivateBffOverlay } from '../lib/private-overlay'
 import { requireUser } from '../lib/user-auth'
 import { sessionClientFromRequest } from '../lib/user-session'
 import { createQueueTask } from '../modules/execution'
@@ -306,7 +306,7 @@ async function resolveCliAccountBilling(userId: string) {
       canPurchaseUpgrade: false,
     }
   }
-  const summary = await (await loadPrivateBffOverlay()).taskHooks.accountSummary?.({
+  const summary = await (await loadEntitlementPort()).accountSummary?.({
     userId,
     now: Date.now(),
   })

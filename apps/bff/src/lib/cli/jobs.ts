@@ -2,7 +2,7 @@ import { type CliJobStatus, projectCliJobStatus, type TaskStatus } from '@image-
 import { and, desc, eq, inArray, isNull, lt, or, type SQL } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { cancelTasks } from '../../modules/execution'
-import { loadPrivateBffOverlay } from '../private-overlay'
+import { loadMeteringPort } from '../billing-ports'
 import { taskProgressPhase } from '../task-progress'
 import { cancelUpstreamOfCancelledTasks } from '../upstream-cancel'
 import { CliRequestError } from './envelope'
@@ -135,8 +135,8 @@ async function toJobs(rows: readonly JobRow[], userId: string): Promise<CliJob[]
           .orderBy(schema.generation_images.position)
       : [],
     terminal.length
-      ? loadPrivateBffOverlay()
-          .then((overlay) => overlay.taskHooks.taskCredits({ taskIds: terminal }))
+      ? loadMeteringPort()
+          .then((metering) => metering.taskCredits({ taskIds: terminal }))
           .catch(() => null)
       : null,
   ])

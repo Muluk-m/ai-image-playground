@@ -14,14 +14,13 @@ import { and, eq, gt, inArray, type SQL, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { publishGenerations } from '../../db/generation-events'
 import {
-  type BffTransaction,
-  loadPrivateBffOverlay,
-  type TaskUsage,
-} from '../../lib/private-overlay'
-import {
+  assertTaskLifecycleListenerRegistered,
+  type ExecutionTaskUsage,
+  type ExecutionTransaction,
   emitTaskFinished,
   emitTasksCancelled,
   type GenerationMediaLink,
+  prepareTaskLifecycleStage,
   type TaskFinishedEvent,
   type TasksCancelledEvent,
   type TerminalTaskStatus,
@@ -158,9 +157,9 @@ export async function requeueTaskArchive(
 export async function reconcileTasks(
   access: SQL,
   reason: string,
-  executor?: BffTransaction,
+  executor?: ExecutionTransaction,
 ): Promise<string[]> {
-  const reconcile = async (tx: BffTransaction) => {
+  const reconcile = async (tx: ExecutionTransaction) => {
     const enteredAt = Date.now()
     const rows = await tx
       .update(schema.tasks)
@@ -213,7 +212,7 @@ export type TerminalTaskUpdate = {
   errorType?: TaskErrorType
   upstreamStatus?: number | null
   upstreamBody?: string | null
-  actualUsage?: TaskUsage
+  actualUsage?: ExecutionTaskUsage
   media?: GenerationMediaLink[]
   /** Keep the generated source for operator recovery after archive retries expire. */
   preserveArchive?: boolean
@@ -226,7 +225,7 @@ export type TerminalTaskUpdate = {
 export function gptSettledUsage(
   update: TerminalTaskUpdate,
   task: { model: string; request: GptTierInput & { n?: number }; gptRoute: string | null },
-): TaskUsage | undefined {
+): ExecutionTaskUsage | undefined {
   if (update.status !== 'completed' || task.gptRoute !== 'sub2api') return update.actualUsage
   const quantity = update.actualUsage?.quantity ?? Math.max(1, task.request.n ?? 1)
   if (isGptImage26Model(task.model)) {
@@ -248,10 +247,10 @@ export async function finishTask(
   id: string,
   update: TerminalTaskUpdate,
   fence: SQL,
-  reconciliation?: { tx: BffTransaction },
+  reconciliation?: { tx: ExecutionTransaction },
 ): Promise<boolean> {
-  const taskHooks = (await loadPrivateBffOverlay()).taskHooks
-  const finish = async (tx: BffTransaction) => {
+  await prepareTaskLifecycleStage('settlement')
+  const finish = async (tx: ExecutionTransaction) => {
     const status = queueTerminalStatus(update.status)
     const [finished] = await tx
       .update(schema.tasks)
@@ -287,6 +286,7 @@ export async function finishTask(
         gptRoute: schema.tasks.gpt_route,
       })
     if (!finished) return false
+    const meteringMode = finished.metering?.mode === 'none' ? 'none' : 'credits'
     const event: TaskFinishedEvent = {
       taskId: finished.id,
       userId: finished.userId,
@@ -294,20 +294,18 @@ export async function finishTask(
       status,
       completedAt: update.completedAt,
       errorType: update.errorType,
+      upstreamStatus: update.upstreamStatus ?? null,
+      upstreamInvocationCount: finished.upstreamInvocationCount,
+      meteringMode,
+      actualUsage: gptSettledUsage(update, finished),
       resultPayload: update.resultPayload,
       media: update.media,
     }
     await emitTaskFinished(tx, 'before-settlement', event)
-    if (finished.metering?.mode !== 'none')
-      await taskHooks.finalizeTask({
-        tx,
-        taskId: finished.id,
-        outcome: status,
-        upstreamInvocationCount: finished.upstreamInvocationCount,
-        errorType: update.errorType,
-        upstreamStatus: update.upstreamStatus ?? null,
-        actualUsage: gptSettledUsage(update, finished),
-      })
+    if (meteringMode !== 'none') {
+      assertTaskLifecycleListenerRegistered('billing-settlement')
+      await emitTaskFinished(tx, 'settlement', event)
+    }
     await emitTaskFinished(tx, 'after-settlement', event)
     await publishGenerations(tx, [finished.id])
     return true
@@ -323,10 +321,10 @@ export async function finishTask(
  */
 export async function cancelTasks(
   access: SQL,
-  options: { failedAs?: AgentToolErrorCode; tx?: BffTransaction } = {},
+  options: { failedAs?: AgentToolErrorCode; tx?: ExecutionTransaction } = {},
 ) {
-  const taskHooks = (await loadPrivateBffOverlay()).taskHooks
-  const cancel = async (tx: BffTransaction) => {
+  await prepareTaskLifecycleStage('settlement')
+  const cancel = async (tx: ExecutionTransaction) => {
     // Serialize cancellation with the dispatch-intent write; no request can slip between them.
     await tx
       .select({ id: schema.tasks.id })
@@ -347,23 +345,21 @@ export async function cancelTasks(
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
       })
     const event: TasksCancelledEvent = {
-      tasks: rows.map((row) => ({ taskId: row.id, userId: row.userId })),
+      tasks: rows.map((row) => ({
+        taskId: row.id,
+        userId: row.userId,
+        meteringMode: row.metering?.mode === 'none' ? 'none' : 'credits',
+        upstreamInvocationCount: row.upstreamInvocationCount,
+      })),
       completedAt,
       failedAs: options.failedAs,
     }
     if (rows.length > 0) {
       await emitTasksCancelled(tx, 'before-settlement', event)
-    }
-    for (const row of rows) {
-      if (row.metering?.mode !== 'none')
-        await taskHooks.finalizeTask({
-          tx,
-          taskId: row.id,
-          outcome: status,
-          upstreamInvocationCount: row.upstreamInvocationCount,
-        })
-    }
-    if (rows.length > 0) {
+      if (event.tasks.some((task) => task.meteringMode !== 'none')) {
+        assertTaskLifecycleListenerRegistered('billing-settlement')
+        await emitTasksCancelled(tx, 'settlement', event)
+      }
       await emitTasksCancelled(tx, 'after-settlement', event)
     }
     await publishGenerations(

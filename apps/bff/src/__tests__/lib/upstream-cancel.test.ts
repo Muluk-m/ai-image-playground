@@ -15,6 +15,7 @@ process.env.DATABASE_URL = databaseUrl
 _setPrivateBffOverlayForTesting(EMPTY_PRIVATE_BFF_OVERLAY)
 process.env.PORT = '0'
 
+await import('../../bootstrap/task-lifecycle')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { TaskScheduler } = await import('../../workers/task-scheduler')
 const { setUpstreamFetchForTesting, setAsyncPollBackoffForTesting } = await import(

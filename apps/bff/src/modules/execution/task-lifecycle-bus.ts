@@ -11,6 +11,12 @@ export interface GenerationMediaLink {
 
 export type TerminalTaskStatus = 'completed' | 'failed' | 'cancelled'
 
+export interface ExecutionTaskUsage {
+  quantity: number
+  unitMultiplier: number
+  tokens?: { input: number; output: number; cachedInput?: number }
+}
+
 export interface TaskFinishedEvent {
   readonly taskId: string
   readonly userId: string | null
@@ -18,6 +24,10 @@ export interface TaskFinishedEvent {
   readonly status: TerminalTaskStatus
   readonly completedAt: number
   readonly errorType?: TaskErrorType
+  readonly upstreamStatus?: number | null
+  readonly upstreamInvocationCount: number
+  readonly meteringMode: 'credits' | 'none'
+  readonly actualUsage?: ExecutionTaskUsage
   readonly resultPayload?: unknown
   readonly media?: readonly GenerationMediaLink[]
 }
@@ -25,6 +35,8 @@ export interface TaskFinishedEvent {
 export interface CancelledTaskRecord {
   readonly taskId: string
   readonly userId: string | null
+  readonly meteringMode: 'credits' | 'none'
+  readonly upstreamInvocationCount: number
 }
 
 export interface TasksCancelledEvent {
@@ -36,13 +48,25 @@ export interface TasksCancelledEvent {
 /**
  * 事务内终态监听器的执行阶段：
  * - `before-settlement`：在计费结算前执行（媒体落表、画布预留回填），保持既有锁顺序（先持 media 锁再进计费锁）。
+ * - `settlement`：计费终态结算（预扣转实扣或退款），由 fail-closed 断言保护，缺失时回滚终态事务。
  * - `after-settlement`：在计费结算后执行（模型自动下架、智能体后台任务唤醒）。
  */
-export type TaskLifecycleStage = 'before-settlement' | 'after-settlement'
+export type TaskLifecycleStage = 'before-settlement' | 'settlement' | 'after-settlement'
+
+export class MissingTaskLifecycleListenerError extends Error {
+  constructor(readonly listenerId: string) {
+    super(
+      `Task lifecycle listener "${listenerId}" is not registered; ensure bootstrap/task-lifecycle is loaded`,
+    )
+    this.name = 'MissingTaskLifecycleListenerError'
+  }
+}
 
 export interface TaskLifecycleListener {
   readonly id: string
   readonly stage: TaskLifecycleStage
+  /** 可选的事务外预热（例如惰性加载计费模块），避免持有数据库事务连接时做冷启动初始化。 */
+  prepare?(): Promise<void>
   onTaskFinished?(tx: ExecutionTransaction, event: TaskFinishedEvent): Promise<void>
   onTasksCancelled?(tx: ExecutionTransaction, event: TasksCancelledEvent): Promise<void>
 }
@@ -50,6 +74,7 @@ export interface TaskLifecycleListener {
 const listenersById = new Map<string, TaskLifecycleListener>()
 const listenersByStage: Record<TaskLifecycleStage, TaskLifecycleListener[]> = {
   'before-settlement': [],
+  settlement: [],
   'after-settlement': [],
 }
 
@@ -76,6 +101,18 @@ function unregisterTaskLifecycleListener(listener: TaskLifecycleListener): void 
   const bucket = listenersByStage[listener.stage]
   const index = bucket.indexOf(listener)
   if (index >= 0) bucket.splice(index, 1)
+}
+
+export function assertTaskLifecycleListenerRegistered(id: string): void {
+  if (!listenersById.has(id)) {
+    throw new MissingTaskLifecycleListenerError(id)
+  }
+}
+
+export async function prepareTaskLifecycleStage(stage: TaskLifecycleStage): Promise<void> {
+  for (const listener of [...listenersByStage[stage]]) {
+    await listener.prepare?.()
+  }
 }
 
 /**
@@ -111,5 +148,6 @@ export function listTaskLifecycleListenerIds(stage?: TaskLifecycleStage): readon
 export function _resetTaskLifecycleListenersForTesting(): void {
   listenersById.clear()
   listenersByStage['before-settlement'].length = 0
+  listenersByStage.settlement.length = 0
   listenersByStage['after-settlement'].length = 0
 }

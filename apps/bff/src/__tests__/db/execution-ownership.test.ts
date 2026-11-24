@@ -8,6 +8,7 @@ process.env.UPSTREAM_API_KEY = 'test'
 process.env.PORT = '0'
 const { runPrivateMigrations } = await import('../../lib/private-overlay')
 await runPrivateMigrations(process.env.DATABASE_URL)
+await import('../../bootstrap/task-lifecycle')
 const { db, schema, close } = await import('../../db/client')
 const { recoverAbandonedTasks } = await import('../../db/maintenance')
 const {

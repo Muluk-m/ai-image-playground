@@ -218,3 +218,90 @@ export interface PrivateTaskHooks {
   /** Worker-only integrations. */
   runWorkerMaintenance?(now: number): Promise<void>
 }
+
+/** 计费计量窄端口：只覆盖报价、计费判定、免计费配额、任务预扣、终态结算与已扣积分查询。 */
+export type MeteringPort = Pick<
+  PrivateTaskHooks,
+  | 'meteringDecision'
+  | 'consumeUnmeteredQuota'
+  | 'quoteTask'
+  | 'quoteTokenTask'
+  | 'chatPricing'
+  | 'reserveTask'
+  | 'finalizeTask'
+  | 'taskCredits'
+>
+
+/** 权益与并发窄端口：只覆盖会员/4K 准入、订阅状态、账户摘要与并发配额查询。 */
+export type EntitlementPort = Pick<
+  PrivateTaskHooks,
+  | 'canSubmitTask'
+  | 'isActiveMember'
+  | 'accountSummary'
+  | 'accountConcurrencyLimit'
+  | 'accountConcurrencyEntitlement'
+>
+
+/** 账号生命周期与计费后台维护窄端口：只覆盖注册/解绑/注销挂钩与定时对账/通知维护。 */
+export type AccountLifecyclePort = Pick<
+  PrivateTaskHooks,
+  | 'onUserCreated'
+  | 'canUnlinkOAuthIdentity'
+  | 'onUserDeleted'
+  | 'runMaintenance'
+  | 'runWorkerMaintenance'
+>
+
+export interface BillingPorts {
+  readonly metering: MeteringPort
+  readonly entitlement: EntitlementPort
+  readonly accountLifecycle: AccountLifecyclePort
+}
+
+const portsByTaskHooks = new WeakMap<PrivateTaskHooks, BillingPorts>()
+
+/**
+ * 将既有 `PrivateTaskHooks`（含测试替身）无损投影为 3 个窄端口并按 `hooks` 引用缓存：
+ * - 严格保留可选方法的存在性（undefined 不被包装成 truthy 函数），保持既有门禁与兼容分支语义完全不变；
+ * - 按 `hooks` 对象身份缓存，测试用 `{ ...overlay, taskHooks: { ...overlay.taskHooks, ... } }` 覆盖任一方法时自动投影到新对象，绝不读到陈旧端口。
+ */
+export function billingPortsFromTaskHooks(hooks: PrivateTaskHooks): BillingPorts {
+  const cached = portsByTaskHooks.get(hooks)
+  if (cached) return cached
+  const projected: BillingPorts = Object.freeze({
+    metering: Object.freeze({
+      ...(hooks.meteringDecision ? { meteringDecision: hooks.meteringDecision } : {}),
+      ...(hooks.consumeUnmeteredQuota
+        ? { consumeUnmeteredQuota: hooks.consumeUnmeteredQuota }
+        : {}),
+      ...(hooks.quoteTask ? { quoteTask: hooks.quoteTask } : {}),
+      ...(hooks.quoteTokenTask ? { quoteTokenTask: hooks.quoteTokenTask } : {}),
+      chatPricing: hooks.chatPricing,
+      reserveTask: hooks.reserveTask,
+      finalizeTask: hooks.finalizeTask,
+      taskCredits: hooks.taskCredits,
+    }),
+    entitlement: Object.freeze({
+      ...(hooks.canSubmitTask ? { canSubmitTask: hooks.canSubmitTask } : {}),
+      ...(hooks.isActiveMember ? { isActiveMember: hooks.isActiveMember } : {}),
+      ...(hooks.accountSummary ? { accountSummary: hooks.accountSummary } : {}),
+      ...(hooks.accountConcurrencyLimit
+        ? { accountConcurrencyLimit: hooks.accountConcurrencyLimit }
+        : {}),
+      ...(hooks.accountConcurrencyEntitlement
+        ? { accountConcurrencyEntitlement: hooks.accountConcurrencyEntitlement }
+        : {}),
+    }),
+    accountLifecycle: Object.freeze({
+      onUserCreated: hooks.onUserCreated,
+      ...(hooks.canUnlinkOAuthIdentity
+        ? { canUnlinkOAuthIdentity: hooks.canUnlinkOAuthIdentity }
+        : {}),
+      ...(hooks.onUserDeleted ? { onUserDeleted: hooks.onUserDeleted } : {}),
+      runMaintenance: hooks.runMaintenance,
+      ...(hooks.runWorkerMaintenance ? { runWorkerMaintenance: hooks.runWorkerMaintenance } : {}),
+    }),
+  })
+  portsByTaskHooks.set(hooks, projected)
+  return projected
+}

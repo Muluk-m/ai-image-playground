@@ -9,10 +9,10 @@ import { config } from '../config'
 import { db, schema } from '../db/client'
 import { publishGenerations } from '../db/generation-events'
 import { accountConcurrencyLimit } from '../lib/account-concurrency'
+import { type BffTransaction, loadEntitlementPort } from '../lib/billing-ports'
 import { getRoutableChannels } from '../lib/channels'
 import { durableGenerationInputs } from '../lib/generationMedia'
 import { log } from '../lib/logger'
-import { type BffTransaction, loadPrivateBffOverlay } from '../lib/private-overlay'
 import { recordTaskOutcome } from '../lib/telemetry'
 import { taskConcurrencyScope } from '../lib/upstream'
 import { cancelLateUpstreamTasks } from '../lib/upstream-cancel'
@@ -710,10 +710,9 @@ export async function accountGenerationLimits(
   provider: QueueProvider,
   now: number,
 ): Promise<{ total: number; provider: number; idle: number }> {
-  const overlay = await loadPrivateBffOverlay()
-  const hooks = overlay.taskHooks
-  const entitlement = hooks.accountConcurrencyEntitlement
-    ? await hooks.accountConcurrencyEntitlement({ tx, userId, now })
+  const port = await loadEntitlementPort()
+  const entitlement = port.accountConcurrencyEntitlement
+    ? await port.accountConcurrencyEntitlement({ tx, userId, now })
     : { guaranteed: await accountConcurrencyLimit(tx, userId, now), idle: 0 }
   const guaranteed = entitlement.guaranteed
   const requested = Number.isInteger(guaranteed) && guaranteed > 0 ? guaranteed : 1

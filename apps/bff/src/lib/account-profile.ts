@@ -11,11 +11,11 @@ import { eq, inArray } from 'drizzle-orm'
 import sharp from 'sharp'
 import { db, schema } from '../db/client'
 import { accountProfileView } from './account-profile-view'
+import { loadAccountLifecyclePort } from './billing-ports'
 import { durableMediaStore } from './durableMediaStore'
 import { detectMediaMime } from './imageArchive'
 import { log } from './logger'
 import { objectStore } from './objectStore'
-import { loadPrivateBffOverlay } from './private-overlay'
 import { assetOwnerPrefix } from './sync-assets'
 
 export type AccountProfileErrorCode =
@@ -273,7 +273,7 @@ export async function deleteOwnAccount(
       }
 
       // 私有账本如果外键指着 users，要在删用户之前把自己的行清掉。缺席时公开库照样能删。
-      await (await loadPrivateBffOverlay()).taskHooks.onUserDeleted?.({ tx, userId })
+      await (await loadAccountLifecyclePort()).onUserDeleted?.({ tx, userId })
 
       const analyses = await tx
         .select({ task_id: schema.analysis_tasks.task_id })

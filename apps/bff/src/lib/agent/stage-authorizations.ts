@@ -23,12 +23,12 @@ import {
 import { and, asc, eq, inArray, isNull, lt, ne, sql } from 'drizzle-orm'
 import * as Y from 'yjs'
 import { db, schema } from '../../db/client'
+import { type BffTransaction, loadMeteringPort } from '../billing-ports'
 import { accessCanvasDocument, CanvasSyncError } from '../canvasSyncStore'
 import { isCapabilityEnabled } from '../capabilities'
 import { modelCapabilities, resolveQueueModel } from '../channels'
 import { log } from '../logger'
 import { meteringDecisionOrDenied } from '../metering-decision'
-import { type BffTransaction, loadPrivateBffOverlay } from '../private-overlay'
 export class StageAuthorizationError extends Error {
   constructor(
     readonly code: string,
@@ -135,7 +135,7 @@ async function releaseFailedAttempts(
   )
   if (!failed.length || !(await startedAttemptsFailed(tx, failed))) return state
   const charged: Readonly<Record<string, number>> = isCapabilityEnabled('billing:credits')
-    ? await (await loadPrivateBffOverlay()).taskHooks.taskCredits({
+    ? await (await loadMeteringPort()).taskCredits({
         taskIds: failed.flatMap((attempt) => attempt.taskIds),
       })
     : Object.fromEntries(failed.flatMap((attempt) => attempt.taskIds.map((id) => [id, 0])))
@@ -219,7 +219,7 @@ async function quote(
   input: { model: string; quantity: number; unitMultiplier: number },
 ) {
   if (!isCapabilityEnabled('billing:credits')) return 0
-  const hooks = (await loadPrivateBffOverlay()).taskHooks
+  const hooks = await loadMeteringPort()
   const decision = meteringDecisionOrDenied(
     await hooks.meteringDecision?.({
       tx,

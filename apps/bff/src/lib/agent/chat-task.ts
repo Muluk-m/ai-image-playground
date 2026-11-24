@@ -2,16 +2,16 @@ import type { AgentTurnCost, AgentTurnUsage } from '@image-playground/shared'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import { finishTask, heldBy } from '../../modules/execution'
+import {
+  type BffTransaction,
+  type ChatPricing,
+  loadMeteringPort,
+  type MeteringPort,
+  type TaskReservationFailure,
+  type TaskUsage,
+} from '../billing-ports'
 import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
-import type {
-  BffTransaction,
-  ChatPricing,
-  PrivateTaskHooks,
-  TaskReservationFailure,
-  TaskUsage,
-} from '../private-overlay'
-import { loadPrivateBffOverlay } from '../private-overlay'
 import { reservedTokenUsage, settledTokenUsage } from '../token-pricing'
 import { AGENT_EXECUTION_LEASE_MS, agentExecutionToken } from './execution'
 import type { AgentTurnSettlement } from './turn'
@@ -39,7 +39,7 @@ export type ChatTaskReservation = ChatTaskReserved | TaskReservationFailure
 export interface ReserveChatTaskInput {
   /** 预扣要和调用方的业务写在同一事务里：任一步失败整笔不落地。 */
   readonly tx: BffTransaction
-  readonly taskHooks: PrivateTaskHooks
+  readonly taskHooks: MeteringPort
   readonly conversationId: string
   /** 对话任务的 id 就是轮 id：本轮的账都挂在它上面。 */
   readonly turnId: string
@@ -56,7 +56,7 @@ export interface ReserveChatTaskInput {
  * 单价表没登记这个模型时给兜底，`reserveTask` 会在预扣那一步以缺单价拒掉这一轮。
  */
 export async function chatTaskPricing(
-  taskHooks: PrivateTaskHooks,
+  taskHooks: MeteringPort,
   model: string,
   tx?: BffTransaction,
 ): Promise<ChatTaskPricing> {
@@ -175,8 +175,8 @@ async function collectTurnCost(conversationId: string, turnId: string): Promise<
         inArray(schema.tasks.kind, ['queue', 'chat']),
       ),
     )
-  const overlay = await loadPrivateBffOverlay()
-  const credits = await overlay.taskHooks.taskCredits({ taskIds: rows.map((row) => row.id) })
+  const metering = await loadMeteringPort()
+  const credits = await metering.taskCredits({ taskIds: rows.map((row) => row.id) })
 
   const cost = { chat: 0, image: 0, video: 0, includedTaskIds: Object.keys(credits) }
   for (const row of rows) {
