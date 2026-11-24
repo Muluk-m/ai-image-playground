@@ -21,8 +21,13 @@ function readInstallGoConst(name, fallback) {
   return match?.[1] ?? fallback
 }
 
+// BundleVersion is the CLI's one version source (scripts/check-cli-version.mjs); a build that
+// cannot read it must fail rather than publish a manifest with a guessed version.
 function cliBundleVersion() {
-  return readInstallGoConst('BundleVersion', '0.2.7')
+  const version = readInstallGoConst('BundleVersion')
+  if (!version)
+    throw new Error('Could not read BundleVersion from cli-go/internal/skill/install.go')
+  return version
 }
 
 function cliSkillVersion() {
