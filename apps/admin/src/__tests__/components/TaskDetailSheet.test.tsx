@@ -4,14 +4,16 @@ import type { ReactNode } from 'react'
 import { expect, it, vi } from 'vitest'
 import { TaskDetailSheet } from '../../components/TaskDetailSheet'
 
-const { get, task } = vi.hoisted(() => ({
+const { get, task, refetchTask } = vi.hoisted(() => ({
   get: vi.fn(),
+  refetchTask: vi.fn(async () => undefined),
   task: { completed_at: Date.UTC(2026, 10, 24, 2, 0, 25) as number | null },
 }))
 vi.mock('../../lib/api-client', () => ({ apiClient: { get } }))
 vi.mock('../../components/TaskDetailView', () => ({ TaskDetailView: () => null }))
 vi.mock('../../lib/queries', () => ({
   useTask: () => ({
+    refetch: refetchTask,
     data: {
       submitted_at: Date.UTC(2026, 10, 24, 2),
       started_at: Date.UTC(2026, 10, 24, 2),
@@ -131,6 +133,7 @@ it('leaves the trace tab out when the deployment has no OpenObserve', async () =
 it('keeps looking up to now for a task that has not finished, so a late execution still shows', async () => {
   task.completed_at = null
   get.mockReset()
+  vi.useFakeTimers({ shouldAdvanceTime: true })
   get.mockResolvedValue({ entries: [], traces: [], more: false })
   const before = Date.now()
   render(
@@ -144,5 +147,9 @@ it('keeps looking up to now for a task that has not finished, so a late executio
     // 提交在几天前，窗口上界仍是现在，而不是提交后一分钟。
     expect(to).toBeGreaterThanOrEqual(before + 60_000)
   }
+  // 每 30 秒前移窗口时也重取任务详情，任务结束后轮询才会停。
+  await vi.advanceTimersByTimeAsync(30_000)
+  expect(refetchTask).toHaveBeenCalledTimes(1)
+  vi.useRealTimers()
   task.completed_at = Date.UTC(2026, 10, 24, 2, 0, 25)
 })

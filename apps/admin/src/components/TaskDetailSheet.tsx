@@ -46,18 +46,26 @@ export function TaskDetailSheet({ taskId, onOpenChange }: TaskDetailSheetProps) 
   )
 }
 
+/** 链路结果过这么久再打开抽屉或页签就重取。 */
+const TRACE_STALE_MS = 30_000
+
 function TaskDrawerTabs({ taskId }: { taskId: string }) {
   const task = useTask(taskId)
   const running = task.data ? task.data.completed_at === null : false
   // 没结束的任务（排队、执行中、卡住）一直查到现在，每 30 秒前移一次窗口刷新日志和链路；
   // 结束后固定到完成时间。
+  // 任务详情也一起重取：全局 staleTime 是 Infinity，不重取就永远不知道它已经结束、停不下来。
   const [now, setNow] = useState(() => Date.now())
+  const refetchTask = task.refetch
   useEffect(() => {
     if (!running) return
     setNow(Date.now())
-    const timer = setInterval(() => setNow(Date.now()), 30_000)
+    const timer = setInterval(() => {
+      setNow(Date.now())
+      void refetchTask()
+    }, 30_000)
     return () => clearInterval(timer)
-  }, [running])
+  }, [running, refetchTask])
   const logTo = task.data
     ? task.data.completed_at === null
       ? now + 60_000
@@ -82,6 +90,8 @@ function TaskDrawerTabs({ taskId }: { taskId: string }) {
     queryKey: ['task-traces', taskId, logFrom, logTo],
     enabled: logFrom !== null && logTo !== null,
     retry: false,
+    // span 由 BatchSpanProcessor 异步批量导出，任务刚结束时可能还没入库：别把空结果缓存到底。
+    staleTime: TRACE_STALE_MS,
     queryFn: () => apiClient.get<TaskTraces>(tracePath),
   })
   const traceList = traces.data?.traces ?? []
@@ -101,6 +111,7 @@ function TaskDrawerTabs({ taskId }: { taskId: string }) {
     queryKey: ['task-trace-trees', taskId, logFrom, logTo],
     enabled: current === 'traces',
     retry: false,
+    staleTime: TRACE_STALE_MS,
     queryFn: () => apiClient.get<TaskTraces>(`${tracePath}&trees=1`),
   })
   if (!tabs.length || !current) return null

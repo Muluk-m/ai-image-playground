@@ -592,7 +592,8 @@ export async function readTaskTraces(
   )
     .map((row) => ({
       traceId: String(row.trace_id ?? ''),
-      startedAt: Math.floor(Number(row.started) / 1e6),
+      // 纳秒时间戳超出 JS 的安全整数，换算时有几百纳秒的误差：取最近的毫秒，不向下截。
+      startedAt: Math.round(Number(row.started) / 1e6),
     }))
     .filter((row) => TRACE_ID.test(row.traceId))
   const listed = found
