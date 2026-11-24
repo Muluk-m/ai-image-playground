@@ -83,8 +83,8 @@ const CANONICAL_BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/
 
 export interface PreparedDirectSubmitInputs {
   readonly inputs: string[]
-  /** 至少有一张输入图经预签名直传替换为 `aip-media:<id>`；用于通知 BFF 透传原字节，与内联回退保持幂等哈希一致。 */
-  readonly promoted: boolean
+  /** 仅记录本次经预签名直传替换为 `aip-media:<id>` 的下标；通知 BFF 仅对这些下标透传原字节，不改变同请求内既有云媒体的压缩策略。 */
+  readonly exactIndices: number[]
 }
 
 /**
@@ -128,23 +128,22 @@ export async function prepareDirectSubmitInputs(
     !isClientCapabilityEnabled('accounts:sync') ||
     !isClientCapabilityEnabled('agent:attachments')
   ) {
-    return { inputs: [...inputs], promoted: false }
+    return { inputs: [...inputs], exactIndices: [] }
   }
   const sameAccount = accountScope()
   const attachmentByteLimit = getAttachmentLimits()?.imageBytes ?? getMediaLimits()?.imageBytes
   const timeoutMs = options?.timeoutMs ?? DIRECT_SUBMIT_UPLOAD_TIMEOUT_MS
-  let promoted = false
-  const inFlight = new Map<string, Promise<string>>()
-  const promote = (url: string): Promise<string> => {
+  const inFlight = new Map<string, Promise<{ readonly url: string; readonly promoted: boolean }>>()
+  const promote = (url: string): Promise<{ readonly url: string; readonly promoted: boolean }> => {
     if (
       !url.startsWith('data:image/') ||
       getDataUrlEncodedByteSize(url) < DIRECT_SUBMIT_UPLOAD_MIN_BYTES ||
       !isCanonicalDirectUploadDataUrl(url)
     ) {
-      return Promise.resolve(url)
+      return Promise.resolve({ url, promoted: false })
     }
     if (attachmentByteLimit !== undefined && getDataUrlDecodedByteSize(url) > attachmentByteLimit) {
-      return Promise.resolve(url)
+      return Promise.resolve({ url, promoted: false })
     }
     const existing = inFlight.get(url)
     if (existing) return existing
@@ -154,19 +153,26 @@ export async function prepareDirectSubmitInputs(
       signal: controller.signal,
       purpose: 'conversation-attachment',
     })
-      .then((uploaded) => {
-        if (!uploaded?.id) return url
-        promoted = true
-        return `aip-media:${uploaded.id}`
-      })
-      .catch(() => url)
+      .then((uploaded) =>
+        uploaded?.id
+          ? { url: `aip-media:${uploaded.id}`, promoted: true }
+          : { url, promoted: false },
+      )
+      .catch(() => ({ url, promoted: false }))
       .finally(() => clearTimeout(timer))
     inFlight.set(url, pending)
     return pending
   }
   const resolved = await Promise.all(inputs.map(promote))
   if (!sameAccount()) throw new Error('media_scope_changed')
-  return { inputs: resolved, promoted }
+  const exactIndices: number[] = []
+  for (let index = 0; index < resolved.length; index += 1) {
+    if (resolved[index]!.promoted) exactIndices.push(index)
+  }
+  return {
+    inputs: resolved.map((item) => item.url),
+    exactIndices,
+  }
 }
 
 /** 队列产出的字节地址。留在传输层，避免认证启动时提前加载用户 store。 */
@@ -213,7 +219,7 @@ export async function callQueueChannelApi(
     { ...opts, inputImageDataUrls: prepared.inputs },
     codexCli,
     opts.clientRequestId,
-    prepared.promoted,
+    prepared.exactIndices,
   )
   opts.onQueueSubmitted?.(requestId)
   return await pollAndFetch(channel, base, requestId, opts.onQueueStatus)
@@ -293,7 +299,7 @@ async function submit(
   opts: CallApiOptions,
   codexCli: boolean,
   clientRequestId: string | undefined,
-  exactInputImages = false,
+  exactInputIndices: readonly number[] = [],
 ): Promise<string> {
   // 防改写只传意图，由 BFF 在选定网关后添加；codex CLI 模式仍不传 quality。
   const body: Record<string, unknown> = {
@@ -348,7 +354,7 @@ async function submit(
   )
     body.n = opts.params.n
   if (opts.inputImageDataUrls.length) body.input_images = opts.inputImageDataUrls
-  if (exactInputImages) body.exact_input_images = true
+  if (exactInputIndices.length) body.exact_input_indices = exactInputIndices
   if (opts.outputRetention) body.output_retention = opts.outputRetention
   if (opts.stageAuthorization) body.stage_authorization = opts.stageAuthorization
   if (opts.maskDataUrl) body.mask = opts.maskDataUrl
@@ -509,7 +515,7 @@ export async function submitVideoRequest(input: VideoSubmitInput): Promise<strin
     client_request_id: input.clientRequestId,
   }
   if (prepared.inputs.length) body.input_images = prepared.inputs
-  if (prepared.promoted) body.exact_input_images = true
+  if (prepared.exactIndices.length) body.exact_input_indices = prepared.exactIndices
   if (input.stageAuthorization) body.stage_authorization = input.stageAuthorization
   return await postSubmit(bffBaseUrl(), provider, input.model, body)
 }

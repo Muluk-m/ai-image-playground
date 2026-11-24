@@ -87,8 +87,12 @@ const submitBodySchema = t.Object({
       maxItems: QUEUE_MAX_INPUT_IMAGES,
     }),
   ),
-  /** 客户端已完成预处理并直传原字节时置 true，跳过服务端二次有损压缩，保持与内联回退一致的幂等哈希。 */
-  exact_input_images: t.Optional(t.Boolean()),
+  /** 仅标记本次由客户端预处理后预签名直传的输入图下标；这些下标跳过服务端二次压缩，避免影响同请求内既有云媒体并保持幂等哈希一致。 */
+  exact_input_indices: t.Optional(
+    t.Array(t.Number({ minimum: 0, maximum: QUEUE_MAX_INPUT_IMAGES - 1, multipleOf: 1 }), {
+      maxItems: QUEUE_MAX_INPUT_IMAGES,
+    }),
+  ),
   mask: t.Optional(t.String({ pattern: DATA_URL_PATTERN })),
   /** 档位合法性由 shared 的 videoRequestRejection 兜底，这里只做形状白名单。 */
   video: t.Optional(
@@ -255,9 +259,15 @@ export const submitRoutes = new Elysia()
         video: _rawVideo,
         stage_authorization: stageAuthorization,
         input_media_ids: inputMediaIds,
-        exact_input_images: exactInputImages,
+        exact_input_indices: exactInputIndices,
         ...rest
       } = body
+      if (exactInputIndices?.some((index) => index >= totalInputImages)) {
+        return status(400, {
+          error: 'invalid_request',
+          message: '输入图精确透传下标超出输入图数量范围',
+        })
+      }
       const combinedRawInputs =
         rest.input_images?.length || inputMediaIds?.length
           ? [
@@ -269,7 +279,7 @@ export const submitRoutes = new Elysia()
       try {
         inputImages = await resolveMediaInputs(authUser?.id ?? null, combinedRawInputs, {
           masked: Boolean(rest.mask),
-          preserveExact: Boolean(exactInputImages),
+          exactIndices: exactInputIndices?.length ? new Set(exactInputIndices) : undefined,
           signal: request.signal,
         })
       } catch (error) {

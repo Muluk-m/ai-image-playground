@@ -68,17 +68,16 @@ export async function resolveMediaInputs(
   inputs: readonly string[] | undefined,
   options: {
     readonly masked: boolean
-    /** 客户端已预处理（工作台预签名直传）时保持原字节不二次压缩，确保与内联回退的幂等哈希完全一致。 */
-    readonly preserveExact?: boolean
+    /** 仅对这些输入下标保持原字节不二次压缩（工作台预签名直传的本地图），避免影响同请求内既有云媒体。 */
+    readonly exactIndices?: ReadonlySet<number>
     /** 请求自己的取消信号：客户端断开后不再替它等对象存储。 */
     readonly signal?: AbortSignal
   },
 ): Promise<string[] | undefined> {
   if (!inputs?.some((input) => MEDIA_INPUT.test(input))) return inputs ? [...inputs] : inputs
   if (!userId) throw new MediaInputError('按媒体引用输入图需要登录')
-  const ids = [
-    ...new Set(inputs.flatMap((input) => MEDIA_INPUT.exec(input)?.[1]?.toLowerCase() ?? [])),
-  ]
+  const indexedIds = inputs.map((input) => MEDIA_INPUT.exec(input)?.[1]?.toLowerCase() ?? null)
+  const ids = [...new Set(indexedIds.filter((id): id is string => id !== null))]
   const rows = await db
     .select({
       id: schema.media_objects.id,
@@ -86,7 +85,6 @@ export async function resolveMediaInputs(
       storageScope: schema.media_objects.storage_scope,
       contentType: schema.media_objects.content_type,
       bytes: schema.media_objects.bytes,
-      attachmentManaged: schema.media_objects.attachment_managed,
     })
     .from(schema.media_objects)
     .where(
@@ -99,37 +97,50 @@ export async function resolveMediaInputs(
       ),
     )
   const found = new Map(rows.map((row) => [row.id.toLowerCase(), row]))
-  const resolved = new Map<string, Promise<string>>()
-  const load = (id: string) => {
+  // 先确权与体积校验，再按固定并发读取：16 张大图同时解码会占满内存，逐张串行又把延迟叠起来。
+  for (const id of ids) {
     const row = found.get(id)
     if (!row?.key) throw new MediaInputError('输入图片不存在或无权访问')
     if (row.bytes > config.operator.quotas['sync:asset-image-bytes'])
       throw new MediaInputError('输入图片过大')
-    const key = row.key
-    return readInput(id, key, row.storageScope, options.signal).then((bytes) =>
-      options.masked || options.preserveExact || row.attachmentManaged
-        ? exact(bytes, row.contentType)
-        : compressed(bytes, row.contentType),
-    )
   }
-  // 先确权，再按固定并发读取：16 张大图同时解码会占满内存，逐张串行又把延迟叠起来。
-  for (const id of ids)
-    if (!found.get(id)?.key) throw new MediaInputError('输入图片不存在或无权访问')
-  const queue = [...ids]
+  const variants = new Map<string, { readonly id: string; readonly wantExact: boolean }>()
+  for (let index = 0; index < indexedIds.length; index += 1) {
+    const id = indexedIds[index]
+    if (!id) continue
+    const wantExact = options.masked || Boolean(options.exactIndices?.has(index))
+    const key = `${id}:${wantExact ? 1 : 0}`
+    if (!variants.has(key)) variants.set(key, { id, wantExact })
+  }
+  const rawById = new Map<string, Promise<Uint8Array>>()
+  const readOnce = (id: string): Promise<Uint8Array> => {
+    const cached = rawById.get(id)
+    if (cached) return cached
+    const row = found.get(id)!
+    const pending = readInput(id, row.key!, row.storageScope, options.signal)
+    rawById.set(id, pending)
+    return pending
+  }
+  const resolved = new Map<string, string>()
+  const queue = [...variants.entries()]
   const worker = async () => {
-    for (let id = queue.shift(); id; id = queue.shift()) {
-      const pending = load(id)
-      resolved.set(id, pending)
-      await pending
+    for (let item = queue.shift(); item; item = queue.shift()) {
+      const [variantKey, { id, wantExact }] = item
+      const row = found.get(id)!
+      const bytes = await readOnce(id)
+      resolved.set(
+        variantKey,
+        wantExact ? await exact(bytes, row.contentType) : await compressed(bytes, row.contentType),
+      )
     }
   }
-  await Promise.all(Array.from({ length: Math.min(LOAD_CONCURRENCY, ids.length) }, worker))
-  return Promise.all(
-    inputs.map((input) => {
-      const id = MEDIA_INPUT.exec(input)?.[1]?.toLowerCase()
-      return id ? resolved.get(id)! : input
-    }),
-  )
+  await Promise.all(Array.from({ length: Math.min(LOAD_CONCURRENCY, queue.length) }, worker))
+  return inputs.map((input, index) => {
+    const id = indexedIds[index]
+    if (!id) return input
+    const wantExact = options.masked || Boolean(options.exactIndices?.has(index))
+    return resolved.get(`${id}:${wantExact ? 1 : 0}`)!
+  })
 }
 
 function abortable<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {

@@ -617,8 +617,7 @@ describe('预签名直传输入图（PR-5.5）', () => {
       loggedIn?: boolean
       attachments?: boolean
       directSubmitExactMedia?: boolean
-      attachmentLimits?: { imageBytes: number }
-      mediaLimits?: { imageBytes: number }
+      mediaLimits?: { imageBytes: number; imagePixels: number }
     } = {},
   ) {
     vi.doMock('../../../lib/mediaUpload', () => ({ uploadMediaSource: uploadSpy }))
@@ -629,12 +628,9 @@ describe('预签名直传输入图（PR-5.5）', () => {
       async () =>
         new Response(
           JSON.stringify({
-            capabilities: {
-              'accounts:sync': true,
-              'agent:attachments': options.attachments !== false,
-            },
+            'accounts:sync': true,
+            'agent:attachments': options.attachments !== false,
             directSubmitExactMedia: options.directSubmitExactMedia !== false,
-            attachmentLimits: options.attachmentLimits,
             mediaLimits: options.mediaLimits,
           }),
           { status: 200 },
@@ -644,11 +640,12 @@ describe('预签名直传输入图（PR-5.5）', () => {
     return await import('../../../lib/channels/queueClient')
   }
 
-  it('登录后开启附件直传与精确透传握手时，大图转成 aip-media:<id>、带 exact_input_images、小图内联、重复图去重且保序', async () => {
+  it('登录后开启附件直传与精确透传握手时，大图转成 aip-media:<id>、仅标记提升下标、既有云图与小图不标记', async () => {
     const uploadSpy = vi.fn().mockResolvedValue({
       id: '11111111-2222-4333-8444-555555555555',
       sha256: 'abc',
     })
+    const existingCloudRef = 'aip-media:99999999-aaaa-4bbb-8ccc-dddddddddddd'
     const { callQueueChannelApi } = await enableDirectUpload(uploadSpy)
     const fetchSpy = mockFetchJson(
       { request_id: 'rid-direct-1', status: 'queued' },
@@ -664,7 +661,7 @@ describe('预签名直传输入图（PR-5.5）', () => {
       callQueueChannelApi(
         {
           ...mockOpts(),
-          inputImageDataUrls: [largeDataUrl, smallDataUrl, largeDataUrl],
+          inputImageDataUrls: [existingCloudRef, largeDataUrl, smallDataUrl, largeDataUrl],
         },
         mockProfile('openai-compat'),
         mockChannel('openai-compat'),
@@ -680,14 +677,16 @@ describe('预签名直传输入图（PR-5.5）', () => {
     const submitCall = fetchSpy.mock.calls.find(([url]) => String(url).includes('/submit'))!
     const body = JSON.parse(String((submitCall[1] as RequestInit).body)) as Record<string, unknown>
     expect(body.input_images).toEqual([
+      existingCloudRef,
       'aip-media:11111111-2222-4333-8444-555555555555',
       smallDataUrl,
       'aip-media:11111111-2222-4333-8444-555555555555',
     ])
-    expect(body.exact_input_images).toBe(true)
+    // 仅本次提升的本地大图下标 1、3 进入 exact_input_indices，下标 0 既有云图继续走服务端压缩。
+    expect(body.exact_input_indices).toEqual([1, 3])
   })
 
-  it('submitVideoRequest 同样将大首尾帧直传为 aip-media:<id>、带 exact_input_images 并保留帧下标顺序', async () => {
+  it('submitVideoRequest 同样将大首尾帧直传为 aip-media:<id>、带 exact_input_indices 并保留帧下标顺序', async () => {
     const uploadSpy = vi.fn().mockResolvedValue({
       id: '22222222-3333-4444-8555-666666666666',
       sha256: 'def',
@@ -717,10 +716,10 @@ describe('预签名直传输入图（PR-5.5）', () => {
       smallDataUrl,
       'aip-media:22222222-3333-4444-8555-666666666666',
     ])
-    expect(body.exact_input_images).toBe(true)
+    expect(body.exact_input_indices).toEqual([1])
   })
 
-  it('直传失败时静默回退原始内联 data URL 且不带 exact_input_images，不中断提交', async () => {
+  it('直传失败时静默回退原始内联 data URL 且不带 exact_input_indices，不中断提交', async () => {
     const uploadSpy = vi.fn().mockRejectedValue(new Error('media_quota_exceeded'))
     const { callQueueChannelApi } = await enableDirectUpload(uploadSpy)
     const fetchSpy = mockFetchJson(
@@ -745,7 +744,7 @@ describe('预签名直传输入图（PR-5.5）', () => {
     const submitCall = fetchSpy.mock.calls.find(([url]) => String(url).includes('/submit'))!
     const body = JSON.parse(String((submitCall[1] as RequestInit).body)) as Record<string, unknown>
     expect(body.input_images).toEqual([largeDataUrl])
-    expect(body.exact_input_images).toBeUndefined()
+    expect(body.exact_input_indices).toBeUndefined()
   })
 
   it('未登录、缺少握手能力、声明 MIME 与魔数不符或超出 mediaLimits 上限时跳过直传', async () => {
@@ -753,7 +752,7 @@ describe('预签名直传输入图（PR-5.5）', () => {
     const { prepareDirectSubmitInputs } = await enableDirectUpload(uploadSpy, { loggedIn: false })
     expect(await prepareDirectSubmitInputs([largeDataUrl])).toEqual({
       inputs: [largeDataUrl],
-      promoted: false,
+      exactIndices: [],
     })
     expect(uploadSpy).not.toHaveBeenCalled()
 
@@ -764,7 +763,7 @@ describe('预签名直传输入图（PR-5.5）', () => {
     })
     expect(await prepareNoCap([largeDataUrl])).toEqual({
       inputs: [largeDataUrl],
-      promoted: false,
+      exactIndices: [],
     })
     expect(uploadSpy).not.toHaveBeenCalled()
 
@@ -776,7 +775,7 @@ describe('预签名直传输入图（PR-5.5）', () => {
     })
     expect(await prepareOldBff([largeDataUrl])).toEqual({
       inputs: [largeDataUrl],
-      promoted: false,
+      exactIndices: [],
     })
     expect(uploadSpy).not.toHaveBeenCalled()
 
@@ -784,11 +783,11 @@ describe('预签名直传输入图（PR-5.5）', () => {
     vi.resetModules()
     const { prepareDirectSubmitInputs: prepareLimited } = await enableDirectUpload(uploadSpy, {
       loggedIn: true,
-      mediaLimits: { imageBytes: 1024 },
+      mediaLimits: { imageBytes: 1024, imagePixels: 1_000_000 },
     })
     expect(await prepareLimited([mismatchedMimeDataUrl, largeDataUrl])).toEqual({
       inputs: [mismatchedMimeDataUrl, largeDataUrl],
-      promoted: false,
+      exactIndices: [],
     })
     expect(uploadSpy).not.toHaveBeenCalled()
   })
