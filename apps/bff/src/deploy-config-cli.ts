@@ -3,10 +3,10 @@
  *
  *   bun run apps/bff/src/deploy-config-cli.ts check
  *   bun run apps/bff/src/deploy-config-cli.ts secrets <prod|test>
- *   bun run apps/bff/src/deploy-config-cli.ts render <prod|test> --out <dir> [--secrets-file <file>]
+ *   bun run apps/bff/src/deploy-config-cli.ts render <prod|test> --out <dir> (--bootstrap <file> | --secrets-file <file>)
  *
- * render 的密钥来源：`--secrets-file`（`NAME=value`，不带部署前缀），或者 Config Worker
- * （`CONFIG_CENTER_URL` + `CONFIG_ACCESS_CLIENT_ID` / `CONFIG_ACCESS_CLIENT_SECRET`）。
+ * render 的密钥来源：主机上的 `bootstrap.env`（Config Worker 地址和各部署的 Access service token，
+ * 见 ADR 0035），或者 `--secrets-file`（`NAME=value`，不带部署前缀，只用于迁移和应急）。
  * 输出目录先写到同级临时目录再整体换上去；任何一项校验不过就不动现有目录。不回显任何值。
  */
 import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
@@ -49,16 +49,27 @@ export function parseSecretsFile(text: string): Record<string, string> {
   return values
 }
 
-async function fetchSecrets(name: DeploymentName): Promise<Record<string, string>> {
-  const base = process.env.CONFIG_CENTER_URL?.replace(/\/+$/, '')
-  const id = process.env.CONFIG_ACCESS_CLIENT_ID
-  const secret = process.env.CONFIG_ACCESS_CLIENT_SECRET
-  if (!base || !id || !secret) {
+/** 主机 `bootstrap.env`：`CONFIG_CENTER_URL`，以及每个部署一对 `<PROD|TEST>_CONFIG_ACCESS_CLIENT_ID/SECRET`。 */
+export function bootstrapFor(text: string, name: DeploymentName) {
+  const values = parseSecretsFile(text)
+  const prefix = name.toUpperCase()
+  const url = values.CONFIG_CENTER_URL?.replace(/\/+$/, '')
+  const id = values[`${prefix}_CONFIG_ACCESS_CLIENT_ID`]
+  const secret = values[`${prefix}_CONFIG_ACCESS_CLIENT_SECRET`]
+  if (!url || !id || !secret) {
     throw new Error(
-      'No secrets source: pass --secrets-file, or set CONFIG_CENTER_URL, CONFIG_ACCESS_CLIENT_ID and CONFIG_ACCESS_CLIENT_SECRET',
+      `bootstrap file needs CONFIG_CENTER_URL, ${prefix}_CONFIG_ACCESS_CLIENT_ID and ${prefix}_CONFIG_ACCESS_CLIENT_SECRET`,
     )
   }
-  const response = await fetch(`${base}/v1/${name}/secrets`, {
+  return { url, id, secret }
+}
+
+async function fetchSecrets(
+  name: DeploymentName,
+  bootstrapFile: string,
+): Promise<Record<string, string>> {
+  const { url, id, secret } = bootstrapFor(await readFile(bootstrapFile, 'utf8'), name)
+  const response = await fetch(`${url}/v1/${name}/secrets`, {
     headers: { 'CF-Access-Client-Id': id, 'CF-Access-Client-Secret': secret },
     redirect: 'manual',
     signal: AbortSignal.timeout(20_000),
@@ -183,9 +194,13 @@ async function main(argv: string[]): Promise<number> {
     if (!out) throw new Error('render needs --out <dir>')
     const deployment = await loadDeployment(name)
     const secretsFile = option(args, '--secrets-file')
+    const bootstrapFile = option(args, '--bootstrap')
+    if (Boolean(secretsFile) === Boolean(bootstrapFile)) {
+      throw new Error('render needs exactly one of --bootstrap <file> or --secrets-file <file>')
+    }
     const secrets = secretsFile
       ? parseSecretsFile(await readFile(secretsFile, 'utf8'))
-      : await fetchSecrets(name)
+      : await fetchSecrets(name, bootstrapFile as string)
     const { rendered, problems } = renderDeployment(deployment, secrets)
     if (problems.length > 0) {
       for (const problem of problems) console.error(problem)
@@ -221,7 +236,7 @@ async function main(argv: string[]): Promise<number> {
     return 0
   }
   console.error(
-    'usage: deploy-config-cli.ts check | secrets <deployment> | render <deployment> --out <dir> [--secrets-file <file>] | import-legacy --from <dir> --out <file>',
+    'usage: deploy-config-cli.ts check | secrets <deployment> | render <deployment> --out <dir> (--bootstrap <file> | --secrets-file <file>) | import-legacy --from <dir> --out <file>',
   )
   return 2
 }

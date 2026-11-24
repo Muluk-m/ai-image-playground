@@ -1,0 +1,342 @@
+// 由 provision.ts deploy 生成：binding 与 Secrets Store 里 PROD__/TEST__ 开头的名字一一对应。
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "aip-config-center",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [
+    {
+      "pattern": "config.nainma.online",
+      "custom_domain": true
+    }
+  ],
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "nain-ma.cloudflareaccess.com",
+    "ACCESS_AUD_PROD": "7d27940963caef8921c5bc96741b2423e20670677499669559cc2619dc0cca83",
+    "ACCESS_AUD_TEST": "8aeafaec462a32aaaab6838b7017dc77eb569b61ca297f172a9cf69a69ae5682"
+  },
+  "secrets_store_secrets": [
+    {
+      "binding": "PROD__ADMIN_COOKIE_SECRET",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__ADMIN_COOKIE_SECRET"
+    },
+    {
+      "binding": "PROD__ADMIN_GOOGLE_ALLOWED_EMAILS",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__ADMIN_GOOGLE_ALLOWED_EMAILS"
+    },
+    {
+      "binding": "PROD__ADMIN_GOOGLE_CLIENT_SECRET",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__ADMIN_GOOGLE_CLIENT_SECRET"
+    },
+    {
+      "binding": "PROD__ADMIN_PASSWORD",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__ADMIN_PASSWORD"
+    },
+    {
+      "binding": "PROD__AGNES_API_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__AGNES_API_KEY"
+    },
+    {
+      "binding": "PROD__EMAIL_CODE_SECRET",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__EMAIL_CODE_SECRET"
+    },
+    {
+      "binding": "PROD__GEMINI_API_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__GEMINI_API_KEY"
+    },
+    {
+      "binding": "PROD__GROK_API_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__GROK_API_KEY"
+    },
+    {
+      "binding": "PROD__GROK_BASE_URL",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__GROK_BASE_URL"
+    },
+    {
+      "binding": "PROD__INTERNAL_API_TOKEN",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__INTERNAL_API_TOKEN"
+    },
+    {
+      "binding": "PROD__OAUTH_FEISHU_CLIENT_SECRET",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__OAUTH_FEISHU_CLIENT_SECRET"
+    },
+    {
+      "binding": "PROD__OAUTH_GOOGLE_CLIENT_SECRET",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__OAUTH_GOOGLE_CLIENT_SECRET"
+    },
+    {
+      "binding": "PROD__OBS_PROXY_TOKEN",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__OBS_PROXY_TOKEN"
+    },
+    {
+      "binding": "PROD__OBS_ROOT_EMAIL",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__OBS_ROOT_EMAIL"
+    },
+    {
+      "binding": "PROD__OBS_ROOT_PASSWORD",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__OBS_ROOT_PASSWORD"
+    },
+    {
+      "binding": "PROD__OBS_S3_ACCESS_KEY_ID",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__OBS_S3_ACCESS_KEY_ID"
+    },
+    {
+      "binding": "PROD__OBS_S3_ENDPOINT",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__OBS_S3_ENDPOINT"
+    },
+    {
+      "binding": "PROD__OBS_S3_SECRET_ACCESS_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__OBS_S3_SECRET_ACCESS_KEY"
+    },
+    {
+      "binding": "PROD__OPENAI_API_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__OPENAI_API_KEY"
+    },
+    {
+      "binding": "PROD__OPS_ALERT_WEBHOOK_HEADERS",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__OPS_ALERT_WEBHOOK_HEADERS"
+    },
+    {
+      "binding": "PROD__OPS_ALERT_WEBHOOK_URL",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__OPS_ALERT_WEBHOOK_URL"
+    },
+    {
+      "binding": "PROD__OPS_ALERT_WEBHOOK_URLS",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__OPS_ALERT_WEBHOOK_URLS"
+    },
+    {
+      "binding": "PROD__POSTGRES_ADMIN_PASSWORD",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__POSTGRES_ADMIN_PASSWORD"
+    },
+    {
+      "binding": "PROD__POSTGRES_APP_PASSWORD",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__POSTGRES_APP_PASSWORD"
+    },
+    {
+      "binding": "PROD__POSTGRES_MIGRATOR_PASSWORD",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__POSTGRES_MIGRATOR_PASSWORD"
+    },
+    {
+      "binding": "PROD__RESEND_API_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__RESEND_API_KEY"
+    },
+    {
+      "binding": "PROD__S3_ACCESS_KEY_ID",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__S3_ACCESS_KEY_ID"
+    },
+    {
+      "binding": "PROD__S3_ENDPOINT",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__S3_ENDPOINT"
+    },
+    {
+      "binding": "PROD__S3_SECRET_ACCESS_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__S3_SECRET_ACCESS_KEY"
+    },
+    {
+      "binding": "PROD__TUNNEL_CREDENTIALS",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__TUNNEL_CREDENTIALS"
+    },
+    {
+      "binding": "PROD__UPSTREAM_API_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__UPSTREAM_API_KEY"
+    },
+    {
+      "binding": "PROD__UPSTREAM_BASE_URL",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__UPSTREAM_BASE_URL"
+    },
+    {
+      "binding": "PROD__UPSTREAM_CLAUDE_API_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__UPSTREAM_CLAUDE_API_KEY"
+    },
+    {
+      "binding": "PROD__UPSTREAM_OPENAI_API_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__UPSTREAM_OPENAI_API_KEY"
+    },
+    {
+      "binding": "PROD__UPSTREAM_SECRETS_MASTER_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__UPSTREAM_SECRETS_MASTER_KEY"
+    },
+    {
+      "binding": "PROD__VERTEX_API_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__VERTEX_API_KEY"
+    },
+    {
+      "binding": "PROD__VERTEX_BASE_URL",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "PROD__VERTEX_BASE_URL"
+    },
+    {
+      "binding": "TEST__ADMIN_COOKIE_SECRET",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__ADMIN_COOKIE_SECRET"
+    },
+    {
+      "binding": "TEST__ADMIN_PASSWORD",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__ADMIN_PASSWORD"
+    },
+    {
+      "binding": "TEST__AGNES_API_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__AGNES_API_KEY"
+    },
+    {
+      "binding": "TEST__EMAIL_CODE_SECRET",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__EMAIL_CODE_SECRET"
+    },
+    {
+      "binding": "TEST__GEMINI_API_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__GEMINI_API_KEY"
+    },
+    {
+      "binding": "TEST__GROK_API_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__GROK_API_KEY"
+    },
+    {
+      "binding": "TEST__GROK_BASE_URL",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__GROK_BASE_URL"
+    },
+    {
+      "binding": "TEST__INTERNAL_API_TOKEN",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__INTERNAL_API_TOKEN"
+    },
+    {
+      "binding": "TEST__OAUTH_FEISHU_CLIENT_SECRET",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__OAUTH_FEISHU_CLIENT_SECRET"
+    },
+    {
+      "binding": "TEST__OAUTH_GOOGLE_CLIENT_SECRET",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__OAUTH_GOOGLE_CLIENT_SECRET"
+    },
+    {
+      "binding": "TEST__OPENAI_API_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__OPENAI_API_KEY"
+    },
+    {
+      "binding": "TEST__OPS_ALERT_WEBHOOK_HEADERS",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__OPS_ALERT_WEBHOOK_HEADERS"
+    },
+    {
+      "binding": "TEST__OPS_ALERT_WEBHOOK_URLS",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__OPS_ALERT_WEBHOOK_URLS"
+    },
+    {
+      "binding": "TEST__POSTGRES_ADMIN_PASSWORD",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__POSTGRES_ADMIN_PASSWORD"
+    },
+    {
+      "binding": "TEST__POSTGRES_APP_PASSWORD",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__POSTGRES_APP_PASSWORD"
+    },
+    {
+      "binding": "TEST__POSTGRES_MIGRATOR_PASSWORD",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__POSTGRES_MIGRATOR_PASSWORD"
+    },
+    {
+      "binding": "TEST__RESEND_API_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__RESEND_API_KEY"
+    },
+    {
+      "binding": "TEST__S3_ACCESS_KEY_ID",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__S3_ACCESS_KEY_ID"
+    },
+    {
+      "binding": "TEST__S3_ENDPOINT",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__S3_ENDPOINT"
+    },
+    {
+      "binding": "TEST__S3_SECRET_ACCESS_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__S3_SECRET_ACCESS_KEY"
+    },
+    {
+      "binding": "TEST__TUNNEL_CREDENTIALS",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__TUNNEL_CREDENTIALS"
+    },
+    {
+      "binding": "TEST__UPSTREAM_API_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__UPSTREAM_API_KEY"
+    },
+    {
+      "binding": "TEST__UPSTREAM_BASE_URL",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__UPSTREAM_BASE_URL"
+    },
+    {
+      "binding": "TEST__UPSTREAM_CLAUDE_API_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__UPSTREAM_CLAUDE_API_KEY"
+    },
+    {
+      "binding": "TEST__UPSTREAM_OPENAI_API_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__UPSTREAM_OPENAI_API_KEY"
+    },
+    {
+      "binding": "TEST__VERTEX_API_KEY",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__VERTEX_API_KEY"
+    },
+    {
+      "binding": "TEST__VERTEX_BASE_URL",
+      "store_id": "a34a57f2860e4ee5b22f7d7c2cdac70a",
+      "secret_name": "TEST__VERTEX_BASE_URL"
+    }
+  ]
+}

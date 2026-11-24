@@ -828,7 +828,4 @@ export const NOT_DEPLOYMENT_CONFIG: Readonly<Record<string, string>> = {
   HOST_CGROUP: 'host-collector 本地运行时覆盖挂载路径',
   HOST_CONTAINER_NAMES: 'host-collector 本地运行时覆盖挂载路径',
   HOST_SAMPLE_INTERVAL_MS: 'host-collector 采样间隔默认值',
-  CONFIG_CENTER_URL: 'config render 自己的输入（bootstrap.env）',
-  CONFIG_ACCESS_CLIENT_ID: 'config render 自己的输入（bootstrap.env）',
-  CONFIG_ACCESS_CLIENT_SECRET: 'config render 自己的输入（bootstrap.env）',
 }
