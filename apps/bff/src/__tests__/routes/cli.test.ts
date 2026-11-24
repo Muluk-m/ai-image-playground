@@ -1132,24 +1132,26 @@ describe('capabilities and dry-run', () => {
   })
 
   it('submits the default model the capabilities list when the first model is out of reach', async () => {
-    // The first model only offers 4K, which a non-member cannot submit, so the list skips it.
-    _setChannelsForTesting(
-      CHANNELS.map((channel): (typeof CHANNELS)[number] =>
-        channel.id === 'gemini-direct'
-          ? {
-              ...channel,
-              models: channel.models.map((model) => ({ ...model, imageSizes: ['4K' as const] })),
-            }
-          : channel,
-      ),
+    // GPT goes first and only offers 2K, which needs the direct route; with that route off the
+    // account cannot submit any GPT tier, so the list skips GPT.
+    const gptOnly2K = CHANNELS.filter((channel) => channel.id === 'openai-images').map(
+      (channel): (typeof CHANNELS)[number] => ({
+        ...channel,
+        models: channel.models.map((model) => ({ ...model, imageSizes: ['2K' as const] })),
+      }),
     )
+    _setChannelsForTesting([
+      ...gptOnly2K,
+      ...CHANNELS.filter((channel) => channel.id !== 'openai-images'),
+    ])
+    process.env.GPT_DIRECT_ENABLED = 'false'
     const user = await createUser('default-model')
     const { access_token } = await connect(user)
     const caps = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
-    expect(caps.json.data.default_model).toBe('gpt-image-2.5-flare')
-    expect(caps.json.data.models.map((model: { id: string }) => model.id)).not.toContain(
+    expect(caps.json.data.default_model).toBe('gemini-3-pro-image')
+    expect(caps.json.data.models.map((model: { id: string }) => model.id)).toEqual([
       'gemini-3-pro-image',
-    )
+    ])
 
     const preview = await call('POST', '/v1/image-jobs/validate', {
       body: imageJob(),
@@ -1165,10 +1167,15 @@ describe('capabilities and dry-run', () => {
     const [task] = await db.select().from(schema.tasks)
     expect(task?.model).toBe(caps.json.data.default_model)
 
-    // A member can submit 4K, so the first model is the default again for them.
-    billing.members.add(user.id)
-    const member = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
-    expect(member.json.data.default_model).toBe('gemini-3-pro-image')
+    // With the direct route back, GPT 2K is submittable and the first model is the default again.
+    process.env.GPT_DIRECT_ENABLED = 'true'
+    const direct = await call('GET', '/v1/capabilities', { headers: bearer(access_token) })
+    expect(direct.json.data.default_model).toBe('gpt-image-2.5-flare')
+    const again = await call('POST', '/v1/image-jobs/validate', {
+      body: imageJob(),
+      headers: bearer(access_token),
+    })
+    expect(again.json.data.normalized.model).toBe('gpt-image-2.5-flare')
   })
 
   it('quotes without creating a task or holding credits, and agrees with submit on the hash', async () => {
