@@ -179,9 +179,24 @@ describe('databasePoolFromEnv', () => {
       )
     })
   }
+
+  it('parses optional DATABASE_PREPARE and rejects non-boolean values', () => {
+    expect(databasePoolFromEnv('aip-bff', {}).prepare).toBeUndefined()
+    expect(databasePoolFromEnv('aip-bff', { DATABASE_PREPARE: 'false' }).prepare).toBe(false)
+    expect(databasePoolFromEnv('aip-bff', { DATABASE_PREPARE: 'TRUE' }).prepare).toBe(true)
+    expect(() => databasePoolFromEnv('aip-bff', { DATABASE_PREPARE: 'yes' })).toThrow(
+      'DATABASE_PREPARE must be true or false',
+    )
+  })
 })
 
 describe('createDb', () => {
+  it('supports disabling prepared statements for transaction poolers', async () => {
+    const { client } = handle({ max: 1, prepare: false })
+    expect(client.options.prepare).toBe(false)
+    const [row] = await client`SELECT 1 + 1 AS sum`
+    expect(row).toEqual({ sum: 2 })
+  })
   it('round-trips epoch milliseconds and JSONB while deriving device_id', async () => {
     const { db, schema } = handle()
     const submittedAt = 1_786_264_321_123

@@ -106,6 +106,34 @@ describe('test backend configuration', () => {
     expect(writeRuntime().status).toBe(0)
   })
 
+  it('accepts pgbouncer for APP_DATABASE_URL alongside a dedicated direct postgres URL', () => {
+    const pooled = writeRuntime({
+      appExtra: [
+        'APP_DATABASE_URL=postgresql://aip_test_app:writer@pgbouncer:6432/aip_test',
+        'APP_DIRECT_DATABASE_URL=postgresql://aip_test_app:writer@postgres:5432/aip_test',
+      ].join('\n'),
+    })
+    expect(pooled.status).toBe(0)
+  })
+
+  it('rejects production direct database URLs in APP_DIRECT_DATABASE_URL', () => {
+    const badDirect = writeRuntime({
+      appExtra:
+        'APP_DIRECT_DATABASE_URL=postgresql://paid_app:secret@postgres:5432/image_playground_paid',
+    })
+    expect(badDirect.status).toBe(1)
+    expect(badDirect.stderr).toContain('APP_DIRECT_DATABASE_URL')
+  })
+
+  it('rejects setting DIRECT_DATABASE_URL directly in app.env', () => {
+    const rawDirect = writeRuntime({
+      appExtra:
+        'DIRECT_DATABASE_URL=postgresql://paid_app:secret@postgres:5432/image_playground_paid',
+    })
+    expect(rawDirect.status).toBe(1)
+    expect(rawDirect.stderr).toContain('DIRECT_DATABASE_URL')
+  })
+
   it('checks the effective last value of a repeated setting', () => {
     const result = writeRuntime({
       appExtra: 'APP_DATABASE_URL=postgresql://production:secret@postgres:5432/production',

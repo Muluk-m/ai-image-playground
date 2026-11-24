@@ -338,6 +338,11 @@ export const config = {
     },
   },
   databaseUrl: env('DATABASE_URL'),
+  /**
+   * 直连 PostgreSQL 地址（绕过 PgBouncer 事务连接池），供 session advisory lock 与迁移使用。
+   * 未配置时回退 DATABASE_URL，保持未启用连接池时的零配置兼容。
+   */
+  directDatabaseUrl: env('DIRECT_DATABASE_URL', '') || env('DATABASE_URL'),
   /** 连接池上限与空闲回收，部署按角色设（deploy/compose.app.yaml）；worker 与 BFF 用各自的 application_name。 */
   databasePool: databasePoolFromEnv(process.env.APP_ROLE === 'worker' ? 'aip-worker' : 'aip-bff'),
   corsOrigins: env('CORS_ALLOWED_ORIGINS', '*'),

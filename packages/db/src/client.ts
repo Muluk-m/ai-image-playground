@@ -30,6 +30,8 @@ export interface DbPoolOptions {
   lockTimeoutMs?: number
   /** Server-side idle_in_transaction_session_timeout: a transaction left open drops its locks. */
   idleInTransactionTimeoutMs?: number
+  /** Automatic named prepared statements; unset keeps Bun's default (true). Set false for poolers without prepared statement support. */
+  prepare?: boolean
 }
 
 /** Startup parameters for every connection in the pool; undefined keeps the server defaults. */
@@ -54,6 +56,7 @@ export function createDb(databaseUrl: string, pool: DbPoolOptions = {}): DbHandl
     max: pool.max,
     idleTimeout: pool.idleTimeout,
     maxLifetime: pool.maxLifetime,
+    ...(pool.prepare !== undefined ? { prepare: pool.prepare } : {}),
     connection: sessionSettings(pool),
   })
   const db = drizzle(client, { schema })
@@ -88,17 +91,26 @@ const positiveIntegerEnv = (env: Record<string, string | undefined>, name: strin
   return value
 }
 
+const optionalBooleanEnv = (env: Record<string, string | undefined>, name: string) => {
+  const raw = env[name]?.trim().toLowerCase()
+  if (!raw) return undefined
+  if (raw === 'true') return true
+  if (raw === 'false') return false
+  throw new Error(`${name} must be true or false`)
+}
+
 /**
  * Pool settings for a long-running service: DATABASE_POOL_MAX (unset keeps the driver's 10),
- * DATABASE_IDLE_TIMEOUT_SECONDS (default 60), and the server-side DATABASE_STATEMENT_TIMEOUT_MS
- * (default 60000), DATABASE_LOCK_TIMEOUT_MS (10000) and DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS
- * (60000). Anything but a positive integer throws, so a typo stops the process at startup instead
- * of silently falling back.
+ * DATABASE_IDLE_TIMEOUT_SECONDS (default 60), DATABASE_PREPARE (unset keeps Bun's default true),
+ * and the server-side DATABASE_STATEMENT_TIMEOUT_MS (default 60000), DATABASE_LOCK_TIMEOUT_MS
+ * (10000) and DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS (60000). Invalid values throw, so a typo
+ * stops the process at startup instead of silently falling back.
  */
 export function databasePoolFromEnv(
   applicationName: string,
   env: Record<string, string | undefined> = process.env,
 ): DbPoolOptions {
+  const prepare = optionalBooleanEnv(env, 'DATABASE_PREPARE')
   return {
     applicationName,
     max: positiveIntegerEnv(env, 'DATABASE_POOL_MAX'),
@@ -110,6 +122,7 @@ export function databasePoolFromEnv(
     idleInTransactionTimeoutMs:
       positiveIntegerEnv(env, 'DATABASE_IDLE_IN_TRANSACTION_TIMEOUT_MS') ??
       SERVICE_IDLE_IN_TRANSACTION_TIMEOUT_MS,
+    ...(prepare !== undefined ? { prepare } : {}),
   }
 }
 
