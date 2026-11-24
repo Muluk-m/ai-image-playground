@@ -65,7 +65,7 @@ function options(): HTMLElement[] {
 }
 
 function submit(): void {
-  const button = host.querySelector<HTMLButtonElement>('button[aria-label="发送并拟提示词"]')!
+  const button = host.querySelector<HTMLButtonElement>('button[aria-label="发送"]')!
   act(() => {
     button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   })

@@ -37,12 +37,12 @@ describe('lib 的 module-level 标签表', () => {
 
   it('另一张表同样跟着切，别只覆盖头一个', async () => {
     expect(MAX_INPUT_IMAGES_MESSAGE).toContain('参考图数量已达上限')
-    expect(IMAGE_FETCH_CORS_HINT).toContain('复制结果链接')
+    expect(IMAGE_FETCH_CORS_HINT).toContain('复制图片链接')
 
     await setLocale('en')
 
     expect(MAX_INPUT_IMAGES_MESSAGE).toContain('Reference image limit reached')
-    expect(IMAGE_FETCH_CORS_HINT).toContain('copy the result URL')
+    expect(IMAGE_FETCH_CORS_HINT).toContain('Copy the image link')
   })
 
   it('重算挂在 languageChanged 上，且排在 react-i18next 之后', () => {

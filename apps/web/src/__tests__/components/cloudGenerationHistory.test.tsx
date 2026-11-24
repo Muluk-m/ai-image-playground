@@ -197,9 +197,9 @@ it('首页先预览最近两行作品，点「查看全部作品」展开完整�
   expect(cards()).toHaveLength(2)
   expect(findButton('加载更多')).toBe(false)
   expect(host.querySelector('input[type="search"]')).toBeNull()
-  await click('查看全部作品')
+  await click('查看全部')
   await waitCards(4)
-  expect(findButton('查看全部作品')).toBe(false)
+  expect(findButton('查看全部')).toBe(false)
 })
 
 it('作品不满两行时不露出展开入口', async () => {
@@ -210,7 +210,7 @@ it('作品不满两行时不露出展开入口', async () => {
   await act(async () => root.render(<GenerationHistory userId="owner" hero />))
   await waitCards(1)
   await settle()
-  expect(findButton('查看全部作品')).toBe(false)
+  expect(findButton('查看全部')).toBe(false)
 })
 
 it('首页保留去资产库入口', async () => {
@@ -237,7 +237,7 @@ it('首页预览不随滚动续读；平台还有下一页时露出展开入口'
   expect(
     fetcher.mock.calls.filter(([url]) => String(url).startsWith('/api/generations')),
   ).toHaveLength(1)
-  expect(findButton('查看全部作品')).toBe(true)
+  expect(findButton('查看全部')).toBe(true)
 })
 
 it('展开后接近列表底部时续读下一页，等待期间不重复请求', async () => {
@@ -255,7 +255,7 @@ it('展开后接近列表底部时续读下一页，等待期间不重复请求'
     await act(async () => {})
     expect(host.querySelector('[role="status"]')).toBeNull()
   })
-  await click('查看全部作品')
+  await click('查看全部')
   expect(fetcher.mock.calls.filter(([url]) => url.startsWith('/api/generations'))).toHaveLength(1)
   await reachEnd()
   await reachEnd()
@@ -281,7 +281,7 @@ it('展开后滚动加载失败时保留已读作品并停止自动重试', asyn
     await act(async () => {})
     expect(host.querySelector('[role="status"]')).toBeNull()
   })
-  await click('查看全部作品')
+  await click('查看全部')
   await reachEnd()
   await settle()
   await reachEnd()
@@ -309,7 +309,7 @@ it('不支持 IntersectionObserver 时展开后仍能通过滚动续页', async 
     await act(async () => {})
     expect(host.querySelector('[role="status"]')).toBeNull()
   })
-  await click('查看全部作品')
+  await click('查看全部')
   top = 100
   await act(async () => window.dispatchEvent(new Event('scroll')))
   await waitCards(2)

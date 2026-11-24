@@ -175,7 +175,7 @@ describe('创作类型按当前选择保存', () => {
     await settle()
 
     type('画一只猫')
-    click('发送并拟提示词')
+    click('发送')
     expect(send).toHaveBeenCalledWith('画一只猫', [], 'image')
   })
 
@@ -187,10 +187,10 @@ describe('创作类型按当前选择保存', () => {
     await settle()
 
     type('做个开箱片')
-    click('发送并拟提示词')
+    click('发送')
     expect(send).toHaveBeenCalledWith('做个开箱片', [], 'video')
     type('再来一段')
-    click('发送并拟提示词')
+    click('发送')
     expect(send).toHaveBeenLastCalledWith('再来一段', [], 'video')
   })
 
@@ -212,7 +212,7 @@ describe('创作类型按当前选择保存', () => {
     await settle()
 
     type('画一只猫')
-    click('发送并拟提示词')
+    click('发送')
     expect(send).toHaveBeenCalledWith('画一只猫', [], 'image')
     expect(useAgentStore.getState().mode).toBe('image')
   })
@@ -229,7 +229,7 @@ describe('部署做不了视频时', () => {
     expect(document.querySelector('[aria-label^="创作类型"]')?.textContent).toContain('Agent')
     expect(host.textContent).not.toContain('视频')
     type('画一只猫')
-    click('发送并拟提示词')
+    click('发送')
     expect(send).toHaveBeenCalledWith('画一只猫', [], 'image')
     expect(useAgentStore.getState().mode).toBe('image')
   })
@@ -353,7 +353,7 @@ describe('用户消息重新编辑', () => {
 
     type('，改成暖色')
     act(() => useAgentStore.setState({ turn: 'idle' }))
-    click('发送并拟提示词')
+    click('发送')
     expect(send).toHaveBeenCalledWith(`${message.text}，改成暖色`, [], 'image')
     expect(message.text).toBe('我只要一张小米\n你先设计几个风格，我来选一个')
   })
@@ -409,7 +409,7 @@ describe('`/` 技能候选', () => {
     type(' 做成短片')
     expect(editor().textContent).toContain('分镜短片')
     expect(editor().textContent).not.toContain('/storyboard-short')
-    click('发送并拟提示词')
+    click('发送')
     expect(send).toHaveBeenCalledWith(
       '/storyboard-short 参考 [image 1] 做成短片',
       [{ imageId: 'ref', dataUrl: 'data:image/png;base64,aGk=' }],
@@ -486,7 +486,7 @@ it('视频制作入口在图片项目里重新挂载后仍发送视频轮，不�
   expect(useAgentStore.getState().mode).toBe('video')
   expect(host.querySelector('[aria-label="出图模式"]')).toBeNull()
   type('继续修改剧本')
-  click('发送并拟提示词')
+  click('发送')
   expect(send).toHaveBeenCalledWith('继续修改剧本', [], 'video')
   expect(useCanvasProjectStore.getState().projects[0]?.kind).toBe('image')
 })
