@@ -18,10 +18,13 @@ export const capabilitiesRoutes = new Elysia().get(
      * 分阶段上线：先发布了能容忍上传中节点的读取端（#1452），旧版页面换代后这里打开写入。
      */
     canvasPendingMedia: boolean
+    /** 队列提交支持 `input_media_ids` 与 `exact_input_images` 原字节直通，工作台可安全开启预签名直传。 */
+    directSubmitExactMedia: true
   } => ({
     ...capabilityManifest(),
     projectDocumentIdentity: true,
     canvasPendingMedia: CANVAS_PENDING_MEDIA_WRITES,
+    directSubmitExactMedia: true,
   }),
 )
 

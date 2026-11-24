@@ -87,6 +87,8 @@ const submitBodySchema = t.Object({
       maxItems: QUEUE_MAX_INPUT_IMAGES,
     }),
   ),
+  /** 客户端已完成预处理并直传原字节时置 true，跳过服务端二次有损压缩，保持与内联回退一致的幂等哈希。 */
+  exact_input_images: t.Optional(t.Boolean()),
   mask: t.Optional(t.String({ pattern: DATA_URL_PATTERN })),
   /** 档位合法性由 shared 的 videoRequestRejection 兜底，这里只做形状白名单。 */
   video: t.Optional(
@@ -253,6 +255,7 @@ export const submitRoutes = new Elysia()
         video: _rawVideo,
         stage_authorization: stageAuthorization,
         input_media_ids: inputMediaIds,
+        exact_input_images: exactInputImages,
         ...rest
       } = body
       const combinedRawInputs =
@@ -266,6 +269,7 @@ export const submitRoutes = new Elysia()
       try {
         inputImages = await resolveMediaInputs(authUser?.id ?? null, combinedRawInputs, {
           masked: Boolean(rest.mask),
+          preserveExact: Boolean(exactInputImages),
           signal: request.signal,
         })
       } catch (error) {

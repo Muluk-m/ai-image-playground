@@ -593,7 +593,9 @@ describe('提交失败时的 BFF 错误码文案', () => {
 })
 
 describe('预签名直传输入图（PR-5.5）', () => {
-  const largeDataUrl = `data:image/png;base64,${'A'.repeat(70 * 1024)}`
+  // 带合法 PNG 魔数（89 50 4E 47 0D 0A 1A 0A -> iVBORw0KGgoA）且长度为 4 的倍数的标准 base64
+  const largeDataUrl = `data:image/png;base64,iVBORw0KGgoA${'A'.repeat(70 * 1024)}`
+  const mismatchedMimeDataUrl = `data:image/jpeg;base64,iVBORw0KGgoA${'A'.repeat(70 * 1024)}`
   const smallDataUrl = 'data:image/png;base64,iVBORw0KGgo='
 
   beforeEach(() => {
@@ -611,7 +613,13 @@ describe('预签名直传输入图（PR-5.5）', () => {
 
   async function enableDirectUpload(
     uploadSpy: ReturnType<typeof vi.fn>,
-    options: { loggedIn?: boolean; attachments?: boolean } = {},
+    options: {
+      loggedIn?: boolean
+      attachments?: boolean
+      directSubmitExactMedia?: boolean
+      attachmentLimits?: { imageBytes: number }
+      mediaLimits?: { imageBytes: number }
+    } = {},
   ) {
     vi.doMock('../../../lib/mediaUpload', () => ({ uploadMediaSource: uploadSpy }))
     const { setClientStorageScope } = await import('../../../lib/authScope')
@@ -621,17 +629,22 @@ describe('预签名直传输入图（PR-5.5）', () => {
       async () =>
         new Response(
           JSON.stringify({
-            'accounts:sync': true,
-            'agent:attachments': options.attachments !== false,
+            capabilities: {
+              'accounts:sync': true,
+              'agent:attachments': options.attachments !== false,
+            },
+            directSubmitExactMedia: options.directSubmitExactMedia !== false,
+            attachmentLimits: options.attachmentLimits,
+            mediaLimits: options.mediaLimits,
           }),
           { status: 200 },
         ),
     )
-    await bootstrapClientCapabilities('https://bff.example.com')
+    await bootstrapClientCapabilities(true, 'https://bff.example.com')
     return await import('../../../lib/channels/queueClient')
   }
 
-  it('登录后开启附件直传时，大图转成 aip-media:<id>、小图内联、重复图去重且保序', async () => {
+  it('登录后开启附件直传与精确透传握手时，大图转成 aip-media:<id>、带 exact_input_images、小图内联、重复图去重且保序', async () => {
     const uploadSpy = vi.fn().mockResolvedValue({
       id: '11111111-2222-4333-8444-555555555555',
       sha256: 'abc',
@@ -671,9 +684,10 @@ describe('预签名直传输入图（PR-5.5）', () => {
       smallDataUrl,
       'aip-media:11111111-2222-4333-8444-555555555555',
     ])
+    expect(body.exact_input_images).toBe(true)
   })
 
-  it('submitVideoRequest 同样将大首尾帧直传为 aip-media:<id> 并保留帧下标顺序', async () => {
+  it('submitVideoRequest 同样将大首尾帧直传为 aip-media:<id>、带 exact_input_images 并保留帧下标顺序', async () => {
     const uploadSpy = vi.fn().mockResolvedValue({
       id: '22222222-3333-4444-8555-666666666666',
       sha256: 'def',
@@ -703,9 +717,10 @@ describe('预签名直传输入图（PR-5.5）', () => {
       smallDataUrl,
       'aip-media:22222222-3333-4444-8555-666666666666',
     ])
+    expect(body.exact_input_images).toBe(true)
   })
 
-  it('直传失败时静默回退原始内联 data URL，不中断提交', async () => {
+  it('直传失败时静默回退原始内联 data URL 且不带 exact_input_images，不中断提交', async () => {
     const uploadSpy = vi.fn().mockRejectedValue(new Error('media_quota_exceeded'))
     const { callQueueChannelApi } = await enableDirectUpload(uploadSpy)
     const fetchSpy = mockFetchJson(
@@ -730,12 +745,16 @@ describe('预签名直传输入图（PR-5.5）', () => {
     const submitCall = fetchSpy.mock.calls.find(([url]) => String(url).includes('/submit'))!
     const body = JSON.parse(String((submitCall[1] as RequestInit).body)) as Record<string, unknown>
     expect(body.input_images).toEqual([largeDataUrl])
+    expect(body.exact_input_images).toBeUndefined()
   })
 
-  it('未登录或服务端未开 agent:attachments 时不尝试直传', async () => {
+  it('未登录、缺少握手能力、声明 MIME 与魔数不符或超出 mediaLimits 上限时跳过直传', async () => {
     const uploadSpy = vi.fn()
     const { prepareDirectSubmitInputs } = await enableDirectUpload(uploadSpy, { loggedIn: false })
-    expect(await prepareDirectSubmitInputs([largeDataUrl])).toEqual([largeDataUrl])
+    expect(await prepareDirectSubmitInputs([largeDataUrl])).toEqual({
+      inputs: [largeDataUrl],
+      promoted: false,
+    })
     expect(uploadSpy).not.toHaveBeenCalled()
 
     vi.resetModules()
@@ -743,7 +762,34 @@ describe('预签名直传输入图（PR-5.5）', () => {
       loggedIn: true,
       attachments: false,
     })
-    expect(await prepareNoCap([largeDataUrl])).toEqual([largeDataUrl])
+    expect(await prepareNoCap([largeDataUrl])).toEqual({
+      inputs: [largeDataUrl],
+      promoted: false,
+    })
+    expect(uploadSpy).not.toHaveBeenCalled()
+
+    // 旧 BFF 未声明 directSubmitExactMedia 时绝不提升，避免跨版发布触发二次压缩与 409 冲突
+    vi.resetModules()
+    const { prepareDirectSubmitInputs: prepareOldBff } = await enableDirectUpload(uploadSpy, {
+      loggedIn: true,
+      directSubmitExactMedia: false,
+    })
+    expect(await prepareOldBff([largeDataUrl])).toEqual({
+      inputs: [largeDataUrl],
+      promoted: false,
+    })
+    expect(uploadSpy).not.toHaveBeenCalled()
+
+    // 声明 MIME 与魔数不一致，或超出 mediaLimits.imageBytes 回退上限时直接内联跳过直传
+    vi.resetModules()
+    const { prepareDirectSubmitInputs: prepareLimited } = await enableDirectUpload(uploadSpy, {
+      loggedIn: true,
+      mediaLimits: { imageBytes: 1024 },
+    })
+    expect(await prepareLimited([mismatchedMimeDataUrl, largeDataUrl])).toEqual({
+      inputs: [mismatchedMimeDataUrl, largeDataUrl],
+      promoted: false,
+    })
     expect(uploadSpy).not.toHaveBeenCalled()
   })
 })

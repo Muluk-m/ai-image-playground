@@ -727,7 +727,7 @@ describe('BFF optional user auth', () => {
     const byMediaIds = await jsonReq(
       'POST',
       '/v1/queue/openai-compat/gpt-image-2/submit',
-      submitBody({ input_media_ids: [mediaId.toUpperCase()] }),
+      submitBody({ prompt: 'by-media-ids', input_media_ids: [mediaId.toUpperCase()] }),
       { cookie: aliceCookie },
     )
     expect(byMediaIds.status).toBe(200)
@@ -739,13 +739,68 @@ describe('BFF optional user auth', () => {
     const mixed = await jsonReq(
       'POST',
       '/v1/queue/openai-compat/gpt-image-2/submit',
-      submitBody({ input_images: [inlineJpeg], input_media_ids: [mediaId] }),
+      submitBody({
+        prompt: 'mixed-media-ids',
+        input_images: [inlineJpeg],
+        input_media_ids: [mediaId],
+      }),
       { cookie: aliceCookie },
     )
     expect(mixed.status).toBe(200)
     const mixedTaskId = (mixed.json as { request_id: string }).request_id
     expect(await storage.read(`${mixedTaskId}/in/0`)).toEqual(new Uint8Array(TEST_IMAGE.jpeg))
     expect(await storage.read(`${mixedTaskId}/in/1`)).toEqual(new Uint8Array(TEST_IMAGE.png))
+
+    // Direct upload (> 256 KiB image, even hitting a durable attachment_managed=false row) with
+    // exact_input_images=true preserves exact bytes (no double lossy re-compression) AND produces
+    // an identical commandHash to inline fallback so client_request_id replays cleanly (200, not 409).
+    const largeMediaId = '3a4b5c6d-1234-4abc-8def-1234567890ab'
+    const largePng = Buffer.concat([TEST_IMAGE.png, Buffer.alloc(300 * 1024, 0x42)])
+    await db.insert(schema.media_objects).values({
+      id: largeMediaId,
+      user_id: alice.id,
+      sha256: 'large-exact-media',
+      bytes: largePng.length,
+      content_type: 'image/png',
+      status: 'ready',
+      attachment_managed: false,
+      reserved_bytes: largePng.length,
+      staging_key: 'staging/large-exact',
+      object_key: 'media/large-exact',
+      expires_at: now + 60_000,
+      created_at: now,
+      updated_at: now,
+    })
+    await durable.write('media/large-exact', new Uint8Array(largePng), 'image/png')
+    const clientRequestId = 'cmd-exact-parity-1234'
+    const largeDataUrl = `data:image/png;base64,${largePng.toString('base64')}`
+    const directSubmit = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({
+        prompt: 'exact-parity-test',
+        client_request_id: clientRequestId,
+        input_images: [`aip-media:${largeMediaId}`],
+        exact_input_images: true,
+      }),
+      { cookie: aliceCookie },
+    )
+    expect(directSubmit.status).toBe(200)
+    const directTaskId = (directSubmit.json as { request_id: string }).request_id
+    expect(await storage.read(`${directTaskId}/in/0`)).toEqual(new Uint8Array(largePng))
+
+    const inlineReplay = await jsonReq(
+      'POST',
+      '/v1/queue/openai-compat/gpt-image-2/submit',
+      submitBody({
+        prompt: 'exact-parity-test',
+        client_request_id: clientRequestId,
+        input_images: [largeDataUrl],
+      }),
+      { cookie: aliceCookie },
+    )
+    expect(inlineReplay.status).toBe(200)
+    expect((inlineReplay.json as { request_id: string }).request_id).toBe(directTaskId)
 
     // Combined count exceeding QUEUE_MAX_INPUT_IMAGES (16) is rejected with 400 invalid_request.
     const tooMany = await jsonReq(

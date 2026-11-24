@@ -68,6 +68,8 @@ export async function resolveMediaInputs(
   inputs: readonly string[] | undefined,
   options: {
     readonly masked: boolean
+    /** 客户端已预处理（工作台预签名直传）时保持原字节不二次压缩，确保与内联回退的幂等哈希完全一致。 */
+    readonly preserveExact?: boolean
     /** 请求自己的取消信号：客户端断开后不再替它等对象存储。 */
     readonly signal?: AbortSignal
   },
@@ -84,6 +86,7 @@ export async function resolveMediaInputs(
       storageScope: schema.media_objects.storage_scope,
       contentType: schema.media_objects.content_type,
       bytes: schema.media_objects.bytes,
+      attachmentManaged: schema.media_objects.attachment_managed,
     })
     .from(schema.media_objects)
     .where(
@@ -104,7 +107,9 @@ export async function resolveMediaInputs(
       throw new MediaInputError('输入图片过大')
     const key = row.key
     return readInput(id, key, row.storageScope, options.signal).then((bytes) =>
-      options.masked ? exact(bytes, row.contentType) : compressed(bytes, row.contentType),
+      options.masked || options.preserveExact || row.attachmentManaged
+        ? exact(bytes, row.contentType)
+        : compressed(bytes, row.contentType),
     )
   }
   // 先确权，再按固定并发读取：16 张大图同时解码会占满内存，逐张串行又把延迟叠起来。
