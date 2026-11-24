@@ -652,9 +652,38 @@ export default function MaskEditorModal() {
     isAltKeyPressed,
   ])
 
+  const isReady = Boolean(sourceDataUrl && size && !isLoading)
+
+  const handleUndo = () => {
+    if (!isReady || isSaving || activePointerIdRef.current !== null) return
+    const canvas = maskCanvasRef.current
+    const ctx = canvas?.getContext('2d', { willReadFrequently: true })
+    const previous = undoStackRef.current.pop()
+    if (!canvas || !ctx || !previous) return
+
+    redoStackRef.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height))
+    restoreMask(previous)
+    syncHistoryState()
+  }
+
+  const handleRedo = () => {
+    if (!isReady || isSaving || activePointerIdRef.current !== null) return
+    const canvas = maskCanvasRef.current
+    const ctx = canvas?.getContext('2d', { willReadFrequently: true })
+    const next = redoStackRef.current.pop()
+    if (!canvas || !ctx || !next) return
+
+    undoStackRef.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height))
+    restoreMask(next)
+    syncHistoryState()
+  }
+
   const undoRedoRef = useRef<{ undo: () => void; redo: () => void }>({
-    undo: () => {},
-    redo: () => {},
+    undo: handleUndo,
+    redo: handleRedo,
+  })
+  useEffect(() => {
+    undoRedoRef.current = { undo: handleUndo, redo: handleRedo }
   })
 
   useEffect(() => {
@@ -662,6 +691,7 @@ export default function MaskEditorModal() {
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.altKey) setIsAltKeyPressed(true)
+      if (event.defaultPrevented || useStore.getState().confirmDialog) return
       if ((event.metaKey || event.ctrlKey) && !event.altKey) {
         const key = event.key.toLowerCase()
         if (key === 'z' && !event.shiftKey) {
@@ -717,7 +747,6 @@ export default function MaskEditorModal() {
 
   if (!imageId) return null
 
-  const isReady = Boolean(sourceDataUrl && size && !isLoading)
   const canUndo = historyState.undo > 0 && isReady && !isSaving
   const canRedo = historyState.redo > 0 && isReady && !isSaving
   const isZoomed =
@@ -877,32 +906,6 @@ export default function MaskEditorModal() {
       if (hoverPoint) updateCursor(hoverPoint)
     }
   }
-
-  const handleUndo = () => {
-    const canvas = maskCanvasRef.current
-    const ctx = canvas?.getContext('2d', { willReadFrequently: true })
-    const previous = undoStackRef.current.pop()
-    if (!canvas || !ctx || !previous) return
-
-    redoStackRef.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height))
-    restoreMask(previous)
-    syncHistoryState()
-  }
-
-  const handleRedo = () => {
-    const canvas = maskCanvasRef.current
-    const ctx = canvas?.getContext('2d', { willReadFrequently: true })
-    const next = redoStackRef.current.pop()
-    if (!canvas || !ctx || !next) return
-
-    undoStackRef.current.push(ctx.getImageData(0, 0, canvas.width, canvas.height))
-    restoreMask(next)
-    syncHistoryState()
-  }
-
-  useEffect(() => {
-    undoRedoRef.current = { undo: handleUndo, redo: handleRedo }
-  })
 
   const handleClear = () => {
     const canvas = maskCanvasRef.current

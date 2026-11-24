@@ -1,7 +1,7 @@
 import { formatImageRatio, parseImageSize } from '@image-playground/shared'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { taskExportSources } from '../features/image-export/sources'
-import { openImageExport } from '../features/image-export/store'
+import { openImageExport, useImageExportStore } from '../features/image-export/store'
 import { openWorkProject } from '../features/library/lib/openWorkProject'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useImagePreview } from '../hooks/useImagePreview'
@@ -223,6 +223,7 @@ export default function DetailModal() {
       if (
         useStore.getState().lightboxImageId ||
         useStore.getState().confirmDialog ||
+        useImageExportStore.getState().request ||
         showRawUrlsModal ||
         showRawResponseModal
       )
@@ -938,55 +939,57 @@ export default function DetailModal() {
                 <Icon name="sendToCanvas" />
                 {t('action.sendToCanvas')}
               </Button>
-              {outputLen > 0 && (
+              <div className="col-span-4 flex items-center justify-end gap-1 sm:contents">
+                {outputLen > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={handleExport}
+                    className="flex-1 text-muted-foreground hover:text-foreground sm:flex-none sm:w-9"
+                    title={t('download.export')}
+                    aria-label={t('download.export')}
+                  >
+                    <Icon name="download" />
+                  </Button>
+                )}
+                {projectId && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => void openWorkProject(projectId)}
+                    className="flex-1 text-muted-foreground hover:text-foreground sm:flex-none sm:w-9"
+                    title={t('action.openProject')}
+                    aria-label={t('action.openProject')}
+                  >
+                    <Icon name="chat" />
+                  </Button>
+                )}
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  onClick={handleExport}
-                  className="col-span-2 w-full text-muted-foreground hover:text-foreground sm:w-9"
-                  title={t('download.export')}
-                  aria-label={t('download.export')}
+                  onClick={handleDelete}
+                  className="flex-1 text-muted-foreground hover:text-destructive sm:flex-none sm:w-9"
+                  title={deleteLabel}
+                  aria-label={deleteLabel}
                 >
-                  <Icon name="download" />
+                  <Icon name="delete" />
                 </Button>
-              )}
-              {projectId && (
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  onClick={() => void openWorkProject(projectId)}
-                  className="col-span-2 w-full text-muted-foreground hover:text-foreground sm:w-9"
-                  title={t('action.openProject')}
-                  aria-label={t('action.openProject')}
+                  onClick={handleToggleFavorite}
+                  aria-pressed={task.isFavorite}
+                  className={`flex-1 sm:flex-none sm:w-9 ${task.isFavorite ? 'text-warning hover:text-warning' : 'text-muted-foreground hover:text-warning'}`}
+                  title={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}
+                  aria-label={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}
                 >
-                  <Icon name="chat" />
+                  <Icon name="favorite" filled={task.isFavorite} />
                 </Button>
-              )}
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={handleDelete}
-                className={`${projectId ? 'col-span-1' : 'col-span-2'} w-full text-muted-foreground hover:text-destructive sm:w-9`}
-                title={deleteLabel}
-                aria-label={deleteLabel}
-              >
-                <Icon name="delete" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={handleToggleFavorite}
-                aria-pressed={task.isFavorite}
-                className={`${projectId ? 'col-span-1' : 'col-span-2'} w-full sm:w-9 ${task.isFavorite ? 'text-warning hover:text-warning' : 'text-muted-foreground hover:text-warning'}`}
-                title={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}
-                aria-label={t(task.isFavorite ? 'action.unfavorite' : 'action.favorite')}
-              >
-                <Icon name="favorite" filled={task.isFavorite} />
-              </Button>
+              </div>
             </div>
           </div>
         </div>

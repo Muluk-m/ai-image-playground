@@ -269,7 +269,12 @@ export default function AgentArtifactPane({
                 : 'png'
       downloadBlob(blob, `muvloom-${active.id}.${ext}`)
     } catch {
-      useStore.getState().showToast(t('video.downloadFailed'), 'error')
+      useStore
+        .getState()
+        .showToast(
+          t(active.media === 'video' ? 'video.downloadFailed' : 'tool.downloadFailed'),
+          'error',
+        )
     } finally {
       setDownloading(false)
     }
