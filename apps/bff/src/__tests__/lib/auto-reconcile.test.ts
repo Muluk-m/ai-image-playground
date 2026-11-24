@@ -228,18 +228,18 @@ it('uses the reconciling partial indexes for due reconciliation and overdue aler
     submitted_at: now - (index + 10) * minute,
     next_retry_at: index % 2 === 0 ? now - minute : null,
   }))
-  // 模拟上游故障时积压的 reconciling 行：60 条已告警且待退避的未来任务 + 6 条已到期 + 1 条 legacy NULL next_retry_at。
-  // 当 reconciling 超过 LIMIT 时，宽泛的 idx_tasks_status 必须回表并排序全部 reconciling 行，
+  // 模拟上游故障时积压的 reconciling 行：150 条已告警且待退避的未来任务 + 4 条已到期 + 1 条 legacy NULL next_retry_at。
+  // 当 reconciling 超过 LIMIT 时，宽泛的 idx_tasks_status / idx_tasks_status_submitted 必须回表并排序全部 reconciling 行，
   // 而两条局部索引可按时间顺序直达并提前截断，且完全跳过已告警行。
-  const backedOffAlerted = Array.from({ length: 60 }, (_, index) => ({
-    id: `already-alerted-${String(index).padStart(2, '0')}`,
+  const backedOffAlerted = Array.from({ length: 150 }, (_, index) => ({
+    id: `already-alerted-${String(index).padStart(3, '0')}`,
     provider: 'openai-compat' as const,
     model: 'gpt-image-2',
     kind: 'queue' as const,
     status: 'reconciling' as const,
     reconciliation_required: true,
     request_payload: { prompt: `alerted-${index}`, device_id: 'reconcile-device' },
-    submitted_at: now - (120 + index) * minute,
+    submitted_at: now - (200 + index) * minute,
     upstream_task_ids: [`imgtask_alerted_${index}`],
     upstream_invocation_count: 1,
     next_retry_at: now + (index + 10) * minute,
@@ -268,7 +268,7 @@ it('uses the reconciling partial indexes for due reconciliation and overdue aler
     next_retry_at: null,
     reconcile_started_at: now - 5 * minute,
   })
-  await db.$client.unsafe('ANALYZE tasks')
+  await db.$client.unsafe('VACUUM ANALYZE tasks')
 
   const dueNodes = await explainPlanNodes(buildDueReconcilingTasksQuery(now))
   expect(dueNodes.map((node) => node['Index Name']).filter(Boolean)).toContain(
