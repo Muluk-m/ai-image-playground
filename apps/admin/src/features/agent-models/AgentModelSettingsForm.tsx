@@ -472,7 +472,7 @@ export function AgentModelSettingsForm({
                       </div>
                     ) : null}
 
-                    <div className="grid gap-2.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.75fr)_minmax(0,0.95fr)]">
+                    <div className="grid gap-2.5 sm:grid-cols-[minmax(0,1.12fr)_minmax(0,1.58fr)_minmax(0,1.15fr)]">
                       <Choice
                         label={`${DEPTH_LABELS[key]} · Provider`}
                         visibleLabel="主 Provider"
@@ -561,7 +561,7 @@ export function AgentModelSettingsForm({
                             </div>
                           ) : null}
 
-                          <div className="grid gap-2.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.75fr)_minmax(0,0.95fr)]">
+                          <div className="grid gap-2.5 sm:grid-cols-[minmax(0,1.12fr)_minmax(0,1.58fr)_minmax(0,1.15fr)]">
                             <Choice
                               label={`${DEPTH_LABELS[key]} · 过载备用 Provider`}
                               visibleLabel="备用 Provider"

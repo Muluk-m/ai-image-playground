@@ -220,7 +220,7 @@ export function GptDirectPanel({
                   <TableHead className="w-24 pl-4">优先级</TableHead>
                   <TableHead>安全指纹</TableHead>
                   <TableHead>状态</TableHead>
-                  <TableHead className="text-right">本月消耗</TableHead>
+                  <TableHead className="pr-6 text-right">本月消耗</TableHead>
                   <TableHead>月预算（$）</TableHead>
                   <TableHead>最近异常</TableHead>
                   <TableHead className="pr-4 text-right">操作</TableHead>
@@ -466,7 +466,7 @@ function KeyRow({
       <TableCell className="py-2.5">
         <KeyStatus status={row.status} />
       </TableCell>
-      <TableCell className="min-w-[144px] py-2.5 text-right font-mono text-xs tabular-nums">
+      <TableCell className="min-w-[160px] py-2.5 pr-6 text-right font-mono text-xs tabular-nums">
         <div>
           {usd(row.spent_micro_usd)}
           <span className="text-muted-foreground"> / {usd(row.budget_micro_usd)}</span>

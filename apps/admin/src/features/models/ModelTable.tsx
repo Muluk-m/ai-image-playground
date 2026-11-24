@@ -100,7 +100,7 @@ function ModelStatus({ model }: { model: ManagedModel }) {
         <span>{STATE_LABELS[state]}</span>
       </div>
       {state === 'paused' && model.paused_at ? (
-        <div className="mt-0.5 text-xs text-muted-foreground">
+        <div className="mt-0.5 whitespace-nowrap text-xs text-muted-foreground">
           上游耗尽 · <FuzzyTime ts={model.paused_at} />
         </div>
       ) : null}
@@ -275,7 +275,7 @@ function ModelTableRow({
       <TableCell className="min-w-[176px] py-3 align-middle">
         <ModelSpecSummary model={model} />
       </TableCell>
-      <TableCell className="w-[120px] py-3 align-middle">
+      <TableCell className="min-w-[148px] py-3 align-middle">
         <ModelStatus model={model} />
       </TableCell>
       {billingEnabled ? (
