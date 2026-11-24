@@ -78,11 +78,12 @@ function stream(
     outcome: null as AgentTurnOutcome | null,
     lastError: options.lastError,
     cursor: options.cursor ?? 0,
-    events: (async function* () {
-      for (const event of events) yield event
-      result.outcome = outcome
-    })(),
+    events: undefined as unknown as AsyncGenerator<AgentTurnEvent>,
   }
+  result.events = (async function* () {
+    for (const event of events) yield event
+    result.outcome = outcome
+  })()
   return result
 }
 

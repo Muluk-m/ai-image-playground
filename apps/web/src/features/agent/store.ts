@@ -751,7 +751,13 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
 
   const follower = createTurnFollower({
     get,
-    set,
+    // 跟轮只写它读到的那几个字段；数组在 store 里本来就按不可变方式整体替换。
+    set: (patch) =>
+      set(
+        typeof patch === 'function'
+          ? (state) => patch(state) as Partial<AgentState>
+          : (patch as Partial<AgentState>),
+      ),
     apply,
     fail,
     adoptSnapshot: (conversationId, taken, options) =>

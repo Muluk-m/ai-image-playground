@@ -41,13 +41,10 @@ export interface TurnFollowerState extends AgentTurnFields {
   readonly error: string | null
 }
 
-type TurnFollowerPatch = Partial<{
-  -readonly [K in keyof TurnFollowerState]: TurnFollowerState[K] extends readonly (infer T)[]
-    ? T[]
-    : TurnFollowerState[K] extends Readonly<Record<string, infer V>>
-      ? Record<string, V>
-      : TurnFollowerState[K]
-}>
+/** 跟轮写回 store 的补丁；函数形式读的是写入那一刻的状态。 */
+export type TurnFollowerPatch =
+  | Partial<TurnFollowerState>
+  | ((state: TurnFollowerState) => Partial<TurnFollowerState>)
 
 /** 跟轮要用到的服务端接口；默认是 `agentClient` 里那几个，测试换成假的。 */
 export interface TurnFollowerClient {
@@ -77,11 +74,7 @@ const defaultClient: TurnFollowerClient = {
 
 export interface TurnFollowerDeps {
   readonly get: () => TurnFollowerState
-  readonly set: (
-    patch:
-      | TurnFollowerPatch
-      | ((state: TurnFollowerState) => TurnFollowerPatch | TurnFollowerState),
-  ) => void
+  readonly set: (patch: TurnFollowerPatch) => void
   /** 一条事件归约进队列与面板，并做交付副作用（store 的 `apply`）。 */
   readonly apply: (
     event: AgentTurnEvent,
