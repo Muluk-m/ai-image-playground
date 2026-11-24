@@ -14,6 +14,7 @@ import {
 import { and, asc, eq } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
+import { createSubmissionReplay, resolveAgentMode } from '../../modules/agent/tools'
 import {
   type BffTransaction,
   loadMeteringPort,
@@ -76,7 +77,6 @@ import {
 } from './skills'
 import { stageRunWakeContent } from './stage-runs'
 import { agentToolGateActive, gateContinuation } from './tool-gate'
-import { createSubmissionReplay, resolveAgentMode } from './tools'
 import type { PreparedAgentTurn } from './turn'
 import {
   type AgentTurnContinuation,

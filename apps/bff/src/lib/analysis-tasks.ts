@@ -9,6 +9,7 @@ import {
 import { and, asc, eq, gt, inArray, isNull, lte } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
+import { AgentToolError } from '../modules/agent/contracts'
 import { heldBy } from '../modules/execution'
 import { compactionSettings } from './agent/compaction-settings'
 import { resolveOwnedMediaImages } from './agent/images'
@@ -17,7 +18,6 @@ import {
   assertRequestWithinBudget,
   requestInputTokens,
 } from './agent/request-budget'
-import { AgentToolError } from './agent/tools/errors'
 import { prepareVisualEvidence, visualEvidenceOf } from './agent/visual-input'
 import { withVisualPreparation, withVisualSignal } from './agent/visual-resources'
 import { analysisComparison } from './analysis-comparison'

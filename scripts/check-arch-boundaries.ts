@@ -77,17 +77,10 @@ const ALLOWED_RUNTIME_CYCLE_EDGES = new Set([
 ])
 
 /**
- * 存量 `lib/agent/* -> lib/agent/tools/*` 边棘轮（ADR 0034 Phase 4 PR-4.1）：
- * 抽出 `modules/agent/contracts/` 后，46 条反向依赖已压降至仅剩 5 条工具注册表入口；
- * 禁止新增任何 `core -> tools` 边，后续 PR-4.3/4.4 逐步归零。
+ * `lib/agent/* -> lib/agent/tools/*` 反向依赖已于 PR-4.4 彻底归零（原 46 -> 5 -> 0）；
+ * 任何 `lib/agent/*`（非 `lib/agent/tools/*` 兼容壳）均禁止再引入 `lib/agent/tools/*`。
  */
-const ALLOWED_AGENT_CORE_TO_TOOLS = new Set([
-  'lib/agent/interrupted.ts -> lib/agent/tools/index.ts',
-  'lib/agent/model-history.ts -> lib/agent/tools/index.ts',
-  'lib/agent/turn-input.ts -> lib/agent/tools/index.ts',
-  'lib/agent/turn-preparation.ts -> lib/agent/tools/index.ts',
-  'lib/agent/turn.ts -> lib/agent/tools/index.ts',
-])
+const ALLOWED_AGENT_CORE_TO_TOOLS = new Set<string>([])
 
 const CORE_PLATFORM_MODULES = new Set(['identity', 'catalog', 'media', 'execution'])
 const UPPER_APP_MODULES = new Set(['agent', 'canvas', 'library', 'cms'])
@@ -100,6 +93,40 @@ const AGENT_LAYER_RANK: Readonly<Record<string, number>> = {
   tools: 4,
   orchestration: 5,
 }
+
+const AGENT_TOOL_DOMAINS = new Set(['generation', 'canvas', 'library', 'web'])
+
+/** 已迁入 `modules/agent/{contracts,conversation,inbox,runtime}` 的旧 `lib/agent/*` 兼容壳，工具层禁止回流依赖。 */
+const LEGACY_AGENT_MIGRATED_SHIMS = new Set([
+  'lib/agent/background-jobs.ts',
+  'lib/agent/background-work.ts',
+  'lib/agent/compaction-transform.ts',
+  'lib/agent/context-pipeline.ts',
+  'lib/agent/conversation-images.ts',
+  'lib/agent/conversation-state.ts',
+  'lib/agent/conversations.ts',
+  'lib/agent/events.ts',
+  'lib/agent/execution.ts',
+  'lib/agent/images.ts',
+  'lib/agent/inbox-pickup.ts',
+  'lib/agent/inbox.ts',
+  'lib/agent/lifecycle.ts',
+  'lib/agent/modelImage.ts',
+  'lib/agent/review-images.ts',
+  'lib/agent/runningTurns.ts',
+  'lib/agent/selection-preview.ts',
+  'lib/agent/selection-settings.ts',
+  'lib/agent/sse.ts',
+  'lib/agent/tool-gate-records.ts',
+  'lib/agent/turn-failure.ts',
+  'lib/agent/turn-summary.ts',
+  'lib/agent/turn.ts',
+  'lib/agent/visual-input.ts',
+  'lib/agent/visual-resources.ts',
+  'lib/agent/visual-workset.ts',
+  'lib/agent/wake-prompt.ts',
+  'lib/agent/wake.ts',
+])
 
 /** ADR 0034 Phase 4 PR-4.3：`modules/agent/runtime/` 单文件扇出硬上限（严格 < 12）。 */
 const MAX_AGENT_RUNTIME_FAN_OUT = 11
@@ -298,6 +325,12 @@ function agentLayerOf(rest: string): string | null {
   return match[1]! in AGENT_LAYER_RANK ? match[1]! : null
 }
 
+function agentToolDomainOf(rest: string): string | null {
+  const match = /^tools\/([^/]+)\//.exec(rest)
+  if (!match) return null
+  return AGENT_TOOL_DOMAINS.has(match[1]!) ? match[1]! : null
+}
+
 export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
   const { files, runtimeAdjacency, allAdjacency, specifierCounts } =
     await buildImportGraphs(bffRoot)
@@ -351,12 +384,24 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
       if (toModule && fromModule?.name !== toModule.name && !file.startsWith('bootstrap/')) {
         if (
           toModule.rest !== 'index.ts' &&
-          !(toModule.name === 'agent' && toModule.rest === 'contracts/index.ts')
+          !(
+            toModule.name === 'agent' &&
+            (toModule.rest === 'contracts/index.ts' || toModule.rest === 'tools/index.ts')
+          )
         ) {
           violations.push(
             `[module-encapsulation] ${edge} bypasses modules/${toModule.name}/index.ts facade`,
           )
         }
+      }
+
+      if (
+        fromModule?.name === 'canvas' &&
+        (toModule?.name === 'agent' || target.startsWith('lib/agent/'))
+      ) {
+        violations.push(
+          `[canvas -> agent] ${edge} is not allowed (modules/canvas must stay decoupled from agent)`,
+        )
       }
 
       if (
@@ -404,6 +449,24 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
           violations.push(
             `[agent-layer] ${edge} violates ADR 0034 agent sub-layer order (${fromLayer} -> ${toLayer})`,
           )
+        } else if (fromLayer === 'tools' && (toLayer === 'runtime' || toLayer === 'inbox')) {
+          violations.push(
+            `[agent-tools -> ${toLayer}] ${edge} is not allowed (tools must not depend on ${toLayer})`,
+          )
+        }
+        const fromToolDomain = agentToolDomainOf(fromModule.rest)
+        const toToolDomain = agentToolDomainOf(toModule.rest)
+        if (fromToolDomain && toToolDomain && fromToolDomain !== toToolDomain) {
+          violations.push(
+            `[agent-tools -> inter-tool] ${edge} is not allowed (tools in ${fromToolDomain}/ must not import tools in ${toToolDomain}/)`,
+          )
+        } else if (
+          fromToolDomain &&
+          (toModule.rest === 'tools/index.ts' || toModule.rest === 'tools/registry.ts')
+        ) {
+          violations.push(
+            `[agent-tools -> registry] ${edge} is not allowed (domain tools must not import tools facade or registry)`,
+          )
         }
       }
 
@@ -416,6 +479,14 @@ export async function checkBffBoundaries(bffRoot: string): Promise<string[]> {
         } else if (layer === 'runtime' && target.startsWith('lib/agent/tools/')) {
           violations.push(
             `[agent-runtime -> legacy-tools] ${edge} is not allowed (inject tool capabilities via TurnRuntimePorts instead)`,
+          )
+        } else if (layer === 'tools' && target.startsWith('lib/agent/tools/')) {
+          violations.push(
+            `[agent-tools -> legacy-tools] ${edge} is not allowed (use modules/agent/tools internal modules directly)`,
+          )
+        } else if (layer === 'tools' && LEGACY_AGENT_MIGRATED_SHIMS.has(target)) {
+          violations.push(
+            `[agent-tools -> legacy-agent-layer] ${edge} is not allowed (import from modules/agent/contracts or modules/agent/conversation instead)`,
           )
         }
       }
