@@ -310,8 +310,67 @@ describe('Gemini direct key pool & stats', () => {
     }
     expect(fetchCalls).toBe(0)
     expect(caught).toBeInstanceOf(GeminiDirectKeysExhaustedError)
-    expect((caught as GeminiDirectKeysExhaustedError).retryable).toBe(false)
-    expect((caught as GeminiDirectKeysExhaustedError).message).not.toMatch(/密钥|预算|后台/)
+    if (!(caught instanceof GeminiDirectKeysExhaustedError)) {
+      throw new Error('expected GeminiDirectKeysExhaustedError')
+    }
+    expect(caught.retryable).toBe(false)
+    expect(caught.message).not.toMatch(/密钥|预算|后台/)
+  })
+
+  it('records HTTP 200 zero-image safety block as error with prompt token cost only', async () => {
+    const createRes = await request('/internal/gemini-direct/keys', 'POST', {
+      apiKey: 'AIzaSy-safety-block-key-111111111',
+      budgetUsd: 100,
+    })
+    expect(createRes.status).toBe(201)
+
+    setUpstreamFetchForTesting(
+      async () =>
+        new Response(
+          JSON.stringify({
+            candidates: [{ finishReason: 'IMAGE_SAFETY', content: { parts: [] } }],
+            usageMetadata: { promptTokenCount: 2000, candidatesTokenCount: 0 },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    )
+
+    const result = await callUpstream({
+      provider: 'gemini',
+      model: 'gemini-3-pro-image',
+      request: { prompt: 'blocked prompt', n: 1, image_size: '2K' },
+    })
+    expect(result.status).toBe(200)
+
+    const rows = await db.select().from(schema.gemini_direct_usage)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.status).toBe('error')
+    expect(rows[0]?.images).toBe(0)
+    expect(rows[0]?.cost_micro_usd).toBe(4000)
+  })
+
+  it('bumps revision monotonically across rapid writes and delete', async () => {
+    const r1 = await request('/internal/gemini-direct/keys', 'POST', {
+      apiKey: 'AIzaSy-rev-key-1-aaaaaaaaaaaaaa',
+      budgetUsd: 50,
+    })
+    expect(r1.status).toBe(201)
+    const v1 = (await r1.json()) as GeminiDirectAdminView
+
+    const r2 = await request('/internal/gemini-direct/keys', 'POST', {
+      apiKey: 'AIzaSy-rev-key-2-bbbbbbbbbbbbbb',
+      budgetUsd: 50,
+    })
+    expect(r2.status).toBe(201)
+    const v2 = (await r2.json()) as GeminiDirectAdminView
+    expect(v2.revision).toBeGreaterThan(v1.revision)
+
+    const newestId = v2.keys[1]?.id
+    expect(newestId).toBeTruthy()
+    const r3 = await request(`/internal/gemini-direct/keys/${newestId}`, 'DELETE')
+    expect(r3.status).toBe(200)
+    const v3 = (await r3.json()) as GeminiDirectAdminView
+    expect(v3.revision).toBeGreaterThan(v2.revision)
   })
 
   it('parses usageMetadata and estimates per-model/resolution cost cleanly', () => {
@@ -320,6 +379,7 @@ describe('Gemini direct key pool & stats', () => {
     })
     expect(usage).toEqual({ promptTokens: 1000, outputTokens: 700 })
     expect(estimateGeminiCostMicroUsd('gemini-3-pro-image', '2K', 1, usage)).toBe(134_000 + 2000)
+    expect(estimateGeminiCostMicroUsd('gemini-3-pro-image', '2K', 0, usage)).toBe(2000)
     expect(estimateGeminiCostMicroUsd('gemini-nano-banana-2.1', '1K', 2, null)).toBe(78_000)
   })
 })

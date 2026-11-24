@@ -10,6 +10,7 @@ import {
   UpstreamSecretError,
 } from '../upstream-secrets'
 import {
+  adminGeminiDirectKeys,
   type GeminiDirectKey,
   geminiFingerprintOf,
   safeEnvGeminiDirectKeys,
@@ -201,6 +202,11 @@ async function refreshGeminiDirectKeysOnce(ticket: number): Promise<void> {
     cachedFingerprintSecret = fingerprintSecret
     cachedKeys = keys
   } catch (err) {
+    cachedRevision = undefined
+    if (adminGeminiDirectKeys() !== null) {
+      // 刷新失败时不能继续放行可能已停用/删除/降额的旧后台快照，也不能静默回退到环境变量。
+      setAdminGeminiDirectKeySnapshot([], new Set())
+    }
     log.warn(
       {
         event: 'gemini.direct_admin_key_refresh_failed',
@@ -241,6 +247,17 @@ function uniqueViolation(error: unknown): boolean {
   return String(errno ?? '') === '23505' || String(error).includes('23505')
 }
 
+type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0]
+
+async function nextMonotonicRevision(tx: DbTx): Promise<number> {
+  const [maxRow] = await tx
+    .select({
+      value: sql<number>`coalesce(max(${schema.gemini_direct_admin_keys.updated_at}), 0)`,
+    })
+    .from(schema.gemini_direct_admin_keys)
+  return Math.max(Date.now(), Number(maxRow?.value ?? 0) + 1)
+}
+
 export async function createGeminiDirectKey(input: {
   apiKey: unknown
   budgetUsd: unknown
@@ -259,11 +276,11 @@ export async function createGeminiDirectKey(input: {
   }
   const id = randomUUID()
   const sealed = sealSecret(aad(id), secret)
-  const now = Date.now()
   const operatorId = operatorIdOf(input.operatorId)
   try {
     await db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext('gemini-direct-admin-keys'))`)
+      const now = await nextMonotonicRevision(tx)
       const [maxRow] = await tx
         .select({
           value: sql<number>`coalesce(max(${schema.gemini_direct_admin_keys.ordinal}), 0)`,
@@ -321,10 +338,10 @@ export async function updateGeminiDirectKey(input: {
     .from(schema.gemini_direct_admin_keys)
     .where(eq(schema.gemini_direct_admin_keys.id, input.id))
   if (!row) throw new UpstreamSecretError('unknown_key', 404, '没有这把密钥')
-  const now = Date.now()
   const operatorId = operatorIdOf(input.operatorId)
   await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('gemini-direct-admin-keys'))`)
+    const now = await nextMonotonicRevision(tx)
     const updated = await tx
       .update(schema.gemini_direct_admin_keys)
       .set({
@@ -358,7 +375,6 @@ export async function reorderGeminiDirectKeys(input: {
   revision: number
   operatorId: string | null
 }): Promise<void> {
-  const now = Date.now()
   const operatorId = operatorIdOf(input.operatorId)
   await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('gemini-direct-admin-keys'))`)
@@ -380,6 +396,7 @@ export async function reorderGeminiDirectKeys(input: {
     ) {
       throw new UpstreamSecretError('invalid_order', 400, '顺序不完整')
     }
+    const now = Math.max(Date.now(), revision + 1)
     for (const [index, id] of input.ids.entries()) {
       await tx
         .update(schema.gemini_direct_admin_keys)
@@ -402,15 +419,26 @@ export async function deleteGeminiDirectKey(input: {
     .from(schema.gemini_direct_admin_keys)
     .where(eq(schema.gemini_direct_admin_keys.id, input.id))
   if (!row) throw new UpstreamSecretError('unknown_key', 404, '没有这把密钥')
-  const now = Date.now()
   const operatorId = operatorIdOf(input.operatorId)
   await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext('gemini-direct-admin-keys'))`)
+    const now = await nextMonotonicRevision(tx)
     const removed = await tx
       .delete(schema.gemini_direct_admin_keys)
       .where(eq(schema.gemini_direct_admin_keys.id, row.id))
       .returning({ id: schema.gemini_direct_admin_keys.id })
     if (removed.length === 0) throw new UpstreamSecretError('unknown_key', 404, '没有这把密钥')
+    const [remaining] = await tx
+      .select({ id: schema.gemini_direct_admin_keys.id })
+      .from(schema.gemini_direct_admin_keys)
+      .orderBy(asc(schema.gemini_direct_admin_keys.ordinal))
+      .limit(1)
+    if (remaining) {
+      await tx
+        .update(schema.gemini_direct_admin_keys)
+        .set({ updated_at: now })
+        .where(eq(schema.gemini_direct_admin_keys.id, remaining.id))
+    }
     await tx
       .delete(schema.gemini_direct_key_state)
       .where(eq(schema.gemini_direct_key_state.fingerprint, row.fingerprint))

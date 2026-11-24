@@ -85,14 +85,31 @@ export function estimateGeminiCostMicroUsd(
   usage?: GeminiUsageMetadata | null,
 ): number {
   const count = Math.max(0, images)
-  if (count === 0) return 0
   const tier = normalizeImageSizeTier(imageSize)
   const table = IMAGE_PRICE_MICRO_USD[model] ?? DEFAULT_IMAGE_PRICE_MICRO_USD
-  const imageCost = table[tier] * count
+  const imageCost = count > 0 ? table[tier] * count : 0
   if (!usage) return imageCost
   const inputRate = INPUT_PRICE_PER_MILLION_USD[model] ?? 0.5
   const inputCost = Math.ceil(usage.promptTokens * inputRate)
   return imageCost + inputCost
+}
+
+/**
+ * 派发前的保守预算预占（micro-USD）：在图片固定档位单价基础上叠加输入 token 保守余量，
+ * 避免剩余额度刚好够一张图时，结算叠加 prompt token 造成超额；请求完成后立即按实际用量结算并释放差额。
+ */
+export function estimateGeminiReservationMicroUsd(
+  model: string,
+  imageSize: string | undefined,
+  images: number,
+  estimatedInputTokens = 4_000,
+): number {
+  const count = Math.max(0, images)
+  if (count === 0) return 0
+  const base = estimateGeminiCostMicroUsd(model, imageSize, count)
+  const inputRate = INPUT_PRICE_PER_MILLION_USD[model] ?? 0.5
+  const inputMargin = Math.ceil(Math.max(1_000, estimatedInputTokens) * inputRate)
+  return base + inputMargin
 }
 
 export function geminiKeyBudgetCapMicroUsd(budgetUsd: number): number {
@@ -284,47 +301,58 @@ export async function recordGeminiUsage(input: {
   const billableImages =
     input.status === 'ok' ? input.images : input.billUnknown ? Math.max(1, input.images) : 0
   const cost =
-    billableImages > 0
+    billableImages > 0 || usage !== null
       ? estimateGeminiCostMicroUsd(input.model, input.imageSize, billableImages, usage)
       : 0
   const now = Date.now()
-  try {
-    await db.transaction(async (tx) => {
-      if (input.keyFingerprint) await lockGeminiBudget(tx, input.keyFingerprint)
-      await tx.insert(schema.gemini_direct_usage).values({
-        id: randomUUID(),
-        task_id: input.taskId ?? null,
-        model: input.model,
-        image_size: input.imageSize ?? null,
-        images: input.status === 'ok' ? Math.max(0, input.images) : 0,
-        input_tokens: usage ? usage.promptTokens : null,
-        output_tokens: usage ? usage.outputTokens : null,
-        cost_micro_usd: cost,
-        estimated: !usage,
-        status: input.status,
-        upstream_status: input.upstreamStatus ?? null,
-        key_fingerprint: input.keyFingerprint ?? null,
-        created_at: now,
+  const maxAttempts = billableImages > 0 ? 3 : 1
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await db.transaction(async (tx) => {
+        if (input.keyFingerprint) await lockGeminiBudget(tx, input.keyFingerprint)
+        await tx.insert(schema.gemini_direct_usage).values({
+          id: randomUUID(),
+          task_id: input.taskId ?? null,
+          model: input.model,
+          image_size: input.imageSize ?? null,
+          images: input.status === 'ok' ? Math.max(0, input.images) : 0,
+          input_tokens: usage ? usage.promptTokens : null,
+          output_tokens: usage ? usage.outputTokens : null,
+          cost_micro_usd: cost,
+          estimated: !usage,
+          status: input.status,
+          upstream_status: input.upstreamStatus ?? null,
+          key_fingerprint: input.keyFingerprint ?? null,
+          created_at: now,
+        })
+        if (input.reservationId) {
+          await tx
+            .delete(schema.gemini_direct_budget_holds)
+            .where(eq(schema.gemini_direct_budget_holds.id, input.reservationId))
+        }
       })
-      if (input.reservationId) {
-        await tx
-          .delete(schema.gemini_direct_budget_holds)
-          .where(eq(schema.gemini_direct_budget_holds.id, input.reservationId))
+      forgetSpent(input.keyFingerprint)
+      return true
+    } catch (err) {
+      if (attempt < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 150))
+        continue
       }
-    })
-    forgetSpent(input.keyFingerprint)
-    return true
-  } catch (err) {
-    log.warn(
-      {
-        event: 'gemini.direct_usage_record_failed',
-        err,
-        model: input.model,
-        status: input.status,
-        cost,
-      },
-      'gemini direct usage record failed',
-    )
-    return false
+      log.warn(
+        {
+          event: 'gemini.direct_usage_record_failed',
+          err,
+          model: input.model,
+          status: input.status,
+          cost,
+          ...(billableImages > 0 && input.reservationId
+            ? { reservationId: input.reservationId, holdRetained: true }
+            : {}),
+        },
+        'gemini direct usage record failed',
+      )
+      return false
+    }
   }
+  return false
 }

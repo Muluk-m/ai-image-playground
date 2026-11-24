@@ -52,7 +52,7 @@ import {
 import { findCatalogModel, publishModelCapabilities } from '@image-playground/shared/model-catalog'
 import { isObject } from './type-guards'
 import { capabilitiesForModel } from './upstream/adapters'
-import { geminiDirectEnabledKeyCount } from './upstream/gemini-key-config'
+import { geminiDirectEnabledKeyCount, hasGeminiDirectPool } from './upstream/gemini-key-config'
 import {
   gptDirectEnabledKeyCount,
   gptDirectSizeEnabled,
@@ -516,6 +516,11 @@ export function parseChannelsConfig(
         return
       }
       if (ch.requiresSecret) {
+        // 仅配了后台 Gemini 密钥池或 VERTEX_API_KEYS 但当前全部停用时，仍保留为 retired 路由，
+        // 避免存量排队任务回落到 sub2api 通用网关而绕过密钥池耗尽报错。
+        if (ch.auth.secretRef === 'VERTEX_API_KEY' && hasGeminiDirectPool()) {
+          disabled.push(toInternal(ch, resolved.baseUrl, secret))
+        }
         warnings.push(
           `channel '${ch.id}': env '${ch.auth.secretRef}' is empty or unset; the channel is disabled and will not be advertised`,
         )
@@ -619,7 +624,7 @@ export function refreshChannelsIfChanged(filePath = defaultChannelsPath()): void
   } catch (error) {
     if (!isFileNotFoundError(error)) throw error
   }
-  const signature = `${filePath}:${fileVersion}:${upstreamSecretRevision()}:${gptDirectEnabledKeyCount()}:${gptDirectSizeEnabled()}:${geminiDirectEnabledKeyCount()}`
+  const signature = `${filePath}:${fileVersion}:${upstreamSecretRevision()}:${gptDirectEnabledKeyCount()}:${gptDirectSizeEnabled()}:${geminiDirectEnabledKeyCount()}:${hasGeminiDirectPool()}`
   if (signature === refreshSignature) return
   initChannels(filePath)
   refreshSignature = signature

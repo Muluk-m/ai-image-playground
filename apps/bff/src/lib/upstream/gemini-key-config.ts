@@ -178,10 +178,14 @@ export function configuredGeminiDirectKeys(): GeminiDirectKey[] {
   return envGeminiDirectKeys()
 }
 
-/** 是否启用了 Gemini 密钥池（后台有记录或环境变量配了 Vertex key）。 */
+/**
+ * 是否声明了 Gemini 密钥池配置（后台有记录，或环境变量配了 VERTEX_API_KEYS / VERTEX_API_KEY）。
+ * 即使 VERTEX_API_KEYS 解析失败也返回 true，避免静默回退到无预算直发路径。
+ */
 export function hasGeminiDirectPool(): boolean {
   if (adminSnapshot !== null) return true
-  return safeEnvGeminiDirectKeys().length > 0
+  if (process.env.VERTEX_API_KEYS?.trim()) return true
+  return Boolean(runtimeSecret('VERTEX_API_KEY', process.env.VERTEX_API_KEY?.trim() ?? '').trim())
 }
 
 export function geminiDirectKeySecrets(): string[] {

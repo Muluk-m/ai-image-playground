@@ -5,7 +5,7 @@ import { UpstreamResultUnknownError, UpstreamTimeoutError } from '../errors'
 import { fanOutRequests } from '../fanout'
 import { mergeGeminiCandidateResults } from '../gemini'
 import {
-  estimateGeminiCostMicroUsd,
+  estimateGeminiReservationMicroUsd,
   recordGeminiUsage,
   releaseGeminiReservation,
 } from '../gemini-budget'
@@ -51,6 +51,34 @@ function readBodyImageSize(
 function upstreamStatusOf(error: unknown): number | undefined {
   const status = (error as { upstreamStatus?: unknown } | null)?.upstreamStatus
   return typeof status === 'number' ? status : undefined
+}
+
+function isAbortLikeError(error: unknown, externalAborted: boolean): boolean {
+  if (externalAborted) return true
+  return error instanceof Error && error.name === 'AbortError'
+}
+
+/** 确认 HTTP 200 响应里实际产出的图片张数；安全拦截（IMAGE_SAFETY / RECITATION）返回 0 张不按成功计费。 */
+function countGeminiResponseImages(payload: unknown): number {
+  const candidates = (payload as { candidates?: unknown[] } | null)?.candidates
+  if (!Array.isArray(candidates)) return 0
+  let count = 0
+  for (const cand of candidates) {
+    const parts = (cand as { content?: { parts?: unknown[] } } | null)?.content?.parts
+    if (!Array.isArray(parts)) continue
+    for (const part of parts) {
+      const inline = (part as { inlineData?: { data?: unknown; mimeType?: unknown } } | null)
+        ?.inlineData
+      if (
+        typeof inline?.data === 'string' &&
+        inline.data.length > 0 &&
+        (typeof inline.mimeType !== 'string' || inline.mimeType.startsWith('image/'))
+      ) {
+        count += 1
+      }
+    }
+  }
+  return count
 }
 
 /**
@@ -206,7 +234,16 @@ export const geminiImageExecutor: UpstreamExecutor = {
       target: GeminiTarget,
       capAt?: number,
     ): Promise<UpstreamCallResult> => {
-      const estimate = estimateGeminiCostMicroUsd(target.model, target.imageSize, 1)
+      const estimatedInputTokens =
+        Math.ceil((request.prompt?.length ?? 0) / 3) +
+        (request.input_images?.length ?? 0) * 1_500 +
+        2_000
+      const estimate = estimateGeminiReservationMicroUsd(
+        target.model,
+        target.imageSize,
+        1,
+        estimatedInputTokens,
+      )
       const exclude = new Set<string>()
       let lastError: unknown
 
@@ -236,16 +273,17 @@ export const geminiImageExecutor: UpstreamExecutor = {
         const { key: activeKey, reservationId } = reserved
         exclude.add(activeKey.fingerprint)
 
-        const another = await selectGeminiDirectKey({
-          estimateMicroUsd: estimate,
-          exclude,
-          allowCooldown: usedCooldownFallback,
-        })
-        const hasNextKey = another !== null
-
         let reservationSettled = false
         let requestDispatched = false
+        let hasNextKey = false
         try {
+          const another = await selectGeminiDirectKey({
+            estimateMicroUsd: estimate,
+            exclude,
+            allowCooldown: usedCooldownFallback,
+          })
+          hasNextKey = another !== null
+
           const result = await executeSingleFetch(target, activeKey.secret, capAt, !hasNextKey, {
             onDispatched: () => {
               requestDispatched = true
@@ -267,14 +305,15 @@ export const geminiImageExecutor: UpstreamExecutor = {
                   },
                 }),
           })
-          // 请求已成功出图：即便落账写库失败也不应释放预占，留着预占到租期结束守住月预算。
+          const actualImages = countGeminiResponseImages(result.payload)
+          // 请求已到达上游并消耗配额/输入 token：即便落账写库失败也不应释放预占，留着预占到租期结束守住月预算。
           reservationSettled = true
           await recordGeminiUsage({
             ...(params.taskId ? { taskId: params.taskId } : {}),
             model: target.model,
             ...(target.imageSize ? { imageSize: target.imageSize } : {}),
-            images: 1,
-            status: 'ok',
+            images: actualImages,
+            status: actualImages > 0 ? 'ok' : 'error',
             upstreamStatus: 200,
             keyFingerprint: activeKey.fingerprint,
             payload: result.payload,
@@ -283,6 +322,10 @@ export const geminiImageExecutor: UpstreamExecutor = {
           return result
         } catch (error) {
           lastError = error
+          // 未出队列或在探查备用 key 时失败：请求从未发往 Vertex，不计入密钥统计，直接释放预占。
+          if (!requestDispatched) {
+            throw error
+          }
           const failure = classifyGeminiKeyFailure(error)
           const status = upstreamStatusOf(error)
           if (failure === 'cooldown' && hasNextKey) {
@@ -330,14 +373,12 @@ export const geminiImageExecutor: UpstreamExecutor = {
             )
             continue
           }
-          // 未出队列就取消或超时：请求从未发往 Vertex，不计入密钥统计，直接释放预占。
-          if (!requestDispatched) {
-            throw error
-          }
-          // 已派发但超时/断连结果未知：按估算计入本月花费守住预算；写库失败时保留预占直到租期。
+          // 已派发但超时/断连/外层取消结果未知：按估算计入本月花费守住预算；写库失败时保留预占直到租期。
           if (
-            error instanceof UpstreamResultUnknownError ||
-            error instanceof UpstreamTimeoutError
+            status === undefined &&
+            (error instanceof UpstreamResultUnknownError ||
+              error instanceof UpstreamTimeoutError ||
+              isAbortLikeError(error, Boolean(session.externalSignal?.aborted)))
           ) {
             reservationSettled = true
             await recordGeminiUsage({
