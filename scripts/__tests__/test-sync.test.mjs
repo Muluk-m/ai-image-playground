@@ -77,7 +77,7 @@ case "$*" in
       sha=$(echo "$*" | sed 's/.*head_sha=\\([0-9a-f]*\\).*/\\1/')
       grep -qx "$sha" "${d}/heads" 2>/dev/null || echo "$sha" >> "${d}/heads"
       n=$(grep -nx "$sha" "${d}/heads" | cut -d: -f1)
-      printf '{"workflow_runs":[{"id":%s,"head_sha":"%s","event":"push","status":"in_progress","created_at":"x"}]}' $((100 + n)) "$sha"
+      printf '{"workflow_runs":[{"id":%s,"head_sha":"%s","head_branch":"test","event":"push","status":"in_progress","created_at":"x"}]}' $((100 + n)) "$sha"
     else cat "${d}/deploy.json"; fi ;;
   *runs/10[0-9]/jobs*)
     id=\${2#*runs/}; n=$((\${id%%/*} - 100))
@@ -290,7 +290,7 @@ test('nothing to push: redeploys a commit whose last Deploy test failed', () =>
     const r = run(env, {
       runs: [runOf(env.feat)],
       jobList: jobs(),
-      deploys: [{ head_sha: sha, status: 'completed', conclusion: 'failure', created_at: '2026-11-25T00:00:00Z' }],
+      deploys: [{ id: 50, head_sha: sha, head_branch: 'test', event: 'push', status: 'completed', conclusion: 'failure', created_at: '2026-11-25T00:00:00Z' }],
     })
     assert.equal(r.status, 0, r.stderr)
     assert.match(r.stdout, /nothing to push[\s\S]*was failure; dispatched/)
@@ -308,10 +308,44 @@ test('nothing to push: still re-merges when main moves before that deployment ch
     assert.match(env.git(env.dir, '--git-dir', env.origin, 'log', '--format=%s', 'test'), /late main/)
   }))
 
+// Backend images job whose branch check ended with `conclusion`.
+const deployJobs = (conclusion) => [
+  { name: 'Backend images', conclusion: null, steps: [{ name: 'Run scripts/ci-check-test-branch.sh origin', conclusion }] },
+]
+
+test('nothing to push: after a dispatch, waits for the new run instead of reading the one it replaces', () =>
+  withEnv((env) => {
+    assert.equal(run(env, { runs: [runOf(env.feat)], jobList: jobs() }).status, 0)
+    const sha = originTest(env)
+    // The old run was created "just now" and failed its branch check; the new dispatch is not visible yet.
+    const deploys = [
+      { id: 50, head_sha: sha, head_branch: 'test', event: 'push', status: 'completed', conclusion: 'failure', created_at: '2999-01-01T00:00:00Z' },
+    ]
+    const r = run(env, { runs: [runOf(env.feat)], jobList: jobs(), deploys, perRun: { 50: deployJobs('failure') } })
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stdout, /dispatched a new one/)
+    assert.doesNotMatch(r.stdout, /merging again/)
+    assert.match(r.stderr, /no verdict after 0s/)
+  }))
+
+test('ignores a Deploy test dispatched from another branch at the same commit', () =>
+  withEnv((env) => {
+    assert.equal(run(env, { runs: [runOf(env.feat)], jobList: jobs() }).status, 0)
+    const sha = originTest(env)
+    const deploys = [
+      { id: 60, head_sha: sha, head_branch: 'test', event: 'push', status: 'completed', conclusion: 'failure', created_at: '2026-11-25T00:00:00Z' },
+      { id: 61, head_sha: sha, head_branch: 'main', event: 'workflow_dispatch', status: 'in_progress', created_at: '2026-11-25T01:00:00Z' },
+    ]
+    const r = run(env, { runs: [runOf(env.feat)], jobList: jobs(), deploys, perRun: { 61: deployJobs('success') } })
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stdout, /was failure; dispatched a new one/)
+    assert.doesNotMatch(r.stdout, /Deploy test accepted/)
+  }))
+
 test('nothing to push: leaves an already deployed commit alone', () =>
   withEnv((env) => {
     assert.equal(run(env, { runs: [runOf(env.feat)], jobList: jobs() }).status, 0)
-    const deploys = [{ head_sha: originTest(env), status: 'completed', conclusion: 'success', created_at: '2026-11-25T00:00:00Z' }]
+    const deploys = [{ head_sha: originTest(env), head_branch: 'test', status: 'completed', conclusion: 'success', created_at: '2026-11-25T00:00:00Z' }]
     const r = run(env, { runs: [runOf(env.feat)], jobList: jobs(), deploys })
     assert.match(r.stdout, /already deployed/)
     assert.ok(!existsSync(join(env.dir, 'deploy-dispatched')))

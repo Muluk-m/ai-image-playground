@@ -194,15 +194,17 @@ for i in $(idx); do
 done
 
 # test already holds everything: make sure that commit actually has (or gets) a deployment.
-# Returns 0 when it is already deployed; otherwise a run is going and `since` is set to the
-# earliest creation time branch_check should accept for it (empty: any run of the commit).
-since=
+# Returns 0 when it is already deployed. Otherwise a run is going, and `exclude` lists the ids of
+# the runs that existed before a dispatch, so branch_check waits for the new run instead of
+# reading an old one (a new dispatch can take a while to show up in the API).
+exclude='[]'
 ensure_deployed() {
-  local sha=$1 last status conclusion url
-  since=
-  last=$(gh api "repos/$repo/actions/workflows/deploy-test.yml/runs?head_sha=$sha&per_page=20" |
-    jq -r --arg sha "$sha" '[.workflow_runs[] | select(.head_sha == $sha)] | sort_by(.created_at) | last // {} | "\(.status // "none")|\(.conclusion // "")|\(.html_url // "")"') ||
+  local sha=$1 runs last status conclusion url
+  exclude='[]'
+  runs=$(gh api "repos/$repo/actions/workflows/deploy-test.yml/runs?head_sha=$sha&branch=test&per_page=100" |
+    jq -c --arg sha "$sha" '[.workflow_runs[] | select(.head_sha == $sha and .head_branch == "test")]') ||
     die "could not read Deploy test runs for ${sha:0:9}"
+  last=$(jq -r 'sort_by(.created_at) | last // {} | "\(.status // "none")|\(.conclusion // "")|\(.html_url // "")"' <<<"$runs")
   IFS='|' read -r status conclusion url <<<"$last"
   if [ "$status" != completed ] && [ "$status" != none ]; then
     echo "test-sync: Deploy test for ${sha:0:9} is $status: $url"
@@ -211,8 +213,7 @@ ensure_deployed() {
     echo "test-sync: ${sha:0:9} is already deployed to the test site: $url"
     return 0
   fi
-  # A few seconds of slack for clock skew; the run it replaces finished before now.
-  since=$(date -u -r $(($(date +%s) - 5)) +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$(($(date +%s) - 5))" +%Y-%m-%dT%H:%M:%SZ)
+  exclude=$(jq -c '[.[].id]' <<<"$runs")
   gh api -X POST "repos/$repo/actions/workflows/deploy-test.yml/dispatches" -f ref=test >/dev/null ||
     die "could not dispatch Deploy test"
   echo "test-sync: last Deploy test for ${sha:0:9} was ${conclusion:-missing}; dispatched a new one."
@@ -220,15 +221,19 @@ ensure_deployed() {
 }
 
 # Deploy test checks "test contains main" when its Backend images job starts, a minute or two
-# after the push (or dispatch); main can move in between. Watch that one step of the newest push or
-# dispatch run of the commit created at or after $2: ok | behind | unknown <why>.
+# after the push (or dispatch); main can move in between. Watch that one step in the newest push or
+# dispatch run of the commit on branch test, skipping run ids in the JSON array $2:
+# ok | behind | unknown <why>.
 branch_check() {
-  local sha=$1 after=${2-} run id jobs step deadline
+  local sha=$1 skip=${2:-[]} run id jobs step deadline
   deadline=$(($(date +%s) + follow_wait))
   while :; do
-    run=$(gh api "repos/$repo/actions/workflows/deploy-test.yml/runs?head_sha=$sha&per_page=20" |
-      jq -c --arg sha "$sha" --arg after "$after" '[.workflow_runs[]
-        | select(.head_sha == $sha and (.event == "push" or .event == "workflow_dispatch") and .created_at >= $after)]
+    # head_branch: deploy-test.yml can be dispatched from any branch (it then refuses to deploy),
+    # and the same commit may be the tip of main or another branch too.
+    run=$(gh api "repos/$repo/actions/workflows/deploy-test.yml/runs?head_sha=$sha&branch=test&per_page=100" |
+      jq -c --arg sha "$sha" --argjson skip "$skip" '[.workflow_runs[]
+        | select(.head_sha == $sha and .head_branch == "test" and (.event == "push" or .event == "workflow_dispatch"))
+        | select(.id as $id | $skip | index($id) | not)]
         | sort_by(.created_at) | last // empty' 2>/dev/null) || run=
     if [ -n "$run" ]; then
       id=$(jq -r .id <<<"$run")
@@ -309,10 +314,10 @@ $out"
       continue
     fi
     pushed=$head
-    since=
+    exclude='[]'
     echo "test-sync: pushed test ${head:0:9} (main ${main_sha:0:9} + ${names:-nothing else}); watching Deploy test's branch check."
   fi
-  read -r check why <<<"$(branch_check "$pushed" "$since")"
+  read -r check why <<<"$(branch_check "$pushed" "$exclude")"
   case $check in
     ok)
       echo "test-sync: Deploy test accepted ${pushed:0:9} (test contains main); it continues on its own."
