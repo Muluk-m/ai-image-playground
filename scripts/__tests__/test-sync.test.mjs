@@ -49,13 +49,14 @@ const runOf = (sha, over = {}) => ({ id: 7, head_sha: sha, status: 'completed', 
 const jobs = (over = {}) => required.map((name) => ({ name, conclusion: name in over ? over[name] : 'success' }))
 
 // Fake `gh api`: answers from runs.json / jobs.json; a dispatch logs and swaps in the *-after fixtures.
-function run(env, { runs, jobList, after, args = ['feat'], perRun = {}, deploys = [], fail = false }) {
+function run(env, { runs, jobList, after, args = ['feat'], perRun = {}, deploys = [], fail = false, deployChecks }) {
   const bin = join(env.dir, 'bin')
   execFileSync('mkdir', ['-p', bin])
   writeFileSync(join(env.dir, 'runs.json'), JSON.stringify({ workflow_runs: runs }))
   writeFileSync(join(env.dir, 'jobs.json'), JSON.stringify({ jobs: jobList }))
   writeFileSync(join(env.dir, 'deploy.json'), JSON.stringify({ workflow_runs: deploys }))
   if (fail) writeFileSync(join(env.dir, 'fail'), '')
+  if (deployChecks) writeFileSync(join(env.dir, 'deploy-checks'), `${deployChecks.join('\n')}\n`)
   for (const [id, list] of Object.entries(perRun)) {
     writeFileSync(join(env.dir, `jobs-${id}.json`), JSON.stringify({ jobs: list }))
   }
@@ -70,7 +71,25 @@ function run(env, { runs, jobList, after, args = ['feat'], perRun = {}, deploys 
 [ -f "${d}/fail" ] && exit 1
 case "$*" in
   *"-X POST"*deploy-test.yml/dispatches*) echo "$*" >> "${d}/deploy-dispatched" ;;
-  *deploy-test.yml/runs*) cat "${d}/deploy.json" ;;
+  *deploy-test.yml/runs*)
+    # With deploy-checks: one push run per distinct test head, numbered 101, 102, ... in push order.
+    if [ -f "${d}/deploy-checks" ]; then
+      sha=$(echo "$*" | sed 's/.*head_sha=\\([0-9a-f]*\\).*/\\1/')
+      grep -qx "$sha" "${d}/heads" 2>/dev/null || echo "$sha" >> "${d}/heads"
+      n=$(grep -nx "$sha" "${d}/heads" | cut -d: -f1)
+      printf '{"workflow_runs":[{"id":%s,"head_sha":"%s","event":"push","status":"in_progress","created_at":"x"}]}' $((100 + n)) "$sha"
+    else cat "${d}/deploy.json"; fi ;;
+  *runs/10[0-9]/jobs*)
+    id=\${2#*runs/}; n=$((\${id%%/*} - 100))
+    c=$(sed -n "\${n}p" "${d}/deploy-checks")
+    # A rejected head means main moved after the push: move origin main now, as another merge would.
+    if [ "$c" = failure ] && [ ! -f "${d}/advanced-$n" ]; then
+      touch "${d}/advanced-$n"
+      old=$(git --git-dir "${env.origin}" rev-parse main)
+      new=$(git --git-dir "${env.origin}" commit-tree -p "$old" -m "late main" "$old^{tree}")
+      git --git-dir "${env.origin}" update-ref refs/heads/main "$new" "$old"
+    fi
+    printf '{"jobs":[{"name":"Backend images","conclusion":null,"steps":[{"name":"Run scripts/ci-check-test-branch.sh origin","conclusion":"%s"}]}]}' "$c" ;;
   *"-X POST"*dispatches*) echo "$*" >> "${d}/dispatched"; cp "${d}/runs-after.json" "${d}/runs.json"; cp "${d}/jobs-after.json" "${d}/jobs.json" ;;
   *workflows/web.yml/runs*) cat "${d}/runs.json" ;;
   *runs/*/jobs*) id=\${2#*runs/}; id=\${id%%/*}; if [ -f "${d}/jobs-$id.json" ]; then cat "${d}/jobs-$id.json"; else cat "${d}/jobs.json"; fi ;;
@@ -81,7 +100,7 @@ esac
   chmodSync(join(bin, 'gh'), 0o755)
   return spawnSync('bash', [script, ...args], {
     cwd: env.clone,
-    env: { ...process.env, ...gitEnv, PATH: `${bin}:${process.env.PATH}`, TEST_SYNC_REPO: 'o/r', TEST_SYNC_POLL: '0' },
+    env: { ...process.env, ...gitEnv, PATH: `${bin}:${process.env.PATH}`, TEST_SYNC_REPO: 'o/r', TEST_SYNC_POLL: '0', TEST_SYNC_FOLLOW_WAIT: '0' },
     encoding: 'utf8',
   })
 }
@@ -285,6 +304,15 @@ test('nothing to push: leaves an already deployed commit alone', () =>
     const r = run(env, { runs: [runOf(env.feat)], jobList: jobs(), deploys })
     assert.match(r.stdout, /already deployed/)
     assert.ok(!existsSync(join(env.dir, 'deploy-dispatched')))
+  }))
+
+test('re-merges when main moved before Deploy test checked the pushed head', () =>
+  withEnv((env) => {
+    const r = run(env, { runs: [runOf(env.feat)], jobList: jobs(), deployChecks: ['failure', 'success'] })
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stdout, /main moved before Deploy test started[\s\S]*Deploy test accepted/)
+    assert.match(env.git(env.dir, '--git-dir', env.origin, 'log', '--format=%s', 'test'), /late main/)
+    assert.ok(contains(env, 'main') && contains(env, 'feat'))
   }))
 
 test('with no branches (or only main/test) it just syncs main, without asking GitHub', () => {

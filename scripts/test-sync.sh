@@ -20,7 +20,8 @@
 # describes. The job list comes from scripts/ci-reuse-web-checks.sh so there is one list.
 #
 # Environment (mostly for tests): TEST_SYNC_REPO (owner/name, default Muluk-m/ai-image-playground),
-# TEST_SYNC_REMOTE (default origin), TEST_SYNC_POLL (default 20), TEST_SYNC_ATTEMPTS (default 5).
+# TEST_SYNC_REMOTE (default origin), TEST_SYNC_POLL (default 20), TEST_SYNC_ATTEMPTS (default 5),
+# TEST_SYNC_FOLLOW_WAIT (seconds to watch Deploy test's branch check after pushing, default 600).
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -28,6 +29,7 @@ repo=${TEST_SYNC_REPO:-Muluk-m/ai-image-playground}
 remote=${TEST_SYNC_REMOTE:-origin}
 poll=${TEST_SYNC_POLL:-20}
 attempts=${TEST_SYNC_ATTEMPTS:-5}
+follow_wait=${TEST_SYNC_FOLLOW_WAIT:-600}
 wait_ci=2700
 dispatch=true
 
@@ -76,6 +78,7 @@ done
 need_int --wait-ci "$wait_ci"
 need_int TEST_SYNC_POLL "$poll"
 need_int TEST_SYNC_ATTEMPTS "$attempts"
+need_int TEST_SYNC_FOLLOW_WAIT "$follow_wait"
 # bash 3.2 treats "${arr[@]}" of an empty array as unset under `set -u`; these expand to nothing.
 all() { [ "${#branches[@]}" -eq 0 ] || printf '%s\n' "${branches[@]}"; }
 idx() { local i=0; while [ "$i" -lt "${#branches[@]}" ]; do echo "$i"; i=$((i + 1)); done; }
@@ -118,7 +121,7 @@ done
 #   bad <run-id> <failed jobs> | missing <run-id> <required jobs that were skipped or absent>
 verdict() {
   local sha=$1 runs ids id status jobs
-  runs=$(gh api "repos/$repo/actions/workflows/web.yml/runs?head_sha=$sha&per_page=20") || { echo error; return; }
+  runs=$(gh api "repos/$repo/actions/workflows/web.yml/runs?head_sha=$sha&per_page=100") || { echo error; return; }
   ids=$(jq -r --arg sha "$sha" '[.workflow_runs[] | select(.head_sha == $sha)] | sort_by(.run_started_at // .created_at) | reverse | .[:10][] | "\(.id) \(.status)"' <<<"$runs") ||
     { echo error; return; }
   while read -r id status; do
@@ -208,6 +211,31 @@ ensure_deployed() {
   fi
 }
 
+# Deploy test checks "test contains main" when its Backend images job starts, a minute or two
+# after the push; main can move in between. Watch that one step: ok | behind | unknown <why>.
+branch_check() {
+  local sha=$1 waited=0 run id jobs step
+  while :; do
+    run=$(gh api "repos/$repo/actions/workflows/deploy-test.yml/runs?head_sha=$sha&per_page=20" |
+      jq -c --arg sha "$sha" '[.workflow_runs[] | select(.head_sha == $sha and .event == "push")] | sort_by(.created_at) | last // empty' 2>/dev/null) || run=
+    if [ -n "$run" ]; then
+      id=$(jq -r .id <<<"$run")
+      jobs=$(gh api "repos/$repo/actions/runs/$id/jobs?filter=latest&per_page=100" 2>/dev/null) || jobs='{"jobs":[]}'
+      step=$(jq -r '[.jobs[] | select(.name == "Backend images") | .steps[]? | select(.name | contains("ci-check-test-branch"))
+        | .conclusion // "pending"] | first // "pending"' <<<"$jobs" 2>/dev/null) || step=pending
+      case $step in
+        success) echo ok; return ;;
+        failure) echo behind; return ;;
+        pending) [ "$(jq -r .status <<<"$run")" != completed ] || { echo "unknown run $id ended before the branch check"; return; } ;;
+        *) echo "unknown branch check $step in run $id"; return ;;
+      esac
+    fi
+    [ "$waited" -lt "$follow_wait" ] || { echo "unknown no verdict after ${follow_wait}s"; return; }
+    sleep "$poll"
+    waited=$((waited + poll))
+  done
+}
+
 wt=
 cleanup() { [ -z "$wt" ] || { git worktree remove --force "$wt" >/dev/null 2>&1 || rm -rf "$wt"; }; }
 trap cleanup EXIT
@@ -256,9 +284,24 @@ $files
   # Push from the caller's repository: a relative remote URL resolves against the current directory.
   # Every branch already passed Web checks; the pre-push hook would only re-run typecheck on the merge.
   if out=$(AIP_PRE_PUSH=skip git push -q "$remote" "$head:refs/heads/test" 2>&1); then
-    echo "test-sync: pushed test ${head:0:9} (main ${main_sha:0:9} + ${names:-nothing else})."
-    echo "  Follow it: gh run list --repo $repo --workflow deploy-test.yml --commit $head"
-    exit 0
+    echo "test-sync: pushed test ${head:0:9} (main ${main_sha:0:9} + ${names:-nothing else}); watching Deploy test's branch check."
+    read -r check why <<<"$(branch_check "$head")"
+    case $check in
+      ok)
+        echo "test-sync: Deploy test accepted ${head:0:9} (test contains main); it continues on its own."
+        echo "  Follow it: gh run list --repo $repo --workflow deploy-test.yml --commit $head"
+        exit 0
+        ;;
+      behind)
+        echo "test-sync: main moved before Deploy test started, so it rejected ${head:0:9}; merging again (attempt $attempt/$attempts)."
+        continue
+        ;;
+      *)
+        echo "test-sync: warning: could not confirm Deploy test's branch check ($why)." >&2
+        echo "  Check it: gh run list --repo $repo --workflow deploy-test.yml --commit $head"
+        exit 0
+        ;;
+    esac
   fi
   # Retry only when test really moved under us; anything else (permissions, protection, network)
   # will not fix itself.
