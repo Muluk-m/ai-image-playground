@@ -20,6 +20,7 @@ export function useToolboxIntake(disabled = false) {
   const disabledRef = useRef(disabled)
   disabledRef.current = disabled
   const add = useToolboxStore((state) => state.add)
+  const importing = useToolboxStore((state) => state.importingCount > 0)
   const fileInput = useRef<HTMLInputElement>(null)
   const folderInput = useRef<HTMLInputElement>(null)
   /** 四条路都汇到这里：非图片已经筛掉，剩下的一次进太多就先问一声，确认了才解码入列。 */
@@ -36,13 +37,15 @@ export function useToolboxIntake(disabled = false) {
       run(images)
       return
     }
+    useToolboxStore.getState().beginImport()
     void compressUploadFiles(images)
       .then(run)
       .catch(() =>
         useStore.getState().showToast(i18next.t('image.transcodeFailed', { ns: 'lib' }), 'error'),
       )
+      .finally(() => useToolboxStore.getState().endImport())
   }
-  const { dragging, dropZoneProps } = useImageDropZone(intake, { allowHeic: true })
+  const { dragging, dropZoneProps } = useImageDropZone(intake, { allowHeic: true, disabled })
   usePasteImageFiles('tools', intake, { allowHeic: true })
 
   const inputs = (
@@ -70,8 +73,13 @@ export function useToolboxIntake(disabled = false) {
         // 文件夹选择器没有 React 的 prop 名，只能按 DOM 属性名直接摊上去。
         {...{ webkitdirectory: '' }}
         onChange={(event) => {
+          const rawCount = event.target.files?.length ?? 0
           const { files } = filesFromFolderInput(event.target.files)
-          intake(acceptImageFiles(files, { keepOversized: true, allowHeic: true }))
+          if (rawCount > 0 && files.length === 0) {
+            useStore.getState().showToast(i18next.t('image.onlyImages', { ns: 'lib' }), 'error')
+          } else {
+            intake(acceptImageFiles(files, { keepOversized: true, allowHeic: true }))
+          }
           event.target.value = ''
         }}
       />
@@ -80,6 +88,7 @@ export function useToolboxIntake(disabled = false) {
 
   return {
     dragging,
+    importing,
     dropZoneProps,
     inputs,
     openFiles: () => fileInput.current?.click(),

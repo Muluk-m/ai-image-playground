@@ -6,7 +6,11 @@ import { Icon } from '../../../components/ui/icon'
 import { Slider } from '../../../components/ui/slider'
 import { i18next, useTranslation } from '../../../i18n'
 import { compressInputImageDataUrls } from '../../../lib/compressInputImage'
-import { compressUploadFile, UploadImageTooLargeError } from '../../../lib/imageFiles'
+import {
+  acceptImageFiles,
+  compressUploadFile,
+  UploadImageTooLargeError,
+} from '../../../lib/imageFiles'
 import { MAX_IMAGE_MB } from '../../../lib/inputImageLimit'
 import { useStore } from '../../../store'
 import { MAX_BRUSH_PX, MIN_BRUSH_PX, useInpaintSession } from '../inpaintStore'
@@ -30,7 +34,9 @@ export default function InpaintPanel({
   const session = useInpaintSession()
   const fileRef = useRef<HTMLInputElement>(null)
   const pendingRef = useRef(false)
+  const uploadingRef = useRef(false)
   const [pending, setPending] = useState(false)
+  const [uploading, setUploading] = useState(false)
 
   const regionPrompt = useRegionPrompt({
     ids: session.kind === 'inpaint' ? session.strokeIds : [],
@@ -48,6 +54,7 @@ export default function InpaintPanel({
   const submit = async () => {
     if (
       pendingRef.current ||
+      uploadingRef.current ||
       !image ||
       !painted ||
       regionPrompt.hasMissing ||
@@ -82,11 +89,15 @@ export default function InpaintPanel({
   }
 
   const pickReference = async (file: File | undefined) => {
-    if (!file) return
+    if (!file || uploadingRef.current || pendingRef.current) return
+    const [accepted] = acceptImageFiles([file], { keepOversized: true })
+    if (!accepted) return
+    uploadingRef.current = true
+    setUploading(true)
     try {
       let image: File
       try {
-        image = await compressUploadFile(file)
+        image = await compressUploadFile(accepted)
       } catch (error) {
         if (error instanceof UploadImageTooLargeError) {
           useStore
@@ -106,6 +117,9 @@ export default function InpaintPanel({
       session.setReference({ dataUrl: compressed ?? dataUrl, name: image.name })
     } catch {
       useStore.getState().showToast(t('import.failed'), 'error')
+    } finally {
+      uploadingRef.current = false
+      setUploading(false)
     }
   }
 
@@ -125,6 +139,7 @@ export default function InpaintPanel({
               key={tool}
               type="button"
               size="sm"
+              disabled={pending}
               variant={session.tool === tool ? 'secondary' : 'outline'}
               className={
                 session.tool === tool ? 'border border-primary/50 text-primary' : undefined
@@ -145,6 +160,7 @@ export default function InpaintPanel({
               min={MIN_BRUSH_PX}
               max={MAX_BRUSH_PX}
               value={[session.brushPx]}
+              disabled={pending}
               aria-label={t('inpaint.brushSize')}
               className="w-full"
               onValueChange={([value]) => {
@@ -157,7 +173,7 @@ export default function InpaintPanel({
           type="button"
           variant="ghost"
           size="icon"
-          disabled={!painted}
+          disabled={!painted || pending}
           aria-label={t('inpaint.undo')}
           title={t('inpaint.undo')}
           className="ml-auto shrink-0 text-muted-foreground"
@@ -180,6 +196,7 @@ export default function InpaintPanel({
                 type="button"
                 variant="secondary"
                 size="icon-xs"
+                disabled={pending || uploading}
                 aria-label={t('inpaint.removeReference')}
                 className="absolute -right-1.5 -top-1.5"
                 onClick={() => session.setReference(null)}
@@ -212,9 +229,14 @@ export default function InpaintPanel({
             type="button"
             variant="outline"
             size="sm"
+            disabled={pending || uploading}
+            aria-busy={uploading || undefined}
             onClick={() => fileRef.current?.click()}
           >
-            <Icon name="upload" />
+            <Icon
+              name={uploading ? 'loading' : 'upload'}
+              className={uploading ? 'animate-spin' : undefined}
+            />
             {t('inpaint.uploadReference')}
           </Button>
         )}
@@ -235,8 +257,10 @@ export default function InpaintPanel({
           <Button
             type="button"
             size="sm"
+            aria-busy={pending || undefined}
             disabled={
               pending ||
+              uploading ||
               !painted ||
               !image ||
               regionPrompt.hasMissing ||

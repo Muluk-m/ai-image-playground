@@ -22,21 +22,27 @@ export default function AgentCanvasHandoffDialog({
 }) {
   const { t } = useTranslation('agent')
   const [busy, setBusy] = useState(false)
+  const [choosingId, setChoosingId] = useState<string | null>(null)
   const [failed, setFailed] = useState(false)
+  const busyRef = useRef(false)
   const first = useRef<HTMLButtonElement>(null)
   useEffect(() => {
     first.current?.focus()
-  }, [busy, onClose])
+  }, [])
   const choose = async (id?: string) => {
-    if (busy) return
+    if (busyRef.current || busy) return
+    busyRef.current = true
     setBusy(true)
+    setChoosingId(id ?? '__new__')
     setFailed(false)
     try {
       if (!(await onChoose(id))) setFailed(true)
     } catch {
       setFailed(true)
     } finally {
+      busyRef.current = false
       setBusy(false)
+      setChoosingId(null)
     }
   }
   const canvases = projects.filter(
@@ -73,10 +79,14 @@ export default function AgentCanvasHandoffDialog({
           ref={first}
           type="button"
           disabled={busy}
+          aria-busy={choosingId === '__new__' || undefined}
           onClick={() => void choose()}
           className="w-full justify-start"
         >
-          <Icon name="add" />
+          <Icon
+            name={choosingId === '__new__' ? 'loading' : 'add'}
+            className={choosingId === '__new__' ? 'animate-spin' : undefined}
+          />
           <span className="flex-1 text-left">{t('handoff.new')}</span>
           <Icon name="arrowRight" />
         </Button>
@@ -92,9 +102,13 @@ export default function AgentCanvasHandoffDialog({
                   className="w-full justify-start"
                   key={project.id}
                   disabled={busy}
+                  aria-busy={choosingId === project.id || undefined}
                   onClick={() => void choose(project.id)}
                 >
-                  <Icon name="canvas" />
+                  <Icon
+                    name={choosingId === project.id ? 'loading' : 'canvas'}
+                    className={choosingId === project.id ? 'animate-spin' : undefined}
+                  />
                   <span className="min-w-0 flex-1 truncate text-left">
                     {projectEntryName(project)}
                   </span>

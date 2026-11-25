@@ -35,12 +35,14 @@ export default function VideoPresetRows({
   draft,
   aspectFollowsFirstFrame,
   onChange,
+  disabled = false,
 }: {
   support: VideoModelSupport
   draft: Pick<VideoDraft, 'model' | 'duration' | 'aspectRatio' | 'resolution' | 'voices'>
   /** 图生时画幅跟着首帧走，这一行只读。 */
   aspectFollowsFirstFrame: boolean
   onChange?: (patch: Partial<VideoDraft>) => void
+  disabled?: boolean
 }) {
   const { t } = useTranslation('video')
   const compactDurations = support.durations.length > 5
@@ -85,6 +87,7 @@ export default function VideoPresetRows({
               options={quickDurations.map((duration) => ({
                 value: duration,
                 label: t('shared.seconds', { seconds: duration }),
+                disabled,
               }))}
               value={draft.duration}
               onChange={pickDuration}
@@ -92,6 +95,7 @@ export default function VideoPresetRows({
           </div>
           {compactDurations && (
             <Select
+              disabled={disabled}
               value={quickDurations.includes(draft.duration) ? '' : String(draft.duration)}
               onValueChange={(value) => {
                 const duration = support.durations.find((one) => String(one) === value)
@@ -127,7 +131,7 @@ export default function VideoPresetRows({
             ? onChange({ aspectRatio: ratio })
             : useVideoStore.getState().setAspectRatio(ratio)
         }
-        disabled={aspectFollowsFirstFrame}
+        disabled={disabled || aspectFollowsFirstFrame}
         note={aspectFollowsFirstFrame ? t('aspect.followsFirstFrame') : undefined}
       />
       <SettingsChoice
@@ -139,6 +143,7 @@ export default function VideoPresetRows({
         }
         options={support.resolutions}
         value={draft.resolution}
+        disabled={disabled}
         render={(resolution) => {
           const multiplier = videoRateMultiplier(draft.model, resolution)
           const label = VIDEO_RESOLUTION_LABELS[resolution]
@@ -146,7 +151,7 @@ export default function VideoPresetRows({
         }}
         onChange={pickResolution}
       />
-      <VoiceChoices support={support} draft={draft} onChange={onChange} />
+      <VoiceChoices support={support} draft={draft} onChange={onChange} disabled={disabled} />
     </>
   )
 }
@@ -160,10 +165,12 @@ function VoiceChoices({
   support,
   draft,
   onChange,
+  disabled = false,
 }: {
   support: VideoModelSupport
   draft: Pick<VideoDraft, 'voices'>
   onChange?: (patch: Partial<VideoDraft>) => void
+  disabled?: boolean
 }) {
   const voices = support.voices
   const { t } = useTranslation('video')
@@ -184,6 +191,7 @@ function VoiceChoices({
               size="sm"
               key={id}
               type="button"
+              disabled={disabled}
               aria-label={t('voice.remove', { name })}
               onClick={() => setVoices(selected.filter((one) => one !== id))}
               className="gap-1.5"
@@ -196,6 +204,7 @@ function VoiceChoices({
         {selected.length < voices.max && remaining.length > 0 && (
           <Select
             key={selected.join(',')}
+            disabled={disabled}
             value=""
             onValueChange={(id) => setVoices([...selected, id])}
           >

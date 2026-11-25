@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
 import { PANEL_TITLE } from '../../../components/panelStyles'
 import Overlay from '../../../components/patterns/Overlay'
 import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import { Button } from '../../../components/ui/button'
-import { useTranslation } from '../../../i18n'
+import { Icon } from '../../../components/ui/icon'
+import { describeError, useTranslation } from '../../../i18n'
 import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/apiProfiles'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
@@ -28,6 +29,7 @@ export default function CanvasBatchConfirmDialog({
 }) {
   const { t } = useTranslation('canvas')
   const [submitting, setSubmitting] = useState(false)
+  const submittingRef = useRef(false)
   const settings = useStore((state) => state.settings)
   const guard = usePrivateSubmissionGuard({
     model: clientProfileToApiProfile(getActiveApiProfile(settings)).model,
@@ -35,12 +37,16 @@ export default function CanvasBatchConfirmDialog({
   })
 
   const confirm = async () => {
-    if (submitting || guard.blocked) return
+    if (submittingRef.current || submitting || guard.blocked) return
+    submittingRef.current = true
     setSubmitting(true)
     try {
       await onConfirm()
       onClose()
+    } catch (error) {
+      useStore.getState().showToast(describeError(error), 'error')
     } finally {
+      submittingRef.current = false
       setSubmitting(false)
     }
   }
@@ -88,9 +94,11 @@ export default function CanvasBatchConfirmDialog({
           <Button
             type="button"
             size="sm"
+            aria-busy={submitting || undefined}
             disabled={guard.blocked || submitting}
             onClick={() => void confirm()}
           >
+            {submitting && <Icon name="loading" className="animate-spin" />}
             {t('batch.confirmSubmit', { count })}
           </Button>
         </div>

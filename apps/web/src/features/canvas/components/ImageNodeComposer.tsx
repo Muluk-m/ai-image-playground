@@ -9,6 +9,7 @@ import {
 } from '../../../components/creation/CreationFrame'
 import LookChips, { LookCapsule } from '../../../components/LookChips'
 import ParamControls from '../../../components/ParamControls'
+import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
@@ -16,6 +17,7 @@ import { clientProfileToApiProfile, getActiveApiProfile } from '../../../lib/api
 import { useGptPremiumLocked } from '../../../lib/gptPremium'
 import { quotedGptMultiplier } from '../../../lib/gptQuote'
 import { directAvailableForModel } from '../../../lib/imageCharge'
+import { acceptImageFiles } from '../../../lib/imageFiles'
 import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
 import { getParamCapabilities } from '../../../lib/paramCompatibility'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
@@ -104,6 +106,7 @@ export default function ImageNodeComposer({
   )
   const hasContext = references.some((ref) => ref.text || ref.fileId) || temporary.length > 0
   const canSend =
+    !guard.blocked &&
     !busy &&
     !uploading &&
     (lookCheck?.ok ?? true) &&
@@ -112,9 +115,11 @@ export default function ImageNodeComposer({
     if (canSend) onSubmit(temporary.map((item) => item.url))
   }
   const upload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
+    const picked = [...(event.target.files ?? [])]
     event.target.value = ''
-    if (!file || !file.type.startsWith('image/') || uploading) return
+    if (uploading) return
+    const [file] = acceptImageFiles(picked, { keepOversized: true })
+    if (!file) return
     if (temporary.length + readyImageIds.length >= API_MAX_IMAGES) {
       useStore.getState().showToast(t('submit.tooManyInputs', { max: API_MAX_IMAGES }), 'error')
       return
@@ -210,14 +215,26 @@ export default function ImageNodeComposer({
             aria-label={t('nodes.composerSend')}
             disabled={!canSend}
             busy={busy}
+            title={guard.disabledReason}
             onClick={submit}
           />
         }
         status={
-          profile.source === 'builtin-edge' && guard.estimatedCredits !== undefined ? (
-            <span className="flex items-center gap-1 text-muted-foreground" aria-live="polite">
-              {t('nodes.estimatedCost')} <Credits credits={guard.estimatedCredits} />
-            </span>
+          guard.blocked ||
+          (profile.source === 'builtin-edge' && guard.estimatedCredits !== undefined) ? (
+            <>
+              {guard.blocked && guard.disabledReason && (
+                <p role="alert" className="text-destructive">
+                  {guard.disabledReason}
+                </p>
+              )}
+              <SubmissionBillingAction blockedAction={guard.blockedAction} />
+              {profile.source === 'builtin-edge' && guard.estimatedCredits !== undefined && (
+                <span className="flex items-center gap-1 text-muted-foreground" aria-live="polite">
+                  {t('nodes.estimatedCost')} <Credits credits={guard.estimatedCredits} />
+                </span>
+              )}
+            </>
           ) : undefined
         }
       >

@@ -47,7 +47,7 @@ function ToolCard({ tool }: { tool: ToolDefinition }) {
 export default function ToolCatalog() {
   const { t } = useTranslation('toolbox')
   const [tab, setTab] = useState<CatalogTab>('all')
-  const { dragging, dropZoneProps, inputs, openFiles, openFolder } = useToolboxIntake()
+  const { dragging, importing, dropZoneProps, inputs, openFiles, openFolder } = useToolboxIntake()
   const tools = tab === 'all' ? TOOLS : TOOLS.filter((tool) => tool.group === tab)
   const count = (group: CatalogTab) =>
     group === 'all' ? TOOLS.length : TOOLS.filter((tool) => tool.group === group).length
@@ -78,7 +78,7 @@ export default function ToolCatalog() {
           </div>
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <SegmentedTabs tabs={tabs} value={tab} onChange={setTab} label={t('catalog.tabs')} />
-            <IntakeActions onAddImages={openFiles} onAddFolder={openFolder} />
+            <IntakeActions onAddImages={openFiles} onAddFolder={openFolder} importing={importing} />
           </div>
           <div className="grid grid-cols-2 gap-x-3 gap-y-6 lg:grid-cols-4">
             {tools.map((tool) => (

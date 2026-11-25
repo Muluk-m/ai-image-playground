@@ -90,12 +90,18 @@ function TimelineEditor({
   const [playing, setPlaying] = useState(false)
   const [playIndex, setPlayIndex] = useState(0)
   const [measured, setMeasured] = useState<Record<string, number>>({})
+  const [videoError, setVideoError] = useState(false)
+  const [historyState, setHistoryState] = useState({ undo: 0, redo: 0 })
+  const [trimmingActive, setTrimmingActive] = useState(false)
+  const trimmingActiveRef = useRef(false)
+  const undoStack = useRef<Array<{ clips: TimelineClip[]; selected: number | null }>>([])
+  const redoStack = useRef<Array<{ clips: TimelineClip[]; selected: number | null }>>([])
   const video = useRef<HTMLVideoElement>(null)
   const root = useRef<HTMLDivElement>(null)
   const pendingSeek = useRef<number | null>(null)
   // 播放循环与媒体事件回调里读这几份 ref，不读闭包：状态在两次渲染之间就会变。
-  const live = useRef({ clips, playing, playIndex })
-  live.current = { clips, playing, playIndex }
+  const live = useRef({ clips, selected, playing, playIndex })
+  live.current = { clips, selected, playing, playIndex }
 
   const sourceOf = useCallback(
     (id: string) => {
@@ -135,6 +141,7 @@ function TimelineEditor({
     if (!url) {
       live.current.playing = false
       setPlaying(false)
+      setVideoError(false)
       pendingSeek.current = null
       node.pause()
       node.removeAttribute('src')
@@ -142,6 +149,7 @@ function TimelineEditor({
       return
     }
     if (node.getAttribute('src') !== url) {
+      setVideoError(false)
       pendingSeek.current = sourceTime
       node.src = url
       node.load()
@@ -213,13 +221,66 @@ function TimelineEditor({
     void node.play().catch(() => stop())
   }
 
+  const syncHistory = () =>
+    setHistoryState({ undo: undoStack.current.length, redo: redoStack.current.length })
+
+  const pushHistory = () => {
+    undoStack.current.push({ clips: live.current.clips, selected: live.current.selected })
+    if (undoStack.current.length > 50) undoStack.current.shift()
+    redoStack.current = []
+    syncHistory()
+  }
+
   /** 改了片段表：停下，播放头留在原处（超出新总长就到末尾），预览按新表重新定位。 */
-  const update = (next: TimelineClip[], change?: Parameters<typeof followSelection>[1]) => {
+  const update = (
+    next: TimelineClip[],
+    change?: Parameters<typeof followSelection>[1],
+    record = true,
+  ) => {
+    if (record && sameClips(next, live.current.clips, sourceOf)) return
     stop()
+    if (record) pushHistory()
     setClips(next)
     live.current.clips = next
-    if (change) setSelected((current) => followSelection(current, change))
+    if (change) {
+      setSelected((current) => {
+        const nextSelected = followSelection(current, change)
+        live.current.selected = nextSelected
+        return nextSelected
+      })
+    }
     seek(time, next)
+  }
+
+  const undo = () => {
+    if (trimmingActiveRef.current) return
+    const previous = undoStack.current.pop()
+    if (!previous) return
+    redoStack.current.push({ clips: live.current.clips, selected: live.current.selected })
+    syncHistory()
+    live.current.selected = previous.selected
+    setSelected(previous.selected)
+    update(previous.clips, undefined, false)
+  }
+
+  const redo = () => {
+    if (trimmingActiveRef.current) return
+    const next = redoStack.current.pop()
+    if (!next) return
+    undoStack.current.push({ clips: live.current.clips, selected: live.current.selected })
+    syncHistory()
+    live.current.selected = next.selected
+    setSelected(next.selected)
+    update(next.clips, undefined, false)
+  }
+
+  const retryVideo = () => {
+    const node = video.current
+    const url = urlOf(live.current.clips, live.current.playIndex)
+    if (!node || !url) return
+    setVideoError(false)
+    node.removeAttribute('src')
+    seek(time)
   }
 
   const close = () => {
@@ -247,9 +308,19 @@ function TimelineEditor({
   const onKeyDown = (event: ReactKeyboardEvent) => {
     // 所有按键停在编辑器里：画布的 Delete / ⌘Z / 字母工具键会作用到画布本身。
     event.stopPropagation()
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
-      event.preventDefault()
-      return
+    if ((event.metaKey || event.ctrlKey) && !event.altKey) {
+      const key = event.key.toLowerCase()
+      if (key === 'z') {
+        event.preventDefault()
+        if (event.shiftKey) redo()
+        else undo()
+        return
+      }
+      if (key === 'y') {
+        event.preventDefault()
+        redo()
+        return
+      }
     }
     const target = event.target as HTMLElement
     if (target.tagName === 'INPUT' || target.getAttribute('role') === 'slider') return
@@ -259,7 +330,11 @@ function TimelineEditor({
     } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       event.preventDefault()
       seek(time + (event.key === 'ArrowLeft' ? -STEP_SECONDS : STEP_SECONDS))
-    } else if ((event.key === 'Delete' || event.key === 'Backspace') && selected !== null) {
+    } else if (
+      (event.key === 'Delete' || event.key === 'Backspace') &&
+      selected !== null &&
+      !trimmingActiveRef.current
+    ) {
       event.preventDefault()
       update(removeClip(clips, selected), { kind: 'remove', index: selected })
     }
@@ -283,20 +358,44 @@ function TimelineEditor({
             {t('timeline.overflow', { max: PROJECT_TIMELINE_MAX_CLIPS })}
           </p>
         )}
-        <header className="flex items-center justify-between border-b border-border px-4 py-2">
+        <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
           <h2 className="text-sm font-medium">
             {t('timeline.editorTitle')} · {clips.length} · {clock(total)}
           </h2>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={close}
-            aria-label={t('timeline.done')}
-          >
-            <Icon name="close" />
-            {t('timeline.done')}
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              disabled={trimmingActive || historyState.undo === 0}
+              onClick={undo}
+              aria-label={t('toolbar.undo')}
+              title={t('toolbar.undo')}
+            >
+              <Icon name="undo" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              disabled={trimmingActive || historyState.redo === 0}
+              onClick={redo}
+              aria-label={t('toolbar.redo')}
+              title={t('toolbar.redo')}
+            >
+              <Icon name="redo" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={close}
+              aria-label={t('timeline.done')}
+            >
+              <Icon name="close" />
+              {t('timeline.done')}
+            </Button>
+          </div>
         </header>
 
         <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
@@ -306,11 +405,17 @@ function TimelineEditor({
             playsInline
             crossOrigin="use-credentials"
             onLoadedMetadata={() => {
+              setVideoError(false)
               const node = video.current
               if (!node || pendingSeek.current === null) return
               node.currentTime = pendingSeek.current
               pendingSeek.current = null
               if (live.current.playing) void node.play().catch(() => stop())
+            }}
+            onError={() => {
+              if (!video.current?.getAttribute('src')) return
+              stop()
+              setVideoError(true)
             }}
             onEnded={() => {
               if (live.current.playing) advance(live.current.playIndex)
@@ -318,6 +423,18 @@ function TimelineEditor({
           >
             <track kind="captions" />
           </video>
+          {videoError && !missingNow && clips.length > 0 && (
+            <div
+              role="alert"
+              className="absolute flex flex-col items-center gap-2 rounded-xl border border-border bg-card/95 px-4 py-3 text-center shadow-lg"
+            >
+              <p className="text-sm text-destructive">{t('nodes.trimLoadFailed')}</p>
+              <Button type="button" variant="outline" size="sm" onClick={retryVideo}>
+                <Icon name="refresh" />
+                {t('assetsPanel.retry')}
+              </Button>
+            </div>
+          )}
           {missingNow && (
             <p className="absolute text-sm text-muted-foreground">{t('timeline.missing')}</p>
           )}
@@ -360,16 +477,32 @@ function TimelineEditor({
           sourceOf={sourceOf}
           selected={selected}
           onSelect={(index) => {
+            live.current.selected = index
             setSelected(index)
             seek(startOfClip(clips, sourceOf, index))
           }}
-          onMove={(from, to) => update(moveClip(clips, from, to), { kind: 'move', from, to })}
-          onTrim={(index, edge, seconds) => {
-            const next = [...clips]
-            next[index] = trimClip(clips[index]!, edge, seconds, sourceOf(clips[index]!.elementId))
-            update(next)
+          onMove={(from, to) => {
+            if (trimmingActiveRef.current) return
+            update(moveClip(clips, from, to), { kind: 'move', from, to })
           }}
-          onRemove={(index) => update(removeClip(clips, index), { kind: 'remove', index })}
+          onTrimActiveChange={(active) => {
+            trimmingActiveRef.current = active
+            setTrimmingActive(active)
+          }}
+          onTrim={(index, edge, seconds, record = true) => {
+            const current = live.current.clips
+            const prev = current[index]!
+            const trimmed = trimClip(prev, edge, seconds, sourceOf(prev.elementId))
+            if (trimmed.in === prev.in && trimmed.out === prev.out) return false
+            const next = [...current]
+            next[index] = trimmed
+            update(next, undefined, record)
+            return true
+          }}
+          onRemove={(index) => {
+            if (trimmingActiveRef.current) return
+            update(removeClip(clips, index), { kind: 'remove', index })
+          }}
           onLocate={
             onLocate
               ? (index) => {
@@ -443,6 +576,7 @@ function ClipTrack({
   selected,
   onSelect,
   onMove,
+  onTrimActiveChange,
   onTrim,
   onRemove,
   onLocate,
@@ -453,7 +587,8 @@ function ClipTrack({
   selected: number | null
   onSelect: (index: number) => void
   onMove: (from: number, to: number) => void
-  onTrim: (index: number, edge: 'in' | 'out', seconds: number) => void
+  onTrimActiveChange: (active: boolean) => void
+  onTrim: (index: number, edge: 'in' | 'out', seconds: number, record?: boolean) => boolean
   onRemove: (index: number) => void
   onLocate?: (index: number) => void
 }) {
@@ -481,7 +616,8 @@ function ClipTrack({
             if (dragFrom !== null) onMove(dragFrom, index)
             setDragFrom(null)
           }}
-          onTrim={(edge, seconds) => onTrim(index, edge, seconds)}
+          onTrimActiveChange={onTrimActiveChange}
+          onTrim={(edge, seconds, record) => onTrim(index, edge, seconds, record)}
           onRemove={() => onRemove(index)}
           onLocate={onLocate ? () => onLocate(index) : undefined}
           onMoveLeft={index > 0 ? () => onMove(index, index - 1) : undefined}
@@ -503,6 +639,7 @@ function ClipCard({
   onDragStart,
   onDragEnd,
   onDrop,
+  onTrimActiveChange,
   onTrim,
   onRemove,
   onLocate,
@@ -519,7 +656,8 @@ function ClipCard({
   onDragStart: () => void
   onDragEnd: () => void
   onDrop: () => void
-  onTrim: (edge: 'in' | 'out', seconds: number) => void
+  onTrimActiveChange: (active: boolean) => void
+  onTrim: (edge: 'in' | 'out', seconds: number, record?: boolean) => boolean
   onRemove: () => void
   onLocate?: () => void
   onMoveLeft?: () => void
@@ -527,6 +665,8 @@ function ClipCard({
 }) {
   const { t } = useTranslation('canvas')
   const [trimming, setTrimming] = useState(false)
+  const trimCleanupRef = useRef<(() => void) | null>(null)
+  useEffect(() => () => trimCleanupRef.current?.(), [])
   const element = editor.getElement(clip.elementId)
   const missing = !isTimelineSource(element)
   const posterMedia = useNodeMedia(
@@ -548,15 +688,26 @@ function ClipCard({
     const target = event.currentTarget
     target.setPointerCapture(event.pointerId)
     setTrimming(true)
-    const move = (moveEvent: PointerEvent) =>
-      onTrim(edge, origin + (moveEvent.clientX - startX) / TRACK_PX_PER_SECOND)
+    onTrimActiveChange(true)
+    let recorded = false
+    const move = (moveEvent: PointerEvent) => {
+      const changed = onTrim(
+        edge,
+        origin + (moveEvent.clientX - startX) / TRACK_PX_PER_SECOND,
+        !recorded,
+      )
+      if (changed) recorded = true
+    }
     const end = () => {
+      if (trimCleanupRef.current === end) trimCleanupRef.current = null
       target.removeEventListener('pointermove', move)
       target.removeEventListener('pointerup', end)
       target.removeEventListener('pointercancel', end)
       target.removeEventListener('lostpointercapture', end)
       setTrimming(false)
+      onTrimActiveChange(false)
     }
+    trimCleanupRef.current = end
     target.addEventListener('pointermove', move)
     target.addEventListener('pointerup', end)
     target.addEventListener('pointercancel', end)

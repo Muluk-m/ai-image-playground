@@ -11,16 +11,27 @@ export function IntakeActions({
   onAddImages,
   onAddFolder,
   busy = false,
+  importing = false,
 }: {
   onAddImages: () => void
   onAddFolder: () => void
   busy?: boolean
+  importing?: boolean
 }) {
   const { t } = useTranslation('toolbox')
   const count = useToolboxStore((state) => state.items.length)
   const clear = useToolboxStore((state) => state.clear)
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {importing && (
+        <span
+          role="status"
+          className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs text-muted-foreground"
+        >
+          <Icon name="loading" size="xs" className="animate-spin" />
+          {t('result.processing')}
+        </span>
+      )}
       {count > 0 && (
         <span className="mr-1 hidden whitespace-nowrap text-xs sm:inline text-muted-foreground tabular-nums">
           {t('intake.imported', { count })}
@@ -62,11 +73,13 @@ export default function ToolboxHeader({
   onAddImages,
   onAddFolder,
   busy = false,
+  importing = false,
 }: {
   tool: ToolDefinition
   onAddImages: () => void
   onAddFolder: () => void
   busy?: boolean
+  importing?: boolean
 }) {
   const { t } = useTranslation('toolbox')
   const closeTool = useToolboxStore((state) => state.closeTool)
@@ -92,7 +105,12 @@ export default function ToolboxHeader({
       }
     >
       <div className="ml-auto">
-        <IntakeActions onAddImages={onAddImages} onAddFolder={onAddFolder} busy={busy} />
+        <IntakeActions
+          onAddImages={onAddImages}
+          onAddFolder={onAddFolder}
+          busy={busy}
+          importing={importing}
+        />
       </div>
     </PageHeader>
   )
