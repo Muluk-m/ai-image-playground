@@ -266,20 +266,9 @@ export function AuthGate() {
       if (clearLocalData) await clearScopedClientStorage()
     } catch {
       if (!signedOut) {
-        const probe = await getCurrentUser(AbortSignal.timeout(10000)).catch((err) => {
-          if (err instanceof AuthRequestError && err.status === 401) return null
-          return undefined
-        })
-        if (probe === null) {
-          signedOut = true
-          if (clearLocalData) {
-            await clearScopedClientStorage().catch(() => undefined)
-          }
-        } else {
-          const { useStore } = await import('../store')
-          const { i18next } = await import('../i18n')
-          useStore.getState().showToast(i18next.t('common.fallback', { ns: 'errors' }), 'error')
-        }
+        const { useStore } = await import('../store')
+        const { i18next } = await import('../i18n')
+        useStore.getState().showToast(i18next.t('common.fallback', { ns: 'errors' }), 'error')
       }
     } finally {
       if (signedOut) {
