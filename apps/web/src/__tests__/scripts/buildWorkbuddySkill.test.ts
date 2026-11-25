@@ -240,6 +240,7 @@ describe('CLI Skill package and hot-update manifest', () => {
       expect(manifest.packages['claude-code'].file_hash).toBe(
         manifest.extra_packages.cursor.file_hash,
       )
+      expect(manifest.dir_package).toEqual(manifest.packages['claude-code'])
       expect(
         manifest.packages.workbuddy.files.some((item) => item.path === 'references/workbuddy.md'),
       ).toBe(true)

@@ -175,3 +175,19 @@ func TestDamagedRegistryIsKeptAsideNotOverwritten(t *testing.T) {
 		t.Fatalf("registry = %v", RegisteredDirs())
 	}
 }
+
+// The web manifest publishes the generic CLI package for --dir copies (dir_package);
+// a hot update only lands as intended while both bundles hold the same files.
+func TestDirCopiesBundleTheSameFilesAsTheGenericHosts(t *testing.T) {
+	_, custom, err := bundleFilesForHost(customHost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, generic, err := bundleFilesForHost("claude-code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if custom != generic {
+		t.Fatalf("custom bundle hash %s != claude-code %s", custom, generic)
+	}
+}

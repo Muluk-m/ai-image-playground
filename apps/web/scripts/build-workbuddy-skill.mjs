@@ -260,6 +260,9 @@ export function createSkillManifest({
       cline: cliPkg,
       openclaw: cliPkg,
     },
+    // `muvloom skill install --dir` copies: the generic files the CLI bundles for them. A field
+    // of its own because CLI 0.2.8/0.2.9 merge every extra_packages host and cannot place them.
+    dir_package: cliPkg,
     ...(cliMeta ? { cli: cliMeta } : {}),
   }
 }

@@ -18,13 +18,14 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/auth"
-	"github.com/Muluk-m/ai-image-playground/cli-go/internal/netidle"
 	"github.com/Muluk-m/ai-image-playground/cli-go/internal/client"
+	"github.com/Muluk-m/ai-image-playground/cli-go/internal/netidle"
 )
 
 const (
@@ -63,10 +64,10 @@ var (
 		"https://image-api.qiliangjia.one": "https://image-playground.qiliangjia.one",
 	}
 	officialAPIMap = map[string]string{
-		"https://muvloom.online":                "https://api.muvloom.online",
-		"https://image.nainma.online":           "https://api.muvloom.online",
+		"https://muvloom.online":                  "https://api.muvloom.online",
+		"https://image.nainma.online":             "https://api.muvloom.online",
 		"https://image-playground.qiliangjia.one": "https://image-api.qiliangjia.one",
-		"https://test.muvloom.online":           "https://test-api.muvloom.online",
+		"https://test.muvloom.online":             "https://test-api.muvloom.online",
 	}
 )
 
@@ -135,7 +136,10 @@ type RemoteManifest struct {
 	BundleVersion string                          `json:"bundle_version"`
 	Packages      map[string]RemoteManifestBundle `json:"packages"`
 	ExtraPackages map[string]RemoteManifestBundle `json:"extra_packages,omitempty"`
-	CLI           *RemoteManifestCLI              `json:"cli,omitempty"`
+	// DirPackage updates `skill install --dir` copies. It is a field of its own, not an
+	// extra_packages host: CLIs before it merge every extra host and could not place a --dir copy.
+	DirPackage *RemoteManifestBundle `json:"dir_package,omitempty"`
+	CLI        *RemoteManifestCLI    `json:"cli,omitempty"`
 }
 
 type RemoteManifestCLI struct {
@@ -719,6 +723,11 @@ func fetchManifest(ctx context.Context, httpClient *http.Client, origin string) 
 			manifest.Packages[host] = pkg
 		}
 	}
+	// --dir copies come from dir_package only.
+	delete(manifest.Packages, customHost)
+	if manifest.DirPackage != nil {
+		manifest.Packages[customHost] = *manifest.DirPackage
+	}
 	return manifest, nil
 }
 
@@ -735,6 +744,11 @@ func validateManifest(m RemoteManifest) error {
 		}
 		if err := validateManifestBundle(pkg); err != nil {
 			return fmt.Errorf("invalid package %q: %w", host, err)
+		}
+	}
+	if m.DirPackage != nil {
+		if err := validateManifestBundle(*m.DirPackage); err != nil {
+			return fmt.Errorf("invalid dir package: %w", err)
 		}
 	}
 	for host, pkg := range m.ExtraPackages {
@@ -921,7 +935,7 @@ func applyInPlaceUpdate(
 	if lockWait <= 0 {
 		lockWait = installLockWait
 	}
-	root, destination, err := resolveSkillRootAndDest(item.foundHost, item.foundScope, home, cwd)
+	root, destination, err := remoteSkillRootAndDest(item, home, cwd)
 	if err != nil {
 		return false, err
 	}
@@ -1379,6 +1393,18 @@ func pruneDirsDeepestFirst(root string, dirs []string) {
 	for _, d := range unique {
 		_ = os.Remove(filepath.Join(root, filepath.FromSlash(d)))
 	}
+}
+
+// remoteSkillRootAndDest locates a copy to update in place: a host's copy from that host's
+// skills directory, a `skill install --dir` copy from the registry it was recorded in.
+func remoteSkillRootAndDest(item Installation, home, cwd string) (string, string, error) {
+	if item.foundHost != customHost {
+		return resolveSkillRootAndDest(item.foundHost, item.foundScope, home, cwd)
+	}
+	if !slices.Contains(RegisteredDirs(), item.Path) {
+		return "", "", fmt.Errorf("%s is not a registered Skill directory", item.Path)
+	}
+	return filepath.Dir(item.Path), item.Path, nil
 }
 
 func resolveSkillRootAndDest(host, scope, home, cwd string) (string, string, error) {
