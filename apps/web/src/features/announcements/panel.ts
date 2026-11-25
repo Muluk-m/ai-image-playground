@@ -59,6 +59,9 @@ export function beginAnnouncementFeed(account: string): AnnouncementLoad {
     unread = 0
     status = 'loading'
     emit()
+  } else if (status === 'error' && items.length === 0) {
+    status = 'loading'
+    emit()
   }
   return newLoad()
 }
@@ -101,6 +104,7 @@ export function setAnnouncementFeed(
 /** 第一次就失败才换成错误态；已经有内容时保留上一份。过期请求不改状态。 */
 export function setAnnouncementFeedError(load: AnnouncementLoad = newLoad()): void {
   if (load.generation !== generation || load.seq < appliedSeq) return
+  appliedSeq = load.seq
   if (items.length === 0) status = 'error'
   emit()
 }
