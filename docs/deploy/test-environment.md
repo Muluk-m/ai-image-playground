@@ -20,6 +20,32 @@
 
 后端 `runtime` 模式按 `docker run/create --env-file` 解释 `app.env` / `migrate.env`（与 `rollout-runtime.sh` 一致）：值是字面量，不剥首尾引号、不展开变量，值尾空白保留；行尾 `\r\n` 与首行 BOM 去掉，行首空白去掉，空行与 `#` 注释忽略，同名键取最后一次。没有 `=` 的行（Docker 会从宿主环境继承）、变量名为空或含空白的行直接拒绝，不当作未设置。不要给这些文件写成 shell 引号形式，否则检查器与容器里看到的字符串会带上引号本身。Pages 模式仍用 shell `source`，只用于 CI 的 pages env。
 
+## 配置中心模式（ADR 0035）
+
+VPS 上存在 `~/.config/ai-image-playground/rendered/image-playground-test/` 目录时，test 改用配置中心，不再读 `apps/image-playground-test/` 下的 `app.env`、`migrate.env`、`operator-config.json` 和 `cloudflared/`。
+
+- **启用**：建这个空目录，下一次发布就会生效。**回退**：删掉这个目录，下一次发布回到 `app.env`。
+- **每次发布**：`vps-deploy.sh` 先用发布镜像跑 `scripts/config-render.sh test image-playground-test <镜像>`，再按生成目录跑 `check-test-isolation.sh runtime <生成目录>`；两步都在改动服务和数据库之前。
+  - `config-render.sh` 凭 `~/.config/ai-image-playground/bootstrap.env` 里 test 的 Access token，从 Config Worker 取密钥，非密钥配置取自镜像里的 `deploy/deployments/test.json`。
+  - 隔离检查先确认参与核对的键在各服务的 env 里取值一致（`APP_ROLE`、`PORT` 这类按服务不同的键不算），再合在一起核对；生产凭据按生产实际使用的位置比对（生产启用配置中心后读它的生成目录，否则读 `apps/image-playground-paid/app.env`）。
+- **生成目录**（0700，文件 0600）：
+  - `deploy.env`：项目名、端口、开关，不含密钥；
+  - `env/<服务>.env`：每个服务只有自己登记过的键，按字面读取；
+  - `operator-config.json`；
+  - `cloudflared/main/{config.yml,credentials.json}`。
+- **改配置**：非密钥配置改 `deploy/deployments/test.json`，走 PR。密钥用 `deploy/config-worker/provision.ts secrets push test <文件>` 写进 Secrets Store。
+- **Tunnel**：生成目录每次渲染都整体替换，连接器挂不住，所以连接器挂的是 `~/.config/ai-image-playground/tunnels/<项目>/<main|enterprise>/`。发布时先把生成的 `config.yml`、`credentials.json` 原地写进去，再按情况处理连接器：
+  - 挂着旧目录或没在运行：重建；
+  - 文件有变化（包括只轮换了凭据）：重启；
+  - 重建或重启后最多等 60 秒，直到连接器日志出现 `Registered tunnel connection`（已连上 Cloudflare 边缘）；连接器退出或超时都算发布失败。
+  - 文件写入前先留下 `tunnels/<项目>/.pending-<名称>` 标记，连接器带着新文件就绪后才删除。发布中途失败时，下一次发布仍会重启连接器。
+  - 连接器以发布用户的身份运行，所以 0600 的文件不需要额外开放读权限。
+  - 部署描述里去掉 `tunnels.enterprise`，或回退到 `app.env` 时，删除本项目的企业连接器；回退时主连接器重新挂回 `apps/<项目>/cloudflared`。
+- **首次安装**：生成的配置把 Tunnel、Admin、宿主采样都指向发布路由器，而路由器要第一次滚动发布之后才有。所以配置中心模式下拒绝首次安装，新机器先用 `app.env` 发布一次（P6 的 `bootstrap-host.sh` 会接管）。
+- **只改配置**：执行器带着 `app.runtime.config` 标签（bff、worker 的 env 和 operator 配置的摘要）。镜像不变但重新渲染后摘要变了（例如轮换了密钥），发布会按新一代滚动，而不是沿用当前执行器。
+- **分割服务**：接不接入由部署描述的 `segmenter` 决定（渲染进 `deploy.env` 的 `SEGMENTER_ENABLED`），宿主机上的 `SEGMENTER_EDITIONS` 只对 `app.env` 模式生效。
+- **回滚**：`app-compose.sh rollback` 先用回滚镜像重新渲染；旧镜像没有渲染命令时，沿用当前的生成目录并给出告警。
+
 ## 发布链路
 
 1. 后端镜像构建（含 `scripts/ci-check-test-branch.sh`：落后 main 即失败）与门禁并行启动，镜像只是私有 GHCR 里的数据，门禁没过不会发布。

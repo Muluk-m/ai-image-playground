@@ -60,6 +60,10 @@
 !deploy/nginx.conf
 !deploy/nginx.api-only.conf
 !deploy/nginx.proxy.conf
+# 配置中心（ADR 0035）的部署描述：只有非密钥配置，密钥在 Secrets Store。
+!deploy/deployments/prod.json
+!deploy/deployments/test.json
+!deploy/host.json
 !scripts/docker-entrypoint.sh
 !scripts/check-dependencies.ts
 !scripts/release-router.ts

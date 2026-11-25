@@ -148,6 +148,7 @@ export function renderDeployment(
     INFRA_NETWORK_NAME: host.infraNetwork,
     DEPLOY_KEEP_IMAGES: String(host.deploy.keepImages),
     DEPLOY_MIN_FREE_GB: String(host.deploy.minFreeGb),
+    HOST_DISK_PROBE_SOURCE: host.deploy.diskProbeSource ?? '',
     SEGMENTER_ENABLED: String(deployment.segmenter),
     OBSERVABILITY_ENABLED: String(deployment.observability !== undefined),
     OBS_UI_HOST_PORT: String(deployment.observability?.uiHostPort ?? ''),

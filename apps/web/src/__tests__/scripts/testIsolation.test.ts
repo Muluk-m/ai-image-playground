@@ -102,6 +102,136 @@ describe('test backend configuration', () => {
     return spawnSync('sh', [guard, 'runtime', target], { encoding: 'utf8', timeout: 5000 })
   }
 
+  it('checks the rendered env files once the config center renders test, against production app.env (ADR 0035)', () => {
+    const rendered = join(dir, 'rendered', 'image-playground-test')
+    // Laid out the way `config render` writes them: each service holds only its own keys.
+    const files = (secret: string): Record<string, string[]> => ({
+      bff: [
+        'APP_ROLE=bff',
+        'PORT=37377',
+        'DATABASE_POOL_MAX=6',
+        'APP_DATABASE_URL=postgresql://aip_test_app:writer@postgres:5432/aip_test',
+        'S3_BUCKET=muvloom-test',
+        'OPERATOR_CONFIG_FILE=/run/operator/operator-config.json',
+        'AUTH_PUBLIC_ORIGIN=https://test-api.muvloom.online',
+        'AUTH_FRONTEND_ORIGIN=https://test.muvloom.online',
+        'CORS_ALLOWED_ORIGINS=https://test.muvloom.online,https://muvloom-test.pages.dev',
+        ...[
+          'S3_ACCESS_KEY_ID',
+          'S3_SECRET_ACCESS_KEY',
+          'INTERNAL_API_TOKEN',
+          'EMAIL_CODE_SECRET',
+        ].map((key) => `${key}=${secret}`),
+      ],
+      // Per-service keys differ on purpose and must not trip the consistency check.
+      worker: [
+        'APP_ROLE=worker',
+        'DATABASE_POOL_MAX=4',
+        'APP_DATABASE_URL=postgresql://aip_test_app:writer@postgres:5432/aip_test',
+        'S3_BUCKET=muvloom-test',
+        `S3_SECRET_ACCESS_KEY=${secret}`,
+      ],
+      admin: [
+        'APP_ROLE=admin',
+        'PORT=37378',
+        'DATABASE_POOL_MAX=3',
+        'ADMIN_DATABASE_URL=postgresql://aip_test_admin:reader@postgres:5432/aip_test',
+        `ADMIN_COOKIE_SECRET=${secret}`,
+      ],
+      web: ['BFF_BASE_URL=https://test-api.muvloom.online'],
+    })
+    const writeRendered = (secret: string) => {
+      for (const [service, lines] of Object.entries(files(secret)))
+        writeFileSync(join(rendered, `env/${service}.env`), `${lines.join('\n')}\n`)
+    }
+    mkdirSync(join(rendered, 'env'), { recursive: true })
+    writeFileSync(join(rendered, 'deploy.env'), 'DEPLOYMENT=test\n')
+    writeFileSync(
+      join(rendered, 'env/migrate.env'),
+      'MIGRATOR_DATABASE_URL=postgresql://aip_test_migrator:owner@postgres:5432/aip_test\n',
+    )
+    writeFileSync(join(rendered, 'operator-config.json'), '{}')
+    const production = join(dir, 'apps', 'image-playground-paid')
+    mkdirSync(production, { recursive: true })
+    writeFileSync(
+      join(production, 'app.env'),
+      secrets.map((key) => `${key}=production-secret`).join('\n'),
+    )
+    const check = () => spawnSync('sh', [guard, 'runtime', rendered], { encoding: 'utf8' })
+    writeRendered('independent-test-secret')
+    const passed = check()
+    expect(passed.status, passed.stderr).toBe(0)
+    writeRendered('production-secret')
+    const reused = check()
+    expect(reused.status).toBe(1)
+    expect(reused.stderr).toContain('reuses a production credential')
+
+    // A merged view must not hide one service pointing elsewhere.
+    writeRendered('independent-test-secret')
+    writeFileSync(
+      join(rendered, 'env/worker.env'),
+      'S3_BUCKET=ai-images\nAPP_DATABASE_URL=postgresql://aip_test_app:writer@postgres:5432/aip_test\n',
+    )
+    const drifted = check()
+    expect(drifted.status).toBe(1)
+    expect(drifted.stderr).toContain('S3_BUCKET differs between services')
+    writeRendered('independent-test-secret')
+
+    // Production on the config center, test still checked against what production really uses.
+    const productionRendered = join(dir, 'rendered', 'image-playground-paid')
+    mkdirSync(join(productionRendered, 'env'), { recursive: true })
+    writeFileSync(join(productionRendered, 'deploy.env'), 'DEPLOYMENT=prod\n')
+    // Laid out like a real production render: bff and admin files, every credential present.
+    const writeProduction = (s3AccessKey: string) => {
+      writeFileSync(
+        join(productionRendered, 'env/bff.env'),
+        `${secrets
+          .filter((key) => key !== 'ADMIN_COOKIE_SECRET')
+          .map(
+            (key) => `${key}=${key === 'S3_ACCESS_KEY_ID' ? s3AccessKey : 'rendered-production'}`,
+          )
+          .join('\n')}\n`,
+      )
+      writeFileSync(
+        join(productionRendered, 'env/admin.env'),
+        'ADMIN_COOKIE_SECRET=rendered-production\n',
+      )
+    }
+    writeProduction('independent-test-secret')
+    const sharedWithRenderedProduction = check()
+    expect(sharedWithRenderedProduction.status).toBe(1)
+    expect(sharedWithRenderedProduction.stderr).toContain(
+      'S3_ACCESS_KEY_ID reuses a production credential',
+    )
+
+    // Production rendered but its containers still on app.env: both count.
+    writeProduction('rotated-production')
+    writeRendered('production-secret')
+    expect(check().stderr).toContain('reuses a production credential')
+
+    // A production render missing a file or a credential proves nothing: refuse.
+    writeRendered('independent-test-secret')
+    expect(check().status, check().stderr).toBe(0)
+    rmSync(join(productionRendered, 'env/admin.env'))
+    expect(check().stderr).toContain('production rendered configuration lacks admin.env')
+    writeProduction('rotated-production')
+    writeFileSync(join(productionRendered, 'env/admin.env'), '')
+    expect(check().stderr).toContain(
+      'ADMIN_COOKIE_SECRET is missing from the production rendered configuration',
+    )
+    writeProduction('rotated-production')
+
+    // host-collector reads its own file; a production token left only there is still caught.
+    writeRendered('independent-test-secret')
+    writeFileSync(
+      join(rendered, 'env/host-collector.env'),
+      'INTERNAL_API_TOKEN=production-secret\n',
+    )
+    const collector = check()
+    expect(collector.status).toBe(1)
+    expect(collector.stderr).toContain('INTERNAL_API_TOKEN')
+  })
+
   it('accepts independent resources and reads Docker env data without executing it', () => {
     expect(writeRuntime().status).toBe(0)
   })

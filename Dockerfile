@@ -100,6 +100,8 @@ RUN printf '\ninjectWorkspacePackages: true\n' >> pnpm-workspace.yaml \
   && for path in \
        /out/bff/src/index.ts \
        /out/bff/channels.json \
+       /out/bff/src/deploy-config-cli.ts \
+       /out/bff/node_modules/@image-playground/shared/src/deploy-config/index.ts \
        /out/bff/skills \
        /out/bff/node_modules/sharp \
        /out/bff/node_modules/@image-playground/db/drizzle/meta/_journal.json \
@@ -212,6 +214,10 @@ COPY --from=web-build /app/apps/web/dist /usr/share/nginx/html
 COPY package.json LICENSE ./
 # Both ingress shapes ship in the image; the entrypoint installs the one APP_INGRESS_MODE selects.
 COPY deploy/nginx.conf deploy/nginx.api-only.conf deploy/nginx.proxy.conf ./deploy/
+# Config center (ADR 0035): scripts/config-render.sh runs apps/bff/src/deploy-config-cli.ts from this
+# image, which reads the deployment descriptors of the same commit.
+COPY deploy/deployments/prod.json deploy/deployments/test.json ./deploy/deployments/
+COPY deploy/host.json ./deploy/host.json
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY scripts/check-dependencies.ts ./scripts/check-dependencies.ts
 COPY scripts/release-router.ts ./scripts/release-router.ts

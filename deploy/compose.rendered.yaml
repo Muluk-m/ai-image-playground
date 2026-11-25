@@ -1,0 +1,110 @@
+# Overlay for deployments whose configuration comes from the config center (ADR 0035).
+# scripts/app-compose.sh adds it when ~/.config/ai-image-playground/rendered/<project>/deploy.env
+# exists; RENDERED_DIR points at that directory, written by scripts/config-render.sh.
+#
+# Every service gets exactly the env file `config render` wrote for it and nothing else:
+# `!override` replaces app.env, `!reset` drops the interpolated values compose.app.yaml would add.
+# The files are literal (format: raw): a `#`, quote or backslash in a secret reaches the process
+# unchanged. Only the segmenter address stays interpolated: vps-deploy.sh sets it after checking
+# that the shared segmenter is healthy.
+
+x-rendered-operator-config: &rendered-operator-config
+  type: bind
+  source: ${RENDERED_DIR:?Set RENDERED_DIR, or drive this file through scripts/app-compose.sh}/operator-config.json
+  target: /run/operator/operator-config.json
+  read_only: true
+  bind:
+    create_host_path: false
+
+services:
+  dependency-check:
+    env_file: !override
+      - path: ${RENDERED_DIR}/env/dependency-check.env
+        format: raw
+    environment: !reset {}
+
+  migrate:
+    env_file: !override
+      - path: ${RENDERED_DIR}/env/migrate.env
+        format: raw
+    environment: !reset {}
+    volumes:
+      - *rendered-operator-config
+
+  bff:
+    env_file: !override
+      - path: ${RENDERED_DIR}/env/bff.env
+        format: raw
+    environment: !override
+      AGENT_SEGMENTER_URL: ${AGENT_SEGMENTER_URL:-}
+      AGENT_SEGMENTER_NAMESPACE: ${AGENT_SEGMENTER_NAMESPACE:-}
+    volumes:
+      - *rendered-operator-config
+
+  worker:
+    env_file: !override
+      - path: ${RENDERED_DIR}/env/worker.env
+        format: raw
+    environment: !override
+      AGENT_SEGMENTER_URL: ${AGENT_SEGMENTER_URL:-}
+      AGENT_SEGMENTER_NAMESPACE: ${AGENT_SEGMENTER_NAMESPACE:-}
+    volumes:
+      - *rendered-operator-config
+
+  admin:
+    env_file: !override
+      - path: ${RENDERED_DIR}/env/admin.env
+        format: raw
+    environment: !reset {}
+
+  web:
+    env_file: !override
+      - path: ${RENDERED_DIR}/env/web.env
+        format: raw
+    environment: !reset {}
+
+  host-collector:
+    env_file:
+      - path: ${RENDERED_DIR}/env/host-collector.env
+        format: raw
+    environment: !reset {}
+
+  pg-backup:
+    env_file:
+      - path: ${RENDERED_DIR}/env/pg-backup.env
+        format: raw
+    environment: !reset {}
+
+  # Connectors bind TUNNELS_DIR/<name>, a directory app-compose.sh updates in place: rendered/<project>
+  # is replaced by rename on every render, which a running bind mount would not follow. They run as
+  # the deploying user so the 0600 files need no other reader.
+  cloudflared:
+    user: ${TUNNEL_USER:?Set TUNNEL_USER, or drive this file through scripts/app-compose.sh}
+    volumes:
+      - type: bind
+        source: ${TUNNELS_DIR:?Set TUNNELS_DIR, or drive this file through scripts/app-compose.sh}/main
+        target: /etc/cloudflared
+        read_only: true
+        bind:
+          create_host_path: false
+
+  openobserve:
+    environment: !reset {}
+    env_file:
+      - path: ${RENDERED_DIR}/env/openobserve.env
+        format: raw
+        required: false
+
+  otel-collector:
+    environment: !reset {}
+    env_file:
+      - path: ${RENDERED_DIR}/env/otel-collector.env
+        format: raw
+        required: false
+
+  obs-proxy:
+    environment: !reset {}
+    env_file:
+      - path: ${RENDERED_DIR}/env/obs-proxy.env
+        format: raw
+        required: false

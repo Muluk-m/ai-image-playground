@@ -285,6 +285,27 @@ services:
   # it. If Docker's data sits on a separate partition, point HOST_DISK_PROBE_SOURCE at a file
   # there. Named variables instead of app.env, like pg-backup: no provider, database or object
   # store credential belongs in here.
+  # The enterprise domain's tunnel, in another Cloudflare account. Config center only: its routes and
+  # credentials come from the deployment descriptor (tunnels.enterprise); app-compose.sh copies them
+  # into TUNNELS_DIR and turns the profile on when deploy.env says ENTERPRISE_TUNNEL_ENABLED=true.
+  cloudflared-enterprise:
+    image: cloudflare/cloudflared:2026.11.0
+    profiles: [enterprise-tunnel]
+    init: true
+    restart: unless-stopped
+    logging: *log-forward
+    user: ${TUNNEL_USER:-65532:65532}
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - type: bind
+        source: ${TUNNELS_DIR:-/nonexistent}/enterprise
+        target: /etc/cloudflared
+        read_only: true
+        bind:
+          create_host_path: false
+    networks:
+      - application
+
   host-collector:
     image: ${APP_IMAGE:-ai-image-playground:local}
     init: true
@@ -345,7 +366,8 @@ services:
     restart: unless-stopped
     logging: *log-forward
     # Named one by one rather than through app.env: this container must not hold provider
-    # credentials, and its cron shim writes whatever it receives to a file.
+    # credentials, and its cron shim writes whatever it receives to a file." Under the config center
+    # (compose.rendered.yaml) app-compose.sh fills these with placeholders and the overlay replaces them.
     environment:
       ADMIN_DATABASE_URL: ${ADMIN_DATABASE_URL:?Set ADMIN_DATABASE_URL in the application environment file}
       S3_ENDPOINT: ${S3_ENDPOINT:?Set S3_ENDPOINT in the application environment file}
