@@ -329,7 +329,11 @@ function TimelineEditor({
     } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       event.preventDefault()
       seek(time + (event.key === 'ArrowLeft' ? -STEP_SECONDS : STEP_SECONDS))
-    } else if ((event.key === 'Delete' || event.key === 'Backspace') && selected !== null) {
+    } else if (
+      (event.key === 'Delete' || event.key === 'Backspace') &&
+      selected !== null &&
+      !trimmingActiveRef.current
+    ) {
       event.preventDefault()
       update(removeClip(clips, selected), { kind: 'remove', index: selected })
     }
@@ -476,7 +480,10 @@ function TimelineEditor({
             setSelected(index)
             seek(startOfClip(clips, sourceOf, index))
           }}
-          onMove={(from, to) => update(moveClip(clips, from, to), { kind: 'move', from, to })}
+          onMove={(from, to) => {
+            if (trimmingActiveRef.current) return
+            update(moveClip(clips, from, to), { kind: 'move', from, to })
+          }}
           onTrimStart={pushHistory}
           onTrimActiveChange={(active) => {
             trimmingActiveRef.current = active
@@ -493,7 +500,10 @@ function TimelineEditor({
             )
             update(next, undefined, record)
           }}
-          onRemove={(index) => update(removeClip(clips, index), { kind: 'remove', index })}
+          onRemove={(index) => {
+            if (trimmingActiveRef.current) return
+            update(removeClip(clips, index), { kind: 'remove', index })
+          }}
           onLocate={
             onLocate
               ? (index) => {
@@ -661,6 +671,8 @@ function ClipCard({
 }) {
   const { t } = useTranslation('canvas')
   const [trimming, setTrimming] = useState(false)
+  const trimCleanupRef = useRef<(() => void) | null>(null)
+  useEffect(() => () => trimCleanupRef.current?.(), [])
   const element = editor.getElement(clip.elementId)
   const missing = !isTimelineSource(element)
   const posterMedia = useNodeMedia(
@@ -692,6 +704,7 @@ function ClipCard({
       onTrim(edge, origin + (moveEvent.clientX - startX) / TRACK_PX_PER_SECOND, false)
     }
     const end = () => {
+      if (trimCleanupRef.current === end) trimCleanupRef.current = null
       target.removeEventListener('pointermove', move)
       target.removeEventListener('pointerup', end)
       target.removeEventListener('pointercancel', end)
@@ -699,6 +712,7 @@ function ClipCard({
       setTrimming(false)
       onTrimActiveChange(false)
     }
+    trimCleanupRef.current = end
     target.addEventListener('pointermove', move)
     target.addEventListener('pointerup', end)
     target.addEventListener('pointercancel', end)
