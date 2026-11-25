@@ -20,6 +20,7 @@ const { publishGenerations } = await import('../../../db/generation-events')
 const {
   awaitQueueTask,
   cancelTasks,
+  createQueueTask,
   findAccessibleTaskInput,
   findAccessibleTaskOutput,
   findAccessibleTaskResult,
@@ -36,6 +37,7 @@ const { reconcileAgentBatchProgress } = await import(
   '../../../modules/agent/orchestration/batch/progress'
 )
 const { setDurableMediaStoreForTesting } = await import('../../../lib/durableMediaStore')
+const { listGenerations, readGeneration } = await import('../../../lib/generations')
 const { setObjectStoreForTesting } = await import('../../../lib/objectStore')
 const { promoteCanvasCandidate } = await import('../../../lib/promoteCanvasCandidate')
 const { selectRunnableTasks } = await import('../../../workers/runnable-tasks')
@@ -572,5 +574,84 @@ describe('task_payloads direct reads and partial updates (Contract 1a)', () => {
       setDurableMediaStoreForTesting(undefined)
       setObjectStoreForTesting(undefined)
     }
+  })
+
+  it('continues operating cleanly even after all 5 cold columns are physically dropped from tasks (Wave 2 forward-compat)', async () => {
+    const now = Date.now()
+    await db.$client`DROP TRIGGER IF EXISTS trg_tasks_sync_request_payload ON public.tasks`
+    await db.$client`DROP TRIGGER IF EXISTS trg_tasks_sync_metering ON public.tasks`
+    await db.$client`DROP TRIGGER IF EXISTS trg_tasks_sync_result_payload ON public.tasks`
+    await db.$client`DROP TRIGGER IF EXISTS trg_tasks_sync_archive_payload ON public.tasks`
+    await db.$client`DROP TRIGGER IF EXISTS trg_tasks_sync_upstream_body ON public.tasks`
+    await db.$client`DROP TRIGGER IF EXISTS trg_tasks_fill_device_id_legacy ON public.tasks`
+    await db.$client`
+      ALTER TABLE public.tasks
+        DROP COLUMN request_payload,
+        DROP COLUMN metering,
+        DROP COLUMN result_payload,
+        DROP COLUMN archive_payload,
+        DROP COLUMN upstream_body
+    `
+
+    await db.insert(schema.users).values({
+      id: 'u-wave2-compat',
+      username: 'u-wave2-compat@example.com',
+      password_hash: 'fixture-hash',
+      created_at: now,
+      updated_at: now,
+    })
+
+    const created = await createQueueTask({
+      entry: 'web-direct',
+      provider: 'openai-compat',
+      model: 'gpt-image-2',
+      request: { prompt: 'zero cold column task', device_id: 'dev-w2', n: 1 },
+      userId: 'u-wave2-compat',
+    })
+    expect(created.kind).toBe('created')
+    if (created.kind !== 'created') throw new Error('expected created')
+    const taskId = created.taskId
+
+    expect(
+      (await findAccessibleTaskStatus(taskId, 'u-wave2-compat'))?.request_payload,
+    ).toMatchObject({ prompt: 'zero cold column task' })
+    expect((await listGenerations('u-wave2-compat', 10)).items.map((i) => i.id)).toEqual([taskId])
+    expect((await readGeneration('u-wave2-compat', taskId))?.prompt).toBe('zero cold column task')
+
+    const execution = await claimTaskExecution(taskId)
+    expect(execution).not.toBeNull()
+    try {
+      await execution!.recordImage26Degrade({
+        kind: 'sub2api_tier',
+        fields: [{ field: 'quality', from: 'high', to: 'medium' }],
+      })
+      expect(await execution!.saveCheckpoint({ source: 'spool/w2.png' })).toBe(true)
+      expect(
+        await execution!.finish({
+          status: 'completed',
+          completedAt: Date.now(),
+          attemptCount: 1,
+          resultPayload: { data: [{ b64_json: 'w2-done' }] },
+        }),
+      ).toBe(true)
+    } finally {
+      execution?.release()
+    }
+
+    expect((await findAccessibleTaskOutput(taskId, 'u-wave2-compat'))?.result_payload).toEqual({
+      data: [{ b64_json: 'w2-done' }],
+    })
+    expect(
+      await db.$client`SELECT id, device_id, request_payload FROM public.queue_tasks WHERE id = ${taskId}`,
+    ).toEqual([
+      {
+        id: taskId,
+        device_id: 'dev-w2',
+        request_payload: expect.objectContaining({
+          prompt: 'zero cold column task',
+          device_id: 'dev-w2',
+        }),
+      },
+    ])
   })
 })

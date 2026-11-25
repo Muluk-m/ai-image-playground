@@ -930,7 +930,7 @@ describe('runMigrations', () => {
       try {
         await sql`GRANT SELECT ON queue_tasks TO PUBLIC`
         await sql`CREATE VIEW queue_tasks_payload_reader AS SELECT id, request_payload FROM queue_tasks`
-        await runMigrations(url)
+        await migrateUntil(url, '0106_queue_tasks_payload_view')
 
         await sql`
           INSERT INTO tasks (id, provider, model, status, request_payload, result_payload, upstream_body, submitted_at)
@@ -1177,7 +1177,9 @@ describe('runMigrations', () => {
         await sql`GRANT SELECT ON public.queue_tasks TO PUBLIC`
         await sql`
           INSERT INTO tasks (id, provider, model, status, request_payload, submitted_at)
-          VALUES ('pre-0110', 'openai-compat', 'gpt-image-2', 'completed', '{"prompt":"old","device_id":"dev-pre"}'::jsonb, now())
+          VALUES
+            ('pre-0110', 'openai-compat', 'gpt-image-2', 'completed', '{"prompt":"old","device_id":"dev-pre"}'::jsonb, now()),
+            ('pre-0110-unbackfilled', 'openai-compat', 'gpt-image-2', 'completed', '{"prompt":"unbackfilled","device_id":"dev-unbf"}'::jsonb, now())
         `
         await sql`
           INSERT INTO task_payloads (task_id, request_payload, result_payload, upstream_body)
@@ -1186,9 +1188,20 @@ describe('runMigrations', () => {
 
         await runMigrations(url)
 
-        // Existing row keeps device_id after DROP EXPRESSION.
-        expect(await sql`SELECT device_id FROM tasks WHERE id = 'pre-0110'`).toEqual([
-          { device_id: 'dev-pre' },
+        // Existing rows keep device_id after DROP EXPRESSION and unbackfilled rows are backfilled idempotently.
+        expect(
+          await sql`SELECT id, device_id, request_payload FROM queue_tasks WHERE id IN ('pre-0110', 'pre-0110-unbackfilled') ORDER BY id`,
+        ).toEqual([
+          {
+            id: 'pre-0110',
+            device_id: 'dev-pre',
+            request_payload: { prompt: 'old', device_id: 'dev-pre' },
+          },
+          {
+            id: 'pre-0110-unbackfilled',
+            device_id: 'dev-unbf',
+            request_payload: { prompt: 'unbackfilled', device_id: 'dev-unbf' },
+          },
         ])
 
         // Wave 1 writer: omits tasks.request_payload (NULL) and writes device_id + task_payloads.
@@ -1219,6 +1232,37 @@ describe('runMigrations', () => {
             result_payload: { from_v0481: true },
           },
         ])
+
+        // Legacy v0.4.481 empty-patch path executes `INSERT INTO task_payloads SELECT ... FROM tasks ON CONFLICT DO NOTHING`.
+        // The BEFORE INSERT trigger must skip redundant NULL inserts when task_payloads already exists...
+        await sql`
+          INSERT INTO task_payloads (
+            task_id, request_payload, metering, result_payload, archive_payload, upstream_body
+          )
+          SELECT id, request_payload, metering, result_payload, archive_payload, upstream_body
+          FROM tasks
+          WHERE id = 'wave1-task'
+          ON CONFLICT (task_id) DO NOTHING
+        `
+        expect(
+          await sql`SELECT request_payload, result_payload FROM task_payloads WHERE task_id = 'wave1-task'`,
+        ).toEqual([
+          {
+            request_payload: { prompt: 'w1', device_id: 'dev-w1' },
+            result_payload: { from_v0481: true },
+          },
+        ])
+        // ...while still enforcing NOT NULL when no task_payloads row exists yet.
+        await sql`
+          INSERT INTO tasks (id, provider, model, status, device_id, submitted_at)
+          VALUES ('wave1-no-payload', 'openai-compat', 'gpt-image-2', 'queued', 'dev-np', now())
+        `
+        await expect(
+          (async () => {
+            await sql`INSERT INTO task_payloads (task_id, request_payload) VALUES ('wave1-no-payload', NULL)`
+          })(),
+        ).rejects.toThrow()
+        await sql`DELETE FROM tasks WHERE id = 'wave1-no-payload'`
 
         // Legacy writer inserting tasks.request_payload without device_id still gets device_id filled by bridge trigger.
         await sql`

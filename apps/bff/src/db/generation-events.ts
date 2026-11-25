@@ -11,7 +11,7 @@ export async function publishGenerations(tx: Transaction, taskIds: string[]) {
     const tasks = await tx
       .select({ id: schema.tasks.id, userId: schema.tasks.user_id })
       .from(schema.tasks)
-      .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
+      .innerJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
       .where(
         and(
           inArray(schema.tasks.id, taskIds.slice(offset, offset + TASK_BATCH_SIZE)),

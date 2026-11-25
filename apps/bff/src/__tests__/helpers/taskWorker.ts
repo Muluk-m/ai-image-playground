@@ -1,6 +1,7 @@
 import '../../bootstrap/task-execution'
 import '../../bootstrap/task-lifecycle'
 import '../../bootstrap/task-submission'
+import { selectTestTasks } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
 import type { TerminalTaskUpdate } from '../../modules/execution'
@@ -8,6 +9,7 @@ import { claimTaskExecution, type TaskExecution } from '../../workers/task-execu
 
 /** 收尾时给的那份终态，完成时刻可省。 */
 export type WorkerSettlement = Omit<TerminalTaskUpdate, 'completedAt'> & { completedAt?: number }
+type QueuedTestTask = Awaited<ReturnType<typeof selectTestTasks>>[number]
 
 /** 夹具里那个 worker 手上攥着的认领：一条任务一次，收尾时还回来。 */
 const claims = new Map<string, TaskExecution>()
@@ -47,9 +49,9 @@ export async function workerSettles(taskId: string, update: WorkerSettlement): P
  * 认领不到的直接跳过——它在轮询，不是权威：用例清库或另一条路已经把行推走都算正常。
  */
 export async function settleQueuedTasks(
-  settlementOf: (task: typeof schema.tasks.$inferSelect) => WorkerSettlement,
+  settlementOf: (task: QueuedTestTask) => WorkerSettlement,
 ): Promise<void> {
-  const queued = await db.select().from(schema.tasks).where(eq(schema.tasks.status, 'queued'))
+  const queued = await selectTestTasks(db).where(eq(schema.tasks.status, 'queued'))
   for (const task of queued) {
     const execution = await claimTaskExecution(task.id)
     if (!execution) continue

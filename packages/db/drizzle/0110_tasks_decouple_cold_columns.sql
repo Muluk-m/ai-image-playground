@@ -1,16 +1,31 @@
 -- ADR 0034 Contract Wave 1 / Contract 1a：
 -- 解除 tasks.device_id 对 tasks.request_payload 的生成列依赖，并放松 tasks.request_payload NOT NULL，
 -- 使 Wave 1 新代码停止读写 tasks 的 5 个冷载荷列，全部切到 task_payloads。
+-- 0. 幂等补齐尚未回填的历史 tasks 行（已完成全量回填的生产库仅做一次毫秒级无写入反连接，同时保护 test 与直跳升级库）；
 -- 1. 元数据级 ALTER（无表重写）：保留 5 个冷列供滚发期间未排空及回滚时的 v0.4.481 继续工作；
 -- 2. 新增 BEFORE INSERT OR UPDATE OF request_payload 桥接触发器，确保旧版写入方不传 device_id 时
 --    仍能自动填充 tasks.device_id；
 -- 3. 升级 0106 按列同步触发器函数为先 UPDATE 已存在的 task_payloads 行，避免旧版容器更新 Wave 1
 --    任务（tasks.request_payload 为 NULL）时走 INSERT ... ON CONFLICT 提前撞上 NOT NULL 约束；
--- 4. 将 public.queue_tasks 视图切为直接读取 task_payloads（移除 ELSE t.<col> 回落，保留精确列序与既有授权），
+-- 4. 为 task_payloads 增加 WHEN (NEW.request_payload IS NULL) 的 BEFORE INSERT 桥接触发器，
+--    兜底旧版 v0.4.481 空 patch 路径的 `INSERT INTO task_payloads SELECT ... FROM tasks ON CONFLICT DO NOTHING`；
+-- 5. 将 public.queue_tasks 视图切为直接读取 task_payloads（移除 ELSE t.<col> 回落，保留精确列序与既有授权），
 --    使 Wave 1 线上零引用 tasks 5 个冷列，确保 Wave 2 删列零停机且可回滚到 Wave 1。
 -- 回滚见 drizzle/rollback/0110_tasks_decouple_cold_columns.down.sql。
 
-ALTER TABLE "public"."tasks" ALTER COLUMN "device_id" DROP EXPRESSION;
+INSERT INTO public.task_payloads (
+  task_id, request_payload, metering, result_payload, archive_payload, upstream_body
+)
+SELECT
+  t.id, t.request_payload, t.metering, t.result_payload, t.archive_payload, t.upstream_body
+FROM public.tasks t
+WHERE t.request_payload IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM public.task_payloads p WHERE p.task_id = t.id
+  )
+ON CONFLICT (task_id) DO NOTHING;
+--> statement-breakpoint
+ALTER TABLE "public"."tasks" ALTER COLUMN "device_id" DROP EXPRESSION IF EXISTS;
 --> statement-breakpoint
 ALTER TABLE "public"."tasks" ALTER COLUMN "request_payload" DROP NOT NULL;
 --> statement-breakpoint
@@ -123,6 +138,29 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+--> statement-breakpoint
+-- 滚发/回滚桥接：旧版 v0.4.481 在空 patch 路径会执行
+-- `INSERT INTO task_payloads (...) SELECT ... FROM tasks ... ON CONFLICT (task_id) DO NOTHING`。
+-- PostgreSQL 先于 ON CONFLICT 检查 NOT NULL；当目标是 Wave 1 任务（tasks.request_payload 为 NULL、
+-- task_payloads 行已存在）时由 BEFORE INSERT 触发器跳过冗余插入（正常非空写入零触发开销）。
+CREATE OR REPLACE FUNCTION public.skip_legacy_empty_patch_task_payload_insert()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.task_payloads WHERE task_id = NEW.task_id) THEN
+    RETURN NULL;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+--> statement-breakpoint
+CREATE OR REPLACE TRIGGER trg_task_payloads_skip_legacy_null_insert
+BEFORE INSERT
+ON public.task_payloads
+FOR EACH ROW
+WHEN (NEW.request_payload IS NULL)
+EXECUTE FUNCTION public.skip_legacy_empty_patch_task_payload_insert();
 --> statement-breakpoint
 DO $$
 DECLARE

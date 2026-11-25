@@ -1,10 +1,14 @@
 -- 回滚 0110_tasks_decouple_cold_columns.sql：
--- 1. 卸载旧版 device_id 桥接触发器与函数；
+-- 1. 卸载 0110 新增的旧版 device_id 与 task_payloads 空 patch 桥接触发器及函数；
 -- 2. 将 task_payloads 权威值回同步到 public.tasks（并给缺冷表行的孤立行兜底 '{}'），恢复 request_payload NOT NULL；
--- 3. 保留 public.queue_tasks 原有列序与既有授权，重建 tasks.device_id 为 GENERATED ALWAYS STORED 及其索引，
+-- 3. 保留 public.queue_tasks 原有列序、属主与既有授权，重建 tasks.device_id 为 GENERATED ALWAYS STORED 及其索引，
 --    并恢复 queue_tasks 视图到 0106 的 CASE WHEN 回落定义；
 -- 4. 恢复 0106 的 sync_task_payload_column_from_tasks_update() 函数体。
 
+DROP TRIGGER IF EXISTS trg_task_payloads_skip_legacy_null_insert ON public.task_payloads;
+--> statement-breakpoint
+DROP FUNCTION IF EXISTS public.skip_legacy_empty_patch_task_payload_insert();
+--> statement-breakpoint
 DROP TRIGGER IF EXISTS trg_tasks_fill_device_id_legacy ON public.tasks;
 --> statement-breakpoint
 DROP FUNCTION IF EXISTS public.fill_task_device_id_from_legacy_request();
@@ -35,6 +39,7 @@ ALTER TABLE "public"."tasks" ALTER COLUMN "request_payload" SET NOT NULL;
 DO $$
 DECLARE
   columns_sql text;
+  view_owner text;
   grants text[];
   statement text;
 BEGIN
@@ -49,6 +54,10 @@ BEGIN
   ) INTO columns_sql
   FROM pg_attribute
   WHERE attrelid = 'public.queue_tasks'::regclass AND attnum > 0 AND NOT attisdropped;
+
+  SELECT pg_get_userbyid(relation.relowner) INTO view_owner
+  FROM pg_class relation
+  WHERE relation.oid = 'public.queue_tasks'::regclass;
 
   SELECT array_agg(format(
     'GRANT %s ON TABLE public.queue_tasks TO %s%s',
@@ -72,6 +81,10 @@ BEGIN
     columns_sql,
     'queue'
   );
+
+  IF view_owner IS NOT NULL AND view_owner IS DISTINCT FROM current_user THEN
+    EXECUTE format('ALTER VIEW public.queue_tasks OWNER TO %I', view_owner);
+  END IF;
 
   FOREACH statement IN ARRAY COALESCE(grants, ARRAY[]::text[]) LOOP
     EXECUTE statement;
