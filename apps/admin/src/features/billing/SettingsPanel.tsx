@@ -13,6 +13,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { ApiError } from '@/lib/api-client'
 import { apiClient } from '../../lib/private-host'
 import {
   Button,
@@ -123,7 +124,14 @@ const referralSchema = z.object({
 type ReferralValues = z.infer<typeof referralSchema>
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : '保存失败，请重试'
+  if (error instanceof ApiError) {
+    if (error.status === 401 || error.status === 403) return '登录已失效或无权限，请刷新后重试'
+    if (error.status === 409) return '配置已被他人更新，请刷新后重试'
+    if (error.status === 400 || error.status === 422) return '填写的参数无效，请检查后重试'
+    if (error.status >= 500) return '服务暂不可用，请稍后重试'
+    return '保存失败，请重试'
+  }
+  return '保存失败，请重试'
 }
 
 export function SaveStatus({
@@ -826,8 +834,19 @@ function PlanDrawerEditor({ plan, onClose }: { plan: Plan; onClose: () => void }
     },
   })
 
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+
+  useEffect(() => {
+    if (!form.formState.isDirty && confirmDiscard) setConfirmDiscard(false)
+  }, [form.formState.isDirty, confirmDiscard])
+
   const requestClose = () => {
-    if (!mutation.isPending) onClose()
+    if (mutation.isPending) return
+    if (!form.formState.isDirty) {
+      onClose()
+      return
+    }
+    setConfirmDiscard(true)
   }
 
   return (
@@ -1021,28 +1040,52 @@ function PlanDrawerEditor({ plan, onClose }: { plan: Plan; onClose: () => void }
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-3 border-t bg-background px-6 py-4">
-              <SaveStatus
-                pending={mutation.isPending}
-                success={mutation.isSuccess}
-                error={mutation.error}
-              />
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={mutation.isPending}
-                  onClick={onClose}
+            <div className="space-y-3 border-t bg-background px-6 py-4">
+              {confirmDiscard && !mutation.isPending ? (
+                <div
+                  role="alertdialog"
+                  aria-label="放弃未保存修改？"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs"
                 >
-                  取消
-                </Button>
-                <Button
-                  type="submit"
-                  className="bg-brand text-brand-foreground hover:bg-brand-hover"
-                  disabled={mutation.isPending}
-                >
-                  保存 {plan.name}
-                </Button>
+                  <span className="text-foreground">有未保存的套餐价格修改，确定关闭？</span>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setConfirmDiscard(false)}
+                    >
+                      继续编辑
+                    </Button>
+                    <Button type="button" size="sm" variant="destructive" onClick={onClose}>
+                      放弃并关闭
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+              <div className="flex items-center justify-between gap-3">
+                <SaveStatus
+                  pending={mutation.isPending}
+                  success={mutation.isSuccess}
+                  error={mutation.error}
+                />
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={mutation.isPending}
+                    onClick={requestClose}
+                  >
+                    取消
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="bg-brand text-brand-foreground hover:bg-brand-hover"
+                    disabled={mutation.isPending}
+                  >
+                    保存 {plan.name}
+                  </Button>
+                </div>
               </div>
             </div>
           </form>
@@ -1072,7 +1115,12 @@ function SettingsPanel() {
   if (catalog.isError)
     return (
       <Card className="border-danger/40">
-        <CardContent className="p-5 text-sm text-danger">计费设置读取失败</CardContent>
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 p-5 text-sm text-danger">
+          <span>计费设置读取失败</span>
+          <Button type="button" size="sm" variant="outline" onClick={() => void catalog.refetch()}>
+            重试
+          </Button>
+        </CardContent>
       </Card>
     )
 

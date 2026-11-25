@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { Loader2 } from 'lucide-react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -17,6 +18,7 @@ export function ReasonDialog({
   confirmLabel,
   destructive = false,
   pending = false,
+  error,
   onOpenChange,
   onConfirm,
 }: {
@@ -26,14 +28,20 @@ export function ReasonDialog({
   confirmLabel: string
   destructive?: boolean
   pending?: boolean
+  error?: string | null
   onOpenChange: (open: boolean) => void
   onConfirm: (reason: string) => void
 }) {
   const [reason, setReason] = useState('')
+  useEffect(() => {
+    if (open) setReason('')
+  }, [open])
+
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
+        if (!next && pending) return
         if (!next) setReason('')
         onOpenChange(next)
       }}
@@ -49,9 +57,21 @@ export function ReasonDialog({
           placeholder="原因"
           aria-label="原因"
           maxLength={500}
+          disabled={pending}
+          autoFocus
         />
+        {error ? (
+          <p role="alert" className="text-sm text-destructive">
+            {error}
+          </p>
+        ) : null}
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={pending}
+            onClick={() => onOpenChange(false)}
+          >
             取消
           </Button>
           <Button
@@ -60,6 +80,7 @@ export function ReasonDialog({
             disabled={!reason.trim() || pending}
             onClick={() => onConfirm(reason.trim())}
           >
+            {pending ? <Loader2 className="size-4 animate-spin" /> : null}
             {confirmLabel}
           </Button>
         </DialogFooter>

@@ -104,9 +104,9 @@ var examples = map[string][]string{
 		"MUVLOOM_NO_BROWSER=1 muvloom auth login --no-wait   # print the link, approve elsewhere",
 	},
 	"images create": {
-		`muvloom images create --prompt "a cat sticker, white background" --wait 300 --download ./out`,
-		`muvloom images create --prompt "the same bottle on a beach" --ref ./bottle.png --aspect-ratio 1:1 --wait 300 --download ./out`,
-		`muvloom images create --model gpt-image-2.6-flare --output-format gif --frames 8 --prompt "a cat waving, looping" --wait 300 --download ./out`,
+		`muvloom images create --prompt "a cat sticker, white background" --download ./out`,
+		`muvloom images create --prompt "the same bottle on a beach" --ref ./bottle.png --aspect-ratio 1:1 --download ./out`,
+		`muvloom images create --model gpt-image-2.6-flare --output-format gif --frames 8 --prompt "a cat waving, looping" --download ./out`,
 	},
 	"images validate": {
 		`muvloom images validate --prompt "a poster" --image-size 4K`,

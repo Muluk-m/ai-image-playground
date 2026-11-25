@@ -1,3 +1,4 @@
+import { useRouter } from '@tanstack/react-router'
 import { Bookmark, Check, ChevronDown, Filter, Plus, Search, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
@@ -397,6 +398,13 @@ export function TasksFilterPanel({
             ref={searchInputRef}
             value={queryDraft}
             onChange={(event) => setQueryDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape' && !event.nativeEvent.isComposing && queryDraft) {
+                event.preventDefault()
+                setQueryDraft('')
+                if (search.q) onUpdate({ q: undefined })
+              }
+            }}
             placeholder="搜索任务 ID、提示词、用户名、指纹或模型…"
             aria-label="搜索任务 ID、提示词、用户名、指纹或模型"
             className="h-8 pl-8 pr-12 text-xs"
@@ -1041,6 +1049,7 @@ function CustomRangeForm({
 }
 
 function TaskSavedViews({ onApplyPreset }: { onApplyPreset: (view: TaskPresetView) => void }) {
+  const router = useRouter({ warn: false })
   const [open, setOpen] = useState(false)
   const [views, setViews] = useState(() => readSavedViews('tasks'))
   const [name, setName] = useState('')
@@ -1110,7 +1119,12 @@ function TaskSavedViews({ onApplyPreset }: { onApplyPreset: (view: TaskPresetVie
                   type="button"
                   className="min-w-0 flex-1 truncate rounded px-2 py-1 text-left text-xs hover:bg-muted"
                   onClick={() => {
-                    window.location.assign(view.href)
+                    setOpen(false)
+                    if (router) {
+                      router.history.push(view.href)
+                    } else {
+                      window.location.assign(view.href)
+                    }
                   }}
                 >
                   {view.name}

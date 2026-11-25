@@ -209,8 +209,13 @@ function CategoryTable({
                       variant="ghost"
                       size="icon"
                       aria-label={`删除 ${category.name}`}
+                      title={
+                        (usage[category.id] ?? 0) > 0
+                          ? `该分类下还有 ${usage[category.id]} 条灵感，请先移走条目`
+                          : undefined
+                      }
                       className="text-destructive hover:text-destructive"
-                      disabled={busy}
+                      disabled={busy || (usage[category.id] ?? 0) > 0}
                       onClick={() => setDeleting(category)}
                     >
                       <Trash2 className="size-4" />

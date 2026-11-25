@@ -56,6 +56,7 @@ export function AnnouncementEditor({ id }: { id: string }) {
   const [savedKey, setSavedKey] = useState('')
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [error, setError] = useState('')
+  const [actionError, setActionError] = useState('')
   const [coverUrl, setCoverUrl] = useState<string | null>(null)
   const [action, setAction] = useState<Action>(null)
   const [uploading, setUploading] = useState(false)
@@ -90,39 +91,42 @@ export function AnnouncementEditor({ id }: { id: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dirty, draftKey(currentDraft), id])
 
-  async function persist(manual: boolean): Promise<string | null> {
+  async function persist(manual: boolean): Promise<{ id: string | null; error: string }> {
     const next = normalizeDraft(draft, publishMode, publishInput, expireInput)
     if (!next.titleZh.trim()) {
-      if (manual) setError('先写标题')
-      return null
+      const message = '先写标题'
+      if (manual) setError(message)
+      return { id: null, error: message }
     }
     if (
       (next.ctaLabel == null) !== (next.ctaUrl == null) ||
       (next.ctaUrl && !isInSitePath(next.ctaUrl))
     ) {
-      if (manual) setError('按钮文案和站内链接要一起填，链接只能是站内路径')
-      return null
+      const message = '按钮文案和站内链接要一起填，链接只能是站内路径'
+      if (manual) setError(message)
+      return { id: null, error: message }
     }
     setError('')
     try {
       if (id === 'new') {
-        if (creating.current) return null
+        if (creating.current) return { id: null, error: '正在保存草稿，请稍后再试' }
         creating.current = true
         const created = await mutations.create.mutateAsync(next)
         setSavedKey(draftKey(next))
         setSavedAt(Date.now())
         void navigate({ to: '/announcements/$id', params: { id: created.item.id }, replace: true })
-        return created.item.id
+        return { id: created.item.id, error: '' }
       }
       const updated = await mutations.update.mutateAsync({ id, draft: next })
       setSavedKey(draftKey(draftFromItem(updated.item)))
       setDraft(draftFromItem(updated.item))
       setSavedAt(Date.now())
-      return id
+      return { id, error: '' }
     } catch (saveError) {
-      setError(announcementErrorMessage(saveError))
+      const message = announcementErrorMessage(saveError)
+      setError(message)
       creating.current = false
-      return null
+      return { id: null, error: message }
     }
   }
 
@@ -555,30 +559,43 @@ export function AnnouncementEditor({ id }: { id: string }) {
         }
         destructive={action === 'archive'}
         pending={
+          mutations.create.isPending ||
+          mutations.update.isPending ||
           mutations.publish.isPending ||
           mutations.unpublish.isPending ||
           mutations.archive.isPending
         }
+        error={actionError || null}
         onOpenChange={(open) => {
-          if (!open) setAction(null)
+          if (!open) {
+            setAction(null)
+            setActionError('')
+          }
         }}
         onConfirm={(reason) => {
           void (async () => {
-            const target = await persist(true)
-            if (!target || !action) return
+            setActionError('')
+            const saved = await persist(true)
+            if (!saved.id || !action) {
+              if (saved.error) setActionError(saved.error)
+              return
+            }
             try {
               if (action === 'publish') {
                 const publishAt =
                   publishMode === 'schedule' ? localInputToEpoch(publishInput) : Date.now()
-                await mutations.publish.mutateAsync({ id: target, reason, publishAt })
+                await mutations.publish.mutateAsync({ id: saved.id, reason, publishAt })
               } else if (action === 'unpublish') {
-                await mutations.unpublish.mutateAsync({ id: target, reason })
+                await mutations.unpublish.mutateAsync({ id: saved.id, reason })
               } else {
-                await mutations.archive.mutateAsync({ id: target, reason })
+                await mutations.archive.mutateAsync({ id: saved.id, reason })
               }
               setAction(null)
-            } catch (actionError) {
-              setError(announcementErrorMessage(actionError))
+              setActionError('')
+            } catch (cause) {
+              const message = announcementErrorMessage(cause)
+              setError(message)
+              setActionError(message)
             }
           })()
         }}
