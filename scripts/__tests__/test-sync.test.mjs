@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-const script = new URL('../push-test.sh', import.meta.url).pathname
+const script = new URL('../test-sync.sh', import.meta.url).pathname
 const reuseScript = new URL('../ci-reuse-web-checks.sh', import.meta.url).pathname
 const required = (() => {
   const body = /^REQUIRED=\(\n([\s\S]*?)^\)$/m.exec(readFileSync(reuseScript, 'utf8'))?.[1] ?? ''
@@ -23,7 +23,7 @@ const gitEnv = {
 
 // origin (bare) with main, test (behind main) and work branch `feat`; `clone` is where the script runs.
 function setup() {
-  const dir = mkdtempSync(join(tmpdir(), 'push-test-'))
+  const dir = mkdtempSync(join(tmpdir(), 'test-sync-'))
   const git = (cwd, ...args) => execFileSync('git', args, { cwd, env: { ...process.env, ...gitEnv }, encoding: 'utf8' }).trim()
   const origin = join(dir, 'origin.git')
   const clone = join(dir, 'clone')
@@ -81,7 +81,7 @@ esac
   chmodSync(join(bin, 'gh'), 0o755)
   return spawnSync('bash', [script, ...args], {
     cwd: env.clone,
-    env: { ...process.env, ...gitEnv, PATH: `${bin}:${process.env.PATH}`, PUSH_TEST_REPO: 'o/r', PUSH_TEST_POLL: '0' },
+    env: { ...process.env, ...gitEnv, PATH: `${bin}:${process.env.PATH}`, TEST_SYNC_REPO: 'o/r', TEST_SYNC_POLL: '0' },
     encoding: 'utf8',
   })
 }
@@ -287,10 +287,19 @@ test('nothing to push: leaves an already deployed commit alone', () =>
     assert.ok(!existsSync(join(env.dir, 'deploy-dispatched')))
   }))
 
-test('rejects main, test and remote-prefixed names', () =>
+test('with no branches (or only main/test) it just syncs main, without asking GitHub', () => {
+  for (const args of [[], ['main', 'test']]) {
+    withEnv((env) => {
+      const r = run(env, { runs: [], jobList: [], fail: true, args })
+      assert.equal(r.status, 0, r.stderr)
+      assert.ok(contains(env, 'main'))
+      assert.ok(!contains(env, 'feat'))
+    })
+  }
+})
+
+test('rejects remote-prefixed names and non-numeric options', () =>
   withEnv((env) => {
-    for (const name of ['main', 'test', 'origin/feat']) {
-      assert.equal(run(env, { runs: [], jobList: [], args: [name] }).status, 2)
-    }
+    assert.equal(run(env, { runs: [], jobList: [], args: ['origin/feat'] }).status, 2)
     assert.equal(run(env, { runs: [], jobList: [], args: ['--wait-ci', 'abc', 'feat'] }).status, 2)
   }))

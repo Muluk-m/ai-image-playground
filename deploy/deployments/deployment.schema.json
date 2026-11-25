@@ -6,6 +6,7 @@
     "web",
     "api",
     "admin",
+    "configSource",
     "segmenter",
     "auth",
     "database",
@@ -153,6 +154,18 @@
         }
       },
       "additionalProperties": false
+    },
+    "configSource": {
+      "anyOf": [
+        {
+          "type": "string",
+          "const": "rendered"
+        },
+        {
+          "type": "string",
+          "const": "legacy"
+        }
+      ]
     },
     "segmenter": {
       "type": "boolean"

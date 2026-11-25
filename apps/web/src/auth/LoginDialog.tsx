@@ -76,6 +76,8 @@ type LoginErrorKey =
   | 'recovery.invalid_password'
   | 'recovery.invalid_password_reset'
   | 'recovery.email_delivery_failed'
+  | 'recovery.rate_limited'
+  | 'recovery.fallback'
 
 function loginErrorKey(error: unknown): LoginErrorKey {
   if (error instanceof AuthRequestError) {
@@ -90,8 +92,9 @@ function recoveryErrorKey(error: unknown): LoginErrorKey {
     if (error.code === 'invalid_password') return 'recovery.invalid_password'
     if (error.code === 'invalid_password_reset') return 'recovery.invalid_password_reset'
     if (error.code === 'email_delivery_failed') return 'recovery.email_delivery_failed'
+    if (error.code === 'rate_limited') return 'recovery.rate_limited'
   }
-  return 'login.fallback'
+  return 'recovery.fallback'
 }
 
 function oauthErrorKey(code: string): LoginErrorKey {
@@ -403,6 +406,7 @@ export function LoginDialog({
         variant="ghost"
         size="icon-sm"
         className="absolute right-4 top-4 z-10 text-muted-foreground"
+        disabled={pending}
         onClick={onClose}
         aria-label={presentation === 'page' ? t('page.back') : t('dialog.close')}
       >
@@ -450,6 +454,7 @@ export function LoginDialog({
                           type={showNewPassword ? 'text' : 'password'}
                           className="pr-10"
                           value={newPassword}
+                          disabled={pending}
                           onChange={(event) => {
                             setNewPassword(event.currentTarget.value)
                             setErrorKey(null)
@@ -472,6 +477,7 @@ export function LoginDialog({
                       <Input
                         type="email"
                         value={username}
+                        disabled={pending}
                         onChange={(event) => {
                           setUsername(event.currentTarget.value)
                           setErrorKey(null)
@@ -490,7 +496,14 @@ export function LoginDialog({
                     className="mt-4 w-full"
                     disabled={pending || !(resetToken ? newPassword : username).trim()}
                   >
-                    {pending ? t('recovery.submitting') : t('recovery.submit')}
+                    {pending ? <Icon name="loading" className="animate-spin" /> : null}
+                    {resetToken
+                      ? pending
+                        ? t('recovery.resetting')
+                        : t('recovery.resetSubmit')
+                      : pending
+                        ? t('recovery.submitting')
+                        : t('recovery.submit')}
                   </Button>
                 </form>
               )}
@@ -498,9 +511,11 @@ export function LoginDialog({
                 type="button"
                 variant="link"
                 size="xs"
+                disabled={pending}
                 onClick={() => {
                   setView('login')
                   setRecoverySent(false)
+                  setResetComplete(false)
                   setResetToken(null)
                   setNewPassword('')
                   setErrorKey(null)
@@ -678,7 +693,7 @@ export function LoginDialog({
   return presentation === 'page' ? (
     <main>{content}</main>
   ) : (
-    <Overlay onClose={onClose} tier="raised" role="none">
+    <Overlay onClose={pending ? () => {} : onClose} tier="raised" role="none">
       {content}
     </Overlay>
   )

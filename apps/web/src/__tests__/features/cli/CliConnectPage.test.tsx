@@ -487,6 +487,7 @@ describe('CliConnectPage', () => {
     await render()
     await click('复制消息')
     await click('撤销连接')
+    await click('确认撤销')
     expect(host.textContent).not.toContain('Revoked CLI')
 
     await act(async () => {

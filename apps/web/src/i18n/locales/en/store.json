@@ -33,7 +33,7 @@
     "persistFailed": "The mask works for now but couldn't be saved locally; you'll need to redraw it after a reload"
   },
   "error": {
-    "manifestMissing": "The ZIP has no manifest.json",
+    "manifestMissing": "This ZIP is not a valid backup file (missing data index)",
     "notAnImage": "Not a valid image"
   },
   "toast": {

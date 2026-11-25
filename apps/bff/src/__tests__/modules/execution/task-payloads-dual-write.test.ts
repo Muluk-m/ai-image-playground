@@ -45,8 +45,8 @@ async function readPayload(taskId: string) {
   return row
 }
 
-describe('task_payloads single-write contract (Contract 1a)', () => {
-  it('writes cold payloads exclusively to task_payloads and keeps tasks cold columns NULL', async () => {
+describe('task_payloads single-write contract (Contract 1b)', () => {
+  it('writes cold payloads exclusively to task_payloads after tasks cold columns are dropped', async () => {
     const submitted = await createQueueTask({
       entry: 'web-direct',
       provider: 'openai-compat',
@@ -114,27 +114,21 @@ describe('task_payloads single-write contract (Contract 1a)', () => {
       result_payload: { images: [{ index: 0, key: `${taskId}/0.png` }] },
     })
 
-    // Contract 1a guarantee: runtime code never writes to the 5 deprecated cold columns on tasks.
-    const [legacyCols] = await db.$client<
-      {
-        request_payload: unknown
-        metering: unknown
-        result_payload: unknown
-        archive_payload: unknown
-        upstream_body: string | null
-      }[]
-    >`
-      SELECT request_payload, metering, result_payload, archive_payload, upstream_body
-      FROM tasks
-      WHERE id = ${taskId}
+    // Contract 1b guarantee: the 5 deprecated cold columns no longer exist on tasks.
+    const legacyCols = await db.$client<{ column_name: string }[]>`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'tasks'
+        AND column_name IN (
+          'request_payload',
+          'metering',
+          'result_payload',
+          'archive_payload',
+          'upstream_body'
+        )
     `
-    expect(legacyCols).toEqual({
-      request_payload: null,
-      metering: null,
-      result_payload: null,
-      archive_payload: null,
-      upstream_body: null,
-    })
+    expect(legacyCols).toEqual([])
   })
 
   it('updates task_payloads in place and clears transient fields on requeue', async () => {

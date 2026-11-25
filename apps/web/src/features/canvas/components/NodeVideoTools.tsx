@@ -45,7 +45,10 @@ export default function NodeVideoTools({
       }
     }
   }, [trimming])
+  const [loadFailed, setLoadFailed] = useState(false)
   const valid =
+    !loadFailed &&
+    duration > 0 &&
     Number.isFinite(start) &&
     Number.isFinite(end) &&
     start >= 0 &&
@@ -88,7 +91,11 @@ export default function NodeVideoTools({
             aria-label={t('nodes.videoTools')}
             title={t('nodes.videoTools')}
           >
-            <Icon name="video" size="md" />
+            <Icon
+              name={busy ? 'loading' : 'video'}
+              size="md"
+              className={busy ? 'animate-spin' : undefined}
+            />
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-52 space-y-1 p-2" collisionPadding={12}>
@@ -108,6 +115,7 @@ export default function NodeVideoTools({
             onClick={() => {
               setOpen(false)
               setDuration(0)
+              setLoadFailed(false)
               setTrimming(true)
             }}
           >
@@ -129,18 +137,33 @@ export default function NodeVideoTools({
               onLoadedMetadata={(event) => {
                 const seconds = event.currentTarget.duration
                 if (!Number.isFinite(seconds)) return
+                setLoadFailed(false)
                 setDuration(seconds)
                 const first = Number(node.data.meta?.videoTrimIn ?? 0)
                 const last = Number(node.data.meta?.videoTrimOut ?? seconds)
                 setStart(Number.isFinite(first) && first >= 0 && first < seconds ? first : 0)
                 setEnd(Number.isFinite(last) && last > 0 ? Math.min(last, seconds) : seconds)
               }}
+              onError={() => setLoadFailed(true)}
               onTimeUpdate={(event) => {
                 if (valid && event.currentTarget.currentTime >= end) event.currentTarget.pause()
               }}
             >
               <track kind="captions" />
             </video>
+            {loadFailed ? (
+              <p role="alert" className="text-xs text-destructive">
+                {t('nodes.trimLoadFailed')}
+              </p>
+            ) : duration === 0 ? (
+              <p role="status" className="text-xs text-muted-foreground">
+                {t('nodes.trimLoading')}
+              </p>
+            ) : !valid ? (
+              <p role="alert" className="text-xs text-destructive">
+                {t('nodes.trimInvalidRange')}
+              </p>
+            ) : null}
             <div className="grid grid-cols-2 gap-3">
               <label className="space-y-1 text-sm">
                 {t('nodes.trimStart')}

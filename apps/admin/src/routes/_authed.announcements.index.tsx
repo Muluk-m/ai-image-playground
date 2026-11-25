@@ -1,6 +1,6 @@
 import type { AnnouncementStatus, AnnouncementType } from '@image-playground/shared'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { Eye, MoreHorizontal, Plus, Search, Upload } from 'lucide-react'
+import { Eye, MoreHorizontal, Plus, Search, Upload, X } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { EmptyState, ErrorState, Page, PendingState } from '@/components/Page'
 import { SegmentedControl } from '@/components/SegmentedControl'
@@ -230,10 +230,32 @@ function AnnouncementsPage() {
             <Input
               value={draftQuery}
               onChange={(event) => setDraftQuery(event.currentTarget.value)}
-              className="h-8 pl-9"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && !event.nativeEvent.isComposing && draftQuery) {
+                  event.preventDefault()
+                  setDraftQuery('')
+                  if (search.q) setSearch({ q: undefined })
+                }
+              }}
+              className="h-8 pl-9 pr-8"
               placeholder="搜索标题或版本号"
               aria-label="搜索标题或版本号"
             />
+            {draftQuery ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label="清空搜索"
+                className="absolute right-1.5 top-1/2 h-6 w-6 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  setDraftQuery('')
+                  if (search.q) setSearch({ q: undefined })
+                }}
+              >
+                <X className="size-3.5" />
+              </Button>
+            ) : null}
           </div>
         </form>
         <Button

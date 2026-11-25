@@ -176,6 +176,7 @@ export default function AgentGenerationPlan({
               <div className="studio-agent-plan-row">
                 <Checkbox
                   checked={!skipped.has(message.id)}
+                  disabled={submitting}
                   aria-label={message.title}
                   onChange={(value) => plan.skip(message.id, !value)}
                 />

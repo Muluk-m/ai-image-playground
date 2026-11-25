@@ -105,21 +105,10 @@ import {
   reportAgentPanel,
 } from './lib/jobActivity'
 import { agentJobUnsettled } from './lib/jobProgress'
-import {
-  addQueuedMessage,
-  reduceMessageQueue,
-  removeQueuedMessage,
-  returnQueuedToDraft,
-} from './lib/messageQueue'
+import { addQueuedMessage, reduceMessageQueue, removeQueuedMessage } from './lib/messageQueue'
 import { registerAgentNodeRunOrigin, releaseIdleAgentNodeRunOrigins } from './lib/nodeRuns'
-import {
-  bindOutgoingConversation,
-  forgetOutgoing,
-  type OutgoingMessage,
-  outgoingMessages,
-  rememberOutgoing,
-  updateOutgoingInput,
-} from './lib/outgoingJournal'
+import { forgetOutgoing, type OutgoingMessage, outgoingMessages } from './lib/outgoingJournal'
+import { createOutgoingSubmission } from './lib/outgoingSubmission'
 import {
   answerableClarificationId,
   appendImageAction,
@@ -1719,70 +1708,23 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
       retryReplay = { ...unsentSnapshot, clarificationAnswer }
       // 交出去之前先落本机，并且等它写完：这句话与服务端之间隔着几秒网络，刷新、断网都在
       // 这段里，只在内存里就等于没发过。写完才发，回来时照样看得到，也能拿同一个 id 重发。
-      const journaled = sourceProject ? { projectId: sourceProject.id, id: messageId } : null
-      if (localPersistence) {
-        await localPersistence.stage({
-          ...captured.snapshot,
-          id: messageId,
-          text: trimmed,
-          mode,
-          clarificationAnswer,
-        })
-        if (!sameAccount()) return 'cancelled'
-      }
-      if (journaled)
-        await rememberOutgoing({
-          id: messageId,
-          projectId: journaled.projectId,
-          conversationId,
-          text: trimmed,
-          ...captured.snapshot,
-          mode,
-          ...(modelOverride ? { modelOverride } : {}),
-          clarificationAnswer,
-          createdAt: Date.now(),
-        })
-      if (journaled) localPersistence?.committed(messageId)
-      if (!sameAccount()) return 'cancelled'
-      let submissionInput = captured.snapshot
-      const prepare = async () => {
-        if (!sameAccount()) throw new Error('media_scope_changed')
-        const prepared = await captured.prepare()
-        if (!sameAccount()) throw new Error('media_scope_changed')
-        // Unaccepted uploads can expire; retain the captured pixels for a fresh upload on retry.
-        if (prepared) submissionInput = { ...prepared, references: captured.snapshot.references }
-        if (prepared && journaled)
-          await updateOutgoingInput(journaled.projectId, journaled.id, submissionInput)
-        if (!sameAccount()) throw new Error('media_scope_changed')
-        return prepared
-      }
-      const settleJournal = async () => {
-        if (journaled && sameAccount()) await forgetOutgoing(journaled.projectId, journaled.id)
-      }
+      const outgoing = createOutgoingSubmission({
+        id: messageId,
+        text: trimmed,
+        mode,
+        clarificationAnswer,
+        conversationId,
+        projectId: sourceProject?.id,
+        modelOverride,
+        snapshot: captured.snapshot,
+        prepare: () => captured.prepare(),
+        sameAccount,
+        localPersistence,
+        onUnsent,
+      })
+      const persisted = outgoing.persist()
+      if (!(typeof persisted === 'boolean' ? persisted : await persisted)) return 'cancelled'
       let quietUnsent = false
-      const returnUnsent = async (withdrawn = false) => {
-        if (!onUnsent && !withdrawn) return
-        // 已撤回的 id 是服务端终态，再用它只会再次得到 cancelled。只有用户从草稿再发才开新 id。
-        const unsent: UnsentTurnSubmission = {
-          ...submissionInput,
-          id: withdrawn ? crypto.randomUUID() : messageId,
-          text: trimmed,
-          mode,
-          clarificationAnswer,
-        }
-        let returned: boolean
-        if (onUnsent) returned = await onUnsent(unsent, quietUnsent)
-        else {
-          // 刷新补发时输入框可能尚未挂载，恢复仍归属原项目，不能把终态日志直接丢掉。
-          const draft = agentDraft(conversationId, sourceProject?.id)
-          await draft.ready
-          returned = await draft.returnUnsent({
-            ...returnQueuedToDraft({ prompt: '', references: [] }, [unsent]),
-            submission: unsent,
-          })
-        }
-        if (returned) await settleJournal()
-      }
       if (get().turn === 'running' && conversationId) {
         const accepted = await queueMessage(
           conversationId,
@@ -1792,14 +1734,14 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           mode,
           clarificationAnswer,
           messageId,
-          prepare,
+          () => outgoing.prepare(),
         )
-        if (accepted === true) await settleJournal()
-        else await returnUnsent(accepted === 'cancelled')
+        if (accepted === true) await outgoing.settle()
+        else await outgoing.returnUnsent(accepted === 'cancelled')
         return accepted === 'cancelled' ? 'cancelled' : undefined
       }
       if (get().turn === 'running') {
-        settleJournal()
+        void outgoing.settle()
         return
       }
 
@@ -1891,7 +1833,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
             set({ conversationId: target })
             // 会话是刚刚建出来的：本机那份补上它，重发时才知道发去哪个会话。
             if (!sameAccount()) return 'cancelled'
-            if (journaled) await bindOutgoingConversation(journaled.projectId, journaled.id, target)
+            await outgoing.bindConversation(target)
             if (sourceProject?.cloud && cloudProjectsEnabled()) {
               let history: AgentConversationState
               try {
@@ -1929,7 +1871,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         if (submission.cancelled) return await cancelUnsent()
         let prepared: TurnSubmissionSnapshot | null
         try {
-          prepared = await prepare()
+          prepared = await outgoing.prepare()
         } catch (thrown) {
           if (submission.cancelled) return await cancelUnsent()
           if (turnDelivery.isCurrent()) failUnsent(REFERENCES_NOT_UPLOADED(), thrown)
@@ -2115,8 +2057,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
           setTimeout(() => void get().refreshConversations(), titleRewriteMs)
         }
       } finally {
-        if (accepted || submission.cancelled) await settleJournal()
-        else await returnUnsent(withdrawn)
+        if (accepted || submission.cancelled) await outgoing.settle()
+        else await outgoing.returnUnsent(withdrawn, quietUnsent)
         settleSubmission()
         if (pendingStart === submission) pendingStart = null
       }

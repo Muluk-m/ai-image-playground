@@ -48,7 +48,11 @@ export default function NodeSliceMenu({
           title={t('nodes.slice')}
           aria-label={busy ? t('nodes.slicing') : t('nodes.slice')}
         >
-          <Icon name="grid" size="md" />
+          <Icon
+            name={busy ? 'loading' : 'grid'}
+            size="md"
+            className={busy ? 'animate-spin' : undefined}
+          />
         </Button>
       </PopoverTrigger>
       <PopoverContent

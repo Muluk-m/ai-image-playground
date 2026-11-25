@@ -238,13 +238,13 @@ it('reads only page result payloads while preserving global costs, cross-page de
       END IF;
       RETURN body;
     END $$`)
-  await db.execute(sql`ALTER TABLE tasks RENAME TO page_fixture_tasks`)
+  await db.execute(sql`ALTER TABLE task_payloads RENAME TO page_fixture_task_payloads`)
   await db.execute(sql`DO $$ DECLARE fields text; BEGIN
     SELECT string_agg(CASE WHEN column_name = 'result_payload'
-      THEN 'page_payload(id, result_payload) AS result_payload'
+      THEN 'page_payload(task_id, result_payload) AS result_payload'
       ELSE quote_ident(column_name) END, ', ' ORDER BY ordinal_position)
-      INTO fields FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'page_fixture_tasks';
-    EXECUTE 'CREATE VIEW tasks AS SELECT ' || fields || ' FROM page_fixture_tasks';
+      INTO fields FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'page_fixture_task_payloads';
+    EXECUTE 'CREATE VIEW task_payloads AS SELECT ' || fields || ' FROM page_fixture_task_payloads';
   END $$`)
   try {
     const read = (cursor?: string) =>
@@ -286,8 +286,8 @@ it('reads only page result payloads while preserving global costs, cross-page de
     expect(second.batch.actualCredits).toBe(44)
     expect(second.nextCursor).toBeNull()
   } finally {
-    await db.execute(sql`DROP VIEW tasks`)
-    await db.execute(sql`ALTER TABLE page_fixture_tasks RENAME TO tasks`)
+    await db.execute(sql`DROP VIEW task_payloads`)
+    await db.execute(sql`ALTER TABLE page_fixture_task_payloads RENAME TO task_payloads`)
     await db.execute(sql`DROP FUNCTION page_payload(text, jsonb)`)
     await db.execute(sql`DROP TABLE page_allowed_payloads`)
   }

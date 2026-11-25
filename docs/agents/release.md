@@ -41,14 +41,14 @@ Agent 从 PR 到上线的完整链路，以及每一步谁能拍板。命令与�
 
 `test` 分支推上去就由 `.github/workflows/deploy-test.yml` 发布：先发测试后端 `image-playground-test`（`test-api.muvloom.online`，独立数据库 `aip_test` 与 R2 桶 `muvloom-test`），再发 https://test.muvloom.online。第一步 `scripts/ci-check-test-branch.sh` 检查 `test` 是否包含最新 `main`，落后就直接失败。
 
-推 `test` 一律用 `scripts/push-test.sh`，不手工合并推送：
+推 `test` 一律用 `scripts/test-sync.sh`，不手工合并推送：
 
 ```sh
 git push origin <工作分支>               # 先推工作分支
-scripts/push-test.sh <工作分支> [<另一个分支>...]
+scripts/test-sync.sh <工作分支> [<另一个分支>...]   # 不带分支时只把 main 同步进 test
 ```
 
-脚本做三件事，对应 Deploy test 过去反复失败的两类原因：
+脚本针对 Deploy test 过去反复失败的两类原因：
 
 - **分支没跑 CI 就进 test。** 每个分支推上去的那个提交，以它最新的一次 `Web checks`（PR、push 或手动派发均可）为准：Deploy test 门禁要的 job（列表取自 `scripts/ci-reuse-web-checks.sh` 的 `REQUIRED`，不含 `cli`、`docker-web`、`PR rules`，所以不等于可以合并）必须全部 success。旧的绿不能盖过新的红；`format=true` 的手动派发先跑了 `biome --write`，不算证明。没有可用的 run 就派发一次并等待（默认最多 45 分钟，`--wait-ci` 调整，`--no-dispatch` 改为直接失败）。job 失败就停下并列出失败的 job；必需 job 被跳过或不存在时，提示 `REQUIRED` 与 web.yml 的 job 名不一致；GitHub API 连续 3 次失败直接退出并提示检查 `gh auth status`。本地分支和远端不一致也拒绝，避免漏掉没推的提交。
 - **推送时 main 刚好前进，test 落后 main 被拦。** 在临时 worktree 里从最新 `origin/test` 合入最新 `origin/main` 和这些分支，推送前再 fetch 一次 main，变了就重合；推送失败时只有远端 test 确实被别人推过才重来（最多 5 次），权限、保护规则、网络之类的失败直接退出并转述 git 的报错。只快进推送，不 force-push、不 rebase，不动调用者的工作区。
@@ -85,7 +85,7 @@ workflow 本身的机制：
 3. **后端只构建和发布 muvloom runtime。** `backend` 在 Actions 用 `build-vps-release.sh paid` 构建单仓发布镜像，以及 backup、segmenter 配套镜像，经 SSH 受限命令执行 `deploy <id> paid <run>`；`rollout-runtime.sh` 先跑兼容迁移，再做新旧两代排空切换。生产目标只有 `paid`，隔离测试目标为 `test`。
 4. `pages-muvloom`（显示名 `Pages (muvloom project, every product domain)`）只发布一个 muvloom Pages 项目：一个项目、多个域名（`muvloom.online`、`image.nainma.online`、企业域名 `image-playground.qiliangjia.one`）。`pages-release.sh muvloom` 把 `ENTERPRISE_PUBLIC_ORIGIN → ENTERPRISE_BFF_BASE_URL` 并入 `baseUrlsByOrigin`，并给企业域名加 host 级 `X-Robots-Tag: noindex`。API 本次发布时，先等共享 muvloom API 与企业 API hostname `/health` 报出新版本，再发布并跑 Chromium 验收；企业域名在 muvloom 项目的 Cloudflare 自定义域名列表中时同样验收且失败即失败，未绑定只告警，不能据此宣称企业站已交付。`admin-pages` 保留对 `pages-muvloom` 的成功 / 跳过依赖。
    - 企业站使用 `ENTERPRISE_BFF_BASE_URL` 的第一方 hostname，不能直接配置为跨站 muvloom API，否则 `SameSite=Lax` cookie 登录失效。登录方式由后端 `AUTH_LOGIN_METHODS_BY_ORIGIN` 按 origin 决定（企业域名只飞书，muvloom 邮箱 + Google），前端不按域名分支。
-   - 只改前端时，`pages-muvloom` 允许 backend job 跳过；只改后端时，backend 直接发布共享 muvloom API。Pages 与 Admin 都使用 muvloom 令牌。GitHub `PAGES_ENV`、仓库外 `pages.env` 的企业键名，以及 VPS 固定 receiver 必须配套更新（`paid` 与 `test` 的部署脚本均随发布从 main 自动解出，不需手工同步），见[部署手册](../deploy/image-release.md#仓库外更新前提)。域名与 API 别名的维护及真实登录验收见[企业域名与 API 别名](../deploy/image-release.md#企业域名与-api-别名)。浏览器启动冒烟不替代真实登录与业务验收。
+   - 只改前端时，`pages-muvloom` 允许 backend job 跳过；只改后端时，backend 直接发布共享 muvloom API。Pages 与 Admin 都使用 muvloom 令牌。GitHub `PAGES_ENV`、仓库外 `pages.env` 的企业键名须配套更新；VPS 固定 receiver 仅新主机首次安装（之后随 `main` 自动更新，`paid` 与 `test` 的部署脚本均随发布从 `main` 自动解出，不需手工同步），见[部署手册](../deploy/image-release.md#仓库外更新前提)。域名与 API 别名的维护及真实登录验收见[企业域名与 API 别名](../deploy/image-release.md#企业域名与-api-别名)。浏览器启动冒烟不替代真实登录与业务验收。
    - 失败后的重跑：同一发布 ID 已接收后只能按失败 job 重跑，不能重跑整单，避免同一发布目录冲突。
 
 合并后 Agent 在汇报里列出待发布的改动；Nain 说发布后触发 workflow、跟进到跑完，冒烟在发布完成后做。失败就看日志处理（可按失败 job 重跑），不绕过 workflow 补发。一次带上的改动越多，出问题越难定位：有关键流程或数据库迁移的改动，建议单独发布、单独冒烟。

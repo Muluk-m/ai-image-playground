@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   Sheet,
   SheetContent,
@@ -13,19 +14,30 @@ export default function ImageExportDialog() {
   const { t } = useTranslation(['toolbox', 'common'])
   const request = useImageExportStore((state) => state.request)
   const close = useImageExportStore((state) => state.close)
+  const [busy, setBusy] = useState(false)
   return (
     <Sheet
       open={Boolean(request)}
       onOpenChange={(open) => {
-        if (!open) close()
+        if (!open && !busy) close()
       }}
     >
       <SheetContent
         data-shadcn-modal
         overlayClassName="z-[1299] bg-black/40 backdrop-blur-sm"
         closeLabel={t('common:action.close')}
+        closeDisabled={busy}
         className="z-[1300] flex w-full flex-col gap-0 p-0 sm:max-w-[400px]"
         onKeyDown={(event) => event.stopPropagation()}
+        onEscapeKeyDown={(event) => {
+          if (busy) event.preventDefault()
+        }}
+        onPointerDownOutside={(event) => {
+          if (busy) event.preventDefault()
+        }}
+        onInteractOutside={(event) => {
+          if (busy) event.preventDefault()
+        }}
       >
         <SheetHeader className="border-b border-border px-5 py-4 text-left">
           <SheetTitle className="text-base">{t('export.title')}</SheetTitle>
@@ -36,6 +48,7 @@ export default function ImageExportDialog() {
             key={request.sources.map((one) => one.id).join(',')}
             sources={request.sources}
             name={request.name}
+            onBusyChange={setBusy}
           />
         )}
       </SheetContent>

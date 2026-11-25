@@ -134,9 +134,11 @@ export function Site({ page }: { page: SitePage }) {
         >
           <Suspense
             fallback={
-              <p className="site-connect" role="status">
-                {text.loading}
-              </p>
+              login || page.kind === 'login' ? (
+                <p className="site-connect" role="status">
+                  {text.loading}
+                </p>
+              ) : null
             }
           >
             <Auth

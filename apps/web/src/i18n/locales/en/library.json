@@ -60,7 +60,10 @@
     "addView": "Add view",
     "views": "Views",
     "noImage": "Reference image pending",
-    "saveFailed": "Could not save the asset. Try again."
+    "saveFailed": "Could not save the asset. Try again.",
+    "discardTitle": "Discard unsaved changes?",
+    "discardMessage": "Your changes have not been saved and will be lost if you close.",
+    "discardConfirm": "Discard"
   },
   "createAsset": {
     "title": "New asset",
@@ -93,6 +96,8 @@
     "tune": "Keep tuning",
     "fork": "Copy and edit",
     "needsRetune": "Needs retuning",
+    "needsRetuneHint": "Model changed — retune this template first",
+    "noModelHint": "No available image model right now",
     "deleteTitle": "Delete template",
     "deleteMessage": "Delete the template “{{name}}”?",
     "saveFailed": "Could not save the template. Try again.",

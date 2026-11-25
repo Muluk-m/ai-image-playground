@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Button } from '../../../components/ui/button'
 import { useTranslation } from '../../../i18n'
 import { CARD_NOTE } from '../agentStyles'
@@ -22,13 +22,15 @@ export default function AgentConfirmationGate({
 }) {
   const { t } = useTranslation('agent')
   const [submitting, setSubmitting] = useState(false)
+  const submittingRef = useRef(false)
   const [failure, setFailure] = useState<string | null>(null)
   const drafts = pending.filter((one) => one.kind === 'draft')
   const nodeRuns = pending.filter((one) => one.kind === 'nodeRun')
   const first = pending[0]
 
   const confirmAll = () => {
-    if (submitting || !drafts.length) return
+    if (submittingRef.current || !drafts.length) return
+    submittingRef.current = true
     setSubmitting(true)
     setFailure(null)
     void useAgentStore
@@ -45,6 +47,12 @@ export default function AgentConfirmationGate({
                   : null) ?? t('confirm.allFailed', { count: result.confirmed })),
           )
         }
+      })
+      .catch(() => {
+        setFailure(t('confirm.allFailed', { count: 0 }))
+      })
+      .finally(() => {
+        submittingRef.current = false
         setSubmitting(false)
       })
   }

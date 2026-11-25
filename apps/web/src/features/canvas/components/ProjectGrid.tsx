@@ -315,12 +315,12 @@ export default function ProjectGrid({
           placeholder={t('grid.renamePlaceholder')}
           defaultName={projectDisplayName(renaming.name)}
           onCancel={() => setRenaming(null)}
-          onSave={(name) => {
-            void renameProject(renaming.id, name).then(
+          onSave={(name) =>
+            renameProject(renaming.id, name).then(
               () => setRenaming(null),
               () => useStore.getState().showToast(t('grid.renameFailed'), 'error'),
             )
-          }}
+          }
         />
       )}
     </>

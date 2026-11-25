@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# push-test.sh — the only way to put work branches on the test site.
+# test-sync.sh — the only way to push the shared test branch (and so deploy the test site).
 #
-#   scripts/push-test.sh [--no-dispatch] [--wait-ci <seconds>] <branch>...
+#   scripts/test-sync.sh [--no-dispatch] [--wait-ci <seconds>] [branch ...]
+#
+# With no branches it only brings test up to date with main.
 #
 # Deploy test (.github/workflows/deploy-test.yml) kept failing for two reasons this script removes:
 #   1. Branches went into `test` without ever running CI, so the deploy was the first place their
@@ -17,24 +19,24 @@
 # stops the script with test unchanged; resolve it in a relay worktree as docs/agents/release.md
 # describes. The job list comes from scripts/ci-reuse-web-checks.sh so there is one list.
 #
-# Environment (mostly for tests): PUSH_TEST_REPO (owner/name, default Muluk-m/ai-image-playground),
-# PUSH_TEST_REMOTE (default origin), PUSH_TEST_POLL (default 20), PUSH_TEST_ATTEMPTS (default 5).
+# Environment (mostly for tests): TEST_SYNC_REPO (owner/name, default Muluk-m/ai-image-playground),
+# TEST_SYNC_REMOTE (default origin), TEST_SYNC_POLL (default 20), TEST_SYNC_ATTEMPTS (default 5).
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
-repo=${PUSH_TEST_REPO:-Muluk-m/ai-image-playground}
-remote=${PUSH_TEST_REMOTE:-origin}
-poll=${PUSH_TEST_POLL:-20}
-attempts=${PUSH_TEST_ATTEMPTS:-5}
+repo=${TEST_SYNC_REPO:-Muluk-m/ai-image-playground}
+remote=${TEST_SYNC_REMOTE:-origin}
+poll=${TEST_SYNC_POLL:-20}
+attempts=${TEST_SYNC_ATTEMPTS:-5}
 wait_ci=2700
 dispatch=true
 
 usage() {
   cat <<'EOF'
-Usage: scripts/push-test.sh [options] <branch>...
+Usage: scripts/test-sync.sh [options] [branch ...]
 
 Merges the latest origin/main and the given (already pushed) work branches into origin/test and
-pushes it, which deploys https://test.muvloom.online. Each branch's pushed commit must first pass
+pushes it, which deploys https://test.muvloom.online. With no branches, only main is merged. Each branch's pushed commit must first pass
 the Web checks jobs Deploy test gates on (REQUIRED in scripts/ci-reuse-web-checks.sh); a branch
 without a run gets one dispatched.
 
@@ -46,7 +48,7 @@ EOF
 }
 
 die() {
-  echo "push-test: $*" >&2
+  echo "test-sync: $*" >&2
   exit "${code:-1}"
 }
 
@@ -67,28 +69,40 @@ while [ "$#" -gt 0 ]; do
       ;;
     -h | --help) usage; exit 0 ;;
     -*) usage >&2; code=2 die "unknown option $1" ;;
+    main | test) shift ;; # always merged / the target: nothing to add
     *) branches+=("$1"); shift ;;
   esac
 done
 need_int --wait-ci "$wait_ci"
-need_int PUSH_TEST_POLL "$poll"
-need_int PUSH_TEST_ATTEMPTS "$attempts"
-[ "${#branches[@]}" -gt 0 ] || { usage >&2; code=2 die "name at least one work branch"; }
-for b in "${branches[@]}"; do
+need_int TEST_SYNC_POLL "$poll"
+need_int TEST_SYNC_ATTEMPTS "$attempts"
+# bash 3.2 treats "${arr[@]}" of an empty array as unset under `set -u`; these expand to nothing.
+all() { [ "${#branches[@]}" -eq 0 ] || printf '%s\n' "${branches[@]}"; }
+idx() { local i=0; while [ "$i" -lt "${#branches[@]}" ]; do echo "$i"; i=$((i + 1)); done; }
+for b in $(all); do
   case $b in
-    main | test | "$remote"/*) code=2 die "'$b' is not a work branch (give the bare branch name)" ;;
+    "$remote"/*) code=2 die "'$b' is not a work branch (give the bare branch name)" ;;
   esac
 done
+names=${branches[*]-}
+
+# Explicit refspecs so single-branch clones still get refs/remotes/$remote/<name>.
+fetch() {
+  local specs=() ref
+  for ref in "$@"; do specs+=("+refs/heads/$ref:refs/remotes/$remote/$ref"); done
+  git fetch -q "$remote" "${specs[@]}"
+}
 
 required_json=$(sed -n '/^REQUIRED=(/,/^)/p' "$here/ci-reuse-web-checks.sh" | grep -o "'[^']*'" | tr -d "'" |
   jq -R . | jq -sc .)
 [ "$(jq length <<<"$required_json")" -gt 0 ] || die "could not read REQUIRED from ci-reuse-web-checks.sh"
 
-git fetch -q "$remote" main test "${branches[@]}" || die "git fetch failed (is every branch pushed?)"
+# shellcheck disable=SC2046 # branch names have no whitespace
+fetch main test $(all) || die "git fetch failed (is every branch pushed?)"
 
 # Each branch's pushed commit; a local branch that differs from it would silently leave work out.
 shas=()
-for b in "${branches[@]}"; do
+for b in $(all); do
   sha=$(git rev-parse -q --verify "refs/remotes/$remote/$b^{commit}") || die "$remote/$b does not exist; push it first"
   if local=$(git rev-parse -q --verify "refs/heads/$b^{commit}"); then
     [ "$local" = "$sha" ] || die "local $b ($local) differs from $remote/$b ($sha); push or reset it first"
@@ -135,14 +149,14 @@ verdict() {
 started=$(date +%s)
 errors=0
 dispatched=()
-for i in "${!branches[@]}"; do
+for i in $(idx); do
   b=${branches[$i]} sha=${shas[$i]}
   while :; do
     read -r v run_id detail <<<"$(verdict "$sha")"
     [ "$v" = error ] && errors=$((errors + 1)) || errors=0
     case $v in
       ok)
-        echo "push-test: $b ${sha:0:9} passed Web checks."
+        echo "test-sync: $b ${sha:0:9} passed Web checks."
         break
         ;;
       bad)
@@ -159,11 +173,11 @@ for i in "${!branches[@]}"; do
           gh api -X POST "repos/$repo/actions/workflows/web.yml/dispatches" -f "ref=$b" >/dev/null ||
             die "could not dispatch Web checks for $b (gh auth status?)"
           dispatched+=("$b")
-          echo "push-test: dispatched Web checks for $b ${sha:0:9}; waiting."
+          echo "test-sync: dispatched Web checks for $b ${sha:0:9}; waiting."
         fi
         ;;
       error)
-        echo "push-test: warning: GitHub API call failed ($errors in a row)." >&2
+        echo "test-sync: warning: GitHub API call failed ($errors in a row)." >&2
         [ "$errors" -lt 3 ] || die "GitHub API keeps failing; check \`gh auth status\` and network, then rerun."
         ;;
       *) ;;
@@ -173,7 +187,7 @@ for i in "${!branches[@]}"; do
   done
   behind=$(git rev-list --count "$sha..refs/remotes/$remote/main")
   [ "$behind" -eq 0 ] ||
-    echo "push-test: note: $b is $behind commit(s) behind main; its CI did not see them, Deploy test's gates will."
+    echo "test-sync: note: $b is $behind commit(s) behind main; its CI did not see them, Deploy test's gates will."
 done
 
 # test already holds everything: make sure that commit actually has (or gets) a deployment.
@@ -184,23 +198,27 @@ ensure_deployed() {
     die "could not read Deploy test runs for ${sha:0:9}"
   IFS='|' read -r status conclusion url <<<"$last"
   if [ "$status" != completed ] && [ "$status" != none ]; then
-    echo "push-test: Deploy test for ${sha:0:9} is $status: $url"
+    echo "test-sync: Deploy test for ${sha:0:9} is $status: $url"
   elif [ "$conclusion" = success ]; then
-    echo "push-test: ${sha:0:9} is already deployed to the test site: $url"
+    echo "test-sync: ${sha:0:9} is already deployed to the test site: $url"
   else
     gh api -X POST "repos/$repo/actions/workflows/deploy-test.yml/dispatches" -f ref=test >/dev/null ||
       die "could not dispatch Deploy test"
-    echo "push-test: last Deploy test for ${sha:0:9} was ${conclusion:-missing}; dispatched a new one."
+    echo "test-sync: last Deploy test for ${sha:0:9} was ${conclusion:-missing}; dispatched a new one."
   fi
 }
 
 wt=
 cleanup() { [ -z "$wt" ] || { git worktree remove --force "$wt" >/dev/null 2>&1 || rm -rf "$wt"; }; }
 trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 for attempt in $(seq 1 "$attempts"); do
-  git fetch -q "$remote" main test "${branches[@]}" || die "git fetch failed"
-  for i in "${!branches[@]}"; do
+  # shellcheck disable=SC2046
+  fetch main test $(all) || die "git fetch failed"
+  for i in $(idx); do
     now=$(git rev-parse "refs/remotes/$remote/${branches[$i]}")
     [ "$now" = "${shas[$i]}" ] || die "${branches[$i]} moved to ${now:0:9} while waiting; rerun to check the new commit"
   done
@@ -208,12 +226,12 @@ for attempt in $(seq 1 "$attempts"); do
   main_sha=$(git rev-parse "refs/remotes/$remote/main")
 
   cleanup
-  wt=$(mktemp -d "${TMPDIR:-/tmp}/push-test.XXXXXX")
+  wt=$(mktemp -d "${TMPDIR:-/tmp}/aip-test-sync.XXXXXX")
   rmdir "$wt"
   git worktree add -q --detach "$wt" "$test_sha"
   # Merge the exact commits checked above, never the remote-tracking refs: another fetch (an IDE,
   # another terminal) may move those at any moment, and the worktree shares them.
-  for i in -1 "${!branches[@]}"; do
+  for i in -1 $(idx); do
     if [ "$i" = -1 ]; then ref=main rev=$main_sha; else ref=${branches[$i]} rev=${shas[$i]}; fi
     if ! git -C "$wt" merge -q --no-edit -m "Merge $ref into test" "$rev" >/dev/null; then
       files=$(git -C "$wt" diff --name-only --diff-filter=U | sed 's/^/    /')
@@ -225,19 +243,20 @@ $files
   done
   head=$(git -C "$wt" rev-parse HEAD)
   if [ "$head" = "$test_sha" ]; then
-    echo "push-test: test already contains main and ${branches[*]}; nothing to push."
+    echo "test-sync: test already contains main and ${names:-nothing else}; nothing to push."
     ensure_deployed "$test_sha"
     exit 0
   fi
 
-  git fetch -q "$remote" main
+  fetch main
   if [ "$(git rev-parse "refs/remotes/$remote/main")" != "$main_sha" ]; then
-    echo "push-test: main moved while merging; merging again (attempt $attempt/$attempts)."
+    echo "test-sync: main moved while merging; merging again (attempt $attempt/$attempts)."
     continue
   fi
   # Push from the caller's repository: a relative remote URL resolves against the current directory.
-  if out=$(git push -q "$remote" "$head:refs/heads/test" 2>&1); then
-    echo "push-test: pushed test ${head:0:9} (main ${main_sha:0:9} + ${branches[*]})."
+  # Every branch already passed Web checks; the pre-push hook would only re-run typecheck on the merge.
+  if out=$(AIP_PRE_PUSH=skip git push -q "$remote" "$head:refs/heads/test" 2>&1); then
+    echo "test-sync: pushed test ${head:0:9} (main ${main_sha:0:9} + ${names:-nothing else})."
     echo "  Follow it: gh run list --repo $repo --workflow deploy-test.yml --commit $head"
     exit 0
   fi
@@ -248,6 +267,6 @@ $files
     die "push to test failed:
 $out"
   fi
-  echo "push-test: test moved to ${now:0:9} while pushing; merging again (attempt $attempt/$attempts)."
+  echo "test-sync: test moved to ${now:0:9} while pushing; merging again (attempt $attempt/$attempts)."
 done
 die "gave up after $attempts attempts; test or main keeps moving"

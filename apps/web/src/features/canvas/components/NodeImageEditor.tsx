@@ -1,5 +1,5 @@
 import type Konva from 'konva'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Image as KImage, Layer, Stage } from 'react-konva'
 import Overlay from '../../../components/patterns/Overlay'
 import { Button } from '../../../components/ui/button'
@@ -174,21 +174,65 @@ export default function NodeImageEditor({
       setBusy(false)
     }
   }
+  const undoStroke = () => {
+    if (!strokes.length || busy) return
+    setRedo((previous) => [...previous, strokes[strokes.length - 1]!])
+    setStrokes((previous) => previous.slice(0, -1))
+  }
+  const redoStroke = () => {
+    if (!redo.length || busy) return
+    setStrokes((previous) => [...previous, redo[redo.length - 1]!])
+    setRedo((previous) => previous.slice(0, -1))
+  }
+  const historyActionsRef = useRef({ undoStroke, redoStroke })
+  useLayoutEffect(() => {
+    historyActionsRef.current = { undoStroke, redoStroke }
+  })
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return
+      if (useStore.getState().confirmDialog) return
+      const target = event.target as HTMLElement | null
+      if (
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable
+      ) {
+        return
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+        event.preventDefault()
+        if (event.shiftKey) historyActionsRef.current.redoStroke()
+        else historyActionsRef.current.undoStroke()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+  const hasUnsavedWork = strokes.length > 0 || prompt.trim().length > 0
+  const requestClose = () => {
+    if (running.current) return
+    if (!hasUnsavedWork) {
+      onClose()
+      return
+    }
+    useStore.getState().setConfirmDialog({
+      title: t('pixelEdit.discardTitle'),
+      message: t('pixelEdit.discardMessage'),
+      confirmText: t('pixelEdit.discardConfirm'),
+      tone: 'warning',
+      action: onClose,
+    })
+  }
   return (
-    <Overlay
-      onClose={() => {
-        if (!running.current) onClose()
-      }}
-      layout="fill"
-      label={t('pixelEdit.title')}
-    >
+    <Overlay onClose={requestClose} layout="fill" label={t('pixelEdit.title')}>
       <div className="flex h-dvh min-h-0 flex-col bg-background text-foreground">
         <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
             <Icon name="brush" />
             <h2 className="truncate text-sm font-semibold">{t('pixelEdit.title')}</h2>
           </div>
-          <Button variant="ghost" size="sm" disabled={busy} onClick={onClose}>
+          <Button variant="ghost" size="sm" disabled={busy} onClick={requestClose}>
             {t('pixelEdit.close')}
           </Button>
         </header>
@@ -253,34 +297,27 @@ export default function NodeImageEditor({
               className="h-8 w-8 rounded border border-border bg-transparent p-1"
             />
           )}
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={!strokes.length || busy}
-            onClick={() => {
-              setRedo((previous) => [...previous, strokes[strokes.length - 1]!])
-              setStrokes((previous) => previous.slice(0, -1))
-            }}
-          >
+          <Button size="sm" variant="ghost" disabled={!strokes.length || busy} onClick={undoStroke}>
             {t('nodes.undo')}
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={!redo.length || busy}
-            onClick={() => {
-              setStrokes((previous) => [...previous, redo[redo.length - 1]!])
-              setRedo((previous) => previous.slice(0, -1))
-            }}
-          >
+          <Button size="sm" variant="ghost" disabled={!redo.length || busy} onClick={redoStroke}>
             {t('nodes.redo')}
           </Button>
         </div>
         <div
           ref={host}
-          className="min-h-0 flex-1 overflow-hidden bg-muted/30"
+          className="relative min-h-0 flex-1 overflow-hidden bg-muted/30"
           style={{ touchAction: 'none' }}
         >
+          {!source && !error && (
+            <div
+              role="status"
+              className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground"
+            >
+              <Icon name="loading" className="animate-spin" />
+              <span>{t('pixelEdit.loading')}</span>
+            </div>
+          )}
           {source && (
             <Stage
               ref={stage}

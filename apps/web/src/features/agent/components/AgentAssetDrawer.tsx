@@ -12,6 +12,7 @@ import { useSwipeDismiss } from '../../../hooks/useSwipeDismiss'
 import { useTranslation } from '../../../i18n'
 import { accountScope, scopedStorageName } from '../../../lib/authScope'
 import { blobDataUrl } from '../../../lib/cloudMedia'
+import { useStore } from '../../../store'
 import { assetExportSource } from '../../image-export/sources'
 import { openImageExport } from '../../image-export/store'
 import {
@@ -311,16 +312,33 @@ export default function AgentAssetDrawer({
     },
     [],
   )
+  const [loadingSourceId, setLoadingSourceId] = useState<string | null>(null)
   const openSource = (item: AssetItem) => {
     const token = ++previewToken.current
+    setLoadingSourceId(item.id)
     void loadAssetOriginal(item, (targetConversationId, messageId, index, variant) =>
       loadReferenceRef.current(targetConversationId, messageId, index, variant),
-    ).then((source) => {
-      if (token === previewToken.current && source) setSourcePreview(source)
-    })
+    )
+      .then((source) => {
+        if (token !== previewToken.current) return
+        if (source) {
+          setSourcePreview(source)
+        } else {
+          useStore.getState().showToast(t('reference.unavailable'), 'error')
+        }
+      })
+      .catch(() => {
+        if (token === previewToken.current) {
+          useStore.getState().showToast(t('reference.unavailable'), 'error')
+        }
+      })
+      .finally(() => {
+        if (token === previewToken.current) setLoadingSourceId(null)
+      })
   }
   const closeSource = () => {
     previewToken.current += 1
+    setLoadingSourceId(null)
     setSourcePreview(null)
   }
   const {
@@ -429,6 +447,7 @@ export default function AgentAssetDrawer({
                 key={item.id}
                 item={item}
                 label={item.title || t('assets.untitled')}
+                loading={loadingSourceId === item.id}
                 onClick={() => {
                   if (item.open.kind === 'source') {
                     openSource(item)
@@ -537,10 +556,12 @@ export default function AgentAssetDrawer({
 function AssetThumb({
   item,
   label,
+  loading = false,
   onClick,
 }: {
   item: AssetItem
   label: string
+  loading?: boolean
   onClick: () => void
 }) {
   const ref = useRef<HTMLButtonElement>(null)
@@ -588,6 +609,14 @@ function AssetThumb({
     >
       <span className="studio-assets-thumb">
         {source && <img src={source} alt="" loading="lazy" />}
+        {loading && (
+          <span
+            className="absolute inset-0 flex items-center justify-center bg-background/60"
+            role="status"
+          >
+            <Icon name="loading" className="animate-spin" />
+          </span>
+        )}
         {item.media === 'video' && (
           <span className="studio-assets-video" aria-hidden="true">
             <Icon name="play" />

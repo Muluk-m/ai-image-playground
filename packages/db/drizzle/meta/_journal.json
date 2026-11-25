@@ -771,6 +771,13 @@
       "when": 1796100000000,
       "tag": "0111_drop_user_asset_objects",
       "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1796200000000,
+      "tag": "0112_drop_tasks_cold_columns",
+      "breakpoints": true
     }
   ]
 }

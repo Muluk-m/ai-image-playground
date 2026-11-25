@@ -41,6 +41,9 @@ func cmdSkillInstall(_ context.Context, a *App, args []string) (any, error) {
 	if *host != "auto" && *host != "generic" && !skill.IsSupportedHost(*host) {
 		return nil, fail("USAGE", "--host must be auto, %s, or generic", supported)
 	}
+	if *scope != "user" && *scope != "project" {
+		return nil, fail("USAGE", "--scope must be user or project")
+	}
 	if *host != "generic" && *output != "" {
 		return nil, fail("USAGE", "--output is only used with --host generic")
 	}
