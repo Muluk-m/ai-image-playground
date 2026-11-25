@@ -259,22 +259,29 @@ export function AuthGate() {
   }, [phase, user, sessionExpired, loginReason, pathname])
 
   const logout = useCallback(async (clearLocalData: boolean) => {
+    let signedOut = false
     try {
       await logoutUser()
+      signedOut = true
       if (clearLocalData) await clearScopedClientStorage()
-      noteBrowserSession(null)
-      // A reload is required here because several account-scoped stores are
-      // module singletons. Keep the exact workspace URL while asking the next
-      // boot to open the dialog; this prevents the old account's in-memory
-      // state from surviving an account switch.
-      const url = new URL(window.location.href)
-      url.searchParams.set('login', '1')
-      window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
-      window.location.reload()
     } catch {
-      const { useStore } = await import('../store')
-      const { i18next } = await import('../i18n')
-      useStore.getState().showToast(i18next.t('common.fallback', { ns: 'errors' }), 'error')
+      if (!signedOut) {
+        const { useStore } = await import('../store')
+        const { i18next } = await import('../i18n')
+        useStore.getState().showToast(i18next.t('common.fallback', { ns: 'errors' }), 'error')
+      }
+    } finally {
+      if (signedOut) {
+        noteBrowserSession(null)
+        // A reload is required here because several account-scoped stores are
+        // module singletons. Keep the exact workspace URL while asking the next
+        // boot to open the dialog; this prevents the old account's in-memory
+        // state from surviving an account switch.
+        const url = new URL(window.location.href)
+        url.searchParams.set('login', '1')
+        window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+        window.location.reload()
+      }
     }
   }, [])
 

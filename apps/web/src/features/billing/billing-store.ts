@@ -365,16 +365,20 @@ export function consumePendingBillingModal(): 'pricing' | 'recharge' | null {
   return toModalName(entry.kind)
 }
 
-export function consumePricingLaunchPeriod(): BillingPeriodMonths | undefined {
-  const period = lastPricingOptions.period
-  lastPricingOptions = {}
-  return period
+export function peekPricingLaunchPeriod(): BillingPeriodMonths | undefined {
+  return lastPricingOptions.period
 }
 
-export function consumeRechargeLaunchAmount(): number | undefined {
-  const amount = lastRechargeOptions.amountYuan
+export function clearPricingLaunchPeriod(): void {
+  lastPricingOptions = {}
+}
+
+export function peekRechargeLaunchAmount(): number | undefined {
+  return lastRechargeOptions.amountYuan
+}
+
+export function clearRechargeLaunchAmount(): void {
   lastRechargeOptions = {}
-  return amount
 }
 
 export function openBilling(): void {

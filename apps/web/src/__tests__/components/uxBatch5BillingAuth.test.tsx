@@ -8,9 +8,11 @@ import { AuthContextProvider } from '../../auth/AuthContext'
 import SyncStatusPanel from '../../components/SyncStatusPanel'
 import {
   clearPendingBillingModal,
+  clearPricingLaunchPeriod,
+  clearRechargeLaunchAmount,
   consumePendingBillingModal,
-  consumePricingLaunchPeriod,
-  consumeRechargeLaunchAmount,
+  peekPricingLaunchPeriod,
+  peekRechargeLaunchAmount,
   queueBillingModal,
 } from '../../features/billing/billing-store'
 import { PaymentSurface } from '../../features/billing/PaymentPanel'
@@ -72,13 +74,17 @@ describe('Batch 5 Billing, Auth & Sync UX polish', () => {
   it('preserves selected billing period and recharge amount across queued modal handoff', () => {
     queueBillingModal('pricing', { period: 12 })
     expect(consumePendingBillingModal()).toBe('pricing')
-    expect(consumePricingLaunchPeriod()).toBe(12)
-    expect(consumePricingLaunchPeriod()).toBeUndefined()
+    expect(peekPricingLaunchPeriod()).toBe(12)
+    expect(peekPricingLaunchPeriod()).toBe(12)
+    clearPricingLaunchPeriod()
+    expect(peekPricingLaunchPeriod()).toBeUndefined()
 
     queueBillingModal('recharge', { amountYuan: 100 })
     expect(consumePendingBillingModal()).toBe('recharge')
-    expect(consumeRechargeLaunchAmount()).toBe(100)
-    expect(consumeRechargeLaunchAmount()).toBeUndefined()
+    expect(peekRechargeLaunchAmount()).toBe(100)
+    expect(peekRechargeLaunchAmount()).toBe(100)
+    clearRechargeLaunchAmount()
+    expect(peekRechargeLaunchAmount()).toBeUndefined()
   })
 
   it('locks close and Pay Later button on PaymentSurface while an action is in flight', async () => {

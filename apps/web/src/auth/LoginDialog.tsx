@@ -471,7 +471,7 @@ export function LoginDialog({
               ) : (
                 <form
                   className="auth-form"
-                  noValidate
+                  noValidate={Boolean(resetToken)}
                   onSubmit={(event) => void submitRecovery(event)}
                 >
                   <Label className="mt-4 grid gap-2">

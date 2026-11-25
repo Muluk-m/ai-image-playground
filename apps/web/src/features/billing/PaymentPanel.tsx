@@ -264,6 +264,7 @@ export function PaymentPanel({
   const busy = pendingAction !== null
   useTranslation()
   const sequence = useRef(0)
+  const busyRef = useRef(false)
   const shouldPoll = order.status === 'pending' || order.status === 'review'
   useEffect(() => {
     void reloadKey
@@ -298,15 +299,19 @@ export function PaymentPanel({
   }, [order.status])
   const act = async (action: string) => {
     if (action === 'claim') {
+      if (busyRef.current) return
       setConfirmCancel(false)
       setConfirmClaim(true)
       return
     }
     if (action === 'cancel') {
+      if (busyRef.current) return
       setConfirmClaim(false)
       setConfirmCancel(true)
       return
     }
+    if (busyRef.current) return
+    busyRef.current = true
     const actionKind: PendingPaymentAction =
       action === 'confirm-claim' ? 'claim' : action === 'confirm-cancel' ? 'cancel' : 'refresh-code'
     setPendingAction(actionKind)
@@ -323,6 +328,7 @@ export function PaymentPanel({
     } catch {
       setError(true)
     } finally {
+      busyRef.current = false
       setPendingAction(null)
     }
   }

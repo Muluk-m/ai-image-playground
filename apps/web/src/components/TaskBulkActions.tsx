@@ -24,7 +24,7 @@ export default function TaskBulkActions({
   /** 创作页让开底部输入框；资产页没有输入框，贴底显示。 */
   placement?: 'composer' | 'page'
 } = {}) {
-  const { t } = useTranslation('composer')
+  const { t } = useTranslation(['composer', 'errors'])
   const tasks = useHistoryTasks()
   const searchQuery = useStore((s) => s.searchQuery)
   const filterStatus = useStore((s) => s.filterStatus)
@@ -116,6 +116,8 @@ export default function TaskBulkActions({
         setBulkDeleting(true)
         try {
           await removeMultipleTasks(ids)
+        } catch {
+          showToast(t('errors:common.fallback'), 'error')
         } finally {
           bulkDeletingRef.current = false
           setBulkDeleting(false)
