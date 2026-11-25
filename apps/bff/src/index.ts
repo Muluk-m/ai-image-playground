@@ -152,8 +152,8 @@ const stopMaintenance = startPeriodicSteps(
             run: async (signal: AbortSignal) => {
               await purgeExpiredAttachmentMedia()
               if (signal.aborted) return
-              // Expand 滚动发布阶段旧代 BFF 尚未退出且仍运行不含 storage_scope 感知的 deleting 清扫，
-              // 待生产完成 Expand 部署与零搬运回填后，再在切换/收口阶段挂载 reclaimUnreferencedAssetMedia。
+              // Contract 2a 阶段暂不挂载 reclaimUnreferencedAssetMedia，保持与 v0.4.481 滚发及回滚兼容
+              // （避免删除 media_objects + R2 后遗留旧表 user_asset_objects 幽灵行）；待 Contract 2b 删表时一并挂载。
               await purgeDeletingUnreferencedMedia(signal)
             },
           },

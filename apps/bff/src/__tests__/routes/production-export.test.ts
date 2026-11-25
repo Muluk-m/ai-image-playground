@@ -51,13 +51,25 @@ it('inspects only snapshot resources without reading bytes, streams originals, a
   const storage = new InMemoryObjectStore()
   setObjectStoreForTesting(storage)
   try {
+    const exportNow = Date.now()
     for (const imageId of ['original', 'unselected'])
-      await db.insert(schema.user_asset_objects).values({
+      await db.insert(schema.media_objects).values({
+        id: `media-export-${imageId}`,
         user_id: owner.userId,
-        image_id: imageId,
+        sha256: `asset:${imageId}`,
         bytes: 3,
         content_type: 'image/png',
-        created_at: Date.now(),
+        status: 'ready',
+        attachment_managed: false,
+        reserved_bytes: 0,
+        staging_key: assetObjectKey(owner.userId, imageId),
+        object_key: assetObjectKey(owner.userId, imageId),
+        preview_bytes: 0,
+        asset_image_id: imageId,
+        storage_scope: 'object',
+        expires_at: exportNow,
+        created_at: exportNow,
+        updated_at: exportNow,
       })
     const reference = { kind: 'asset', imageId: 'original' }
     const key = assetObjectKey(owner.userId, 'original')

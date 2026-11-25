@@ -367,9 +367,6 @@ it('refuses a draft whose original reference disappeared before confirmation', a
   await db
     .delete(schema.media_objects)
     .where(eq(schema.media_objects.asset_image_id, 'expiring-ref'))
-  await db
-    .delete(schema.user_asset_objects)
-    .where(eq(schema.user_asset_objects.image_id, 'expiring-ref'))
   const confirmed = await app.handle(
     new Request(`http://localhost/api/agent/conversations/${owner.id}/confirmations`, {
       method: 'POST',

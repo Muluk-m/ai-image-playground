@@ -250,12 +250,23 @@ async function giveAsset(userId: string, name: string, imageId: string): Promise
     last_used_at: now,
     version: 1,
   })
-  await db.insert(schema.user_asset_objects).values({
+  await db.insert(schema.media_objects).values({
+    id: `media-${userId}-${imageId}`,
     user_id: userId,
-    image_id: imageId,
+    sha256: `asset:${imageId}`,
     bytes: TEST_IMAGE.png.byteLength,
     content_type: 'image/png',
+    status: 'ready',
+    attachment_managed: false,
+    reserved_bytes: 0,
+    staging_key: `users/${userId}/assets/${imageId}`,
+    object_key: `users/${userId}/assets/${imageId}`,
+    preview_bytes: 0,
+    asset_image_id: imageId,
+    storage_scope: 'object',
+    expires_at: now,
     created_at: now,
+    updated_at: now,
   })
   await storage.write(`users/${userId}/assets/${imageId}`, TEST_IMAGE.png, 'image/png')
 }

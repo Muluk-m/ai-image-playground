@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { OAUTH_ONLY_PASSWORD_HASH } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
-import { readUnmigratedUserAssetBytes, readUserAssetBytes } from '@image-playground/read-models'
+import { readUserAssetBytes } from '@image-playground/read-models'
 import { and, eq } from 'drizzle-orm'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
@@ -48,7 +48,7 @@ const {
 } = await import('../../lib/projectMedia')
 const { serveMediaContent } = await import('../../lib/projectVideoMedia')
 const { synchronize } = await import('../../lib/sync')
-const { assetObjectKey, findAssetImageMeta, readAssetImage, storeAssetImage } = await import(
+const { assetObjectKey, findAssetImageMeta, storeAssetImage } = await import(
   '../../lib/sync-assets'
 )
 const { ProductionError, writeProduction } = await import(
@@ -102,8 +102,8 @@ afterAll(async () => {
   await rm(tempDir, { recursive: true, force: true })
 })
 
-describe('unified media ledger (PR-5.4a)', () => {
-  it('dual-writes asset uploads with reserved_bytes=0 without double-counting quota and rejects empty uploads', async () => {
+describe('unified media ledger (Contract 2a Stop-Write)', () => {
+  it('writes asset uploads solely to media_objects without writing user_asset_objects and rejects empty uploads', async () => {
     expect(
       await storeAssetImage('ledger-user', 'empty-img', new Uint8Array(0), 'image/png'),
     ).toEqual({ ok: false, error: 'asset_image_empty' })
@@ -127,18 +127,18 @@ describe('unified media ledger (PR-5.4a)', () => {
     expect(unified[0]).toMatchObject({
       sha256: 'asset:img-1',
       bytes: 40,
-      // Expand keeps reserved_bytes=0 so pre-5.4a containers never double-count with user_asset_objects.
       reserved_bytes: 0,
       status: 'ready',
       storage_scope: 'object',
       object_key: 'users/ledger-user/assets/img-1',
     })
 
+    // Stop-Write: new asset uploads must no longer write to legacy user_asset_objects.
     const legacy = await db
       .select()
       .from(schema.user_asset_objects)
       .where(eq(schema.user_asset_objects.user_id, 'ledger-user'))
-    expect(legacy).toHaveLength(1)
+    expect(legacy).toHaveLength(0)
 
     // Identical bytes under a distinct imageId must also succeed without sha256 collision.
     const second = await storeAssetImage('ledger-user', 'img-2', new Uint8Array(40), 'image/png')
@@ -147,15 +147,12 @@ describe('unified media ledger (PR-5.4a)', () => {
       result: { imageId: 'img-2', bytes: 40, totalBytes: 80 },
     })
 
-    // Quota helpers must count each asset strictly once across both tables.
     const totalAssetBytes = await readUserAssetBytes(db, 'ledger-user')
-    const unmigratedBytes = await readUnmigratedUserAssetBytes(db, 'ledger-user')
     const combinedUsage = await db.transaction(async (tx) => {
       await lockMediaOwner(tx, 'ledger-user')
       return mediaUsage(tx, 'ledger-user')
     })
     expect(totalAssetBytes).toBe(80)
-    expect(unmigratedBytes).toBe(0)
     expect(combinedUsage).toBe(80)
 
     // mediaInputs & serveMediaContent route storage_scope='object' to objectStore(); accessMedia refuses non-durable.
@@ -175,56 +172,6 @@ describe('unified media ledger (PR-5.4a)', () => {
     expect(served.status).toBe(200)
     expect(new Uint8Array(await served.arrayBuffer())).toEqual(new Uint8Array(TINY_PNG))
     await expect(accessMedia('ledger-user', pngMeta!.mediaId!)).rejects.toThrow(MediaError)
-  })
-
-  it('falls back to unbackfilled user_asset_objects and lazily materializes media_objects during sync', async () => {
-    const now = Date.now()
-    await db.insert(schema.user_asset_objects).values({
-      user_id: 'ledger-user',
-      image_id: 'legacy-img',
-      bytes: 24,
-      content_type: 'image/png',
-      created_at: now,
-    })
-    await objectStorage.write(
-      assetObjectKey('ledger-user', 'legacy-img'),
-      new Uint8Array(24).fill(9),
-      'image/png',
-    )
-
-    expect(await readUserAssetBytes(db, 'ledger-user')).toBe(24)
-    expect(await readUnmigratedUserAssetBytes(db, 'ledger-user')).toBe(24)
-    const read = await readAssetImage('ledger-user', 'legacy-img')
-    expect(read?.bytes.byteLength).toBe(24)
-
-    const synced = await synchronize('ledger-user', {
-      version: 0,
-      assets: [
-        {
-          id: 'asset-legacy',
-          name: 'Legacy Asset',
-          imageId: 'legacy-img',
-          createdAt: now,
-          updatedAt: now,
-          lastUsedAt: now,
-        },
-      ],
-    })
-    expect(synced.rejected).toEqual([])
-
-    const refs = await db
-      .select()
-      .from(schema.media_references)
-      .where(
-        and(
-          eq(schema.media_references.user_id, 'ledger-user'),
-          eq(schema.media_references.owner_kind, 'asset'),
-          eq(schema.media_references.owner_id, 'asset-legacy'),
-        ),
-      )
-    expect(refs).toHaveLength(1)
-    expect(await readUnmigratedUserAssetBytes(db, 'ledger-user')).toBe(0)
-    expect(await readUserAssetBytes(db, 'ledger-user')).toBe(24)
   })
 
   it('tracks asset/look media_references, refreshes grace on re-upload & legacy tombstones, and reclaims safely', async () => {
@@ -325,9 +272,9 @@ describe('unified media ledger (PR-5.4a)', () => {
     expect(await readUserAssetBytes(db, 'ledger-user')).toBe(30)
     expect(
       await db
-        .select({ imageId: schema.user_asset_objects.image_id })
-        .from(schema.user_asset_objects)
-        .where(eq(schema.user_asset_objects.user_id, 'ledger-user')),
+        .select({ imageId: schema.media_objects.asset_image_id })
+        .from(schema.media_objects)
+        .where(eq(schema.media_objects.user_id, 'ledger-user')),
     ).toEqual([{ imageId: 'img-10' }])
   })
 
@@ -444,22 +391,20 @@ describe('unified media ledger (PR-5.4a)', () => {
     await db.delete(schema.tasks).where(eq(schema.tasks.user_id, 'ledger-user'))
   })
 
-  it('materializes legacy assets with fresh grace on re-upload & tombstone, serializes production vs reclaim, and handles cross-user references on account deletion', async () => {
+  it('refreshes grace on re-upload & tombstone, serializes production vs reclaim, and handles cross-user references on account deletion', async () => {
     const oldTime = Date.now() - 48 * 60 * 60 * 1000
 
-    // 1. Legacy-only asset > 24h old re-uploaded: materialized with fresh updated_at, not immediately reclaimed.
-    await objectStorage.write(
-      assetObjectKey('ledger-user', 'legacy-reupload'),
-      TINY_PNG,
-      'image/png',
-    )
-    await db.insert(schema.user_asset_objects).values({
-      user_id: 'ledger-user',
-      image_id: 'legacy-reupload',
-      bytes: TINY_PNG.byteLength,
-      content_type: 'image/png',
-      created_at: oldTime,
-    })
+    // 1. Old unreferenced asset re-uploaded: updated_at refreshed, not immediately reclaimed.
+    await storeAssetImage('ledger-user', 'legacy-reupload', TINY_PNG, 'image/png')
+    await db
+      .update(schema.media_objects)
+      .set({ updated_at: oldTime })
+      .where(
+        and(
+          eq(schema.media_objects.user_id, 'ledger-user'),
+          eq(schema.media_objects.asset_image_id, 'legacy-reupload'),
+        ),
+      )
     const reuploaded = await storeAssetImage(
       'ledger-user',
       'legacy-reupload',
@@ -469,15 +414,17 @@ describe('unified media ledger (PR-5.4a)', () => {
     expect(reuploaded.ok).toBe(true)
     expect(await reclaimUnreferencedAssetMedia(Date.now(), 60_000)).toBe(0)
 
-    // 2. Legacy-only asset > 24h old tombstoned via sync: materialized with fresh updated_at, preserves 24h grace.
-    await objectStorage.write(assetObjectKey('ledger-user', 'legacy-tomb'), TINY_PNG, 'image/png')
-    await db.insert(schema.user_asset_objects).values({
-      user_id: 'ledger-user',
-      image_id: 'legacy-tomb',
-      bytes: TINY_PNG.byteLength,
-      content_type: 'image/png',
-      created_at: oldTime,
-    })
+    // 2. Old asset tombstoned via sync: updated_at refreshed, preserves grace window.
+    await storeAssetImage('ledger-user', 'legacy-tomb', TINY_PNG, 'image/png')
+    await db
+      .update(schema.media_objects)
+      .set({ updated_at: oldTime })
+      .where(
+        and(
+          eq(schema.media_objects.user_id, 'ledger-user'),
+          eq(schema.media_objects.asset_image_id, 'legacy-tomb'),
+        ),
+      )
     await db.insert(schema.user_assets).values({
       user_id: 'ledger-user',
       id: 'asset-legacy-tomb',
@@ -584,34 +531,7 @@ describe('unified media ledger (PR-5.4a)', () => {
     await expect(deleteOwnAccount('ledger-user', undefined)).resolves.toBeUndefined()
   })
 
-  it('rejects historical zero-byte user_asset_objects rows during sync as asset_image_missing', async () => {
-    const now = Date.now()
-    await db.insert(schema.user_asset_objects).values({
-      user_id: 'ledger-user',
-      image_id: 'legacy-zero-byte',
-      bytes: 0,
-      content_type: 'image/png',
-      created_at: now,
-    })
-    const res = await synchronize('ledger-user', {
-      version: 0,
-      assets: [
-        {
-          id: 'asset-zero',
-          name: 'Corrupt',
-          imageId: 'legacy-zero-byte',
-          createdAt: now,
-          updatedAt: now,
-          lastUsedAt: now,
-        },
-      ],
-    })
-    expect(res.rejected).toEqual([
-      { collection: 'assets', id: 'asset-zero', reason: 'asset_image_missing' },
-    ])
-  })
-
-  it('prevents old-BFF sync binding and protects re-uploaded bytes when purgeDeletingUnreferencedMedia interleaves after claim', async () => {
+  it('protects re-uploaded bytes when purgeDeletingUnreferencedMedia interleaves after claim', async () => {
     const oldBytes = new Uint8Array([1, 2, 3, 4])
     const newBytes = new Uint8Array([9, 8, 7, 6, 5])
     await storeAssetImage('ledger-user', 'img-interleave', oldBytes, 'image/png')
@@ -627,30 +547,16 @@ describe('unified media ledger (PR-5.4a)', () => {
       )
 
     let claimedMediaId: string | null = null
-    let legacyVisibleAfterClaim = -1
     const reclaimed = await reclaimUnreferencedAssetMedia(Date.now(), 60_000, undefined, {
       afterClaim: async (mediaId) => {
         claimedMediaId = mediaId
-        // 1. Legacy user_asset_objects row was already removed in the claim tx under user_sync_state lock,
-        // so a pre-5.4a BFF POST /api/sync cannot see or bind img-interleave during the deleting window.
-        const legacyRows = await db
-          .select({ imageId: schema.user_asset_objects.image_id })
-          .from(schema.user_asset_objects)
-          .where(
-            and(
-              eq(schema.user_asset_objects.user_id, 'ledger-user'),
-              eq(schema.user_asset_objects.image_id, 'img-interleave'),
-            ),
-          )
-        legacyVisibleAfterClaim = legacyRows.length
-
-        // 2. Another sweeper finishes deleting the claimed row and its bytes.
+        // 1. Another sweeper finishes deleting the claimed row and its bytes.
         expect(await purgeDeletingUnreferencedMedia()).toBe(1)
         expect(objectStorage.objects.has(assetObjectKey('ledger-user', 'img-interleave'))).toBe(
           false,
         )
 
-        // 3. The user re-uploads the exact same imageId (new media_objects.id, same deterministic R2 key).
+        // 2. The user re-uploads the exact same imageId (new media_objects.id, same deterministic R2 key).
         const reuploaded = await storeAssetImage(
           'ledger-user',
           'img-interleave',
@@ -663,7 +569,6 @@ describe('unified media ledger (PR-5.4a)', () => {
 
     // The paused reclaimer resumes for the obsolete claimedMediaId and MUST NOT delete the newly uploaded bytes.
     expect(claimedMediaId).not.toBeNull()
-    expect(legacyVisibleAfterClaim).toBe(0)
     expect(reclaimed).toBe(0)
     expect(await objectStorage.read(assetObjectKey('ledger-user', 'img-interleave'))).toEqual(
       newBytes,

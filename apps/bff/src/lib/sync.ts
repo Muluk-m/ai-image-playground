@@ -269,7 +269,7 @@ async function partitionByImages<Change extends { id: string }>(
 
 /**
  * 同步更新一条素材或模板在 `media_references` 中的引用边。
- * 墓碑传入空数组即摘掉全部引用，并刷新被摘引媒体（含尚未回填引用边的旧记录对应 `removedImageIds`）
+ * 墓碑传入空数组即摘掉全部引用，并刷新被摘引媒体（含 `removedImageIds`）
  * 的 `updated_at`，确保离线端在宽限期内仍有机会完成 LWW 冲突收敛。
  */
 async function syncOwnerMediaReferences(
@@ -292,11 +292,10 @@ async function syncOwnerMediaReferences(
       ),
     )
   const existingIds = new Set(existingRows.map((row) => row.mediaId))
-  const touchRemovedLegacy = async () => {
+  const touchRemovedAssets = async () => {
     const uniqueRemoved = [...new Set(removedImageIds.filter((id) => id.length > 0))]
     if (!uniqueRemoved.length) return
-    // 尚未回填的旧图片摘引时先惰性物化，再把 updated_at 刷到当前时间，确保享有完整 24 小时宽限期。
-    await ensureAssetMediaIds(tx, userId, uniqueRemoved)
+    // 把被摘引图片的 updated_at 刷到当前时间，确保享有完整 24 小时宽限期。
     await tx
       .update(schema.media_objects)
       .set({ updated_at: now })
@@ -329,7 +328,7 @@ async function syncOwnerMediaReferences(
           ),
         )
     }
-    await touchRemovedLegacy()
+    await touchRemovedAssets()
     return
   }
 
@@ -374,7 +373,7 @@ async function syncOwnerMediaReferences(
         and(eq(schema.media_objects.user_id, userId), inArray(schema.media_objects.id, toRemove)),
       )
   }
-  await touchRemovedLegacy()
+  await touchRemovedAssets()
 }
 
 function existingAssetImageIds(row: {
