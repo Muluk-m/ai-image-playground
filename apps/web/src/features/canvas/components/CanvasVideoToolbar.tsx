@@ -59,9 +59,16 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
   useLayoutEffect(() => {
     const el = toolbarRef.current
     if (!el) return
-    const measured = Math.ceil(el.getBoundingClientRect().width)
-    if (measured > 0 && measured !== toolbarWidth) setToolbarWidth(measured)
-  }, [node?.id, toolbarWidth])
+    const measure = () => {
+      const measured = Math.ceil(el.getBoundingClientRect().width)
+      if (measured > 0) setToolbarWidth((current) => (current === measured ? current : measured))
+    }
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [node?.id])
 
   const openDerive = (
     source: CanvasVideoNode,
