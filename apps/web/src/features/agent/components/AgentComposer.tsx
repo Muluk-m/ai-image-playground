@@ -617,7 +617,7 @@ export default function AgentComposer({
     if (!files.some(imageNeedsUploadCompression)) {
       admit(
         attachmentUploadsEnabled() && getAttachmentLimits()
-          ? files.filter((file) => file.type.startsWith('image/'))
+          ? acceptImageFiles(files, { keepOversized: true })
           : acceptImageFiles(files, { keepOversized: mediaFallbackEnabled() }),
       )
       return
@@ -625,10 +625,9 @@ export default function AgentComposer({
     // 附件通道开着时，压不成的原文件仍要留下，走原来的上传失败（红框和超限红字）。
     const fail = () => useStore.getState().showToast(t('composer.attachmentReadFailed'), 'error')
     if (attachmentUploadsEnabled() && getAttachmentLimits()) {
-      void compressUploadFiles(
-        files.filter((file) => file.type.startsWith('image/')),
-        referenceImageLimit().imageBytes,
-      )
+      const accepted = acceptImageFiles(files, { keepOversized: true })
+      if (accepted.length === 0) return
+      void compressUploadFiles(accepted, referenceImageLimit().imageBytes)
         .then((images) => admit(images))
         .catch(fail)
       return

@@ -57,6 +57,12 @@ export default function RegenerateVideoPopover({
   // 关掉弹窗就作废还没发出的提交；草稿也还原成打开前的样子（它和生成栏共用）。
   const open = useRef(true)
   const submitted = useRef(false)
+  const submittingRef = useRef(false)
+  const initialRef = useRef<{ prompt: string; keepFrames: boolean; draftKey: string }>({
+    prompt: node.userPrompt ?? '',
+    keepFrames: true,
+    draftKey: JSON.stringify(useVideoStore.getState().draft),
+  })
 
   // 只在打开时载入一次（按视频身份），之后草稿由用户改。
   useEffect(() => {
@@ -68,6 +74,11 @@ export default function RegenerateVideoPopover({
     else if (!generation) found.push(t('videoToolbar.noSettingsRecorded'))
     else if (!loadGenerationIntoDraft(generation)) found.push(t('videoToolbar.modelUnavailable'))
     if (generation && node.userPrompt === null) found.push(t('videoToolbar.noPromptRecorded'))
+    initialRef.current = {
+      prompt: node.userPrompt ?? '',
+      keepFrames: true,
+      draftKey: JSON.stringify(useVideoStore.getState().draft),
+    }
     setNotes(found)
     return () => {
       open.current = false
@@ -81,8 +92,31 @@ export default function RegenerateVideoPopover({
     unitMultiplier: videoRateMultiplier(draft.model, draft.resolution),
   })
 
+  const canSubmit =
+    !guard.blocked && Boolean(prompt.trim()) && Boolean(option) && !inputRefusal && !submitting
+
+  const requestClose = () => {
+    if (submittingRef.current || submitting) return
+    const dirty =
+      prompt !== initialRef.current.prompt ||
+      keepFrames !== initialRef.current.keepFrames ||
+      JSON.stringify(draft) !== initialRef.current.draftKey
+    if (dirty) {
+      useStore.getState().setConfirmDialog({
+        title: t('pixelEdit.discardTitle'),
+        message: t('pixelEdit.discardMessage'),
+        confirmText: t('pixelEdit.discardConfirm'),
+        tone: 'danger',
+        action: onClose,
+      })
+      return
+    }
+    onClose()
+  }
+
   const submit = async () => {
-    if (submitting) return
+    if (submittingRef.current || !canSubmit) return
+    submittingRef.current = true
     setSubmitting(true)
     try {
       const accepted = await regenerateCanvasVideo(editor, node, prompt, {
@@ -94,16 +128,14 @@ export default function RegenerateVideoPopover({
       useStore.getState().showToast(t('videoToolbar.regenerateSubmitted'), 'success')
       onClose()
     } finally {
+      submittingRef.current = false
       if (open.current) setSubmitting(false)
     }
   }
 
-  const canSubmit =
-    !guard.blocked && Boolean(prompt.trim()) && Boolean(option) && !inputRefusal && !submitting
-
   return (
     <Dialog
-      onClose={submitting ? () => {} : onClose}
+      onClose={submitting ? () => {} : requestClose}
       tier="raised"
       title={t('videoToolbar.regenerateTitle')}
       footer={
@@ -120,6 +152,7 @@ export default function RegenerateVideoPopover({
             type="button"
             size="sm"
             className="w-full"
+            aria-busy={submitting || undefined}
             disabled={!canSubmit}
             title={guard.disabledReason}
             onClick={() => void submit()}
@@ -148,6 +181,7 @@ export default function RegenerateVideoPopover({
         <Checkbox
           className="mb-2 text-xs text-muted-foreground"
           checked={keepFrames}
+          disabled={submitting}
           onChange={setKeepFrames}
           label={t('videoToolbar.keepsFrames', { count: inputs.present.length })}
         />
@@ -175,6 +209,7 @@ export default function RegenerateVideoPopover({
         {option && (
           <>
             <Select
+              disabled={submitting}
               value={draft.model}
               onValueChange={(model) => useVideoStore.getState().setModel(model)}
             >
@@ -195,6 +230,7 @@ export default function RegenerateVideoPopover({
             <VideoPresetRows
               support={option.support}
               draft={draft}
+              disabled={submitting}
               aspectFollowsFirstFrame={inputCount > 0}
             />
           </>

@@ -5,7 +5,7 @@ import type {
   AgentSaveCardView,
   LookPurpose,
 } from '@image-playground/shared'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
@@ -107,12 +107,14 @@ function NameRow({
   name,
   action,
   disabled,
+  saving = false,
   onChange,
   onSave,
 }: {
   name: string
   action: string
   disabled: boolean
+  saving?: boolean
   onChange: (name: string) => void
   onSave: () => void
 }) {
@@ -126,8 +128,22 @@ function NameRow({
         disabled={disabled}
         className="h-8 min-w-0 flex-1 text-xs"
         onChange={(event) => onChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return
+          if (event.key === 'Enter' && !disabled && name.trim()) {
+            event.preventDefault()
+            onSave()
+          }
+        }}
       />
-      <Button type="button" size="sm" disabled={disabled || !name.trim()} onClick={onSave}>
+      <Button
+        type="button"
+        size="sm"
+        aria-busy={saving || undefined}
+        disabled={disabled || !name.trim()}
+        onClick={onSave}
+      >
+        {saving && <Icon name="loading" className="animate-spin" />}
         {action}
       </Button>
     </div>
@@ -153,6 +169,7 @@ function AssetSaveCard({ card, message }: { card: AgentAssetSaveCard; message: A
   const [dropped, setDropped] = useState<Readonly<Record<string, true>>>({})
   const [name, setName] = useState(card.name)
   const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
   const [failure, setFailure] = useState<SaveFailure | null>(null)
   const [saved, setSaved] = useState(
     card.status === 'saved' ? card.name : (savedInSession.get(message.toolCallId) ?? null),
@@ -162,11 +179,13 @@ function AssetSaveCard({ card, message }: { card: AgentAssetSaveCard; message: A
   if (saved !== null) return <Saved text={t('save.savedAsset', { name: saved })} />
 
   const save = async () => {
+    if (savingRef.current || kept.length === 0 || !name.trim()) return
     const conversationId = context.conversationId
     if (!conversationId) {
       setFailure('failed')
       return
     }
+    savingRef.current = true
     setSaving(true)
     setFailure(null)
     try {
@@ -196,6 +215,8 @@ function AssetSaveCard({ card, message }: { card: AgentAssetSaveCard; message: A
     } catch (thrown) {
       setFailure(thrown instanceof AgentImageUnavailableError ? 'imageGone' : 'failed')
       setSaving(false)
+    } finally {
+      savingRef.current = false
     }
   }
 
@@ -251,6 +272,7 @@ function AssetSaveCard({ card, message }: { card: AgentAssetSaveCard; message: A
         name={name}
         action={saving ? t('save.saving') : t('save.submit', { count: kept.length })}
         disabled={saving || kept.length === 0}
+        saving={saving}
         onChange={setName}
         onSave={() => void save()}
       />
@@ -270,6 +292,7 @@ function LookSaveCard({ card, message }: { card: AgentLookSaveCard; message: Age
   const previews = usePreviews(coverId ? [coverId] : [], context)
   const [name, setName] = useState(card.name)
   const [saving, setSaving] = useState(false)
+  const savingRef = useRef(false)
   const [failure, setFailure] = useState<SaveFailure | null>(null)
   const [saved, setSaved] = useState(
     card.status === 'saved' ? card.name : (savedInSession.get(message.toolCallId) ?? null),
@@ -278,11 +301,13 @@ function LookSaveCard({ card, message }: { card: AgentLookSaveCard; message: Age
   if (saved !== null) return <Saved text={t('save.savedLook', { name: saved })} />
 
   const save = async () => {
+    if (savingRef.current || !name.trim()) return
     const conversationId = context.conversationId
     if (!conversationId) {
       setFailure('failed')
       return
     }
+    savingRef.current = true
     setSaving(true)
     setFailure(null)
     try {
@@ -315,6 +340,8 @@ function LookSaveCard({ card, message }: { card: AgentLookSaveCard; message: Age
     } catch (thrown) {
       setFailure(thrown instanceof AgentImageUnavailableError ? 'imageGone' : 'failed')
       setSaving(false)
+    } finally {
+      savingRef.current = false
     }
   }
 
@@ -345,6 +372,7 @@ function LookSaveCard({ card, message }: { card: AgentLookSaveCard; message: Age
         name={name}
         action={saving ? t('save.saving') : t('save.submitLook')}
         disabled={saving}
+        saving={saving}
         onChange={setName}
         onSave={() => void save()}
       />

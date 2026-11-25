@@ -392,7 +392,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
                 label={t('resize.action')}
                 value={ratio}
                 onChange={setRatio}
-                options={RATIOS.map((value) => ({ value, label: value }))}
+                options={RATIOS.map((value) => ({ value, label: value, disabled: pending }))}
               />
             )}
             {framing && (
@@ -400,6 +400,7 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
             )}
             <Textarea
               autoFocus
+              disabled={pending}
               rows={3}
               value={prompt}
               aria-label={t('inpaint.promptAria')}
@@ -421,11 +422,20 @@ export default function CanvasImageToolbar({ editor }: { editor: CanvasEditor })
               <Button
                 type="button"
                 size="sm"
+                aria-busy={pending || undefined}
                 disabled={
                   pending || (expanded === 'edit' && !prompt.trim()) || (framing && !frameChanged)
                 }
+                title={
+                  expanded === 'edit' && !prompt.trim()
+                    ? t('inpaint.enterPrompt')
+                    : framing && !frameChanged
+                      ? t('imageToolbar.dragFrame')
+                      : undefined
+                }
                 onClick={() => void send()}
               >
+                {pending && <Icon name="loading" className="animate-spin" />}
                 {t('imageToolbar.sendToAgent')}
               </Button>
             </div>

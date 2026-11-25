@@ -151,6 +151,7 @@ export default function MaskEditorModal() {
   } | null>(null)
   const previewFrameRef = useRef<number | null>(null)
   const saveTokenRef = useRef(0)
+  const savingRef = useRef(false)
   const sessionIdRef = useRef(0)
   const activeSessionIdRef = useRef(0)
   const viewTransformRef = useRef<ViewTransform>(DEFAULT_VIEW_TRANSFORM)
@@ -172,7 +173,7 @@ export default function MaskEditorModal() {
   const [showMaskInfo, setShowMaskInfo] = useState(false)
 
   const close = () => {
-    if (isSaving) return
+    if (isSaving || savingRef.current) return
     const hasUnsavedChanges =
       cleanEditDepthRef.current === null || editDepthRef.current !== cleanEditDepthRef.current
     if (hasUnsavedChanges) {
@@ -221,15 +222,25 @@ export default function MaskEditorModal() {
   const removeMask = session?.onRemove
 
   const handleRemoveMask = () => {
-    if (!removeMask) return
+    if (!removeMask || !isReady || isSaving || savingRef.current) return
     setConfirmDialog({
       title: t('mask.remove'),
       message: t('mask.removeMessage'),
       tone: 'danger',
-      action: () => {
-        void removeMask()
-        setMaskEditorImageId(null)
-        showToast(t('mask.removed'), 'success')
+      action: async () => {
+        if (savingRef.current) return
+        savingRef.current = true
+        setIsSaving(true)
+        try {
+          await removeMask()
+          setMaskEditorImageId(null)
+          showToast(t('mask.removed'), 'success')
+        } catch (err) {
+          showToast(describeError(err), 'error')
+        } finally {
+          savingRef.current = false
+          setIsSaving(false)
+        }
       },
     })
   }
@@ -775,6 +786,27 @@ export default function MaskEditorModal() {
   }, [imageId])
 
   useEffect(() => {
+    if (!showBrushControls && !showMaskInfo) return
+    const dismissPopover = (event: KeyboardEvent) => {
+      if (
+        event.key !== 'Escape' ||
+        event.isComposing ||
+        event.keyCode === 229 ||
+        useStore.getState().confirmDialog
+      )
+        return
+      event.preventDefault()
+      event.stopImmediatePropagation()
+      setShowBrushControls(false)
+      setSliderAnchor(null)
+      setShowMaskInfo(false)
+      clearMaskInfoTimer()
+    }
+    window.addEventListener('keydown', dismissPopover, true)
+    return () => window.removeEventListener('keydown', dismissPopover, true)
+  }, [showBrushControls, showMaskInfo])
+
+  useEffect(() => {
     if (!showBrushControls) return
 
     const closeBrushControls = (event: PointerEvent) => {
@@ -983,10 +1015,12 @@ export default function MaskEditorModal() {
       !session ||
       !isReady ||
       isSaving ||
+      savingRef.current ||
       !savingSessionId
     )
       return
 
+    savingRef.current = true
     const token = ++saveTokenRef.current
     const savingImageId = imageId
     try {
@@ -1023,7 +1057,10 @@ export default function MaskEditorModal() {
         return
       showToast(describeError(err), 'error')
     } finally {
-      if (saveTokenRef.current === token) setIsSaving(false)
+      if (saveTokenRef.current === token) {
+        savingRef.current = false
+        setIsSaving(false)
+      }
     }
   }
 
@@ -1097,7 +1134,12 @@ export default function MaskEditorModal() {
             </div>
             <div className="flex items-center gap-2">
               {removeMask && (
-                <Button onClick={handleRemoveMask} variant="destructive" size="sm">
+                <Button
+                  onClick={handleRemoveMask}
+                  disabled={!isReady || isSaving}
+                  variant="destructive"
+                  size="sm"
+                >
                   {t('mask.remove')}
                 </Button>
               )}

@@ -31,12 +31,18 @@ export default function CombineView({ tool }: { tool: CombineTool }) {
     combine: typeof combine
     value: CombineState
   }>(() => ({ used, combine, value: { status: 'pending' } }))
+  const [lastOutputs, setLastOutputs] = useState<(ToolOutput & { url: string })[]>([])
   const urls = useRef<string[]>([])
 
   useEffect(() => {
     setSnapshot({ used, combine, value: { status: 'pending' } })
     const sources = used.flatMap((item) => toolSource(item) ?? [])
-    if (sources.length === 0) return
+    if (sources.length === 0) {
+      for (const url of urls.current) URL.revokeObjectURL(url)
+      urls.current = []
+      setLastOutputs([])
+      return
+    }
     let cancelled = false
     const timer = setTimeout(async () => {
       try {
@@ -45,6 +51,7 @@ export default function CombineView({ tool }: { tool: CombineTool }) {
         for (const url of urls.current) URL.revokeObjectURL(url)
         const withUrls = outputs.map((out) => ({ ...out, url: URL.createObjectURL(out.blob) }))
         urls.current = withUrls.map((out) => out.url)
+        setLastOutputs(withUrls)
         setSnapshot({ used, combine, value: { status: 'done', outputs: withUrls } })
       } catch (error) {
         if (cancelled) return
@@ -78,28 +85,40 @@ export default function CombineView({ tool }: { tool: CombineTool }) {
     snapshot.used === used && snapshot.combine === combine
       ? snapshot.value
       : ({ status: 'pending' } as const)
-  const outputs = state.status === 'done' && used.length > 0 ? state.outputs : []
+  const pending = state.status === 'pending' && used.length > 0
+  const outputs =
+    used.length === 0
+      ? []
+      : state.status === 'done'
+        ? state.outputs
+        : state.status === 'pending'
+          ? lastOutputs
+          : []
+  const readyOutputs = state.status === 'done' && used.length > 0 ? state.outputs : []
   const name = t(`tool.${tool.id}.name`)
-  const deliverables = outputs.map((out, index) => ({
-    name: outputs.length > 1 ? `${name}-${index + 1}.jpg` : `${name}.jpg`,
+  const deliverables = readyOutputs.map((out, index) => ({
+    name: readyOutputs.length > 1 ? `${name}-${index + 1}.jpg` : `${name}.jpg`,
     blob: out.blob,
   }))
   const usedIds = new Set(used.map((item) => item.id))
   const slices = outputs.length > 1
 
   const stats: ToolStat[] =
-    outputs.length === 1
+    readyOutputs.length === 1
       ? [
           { label: t('stats.images'), value: t('stats.imagesValue', { count: used.length }) },
-          { label: t('stats.output'), value: `${outputs[0].width}×${outputs[0].height}` },
-          { label: t('stats.size'), value: formatBytes(outputs[0].blob.size) },
+          {
+            label: t('stats.output'),
+            value: `${readyOutputs[0].width}×${readyOutputs[0].height}`,
+          },
+          { label: t('stats.size'), value: formatBytes(readyOutputs[0].blob.size) },
         ]
-      : slices
+      : readyOutputs.length > 1
         ? [
-            { label: t('stats.tiles'), value: t('combine.slices', { count: outputs.length }) },
+            { label: t('stats.tiles'), value: t('combine.slices', { count: readyOutputs.length }) },
             {
               label: t('stats.size'),
-              value: formatBytes(outputs.reduce((sum, out) => sum + out.blob.size, 0)),
+              value: formatBytes(readyOutputs.reduce((sum, out) => sum + out.blob.size, 0)),
             },
           ]
         : []
@@ -185,8 +204,17 @@ export default function CombineView({ tool }: { tool: CombineTool }) {
             </li>
           </ol>
           <div
-            className={`grid min-h-72 flex-1 place-items-center overflow-auto rounded-2xl border border-border p-4 ${CHECKERBOARD}`}
+            className={`relative grid min-h-72 flex-1 place-items-center overflow-auto rounded-2xl border border-border p-4 ${CHECKERBOARD}`}
           >
+            {pending && outputs.length > 0 && (
+              <span
+                role="status"
+                className="pointer-events-none absolute right-3 top-3 z-10 inline-flex items-center gap-1.5 rounded-full border border-border bg-card/90 px-2.5 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur-sm"
+              >
+                <Icon name="loading" size="xs" className="animate-spin" />
+                {t('result.processing')}
+              </span>
+            )}
             {state.status === 'failed' ? (
               <div className="text-sm text-destructive">
                 {state.failure.code === 'canvasLimit'
@@ -198,7 +226,7 @@ export default function CombineView({ tool }: { tool: CombineTool }) {
               </div>
             ) : slices ? (
               <div
-                className="grid w-full max-w-md gap-1.5"
+                className={`grid w-full max-w-md gap-1.5 transition-opacity ${pending ? 'opacity-60' : ''}`}
                 style={{
                   gridTemplateColumns: `repeat(${controller.previewColumns ?? 3}, minmax(0, 1fr))`,
                 }}
@@ -211,12 +239,15 @@ export default function CombineView({ tool }: { tool: CombineTool }) {
               <img
                 src={outputs[0].url}
                 alt=""
-                className="max-h-[60vh] max-w-full rounded-lg object-contain"
+                className={`max-h-[60vh] max-w-full rounded-lg object-contain transition-opacity ${pending ? 'opacity-60' : ''}`}
               />
             ) : items.length > 0 && used.length === 0 ? (
               <div className="text-sm text-destructive">{t('result.undecodable')}</div>
             ) : (
-              <div className="text-sm text-muted-foreground">{t('result.processing')}</div>
+              <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                <Icon name="loading" size="sm" className="animate-spin" />
+                {t('result.processing')}
+              </div>
             )}
           </div>
         </div>
