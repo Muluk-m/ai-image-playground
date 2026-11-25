@@ -9,7 +9,10 @@ import { useCanvasProjectStore } from '../../features/canvas/projectStore'
 import { stubPointerApis } from '../helpers/radix'
 
 const renameProject = vi.hoisted(() => vi.fn(async () => {}))
-vi.mock('../../features/canvas/lib/activeProject', () => ({ renameProject }))
+vi.mock('../../features/canvas/lib/activeProject', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../features/canvas/lib/activeProject')>()),
+  renameProject,
+}))
 
 it('lists a cloud conversation once and keeps selection and rename coherent for its old link', async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
