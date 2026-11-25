@@ -2751,11 +2751,15 @@ async function retryLocalTask(task: TaskRecord) {
     return
   }
 
+  let acknowledged: Promise<void> = Promise.resolve()
   startGeneration<WorkbenchJob, WorkbenchVariant>(
     {
       settings: requestSettings,
       profile: activeProfile,
       params: taskParams,
+      onAcknowledged: (ack) => {
+        acknowledged = ack
+      },
       // 用户点击重试是新的一单，始终新铸幂等键。
       // 若首次 POST 已落库但回执丢失，随后服务端任务失败，复用旧键会让 replayCommand
       // 一直带回失败的旧单；换渠道时请求哈希也可能对不上。自动重试（queueClient 断网重 POST、
@@ -2785,6 +2789,7 @@ async function retryLocalTask(task: TaskRecord) {
       ...(task.origin?.kind === 'batch' ? { origin: task.origin } : {}),
     }),
   )
+  await acknowledged
 }
 
 /**

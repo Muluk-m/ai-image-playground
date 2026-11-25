@@ -111,6 +111,30 @@ describe('Batch 5 Billing, Auth & Sync UX polish', () => {
     expect(claimBtn?.getAttribute('aria-busy')).toBe('true')
   })
 
+  it('offers a manual Refresh button on closed orders so reopened orders can be checked', async () => {
+    const onRefresh = vi.fn()
+    await act(async () => {
+      root.render(
+        <PaymentSurface
+          order={{ ...BASE_ORDER, status: 'expired' }}
+          busy={false}
+          onAction={vi.fn()}
+          onRefresh={onRefresh}
+          onClose={vi.fn()}
+          now={Date.now()}
+        />,
+      )
+    })
+    const refreshBtn = [...host.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === '刷新',
+    )
+    expect(refreshBtn).toBeTruthy()
+    await act(async () => {
+      refreshBtn?.click()
+    })
+    expect(onRefresh).toHaveBeenCalledTimes(1)
+  })
+
   it('offers Re-login instead of Retry when SyncStatusPanel fails due to expired session', async () => {
     const login = vi.fn()
     useSyncStatus.setState({

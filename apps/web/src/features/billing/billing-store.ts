@@ -251,12 +251,26 @@ let pendingWorkspaceSheet: {
 let lastPricingOptions: { period?: BillingPeriodMonths } = {}
 let lastRechargeOptions: { amountYuan?: number } = {}
 
-function validPeriod(value: unknown): BillingPeriodMonths | undefined {
-  return value === 1 || value === 3 || value === 12 ? value : undefined
+type SheetCycleTag = 'm' | 'q' | 'y'
+
+function toCycleTag(period: BillingPeriodMonths | undefined): SheetCycleTag | undefined {
+  if (period === 12) return 'y'
+  if (period === 3) return 'q'
+  if (period === 1) return 'm'
+  return undefined
+}
+
+function fromCycleTag(tag: unknown): BillingPeriodMonths | undefined {
+  if (tag === 'y' || tag === 12) return 12
+  if (tag === 'q' || tag === 3) return 3
+  if (tag === 'm' || tag === 1) return 1
+  return undefined
 }
 
 function validAmountYuan(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.round(value)
+    : undefined
 }
 
 function toModalName(kind: WorkspaceSheetKind): 'pricing' | 'recharge' {
@@ -300,6 +314,7 @@ function readPendingWorkspaceSheet(): {
       const parsed = JSON.parse(raw) as {
         kind?: unknown
         until?: unknown
+        cycle?: unknown
         period?: unknown
         amountYuan?: unknown
       }
@@ -309,7 +324,7 @@ function readPendingWorkspaceSheet(): {
         Number.isFinite(parsed.until) &&
         parsed.until > now
       ) {
-        const period = validPeriod(parsed.period)
+        const period = fromCycleTag(parsed.cycle ?? parsed.period)
         const amountYuan = validAmountYuan(parsed.amountYuan)
         pendingWorkspaceSheet = { kind: parsed.kind, until: parsed.until, period, amountYuan }
         return { kind: parsed.kind, period, amountYuan }
@@ -335,13 +350,14 @@ export function queueBillingModal(
 ): void {
   const kind = toSheetKind(modal)
   const until = Date.now() + WORKSPACE_SHEET_WINDOW_MS
-  const period = validPeriod(options?.period)
+  const cycle = toCycleTag(options?.period)
+  const period = fromCycleTag(cycle)
   const amountYuan = validAmountYuan(options?.amountYuan)
   pendingWorkspaceSheet = { kind, until, period, amountYuan }
   try {
     window.sessionStorage.setItem(
       WORKSPACE_SHEET_STORAGE_KEY,
-      JSON.stringify({ kind, until, period, amountYuan }),
+      JSON.stringify({ kind, until, cycle, amountYuan }),
     )
   } catch {
     // 忽略存储异常，内存态仍可用。
