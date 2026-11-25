@@ -622,7 +622,8 @@
     "sourceChanged": "The source image changed or was removed. Reopen the editor from the canvas.",
     "loading": "Loading image…",
     "discardTitle": "Discard unsaved edits?",
-    "discardMessage": "Closing now will discard your strokes and instructions."
+    "discardMessage": "Closing now will discard your strokes and instructions.",
+    "discardConfirm": "Discard"
   },
   "storyboard": {
     "title": "Storyboard",
@@ -720,6 +721,7 @@
     "switchConfirmMessage": "Switching to \"{{title}}\" will replace your current edits.",
     "discardTitle": "Discard unsaved brief?",
     "discardMessage": "Closing now will discard your unsaved edits.",
+    "discardConfirm": "Discard",
     "open": "Script brief",
     "title": "Script brief",
     "hint": "Pick a popular brief, or leave a field on automatic. Confirm writes a text node only.",

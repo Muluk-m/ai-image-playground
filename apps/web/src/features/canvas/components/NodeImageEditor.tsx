@@ -184,6 +184,29 @@ export default function NodeImageEditor({
     setStrokes((previous) => [...previous, redo[redo.length - 1]!])
     setRedo((previous) => previous.slice(0, -1))
   }
+  const historyActionsRef = useRef({ undoStroke, redoStroke })
+  historyActionsRef.current = { undoStroke, redoStroke }
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return
+      if (useStore.getState().confirmDialog) return
+      const target = event.target as HTMLElement | null
+      if (
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable
+      ) {
+        return
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+        event.preventDefault()
+        if (event.shiftKey) historyActionsRef.current.redoStroke()
+        else historyActionsRef.current.undoStroke()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
   const hasUnsavedWork = strokes.length > 0 || prompt.trim().length > 0
   const requestClose = () => {
     if (running.current) return
@@ -194,31 +217,14 @@ export default function NodeImageEditor({
     useStore.getState().setConfirmDialog({
       title: t('pixelEdit.discardTitle'),
       message: t('pixelEdit.discardMessage'),
-      tone: 'danger',
+      confirmText: t('pixelEdit.discardConfirm'),
+      tone: 'warning',
       action: onClose,
     })
   }
   return (
     <Overlay onClose={requestClose} layout="fill" label={t('pixelEdit.title')}>
-      <div
-        className="flex h-dvh min-h-0 flex-col bg-background text-foreground"
-        onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing || event.keyCode === 229) return
-          const target = event.target as HTMLElement | null
-          if (
-            target?.tagName === 'INPUT' ||
-            target?.tagName === 'TEXTAREA' ||
-            target?.isContentEditable
-          ) {
-            return
-          }
-          if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
-            event.preventDefault()
-            if (event.shiftKey) redoStroke()
-            else undoStroke()
-          }
-        }}
-      >
+      <div className="flex h-dvh min-h-0 flex-col bg-background text-foreground">
         <header className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-3">
           <div className="flex min-w-0 items-center gap-2">
             <Icon name="brush" />

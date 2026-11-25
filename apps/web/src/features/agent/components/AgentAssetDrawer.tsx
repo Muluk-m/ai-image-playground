@@ -324,12 +324,12 @@ export default function AgentAssetDrawer({
         if (source) {
           setSourcePreview(source)
         } else {
-          useStore.getState().showToast(t('mask.loadFailed'), 'error')
+          useStore.getState().showToast(t('reference.unavailable'), 'error')
         }
       })
       .catch(() => {
         if (token === previewToken.current) {
-          useStore.getState().showToast(t('mask.loadFailed'), 'error')
+          useStore.getState().showToast(t('reference.unavailable'), 'error')
         }
       })
       .finally(() => {

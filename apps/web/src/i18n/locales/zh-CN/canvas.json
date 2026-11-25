@@ -603,7 +603,8 @@
     "sourceChanged": "原图已切换或删除，请返回画布重新打开编辑。",
     "loading": "正在加载图片…",
     "discardTitle": "放弃未保存的编辑？",
-    "discardMessage": "关闭后会丢弃当前涂抹与修改说明。"
+    "discardMessage": "关闭后会丢弃当前涂抹与修改说明。",
+    "discardConfirm": "放弃编辑"
   },
   "storyboard": {
     "title": "分镜表",
@@ -698,6 +699,7 @@
     "switchConfirmMessage": "切换到「{{title}}」会覆盖当前已编辑的内容。",
     "discardTitle": "放弃未保存的剧本设定？",
     "discardMessage": "关闭后会丢弃当前尚未生成节点的修改。",
+    "discardConfirm": "放弃修改",
     "open": "剧本设定",
     "title": "剧本设定",
     "hint": "选一个热门设定，或把某项留成自动。确认后只写入文本节点，不生成图片。",

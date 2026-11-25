@@ -82,6 +82,7 @@ function useBatchAssets(
   conversationId: string | null,
   messages: readonly AgentPanelMessage[],
   time: (message: AgentPanelMessage) => number,
+  reloadTick: number,
 ) {
   const batchMessages = useMemo(
     () =>
@@ -172,7 +173,7 @@ function useBatchAssets(
       unsubscribe()
       clearTimeout(timer)
     }
-  }, [batchKey, conversationId, accountKey])
+  }, [batchKey, conversationId, accountKey, reloadTick])
   return { items: useMemo(() => Object.values(byBatch).flat(), [byBatch]), failed }
 }
 
@@ -262,13 +263,15 @@ export function useCanvasAssets(
   canvasItems: readonly CanvasAssetItem[] = [],
 ): CanvasAssets {
   const [reloadTick, setReloadTick] = useState(0)
+  const [batchReloadTick, setBatchReloadTick] = useState(0)
   const project = useProjectMessages(conversationId, reloadTick)
-  const batch = useBatchAssets(conversationId, project.messages, project.time)
+  const batch = useBatchAssets(conversationId, project.messages, project.time, batchReloadTick)
   const others = useOtherAssets(scope === 'all', conversationId)
   const retry = useCallback(() => {
     if (project.failed) setReloadTick((tick) => tick + 1)
+    if (batch.failed) setBatchReloadTick((tick) => tick + 1)
     if (scope === 'all' && others.failed) others.loadMore()
-  }, [project.failed, scope, others.failed, others.loadMore])
+  }, [project.failed, batch.failed, scope, others.failed, others.loadMore])
   const projectItems = useMemo(
     () =>
       conversationId

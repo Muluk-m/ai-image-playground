@@ -78,7 +78,8 @@ export default function ScriptBriefDialog({
     useStore.getState().setConfirmDialog({
       title: t('scriptBrief.discardTitle'),
       message: t('scriptBrief.discardMessage'),
-      tone: 'danger',
+      confirmText: t('scriptBrief.discardConfirm'),
+      tone: 'warning',
       action: onClose,
     })
   }

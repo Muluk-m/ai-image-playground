@@ -60,12 +60,12 @@ export default function DeriveVideoPopover({
   const [submitting, setSubmitting] = useState(false)
   const submittingRef = useRef(false)
   const mountedRef = useRef(true)
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
       mountedRef.current = false
-    },
-    [],
-  )
+    }
+  }, [])
 
   const submit = async () => {
     if (submittingRef.current || guard.blocked || !prompt.trim()) return
