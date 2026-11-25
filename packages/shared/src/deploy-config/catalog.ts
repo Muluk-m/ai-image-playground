@@ -308,7 +308,7 @@ const BASE_SETTINGS: SettingDef[] = [
   { env: 'WORKER_HEALTH_PORT', services: APP, doc: 'worker 健康检查端口', value: fixed('37379') },
   { env: 'DATABASE_POOL_MAX', services: ['bff'], doc: '连接池上限', value: fixed('6') },
   { env: 'DATABASE_POOL_MAX', services: ['worker'], doc: '连接池上限', value: fixed('4') },
-  { env: 'DATABASE_POOL_MAX', services: ['admin'], doc: '连接池上限', value: fixed('3') },
+  { env: 'DATABASE_POOL_MAX', services: ['admin'], doc: '连接池上限', value: fixed('6') },
   {
     env: 'STATIC_DIR',
     services: APP,

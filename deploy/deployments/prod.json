@@ -51,7 +51,7 @@
     "api": "https://admin-api.muvloom.online",
     "googleClientId": "625095863041-3sfl6p13pkhjcuoe5gpa2iujaehhf991.apps.googleusercontent.com"
   },
-  "configSource": "legacy",
+  "configSource": "rendered",
   "segmenter": true,
   "auth": {
     "emailFrom": "Muvloom <login@auth.muvloom.online>",

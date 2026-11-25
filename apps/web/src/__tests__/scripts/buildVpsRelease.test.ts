@@ -129,7 +129,6 @@ beforeEach(() => {
   out = join(root, 'out')
   log = join(root, 'calls')
   for (const f of [
-    'deploy/deployments/prod.json',
     'scripts/build-vps-release.sh',
     'scripts/check-test-isolation.sh',
     'scripts/vps-deploy.sh',
@@ -138,6 +137,11 @@ beforeEach(() => {
     mkdirSync(resolve(join(checkout, f), '..'), { recursive: true })
     cpSync(join(source, f), join(checkout, f))
   }
+  // This suite tests image transport and digest verification, not config-render.sh.
+  write(
+    join(checkout, 'deploy/deployments/prod.json'),
+    '{\n  "name": "prod",\n  "legacy": { "composeProject": "image-playground-paid" },\n  "configSource": "legacy",\n  "segmenter": true\n}\n',
+  )
   // The receiver hands each edition to app-compose.sh; the stub only records the rollout.
   write(
     join(checkout, 'scripts/app-compose.sh'),
