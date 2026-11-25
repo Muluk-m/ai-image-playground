@@ -11,6 +11,8 @@
     "deleteTitle": "Delete selected",
     "deleteMessage_one": "Delete {{count}} selected record?",
     "deleteMessage_other": "Delete {{count}} selected records?",
+    "deleteMessageWithHidden_one": "Delete {{count}} selected record (including {{hidden}} hidden by the current filter)?",
+    "deleteMessageWithHidden_other": "Delete {{count}} selected records (including {{hidden}} hidden by the current filter)?",
     "noImages": "The selected records have no images",
     "clearSelection": "Clear selection",
     "deselectAll": "Deselect all",

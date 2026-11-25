@@ -1,3 +1,5 @@
+import { useAuth } from '../auth/AuthContext'
+import { promptLogin } from '../auth/loginPrompt'
 import { i18next, useTranslation } from '../i18n'
 import { syncNow } from '../lib/sync/engine'
 import { type AssetUploadProgress, useSyncStatus } from '../lib/sync/status'
@@ -6,7 +8,8 @@ import { Button } from './ui/button'
 /** 设置页「数据管理」里的同步状态。只标状态，不解释规则。 */
 export default function SyncStatusPanel() {
   // 标签由 syncLabel 这个纯函数拼出来，订阅语言变化才能在切换后重渲染。
-  const { t } = useTranslation('shell')
+  const { t } = useTranslation(['shell', 'auth'])
+  const auth = useAuth()
   const enabled = useSyncStatus((s) => s.enabled)
   const status = useSyncStatus((s) => s.status)
   const pending = useSyncStatus((s) => s.pending)
@@ -16,6 +19,7 @@ export default function SyncStatusPanel() {
   if (!enabled) return null
 
   const failed = status === 'error'
+  const needsRelogin = failed && failure === 'unauthorized'
   return (
     <div className="rounded-2xl border border-border bg-card p-4 flex items-center justify-between gap-3">
       <div className="min-w-0">
@@ -37,10 +41,17 @@ export default function SyncStatusPanel() {
           variant="secondary"
           size="sm"
           type="button"
-          onClick={() => void syncNow()}
+          onClick={() => {
+            if (needsRelogin) {
+              if (auth.enabled) auth.login()
+              else promptLogin('session-expired')
+              return
+            }
+            void syncNow()
+          }}
           className="shrink-0"
         >
-          {t('sync.retryNow')}
+          {needsRelogin ? t('auth:expired.relogin') : t('sync.retryNow')}
         </Button>
       ) : null}
     </div>

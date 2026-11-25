@@ -22,6 +22,8 @@ import {
 } from './billing-store'
 import { tBilling, useTranslation } from './i18n'
 
+class ReferralTransferError extends Error {}
+
 export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
   useTranslation()
   const { status: billingStatus } = useBilling()
@@ -48,6 +50,7 @@ export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
         if (current !== generation.current) return
         setSummary(nextSummary)
         setPage(nextPage)
+        setError(null)
       })
       .catch(() => {
         if (current === generation.current) setError(tBilling('referral.loadFailed'))
@@ -97,17 +100,17 @@ export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
         },
       )
       if (!response.ok) {
-        const body = (await response.json()) as { error?: string }
+        const body = (await response.json().catch(() => ({}))) as { error?: string }
         if (body.error === 'no_rewards') {
           operation.current = null
           setRevision((value) => value + 1)
-          throw new Error(tBilling('referral.noRewards'))
+          throw new ReferralTransferError(tBilling('referral.noRewards'))
         }
         if (body.error === 'credit_balance_overflow')
-          throw new Error(tBilling('referral.balanceOverflow'))
+          throw new ReferralTransferError(tBilling('referral.balanceOverflow'))
         if (body.error === 'transfer_conflict')
-          throw new Error(tBilling('referral.transferConflict'))
-        throw new Error(tBilling('referral.transferUnconfirmed'))
+          throw new ReferralTransferError(tBilling('referral.transferConflict'))
+        throw new ReferralTransferError(tBilling('referral.transferUnconfirmed'))
       }
       const result = (await response.json()) as ReferralTransferResult
       operation.current = null
@@ -122,7 +125,11 @@ export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
       setRevision((value) => value + 1)
       await refreshBillingAfterSettlement()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : tBilling('referral.transferUnconfirmed'))
+      setError(
+        cause instanceof ReferralTransferError
+          ? cause.message
+          : tBilling('referral.transferUnconfirmed'),
+      )
       setRevision((value) => value + 1)
       await refreshBillingAfterSettlement()
     } finally {
@@ -253,9 +260,11 @@ export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
                 disabled={
                   pending || loading || (summary.reward_balance === 0 && operation.current === null)
                 }
+                aria-busy={pending}
                 onClick={() => void transfer()}
                 className="mt-3 w-full"
               >
+                {pending ? <Icon name="loading" size="xs" className="animate-spin" /> : null}
                 {tBilling(
                   pending
                     ? 'referral.transferring'

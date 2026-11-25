@@ -28,6 +28,7 @@
       "addImage": "Add screenshot",
       "imageLimit": "PNG, JPEG, or WebP · 1 image · up to 10 MB",
       "send": "Send",
+      "sending": "Sending…",
       "removeAttachment": "Remove screenshot",
       "discardTitle": "Discard unsent feedback?",
       "discardMessage": "Closing now will discard your draft message or attached screenshot.",

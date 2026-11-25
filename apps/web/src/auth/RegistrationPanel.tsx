@@ -131,6 +131,7 @@ export function RegistrationPanel({
     setChallenge(null)
     setVerificationCode('')
     setValidationErrorKey(null)
+    onClearError?.()
   }
 
   return (

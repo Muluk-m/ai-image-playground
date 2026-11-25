@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { taskExportSources } from '../features/image-export/sources'
 import { openImageExport } from '../features/image-export/store'
 import { useAnimatedNumber } from '../hooks/useAnimatedNumber'
@@ -96,15 +96,33 @@ export default function TaskBulkActions({
     clearSelection()
   }, [selectedTasks, allFavorited, showToast, clearSelection, t])
 
+  const [bulkDeleting, setBulkDeleting] = useState(false)
+  const bulkDeletingRef = useRef(false)
+  const visibleIdSet = useMemo(() => new Set(visibleIds), [visibleIds])
+
   const handleDeleteSelected = useCallback(() => {
+    if (bulkDeletingRef.current) return
+    const ids = [...selectedTaskIds]
+    const hidden = ids.filter((id) => !visibleIdSet.has(id)).length
     setConfirmDialog({
       title: t('bulk.deleteTitle'),
-      message: t('bulk.deleteMessage', { count: selectedTaskIds.length }),
-      action: () => {
-        removeMultipleTasks(selectedTaskIds)
+      message:
+        hidden > 0
+          ? t('bulk.deleteMessageWithHidden', { count: ids.length, hidden })
+          : t('bulk.deleteMessage', { count: ids.length }),
+      action: async () => {
+        if (bulkDeletingRef.current) return
+        bulkDeletingRef.current = true
+        setBulkDeleting(true)
+        try {
+          await removeMultipleTasks(ids)
+        } finally {
+          bulkDeletingRef.current = false
+          setBulkDeleting(false)
+        }
       },
     })
-  }, [selectedTaskIds, setConfirmDialog, t])
+  }, [selectedTaskIds, visibleIdSet, setConfirmDialog, t])
 
   const handleExportSelected = useCallback(() => {
     const selected = tasks.filter((task) => selectedTaskIds.includes(task.id))
@@ -200,11 +218,16 @@ export default function TaskBulkActions({
             variant="ghost"
             size="icon-sm"
             type="button"
+            disabled={bulkDeleting}
+            aria-busy={bulkDeleting}
             onClick={handleDeleteSelected}
             className="text-destructive transition-colors"
             aria-label={t('bulk.delete')}
           >
-            <Icon name="delete" />
+            <Icon
+              name={bulkDeleting ? 'loading' : 'delete'}
+              className={bulkDeleting ? 'animate-spin' : undefined}
+            />
           </Button>
         </Hint>
       </div>

@@ -189,10 +189,12 @@ export function AccountSettings({
   username,
   preview,
   onAccountDeleted,
+  onBusyChange,
 }: {
   username: string | null
   preview?: SettingsPreview
   onAccountDeleted: () => void
+  onBusyChange?: (busy: boolean) => void
 }) {
   useTranslation()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -223,6 +225,8 @@ export function AccountSettings({
   const [cropError, setCropError] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [confirmUnlink, setConfirmUnlink] = useState(false)
+  const [confirmRevoke, setConfirmRevoke] = useState(false)
+  const [retryingSessions, setRetryingSessions] = useState(false)
   const [deletePassword, setDeletePassword] = useState('')
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(
@@ -232,6 +236,11 @@ export function AccountSettings({
   const [pending, setPending] = useState<Pending>(preview === 'saving' ? 'nickname' : null)
   const [avatarSaved, setAvatarSaved] = useState(preview === 'success')
   const [avatarIssue, setAvatarIssue] = useState<string | null>(null)
+
+  useEffect(() => {
+    onBusyChange?.(pending !== null)
+    return () => onBusyChange?.(false)
+  }, [pending, onBusyChange])
 
   useEffect(() => {
     if (preview) return
@@ -401,14 +410,15 @@ export function AccountSettings({
 
   async function onUnlink(): Promise<void> {
     if (pending) return
-    setConfirmUnlink(false)
     setPending('unlink')
     setAlert(null)
     try {
       await unlinkGoogle()
+      setConfirmUnlink(false)
       setMethods(await fetchLoginMethods())
       setNotice(tBilling('settings.toastUnlinked'))
     } catch (error) {
+      setConfirmUnlink(false)
       setAlert(failureMessage(requestCode(error)))
     } finally {
       setPending(null)
@@ -421,12 +431,28 @@ export function AccountSettings({
     setAlert(null)
     try {
       await revokeOtherSessions()
+      setConfirmRevoke(false)
       setSessions(await fetchSessions())
       setNotice(tBilling('settings.toastRevoked'))
     } catch (error) {
+      setConfirmRevoke(false)
       setAlert(failureMessage(requestCode(error)))
     } finally {
       setPending(null)
+    }
+  }
+
+  async function reloadSessions(): Promise<void> {
+    if (retryingSessions || pending !== null) return
+    setRetryingSessions(true)
+    try {
+      const nextSessions = await fetchSessions()
+      setSessions(nextSessions)
+      setSessionsError(false)
+    } catch {
+      setSessionsError(true)
+    } finally {
+      setRetryingSessions(false)
     }
   }
 
@@ -712,8 +738,12 @@ export function AccountSettings({
                       variant="destructive"
                       size="sm"
                       disabled={pending !== null}
+                      aria-busy={pending === 'unlink'}
                       onClick={() => void onUnlink()}
                     >
+                      {pending === 'unlink' ? (
+                        <Icon name="loading" size="xs" className="animate-spin" />
+                      ) : null}
                       {tBilling('settings.confirmUnlink')}
                     </Button>
                   </div>
@@ -786,6 +816,19 @@ export function AccountSettings({
               {editor === 'password' ? (
                 <form
                   className="mt-3 space-y-3 pl-12"
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === 'Escape' &&
+                      !event.nativeEvent.isComposing &&
+                      event.keyCode !== 229 &&
+                      pending !== 'password'
+                    ) {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      setEditor(null)
+                      setPasswordError(null)
+                    }
+                  }}
                   onSubmit={(event) => {
                     event.preventDefault()
                     void savePassword()
@@ -844,7 +887,15 @@ export function AccountSettings({
                     >
                       {tBilling('settings.cancel')}
                     </Button>
-                    <Button type="submit" size="sm" disabled={pending === 'password'}>
+                    <Button
+                      type="submit"
+                      size="sm"
+                      disabled={pending === 'password'}
+                      aria-busy={pending === 'password'}
+                    >
+                      {pending === 'password' ? (
+                        <Icon name="loading" size="xs" className="animate-spin" />
+                      ) : null}
                       {tBilling(pending === 'password' ? 'settings.saving' : 'settings.save')}
                     </Button>
                   </div>
@@ -864,20 +915,65 @@ export function AccountSettings({
                   {deviceLine(sessions, sessionsError)}
                 </p>
               </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="shrink-0"
-                disabled={pending !== null || sessionsError || others <= 0}
-                onClick={() => void onRevoke()}
-              >
-                {tBilling(pending === 'revoke' ? 'settings.revoking' : 'settings.revokeOthers')}
-              </Button>
+              {sessionsError ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  disabled={retryingSessions || pending !== null}
+                  aria-busy={retryingSessions}
+                  onClick={() => void reloadSessions()}
+                >
+                  {retryingSessions ? (
+                    <Icon name="loading" size="xs" className="animate-spin" />
+                  ) : null}
+                  {tBilling('settings.retry')}
+                </Button>
+              ) : confirmRevoke ? (
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={pending !== null}
+                    onClick={() => setConfirmRevoke(false)}
+                  >
+                    {tBilling('settings.cancel')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="sm"
+                    disabled={pending !== null}
+                    aria-busy={pending === 'revoke'}
+                    onClick={() => void onRevoke()}
+                  >
+                    {pending === 'revoke' ? (
+                      <Icon name="loading" size="xs" className="animate-spin" />
+                    ) : null}
+                    {tBilling(
+                      pending === 'revoke' ? 'settings.revoking' : 'settings.confirmRevokeOthers',
+                    )}
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                  disabled={pending !== null || others <= 0}
+                  onClick={() => setConfirmRevoke(true)}
+                >
+                  {tBilling('settings.revokeOthers')}
+                </Button>
+              )}
             </div>
             <Button
               type="button"
               variant="ghost"
+              disabled={pending !== null}
               className="h-auto w-full justify-start gap-3 whitespace-normal rounded-none px-0 py-4 text-left"
               onClick={openDelete}
             >
@@ -905,6 +1001,7 @@ export function AccountSettings({
         <Dialog
           tier="raised"
           title={tBilling('settings.deleteTitle')}
+          closeDisabled={pending === 'delete'}
           onClose={() => {
             if (pending !== 'delete') setDeleteOpen(false)
           }}
@@ -922,8 +1019,12 @@ export function AccountSettings({
                 type="button"
                 variant="destructive"
                 disabled={pending === 'delete'}
+                aria-busy={pending === 'delete'}
                 onClick={() => void onDelete()}
               >
+                {pending === 'delete' ? (
+                  <Icon name="loading" size="xs" className="animate-spin" />
+                ) : null}
                 {tBilling(pending === 'delete' ? 'settings.deleting' : 'settings.deleteConfirm')}
               </Button>
             </>

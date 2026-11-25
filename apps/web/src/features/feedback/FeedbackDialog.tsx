@@ -344,7 +344,7 @@ export default function FeedbackDialog({
 
   const handleSubmit = async () => {
     const trimmed = draft.trim()
-    if ((!trimmed && !attachment) || submitting || loading || loadError) return
+    if ((!trimmed && !attachment) || submitting || loading) return
     if (trimmed.length > FEEDBACK_MESSAGE_MAX_CHARS) {
       setErrorText(t('header.feedback.errors.bodyTooLong'))
       return
@@ -354,6 +354,7 @@ export default function FeedbackDialog({
     setErrorText(null)
     try {
       const response = await sendFeedbackMessage({ body: trimmed, attachment })
+      setLoadError(false)
       if (before !== undefined) {
         showPage(undefined)
       } else {
@@ -384,14 +385,14 @@ export default function FeedbackDialog({
   }
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
       event.preventDefault()
       void handleSubmit()
     }
   }
 
-  const canSend =
-    (draft.trim().length > 0 || attachment !== null) && !submitting && !loading && !loadError
+  const canSend = (draft.trim().length > 0 || attachment !== null) && !submitting && !loading
 
   const hasUnsentDraft = draft.trim().length > 0 || attachment !== null
   const [confirmDiscard, setConfirmDiscard] = useState(false)
@@ -423,6 +424,7 @@ export default function FeedbackDialog({
     <>
       <Dialog
         onClose={requestClose}
+        closeDisabled={submitting}
         tier="artifact"
         title={t('header.feedback.label')}
         className="max-w-xl"
@@ -624,6 +626,7 @@ export default function FeedbackDialog({
                     type="button"
                     size="sm"
                     disabled={!canSend}
+                    aria-busy={submitting}
                     onClick={() => void handleSubmit()}
                   >
                     {submitting ? (
@@ -631,7 +634,9 @@ export default function FeedbackDialog({
                     ) : (
                       <Icon name="send" />
                     )}
-                    <span>{t('header.feedback.send')}</span>
+                    <span>
+                      {t(submitting ? 'header.feedback.sending' : 'header.feedback.send')}
+                    </span>
                   </Button>
                 </div>
               </div>
