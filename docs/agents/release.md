@@ -119,7 +119,7 @@ curl -fsS https://test.muvloom.online/version.json
 
 **先止血，再回滚。** 出问题的是单个功能或单个模型时，先关掉它，往往比回滚整个版本更快、波及更小：
 
-- **关能力开关**：能力求值见 `apps/bff/src/lib/capabilities.ts`，一律 deny by default。`configSource: "rendered"` 下能力开关声明在 `deploy/deployments/<name>.json` 的 `capabilities` 字段，把出问题的能力改成 `false` 开 PR 合并并发布生效（不再读服务器上的 `apps/<project>/operator-config.json`）；仅在 `configSource: "legacy"`（或经 Nain 批准以 `CONFIG_SOURCE=legacy` 应急切回旧布局）时，才直接修改服务器上的 `operator-config.json` 并按[智能体上线手册「十、回滚」](../deploy/agent-rollout.md)备份后运行 `scripts/app-compose.sh up <project>`。配置写坏服务会拒绝启动而不是降级（[ADR 0001](../adr/0001-capability-config-fails-closed.md)），改完先校验 JSON。
+- **关能力开关**：能力求值见 `apps/bff/src/lib/capabilities.ts`，一律 deny by default。`configSource: "rendered"` 下能力开关声明在 `deploy/deployments/<name>.json` 的 `operator.capabilities` 字段，把出问题的能力改成 `false` 开 PR 合并并发布生效（不再读服务器上的 `apps/<project>/operator-config.json`）；仅在 `configSource: "legacy"`（或经 Nain 批准以 `CONFIG_SOURCE=legacy` 应急切回旧布局）时，才直接修改服务器上的 `operator-config.json` 并按[智能体上线手册「十、回滚」](../deploy/agent-rollout.md)备份后运行 `scripts/app-compose.sh up <project>`。配置写坏服务会拒绝启动而不是降级（[ADR 0001](../adr/0001-capability-config-fails-closed.md)），改完先校验 JSON。
 - **下架模型**：在 Admin 的「模型」页把出问题的模型切到下架，写进公开库 `model_availability`（`apps/bff/src/lib/model-availability.ts`），页面和服务端都不再提供它，不用重新发布。
 - 止血之后照样按下面的方式回滚或修复，并在汇报里写明止血做了什么、什么时候恢复。
 
