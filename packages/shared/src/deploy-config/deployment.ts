@@ -268,6 +268,11 @@ export const HostSchema = Type.Object(
         keepImages: PositiveInt,
         /** 构建和拉取前要求的最小空闲磁盘（GB）。 */
         minFreeGb: PositiveInt,
+        /**
+         * host-collector 量磁盘用的宿主机路径（挂到 /host/disk-probe）。Docker 数据在单独分区时
+         * 指向那个分区里的文件；不写用 /etc/hostname，即根分区。
+         */
+        diskProbeSource: Type.Optional(Type.String({ pattern: '^/[A-Za-z0-9_./-]*$' })),
       },
       { additionalProperties: false },
     ),

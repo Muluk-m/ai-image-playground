@@ -41,6 +41,38 @@ config_dir=${APP_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playgrou
 state_dir=$config_dir/releases
 mkdir -p "$state_dir/activated"
 app_env=$config_dir/app.env
+# Config center (ADR 0035): with rendered/<project> in place, each role reads the env file rendered
+# for it and the operator config rendered beside it; app.env is not read. See scripts/app-compose.sh.
+rendered_dir=${RENDERED_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/rendered/$project}
+if [ -f "$rendered_dir/deploy.env" ]; then
+  bff_env=$rendered_dir/env/bff.env
+  worker_env=$rendered_dir/env/worker.env
+  migrate_env=$rendered_dir/env/migrate.env
+  migrate_extra_env=$migrate_env
+  operator_mount="type=bind,source=$rendered_dir/operator-config.json,target=/run/operator/operator-config.json,readonly"
+  tunnel_config=$rendered_dir/cloudflared/main/config.yml
+  # What the executors were created from. A release with the same image but a new render (a
+  # rotated secret, a changed tunable) has to start a new generation, not keep the old one.
+  # The segmenter address is injected at create time, so it is part of what they run.
+  config_digest=$({
+    cat "$bff_env" "$worker_env" "$rendered_dir/operator-config.json"
+    printf 'AGENT_SEGMENTER_URL=%s\n' "$AGENT_SEGMENTER_URL"
+  } | cksum | awk '{ print $1 "-" $2 }')
+  # Non-secret; app-compose.sh passes deploy.env to Compose only.
+  [ -n "${INFRA_NETWORK_NAME:-}" ] || INFRA_NETWORK_NAME=$(sed -n 's/^INFRA_NETWORK_NAME=//p' "$rendered_dir/deploy.env" | tail -n 1)
+  # The ingress guards below must read what the running connector loaded. Right after the switch
+  # from app.env it is still bound to the old directory; app-compose.sh rebinds it after the rollout.
+  mounted=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/etc/cloudflared"}}{{.Source}}{{end}}{{end}}' "$project-cloudflared-1" 2>/dev/null) || mounted=
+  [ -z "$mounted" ] || [ ! -f "$mounted/config.yml" ] || tunnel_config=$mounted/config.yml
+else
+  bff_env=$app_env
+  worker_env=$app_env
+  migrate_env=$app_env
+  migrate_extra_env=$config_dir/migrate.env
+  operator_mount=
+  tunnel_config=$config_dir/cloudflared/config.yml
+  config_digest=
+fi
 log_forward_dir=${LOG_FORWARD_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/log-forward/$project}
 mkdir -p "$log_forward_dir"
 . "$repo_root/scripts/lib/deploy-common.sh"
@@ -321,7 +353,8 @@ runtime() {
   logged_docker create --name "$name" --init --restart unless-stopped \
     --label "app.runtime.project=$project" --label "app.runtime.role=$role" \
     --label "app.runtime.generation=$release" \
-    --network "$network" --env-file "$app_env" \
+    ${config_digest:+--label "app.runtime.config=$config_digest"} \
+    --network "$network" --env-file "$(if [ "$role" = worker ]; then echo "$worker_env"; else echo "$bff_env"; fi)" \
     -e OBS_ROOT_PASSWORD= -e OBS_S3_ACCESS_KEY_ID= -e OBS_S3_SECRET_ACCESS_KEY= \
     -e APP_ROLE="$role" -e DATABASE_POOL_MAX="$3" -e PORT=37377 -e STATIC_DIR= -e CLIENT_IP_SOURCE=cf-connecting-ip \
     -e WORKER_HEALTH_PORT=37379 -e WORKER_START_PAUSED=true \
@@ -330,6 +363,7 @@ runtime() {
     ${AGENT_SEGMENTER_URL:+-e "AGENT_SEGMENTER_URL=$AGENT_SEGMENTER_URL"} \
     ${AGENT_SEGMENTER_URL:+-e "AGENT_SEGMENTER_NAMESPACE=$project"} \
     --mount "type=bind,source=$config_dir,target=/run/operator,readonly" \
+    ${operator_mount:+--mount "$operator_mount"} \
     "$image_id" bun run "/app/apps/bff/src/$2" >/dev/null
   docker network connect "$infra" "$name"
   docker start "$name" >/dev/null
@@ -383,7 +417,19 @@ if [ -f "$state_dir/legacy-origin" ]; then
 fi
 old_image=$(docker_probe inspect --format '{{.Image}}' "$old_bff")
 old_worker_image=$(docker_probe inspect --format '{{.Image}}' "$old_worker")
-if [ "$old_image" = "$image_id" ] && [ "$old_worker_image" = "$image_id" ]; then
+# Under the config center an executor is current only if it runs the current render too.
+# Back on app.env, an executor the config center created (labelled with a digest) still runs on
+# the render; that is a change too.
+same_config() {
+  label=$(docker_probe inspect --format '{{index .Config.Labels "app.runtime.config"}}' "$1") || return 1
+  if [ -n "$config_digest" ]; then
+    [ "$label" = "$config_digest" ]
+  else
+    ! printf '%s\n' "$label" | grep -Eq '^[0-9]+-[0-9]+$'
+  fi
+}
+if [ "$old_image" = "$image_id" ] && [ "$old_worker_image" = "$image_id" ] &&
+  same_config "$old_bff" && same_config "$old_worker"; then
   healthy "$old_bff" 37377
   healthy "$old_worker" 37379
   new_bff=$old_bff
@@ -396,10 +442,11 @@ else
     echo "deployment_capacity_blocked: retained executors prevent a third generation:$pending" >&2
     exit 1
   fi
-  logged_docker run --rm --name "$release-migrate" --network "$infra" --env-file "$app_env" \
-    --env-file "$config_dir/migrate.env" \
+  logged_docker run --rm --name "$release-migrate" --network "$infra" --env-file "$migrate_env" \
+    --env-file "$migrate_extra_env" \
     -e OBS_ROOT_PASSWORD= -e OBS_S3_ACCESS_KEY_ID= -e OBS_S3_SECRET_ACCESS_KEY= -e APP_ROLE=migrate \
     --mount "type=bind,source=$config_dir,target=/run/operator,readonly" \
+    ${operator_mount:+--mount "$operator_mount"} \
     "$image_id" bun run /app/apps/bff/src/db/migrate.ts
   runtime bff index.ts 6
   healthy "$new_bff" 37377
@@ -431,19 +478,19 @@ if [ "$router_swapped" = true ]; then
   router_swapped=false
 fi
 if [ ! -f "$state_dir/ingress-ready" ]; then
-  if ! grep -q 'http://release-router:37377' "$config_dir/cloudflared/config.yml"; then
-    if ! grep -q 'http://bff:37377' "$config_dir/cloudflared/config.yml"; then
+  if ! grep -q 'http://release-router:37377' "$tunnel_config"; then
+    if ! grep -q 'http://bff:37377' "$tunnel_config"; then
       echo 'Unknown tunnel origin; ingress not changed' >&2
       exit 1
     fi
-    cp "$config_dir/cloudflared/config.yml" "$state_dir/cloudflared-before-router.yml"
+    cp "$tunnel_config" "$state_dir/cloudflared-before-router.yml"
     sed 's#http://bff:37377#http://release-router:37377#g' \
-      "$state_dir/cloudflared-before-router.yml" > "$config_dir/cloudflared/config.yml"
+      "$state_dir/cloudflared-before-router.yml" > "$tunnel_config"
   fi
   docker restart "$project-cloudflared-1" >/dev/null
   touch "$state_dir/ingress-ready"
 fi
-if ! grep -q 'http://release-router:37377' "$config_dir/cloudflared/config.yml"; then
+if ! grep -q 'http://release-router:37377' "$tunnel_config"; then
   echo 'Tunnel no longer targets the stable router; refusing cutover' >&2
   exit 1
 fi

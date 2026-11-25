@@ -49,6 +49,10 @@
 1. **P1 清单。** 新增清单 `packages/shared/src/deploy-config`、`deploy/deployments/{prod,test}.json`、`config render`（先支持从本地文件读密钥）和 lint 检查，示例文件改为生成。线上不变。
 2. **P2 Config Worker。** Worker、Access 应用和 service token 建在 Nain 个人 Cloudflare 账号下。在 VPS 上用脚本把现有密钥写入 Secrets Store，值不经过终端输出和日志。
 3. **P3 发布改用生成的配置。** 先切 test，验证后再切 prod。旧的 `app.env` 留作回退，确认没问题后再删。
+   - 按部署启用：VPS 上建空目录 `~/.config/ai-image-playground/rendered/<compose 项目>/` 即启用；删掉这个目录即回退到 `app.env`。生产的启用和回退都要 Nain 批准。
+   - 启用后，`vps-deploy.sh` 每次发布先用发布镜像跑 `scripts/config-render.sh`；缺密钥或描述有错时，在动任何服务和迁移之前就停下。test 随后对生成的 env 跑隔离检查。
+   - `app-compose.sh` 叠加 `deploy/compose.rendered.yaml`：每个服务的 `env_file` 换成自己那份（`format: raw`），并清掉 compose 插值注入的值。`rollout-runtime.sh` 的执行器和迁移读 `env/<角色>.env`，operator 配置挂生成的文件。发布状态仍留在 `apps/<项目>/releases`。
+   - 企业 Tunnel 改由 `compose.app.yaml` 的 `cloudflared-enterprise`（profile `enterprise-tunnel`，与主连接器共用日志管道）运行；连接器挂 `tunnels/<项目>/<名称>/`（生成目录每次整体替换，bind mount 跟不过去），发布时原地更新其中的文件；连接器挂错目录就重建，文件变了（含只轮换凭据）就重启，之后等它在日志里报告连上 Cloudflare 边缘，否则发布失败；待重启状态落盘，中途失败的发布下次会补上重启。连接器以发布用户身份运行。回滚先用回滚镜像重新渲染。旧的独立 compose 在 P7 删除；在那之前两个连接器并存，cloudflared 支持同一 Tunnel 多副本。
 4. **P4 统一读取。** 业务代码改为通过清单读取，默认值收进清单，lint 禁止散读 `process.env`。
 5. **P5 Pages。** 改为从部署描述读取配置，`PAGES_ENV` 和 `PAID_*` 退役。
 6. **P6 一键起机。** 写 `bootstrap-host.sh`，在 macmini2 上用 test 从零演练一次。
