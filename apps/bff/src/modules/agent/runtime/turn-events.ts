@@ -84,8 +84,19 @@ export function attachTurnEventHandler(input: {
       state.ignoringTruncatedTools = false
       store.openAssistant()
     }
-    if (event.type === 'message_update' && event.assistantMessageEvent.type === 'text_delta') {
-      store.pushTextDelta(event.assistantMessageEvent.delta)
+    if (event.type === 'message_update') {
+      const update = event.assistantMessageEvent
+      if (
+        (update.type === 'text_delta' ||
+          update.type === 'thinking_delta' ||
+          update.type === 'toolcall_delta') &&
+        update.delta.length > 0
+      ) {
+        stream.markFirstToken()
+      }
+      if (update.type === 'text_delta') {
+        store.pushTextDelta(update.delta)
+      }
     }
     if (event.type === 'message_end' && event.message.role === 'assistant') {
       // 在读取任何生成结果之前冻结整批方案；未提交过任务时允许修正参数错误。
