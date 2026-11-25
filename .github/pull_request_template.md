@@ -31,6 +31,7 @@
 <!--
 写清楚出问题时怎么撤：revert 这个 PR 就行，还是要回滚镜像、前端版本或配置；
 有迁移的写明回滚 SQL 和兼容性；改了 app.env 或 operator-config 的写明恢复方式。
+若迁移包含 DROP TABLE / DROP COLUMN / TRUNCATE 等不可逆删除，必须写明：关联 Issue/ADR 的留存期或最早执行日期（已到期/无日期限制）、历史数据留存或回填零差异核验，以及可恢复备份确认（AGENTS.md「部署与灾备」）。
 步骤参考 docs/agents/release.md「五、回滚」。
 -->
 
