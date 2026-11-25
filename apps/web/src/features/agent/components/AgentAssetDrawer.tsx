@@ -6,6 +6,9 @@ import SegmentedTabs from '../../../components/patterns/SegmentedTabs'
 import { Button } from '../../../components/ui/button'
 import { Checkbox } from '../../../components/ui/checkbox'
 import { Icon } from '../../../components/ui/icon'
+import { useAnimatedNumber } from '../../../hooks/useAnimatedNumber'
+import { useFlipList } from '../../../hooks/useFlipList'
+import { useSwipeDismiss } from '../../../hooks/useSwipeDismiss'
 import { useTranslation } from '../../../i18n'
 import { accountScope, scopedStorageName } from '../../../lib/authScope'
 import { blobDataUrl } from '../../../lib/cloudMedia'
@@ -320,6 +323,19 @@ export default function AgentAssetDrawer({
     previewToken.current += 1
     setSourcePreview(null)
   }
+  const {
+    offsetX: swipeOffsetX,
+    dragging: swipeDragging,
+    backdropOpacity: swipeBackdropOpacity,
+    handlers: swipeHandlers,
+  } = useSwipeDismiss(onClose)
+  const { display: animatedSelectedCount } = useAnimatedNumber(
+    selectedCount > 0 ? selectedCount : null,
+    180,
+  )
+  const shownOrderKey = useMemo(() => shown.map((item) => item.id).join(','), [shown])
+  useFlipList(gridRef, '.studio-assets-card', 'data-asset-id', shownOrderKey)
+
   return (
     <Overlay
       onClose={onClose}
@@ -328,12 +344,22 @@ export default function AgentAssetDrawer({
       backdrop="none"
       role="none"
       className="studio-assets-overlay"
+      style={
+        swipeBackdropOpacity !== undefined
+          ? { background: `hsl(var(--scrim) / ${(0.7 * swipeBackdropOpacity).toFixed(3)})` }
+          : undefined
+      }
     >
       <aside
-        className="studio-assets-drawer"
+        className="studio-assets-drawer touch-pan-y motion-reduce:!transition-none"
         role="dialog"
         aria-modal="true"
         aria-label={t('assets.title')}
+        style={{
+          transform: swipeOffsetX > 0 ? `translate3d(${swipeOffsetX}px, 0, 0)` : undefined,
+          transition: swipeDragging ? 'none' : 'transform var(--motion-normal) var(--ease-out)',
+        }}
+        {...swipeHandlers}
       >
         <header className="flex items-center gap-2.5 px-5 py-4">
           <Icon name="folder" size="sm" />
@@ -389,6 +415,7 @@ export default function AgentAssetDrawer({
           {shown.map((item) => (
             <div
               key={item.id}
+              data-asset-id={item.id}
               className="studio-assets-card"
               data-selected={selected.has(item.id) || undefined}
             >
@@ -483,8 +510,8 @@ export default function AgentAssetDrawer({
             {t('assets.selectAll')}
           </label>
           {selectedCount > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {t('assets.selected', { count: selectedCount })}
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {t('assets.selected', { count: animatedSelectedCount ?? selectedCount })}
             </span>
           )}
           <Button
@@ -501,10 +528,8 @@ export default function AgentAssetDrawer({
             {selectedCount ? t('assets.exportCount', { count: selectedCount }) : t('assets.export')}
           </Button>
         </footer>
-        {sourcePreview && (
-          <ImagePreview tier="artifact" src={sourcePreview} onClose={closeSource} />
-        )}
       </aside>
+      {sourcePreview && <ImagePreview tier="artifact" src={sourcePreview} onClose={closeSource} />}
     </Overlay>
   )
 }

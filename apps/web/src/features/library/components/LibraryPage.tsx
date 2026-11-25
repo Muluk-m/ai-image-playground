@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import DropOverlay from '../../../components/patterns/DropOverlay'
 import PageHeader from '../../../components/patterns/PageHeader'
@@ -6,6 +6,7 @@ import SearchField from '../../../components/patterns/SearchField'
 import SegmentedTabs from '../../../components/patterns/SegmentedTabs'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
+import { useFlipList } from '../../../hooks/useFlipList'
 import { useImageDropZone } from '../../../hooks/useImageDropZone'
 import { usePasteImageFiles } from '../../../hooks/usePasteImageFiles'
 import { useTranslation } from '../../../i18n'
@@ -93,6 +94,19 @@ export default function LibraryPage() {
   const agentReady = libraryAgentReady()
   const mine = looks.filter((look) => look.origin === 'user')
   const builtin = looks.filter((look) => look.origin === 'builtin')
+  const assetsGridRef = useRef<HTMLDivElement>(null)
+  const templatesGridRef = useRef<HTMLDivElement>(null)
+  const mineLooksRef = useRef<HTMLDivElement>(null)
+  const builtinLooksRef = useRef<HTMLDivElement>(null)
+  const assetsOrderKey = useMemo(() => assets.map((a) => a.id).join(','), [assets])
+  const templatesOrderKey = useMemo(() => templates.map((t) => t.id).join(','), [templates])
+  const mineLooksOrderKey = useMemo(() => mine.map((l) => l.skillName).join(','), [mine])
+  const builtinLooksOrderKey = useMemo(() => builtin.map((l) => l.skillName).join(','), [builtin])
+  useFlipList(assetsGridRef, '[data-flip-id]', 'data-flip-id', `${tab}:${assetsOrderKey}`)
+  useFlipList(templatesGridRef, '[data-flip-id]', 'data-flip-id', `${tab}:${templatesOrderKey}`)
+  useFlipList(mineLooksRef, '[data-flip-id]', 'data-flip-id', `${tab}:${mineLooksOrderKey}`)
+  useFlipList(builtinLooksRef, '[data-flip-id]', 'data-flip-id', `${tab}:${builtinLooksOrderKey}`)
+
   // 详情里的记录随库变：改名、删除后不能还显示旧的那份。
   const liveAssetDetail = assetDetail
     ? (useLibraryStore.getState().assets.find((one) => one.id === assetDetail.id) ?? null)
@@ -145,9 +159,14 @@ export default function LibraryPage() {
       ) : tab === 'prompts' ? (
         <div className="min-h-0 flex-1 p-6">
           {templates.length > 0 ? (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div
+              ref={templatesGridRef}
+              className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+            >
               {templates.map((template) => (
-                <TemplateCard key={template.id} template={template} />
+                <div key={template.id} data-flip-id={template.id} className="grid">
+                  <TemplateCard template={template} />
+                </div>
               ))}
             </div>
           ) : templateCount > 0 ? (
@@ -162,22 +181,26 @@ export default function LibraryPage() {
             <h2 className="mb-2 text-xs font-medium text-muted-foreground">
               {t('look.mine')} · {mine.length}
             </h2>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <div
+              ref={mineLooksRef}
+              className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
+            >
               <NewTile
                 label={t('look.new')}
                 onClick={() => setCreating('look')}
                 aspect="portrait"
               />
               {mine.map((look) => (
-                <LookCard
-                  key={look.skillName}
-                  look={look}
-                  needsRetune={lookNeedsRetune(look, models)}
-                  canGenerate={agentReady}
-                  onOpen={setLookDetail}
-                  onGenerate={generateWithLook}
-                  onTune={tuneLook}
-                />
+                <div key={look.skillName} data-flip-id={look.skillName} className="grid">
+                  <LookCard
+                    look={look}
+                    needsRetune={lookNeedsRetune(look, models)}
+                    canGenerate={agentReady}
+                    onOpen={setLookDetail}
+                    onGenerate={generateWithLook}
+                    onTune={tuneLook}
+                  />
+                </div>
               ))}
             </div>
           </section>
@@ -186,17 +209,21 @@ export default function LibraryPage() {
               <h2 className="mb-2 text-xs font-medium text-muted-foreground">
                 {t('look.builtin')} · {builtin.length}
               </h2>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+              <div
+                ref={builtinLooksRef}
+                className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5"
+              >
                 {builtin.map((look) => (
-                  <LookCard
-                    key={look.skillName}
-                    look={look}
-                    needsRetune={lookNeedsRetune(look, models)}
-                    canGenerate={agentReady}
-                    onOpen={setLookDetail}
-                    onGenerate={generateWithLook}
-                    onTune={tuneLook}
-                  />
+                  <div key={look.skillName} data-flip-id={look.skillName} className="grid">
+                    <LookCard
+                      look={look}
+                      needsRetune={lookNeedsRetune(look, models)}
+                      canGenerate={agentReady}
+                      onOpen={setLookDetail}
+                      onGenerate={generateWithLook}
+                      onTune={tuneLook}
+                    />
+                  </div>
                 ))}
               </div>
             </section>
@@ -209,10 +236,15 @@ export default function LibraryPage() {
         // 落点包在滚动容器外面，高亮层才盖住看得见的那一屏，而不是随内容滚走。
         <div {...dropZoneProps} className="relative flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 p-6">
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
+            <div
+              ref={assetsGridRef}
+              className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5"
+            >
               <NewTile label={t('asset.new')} onClick={() => setCreating('asset')} />
               {assets.map((asset) => (
-                <AssetCard key={asset.id} asset={asset} onOpen={setAssetDetail} />
+                <div key={asset.id} data-flip-id={asset.id} className="grid">
+                  <AssetCard asset={asset} onOpen={setAssetDetail} />
+                </div>
               ))}
             </div>
             {assets.length === 0 &&

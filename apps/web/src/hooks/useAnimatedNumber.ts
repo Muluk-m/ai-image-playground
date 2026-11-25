@@ -53,9 +53,10 @@ export function useAnimatedNumber(
 
     const step = (now: number) => {
       const elapsed = now - startedAt
-      const progress = Math.min(1, elapsed / durationMs)
+      const progress = durationMs <= 0 ? 1 : Math.min(1, Math.max(0, elapsed / durationMs))
       const eased = 1 - (1 - progress) ** 3
-      const next = progress >= 1 ? target : Math.round(from + delta * eased)
+      const raw = progress >= 1 ? target : Math.round(from + delta * eased)
+      const next = raw === 0 ? 0 : raw
       currentRef.current = next
       setDisplay(next)
       if (progress < 1) {
