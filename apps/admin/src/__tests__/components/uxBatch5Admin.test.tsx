@@ -109,6 +109,7 @@ describe('Batch 5 Admin UX polish', () => {
         savedViewKey="users-out-of-range"
         search=""
         onSearch={vi.fn()}
+        searchPlaceholder="搜索用户名"
         chips={[]}
         definitions={[{ key: 'registeredFrom', label: '注册起点', kind: 'datetime' }]}
         values={{ registeredFrom: '8640000000000001' }}
