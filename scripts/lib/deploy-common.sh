@@ -421,3 +421,62 @@ docker_root_free_gb() {
   [ -d "$docker_root" ] || docker_root=/
   df -Pk "$docker_root" | awk 'NR == 2 { printf "%d", $4 / 1024 / 1024 }'
 }
+
+# descriptor_config_source <descriptor-json>
+#
+# Parses a deployment descriptor structurally as JSON and prints its `configSource` (`rendered` or
+# `legacy`). Missing files, malformed JSON, or missing/unknown values fail loudly (exit 1).
+descriptor_config_source() {
+  python3 - "$1" <<'PY'
+import json, sys
+
+path = sys.argv[1]
+try:
+    with open(path, "r", encoding="utf-8") as handle:
+        data = json.load(handle)
+except Exception as exc:
+    sys.stderr.write(f"Cannot read deployment descriptor {path}: {exc}\n")
+    sys.exit(1)
+
+source = data.get("configSource") if isinstance(data, dict) else None
+if source not in ("rendered", "legacy"):
+    sys.stderr.write(f"{path} names no configSource (rendered or legacy); refusing to guess\n")
+    sys.exit(1)
+print(source)
+PY
+}
+
+# project_descriptor_config_source <deployments-dir> <compose-project>
+#
+# Scans non-schema JSON descriptors in <deployments-dir> structurally for one whose
+# legacy.composeProject matches <compose-project>. Prints its `configSource` (`rendered` or
+# `legacy`), prints nothing when no descriptor matches (fixture projects), and exits 1 if any
+# descriptor cannot be parsed or a matching descriptor lacks a valid `configSource`.
+project_descriptor_config_source() {
+  [ -d "$1" ] || return 0
+  python3 - "$1" "$2" <<'PY'
+import glob, json, os, sys
+
+deployments_dir, project = sys.argv[1], sys.argv[2]
+for path in sorted(glob.glob(os.path.join(deployments_dir, "*.json"))):
+    if path.endswith(".schema.json"):
+        continue
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except Exception as exc:
+        sys.stderr.write(f"Cannot read deployment descriptor {path}: {exc}\n")
+        sys.exit(1)
+    if not isinstance(data, dict):
+        sys.stderr.write(f"Invalid deployment descriptor {path}: top-level value is not an object\n")
+        sys.exit(1)
+    legacy = data.get("legacy")
+    if isinstance(legacy, dict) and legacy.get("composeProject") == project:
+        source = data.get("configSource")
+        if source not in ("rendered", "legacy"):
+            sys.stderr.write(f"{path} names no configSource (rendered or legacy); refusing to guess\n")
+            sys.exit(1)
+        print(source)
+        sys.exit(0)
+PY
+}

@@ -10,7 +10,7 @@ import './bootstrap/task-lifecycle'
 import './bootstrap/task-submission'
 import { config } from './config'
 import { apiErrorHandler, isApiPath } from './lib/api-errors'
-import { appRelease, appVersion } from './lib/app-version'
+import { appConfig, appRelease, appVersion } from './lib/app-version'
 import { isCapabilityEnabled } from './lib/capabilities'
 import { assertCredentialedCors } from './lib/cors-policy'
 import { log } from './lib/logger'
@@ -279,7 +279,12 @@ export const app = new Elysia()
   )
   // `ok` is what the healthchecks and rollout read; `version` lets the deploy workflow confirm the
   // commit that is serving.
-  .get('/health', () => ({ ok: true, version: appVersion(), release: appRelease() }))
+  .get('/health', () => ({
+    ok: true,
+    version: appVersion(),
+    release: appRelease(),
+    config: appConfig(),
+  }))
   .use(userAuthRoutes)
   .use(accountRoutes)
   .use(oauthRoutes)

@@ -37,6 +37,7 @@ if [ "${image_snapshot##* }" != 1 ] || [ -z "$image_id" ]; then
   exit 1
 fi
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+. "$repo_root/scripts/lib/deploy-common.sh"
 config_dir=${APP_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/apps/$project}
 state_dir=$config_dir/releases
 mkdir -p "$state_dir/activated"
@@ -44,7 +45,22 @@ app_env=$config_dir/app.env
 # Config center (ADR 0035): with rendered/<project> in place, each role reads the env file rendered
 # for it and the operator config rendered beside it; app.env is not read. See scripts/app-compose.sh.
 rendered_dir=${RENDERED_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/rendered/$project}
-if [ -f "$rendered_dir/deploy.env" ]; then
+# CONFIG_SOURCE comes from the deployment descriptor through vps-deploy.sh and app-compose.sh; a
+# hand run without it looks up the matching descriptor first and only falls back to disk for
+# fixture projects without a descriptor.
+if [ -z "${CONFIG_SOURCE:-}" ]; then
+  CONFIG_SOURCE=$(project_descriptor_config_source "$repo_root/deploy/deployments" "$project")
+fi
+case ${CONFIG_SOURCE:-} in
+  rendered)
+    [ -f "$rendered_dir/deploy.env" ] || {
+      echo "configSource is rendered but $rendered_dir/deploy.env is missing; run scripts/config-render.sh first" >&2
+      exit 1
+    } ;;
+  legacy | '') ;;
+  *) echo "Unknown CONFIG_SOURCE: $CONFIG_SOURCE" >&2; exit 2 ;;
+esac
+if [ "${CONFIG_SOURCE:-}" != legacy ] && [ -f "$rendered_dir/deploy.env" ]; then
   bff_env=$rendered_dir/env/bff.env
   worker_env=$rendered_dir/env/worker.env
   migrate_env=$rendered_dir/env/migrate.env
@@ -75,7 +91,6 @@ else
 fi
 log_forward_dir=${LOG_FORWARD_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/log-forward/$project}
 mkdir -p "$log_forward_dir"
-. "$repo_root/scripts/lib/deploy-common.sh"
 runtime_lock=$state_dir/lock
 # Every entry that moves production takes the host deploy lock, so a hand-run rollout cannot
 # overlap a CI deploy of another project (test vs production). Run from vps-deploy.sh or from
@@ -354,6 +369,8 @@ runtime() {
     --label "app.runtime.project=$project" --label "app.runtime.role=$role" \
     --label "app.runtime.generation=$release" \
     ${config_digest:+--label "app.runtime.config=$config_digest"} \
+    -e "DEPLOY_CONFIG_SOURCE=$(if [ -n "$config_digest" ]; then echo rendered; else echo legacy; fi)" \
+    -e "DEPLOY_CONFIG_DIGEST=$config_digest" \
     --network "$network" --env-file "$(if [ "$role" = worker ]; then echo "$worker_env"; else echo "$bff_env"; fi)" \
     -e OBS_ROOT_PASSWORD= -e OBS_S3_ACCESS_KEY_ID= -e OBS_S3_SECRET_ACCESS_KEY= \
     -e APP_ROLE="$role" -e DATABASE_POOL_MAX="$3" -e PORT=37377 -e STATIC_DIR= -e CLIENT_IP_SOURCE=cf-connecting-ip \

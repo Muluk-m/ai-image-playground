@@ -25,6 +25,7 @@
     "aliases": []
   },
   "admin": {},
+  "configSource": "rendered",
   "segmenter": true,
   "auth": {
     "emailFrom": "Muvloom <login@auth.muvloom.online>",

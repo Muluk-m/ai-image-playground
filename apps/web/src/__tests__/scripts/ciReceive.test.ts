@@ -125,7 +125,13 @@ function receive(
 
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 
-describe('ci-receive.sh', { timeout: 20_000 }, () => {
+/**
+ * The receiver serialises deploys with flock(1), which only Linux hosts have (the VPS and CI).
+ * Without it the lock tests cannot mean anything, so the suite is skipped there instead of failing.
+ */
+const hasFlock = spawnSync('sh', ['-c', 'command -v flock'], { encoding: 'utf8' }).status === 0
+
+describe.skipIf(!hasFlock)('ci-receive.sh', { timeout: 20_000 }, () => {
   it('unpacks the release and runs its receiver as the GitHub Actions run', () => {
     const result = receive(`deploy ${id} paid 12345`)
     expect(result.status).toBe(0)
@@ -408,6 +414,69 @@ describe('ci-receive.sh', { timeout: 20_000 }, () => {
     })
   })
 
+  describe('the installed receiver keeps itself current from main', () => {
+    const installed = () => join(home, 'bin', 'aip-ci-receive')
+    /** The receiver as installed on the host, run through its fixed path like the forced command. */
+    function receiveInstalled(target = 'test') {
+      mkdirSync(join(home, 'bin'), { recursive: true })
+      if (!existsSync(installed())) {
+        copyFileSync(script, installed())
+        chmodSync(installed(), 0o755)
+      }
+      return spawnSync('sh', [installed(), target === 'paid' ? 'release' : 'test'], {
+        env: {
+          ...process.env,
+          HOME: home,
+          AIP_RUNTIME_GIT_URL: `file://${origin}`,
+          CALL_LOG: log,
+          SSH_ORIGINAL_COMMAND: `deploy ${id} ${target} 1`,
+        },
+        input: releaseTar(manifest(target, mainCommit)),
+        encoding: 'utf8',
+        timeout: 20000,
+      })
+    }
+    function commitReceiver(content: string) {
+      writeFileSync(join(origin, 'scripts', 'ci-receive.sh'), content)
+      git(origin, 'add', '-A')
+      git(origin, 'commit', '-q', '-m', 'receiver')
+      mainCommit = git(origin, 'rev-parse', 'HEAD')
+    }
+
+    it("installs main's receiver after the deploy, keeping the previous one", () => {
+      commitReceiver('#!/bin/sh\n# receiver from main\nexit 0\n')
+      const result = receiveInstalled()
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.stderr).toContain('Receiver updated from main')
+      expect(readFileSync(installed(), 'utf8')).toBe('#!/bin/sh\n# receiver from main\nexit 0\n')
+      const backups = readdirSync(join(home, 'bin')).filter((name) => name.includes('.bak-'))
+      expect(backups).toHaveLength(1)
+      expect(readFileSync(join(home, 'bin', backups[0] ?? ''), 'utf8')).toBe(
+        readFileSync(script, 'utf8'),
+      )
+    })
+
+    it("keeps the installed receiver when main's does not parse", () => {
+      commitReceiver('#!/bin/sh\nif then fi (\n')
+      const result = receiveInstalled()
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.stderr).toContain('fails a syntax check')
+      expect(readFileSync(installed(), 'utf8')).toBe(readFileSync(script, 'utf8'))
+    })
+
+    it('never rewrites a receiver run from anywhere but the installed path', () => {
+      commitReceiver('#!/bin/sh\nexit 0\n')
+      const result = receive(
+        `deploy ${id} test 1`,
+        releaseTar(manifest('test', mainCommit)),
+        {},
+        'test',
+      )
+      expect(result.status, result.stderr).toBe(0)
+      expect(result.stderr).not.toContain('Receiver updated')
+    })
+  })
+
   describe('test runs main deployment runtime without a hand-maintained copy', () => {
     const runtimes = () => join(home, 'deploy-runtimes')
 
@@ -618,48 +687,50 @@ describe('ci-receive.sh', { timeout: 20_000 }, () => {
       expect(existsSync(log)).toBe(false)
     })
 
-    it('warns when the installed receiver lags behind main scripts/ci-receive.sh, without failing or warning on rollback', () => {
+    it("updates the installed receiver only from main's tip, never on a rollback to an older commit", () => {
+      const bin = join(home, 'bin')
+      const installed = join(bin, 'aip-ci-receive')
+      mkdirSync(bin, { recursive: true })
+      copyFileSync(script, installed)
+      chmodSync(installed, 0o755)
+      const run = (release: string, commit: string, runId: number) =>
+        spawnSync('sh', [installed, 'release'], {
+          env: {
+            ...process.env,
+            HOME: home,
+            AIP_RUNTIME_GIT_URL: `file://${origin}`,
+            CALL_LOG: log,
+            SSH_ORIGINAL_COMMAND: `deploy ${release} paid ${runId}`,
+          },
+          input: releaseTar(manifest('paid', commit)),
+          encoding: 'utf8',
+          timeout: 20000,
+        })
+
       copyFileSync(script, join(origin, 'scripts', 'ci-receive.sh'))
       git(origin, 'add', 'scripts/ci-receive.sh')
       git(origin, 'commit', '-q', '-m', 'matching receiver')
       const matching = git(origin, 'rev-parse', 'HEAD')
-
-      const ok = receive(`deploy ${id} paid 1`, releaseTar(manifest('paid', matching)))
+      const ok = run(id, matching, 1)
       expect(ok.status, ok.stderr).toBe(0)
-      expect(ok.stderr).not.toContain('installed receiver')
+      expect(ok.stderr).not.toContain('Receiver updated')
 
-      writeFileSync(
-        join(origin, 'scripts', 'ci-receive.sh'),
-        `${readFileSync(script, 'utf8')}\n# newer receiver on main\n`,
-      )
+      const newer = `${readFileSync(script, 'utf8')}\n# newer receiver on main\n`
+      writeFileSync(join(origin, 'scripts', 'ci-receive.sh'), newer)
       git(origin, 'add', 'scripts/ci-receive.sh')
       git(origin, 'commit', '-q', '-m', 'updated receiver')
       const updated = git(origin, 'rev-parse', 'HEAD')
 
-      const nextId = `aip-${'e'.repeat(12)}-${'b'.repeat(12)}`
-      const lagged = receive(`deploy ${nextId} paid 2`, releaseTar(manifest('paid', updated)))
-      expect(lagged.status, lagged.stderr).toBe(0)
-      expect(lagged.stderr).toContain(
-        `Warning: installed receiver ${script} differs from main (${updated}) scripts/ci-receive.sh`,
-      )
-
-      // Redeploying an earlier commit on main does not falsely claim the installed receiver lags.
-      copyFileSync(join(origin, 'scripts', 'ci-receive.sh'), join(root, 'installed-receiver.sh'))
-      chmodSync(join(root, 'installed-receiver.sh'), 0o755)
-      const rollback = spawnSync('sh', [join(root, 'installed-receiver.sh'), 'release'], {
-        env: {
-          ...process.env,
-          HOME: home,
-          AIP_RUNTIME_GIT_URL: `file://${origin}`,
-          CALL_LOG: log,
-          SSH_ORIGINAL_COMMAND: `deploy ${id} paid 3`,
-        },
-        input: releaseTar(manifest('paid', matching)),
-        encoding: 'utf8',
-        timeout: 20000,
-      })
+      // Rolling back to the older commit while main is ahead: that runtime is not main's tip.
+      const rollback = run(`aip-${'e'.repeat(12)}-${'b'.repeat(12)}`, matching, 2)
       expect(rollback.status, rollback.stderr).toBe(0)
-      expect(rollback.stderr).not.toContain('installed receiver')
+      expect(rollback.stderr).not.toContain('Receiver updated')
+      expect(readFileSync(installed, 'utf8')).toBe(readFileSync(script, 'utf8'))
+
+      const current = run(`aip-${'f'.repeat(12)}-${'b'.repeat(12)}`, updated, 3)
+      expect(current.status, current.stderr).toBe(0)
+      expect(current.stderr).toContain(`Receiver updated from main (${updated})`)
+      expect(readFileSync(installed, 'utf8')).toBe(newer)
     })
 
     it('waits briefly for a live holder to publish .lock.owner and ignores dead owner files', async () => {

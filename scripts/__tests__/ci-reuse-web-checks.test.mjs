@@ -133,7 +133,7 @@ function webJobNames() {
 }
 
 test('every job name the script requires is one web.yml really produces', () => {
-  assert.equal(required.length, 10)
+  assert.equal(required.length, 11)
   const names = webJobNames()
   for (const name of required) assert.ok(names.includes(name), `web.yml has no job named "${name}"; update REQUIRED in scripts/ci-reuse-web-checks.sh`)
 })
