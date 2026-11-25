@@ -84,4 +84,23 @@ describe('test-sync.sh', () => {
     expect(result.status, result.stderr).toBe(0)
     expect(result.stdout).toContain('nothing to push')
   })
+
+  it('works in a single-branch clone whose fetch refspec only tracks main', () => {
+    commit(clone, 'main.txt', 'main\n', 'main moves')
+    git(clone, 'push', '-q', 'origin', 'HEAD:main')
+    git(clone, 'switch', '-q', '-c', 'feature', 'origin/main')
+    commit(clone, 'feature.txt', 'feature\n', 'feature')
+    git(clone, 'push', '-q', 'origin', 'feature')
+
+    const single = join(root, 'single')
+    git(root, 'clone', '-q', '--single-branch', '-b', 'main', origin, single)
+    const result = spawnSync('sh', [script, 'feature'], { cwd: single, encoding: 'utf8', env })
+    expect(result.status, result.stderr).toBe(0)
+    const test = remoteHead('test')
+    for (const ref of ['main', 'feature'])
+      expect(
+        spawnSync('git', ['merge-base', '--is-ancestor', remoteHead(ref), test], { cwd: origin })
+          .status,
+      ).toBe(0)
+  })
 })

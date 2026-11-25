@@ -12,7 +12,14 @@ set -eu
 
 remote=${TEST_SYNC_REMOTE:-origin}
 repo=$(git rev-parse --show-toplevel)
-git -C "$repo" fetch -q "$remote" main test "$@"
+# Explicit refspecs ensure single-branch clones still create/update refs/remotes/$remote/*.
+git -C "$repo" fetch -q "$remote" \
+  "+refs/heads/main:refs/remotes/$remote/main" \
+  "+refs/heads/test:refs/remotes/$remote/test"
+for ref in "$@"; do
+  case $ref in main | test) continue ;; esac
+  git -C "$repo" fetch -q "$remote" "+refs/heads/$ref:refs/remotes/$remote/$ref"
+done
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/aip-test-sync.XXXXXX")
 rmdir "$work"

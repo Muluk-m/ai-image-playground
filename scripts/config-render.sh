@@ -7,9 +7,9 @@
 #
 #   scripts/config-render.sh <prod|test> <compose project> <image>
 #
-# A deployment switches to rendered configuration only once rendered/<project> exists (create the
-# empty directory to opt in, delete it to fall back to app.env); scripts/vps-deploy.sh calls this on
-# every release of an opted-in deployment.
+# A deployment switches to rendered configuration when deploy/deployments/<name>.json sets
+# `"configSource": "rendered"`; scripts/vps-deploy.sh calls this on every release of such a
+# deployment. Set `"configSource": "legacy"` to fall back to app.env.
 set -eu
 deployment=${1:-}
 project=${2:-}

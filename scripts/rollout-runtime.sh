@@ -45,7 +45,32 @@ app_env=$config_dir/app.env
 # for it and the operator config rendered beside it; app.env is not read. See scripts/app-compose.sh.
 rendered_dir=${RENDERED_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/rendered/$project}
 # CONFIG_SOURCE comes from the deployment descriptor through vps-deploy.sh and app-compose.sh; a
-# hand run without it goes by what is on disk.
+# hand run without it looks up the matching descriptor first and only falls back to disk for
+# fixture projects without a descriptor.
+if [ -z "${CONFIG_SOURCE:-}" ]; then
+  for descriptor in "$repo_root"/deploy/deployments/*.json; do
+    [ -f "$descriptor" ] || continue
+    case $descriptor in *.schema.json) continue ;; esac
+    descriptor_project=$(sed -n 's/^[[:space:]]*"composeProject":[[:space:]]*"\([^"]*\)".*/\1/p' "$descriptor" | head -n 1)
+    if [ "$descriptor_project" = "$project" ]; then
+      CONFIG_SOURCE=$(sed -n 's/^[[:space:]]*"configSource":[[:space:]]*"\([a-z]*\)".*/\1/p' "$descriptor" | head -n 1)
+      case $CONFIG_SOURCE in
+        rendered | legacy) ;;
+        *) echo "$descriptor names no configSource (rendered or legacy); refusing to guess" >&2; exit 1 ;;
+      esac
+      break
+    fi
+  done
+fi
+case ${CONFIG_SOURCE:-} in
+  rendered)
+    [ -f "$rendered_dir/deploy.env" ] || {
+      echo "configSource is rendered but $rendered_dir/deploy.env is missing; run scripts/config-render.sh first" >&2
+      exit 1
+    } ;;
+  legacy | '') ;;
+  *) echo "Unknown CONFIG_SOURCE: $CONFIG_SOURCE" >&2; exit 2 ;;
+esac
 if [ "${CONFIG_SOURCE:-}" != legacy ] && [ -f "$rendered_dir/deploy.env" ]; then
   bff_env=$rendered_dir/env/bff.env
   worker_env=$rendered_dir/env/worker.env

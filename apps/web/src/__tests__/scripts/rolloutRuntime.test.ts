@@ -1043,6 +1043,52 @@ describe('app-compose.sh up', () => {
     expect(logLines().some((line) => /^(create|run|stop|rm) /.test(line))).toBe(false)
   })
 
+  it('reads the deployment descriptor on hand runs so a stale rendered/ directory never overrides legacy', () => {
+    const prodConfig = join(xdg, 'ai-image-playground/apps/image-playground-paid')
+    const staleRendered = join(xdg, 'ai-image-playground/rendered/image-playground-paid')
+    write(join(prodConfig, 'app.env'), 'APP_IMAGE=fixture:new\n')
+    write(join(prodConfig, 'migrate.env'), '')
+    write(join(prodConfig, 'cloudflared/credentials.json'), '{}')
+    write(join(staleRendered, 'deploy.env'), 'COMPOSE_PROJECT=image-playground-paid\n')
+    const result = spawnSync('sh', [composeScript, 'compose', 'image-playground-paid', 'ps'], {
+      encoding: 'utf8',
+      timeout: 20_000,
+      env: {
+        ...process.env,
+        PATH: `${join(root, 'bin')}:${process.env.PATH}`,
+        MOCK_ROOT: root,
+        XDG_CONFIG_HOME: xdg,
+        APP_CONFIG_DIR: '',
+        RENDERED_DIR: '',
+        CONFIG_SOURCE: '',
+      },
+    })
+    expect(result.status, result.stderr).toBe(0)
+    const log = logLines().join('\n')
+    expect(log).toContain(`${prodConfig}/app.env`)
+    expect(log).not.toContain('compose.rendered.yaml')
+  })
+
+  it('refuses a direct rollout-runtime.sh call when CONFIG_SOURCE=rendered has no rendered deploy.env', () => {
+    currentGeneration()
+    const result = spawnSync('sh', [script, 'fixture', newImage], {
+      encoding: 'utf8',
+      timeout: 20_000,
+      env: {
+        ...process.env,
+        PATH: `${join(root, 'bin')}:${process.env.PATH}`,
+        MOCK_ROOT: root,
+        XDG_CONFIG_HOME: xdg,
+        APP_CONFIG_DIR: config,
+        RENDERED_DIR: join(xdg, 'ai-image-playground/rendered/missing'),
+        CONFIG_SOURCE: 'rendered',
+      },
+    })
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('configSource is rendered but')
+    expect(logLines().some((line) => /^(create|run|stop|rm) /.test(line))).toBe(false)
+  })
+
   it('starts a new generation when the image is the same but the render changed (ADR 0035)', () => {
     config = join(xdg, 'ai-image-playground/apps/fixture')
     const rendered = join(xdg, 'ai-image-playground/rendered/fixture')

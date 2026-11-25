@@ -58,12 +58,29 @@ else
   [ "$#" -eq 0 ] || shift
 fi
 
-# Config center (ADR 0035): once scripts/config-render.sh has written rendered/<project>, every
-# service reads its own generated env file through deploy/compose.rendered.yaml and app.env is no
-# longer consulted. Removing that directory falls back to app.env. The project directory keeps the
+# Config center (ADR 0035): deploy/deployments/<name>.json declares `configSource` (`rendered` or
+# `legacy`). Under `rendered`, every service reads its own generated env file through
+# deploy/compose.rendered.yaml and app.env is no longer consulted. The project directory keeps the
 # release state either way (releases/, mounted at /run/operator).
 RENDERED_DIR=${RENDERED_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/rendered/$project}
-# vps-deploy.sh passes the descriptor's configSource; a hand run without it goes by what is on disk.
+# vps-deploy.sh passes CONFIG_SOURCE from the descriptor. A hand run without it looks up the
+# descriptor matching this project (so switching back to legacy is never undone by a stale rendered/
+# directory), and only falls back to what is on disk for fixture projects without a descriptor.
+if [ -z "${CONFIG_SOURCE:-}" ]; then
+  for descriptor in "$repo_root"/deploy/deployments/*.json; do
+    [ -f "$descriptor" ] || continue
+    case $descriptor in *.schema.json) continue ;; esac
+    descriptor_project=$(sed -n 's/^[[:space:]]*"composeProject":[[:space:]]*"\([^"]*\)".*/\1/p' "$descriptor" | head -n 1)
+    if [ "$descriptor_project" = "$project" ]; then
+      CONFIG_SOURCE=$(sed -n 's/^[[:space:]]*"configSource":[[:space:]]*"\([a-z]*\)".*/\1/p' "$descriptor" | head -n 1)
+      case $CONFIG_SOURCE in
+        rendered | legacy) ;;
+        *) echo "$descriptor names no configSource (rendered or legacy); refusing to guess" >&2; exit 1 ;;
+      esac
+      break
+    fi
+  done
+fi
 case ${CONFIG_SOURCE:-} in
   rendered)
     [ -f "$RENDERED_DIR/deploy.env" ] || {
@@ -76,7 +93,7 @@ esac
 if [ "${CONFIG_SOURCE:-}" != legacy ] && [ -f "$RENDERED_DIR/deploy.env" ]; then
   rendered=true
   if [ -n "$explicit_env_file" ]; then
-    echo "$RENDERED_DIR is in use; an env file argument would be ignored. Remove that directory to go back to app.env." >&2
+    echo "configSource is rendered ($RENDERED_DIR); an env file argument would be ignored. Switch configSource to legacy in deploy/deployments/<name>.json (or pass CONFIG_SOURCE=legacy) to use app.env." >&2
     exit 2
   fi
   # `env_file: format: raw` needs Compose 2.30, `!override`/`!reset` 2.24.
@@ -443,7 +460,7 @@ activate_backend_then_ingress() {
     # Rendered configuration points tunnels, Admin and the host collector at the release router,
     # which only exists after a release rollout. A first install still goes through app.env; a new
     # host under the config center is scripts/bootstrap-host.sh's job (ADR 0035 P6).
-    echo "First install of $project under the config center is not supported yet; deploy it once with app.env (remove $RENDERED_DIR)." >&2
+    echo "First install of $project under the config center is not supported yet; deploy it once with configSource set to legacy in deploy/deployments/<name>.json (or CONFIG_SOURCE=legacy for a hand run)." >&2
     exit 1
   fi
   start_log_collector

@@ -384,8 +384,9 @@ update_receiver() {
   if cp -p "$installed" "$installed.bak-$stamp" && cp "$candidate" "$next" && chmod 755 "$next" &&
     mv -f "$next" "$installed"; then
     echo "Receiver updated from main ($main_tip); the previous one is $installed.bak-$stamp. It applies from the next deploy." >&2
-    # The five newest backups are enough to step back.
-    ls -1t "$installed".bak-* 2>/dev/null | tail -n +6 | while read -r old; do rm -f "$old"; done
+    # The five newest backups are enough to step back; sort by the UTC timestamp in the filename so
+    # restoring an older receiver with cp -p never makes the backup just written look oldest.
+    ls -1r "$installed".bak-* 2>/dev/null | tail -n +6 | while read -r old; do rm -f "$old"; done
   else
     rm -f "$next"
     echo "Warning: could not update $installed from main ($main_tip)" >&2
