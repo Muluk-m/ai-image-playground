@@ -129,6 +129,8 @@ case "$cmd" in
           "$(cat "$dir/generation")" ;;
       '{{.Image}}'|'{{.Config.Image}}') cat "$dir/image" ;;
       '{{.State.Running}}') echo "$running" ;;
+      *'app.runtime.config'*) cat "$dir/config" 2>/dev/null || echo ;;
+      *'.Mounts'*) cat "$dir/mount" 2>/dev/null || true ;;
     esac ;;
   update)
     restart=${'${'}1#--restart=}
@@ -138,7 +140,7 @@ case "$cmd" in
       echo "$restart" > "$C/$name/restart"
     done ;;
   create|run)
-    name= project=- role=- generation=- image= restart=unless-stopped
+    name= project=- role=- generation=- image= restart=unless-stopped config_label=
     rm_flag=false
     while [ $# -gt 0 ]; do
       case "$1" in
@@ -151,6 +153,7 @@ case "$cmd" in
             app.runtime.project=*) project=${'${'}1#app.runtime.project=} ;;
             app.runtime.role=*) role=${'${'}1#app.runtime.role=} ;;
             app.runtime.generation=*) generation=${'${'}1#app.runtime.generation=} ;;
+            app.runtime.config=*) config_label=${'${'}1#app.runtime.config=} ;;
           esac ;;
         sha256:*|fixture:*) image=$1 ;;
       esac
@@ -169,6 +172,7 @@ case "$cmd" in
     echo "$project" > "$C/$name/project"
     echo "$role" > "$C/$name/role"
     echo "$generation" > "$C/$name/generation"
+    printf '%s\n' "$config_label" > "$C/$name/config"
     echo - > "$C/$name/compose-project"
     echo - > "$C/$name/compose-service"
     echo "$restart" > "$C/$name/restart"
@@ -226,6 +230,8 @@ interface ContainerSpec {
   draining?: boolean
   failed?: boolean
   restart?: 'unless-stopped' | 'no'
+  /** app.runtime.config label: the render the executor was created from. */
+  config?: string
 }
 
 function container(name: string, spec: ContainerSpec = {}) {
@@ -252,6 +258,7 @@ function container(name: string, spec: ContainerSpec = {}) {
     drain: spec.drain ?? 'idle',
     draining: String(spec.draining ?? false),
     failed: String(spec.failed ?? false),
+    config: spec.config ?? '',
   }
   for (const [field, value] of Object.entries(fields)) writeFileSync(join(dir, field), `${value}\n`)
 }
@@ -934,6 +941,182 @@ describe('app-compose.sh up', () => {
     )
     const [bff, worker] = currentPair()
     expect(readFileSync(releases('route.json'), 'utf8')).toBe(routeFor(bff, worker))
+  })
+
+  it('runs every role from its own rendered env file once the config center has rendered the deployment (ADR 0035)', () => {
+    config = join(xdg, 'ai-image-playground/apps/fixture')
+    const rendered = join(xdg, 'ai-image-playground/rendered/fixture')
+    write(
+      join(rendered, 'deploy.env'),
+      'COMPOSE_PROJECT=fixture\nOBSERVABILITY_ENABLED=true\nOBS_UI_HOST_PORT=15081\nOBS_PROXY_HOST_PORT=15091\nENTERPRISE_TUNNEL_ENABLED=true\n',
+    )
+    for (const service of ['bff', 'worker', 'migrate'])
+      write(join(rendered, `env/${service}.env`), '')
+    write(join(rendered, 'operator-config.json'), '{}\n')
+    write(join(rendered, 'cloudflared/main/credentials.json'), '{}')
+    write(join(rendered, 'cloudflared/enterprise/config.yml'), 'ingress: []\n')
+    write(join(rendered, 'cloudflared/enterprise/credentials.json'), '{}')
+    currentGeneration()
+    write(
+      join(rendered, 'cloudflared/main/config.yml'),
+      'ingress:\n  - service: http://release-router:37377\n',
+    )
+    // The legacy tunnel file is gone: the rollout must read the rendered one.
+    rmSync(join(config, 'cloudflared'), { recursive: true, force: true })
+    rmSync(join(config, 'app.env'), { force: true })
+    rmSync(join(config, 'migrate.env'), { force: true })
+    const result = spawnSync('sh', [composeScript, 'up', 'fixture'], {
+      encoding: 'utf8',
+      timeout: 20_000,
+      env: {
+        ...process.env,
+        PATH: `${join(root, 'bin')}:${process.env.PATH}`,
+        MOCK_ROOT: root,
+        XDG_CONFIG_HOME: xdg,
+        APP_IMAGE: 'fixture:new',
+        APP_CONFIG_DIR: '',
+        RENDERED_DIR: '',
+        DEPLOY_DRAIN_DEADLINE_SECONDS: '0',
+        TUNNEL_READY_SECONDS: '0',
+      },
+    })
+    expect(result.status, result.stderr).toBe(0)
+    const log = logLines()
+    expect(log.join('\n')).not.toContain('app.env')
+    const composeCalls = log.filter((line) => line.startsWith('compose --project-name'))
+    expect(composeCalls.length).toBeGreaterThan(0)
+    for (const line of composeCalls) {
+      expect(line).toContain(`--env-file ${rendered}/deploy.env `)
+      expect(line).toContain('/deploy/compose.rendered.yaml ')
+    }
+    expect(log).toContain('compose-env profiles=observability,enterprise-tunnel match=*')
+    // Neither connector runs from the rendered directory yet: both are recreated after the rollout.
+    for (const service of ['cloudflared', 'cloudflared-enterprise']) {
+      expect(
+        indexOf(log, new RegExp(`^compose .* up --detach --no-deps --force-recreate ${service}$`)),
+      ).toBeGreaterThan(indexOf(log, /^create /))
+    }
+    // Connectors bind a directory that survives re-renders; its files are copied in place.
+    const tunnels = join(xdg, 'ai-image-playground/tunnels/fixture')
+    expect(readFileSync(join(tunnels, 'main/config.yml'), 'utf8')).toBe(
+      readFileSync(join(rendered, 'cloudflared/main/config.yml'), 'utf8'),
+    )
+    expect(readFileSync(join(tunnels, 'enterprise/credentials.json'), 'utf8')).toBe('{}')
+    // Both connectors came back with their files, so nothing is left pending for the next deploy.
+    expect(existsSync(join(tunnels, '.pending-main'))).toBe(false)
+    expect(existsSync(join(tunnels, '.pending-enterprise'))).toBe(false)
+    const operator = `--mount type=bind,source=${rendered}/operator-config.json,target=/run/operator/operator-config.json,readonly `
+    for (const role of ['bff', 'worker']) {
+      const create = log.find(
+        (line) => line.startsWith('create ') && line.includes(`role=${role} `),
+      )
+      expect(create).toContain(`--env-file ${rendered}/env/${role}.env `)
+      expect(create).toContain(operator)
+    }
+    const migrate = log.find((line) => line.startsWith('run ') && line.includes('-migrate '))
+    expect(migrate).toContain(`--env-file ${rendered}/env/migrate.env `)
+    expect(migrate).toContain(operator)
+  })
+
+  it('starts a new generation when the image is the same but the render changed (ADR 0035)', () => {
+    config = join(xdg, 'ai-image-playground/apps/fixture')
+    const rendered = join(xdg, 'ai-image-playground/rendered/fixture')
+    write(join(rendered, 'deploy.env'), 'COMPOSE_PROJECT=fixture\nOBSERVABILITY_ENABLED=false\n')
+    for (const service of ['bff', 'worker', 'migrate'])
+      write(join(rendered, `env/${service}.env`), `ROLE=${service}\n`)
+    write(join(rendered, 'operator-config.json'), '{}\n')
+    write(join(rendered, 'cloudflared/main/credentials.json'), '{}')
+    write(
+      join(rendered, 'cloudflared/main/config.yml'),
+      'ingress:\n  - service: http://release-router:37377\n',
+    )
+    const digestOf = (segmenter = '') =>
+      spawnSync(
+        'sh',
+        [
+          '-c',
+          '{ cat "$1/env/bff.env" "$1/env/worker.env" "$1/operator-config.json"; printf "AGENT_SEGMENTER_URL=%s\\n" "$2"; } | cksum',
+          'sh',
+          rendered,
+          segmenter,
+        ],
+        { encoding: 'utf8' },
+      )
+        .stdout.trim()
+        .split(/\s+/)
+        .join('-')
+    const digest = digestOf()
+    const up = (extra: NodeJS.ProcessEnv = {}) =>
+      spawnSync('sh', [composeScript, 'up', 'fixture'], {
+        encoding: 'utf8',
+        timeout: 20_000,
+        env: {
+          ...process.env,
+          PATH: `${join(root, 'bin')}:${process.env.PATH}`,
+          MOCK_ROOT: root,
+          XDG_CONFIG_HOME: xdg,
+          APP_IMAGE: 'fixture:new',
+          APP_CONFIG_DIR: '',
+          RENDERED_DIR: '',
+          DEPLOY_DRAIN_DEADLINE_SECONDS: '0',
+          TUNNEL_READY_SECONDS: '0',
+          ...extra,
+        },
+      })
+    // Same image, same render: the running generation stays.
+    currentGeneration(
+      { image: 'fixture:new', config: digest },
+      { image: 'fixture:new', config: digest },
+    )
+    rmSync(join(config, 'cloudflared'), { recursive: true, force: true })
+    const kept = up()
+    expect(kept.status, kept.stderr).toBe(0)
+    expect(logLines().some((line) => line.startsWith('create '))).toBe(false)
+    // Same image, new render: a new generation, labelled with the render it runs.
+    write(join(rendered, 'env/bff.env'), 'ROLE=bff\nROTATED=1\n')
+    const rolled = up()
+    expect(rolled.status, rolled.stderr).toBe(0)
+    const create = logLines().find(
+      (line) => line.startsWith('create ') && line.includes('role=bff '),
+    )
+    expect(create).toBeDefined()
+    expect(create).not.toContain(`app.runtime.config=${digest} `)
+    expect(create).toContain('--label app.runtime.config=')
+
+    // Same image and files, but the segmenter switched on: the executors need its address.
+    write(join(rendered, 'env/bff.env'), 'ROLE=bff\n')
+    rmSync(join(root, 'containers'), { recursive: true, force: true })
+    mkdirSync(join(root, 'containers'))
+    writeFileSync(join(root, 'log'), '')
+    currentGeneration(
+      { image: 'fixture:new', config: digest },
+      { image: 'fixture:new', config: digest },
+    )
+    const segmenter = up({ AGENT_SEGMENTER_URL: 'http://segmenter:8080' })
+    expect(segmenter.status, segmenter.stderr).toBe(0)
+    expect(
+      logLines().find((line) => line.startsWith('create ') && line.includes('role=bff ')),
+    ).toContain(`app.runtime.config=${digestOf('http://segmenter:8080')} `)
+
+    // Back on app.env: executors labelled by the config center still run on the render.
+    rmSync(rendered, { recursive: true, force: true })
+    rmSync(join(root, 'containers'), { recursive: true, force: true })
+    mkdirSync(join(root, 'containers'))
+    writeFileSync(join(root, 'log'), '')
+    write(join(config, 'app.env'), '')
+    write(join(config, 'migrate.env'), '')
+    currentGeneration(
+      { image: 'fixture:new', config: digest },
+      { image: 'fixture:new', config: digest },
+    )
+    write(join(config, 'cloudflared/credentials.json'), '{}')
+    const legacy = up()
+    expect(legacy.status, legacy.stderr).toBe(0)
+    const legacyCreate = logLines().find(
+      (line) => line.startsWith('create ') && line.includes('role=bff '),
+    )
+    expect(legacyCreate).toBeDefined()
+    expect(legacyCreate).not.toContain('app.runtime.config=')
   })
 
   let lastStderr = ''

@@ -24,7 +24,17 @@ segmenter_version() {
   printf '%s\n' "$1" | sed -n 's/^ai-image-playground:segmenter-\([0-9][0-9]*\)-[0-9a-f]*$/\1/p'
 }
 DEPLOY_MIN_FREE_GB=${DEPLOY_MIN_FREE_GB:-8}
-if [ "$target" = test ]; then
+# Config center (ADR 0035): a deployment whose rendered/<project> directory exists gets its
+# configuration rendered from the release image below and never reads app.env. Opting in or out is
+# creating or deleting that directory; production needs Nain's approval for either.
+case "$target" in paid) config_deployment='prod'; config_project=$PAID_PROJECT ;; *) config_deployment='test'; config_project=$TEST_PROJECT ;; esac
+config_rendered_dir=$config_root/rendered/$config_project
+# A render killed between moving the old directory aside and installing the new one leaves only
+# <dir>.prev-<pid>; the next render puts it back, so that still counts as opted in.
+config_center=false
+[ ! -d "$config_rendered_dir" ] || config_center=true
+for leftover in "$config_rendered_dir".prev-*; do [ ! -d "$leftover" ] || config_center=true; done
+if [ "$target" = test ] && [ "$config_center" = false ]; then
   sh "$repo_root/scripts/check-test-isolation.sh" runtime "$config_root/apps/$TEST_PROJECT"
   MIGRATOR_ENV_FILE=$config_root/apps/$TEST_PROJECT/migrate.env
   export MIGRATOR_ENV_FILE
@@ -154,19 +164,31 @@ $record
 EOF
 prefix=$(printf '%s' "$target" | tr '[:lower:]' '[:upper:]')
 project=$(edition_var "$prefix" PROJECT)
-# SEGMENTER_EDITIONS accepts paid (production) and test; default: test only.
-# Enabling production requires Nain's approval. The target gets the shared address only
-# while healthy; otherwise edit-region cards fall back to the agent's box.
-# Detach when unavailable so a later rollback reads the same attachment state.
+if [ "$config_center" = true ]; then
+  # Before any service or schema changes: a missing secret or bad descriptor stops here.
+  "$repo_root/scripts/config-render.sh" "$config_deployment" "$project" "$image"
+  if [ "$target" = test ]; then
+    sh "$repo_root/scripts/check-test-isolation.sh" runtime "$config_rendered_dir"
+  fi
+fi
+# Whether the target uses the shared segmenter. Under the config center the deployment descriptor
+# decides (`segmenter`, rendered into deploy.env); otherwise SEGMENTER_EDITIONS, which accepts paid
+# (production) and test, default test only. Enabling production requires Nain's approval. The
+# target gets the shared address only while healthy; otherwise edit-region cards fall back to the
+# agent's box. Detach when unavailable so a later rollback reads the same attachment state.
+if [ "$config_center" = true ]; then
+  segmenter_wanted=$(sed -n 's/^SEGMENTER_ENABLED=//p' "$config_rendered_dir/deploy.env" | tail -n 1)
+else
+  case " ${SEGMENTER_EDITIONS:-test} " in
+    *" $target "*) segmenter_wanted=true ;;
+    *) segmenter_wanted=false ;;
+  esac
+fi
 AGENT_SEGMENTER_URL=
 AGENT_SEGMENTER_NAMESPACE=$project
-case " ${SEGMENTER_EDITIONS:-test} " in
-  *" $target "*)
-    if "$repo_root/scripts/segmenter-deploy.sh" healthy; then
-      AGENT_SEGMENTER_URL=http://segmenter:8080
-    fi
-    ;;
-esac
+if [ "$segmenter_wanted" = true ] && "$repo_root/scripts/segmenter-deploy.sh" healthy; then
+  AGENT_SEGMENTER_URL=http://segmenter:8080
+fi
 export AGENT_SEGMENTER_URL AGENT_SEGMENTER_NAMESPACE
 if [ -z "$AGENT_SEGMENTER_URL" ] && ! "$repo_root/scripts/segmenter-deploy.sh" detach "$project"; then
   echo "Warning: could not detach the segmenter from $project." >&2

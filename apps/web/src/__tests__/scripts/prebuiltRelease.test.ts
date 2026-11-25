@@ -467,6 +467,38 @@ describe('receivers with the shared segmenter', () => {
     expect(readFileSync(log, 'utf8')).not.toMatch(/rollout|segmenter up/)
   })
 
+  // Config center: the rendered deploy.env decides, SEGMENTER_EDITIONS is not read.
+  const configCenter = (segmenter: boolean) => {
+    const rendered = join(root, 'config/ai-image-playground/rendered/image-playground-paid')
+    mkdirSync(rendered, { recursive: true })
+    writeFileSync(
+      join(release, 'scripts/config-render.sh'),
+      `#!/bin/sh\nprintf 'render %s\\n' "$*" >> "$CALL_LOG"\nprintf 'SEGMENTER_ENABLED=${segmenter}\\n' > '${rendered}/deploy.env'\n`,
+    )
+    chmodSync(join(release, 'scripts/config-render.sh'), 0o755)
+    checksums()
+  }
+
+  it('follows the rendered segmenter switch under the config center, not SEGMENTER_EDITIONS', () => {
+    productionRelease([backupRow])
+    configCenter(false)
+    env.SEGMENTER_EDITIONS = 'paid test'
+    env.TEST_SEGMENTER_HEALTHY_EXIT = '0'
+    expect(run().status).toBe(0)
+    let calls = readFileSync(log, 'utf8').split('\n')
+    expect(calls.some((c) => c.startsWith('render prod image-playground-paid '))).toBe(true)
+    expect(calls).toContain('segmenter detach image-playground-paid')
+    expect(calls.join('\n')).not.toContain('segmenter attach')
+
+    writeFileSync(log, '')
+    configCenter(true)
+    delete env.SEGMENTER_EDITIONS
+    expect(run().status).toBe(0)
+    calls = readFileSync(log, 'utf8').split('\n')
+    expect(calls).toContain('segmenter attach image-playground-paid')
+    expect(calls.join('\n')).not.toContain('segmenter detach')
+  })
+
   it('attaches production when SEGMENTER_EDITIONS includes paid', () => {
     productionRelease([backupRow])
     env.SEGMENTER_EDITIONS = 'paid test'

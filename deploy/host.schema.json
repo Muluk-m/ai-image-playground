@@ -45,6 +45,10 @@
         "minFreeGb": {
           "type": "integer",
           "minimum": 1
+        },
+        "diskProbeSource": {
+          "type": "string",
+          "pattern": "^/[A-Za-z0-9_./-]*$"
         }
       },
       "additionalProperties": false
