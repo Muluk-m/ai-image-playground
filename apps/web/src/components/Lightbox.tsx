@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { originalBlob } from '../features/image-export/sources'
 import { openImageExport } from '../features/image-export/store'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
@@ -16,9 +16,42 @@ const MIN_SCALE = 1
 const MAX_SCALE = 10
 /** 手指移出这个距离才算拖动 */
 const TOUCH_DRAG_THRESHOLD_PX = 8
+/** 未缩放状态下纵向拖出这个距离或抛掷速度即可跟手关闭 */
+const DISMISS_DISTANCE_PX = 110
+const DISMISS_VELOCITY_PX_MS = 0.55
+const FLIP_OPEN_MS = 280
+const FLIP_CLOSE_MS = 200
+const FLIP_OPEN_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)'
+const FLIP_CLOSE_EASING = 'cubic-bezier(0.32, 0.72, 0, 1)'
 
 function clamp(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v))
+}
+
+function prefersReducedMotion(): boolean {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
+
+/** 在视口内定位触发 Lightbox 的原卡片缩略图，供共享元素 FLIP 展开与收回使用。 */
+function findSourceImageRect(imageId: string): DOMRect | null {
+  if (!imageId || typeof document === 'undefined' || typeof window === 'undefined') return null
+  const escaped =
+    typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+      ? CSS.escape(imageId)
+      : imageId.replace(/["\\]/g, '\\$&')
+  const candidates = document.querySelectorAll<HTMLElement>(`[data-image-id="${escaped}"]`)
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  for (let i = 0; i < candidates.length; i += 1) {
+    const el = candidates[i]
+    if (el.closest('[data-lightbox-root]')) continue
+    const rect = el.getBoundingClientRect()
+    if (rect.width <= 8 || rect.height <= 8) continue
+    if (rect.bottom <= 0 || rect.top >= vh || rect.right <= 0 || rect.left >= vw) continue
+    return rect
+  }
+  return null
 }
 
 export default function Lightbox() {
@@ -291,6 +324,9 @@ function LightboxInner({
 }: LightboxInnerProps) {
   const { t } = useTranslation(['task', 'common', 'toolbox'])
   const containerRef = useRef<HTMLDivElement>(null)
+  const backdropRef = useRef<HTMLDivElement>(null)
+  const mediaShellRef = useRef<HTMLDivElement>(null)
+  const chromeRef = useRef<HTMLDivElement>(null)
   const showToast = useStore((s) => s.showToast)
   const originalUnavailable = originalPending || originalFailed
 
@@ -298,6 +334,25 @@ function LightboxInner({
   const scaleRef = useRef(1)
   const txRef = useRef(0)
   const tyRef = useRef(0)
+  const closingRef = useRef(false)
+  const closeFallbackTimerRef = useRef<number | null>(null)
+  const initialImageIdRef = useRef(imageId)
+  const didOpenFlipRef = useRef(false)
+  const pendingOpenFlipRectRef = useRef<DOMRect | null>(null)
+  const [usedSharedOpenFlip, setUsedSharedOpenFlip] = useState(false)
+
+  // 未缩放时的跟手拖拽关闭手势状态（iOS Photos 风格：纵向 1:1 跟手 + 背景渐变 + 速度抛掷关闭/回弹）
+  const dismissRef = useRef({
+    active: false,
+    pending: false,
+    startX: 0,
+    startY: 0,
+    lastY: 0,
+    lastTime: 0,
+    vy: 0,
+    dx: 0,
+    dy: 0,
+  })
 
   // 仅用于触发渲染
   const [, forceRender] = useState(0)
@@ -336,13 +391,180 @@ function LightboxInner({
   const didDragRef = useRef(false)
   const suppressNextClickRef = useRef(false)
 
-  // 切换图片时重置缩放（同一 imageId 从缩略图升级为原图时保留当前缩放与位移）
+  const playOpenFlip = useCallback((fromRect: DOMRect): boolean => {
+    const shell = mediaShellRef.current
+    if (!shell || typeof shell.animate !== 'function' || prefersReducedMotion()) return false
+    const toRect = shell.getBoundingClientRect()
+    if (toRect.width <= 8 || toRect.height <= 8) return false
+    const dx = fromRect.left + fromRect.width / 2 - (toRect.left + toRect.width / 2)
+    const dy = fromRect.top + fromRect.height / 2 - (toRect.top + toRect.height / 2)
+    const scale = clamp(
+      Math.min(fromRect.width / toRect.width, fromRect.height / toRect.height),
+      0.12,
+      1,
+    )
+    shell.animate(
+      [
+        { transform: `translate3d(${dx}px, ${dy}px, 0) scale(${scale})`, opacity: 0.72 },
+        { transform: 'translate3d(0, 0, 0) scale(1)', opacity: 1 },
+      ],
+      { duration: FLIP_OPEN_MS, easing: FLIP_OPEN_EASING },
+    )
+    return true
+  }, [])
+
+  // 仅对挂载时的首张图尝试共享元素 FLIP 展开；切到其他图后立刻关闭开场 FLIP。
+  useLayoutEffect(() => {
+    if (imageId !== initialImageIdRef.current) {
+      didOpenFlipRef.current = true
+      pendingOpenFlipRectRef.current = null
+      return
+    }
+    if (didOpenFlipRef.current || !imageId || prefersReducedMotion()) return
+    const fromRect = findSourceImageRect(imageId)
+    if (!fromRect) return
+    if (playOpenFlip(fromRect)) {
+      didOpenFlipRef.current = true
+      setUsedSharedOpenFlip(true)
+    } else {
+      pendingOpenFlipRectRef.current = fromRect
+    }
+  }, [imageId, playOpenFlip])
+
+  useEffect(() => {
+    return () => {
+      if (closeFallbackTimerRef.current != null) {
+        window.clearTimeout(closeFallbackTimerRef.current)
+      }
+      if (zoomTimerRef.current) clearTimeout(zoomTimerRef.current)
+    }
+  }, [])
+
+  // 优雅关闭：在真实浏览器且未开启减少动态效果时，收回至原缩略图坐标或沿抛掷方向柔和退场；
+  // jsdom / 无布局环境 / reduced-motion 下同步关闭，保证测试和无障碍零延迟。
+  const requestClose = useCallback(
+    (flingDirection = 0) => {
+      if (closingRef.current) return
+      const shell = mediaShellRef.current
+      const backdrop = backdropRef.current
+      const chrome = chromeRef.current
+      if (prefersReducedMotion() || !shell || typeof shell.animate !== 'function') {
+        onClose()
+        return
+      }
+
+      const d = dismissRef.current
+      const startDx = d.dx
+      const startDy = d.dy
+      const startScale = d.active ? clamp(1 - Math.abs(startDy) / 1100, 0.78, 1) : 1
+
+      // 先清掉 shell 上的下拉拖拽内联变换再量未变换时的自然中心，避免 WAAPI 与内联 transform 双重叠加。
+      shell.style.transition = 'none'
+      shell.style.transform = ''
+      const toRect = shell.getBoundingClientRect()
+      if (!toRect || toRect.width <= 8 || toRect.height <= 8) {
+        onClose()
+        return
+      }
+
+      closingRef.current = true
+      d.active = false
+      d.pending = false
+      d.dx = 0
+      d.dy = 0
+      d.vy = 0
+
+      const sourceRect = scaleRef.current <= 1 && imageId ? findSourceImageRect(imageId) : null
+
+      let endTransform: string
+      let endOpacity = 0
+      let duration = FLIP_CLOSE_MS
+      let easing = FLIP_CLOSE_EASING
+
+      if (sourceRect) {
+        const dx = sourceRect.left + sourceRect.width / 2 - (toRect.left + toRect.width / 2)
+        const dy = sourceRect.top + sourceRect.height / 2 - (toRect.top + toRect.height / 2)
+        const targetScale = clamp(
+          Math.min(sourceRect.width / toRect.width, sourceRect.height / toRect.height),
+          0.12,
+          1,
+        )
+        endTransform = `translate3d(${dx}px, ${dy}px, 0) scale(${targetScale})`
+        endOpacity = 0.25
+      } else {
+        const shiftY = flingDirection !== 0 ? startDy + flingDirection * 56 : startDy + 24
+        endTransform = `translate3d(${startDx}px, ${shiftY}px, 0) scale(0.92)`
+        duration = 170
+        easing = 'cubic-bezier(0.4, 0, 1, 1)'
+      }
+
+      const readOpacity = (node: HTMLElement): number => {
+        const parsed = Number.parseFloat(window.getComputedStyle(node).opacity)
+        return Number.isFinite(parsed) ? parsed : 1
+      }
+
+      const anim = shell.animate(
+        [
+          {
+            transform: `translate3d(${startDx}px, ${startDy}px, 0) scale(${startScale})`,
+            opacity: 1,
+          },
+          { transform: endTransform, opacity: endOpacity },
+        ],
+        { duration, easing, fill: 'forwards' },
+      )
+      if (backdrop && typeof backdrop.animate === 'function') {
+        backdrop.animate([{ opacity: readOpacity(backdrop) }, { opacity: 0 }], {
+          duration,
+          easing,
+          fill: 'forwards',
+        })
+      }
+      if (chrome && typeof chrome.animate === 'function') {
+        chrome.animate([{ opacity: readOpacity(chrome) }, { opacity: 0 }], {
+          duration: Math.min(duration, 140),
+          easing,
+          fill: 'forwards',
+        })
+      }
+
+      let settled = false
+      const finish = () => {
+        if (settled) return
+        settled = true
+        anim.onfinish = null
+        anim.oncancel = null
+        if (closeFallbackTimerRef.current != null) {
+          window.clearTimeout(closeFallbackTimerRef.current)
+          closeFallbackTimerRef.current = null
+        }
+        onClose()
+      }
+      anim.onfinish = finish
+      anim.oncancel = finish
+      closeFallbackTimerRef.current = window.setTimeout(finish, duration + 60)
+    },
+    [imageId, onClose],
+  )
+
+  // 切换图片时重置缩放与拖拽关闭偏移（同一 imageId 从缩略图升级为原图时保留当前缩放与位移）
   const zoomIdentity = imageId || src
   useEffect(() => {
     void zoomIdentity
     scaleRef.current = 1
     txRef.current = 0
     tyRef.current = 0
+    dismissRef.current = {
+      active: false,
+      pending: false,
+      startX: 0,
+      startY: 0,
+      lastY: 0,
+      lastTime: 0,
+      vy: 0,
+      dx: 0,
+      dy: 0,
+    }
     rerender()
   }, [zoomIdentity, rerender])
 
@@ -408,15 +630,29 @@ function LightboxInner({
     return () => el.removeEventListener('wheel', onWheel)
   }, [apply])
 
-  // ====== 鼠标拖拽 + 点击关闭 ======
+  // ====== 鼠标拖拽（放大平移 / 未缩放下拉关闭） + 点击关闭 ======
   useEffect(() => {
     const el = containerRef.current
     if (!el) return
 
     const onDown = (e: MouseEvent) => {
       if (e.button !== 0) return
+      if (e.target instanceof Element && e.target.closest('button')) return
       didDragRef.current = false
-      if (scaleRef.current <= 1) return
+      if (scaleRef.current <= 1) {
+        dismissRef.current = {
+          active: false,
+          pending: true,
+          startX: e.clientX,
+          startY: e.clientY,
+          lastY: e.clientY,
+          lastTime: performance.now(),
+          vy: 0,
+          dx: 0,
+          dy: 0,
+        }
+        return
+      }
       e.preventDefault()
       dragRef.current = {
         active: true,
@@ -430,15 +666,57 @@ function LightboxInner({
 
     const onMove = (e: MouseEvent) => {
       const d = dragRef.current
-      if (!d.active) return
-      const dx = e.clientX - d.startX
-      const dy = e.clientY - d.startY
-      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDragRef.current = true
-      apply(scaleRef.current, d.baseTx + dx, d.baseTy + dy)
+      if (d.active) {
+        const dx = e.clientX - d.startX
+        const dy = e.clientY - d.startY
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDragRef.current = true
+        apply(scaleRef.current, d.baseTx + dx, d.baseTy + dy)
+        return
+      }
+      const dm = dismissRef.current
+      if (!dm.active && !dm.pending) return
+      const rawDx = e.clientX - dm.startX
+      const rawDy = e.clientY - dm.startY
+      if (dm.pending) {
+        if (Math.hypot(rawDx, rawDy) < TOUCH_DRAG_THRESHOLD_PX) return
+        if (Math.abs(rawDy) >= Math.abs(rawDx) * 1.1) {
+          dm.active = true
+          dm.pending = false
+          didDragRef.current = true
+        } else {
+          dm.pending = false
+          return
+        }
+      }
+      const now = performance.now()
+      const dt = Math.max(1, now - dm.lastTime)
+      dm.vy = (e.clientY - dm.lastY) / dt
+      dm.lastY = e.clientY
+      dm.lastTime = now
+      dm.dx = rawDx * 0.35
+      dm.dy = rawDy
+      rerender()
     }
 
     const onUp = () => {
       dragRef.current.active = false
+      const dm = dismissRef.current
+      if (dm.active) {
+        const shouldClose =
+          Math.abs(dm.dy) >= DISMISS_DISTANCE_PX || Math.abs(dm.vy) >= DISMISS_VELOCITY_PX_MS
+        if (shouldClose) {
+          requestClose(dm.dy >= 0 ? 1 : -1)
+        } else {
+          dm.active = false
+          dm.pending = false
+          dm.dx = 0
+          dm.dy = 0
+          dm.vy = 0
+          rerender()
+        }
+      } else {
+        dm.pending = false
+      }
     }
 
     el.addEventListener('mousedown', onDown)
@@ -449,7 +727,7 @@ function LightboxInner({
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
-  }, [apply])
+  }, [apply, rerender, requestClose])
 
   // ====== 单击关闭（仅未缩放且非拖拽） ======
   const onClick = useCallback(
@@ -459,11 +737,14 @@ function LightboxInner({
         e.stopPropagation()
         return
       }
-      if (didDragRef.current) return
+      if (didDragRef.current) {
+        didDragRef.current = false
+        return
+      }
       if (scaleRef.current > 1 && e.target instanceof HTMLImageElement) return
-      onClose()
+      requestClose()
     },
-    [onClose],
+    [requestClose],
   )
 
   // ====== 鼠标双击缩放 ======
@@ -536,6 +817,14 @@ function LightboxInner({
           midY: (a.clientY + b.clientY) / 2 - cy,
         }
         dragRef.current.active = false
+        const hadDismissOffset =
+          dismissRef.current.active || dismissRef.current.dx !== 0 || dismissRef.current.dy !== 0
+        dismissRef.current.active = false
+        dismissRef.current.pending = false
+        dismissRef.current.dx = 0
+        dismissRef.current.dy = 0
+        dismissRef.current.vy = 0
+        if (hadDismissOffset) rerender()
       } else if (e.touches.length === 1) {
         const t = e.touches[0]
         const now = Date.now()
@@ -573,6 +862,18 @@ function LightboxInner({
             baseTx: txRef.current,
             baseTy: tyRef.current,
           }
+        } else if (scaleRef.current <= 1) {
+          dismissRef.current = {
+            active: false,
+            pending: true,
+            startX: t.clientX,
+            startY: t.clientY,
+            lastY: t.clientY,
+            lastTime: performance.now(),
+            vy: 0,
+            dx: 0,
+            dy: 0,
+          }
         }
       }
     }
@@ -598,6 +899,34 @@ function LightboxInner({
         }
         e.preventDefault()
         apply(scaleRef.current, d.baseTx + t.clientX - d.startX, d.baseTy + t.clientY - d.startY)
+      } else if (
+        (dismissRef.current.active || dismissRef.current.pending) &&
+        e.touches.length === 1
+      ) {
+        const t = e.touches[0]
+        const dm = dismissRef.current
+        const rawDx = t.clientX - dm.startX
+        const rawDy = t.clientY - dm.startY
+        if (dm.pending) {
+          if (Math.hypot(rawDx, rawDy) < TOUCH_DRAG_THRESHOLD_PX) return
+          if (Math.abs(rawDy) >= Math.abs(rawDx) * 1.1) {
+            dm.active = true
+            dm.pending = false
+            tapRef.current = { time: 0, x: 0, y: 0 }
+          } else {
+            dm.pending = false
+            return
+          }
+        }
+        e.preventDefault()
+        const now = performance.now()
+        const dt = Math.max(1, now - dm.lastTime)
+        dm.vy = (t.clientY - dm.lastY) / dt
+        dm.lastY = t.clientY
+        dm.lastTime = now
+        dm.dx = rawDx * 0.35
+        dm.dy = rawDy
+        rerender()
       }
     }
 
@@ -606,6 +935,23 @@ function LightboxInner({
       if (e.touches.length === 0) {
         dragRef.current.active = false
         dragRef.current.pending = false
+        const dm = dismissRef.current
+        if (dm.active) {
+          const shouldClose =
+            Math.abs(dm.dy) >= DISMISS_DISTANCE_PX || Math.abs(dm.vy) >= DISMISS_VELOCITY_PX_MS
+          if (shouldClose) {
+            requestClose(dm.dy >= 0 ? 1 : -1)
+          } else {
+            dm.active = false
+            dm.pending = false
+            dm.dx = 0
+            dm.dy = 0
+            dm.vy = 0
+            rerender()
+          }
+          return
+        }
+        dm.pending = false
         if (hadMultiTouchRef.current) {
           hadMultiTouchRef.current = false
           tapRef.current = { time: 0, x: 0, y: 0 }
@@ -617,7 +963,7 @@ function LightboxInner({
           if (prev.time > 0 && Date.now() - prev.time < 300) {
             setTimeout(() => {
               if (tapRef.current.time === prev.time) {
-                onClose()
+                requestClose()
               }
             }, 310)
           }
@@ -630,6 +976,16 @@ function LightboxInner({
       dragRef.current.active = false
       dragRef.current.pending = false
       pinchRef.current.active = false
+      if (dismissRef.current.active || dismissRef.current.dy !== 0) {
+        dismissRef.current.active = false
+        dismissRef.current.pending = false
+        dismissRef.current.dx = 0
+        dismissRef.current.dy = 0
+        dismissRef.current.vy = 0
+        rerender()
+      } else {
+        dismissRef.current.pending = false
+      }
       tapRef.current = { time: 0, x: 0, y: 0 }
     }
 
@@ -643,20 +999,30 @@ function LightboxInner({
       el.removeEventListener('touchend', onTouchEnd)
       el.removeEventListener('touchcancel', onTouchCancel)
     }
-  }, [apply, getCenter, onClose])
+  }, [apply, getCenter, rerender, requestClose])
 
   const s = scaleRef.current
   const tx = txRef.current
   const ty = tyRef.current
+  const dismiss = dismissRef.current
+  const isDismissDragging = dismiss.active
+  const dismissScale = isDismissDragging ? clamp(1 - Math.abs(dismiss.dy) / 1100, 0.78, 1) : 1
+  const backdropOpacity = isDismissDragging ? clamp(1 - Math.abs(dismiss.dy) / 360, 0.15, 1) : 1
+  const chromeOpacity = isDismissDragging ? clamp(1 - Math.abs(dismiss.dy) / 120, 0, 1) : 1
   const isZoomed = s > 1
-  const isDragging = dragRef.current.active || pinchRef.current.active
+  const isPanDragging = dragRef.current.active || pinchRef.current.active
+  const isDragging = isPanDragging || isDismissDragging
   const zoomPercent = Math.round(s * 100)
+  const shellDismissTransform =
+    !isZoomed && (isDismissDragging || dismiss.dx !== 0 || dismiss.dy !== 0)
+      ? `translate3d(${dismiss.dx}px, ${dismiss.dy}px, 0) scale(${dismissScale})`
+      : undefined
 
   const navBtnClass = 'absolute top-1/2 -translate-y-1/2 z-10'
 
   return (
     <Overlay
-      onClose={onClose}
+      onClose={requestClose}
       tier={tier}
       backdrop="none"
       layout="fill"
@@ -666,17 +1032,42 @@ function LightboxInner({
         ref={containerRef}
         data-lightbox-root
         className="flex h-full w-full items-center justify-center select-none"
-        style={{ cursor: isZoomed ? (isDragging ? 'grabbing' : 'grab') : 'pointer' }}
+        style={{
+          cursor: isZoomed
+            ? isDragging
+              ? 'grabbing'
+              : 'grab'
+            : isDismissDragging
+              ? 'grabbing'
+              : 'pointer',
+        }}
         onClick={onClick}
         onDoubleClick={onDoubleClick}
       >
-        <div className="absolute inset-0 bg-black/70 backdrop-blur-md animate-fade-in" />
-        <div className="relative animate-zoom-in">
+        <div
+          ref={backdropRef}
+          className="absolute inset-0 bg-black/70 backdrop-blur-md animate-fade-in"
+          style={{
+            opacity: backdropOpacity,
+            transition: isDismissDragging ? 'none' : 'opacity var(--motion-normal) var(--ease-out)',
+          }}
+        />
+        <div
+          ref={mediaShellRef}
+          data-lightbox-media-shell
+          className={`relative ${usedSharedOpenFlip ? '' : 'animate-zoom-in'}`}
+          style={{
+            transform: shellDismissTransform,
+            transition: isDismissDragging
+              ? 'none'
+              : 'transform var(--motion-normal) var(--ease-out)',
+          }}
+        >
           <div
             className="relative flex items-center justify-center"
             style={{
               transform: `translate(${tx}px, ${ty}px) scale(${s})`,
-              transition: isDragging ? 'none' : 'transform var(--motion-normal) var(--ease-out)',
+              transition: isPanDragging ? 'none' : 'transform var(--motion-normal) var(--ease-out)',
               willChange: 'transform',
             }}
           >
@@ -686,6 +1077,14 @@ function LightboxInner({
               data-image-id={imageId}
               data-image-preview-only={originalUnavailable || undefined}
               className={`${originalUnavailable ? '' : 'saveable-image '}animate-fade-in max-w-[85vw] max-h-[85vh] object-contain rounded-lg shadow-2xl`}
+              onLoad={() => {
+                const pending = pendingOpenFlipRectRef.current
+                if (pending && !didOpenFlipRef.current && playOpenFlip(pending)) {
+                  didOpenFlipRef.current = true
+                  pendingOpenFlipRectRef.current = null
+                  setUsedSharedOpenFlip(true)
+                }
+              }}
               onDragStart={(e) => e.preventDefault()}
               alt=""
             />
@@ -719,7 +1118,14 @@ function LightboxInner({
           </span>
         )}
 
-        <div className="absolute top-4 right-4 left-4 z-10 flex flex-wrap items-center justify-end gap-2">
+        <div
+          ref={chromeRef}
+          className="absolute top-4 right-4 left-4 z-10 flex flex-wrap items-center justify-end gap-2"
+          style={{
+            opacity: chromeOpacity,
+            transition: isDismissDragging ? 'none' : 'opacity var(--motion-fast) var(--ease-out)',
+          }}
+        >
           <Button
             data-save-image
             variant="secondary"
@@ -755,7 +1161,7 @@ function LightboxInner({
             aria-label={t('common:action.close')}
             onClick={(event) => {
               event.stopPropagation()
-              onClose()
+              requestClose()
             }}
           >
             <Icon name="close" />

@@ -1,4 +1,4 @@
-import { type ReactNode, type RefObject, useEffect, useRef } from 'react'
+import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useCloseOnEscape } from '../../hooks/useCloseOnEscape'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
@@ -53,6 +53,7 @@ interface OverlayProps {
   label?: string
   role?: 'dialog' | 'none'
   className?: string
+  style?: CSSProperties
   children: ReactNode
 }
 
@@ -65,6 +66,7 @@ export default function Overlay({
   role = 'dialog',
   children,
   className,
+  style,
 }: OverlayProps) {
   const boundaryRef = useRef<HTMLDivElement>(null)
   const surfaceRef = useRef<HTMLDivElement>(null)
@@ -95,6 +97,7 @@ export default function Overlay({
       tabIndex={-1}
       data-no-drag-select
       className={cn(surfaceClass, 'outline-none', className)}
+      style={style}
       onPointerDown={(e) => {
         surfaceDownRef.current = e.target === e.currentTarget
       }}
