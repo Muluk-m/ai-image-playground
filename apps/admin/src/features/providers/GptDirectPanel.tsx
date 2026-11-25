@@ -298,6 +298,7 @@ export function GptDirectPanel({
                       }}
                       onDelete={() => {
                         if (!key.id) return
+                        setError(null)
                         setDeleteTarget({ id: key.id, label: key.label || key.fingerprint })
                       }}
                       onRestore={() => {
@@ -457,7 +458,10 @@ export function GptDirectPanel({
               type="button"
               variant="outline"
               disabled={pending !== null}
-              onClick={() => setDisableTarget(null)}
+              onClick={() => {
+                setDisableTarget(null)
+                setError(null)
+              }}
             >
               取消
             </Button>
@@ -528,7 +532,10 @@ export function GptDirectPanel({
               type="button"
               variant="outline"
               disabled={pending !== null}
-              onClick={() => setDeleteTarget(null)}
+              onClick={() => {
+                setDeleteTarget(null)
+                setError(null)
+              }}
             >
               取消
             </Button>

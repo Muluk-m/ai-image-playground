@@ -153,8 +153,9 @@ function ContactDialog({ onClose }: { onClose: () => void }) {
   }, [copied])
 
   async function copyEmail() {
+    if (!navigator.clipboard?.writeText) return
     try {
-      await navigator.clipboard?.writeText(SUPPORT_CONTACT.email)
+      await navigator.clipboard.writeText(SUPPORT_CONTACT.email)
       setCopied(true)
     } catch {
       // Clipboard API unavailable; mailto link remains selectable.

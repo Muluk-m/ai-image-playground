@@ -165,31 +165,38 @@ export function FilterBar({
         </form>
         <SavedViews pageKey={savedViewKey} />
       </div>
-      <div className="flex flex-wrap items-center gap-2 border-t px-2.5 py-2">
-        {chips.map((chip) => (
-          <span
-            key={chip.key}
-            className="inline-flex h-7 items-center overflow-hidden rounded-md border text-xs"
-          >
-            <span className="px-2 text-muted-foreground">{chip.label}</span>
-            <span className="border-x px-2 font-medium">{chip.value}</span>
-            <button
-              type="button"
-              className="inline-flex h-full w-7 items-center justify-center text-muted-foreground hover:text-foreground"
-              aria-label={`移除${chip.label}`}
-              onClick={() => onRemove(chip.key)}
+      {chips.length > 0 || definitions.length > 0 || Boolean(search) ? (
+        <div className="flex flex-wrap items-center gap-2 border-t px-2.5 py-2">
+          {chips.map((chip) => (
+            <span
+              key={chip.key}
+              className="inline-flex h-7 items-center overflow-hidden rounded-md border text-xs"
             >
-              <X className="size-3" />
-            </button>
-          </span>
-        ))}
-        <AddFilter definitions={definitions} values={values} onChange={onChange} />
-        {chips.length || search ? (
-          <Button variant="ghost" size="sm" className="ml-auto h-7 px-2 text-xs" onClick={onClear}>
-            清空
-          </Button>
-        ) : null}
-      </div>
+              <span className="px-2 text-muted-foreground">{chip.label}</span>
+              <span className="border-x px-2 font-medium">{chip.value}</span>
+              <button
+                type="button"
+                className="inline-flex h-full w-7 items-center justify-center text-muted-foreground hover:text-foreground"
+                aria-label={`移除${chip.label}`}
+                onClick={() => onRemove(chip.key)}
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+          <AddFilter definitions={definitions} values={values} onChange={onChange} />
+          {chips.length || search ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto h-7 px-2 text-xs"
+              onClick={onClear}
+            >
+              清空
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }

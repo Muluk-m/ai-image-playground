@@ -489,8 +489,10 @@ function SubscriptionForm({
       paidAmount: '',
     },
   })
+  const lastResetRef = useRef(0)
   useEffect(() => {
-    if (resetEpoch > 0) {
+    if (resetEpoch > 0 && resetEpoch !== lastResetRef.current) {
+      lastResetRef.current = resetEpoch
       form.reset({
         planId: defaultPlanId,
         period: '1',
@@ -690,8 +692,10 @@ function ExpiryForm({
   useEffect(() => {
     form.setValue('endsAt', subscription ? toLocalInput(subscription.ends_at) : '')
   }, [form, subscription?.id, subscription?.ends_at])
+  const lastResetRef = useRef(0)
   useEffect(() => {
-    if (resetEpoch > 0) {
+    if (resetEpoch > 0 && resetEpoch !== lastResetRef.current) {
+      lastResetRef.current = resetEpoch
       form.reset({ endsAt: subscription ? toLocalInput(subscription.ends_at) : '', reason: '' })
     }
   }, [form, resetEpoch, subscription])

@@ -14,7 +14,7 @@ body { margin: 0; background: hsl(var(--background)); color: hsl(var(--foregroun
 .site-brand { display: inline-flex; align-items: center; gap: 12px; white-space: nowrap; font-size: theme('fontSize.xl'); font-weight: 600; }
 .site-nav { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 24px; min-height: 88px; padding: 24px 5%; z-index: 10; }
 .site-nav-links, .site-nav-actions { display: flex; align-items: center; gap: 24px; font-size: theme('fontSize.xs'); }
-.site-menu-btn { display: none; }
+.site-nav-actions > .site-menu-btn { display: none; }
 .site-mobile-menu { display: none; }
 :where(.site-nav-links) a { position: relative; }
 :where(.site-nav-links) a::after { content: ''; position: absolute; bottom: -5px; left: 0; right: 0; height: 1px; background: hsl(var(--primary)); transform: scaleX(0); transform-origin: left; transition: transform var(--motion-normal) var(--ease-out); }
@@ -172,7 +172,7 @@ body { margin: 0; background: hsl(var(--background)); color: hsl(var(--foregroun
   .site-nav-actions { gap: 12px; }
   .site-nav-actions > button:not(.mkt-theme):not(.site-menu-btn) { padding-inline: 12px; }
   .site-nav-actions > button:not(.mkt-theme):not(.site-menu-btn) svg { display: none; }
-  .site-menu-btn { display: inline-flex; }
+  .site-nav-actions > .site-menu-btn { display: inline-flex; }
   .site-mobile-menu {
     display: flex;
     flex-direction: column;

@@ -47,7 +47,7 @@
 .mkt-nav-end { margin-left: auto; display: flex; align-items: center; flex: none; gap: 22px; font-size: 14px; color: var(--mkt-muted); white-space: nowrap; }
 /* 窄屏收起中间导航后，右侧还留着一个「定价」和移动端菜单按钮。 */
 .mkt-nav-pricing { display: none; }
-.mkt-menu-btn { display: none; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
+.mkt-nav-end > .mkt-menu-btn { display: none; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
 .mkt-menu-btn svg { width: 18px; height: 18px; }
 .mkt-mobile-menu { display: none; }
 .mkt-theme { display: inline-flex; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
@@ -222,7 +222,7 @@
   .mkt-links { display: none; }
   .mkt-nav-end { gap: 16px; }
   .mkt-nav-pricing { display: inline; }
-  .mkt-menu-btn { display: inline-flex; align-items: center; justify-content: center; }
+  .mkt-nav-end > .mkt-menu-btn { display: inline-flex; align-items: center; justify-content: center; }
   .mkt-mobile-menu {
     display: flex;
     flex-direction: column;

@@ -283,7 +283,10 @@ function SecretCard({ secret, writable }: { secret: UpstreamSecretView; writable
                 variant="ghost"
                 disabled={pending !== null}
                 className="text-muted-foreground hover:text-danger"
-                onClick={() => setConfirmClear(true)}
+                onClick={() => {
+                  setError(null)
+                  setConfirmClear(true)
+                }}
               >
                 {pending === 'clear' ? '清除中' : '清除'}
               </Button>
@@ -341,7 +344,10 @@ function SecretCard({ secret, writable }: { secret: UpstreamSecretView; writable
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setConfirmClear(false)}
+              onClick={() => {
+                setConfirmClear(false)
+                setError(null)
+              }}
               disabled={pending !== null}
             >
               取消

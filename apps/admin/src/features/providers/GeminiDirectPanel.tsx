@@ -322,7 +322,10 @@ export function GeminiDirectPanel({
                             updateGeminiDirectKey(key.id as string, { budgetUsd }),
                           )
                         }}
-                        onDelete={() => setDeleteTarget(key)}
+                        onDelete={() => {
+                          setError(null)
+                          setDeleteTarget(key)
+                        }}
                         onRestore={() => {
                           void run(`restore-${key.fingerprint}`, () =>
                             restoreGeminiDirectKey(key.fingerprint),
@@ -525,7 +528,10 @@ export function GeminiDirectPanel({
                 type="button"
                 variant="outline"
                 disabled={pending !== null}
-                onClick={() => setDisableTarget(null)}
+                onClick={() => {
+                  setDisableTarget(null)
+                  setError(null)
+                }}
               >
                 取消
               </Button>
@@ -596,7 +602,10 @@ export function GeminiDirectPanel({
                 type="button"
                 variant="outline"
                 disabled={pending !== null}
-                onClick={() => setDeleteTarget(null)}
+                onClick={() => {
+                  setDeleteTarget(null)
+                  setError(null)
+                }}
               >
                 取消
               </Button>
