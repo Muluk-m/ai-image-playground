@@ -1,5 +1,10 @@
 import './appearance.css'
-import { OAUTH_ERROR_QUERY_PARAM } from '@image-playground/shared'
+import {
+  OAUTH_ERROR_QUERY_PARAM,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  passwordProblem,
+} from '@image-playground/shared'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import Overlay from '../components/patterns/Overlay'
 import { Button } from '../components/ui/button'
@@ -78,6 +83,9 @@ type LoginErrorKey =
   | 'recovery.email_delivery_failed'
   | 'recovery.rate_limited'
   | 'recovery.fallback'
+  | 'validation.passwordBlank'
+  | 'validation.passwordLength'
+  | 'validation.passwordMismatch'
 
 function loginErrorKey(error: unknown): LoginErrorKey {
   if (error instanceof AuthRequestError) {
@@ -194,7 +202,9 @@ export function LoginDialog({
   const [recoverySent, setRecoverySent] = useState(false)
   const [resetToken, setResetToken] = useState<string | null>(null)
   const [newPassword, setNewPassword] = useState('')
+  const [confirmNewPassword, setConfirmNewPassword] = useState('')
   const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false)
   const [resetComplete, setResetComplete] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
   const previousView = useRef(view)
@@ -206,8 +216,11 @@ export function LoginDialog({
   }, [view])
   const providers = options?.providers ?? []
   const error = errorKey
-    ? errorKey.startsWith('recovery.')
-      ? (t as unknown as (key: string) => string)(errorKey)
+    ? errorKey.startsWith('recovery.') || errorKey.startsWith('validation.')
+      ? (t as unknown as (key: string, opts?: Record<string, unknown>) => string)(errorKey, {
+          min: PASSWORD_MIN_LENGTH,
+          max: PASSWORD_MAX_LENGTH,
+        })
       : (tError as unknown as (key: string) => string)(errorKey)
     : null
 
@@ -277,12 +290,23 @@ export function LoginDialog({
     event.preventDefault()
     if (resetToken) {
       if (!newPassword || pending) return
+      const problem = passwordProblem(newPassword)
+      if (problem) {
+        setErrorKey(problem === 'blank' ? 'validation.passwordBlank' : 'validation.passwordLength')
+        return
+      }
+      if (newPassword !== confirmNewPassword) {
+        setErrorKey('validation.passwordMismatch')
+        return
+      }
       setPending(true)
       setErrorKey(null)
       try {
         await confirmPasswordReset(resetToken, newPassword)
         setResetComplete(true)
         setResetToken(null)
+        setNewPassword('')
+        setConfirmNewPassword('')
         window.history.replaceState(null, '', window.location.pathname)
       } catch (err) {
         setErrorKey(recoveryErrorKey(err))
@@ -445,7 +469,11 @@ export function LoginDialog({
               ) : recoverySent ? (
                 <p className="mt-4 text-sm text-muted-foreground">{t('recovery.sent')}</p>
               ) : (
-                <form className="auth-form" onSubmit={(event) => void submitRecovery(event)}>
+                <form
+                  className="auth-form"
+                  noValidate={Boolean(resetToken)}
+                  onSubmit={(event) => void submitRecovery(event)}
+                >
                   <Label className="mt-4 grid gap-2">
                     <span>{resetToken ? t('recovery.newPassword') : t('login.emailLabel')}</span>
                     {resetToken ? (
@@ -455,6 +483,10 @@ export function LoginDialog({
                           className="pr-10"
                           value={newPassword}
                           disabled={pending}
+                          placeholder={t('registration.passwordPlaceholder', {
+                            min: PASSWORD_MIN_LENGTH,
+                            max: PASSWORD_MAX_LENGTH,
+                          })}
                           onChange={(event) => {
                             setNewPassword(event.currentTarget.value)
                             setErrorKey(null)
@@ -478,6 +510,7 @@ export function LoginDialog({
                         type="email"
                         value={username}
                         disabled={pending}
+                        placeholder={t('login.emailPlaceholder')}
                         onChange={(event) => {
                           setUsername(event.currentTarget.value)
                           setErrorKey(null)
@@ -486,6 +519,40 @@ export function LoginDialog({
                       />
                     )}
                   </Label>
+                  {resetToken ? (
+                    <Label className="mt-4 grid gap-2">
+                      <span>{t('registration.confirmationLabel')}</span>
+                      <div className="relative">
+                        <Input
+                          type={showConfirmNewPassword ? 'text' : 'password'}
+                          className="pr-10"
+                          value={confirmNewPassword}
+                          disabled={pending}
+                          placeholder={t('registration.confirmationPlaceholder')}
+                          onChange={(event) => {
+                            setConfirmNewPassword(event.currentTarget.value)
+                            setErrorKey(null)
+                          }}
+                          autoComplete="new-password"
+                        />
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="absolute right-0.5 top-0.5 text-muted-foreground"
+                          onClick={() => setShowConfirmNewPassword((value) => !value)}
+                          disabled={pending}
+                          aria-label={
+                            showConfirmNewPassword
+                              ? t('password.hideConfirmation')
+                              : t('password.showConfirmation')
+                          }
+                        >
+                          <Icon name={showConfirmNewPassword ? 'hidden' : 'visible'} />
+                        </Button>
+                      </div>
+                    </Label>
+                  ) : null}
                   {error ? (
                     <p role="alert" className="auth-error">
                       {error}
@@ -494,7 +561,10 @@ export function LoginDialog({
                   <Button
                     type="submit"
                     className="mt-4 w-full"
-                    disabled={pending || !(resetToken ? newPassword : username).trim()}
+                    disabled={
+                      pending ||
+                      (resetToken ? !newPassword || !confirmNewPassword : !username.trim())
+                    }
                   >
                     {pending ? <Icon name="loading" className="animate-spin" /> : null}
                     {resetToken
@@ -518,6 +588,7 @@ export function LoginDialog({
                   setResetComplete(false)
                   setResetToken(null)
                   setNewPassword('')
+                  setConfirmNewPassword('')
                   setErrorKey(null)
                 }}
               >
@@ -647,6 +718,7 @@ export function LoginDialog({
                       type="button"
                       variant="link"
                       size="xs"
+                      disabled={pending}
                       className="self-center"
                       onClick={() => {
                         setView('recovery')
@@ -667,6 +739,7 @@ export function LoginDialog({
                       type="button"
                       variant="link"
                       size="xs"
+                      disabled={pending}
                       onClick={() => {
                         setErrorKey(null)
                         setView('registration')

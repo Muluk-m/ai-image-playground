@@ -128,6 +128,7 @@ export default function CliDevicePage() {
   const request = useRef<AbortController | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [closeBlocked, setCloseBlocked] = useState(false)
+  const [returningSlow, setReturningSlow] = useState(false)
   const [outcome, setOutcome] = useState(outcomeFromAddress)
   // 只有 CLI 在本机打开的链接带 state；未带 state 时照旧等 CLI 轮询。
   const [loopbackState, setLoopbackState] = useState(loopbackStateFromAddress)
@@ -241,6 +242,15 @@ export default function CliDevicePage() {
     }
   }
 
+  useEffect(() => {
+    if (phase.kind !== 'returning') {
+      setReturningSlow(false)
+      return
+    }
+    const timer = window.setTimeout(() => setReturningSlow(true), 4000)
+    return () => window.clearTimeout(timer)
+  }, [phase.kind])
+
   function closePage() {
     window.close()
     if (!window.closed) setCloseBlocked(true)
@@ -304,6 +314,11 @@ export default function CliDevicePage() {
             >
               {t(outcome === 'connected' ? 'cliDevice.connected' : 'cliDevice.notFinished')}
             </p>
+            {outcome === 'connected' ? (
+              <Button asChild variant="outline" className="w-full">
+                <a href="/image">{t('cliDevice.backToStudio')}</a>
+              </Button>
+            ) : null}
           </div>
         ) : !code ? (
           <div className="flex flex-col items-center space-y-4 text-center">
@@ -314,6 +329,9 @@ export default function CliDevicePage() {
                 {t('cliDevice.linkRequiredHint')}
               </p>
             </div>
+            <Button asChild variant="outline" className="w-full">
+              <a href="/image">{t('cliDevice.backToStudio')}</a>
+            </Button>
           </div>
         ) : !user ? (
           <div className="space-y-6 text-center">
@@ -429,6 +447,21 @@ export default function CliDevicePage() {
               <Icon name="loading" size="sm" className="animate-spin text-primary" />
               {t('cliDevice.working')}
             </p>
+            {phase.kind === 'returning' && returningSlow ? (
+              <div className="w-full space-y-3 pt-2">
+                <p className="text-body-sm text-muted-foreground">
+                  {t('cliDevice.returningSlowHint')}
+                </p>
+                <Button type="button" variant="outline" className="w-full" onClick={closePage}>
+                  {t('cliDevice.return')}
+                </Button>
+                {closeBlocked ? (
+                  <p className="text-body-sm text-muted-foreground" aria-live="polite">
+                    {t('cliDevice.closeManually')}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         ) : phase.kind === 'approved' ? (
           <div className="flex flex-col items-center space-y-4 text-center">
@@ -450,11 +483,19 @@ export default function CliDevicePage() {
             ) : null}
           </div>
         ) : phase.kind === 'denied' ? (
-          <div className="flex flex-col items-center space-y-3 py-2 text-center">
+          <div className="flex flex-col items-center space-y-4 py-2 text-center">
             <h1 className="text-xl font-semibold">{t('cliDevice.deniedHeading')}</h1>
             <p className="text-body-sm text-muted-foreground" role="status">
               {t('cliDevice.denied')}
             </p>
+            <Button type="button" variant="outline" className="w-full" onClick={closePage}>
+              {t('cliDevice.return')}
+            </Button>
+            {closeBlocked ? (
+              <p className="text-body-sm text-muted-foreground" aria-live="polite">
+                {t('cliDevice.closeManually')}
+              </p>
+            ) : null}
           </div>
         ) : phase.kind === 'invalid' || phase.kind === 'failed' ? (
           <div className="flex flex-col items-center space-y-4 text-center">
@@ -464,6 +505,11 @@ export default function CliDevicePage() {
             <p className="text-body-sm text-destructive" role="alert">
               {t(phase.kind === 'invalid' ? 'cliDevice.invalid' : 'cliDevice.failed')}
             </p>
+            {phase.kind === 'invalid' ? (
+              <Button asChild variant="outline" className="w-full">
+                <a href="/image">{t('cliDevice.backToStudio')}</a>
+              </Button>
+            ) : null}
             {phase.kind === 'failed' && user ? (
               <Button
                 type="button"

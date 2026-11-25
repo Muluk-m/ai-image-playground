@@ -16,6 +16,7 @@ export default function SettingsModal() {
   const showSettings = useStore((s) => s.showSettings)
   const setShowSettings = useStore((s) => s.setShowSettings)
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
+  const [dataBusy, setDataBusy] = useState(false)
 
   if (!showSettings) return null
 
@@ -25,6 +26,7 @@ export default function SettingsModal() {
   ]
 
   const handleClose = () => {
+    if (dataBusy) return
     setShowSettings(false)
   }
 
@@ -44,6 +46,7 @@ export default function SettingsModal() {
               type="button"
               variant="ghost"
               size="icon-sm"
+              disabled={dataBusy}
               onClick={handleClose}
               className="text-muted-foreground"
               aria-label={tCommon('action.close')}
@@ -64,6 +67,7 @@ export default function SettingsModal() {
                 type="button"
                 variant="ghost"
                 size="sm"
+                disabled={dataBusy && id !== activeTab}
                 onClick={() => setActiveTab(id)}
                 aria-current={activeTab === id ? 'page' : undefined}
                 className={`shrink-0 justify-start sm:w-full ${
@@ -84,7 +88,7 @@ export default function SettingsModal() {
               className="animate-fade-in flex-1 overflow-y-auto overscroll-contain p-5 custom-scrollbar sm:p-6"
             >
               {activeTab === 'general' && <GeneralTab />}
-              {activeTab === 'data' && <DataTab />}
+              {activeTab === 'data' && <DataTab onBusyChange={setDataBusy} />}
             </div>
           </div>
         </div>

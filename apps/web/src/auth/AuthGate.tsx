@@ -264,9 +264,13 @@ export function AuthGate() {
       await logoutUser()
       signedOut = true
       if (clearLocalData) await clearScopedClientStorage()
+    } catch {
+      if (!signedOut) {
+        const { useStore } = await import('../store')
+        const { i18next } = await import('../i18n')
+        useStore.getState().showToast(i18next.t('common.fallback', { ns: 'errors' }), 'error')
+      }
     } finally {
-      // Keep the existing session hint when the API rejected logout: reloading
-      // must probe the server session rather than silently presenting a guest UI.
       if (signedOut) {
         noteBrowserSession(null)
         // A reload is required here because several account-scoped stores are
@@ -276,8 +280,8 @@ export function AuthGate() {
         const url = new URL(window.location.href)
         url.searchParams.set('login', '1')
         window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+        window.location.reload()
       }
-      window.location.reload()
     }
   }, [])
 

@@ -16,7 +16,7 @@ export function SessionExpiredCard({ onRelogin, onDismiss }: SessionExpiredCardP
   return (
     <div
       role="status"
-      className="animate-modal-in fixed bottom-4 right-4 z-[90] flex w-[min(420px,calc(100vw-2rem))] items-center gap-3 rounded-2xl border border-border bg-card/95 p-4 shadow-xl backdrop-blur"
+      className="animate-modal-in fixed bottom-[calc(var(--mobile-nav-height,0px)+1rem)] right-4 z-[90] flex w-[min(420px,calc(100vw-2rem))] items-center gap-3 rounded-2xl border border-border bg-card/95 p-4 shadow-xl backdrop-blur"
     >
       <div className="min-w-0 flex-1">
         <p className="text-sm font-semibold text-foreground">{t('expired.title')}</p>

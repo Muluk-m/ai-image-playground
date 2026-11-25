@@ -211,7 +211,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <Dialog onClose={onClose} tier="raised" title={t('methods.title')}>
+    <Dialog onClose={onClose} closeDisabled={pending} tier="raised" title={t('methods.title')}>
       {notice ? (
         <p className="mb-4 rounded-xl bg-success/10 px-3 py-2 text-body-sm text-success dark:bg-success/10 dark:text-success">
           {noticeText(notice)}

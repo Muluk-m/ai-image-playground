@@ -28,6 +28,7 @@
       "addImage": "添加截图",
       "imageLimit": "PNG、JPEG 或 WebP · 一张图片 · 不超过 10 MB",
       "send": "发送",
+      "sending": "发送中…",
       "removeAttachment": "移除截图",
       "discardTitle": "放弃未发送的反馈？",
       "discardMessage": "关闭后会丢弃当前输入的文字或已选截图。",

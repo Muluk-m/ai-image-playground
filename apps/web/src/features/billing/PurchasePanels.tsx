@@ -1,14 +1,18 @@
 import type { BillingPeriodMonths } from '@image-playground/shared'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button, Dialog, Icon, openPricingSheet, SegmentedTabs } from '../../lib/privateHost'
 import { isDiscounted, PERIOD_ORDER, periodLabel, planDisplayName } from './billing-display'
 import {
   approximateImages,
+  clearPricingLaunchPeriod,
+  clearRechargeLaunchAmount,
   formatCredits,
   formatDate,
   formatMoney,
   friendlyBillingError,
   loadBilling,
+  peekPricingLaunchPeriod,
+  peekRechargeLaunchAmount,
   useBilling,
 } from './billing-store'
 import { tBilling, useTranslation } from './i18n'
@@ -31,7 +35,10 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
   useTranslation()
   const { t: tShell } = useTranslation('shell')
   const { status, account, catalog, error } = useBilling()
-  const [period, setPeriod] = useState<BillingPeriodMonths>(1)
+  const [period, setPeriod] = useState<BillingPeriodMonths>(() => peekPricingLaunchPeriod() ?? 1)
+  useEffect(() => {
+    clearPricingLaunchPeriod()
+  }, [])
   const purchase = usePurchaseOrder()
   const { order, setOrder, busy } = purchase
   const [history, setHistory] = useState(false)
@@ -54,7 +61,12 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
     )
 
   return (
-    <Dialog title={tBilling('pricing.title')} onClose={onClose} className="max-w-6xl">
+    <Dialog
+      title={tBilling('pricing.title')}
+      onClose={onClose}
+      closeDisabled={busy}
+      className="max-w-6xl"
+    >
       <div className="mb-6 rounded-2xl border border-border bg-muted p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-xs font-semibold tracking-widest text-muted-foreground">
@@ -63,6 +75,7 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
           <div className="flex items-center gap-1">
             <Button
               type="button"
+              disabled={busy}
               onClick={() => {
                 openPricingSheet()
                 onClose()
@@ -75,6 +88,7 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
             </Button>
             <Button
               type="button"
+              disabled={busy}
               onClick={() => setHistory(true)}
               variant="ghost"
               size="sm"
@@ -236,8 +250,14 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
                 <Button
                   type="button"
                   disabled={!purchasable || busy}
-                  // 有价但没开放付款时，悬停在置灰的按钮上说明原因（与生成按钮的禁用说明同一套）。
-                  title={price && !paymentsOn ? tBilling('orders.unavailable') : undefined}
+                  // 有价但没开放付款或已有待生效换档时，悬停在置灰按钮上说明原因。
+                  title={
+                    price && !paymentsOn
+                      ? tBilling('orders.unavailable')
+                      : scheduledBlocks
+                        ? tBilling('orders.changeBlocked')
+                        : undefined
+                  }
                   aria-busy={busy && buyingPlan === plan.id}
                   onClick={() => {
                     if (purchasable) void buy(plan.id)
@@ -275,7 +295,9 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
                       ? tBilling('orders.scheduledOn', {
                           date: formatDate(scheduled?.effective_at ?? 0),
                         })
-                      : tBilling(upgrade ? 'orders.upgradeEffective' : 'orders.changeEffective')}
+                      : scheduledBlocks
+                        ? tBilling('orders.changeBlocked')
+                        : tBilling(upgrade ? 'orders.upgradeEffective' : 'orders.changeEffective')}
                   </p>
                 ) : null}
 
@@ -333,7 +355,10 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
 export function RechargePanel({ onClose }: { onClose: () => void }) {
   useTranslation()
   const { catalog, status, error } = useBilling()
-  const [amount, setAmount] = useState(50)
+  const [amount, setAmount] = useState(() => peekRechargeLaunchAmount() ?? 50)
+  useEffect(() => {
+    clearRechargeLaunchAmount()
+  }, [])
   const purchase = usePurchaseOrder()
   const { order, setOrder, busy } = purchase
   const [history, setHistory] = useState(false)
@@ -358,7 +383,7 @@ export function RechargePanel({ onClose }: { onClose: () => void }) {
       />
     )
   return (
-    <Dialog title={tBilling('action.recharge')} onClose={onClose}>
+    <Dialog title={tBilling('action.recharge')} onClose={onClose} closeDisabled={busy}>
       <p className="mt-2 text-sm text-muted-foreground">{tBilling('recharge.subtitle')}</p>
       {status === 'error' && !pricing ? (
         <div
@@ -425,6 +450,7 @@ export function RechargePanel({ onClose }: { onClose: () => void }) {
       )}
       <Button
         type="button"
+        disabled={busy}
         onClick={() => setHistory(true)}
         variant="ghost"
         className="mt-4 w-full text-muted-foreground"

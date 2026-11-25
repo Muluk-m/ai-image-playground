@@ -144,19 +144,25 @@ describe('设置页没有 API 配置', () => {
 })
 
 describe('数据页', () => {
-  it('勾选框决定导出与清除的范围', () => {
+  it('勾选框决定导出与清除的范围', async () => {
     render()
     click(navButton('数据'))
 
     click(cardCheckbox('导出数据', '包含任务和图片'))
-    click(cardButton('导出数据', '导出所选数据'))
+    await act(async () => {
+      cardButton('导出数据', '导出所选数据').dispatchEvent(
+        new MouseEvent('click', { bubbles: true }),
+      )
+    })
     expect(dataActions.exportData).toHaveBeenCalledWith({ exportConfig: true, exportTasks: false })
 
     click(cardCheckbox('清除数据', '包含配置'))
     click(cardButton('清除数据', '清空所选数据'))
     expect(dataActions.clearData).not.toHaveBeenCalled()
 
-    act(() => useStore.getState().confirmDialog?.action())
+    await act(async () => {
+      await useStore.getState().confirmDialog?.action()
+    })
     expect(dataActions.clearData).toHaveBeenCalledWith({ clearConfig: false, clearTasks: true })
   })
 

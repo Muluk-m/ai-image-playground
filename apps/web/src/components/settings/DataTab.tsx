@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { useTranslation } from '../../i18n'
 import { clearData, exportData, importData, useStore } from '../../store'
@@ -13,7 +13,7 @@ const DANGER_CARD =
   'space-y-4 rounded-2xl border border-destructive/40 bg-destructive/5 p-4 shadow-sm'
 
 /** 数据管理：账号、同步状态，以及导出 / 导入 / 清除。 */
-export default function DataTab() {
+export default function DataTab({ onBusyChange }: { onBusyChange?: (busy: boolean) => void }) {
   const { t } = useTranslation(['settings', 'shell'])
   const auth = useAuth()
   const setConfirmDialog = useStore((s) => s.setConfirmDialog)
@@ -26,10 +26,17 @@ export default function DataTab() {
   const [clearTasks, setClearTasks] = useState(true)
   const [isExportingData, setIsExportingData] = useState(false)
   const [isImportingData, setIsImportingData] = useState(false)
+  const [isClearingData, setIsClearingData] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
+  const anyBusy = isExportingData || isImportingData || isClearingData || loggingOut
+
+  useEffect(() => {
+    onBusyChange?.(anyBusy)
+    return () => onBusyChange?.(false)
+  }, [anyBusy, onBusyChange])
 
   const handleExport = async () => {
-    if (isExportingData || (!exportConfig && !exportTasks)) return
+    if (anyBusy || (!exportConfig && !exportTasks)) return
     setIsExportingData(true)
     try {
       await exportData({ exportConfig, exportTasks })
@@ -38,17 +45,33 @@ export default function DataTab() {
     }
   }
 
-  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (file) {
-      setIsImportingData(true)
-      try {
-        await importData(file, { importConfig, importTasks })
-      } finally {
-        setIsImportingData(false)
-      }
-    }
     e.target.value = ''
+    if (!file || anyBusy) return
+    const opts = { importConfig, importTasks }
+    setConfirmDialog({
+      title: t('data.importConfirmTitle'),
+      message: t('data.importConfirmMessage', { name: file.name }),
+      action: async () => {
+        setIsImportingData(true)
+        try {
+          await importData(file, opts)
+        } finally {
+          setIsImportingData(false)
+        }
+      },
+    })
+  }
+
+  const handleLogout = async () => {
+    if (anyBusy) return
+    setLoggingOut(true)
+    try {
+      await auth.logout(false)
+    } finally {
+      setLoggingOut(false)
+    }
   }
 
   return (
@@ -67,13 +90,15 @@ export default function DataTab() {
               type="button"
               variant="outline"
               size="sm"
-              disabled={loggingOut}
-              onClick={() => {
-                setLoggingOut(true)
-                void auth.logout(false)
-              }}
+              disabled={anyBusy}
+              aria-busy={loggingOut}
+              onClick={() => void handleLogout()}
             >
-              <Icon name="logout" />
+              {loggingOut ? (
+                <Icon name="loading" size="xs" className="animate-spin" />
+              ) : (
+                <Icon name="logout" />
+              )}
               {loggingOut ? t('shell:header.loggingOut') : t('shell:logout.title')}
             </Button>
           </div>
@@ -91,11 +116,13 @@ export default function DataTab() {
           <Checkbox
             checked={exportConfig}
             onChange={setExportConfig}
+            disabled={anyBusy}
             label={t('data.includeConfig')}
           />
           <Checkbox
             checked={exportTasks}
             onChange={setExportTasks}
+            disabled={anyBusy}
             label={t('data.includeTasks')}
           />
         </div>
@@ -103,7 +130,8 @@ export default function DataTab() {
           type="button"
           variant="secondary"
           className="w-full"
-          disabled={(!exportConfig && !exportTasks) || isExportingData}
+          disabled={(!exportConfig && !exportTasks) || anyBusy}
+          aria-busy={isExportingData}
           onClick={() => void handleExport()}
         >
           {isExportingData ? <Icon name="loading" className="animate-spin" /> : null}
@@ -120,11 +148,13 @@ export default function DataTab() {
           <Checkbox
             checked={importConfig}
             onChange={setImportConfig}
+            disabled={anyBusy}
             label={t('data.includeConfig')}
           />
           <Checkbox
             checked={importTasks}
             onChange={setImportTasks}
+            disabled={anyBusy}
             label={t('data.includeTasks')}
           />
         </div>
@@ -132,7 +162,8 @@ export default function DataTab() {
           type="button"
           variant="secondary"
           className="w-full"
-          disabled={(!importConfig && !importTasks) || isImportingData}
+          disabled={(!importConfig && !importTasks) || anyBusy}
+          aria-busy={isImportingData}
           onClick={() => importInputRef.current?.click()}
         >
           {isImportingData ? <Icon name="loading" className="animate-spin" /> : null}
@@ -156,12 +187,14 @@ export default function DataTab() {
           <Checkbox
             checked={clearConfig}
             onChange={setClearConfig}
+            disabled={anyBusy}
             label={t('data.includeConfig')}
             tone="danger"
           />
           <Checkbox
             checked={clearTasks}
             onChange={setClearTasks}
+            disabled={anyBusy}
             label={t('data.includeTasks')}
             tone="danger"
           />
@@ -170,16 +203,25 @@ export default function DataTab() {
           type="button"
           variant="destructive"
           className="w-full"
-          disabled={!clearConfig && !clearTasks}
+          disabled={(!clearConfig && !clearTasks) || anyBusy}
+          aria-busy={isClearingData}
           onClick={() =>
             setConfirmDialog({
               title: t('data.clearSelected'),
               message: t('data.clearMessage'),
-              action: () => clearData({ clearConfig, clearTasks }),
+              action: async () => {
+                setIsClearingData(true)
+                try {
+                  await clearData({ clearConfig, clearTasks })
+                } finally {
+                  setIsClearingData(false)
+                }
+              },
             })
           }
         >
-          {t('data.clearSelected')}
+          {isClearingData ? <Icon name="loading" className="animate-spin" /> : null}
+          {isClearingData ? t('data.clearing') : t('data.clearSelected')}
         </Button>
       </SettingsSection>
     </div>

@@ -75,13 +75,16 @@ describe('Batch 4 core web UX polish', () => {
     expect(submit.textContent).toContain('重置密码')
     expect(submit.textContent).not.toContain('发送找回邮件')
 
-    const input = document.body.querySelector<HTMLInputElement>(
-      'input[autocomplete="new-password"]',
-    )!
+    const inputs = Array.from(
+      document.body.querySelectorAll<HTMLInputElement>('input[autocomplete="new-password"]'),
+    )
+    const input = inputs[0]!
     const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
     await act(async () => {
-      valueSetter.call(input, 'NewSecret123!')
-      input.dispatchEvent(new Event('input', { bubbles: true }))
+      for (const field of inputs) {
+        valueSetter.call(field, 'NewSecret123!')
+        field.dispatchEvent(new Event('input', { bubbles: true }))
+      }
     })
 
     const form = document.body.querySelector('form')!

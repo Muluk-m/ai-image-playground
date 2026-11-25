@@ -131,6 +131,7 @@
     "deviceJoin": "{{current}}，{{others}}",
     "deviceOthers_other": "另有 {{n}} 台设备在线",
     "revokeOthers": "退出其他设备",
+    "confirmRevokeOthers": "确认退出",
     "revoking": "正在退出…",
     "deleteAccount": "注销账号",
     "deleteHint": "将永久删除本账户",

@@ -30,8 +30,11 @@
     "exportSelected": "导出所选数据",
     "exporting": "导出中…",
     "importFromZip": "从 ZIP 导入所选数据",
-    "importing": "导入中...",
+    "importing": "导入中…",
+    "importConfirmTitle": "确认导入数据",
+    "importConfirmMessage": "将从「{{name}}」导入所选配置或任务记录，并合并到当前本地数据中。",
     "clearSelected": "清空所选数据",
+    "clearing": "清空中…",
     "clearMessage": "确定要清空所选的数据吗？此操作不可恢复。"
   }
 }
