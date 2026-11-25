@@ -125,7 +125,13 @@ function receive(
 
 afterEach(() => rmSync(root, { recursive: true, force: true }))
 
-describe('ci-receive.sh', { timeout: 20_000 }, () => {
+/**
+ * The receiver serialises deploys with flock(1), which only Linux hosts have (the VPS and CI).
+ * Without it the lock tests cannot mean anything, so the suite is skipped there instead of failing.
+ */
+const hasFlock = spawnSync('sh', ['-c', 'command -v flock'], { encoding: 'utf8' }).status === 0
+
+describe.skipIf(!hasFlock)('ci-receive.sh', { timeout: 20_000 }, () => {
   it('unpacks the release and runs its receiver as the GitHub Actions run', () => {
     const result = receive(`deploy ${id} paid 12345`)
     expect(result.status).toBe(0)
