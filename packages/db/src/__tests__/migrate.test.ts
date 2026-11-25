@@ -1146,7 +1146,12 @@ describe('runMigrations', () => {
           await sql`SELECT media_id FROM media_references WHERE user_id = 'u-cascade'`,
         ).toEqual([])
 
-        // Rollback 0108 then 0107 must preserve u-rollback's asset in user_asset_objects.
+        // Rollback 0111 -> 0108 -> 0107 must restore user_asset_objects and preserve u-rollback's asset.
+        await sql.unsafe(
+          await Bun.file(
+            join(migrationsDirectory, 'rollback/0111_drop_user_asset_objects.down.sql'),
+          ).text(),
+        )
         await sql.unsafe(
           await Bun.file(
             join(migrationsDirectory, 'rollback/0108_media_objects_asset_image_index.down.sql'),
@@ -1303,6 +1308,68 @@ describe('runMigrations', () => {
           await sql`SELECT privilege_type FROM information_schema.table_privileges
             WHERE table_schema = 'public' AND table_name = 'queue_tasks' AND grantee = 'PUBLIC'`,
         ).toEqual([{ privilege_type: 'SELECT' }])
+      } finally {
+        await sql.close()
+      }
+    })
+  }, 30_000)
+
+  it('backfills unmigrated user_asset_objects before dropping the table in 0111 and restores cleanly on rollback', async () => {
+    await withEmptyDatabase('drop_user_asset_objects_0111', async (url) => {
+      await migrateUntil(url, '0110_tasks_decouple_cold_columns')
+      const sql = new SQL(url, { max: 1 })
+      try {
+        const now = new Date()
+        await sql`
+          INSERT INTO users (id, username, password_hash, status, created_at, updated_at)
+          VALUES ('u-0111', 'u-0111', 'hash', 'active', ${now}, ${now})
+        `
+        await sql`
+          INSERT INTO user_asset_objects (user_id, image_id, bytes, content_type, created_at)
+          VALUES ('u-0111', 'legacy-img-1', 512, 'image/png', ${now})
+        `
+        await sql`
+          INSERT INTO user_assets (user_id, id, kind, name, image_id, views, created_at, updated_at, version)
+          VALUES ('u-0111', 'asset-0111', 'subject', 'legacy', 'legacy-img-1', '[]'::jsonb, ${now}, ${now}, 1)
+        `
+        await sql`
+          INSERT INTO user_looks (user_id, id, name, description, body, cover_image_id, reference_image_ids, created_at, updated_at, version)
+          VALUES ('u-0111', 'look-0111', 'look', 'desc', 'body', 'legacy-img-1', '[]'::jsonb, ${now}, ${now}, 1)
+        `
+
+        await runMigrations(url)
+
+        expect(await sql`SELECT to_regclass('public.user_asset_objects')::text AS rel`).toEqual([
+          { rel: null },
+        ])
+        expect(
+          await sql`SELECT user_id, asset_image_id, bytes::integer AS bytes, content_type, storage_scope FROM media_objects WHERE user_id = 'u-0111'`,
+        ).toEqual([
+          {
+            user_id: 'u-0111',
+            asset_image_id: 'legacy-img-1',
+            bytes: 512,
+            content_type: 'image/png',
+            storage_scope: 'object',
+          },
+        ])
+        expect(
+          await sql`SELECT owner_kind, owner_id FROM media_references WHERE user_id = 'u-0111' ORDER BY owner_kind`,
+        ).toEqual([
+          { owner_kind: 'asset', owner_id: 'asset-0111' },
+          { owner_kind: 'look', owner_id: 'look-0111' },
+        ])
+
+        await sql.unsafe(
+          await Bun.file(
+            join(migrationsDirectory, 'rollback/0111_drop_user_asset_objects.down.sql'),
+          ).text(),
+        )
+        expect(
+          await sql`SELECT user_id, image_id, bytes, content_type FROM user_asset_objects WHERE user_id = 'u-0111'`,
+        ).toEqual([
+          { user_id: 'u-0111', image_id: 'legacy-img-1', bytes: 512, content_type: 'image/png' },
+        ])
       } finally {
         await sql.close()
       }

@@ -102,8 +102,8 @@ afterAll(async () => {
   await rm(tempDir, { recursive: true, force: true })
 })
 
-describe('unified media ledger (Contract 2a Stop-Write)', () => {
-  it('writes asset uploads solely to media_objects without writing user_asset_objects and rejects empty uploads', async () => {
+describe('unified media ledger (Contract 2b)', () => {
+  it('writes asset uploads solely to media_objects after user_asset_objects is dropped and rejects empty uploads', async () => {
     expect(
       await storeAssetImage('ledger-user', 'empty-img', new Uint8Array(0), 'image/png'),
     ).toEqual({ ok: false, error: 'asset_image_empty' })
@@ -133,12 +133,10 @@ describe('unified media ledger (Contract 2a Stop-Write)', () => {
       object_key: 'users/ledger-user/assets/img-1',
     })
 
-    // Stop-Write: new asset uploads must no longer write to legacy user_asset_objects.
-    const legacy = await db
-      .select()
-      .from(schema.user_asset_objects)
-      .where(eq(schema.user_asset_objects.user_id, 'ledger-user'))
-    expect(legacy).toHaveLength(0)
+    const [legacyTable] = await db.$client<{ rel: string | null }[]>`
+      SELECT to_regclass('public.user_asset_objects')::text AS rel
+    `
+    expect(legacyTable?.rel).toBeNull()
 
     // Identical bytes under a distinct imageId must also succeed without sha256 collision.
     const second = await storeAssetImage('ledger-user', 'img-2', new Uint8Array(40), 'image/png')
