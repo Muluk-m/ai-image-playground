@@ -171,6 +171,27 @@ describe('Lightbox 触控手势', () => {
     expect(fireTouch(image, 'touchmove', [{ x: 200, y: 100 }])).toBe(false)
     expect(image.parentElement?.style.transform).toBe(before)
   })
+
+  it('未缩放时纵向拖拽超过阈值触发关闭，短拖松手自动回弹', async () => {
+    await renderLightbox()
+    const image = lightboxImage()
+    const shell = lightboxRoot().querySelector<HTMLDivElement>('[data-lightbox-media-shell]')!
+
+    // Short drag springs back and stays open.
+    vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValueOnce(400)
+    fireTouch(image, 'touchstart', [{ x: 150, y: 200 }])
+    expect(fireTouch(image, 'touchmove', [{ x: 152, y: 245 }])).toBe(true)
+    expect(shell.style.transform).toContain('translate3d(')
+    fireTouch(image, 'touchend', [])
+    expect(useStore.getState().lightboxImageId).toBe('img-1')
+    expect(shell.style.transform).toBe('')
+
+    // Drag past dismiss distance closes Lightbox.
+    fireTouch(image, 'touchstart', [{ x: 150, y: 200 }])
+    fireTouch(image, 'touchmove', [{ x: 152, y: 340 }])
+    fireTouch(image, 'touchend', [])
+    expect(useStore.getState().lightboxImageId).toBeNull()
+  })
 })
 
 describe('Lightbox 保存按钮', () => {
