@@ -88,7 +88,7 @@ const UNMET_RETENTION_GATE =
 const NON_AFFIRMATIVE_CLAUSE =
   /(?:尚未|暂未|还未|仍未|未(?:[能曾达满到过做经完核确验全备清回])|没有|无(?:法|备份|恢复|冷备|快照)|不可恢复|不能|并非|并不|不确保|不保证|不确定|未知|待(?:确认|核验|验证|完成|回填|备份|到期)|是否|计划|拟(?:于|在)?|预计|准备|打算|之后再|后再执行)/
 const TIME_GATE_CONFIRMED =
-  /(?:已过期|已到期|无日期限制|无时间限制|无留存期限制|无保留期限制|留存期已满|保留期已满|已满\s*\d+\s*[天日小时])/i
+  /(?:已过期|已到期|无日期限制|无时间限制|无留存期限制|无保留期限制|(?:留存|保留|观察|窗口)期?.{0,6}已满(?:\s*\d+\s*[天日小时])?)/i
 const DATA_BACKUP_CONFIRMED =
   /(?:无需保留|确认无历史数据|已清空|(?:确认|核验)(?:该|目标)?表(?:为|已)空|已(?:完成)?全量回填|全量回填(?:已完成|通过|零差异)|已回填(?:完成|验收|并?零差异)|(?:完成|通过)回填(?:零差异)?验收|回填零差异(?:已)?(?:验收|通过|确认)|已备份|已有.{0,6}(?:可恢复|已验证)?备份|已验证.{0,8}(?:备份|恢复|冷备|快照)|冷备(?:已|完成)|(?:备份|冷备|恢复|PG)\s*快照(?:已|可用|可恢复|验证))/i
 
@@ -287,8 +287,30 @@ function skipBalancedParens(input, openIndex) {
 }
 
 /**
+ * 校验并规范化 PostgreSQL `format()` 模板字符串：
+ * - `%%` 还原为字面 `%`；
+ * - `%I` 替换为 `_id_`（使 `ALTER TABLE %I DROP %I` 能命中省略 COLUMN 的删列检测）；
+ * - `%L` 替换为 `_str_`；
+ * - 出现 `%s`（可插入任意 SQL 关键字）时标记 `hasDynamic = true`。
+ */
+function normalizeFormatTemplate(template) {
+  let hasDynamic = false
+  const normalized = template.replace(/%%|%(?:\d+\$)?-?(?:\*(?:\d+\$)?|\d+)?([sIL])/g, (match, type) => {
+    if (match === '%%') return '%'
+    if (type === 'I') return ' _id_ '
+    if (type === 'L') return ' _str_ '
+    hasDynamic = true
+    return ' '
+  })
+  return { normalized, hasDynamic }
+}
+
+/** 语句起点模式：仅当 `EXECUTE` 出现在语句起点时才按动态 SQL 解析，排除 `GRANT`/`REVOKE EXECUTE` 等权限语境。 */
+const EXECUTE_STMT_START = /(?:^|;|>>|\b(?:BEGIN(?:\s+ATOMIC)?|THEN|ELSE|LOOP)\b)\s*$/i
+
+/**
  * 解析 PL/pgSQL `EXECUTE <expr>` 语句：
- * - 跳过 `CREATE TRIGGER ... EXECUTE FUNCTION/PROCEDURE`；
+ * - 跳过 `CREATE TRIGGER ... EXECUTE FUNCTION/PROCEDURE` 与 `EXECUTE ON` 权限语法；
  * - 静态折叠 `'DROP ' || 'TABLE ...'`、`EXECUTE ('...')` 与 `EXECUTE format('...', ...)` 模板并递归提取内部 SQL；
  * - 遇到变量、非 `quote_*` 动态表达式或 `format` 中的 `%s` 占位符时，标记 `flags.unresolvableExecute = true`。
  */
@@ -296,7 +318,7 @@ function consumeExecute(input, start, flags) {
   let p = skipWsAndComments(input, start)
   const n = input.length
   const nextWord = /^[A-Za-z_][A-Za-z0-9_$]*/.exec(input.slice(p))
-  if (nextWord && /^(?:FUNCTION|PROCEDURE)$/i.test(nextWord[0])) {
+  if (nextWord && /^(?:FUNCTION|PROCEDURE|ON)$/i.test(nextWord[0])) {
     return { out: 'EXECUTE', nextIndex: start }
   }
 
@@ -340,9 +362,12 @@ function consumeExecute(input, start, flags) {
       const str = readSingleQuotedString(input, p, isEsc)
       p = str.nextIndex
       if (!(inFormatArgs && formatSeenFirstArg)) {
-        parts.push(str.value)
-        if (inFormatArgs && !formatSeenFirstArg && /%(?:\d+\$)?[-#0 +*]*(?:\d+\$|\d)*s/.test(str.value.replace(/%%/g, ''))) {
-          hasDynamic = true
+        if (inFormatArgs && !formatSeenFirstArg) {
+          const fmt = normalizeFormatTemplate(str.value)
+          parts.push(fmt.normalized)
+          if (fmt.hasDynamic) hasDynamic = true
+        } else {
+          parts.push(str.value)
         }
       }
       continue
@@ -352,9 +377,12 @@ function consumeExecute(input, start, flags) {
       if (dq) {
         p = dq.nextIndex
         if (!(inFormatArgs && formatSeenFirstArg)) {
-          parts.push(dq.value)
-          if (inFormatArgs && !formatSeenFirstArg && /%(?:\d+\$)?[-#0 +*]*(?:\d+\$|\d)*s/.test(dq.value.replace(/%%/g, ''))) {
-            hasDynamic = true
+          if (inFormatArgs && !formatSeenFirstArg) {
+            const fmt = normalizeFormatTemplate(dq.value)
+            parts.push(fmt.normalized)
+            if (fmt.hasDynamic) hasDynamic = true
+          } else {
+            parts.push(dq.value)
           }
         }
         continue
@@ -491,13 +519,13 @@ function extractExecutableSql(input, flags = { unresolvableExecute: false }) {
       }
     }
 
-    // 标识符 / 关键字（识别动态 EXECUTE 语句）
+    // 标识符 / 关键字（仅在语句起点识别动态 EXECUTE，避免 GRANT/REVOKE EXECUTE 权限误报）
     if (/[A-Za-z_]/.test(ch)) {
       let end = i + 1
       while (end < n && /[A-Za-z0-9_$]/.test(input[end])) end += 1
       const word = input.slice(i, end)
       i = end
-      if (word.toUpperCase() === 'EXECUTE') {
+      if (word.toUpperCase() === 'EXECUTE' && EXECUTE_STMT_START.test(out)) {
         const res = consumeExecute(input, i, flags)
         out += res.out
         i = res.nextIndex

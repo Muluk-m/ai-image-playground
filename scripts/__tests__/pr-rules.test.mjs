@@ -247,6 +247,7 @@ test('destructive migrations require retention/backup confirmation in rollback s
     // 仅写备份确认而未确认留存期/最早可发布时间（含未来日期 + 备份），或仅写到期但未核验数据/备份 → 均须失败
     '生产历史数据已备份并验证可恢复。',
     '关联 #1937，最早可发布时间为 2026-11-27，生产历史数据已备份且验证可恢复。',
+    '备份已满 1 小时，历史数据已备份且验证可恢复。',
     '留存期已到期，但尚未备份。',
   ]) {
     assert.match(
@@ -294,6 +295,19 @@ test('destructive migrations require retention/backup confirmation in rollback s
     patch: "+DO $$\n+BEGIN\n+  EXECUTE ('DROP TABLE IF EXISTS public.old_logs');\n+  EXECUTE (format('ALTER TABLE public.tasks DROP COLUMN %I', 'old_col'));\n+END $$;",
   })
   assert.deepEqual(destructiveMigrationOps(parenthesizedExecute), ['DROP TABLE', 'DROP COLUMN'])
+
+  // format 模板中省略 COLUMN 关键字的删列操作（%I 占位符规范化）
+  const formatOmittedColumn = file('packages/db/drizzle/0125_fmt_omit_col.sql', {
+    status: 'added',
+    content: "DO $$ BEGIN EXECUTE format('ALTER TABLE %I DROP %I', 'tasks', 'legacy_col'); END $$;",
+  })
+  assert.deepEqual(destructiveMigrationOps(formatOmittedColumn), ['DROP COLUMN'])
+
+  const formatPercentS = file('packages/db/drizzle/0125_fmt_percent_s.sql', {
+    status: 'added',
+    content: "DO $$ BEGIN EXECUTE format('%1$*2$s TABLE public.old_logs', 'DROP', 4); END $$;",
+  })
+  assert.match(destructiveMigrationOps(formatPercentS).join(), /动态 SQL/)
 
   // 拼接式动态 SQL、E'...\t...' / E'...\x20...' 转义、无法静态求值的 EXECUTE 变量、以及 SQL 标准 BEGIN ATOMIC 函数体均应命中
   const concatExecute = file('packages/db/drizzle/0125_exec_concat.sql', {
@@ -442,6 +456,9 @@ test('destructive migrations require retention/backup confirmation in rollback s
       '+ALTER TABLE public.tasks ALTER COLUMN request_payload DROP NOT NULL;',
       '+REVOKE TRUNCATE ON TABLE public.tasks FROM readonly_role;',
       '+GRANT\n+  TRUNCATE\n+ON TABLE public.tasks TO maint_role;',
+      '+GRANT EXECUTE ON FUNCTION public.fn_guard() TO app_role;',
+      '+REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;',
+      '+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO app_role;',
       '+CREATE TRIGGER trg_guard\n+  BEFORE\n+  TRUNCATE ON public.tasks\n+  EXECUTE FUNCTION fn_guard();',
       '+ALTER TABLE public.tasks ADD COLUMN "truncate" boolean;',
       "+COMMENT ON TABLE public.tasks IS 'never DROP TABLE blindly';",
