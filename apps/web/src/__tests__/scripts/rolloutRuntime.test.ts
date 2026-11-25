@@ -1043,14 +1043,14 @@ describe('app-compose.sh up', () => {
     expect(logLines().some((line) => /^(create|run|stop|rm) /.test(line))).toBe(false)
   })
 
-  it('reads the deployment descriptor on hand runs so a stale rendered/ directory never overrides legacy', () => {
+  it('reads the deployment descriptor on hand runs instead of guessing from disk', () => {
     const prodConfig = join(xdg, 'ai-image-playground/apps/image-playground-paid')
-    const staleRendered = join(xdg, 'ai-image-playground/rendered/image-playground-paid')
     write(join(prodConfig, 'app.env'), 'APP_IMAGE=fixture:new\n')
     write(join(prodConfig, 'migrate.env'), '')
     write(join(prodConfig, 'cloudflared/credentials.json'), '{}')
-    write(join(staleRendered, 'deploy.env'), 'COMPOSE_PROJECT=image-playground-paid\n')
-    const result = spawnSync('sh', [composeScript, 'compose', 'image-playground-paid', 'ps'], {
+    // prod.json declares configSource=rendered, so a hand run without rendered/deploy.env refuses
+    // to fall back to app.env silently.
+    const refused = spawnSync('sh', [composeScript, 'compose', 'image-playground-paid', 'ps'], {
       encoding: 'utf8',
       timeout: 20_000,
       env: {
@@ -1063,7 +1063,30 @@ describe('app-compose.sh up', () => {
         CONFIG_SOURCE: '',
       },
     })
-    expect(result.status, result.stderr).toBe(0)
+    expect(refused.status).toBe(1)
+    expect(refused.stderr).toContain('configSource is rendered but')
+
+    // An explicit CONFIG_SOURCE=legacy override still works even if a stale rendered/ dir sits on disk.
+    const staleRendered = join(xdg, 'ai-image-playground/rendered/image-playground-paid')
+    write(join(staleRendered, 'deploy.env'), 'COMPOSE_PROJECT=image-playground-paid\n')
+    const legacyOverride = spawnSync(
+      'sh',
+      [composeScript, 'compose', 'image-playground-paid', 'ps'],
+      {
+        encoding: 'utf8',
+        timeout: 20_000,
+        env: {
+          ...process.env,
+          PATH: `${join(root, 'bin')}:${process.env.PATH}`,
+          MOCK_ROOT: root,
+          XDG_CONFIG_HOME: xdg,
+          APP_CONFIG_DIR: '',
+          RENDERED_DIR: '',
+          CONFIG_SOURCE: 'legacy',
+        },
+      },
+    )
+    expect(legacyOverride.status, legacyOverride.stderr).toBe(0)
     const log = logLines().join('\n')
     expect(log).toContain(`${prodConfig}/app.env`)
     expect(log).not.toContain('compose.rendered.yaml')

@@ -12,7 +12,7 @@
 | BFF `CanvasSyncRooms`（`LISTEN canvas_changed`） | `APP_DIRECT_DATABASE_URL` → `postgres:5432` | 每 BFF 实例惰性 `max = 1`（`bff-canvas-listener`） | 仅首个画布 WebSocket 进入房间后建立长监听连接 |
 | Worker `shared-maintenance`（`pg_try_advisory_lock` + `pg_backend_pid`） | `APP_DIRECT_DATABASE_URL` → `postgres:5432` | 领导者 `max = 1`，跟随者 `0` | 仅维护领主占一条长连接 |
 | `migrate`（DDL / `pg_advisory_lock` / `CREATE INDEX CONCURRENTLY`） | `MIGRATOR_DATABASE_URL` → `postgres:5432` | 一次性短任务 | 永不经过 PgBouncer |
-| `admin` / `pg-backup`（`pg_dump`） | `ADMIN_DATABASE_URL` → `postgres:5432` | `DATABASE_POOL_MAX=3`（或 compose `6`） | 保持直连避免影响夜间 `pg_dump` |
+| `admin` / `pg-backup`（`pg_dump`） | `ADMIN_DATABASE_URL` → `postgres:5432` | `DATABASE_POOL_MAX=6` | 保持直连避免影响夜间 `pg_dump` |
 | PgBouncer → PostgreSQL 后端上限 | `deploy/pgbouncer/pgbouncer.ini` | `default_pool_size=15`、`reserve_pool_size=5`、`max_db_connections=30` | 两套环境 PgBouncer 峰值合计 `<= 60` + 直连（Admin `<= 12`、监听 `<= 4`、维护领主 `<= 2`、媒体锁 `<= 8`、`pg_dump`/`migrate` 短连）仍稳定低于 `max_connections = 100` |
 
 ## 事务池兼容保障
