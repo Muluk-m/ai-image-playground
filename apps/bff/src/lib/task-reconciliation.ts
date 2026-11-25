@@ -124,16 +124,15 @@ export async function reconcileTask(taskId: string, command: ReconciliationComma
       .for('update')
     if (!lockedTask) throw new ReconciliationError('task_not_found', 404)
     const payload = (await readTaskPayloads(tx, [lockedTask.id])).get(lockedTask.id)
-    const task = payload
-      ? {
-          ...lockedTask,
-          request_payload: payload.request_payload,
-          metering: payload.metering,
-          result_payload: payload.result_payload,
-          archive_payload: payload.archive_payload,
-          upstream_body: payload.upstream_body,
-        }
-      : lockedTask
+    if (!payload) throw new ReconciliationError('task_not_found', 404)
+    const task = {
+      ...lockedTask,
+      request_payload: payload.request_payload,
+      metering: payload.metering,
+      result_payload: payload.result_payload,
+      archive_payload: payload.archive_payload,
+      upstream_body: payload.upstream_body,
+    }
     const [prior] = await tx
       .select()
       .from(schema.operator_audits)

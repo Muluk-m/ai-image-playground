@@ -1,6 +1,6 @@
 import { afterAll, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
@@ -279,9 +279,7 @@ it('re-quotes an edited pending generation phase without changing completed anal
     expect(proposed.execution).toBeUndefined()
     expect(billing.reservations).toHaveLength(1)
     expect(calls).toBe(1)
-    expect(await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))).toHaveLength(
-      0,
-    )
+    expect(await selectTestTasks(db).where(eq(schema.tasks.kind, 'queue'))).toHaveLength(0)
     const oldDigest = page.batch.digest
     const revisedPrompt = '保持已检查的主体颜色；将背景改成纯灰，保留接触阴影。'
     const edit = await request(
@@ -342,7 +340,7 @@ it('re-quotes an edited pending generation phase without changing completed anal
     }
     expect((await request('/confirm', confirmation)).status).toBe(200)
     expect((await request('/confirm', confirmation)).status).toBe(200)
-    const [generation] = await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))
+    const [generation] = await selectTestTasks(db).where(eq(schema.tasks.kind, 'queue'))
     if (!generation) throw new Error('generation confirmation did not create its task')
     expect(billing.reservations).toHaveLength(2)
     expect(generation.request_payload?.prompt).toContain(revisedPrompt)
@@ -361,9 +359,9 @@ it('re-quotes an edited pending generation phase without changing completed anal
       setObjectStoreForTesting()
     }
     expect(generationCalls).toBe(1)
-    expect(
-      (await db.select().from(schema.tasks).where(eq(schema.tasks.id, generation.id)))[0]?.status,
-    ).toBe('completed')
+    expect((await selectTestTasks(db).where(eq(schema.tasks.id, generation.id)))[0]?.status).toBe(
+      'completed',
+    )
     expect(
       await db.select().from(schema.analysis_tasks).where(eq(schema.analysis_tasks.batch_id, id)),
     ).toEqual(originalAnalysis)

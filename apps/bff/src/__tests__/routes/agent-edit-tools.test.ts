@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import {
   type AgentBackgroundJobsResponse,
   type AgentMessageView,
@@ -153,7 +153,7 @@ function settleSubmittedTasks(outcome: 'completed' | 'failed'): () => void {
 
 /** 走 worker 那条路把一条任务跑成功：唤醒判断发生在收尾的同一个事务里。 */
 async function completeWithWorker(taskId: string): Promise<void> {
-  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId))
+  const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, taskId))
   await workerSettles(taskId, {
     status: 'completed',
     resultPayload: {
@@ -369,10 +369,7 @@ describe('智能体改图工具', () => {
     for (const [index, image] of references.entries()) {
       const end = ends.find((one) => one.toolCallId === `masked-${index}`)!
       expect(end).toMatchObject({ status: 'submitted', anchorObjectId: image.imageId })
-      const [task] = await db
-        .select()
-        .from(schema.tasks)
-        .where(eq(schema.tasks.id, end.job!.taskId))
+      const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, end.job!.taskId))
       const request = await hydrateInputImages(task!.request_payload)
       expect(request.mask).toBe(image.maskDataUrl)
       expect(request.prompt).toContain(selections[index]!.id)
@@ -425,10 +422,7 @@ describe('智能体改图工具', () => {
         anchorObjectId: reference.imageId,
         prompt: prompts[index],
       })
-      const [task] = await db
-        .select()
-        .from(schema.tasks)
-        .where(eq(schema.tasks.id, end.job!.taskId))
+      const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, end.job!.taskId))
       const request = await hydrateInputImages(task!.request_payload)
       expect(request.input_images).toEqual([reference.dataUrl])
       expect(request.prompt).toBe(submittedPrompt(prompts[index]!))
@@ -487,7 +481,7 @@ describe('智能体改图工具', () => {
     const ends = await confirmDrafts(conversationId)
     expect(ends).toHaveLength(1)
     expect(ends[0]).toMatchObject({ status: 'submitted', anchorObjectId: 'target' })
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     const request = await hydrateInputImages(task!.request_payload)
     expect(request.input_images).toEqual([PIXEL, second])
     expect(request.n).toBe(2)
@@ -541,14 +535,14 @@ describe('智能体改图工具', () => {
         status: 'awaiting_confirmation',
         anchorObjectId: 'canvas-original',
       })
-      expect(await db.select().from(schema.tasks)).toHaveLength(0)
+      expect(await selectTestTasks(db)).toHaveLength(0)
 
       await confirmDrafts(conversationId)
 
       // 确认之后才提交：张数照拟稿那一刻冻结的两张，候选等任务结束后结算。
       const [settled] = await settledResults(conversationId)
       expect(settled!.artifacts).toHaveLength(2)
-      const [task] = await db.select().from(schema.tasks)
+      const [task] = await selectTestTasks(db)
       const submitted = await hydrateInputImages(task!.request_payload)
       expect(submitted.input_images).toEqual([PIXEL])
       expect(submitted.mask).toBe(MASK)
@@ -590,7 +584,7 @@ describe('智能体改图工具', () => {
         status: 'awaiting_confirmation',
         anchorObjectId: 'canvas-original',
       })
-      expect(await db.select().from(schema.tasks)).toHaveLength(0)
+      expect(await selectTestTasks(db)).toHaveLength(0)
 
       const [confirmed] = await confirmDrafts(conversationId)
 
@@ -650,7 +644,7 @@ describe('智能体改图工具', () => {
         })
       }
       await confirmDrafts(conversationId)
-      const [task] = await db.select().from(schema.tasks)
+      const [task] = await selectTestTasks(db)
       const submitted = await hydrateInputImages(task!.request_payload)
       expect(submitted.input_images![0]).toStartWith('data:image/png;base64,')
       const stored = await db
@@ -713,10 +707,9 @@ describe('智能体改图工具', () => {
         anchorObjectId: 'original-b',
       })
       const [confirmedReplacement] = await confirmDrafts(conversationId)
-      const [replacementTask] = await db
-        .select()
-        .from(schema.tasks)
-        .where(eq(schema.tasks.id, confirmedReplacement!.job!.taskId))
+      const [replacementTask] = await selectTestTasks(db).where(
+        eq(schema.tasks.id, confirmedReplacement!.job!.taskId),
+      )
       const request = await hydrateInputImages(replacementTask!.request_payload)
       expect(request.input_images).toEqual([otherPixel])
       expect(request.mask).toBeUndefined()
@@ -729,10 +722,9 @@ describe('智能体改图工具', () => {
         anchorObjectId: 'original-a',
       })
       const [confirmedOld] = await confirmDrafts(conversationId)
-      const [oldTask] = await db
-        .select()
-        .from(schema.tasks)
-        .where(eq(schema.tasks.id, confirmedOld!.job!.taskId))
+      const [oldTask] = await selectTestTasks(db).where(
+        eq(schema.tasks.id, confirmedOld!.job!.taskId),
+      )
       const oldRequest = await hydrateInputImages(oldTask!.request_payload)
       expect(oldRequest.input_images).toEqual([PIXEL])
       expect(oldRequest.mask).toBeUndefined()
@@ -740,8 +732,8 @@ describe('智能体改图工具', () => {
       // 等后台任务结束，避免它干扰下面的会话隔离检查。
       await waitFor(
         async () =>
-          (await db.select().from(schema.tasks).where(eq(schema.tasks.id, oldTask!.id)))[0]
-            ?.status === 'completed',
+          (await selectTestTasks(db).where(eq(schema.tasks.id, oldTask!.id)))[0]?.status ===
+          'completed',
         3_000,
       )
       await waitForWakeTurns()
@@ -749,10 +741,7 @@ describe('智能体改图工具', () => {
       const inaccessible = await edit(otherConversation, 'original-a')
       expect(eventsOfType(inaccessible, 'toolEnd')[0]!.status).toBe('failed')
       expect(
-        await db
-          .select()
-          .from(schema.tasks)
-          .where(eq(schema.tasks.agent_conversation_id, otherConversation)),
+        await selectTestTasks(db).where(eq(schema.tasks.agent_conversation_id, otherConversation)),
       ).toEqual([])
     } finally {
       stop()
@@ -817,10 +806,7 @@ describe('智能体改图工具', () => {
       anchorObjectId: 'canvas-1',
     })
     const [confirmed] = await confirmDrafts(conversationId)
-    const [task] = await db
-      .select()
-      .from(schema.tasks)
-      .where(eq(schema.tasks.id, confirmed!.job!.taskId))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, confirmed!.job!.taskId))
     const submitted = await hydrateInputImages(task!.request_payload)
     expect(submitted.input_images).toEqual([PIXEL])
     expect(submitted.mask).toBeUndefined()
@@ -888,7 +874,7 @@ describe('智能体改图工具', () => {
     })
     // 产出贴着源图放，源图本身不进这次任务的产出。
     expect(end!.anchorObjectId).toBe('canvas-1')
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
 
     await confirmDrafts(conversationId)
 
@@ -899,7 +885,7 @@ describe('智能体改图工具', () => {
     expect(settled!.artifacts).toHaveLength(1)
     expect(settled!.artifacts![0]!.artifactId).not.toBe('canvas-1')
 
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task!.request_payload.prompt).toBe(submittedPrompt('把背景换成浅木色'))
     expect(task!.request_payload.input_images).toHaveLength(1)
     expect(task!.request_payload.mask).toBeUndefined()
@@ -949,7 +935,7 @@ describe('智能体改图工具', () => {
     await confirmDrafts(conversationId)
     await settledResults(conversationId)
     stop()
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     const [input] = task!.request_payload.input_images! as unknown as {
       mime: string
       object: string
@@ -997,7 +983,7 @@ describe('智能体改图工具', () => {
 
     await confirmDrafts(conversationId)
 
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task!.request_payload.mask).toBeTruthy()
     // 提交出去的还是卡上那一句。
     expect(task!.request_payload.prompt).toBe(submittedPrompt(pending!.prompt!))
@@ -1031,13 +1017,13 @@ describe('智能体改图工具', () => {
     expect(end).toMatchObject({ status: 'awaiting_confirmation', anchorObjectId: 'canvas-1' })
     expect(end!.job).toBeUndefined()
     expect(frames.at(-1)?.event).toMatchObject({ type: 'turnEnd', stopReason: 'completed' })
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
     expect(await db.select().from(schema.agent_jobs)).toHaveLength(0)
 
     await confirmDrafts(conversationId)
 
     // 确认之后才是后台任务：任务留在队列里，这一轮早已收尾。
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task!.status).toBe('queued')
     // 候选必须复核：模型没要求，拟稿时冻结的登记里也记着成功后唤醒。
     const [job] = await db
@@ -1092,7 +1078,7 @@ describe('智能体改图工具', () => {
     expect(pending).toMatchObject({ status: 'awaiting_confirmation', toolName: 'editImage' })
     const [confirmed] = await confirmDrafts(conversationId)
     expect(confirmed).toMatchObject({ status: 'submitted' })
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task!.status).toBe('queued')
     expect((await hydrateInputImages(task!.request_payload)).mask).toBe(MASK)
   })
@@ -1120,7 +1106,7 @@ describe('智能体改图工具', () => {
     expect(end).toMatchObject({ toolCallId: 'call-1', status: 'failed' })
     // 模型换个参数就能重试，所以这一条不该把整轮拖垮。
     expect(eventsOfType(frames, 'turnEnd')[0]!.stopReason).toBe('completed')
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
   })
 })
 
@@ -1203,12 +1189,12 @@ describe('智能体读素材库工具', () => {
     const ends = eventsOfType(frames, 'toolEnd')
     expect(ends.map((event) => event.status)).toEqual(['succeeded', 'awaiting_confirmation'])
     expect(ends[1]!.anchorObjectId).toBe('img-cat')
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
 
     await confirmDrafts(conversationId, cookie)
 
     // 素材库里的图确认之后照样进任务，任务仍挂在这个登录用户名下。
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task!.request_payload.input_images).toHaveLength(1)
     expect(task!.user_id).toBe('user-a')
   })
@@ -1255,7 +1241,7 @@ it('rejects an empty selection before storing a message or submitting a task', a
     references: [{ imageId: 'canvas-empty-mask', dataUrl: PIXEL, maskDataUrl: PIXEL }],
   })
   expect(response).toEqual({ status: 422, json: { error: 'invalid_selection' } })
-  expect(await db.select().from(schema.tasks)).toHaveLength(0)
+  expect(await selectTestTasks(db)).toHaveLength(0)
   expect(await db.select().from(schema.agent_messages)).toHaveLength(0)
 })
 
@@ -1293,7 +1279,7 @@ it('does not charge a second masked generation when the model tries again', asyn
   expect(drafted!.prompt).not.toContain('把头枕降低到椅背上沿')
 
   await confirmDrafts(conversationId)
-  const [task] = await db.select().from(schema.tasks)
+  const [task] = await selectTestTasks(db)
   expect(task!.request_payload.prompt).toBe(submittedPrompt(drafted!.prompt!))
 
   // 候选跑完把模型唤醒来复核，计划跟着草稿冻结、随确认落到登记上，唤醒轮接着它走。
@@ -1309,7 +1295,7 @@ it('does not charge a second masked generation when the model tries again', asyn
     '本轮编辑计划已经执行，不能自行追加生成；请检查已有候选并等待用户指示',
   )
   // 没有第二次收费：任务还是那一条，也没有多出一张等着确认的卡。
-  expect(await db.select().from(schema.tasks)).toHaveLength(1)
+  expect(await selectTestTasks(db)).toHaveLength(1)
   expect(
     (await toolCards(conversationId)).filter((card) => card.status === 'awaiting_confirmation'),
   ).toEqual([])
@@ -1344,9 +1330,9 @@ it('refuses an identical masked edit that the approved batch already submitted',
   expect(ends.map((event) => event.status)).toEqual(['awaiting_confirmation', 'failed'])
   expect(ends[1]?.message).toBe('这个编辑操作已经拟过稿，请先检查候选；不要自行重复拟稿')
   // 重复的那一次连稿都没拟出来：确认之后也只有一条任务。
-  expect(await db.select().from(schema.tasks)).toHaveLength(0)
+  expect(await selectTestTasks(db)).toHaveLength(0)
   await confirmDrafts(conversationId)
-  expect(await db.select().from(schema.tasks)).toHaveLength(1)
+  expect(await selectTestTasks(db)).toHaveLength(1)
 })
 
 it('does not let the planner omit the selected target and freely edit another image', async () => {
@@ -1371,7 +1357,7 @@ it('does not let the planner omit the selected target and freely edit another im
       { imageId: 'reference', dataUrl: PIXEL },
     ],
   })
-  expect(await db.select().from(schema.tasks)).toHaveLength(0)
+  expect(await selectTestTasks(db)).toHaveLength(0)
   expect(eventsOfType(frames, 'toolEnd')[0]?.status).toBe('failed')
 })
 
@@ -1410,7 +1396,7 @@ it('allows separately requested variants while preserving each operation scope',
 
   await confirmDrafts(conversationId)
 
-  const tasks = await db.select().from(schema.tasks)
+  const tasks = await selectTestTasks(db)
   expect(tasks).toHaveLength(2)
   expect(tasks.map((task) => task.request_payload.prompt)).toEqual(
     expect.arrayContaining([
@@ -1450,7 +1436,7 @@ it('does not carry completed edit instructions into a new masked task', async ()
     references: [{ imageId: 'b', dataUrl: PIXEL, maskDataUrl: MASK }],
   })
   await confirmDrafts(conversationId)
-  const tasks = await db.select().from(schema.tasks)
+  const tasks = await selectTestTasks(db)
   const current = tasks.find((task) => task.request_payload.prompt.includes('去掉选区背景'))!
   expect(current).toBeDefined()
   expect(current.request_payload.prompt).not.toContain('改成红色')
@@ -1505,7 +1491,7 @@ it('executes a predeclared dependent edit in the wake turn once its reference ar
     'awaiting_confirmation',
   ])
   await confirmDrafts(conversationId)
-  const [first] = await db.select().from(schema.tasks)
+  const [first] = await selectTestTasks(db)
 
   await completeWithWorker(first!.id)
   expect(await pickUpStrandedInboxes()).toBe(1)
@@ -1517,7 +1503,7 @@ it('executes a predeclared dependent edit in the wake turn once its reference ar
   )
   await waitForWakeTurns()
   await confirmDrafts(conversationId)
-  const second = (await db.select().from(schema.tasks)).find((task) => task.id !== first!.id)!
+  const second = (await selectTestTasks(db)).find((task) => task.id !== first!.id)!
   expect(second.request_payload.prompt).toContain('再以产物为参考修改 B')
 })
 
@@ -1555,7 +1541,7 @@ it('keeps the pending request when clarification asks for a new reference image'
   await confirmDrafts(conversationId)
 
   // 澄清之前那句要求还没兑现：提交出去的指令里两句都在。
-  const [task] = await db.select().from(schema.tasks)
+  const [task] = await selectTestTasks(db)
   expect(task?.request_payload.prompt).toContain('只换扶手，颜色和背景不变')
   expect(task?.request_payload.prompt).toContain('用这个')
 })
@@ -1597,7 +1583,7 @@ it('does not unlock paid generation when an interjection replaces the active ref
   await confirmDrafts(conversationId)
 
   // 确认按拟稿那一刻冻结的材料提交：只有一条任务，用的还是圈了选区的那张原图。
-  const tasks = await db.select().from(schema.tasks)
+  const tasks = await selectTestTasks(db)
   expect(tasks).toHaveLength(1)
   const request = await hydrateInputImages(tasks[0]!.request_payload)
   expect(request.input_images).toEqual([PIXEL])
@@ -1674,7 +1660,7 @@ describe('new products reusing a previous scene', () => {
     expect(
       questions.find((block) => block.imageCombination)?.imageCombination?.referenceImageIds,
     ).toEqual(['new-a', 'new-b'])
-    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(await selectTestTasks(db)).toHaveLength(1)
   })
 
   it('checks new references delivered by a running-turn interjection', async () => {
@@ -1718,7 +1704,7 @@ describe('new products reusing a previous scene', () => {
     const frames = await running
     expect(eventsOfType(frames, 'clarification')).toHaveLength(1)
     expect(calls).toHaveLength(2)
-    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(await selectTestTasks(db)).toHaveLength(1)
     expect(
       (await toolCards(conversationId)).filter((card) => card.status === 'awaiting_confirmation'),
     ).toHaveLength(0)
@@ -1828,10 +1814,7 @@ describe('new products reusing a previous scene', () => {
     expect(jobs).toHaveLength(2)
     for (const [i, id] of ['pair-a', 'pair-b'].entries()) {
       const job = jobs.find((one) => one.toolCallId === id)!
-      const [task] = await db
-        .select()
-        .from(schema.tasks)
-        .where(eq(schema.tasks.id, job.job!.taskId))
+      const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, job.job!.taskId))
       expect((await hydrateInputImages(task!.request_payload)).input_images).toEqual([
         PIXEL,
         i === 0 ? TEST_IMAGE.pngDataUrl : OTHER_IMAGE.pngDataUrl,

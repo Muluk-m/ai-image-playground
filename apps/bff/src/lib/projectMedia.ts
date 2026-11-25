@@ -954,14 +954,14 @@ export async function reclaimUnreferencedAssetMedia(
       db
         .select({ id: schema.tasks.id })
         .from(schema.tasks)
-        .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
+        .innerJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
         .where(
           and(
             eq(schema.tasks.user_id, media.user_id),
             notInArray(schema.tasks.status, ['completed', 'failed', 'cancelled']),
             sql`(
-              POSITION(${media.asset_image_id} IN COALESCE(${schema.task_payloads.request_payload}, ${schema.tasks.request_payload})::text) > 0
-              OR POSITION(${media.id} IN COALESCE(${schema.task_payloads.request_payload}, ${schema.tasks.request_payload})::text) > 0
+              POSITION(${media.asset_image_id} IN ${schema.task_payloads.request_payload}::text) > 0
+              OR POSITION(${media.id} IN ${schema.task_payloads.request_payload}::text) > 0
             )`,
           ),
         ),

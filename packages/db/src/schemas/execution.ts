@@ -51,12 +51,6 @@ export const tasks = pgTable(
     model: text('model').notNull(),
     status: text('status').$type<TaskStatus>().notNull(),
     reconciliation_required: boolean('reconciliation_required').notNull().default(false),
-    request_payload: bunJsonb('request_payload').$type<PersistedSubmitRequest>().notNull(),
-    /** Submission-time billing mode and pricing inputs; terminal paths reuse this immutable snapshot. */
-    metering: bunJsonb('metering').$type<TaskMeteringSnapshot | null>(),
-    result_payload: bunJsonb('result_payload'),
-    /** Recoverable source URLs or spooled object references; never inline original bytes. */
-    archive_payload: bunJsonb('archive_payload'),
     /** First durable archive checkpoint; bounds save retries without consuming model attempts. */
     archive_retry_started_at: epochMs('archive_retry_started_at'),
     error_message: text('error_message'),
@@ -66,11 +60,6 @@ export const tasks = pgTable(
      * application timeouts have no HTTP response and therefore remain null.
      */
     upstream_status: integer('upstream_status'),
-    /**
-     * Truncated upstream error response body. This preserves diagnostic codes that are not present
-     * in the normalized error message without allowing unbounded responses into the task row.
-     */
-    upstream_body: text('upstream_body'),
     /**
      * Upstream async image task ids. A single task row owns several when the requested image
      * count is fanned out. Non-null means the upstream work is already paid for: recovery must
@@ -102,7 +91,8 @@ export const tasks = pgTable(
     reconcile_started_at: epochMs('reconcile_started_at'),
     /** 结果确认超过 30 分钟的告警已经发出的时刻。重启和多 worker 都靠它去重。 */
     reconcile_alerted_at: epochMs('reconcile_alerted_at'),
-    device_id: text('device_id').generatedAlwaysAs(sql`request_payload ->> 'device_id'`),
+    /** 提交时显式写入的设备号（0110 已解除对 tasks.request_payload 的生成列依赖）。 */
+    device_id: text('device_id'),
     /** 智能体工具提交的任务带上会话与轮；用户自己提交的任务两列都是 null。 */
     agent_conversation_id: text('agent_conversation_id'),
     agent_turn_id: text('agent_turn_id'),
@@ -190,6 +180,27 @@ export const daily_quota = pgTable(
 )
 
 /**
+ * 冷载荷 1:1 附表（ADR 0034 Phase 5）：存放低频大体积载荷，避免 tasks 热路径续租/认领
+ * 产生整行 MVCC 复制。Contract 1a 起承接全部冷载荷读写。
+ */
+export const task_payloads = pgTable('task_payloads', {
+  task_id: text('task_id')
+    .primaryKey()
+    .references(() => tasks.id, { onDelete: 'cascade' }),
+  request_payload: bunJsonb('request_payload').$type<PersistedSubmitRequest>().notNull(),
+  /** Submission-time billing mode and pricing inputs; terminal paths reuse this immutable snapshot. */
+  metering: bunJsonb('metering').$type<TaskMeteringSnapshot | null>(),
+  result_payload: bunJsonb('result_payload'),
+  /** Recoverable source URLs or spooled object references; never inline original bytes. */
+  archive_payload: bunJsonb('archive_payload'),
+  /**
+   * Truncated upstream error response body. This preserves diagnostic codes that are not present
+   * in the normalized error message without allowing unbounded responses into the task row.
+   */
+  upstream_body: text('upstream_body'),
+})
+
+/**
  * 后台与队列端点读这张视图，不读 `tasks`：对话轮的可见性靠这一层挡，不靠每条查询自觉。
  * 真要看对话轮，显式写 `tasks`。
  */
@@ -197,13 +208,11 @@ export const daily_quota = pgTable(
 // operational view. GPT route attribution is intentionally visible to the operator console.
 const {
   reconciliation_required: _reconciliationRequired,
-  archive_payload: _archivePayload,
   archive_retry_started_at: _archiveRetryStartedAt,
   execution_token: _executionToken,
   lease_expires_at: _leaseExpiresAt,
   reconcile_started_at: _reconcileStartedAt,
   reconcile_alerted_at: _reconcileAlertedAt,
-  metering: _metering,
   gpt_route: gptRouteColumn,
   gpt_key_fingerprint: gptKeyFingerprintColumn,
   traceparent: _traceparent,
@@ -213,27 +222,16 @@ export const queue_tasks = pgView('queue_tasks').as((qb) =>
   qb
     .select({
       ...queueTaskColumns,
+      request_payload: task_payloads.request_payload,
+      result_payload: task_payloads.result_payload,
+      upstream_body: task_payloads.upstream_body,
       gpt_route: gptRouteColumn,
       gpt_key_fingerprint: gptKeyFingerprintColumn,
     })
     .from(tasks)
+    .leftJoin(task_payloads, eq(task_payloads.task_id, tasks.id))
     .where(eq(tasks.kind, 'queue')),
 )
-
-/**
- * 冷载荷 1:1 附表（ADR 0034 Phase 5）：存放低频大体积载荷，避免 tasks 热路径续租/认领
- * 产生整行 MVCC 复制。Expand 阶段与 tasks 同事务双写，Contract 后承接全部冷载荷读写。
- */
-export const task_payloads = pgTable('task_payloads', {
-  task_id: text('task_id')
-    .primaryKey()
-    .references(() => tasks.id, { onDelete: 'cascade' }),
-  request_payload: bunJsonb('request_payload').$type<PersistedSubmitRequest>().notNull(),
-  metering: bunJsonb('metering').$type<TaskMeteringSnapshot | null>(),
-  result_payload: bunJsonb('result_payload'),
-  archive_payload: bunJsonb('archive_payload'),
-  upstream_body: text('upstream_body'),
-})
 
 export const task_dispatches = pgTable(
   'task_dispatches',

@@ -198,9 +198,9 @@ describe('TaskSubmissionPlugin fail-closed guards & transaction atomicity', () =
     expect(afterRows).toHaveLength(beforeCount)
     expect(afterRows.every((row) => row.id === created.taskId)).toBe(true)
     const [persisted] = await db
-      .select({ prompt: schema.tasks.request_payload })
-      .from(schema.tasks)
-      .where(eq(schema.tasks.id, created.taskId))
+      .select({ prompt: schema.task_payloads.request_payload })
+      .from(schema.task_payloads)
+      .where(eq(schema.task_payloads.task_id, created.taskId))
     expect(persisted?.prompt.prompt).toBe('hello (transformed)')
   })
 })

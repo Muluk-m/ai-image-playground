@@ -7,7 +7,7 @@
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import { and, eq } from 'drizzle-orm'
 import {
   type AgentCall,
@@ -75,12 +75,9 @@ async function idle(conversationId: string): Promise<void> {
 }
 
 function queueTasks(conversationId: string) {
-  return db
-    .select()
-    .from(schema.tasks)
-    .where(
-      and(eq(schema.tasks.agent_conversation_id, conversationId), eq(schema.tasks.kind, 'queue')),
-    )
+  return selectTestTasks(db).where(
+    and(eq(schema.tasks.agent_conversation_id, conversationId), eq(schema.tasks.kind, 'queue')),
+  )
 }
 
 async function seedPendingDraft(conversationId: string, prompt: string): Promise<void> {
@@ -152,7 +149,7 @@ async function seedCompletedBatch(conversationId: string, batchId: string): Prom
       params: { model: 'fixture', provider: 'openai-compat' },
       dependencies: [],
     })
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: taskId,
       user_id: USER_ID,
       provider: 'openai-compat',

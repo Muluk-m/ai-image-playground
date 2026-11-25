@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 
 const TEST_DB = await resetTestDatabase('bff_task_lifecycle_bus')
@@ -36,7 +36,7 @@ async function insertTask(
   status: 'queued' | 'in_progress',
   metering?: { mode: 'credits' | 'none'; model: string; quantity: number; unitMultiplier: number },
 ) {
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id,
     provider: 'openai-compat',
     model: 'gpt-image-2',

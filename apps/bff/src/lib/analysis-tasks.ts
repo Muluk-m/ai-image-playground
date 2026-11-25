@@ -10,7 +10,7 @@ import { and, asc, eq, gt, inArray, isNull, lte } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
 import { AgentToolError } from '../modules/agent/contracts'
-import { heldBy, patchTaskPayload, syncTaskPayloads } from '../modules/execution'
+import { heldBy, insertTaskPayload, patchTaskPayload } from '../modules/execution'
 import { compactionSettings } from './agent/compaction-settings'
 import { resolveOwnedMediaImages } from './agent/images'
 import {
@@ -255,6 +255,14 @@ export async function reserveAnalysisTask(
     model: prepared.model,
     status: 'queued',
     reconciliation_required: true,
+    user_id: input.userId,
+    device_id: input.deviceId,
+    agent_conversation_id: input.originConversationId,
+    agent_turn_id: null,
+    submitted_at: now,
+  })
+  await insertTaskPayload(tx, {
+    task_id: input.taskId,
     request_payload: { prompt: '', device_id: input.deviceId },
     metering: {
       mode: noCredits ? 'none' : 'credits',
@@ -263,12 +271,7 @@ export async function reserveAnalysisTask(
       unitMultiplier: pricing.unitMultiplier,
       ...(noCredits ? {} : { pricing }),
     },
-    user_id: input.userId,
-    agent_conversation_id: input.originConversationId,
-    agent_turn_id: null,
-    submitted_at: now,
   })
-  await syncTaskPayloads(tx, [input.taskId])
   if (accountUnmetered && taskHooks.consumeUnmeteredQuota) {
     const quota = await taskHooks.consumeUnmeteredQuota({
       tx,
@@ -496,7 +499,6 @@ export async function finalizeAnalysisTask(
         completed_at: completedAt,
         execution_token: null,
         lease_expires_at: null,
-        result_payload: resultPayload,
         error_type: status === 'failed' ? 'upstream_error' : null,
         error_message: status === 'failed' ? '分析未取得覆盖完整输入的有效结论' : null,
       })

@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase, type TestTaskSeed } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 import {
   _setPrivateBffOverlayForTesting,
@@ -94,10 +94,7 @@ async function statusOf(id: string) {
   return row
 }
 
-const arkTask = (
-  id: string,
-  extra: Partial<typeof schema.tasks.$inferInsert> = {},
-): typeof schema.tasks.$inferInsert => ({
+const arkTask = (id: string, extra: Partial<TestTaskSeed> = {}): TestTaskSeed => ({
   id,
   provider: 'openai-compat',
   model: ARK_MODEL,
@@ -114,11 +111,10 @@ const deletes = () => calls.filter((call) => call.method === 'DELETE')
 describe('取消后尽力叫停上游（BUG-32）', () => {
   it('取消一条已拿到方舟任务 id、正排队等续轮询的任务：不靠 worker 运行中登记，直接发 DELETE', async () => {
     // 没有任何 worker 在跑它：上游 id 已落库，任务回到 queued 等下一次轮询。
-    await db
-      .insert(schema.tasks)
-      .values(
-        arkTask('ark-waiting', { upstream_task_ids: ['task_ark_1'], upstream_submitted_at: 1 }),
-      )
+    await insertTestTasks(
+      db,
+      arkTask('ark-waiting', { upstream_task_ids: ['task_ark_1'], upstream_submitted_at: 1 }),
+    )
 
     const cancelled = await cancelTasks(eq(schema.tasks.id, 'ark-waiting'))
     await cancelUpstreamOfCancelledTasks(cancelled.map((row) => row.id))
@@ -128,7 +124,8 @@ describe('取消后尽力叫停上游（BUG-32）', () => {
   })
 
   it('转去核查（reconciling）的任务不去取消上游：上游任务还要接着核查', async () => {
-    await db.insert(schema.tasks).values(
+    await insertTestTasks(
+      db,
       arkTask('ark-reconcile', {
         status: 'reconciling',
         reconciliation_required: true,
@@ -148,7 +145,7 @@ describe('取消后尽力叫停上游（BUG-32）', () => {
     holdPost = new Promise((resolve) => {
       release = resolve
     })
-    await db.insert(schema.tasks).values(arkTask('ark-late'))
+    await insertTestTasks(db, arkTask('ark-late'))
 
     const scheduler = new TaskScheduler({ pollIntervalMs: 10_000 })
     scheduler.start()

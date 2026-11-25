@@ -225,7 +225,8 @@ export async function adoptLegacyCommand(
       .for('update')
     if (!task) return null
     const payload = (await readTaskPayloads(tx, [task.id])).get(task.id)
-    const requestPayload = payload ? payload.request_payload : task.request_payload
+    if (!payload) return { kind: 'idempotency_mismatch' }
+    const requestPayload = payload.request_payload
     const provider = asQueueProvider(task.provider)
     // 遮罩提交改写过原始请求，重建不回去，所以不认领。
     if (!provider || requestPayload.preserve_outside_mask) return { kind: 'idempotency_mismatch' }

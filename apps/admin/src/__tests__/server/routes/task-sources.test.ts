@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase, type TestTaskSeed } from '@image-playground/db/testing'
 import type { AgentPromptsResult, GenerationTasksResult, TaskDetail } from '../../../../contracts'
 
 process.env.DATABASE_URL = await resetTestDatabase('admin_task_sources')
@@ -31,7 +31,7 @@ await writer.db.insert(writer.schema.users).values({
   created_at: now,
   updated_at: now,
 })
-await writer.db.insert(writer.schema.tasks).values([
+await insertTestTasks(writer.db, [
   ...Array.from({ length: 101 }, (_, i) => ({
     ...base,
     id: `chat-${String(i).padStart(3, '0')}`,
@@ -55,7 +55,7 @@ await writer.db.insert(writer.schema.tasks).values([
   { ...base, id: 'cli-2', user_id: 'cli-user', status: 'failed', model: 'other' },
   { ...base, id: 'manual-2', status: 'queued', model: 'other' },
   { ...base, id: 'hidden-chat-call', kind: 'chat', agent_conversation_id: 'conversation' },
-] satisfies (typeof writer.schema.tasks.$inferInsert)[])
+] satisfies TestTaskSeed[])
 await writer.db.insert(writer.schema.cli_jobs).values([
   { task_id: 'cli-1', user_id: 'cli-user', connection_id: null, created_at: now },
   { task_id: 'cli-2', user_id: 'cli-user', connection_id: null, created_at: now },

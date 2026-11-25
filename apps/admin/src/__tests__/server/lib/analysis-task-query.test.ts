@@ -1,6 +1,6 @@
 import { afterAll, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 
 const url = await resetTestDatabase('admin_analysis_task_query')
@@ -18,7 +18,7 @@ afterAll(async () => {
 it('reads durable analysis findings and costs after transient task cleanup without exposing image output', async () => {
   const now = Date.now()
   const taskId = 'analysis-admin-detail'
-  await writer.db.insert(writer.schema.tasks).values({
+  await insertTestTasks(writer.db, {
     id: taskId,
     kind: 'analysis',
     provider: 'openai-compat',

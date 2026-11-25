@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_rate_limit_resend')
 process.env.PORT = '0'
@@ -12,7 +12,7 @@ const { recentlyRateLimited, recentlyRateLimitedLocked } = await import(
 const KEY = { conversationId: 'conv-429', model: 'gemini-3.1-flash-lite-image', prompt: '橘猫' }
 
 async function insertRateLimitedFailure(id: string): Promise<void> {
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id,
     provider: 'gemini',
     model: KEY.model,
@@ -56,7 +56,7 @@ describe('限流后不自动重发的检查', () => {
       const limited = await recentlyRateLimitedLocked(tx, KEY)
       holderChecked()
       await holderReleased
-      await tx.insert(schema.tasks).values({
+      await insertTestTasks(tx, {
         id: 'holder',
         provider: 'gemini',
         model: KEY.model,

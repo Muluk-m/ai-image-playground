@@ -15,13 +15,13 @@ function harness(patch: Partial<OutgoingSubmissionInput> = {}) {
   let account = true
   const order: string[] = []
   const journal = {
-    remember: vi.fn(async () => void order.push('remember')),
-    updateInput: vi.fn(async () => {}),
-    bindConversation: vi.fn(async () => {}),
-    forget: vi.fn(async () => void order.push('forget')),
+    remember: vi.fn(async (): Promise<void> => void order.push('remember')),
+    updateInput: vi.fn(async (): Promise<void> => {}),
+    bindConversation: vi.fn(async (): Promise<void> => {}),
+    forget: vi.fn(async (): Promise<void> => void order.push('forget')),
   } satisfies OutgoingJournalPort
   const localPersistence = {
-    stage: vi.fn(async () => void order.push('stage')),
+    stage: vi.fn(async (): Promise<void> => void order.push('stage')),
     committed: vi.fn(() => void order.push('committed')),
   }
   const draft = {
@@ -91,6 +91,13 @@ describe('createOutgoingSubmission', () => {
         clarificationAnswer: false,
         createdAt: 42,
       })
+    })
+
+    it('没有要落的东西：同步返回，不让发送多等一拍', () => {
+      const h = harness({ projectId: undefined, localPersistence: undefined })
+      expect(h.outgoing.persist()).toBe(true)
+      h.switchAccount()
+      expect(h.outgoing.persist()).toBe(false)
     })
 
     it('没有项目时无处归属：只暂存，不写日志也不通知放手', async () => {

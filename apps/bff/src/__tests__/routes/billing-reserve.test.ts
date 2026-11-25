@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import {
   _setPrivateBffOverlayForTesting,
   EMPTY_PRIVATE_BFF_OVERLAY,
@@ -198,7 +198,7 @@ describe('billing reservation units', () => {
       }),
     ).toBe(400)
     expect(reservations).toEqual([])
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
     expect(
       await submit('grok-imagine-video-1.5-lite', {
         video: { duration_seconds: 2, aspect_ratio: '16:9', resolution: '720p' },
@@ -213,7 +213,7 @@ describe('billing reservation units', () => {
         unitMultiplier: 1,
       },
     ])
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task?.request_payload).toMatchObject({
       video: { duration_seconds: 2, resolution: '720p' },
     })
@@ -296,7 +296,7 @@ describe('repeated submissions', () => {
 
     expect(statuses.sort()).toEqual([200, 409])
     expect(reservations).toHaveLength(1)
-    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(await selectTestTasks(db)).toHaveLength(1)
   })
 
   it('catches a double click that carries no command id', async () => {
@@ -352,7 +352,7 @@ describe('repeated submissions', () => {
 
     expect(outcome.kind).toBe('invalid_prompt')
     expect(reservations).toHaveLength(0)
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
   })
 
   it('replays the same command id instead of rejecting it', async () => {
@@ -371,7 +371,7 @@ describe('HTTP metering decisions and quota consumption', () => {
     })
     expect(response.status).toBe(200)
     expect(response.headers.get('access-control-allow-origin')).toBe('https://app.example.test')
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task).toMatchObject({
       user_id: 'billing-user',
       client_request_id: 'unmetered-image-cross-origin',
@@ -390,7 +390,7 @@ describe('HTTP metering decisions and quota consumption', () => {
     )
     expect(response.status).toBe(200)
     expect(response.headers.get('access-control-allow-origin')).toBe('https://studio.example.test')
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task?.metering).toMatchObject({ mode: 'none' })
     expect(quotaState.used).toBe(1)
   })
@@ -405,7 +405,7 @@ describe('HTTP metering decisions and quota consumption', () => {
       quota: 1,
       used: 1,
     })
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
   })
 
   it('does not consume quota twice when the same client request is replayed', async () => {
@@ -414,7 +414,7 @@ describe('HTTP metering decisions and quota consumption', () => {
     expect((await submitResponse('gpt-image-2', body)).status).toBe(200)
     expect((await submitResponse('gpt-image-2', body)).status).toBe(200)
     expect(quotaState.used).toBe(1)
-    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(await selectTestTasks(db)).toHaveLength(1)
   })
   it('rejects a concurrent quota loser without leaving its task behind', async () => {
     quotaState.mode = 'none'
@@ -429,7 +429,7 @@ describe('HTTP metering decisions and quota consumption', () => {
       }),
     ])
     expect(responses.map((one) => one.status).sort()).toEqual([200, 429])
-    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(await selectTestTasks(db)).toHaveLength(1)
     expect(quotaState.used).toBe(1)
   })
 })

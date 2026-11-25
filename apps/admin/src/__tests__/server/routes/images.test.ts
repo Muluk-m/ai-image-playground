@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 
 const TEST_DB = await resetTestDatabase('admin_images_route')
 // 启一个 mock BFF 服务器在 random port
@@ -19,7 +19,7 @@ process.env.PORT = '0'
 const writer = createDb(TEST_DB)
 const now = Date.now()
 // task with openai result + has 1 image
-await writer.db.insert(writer.schema.tasks).values({
+await insertTestTasks(writer.db, {
   id: 'img-task-1',
   provider: 'openai-compat',
   model: 'gpt-image-2',
@@ -34,7 +34,7 @@ await writer.db.insert(writer.schema.tasks).values({
   completed_at: now + 1000,
 })
 // task with gemini that has inlineData (used by input-image test)
-await writer.db.insert(writer.schema.tasks).values({
+await insertTestTasks(writer.db, {
   id: 'img-task-gem',
   provider: 'gemini',
   model: 'gemini-3-pro',

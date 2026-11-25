@@ -1,5 +1,5 @@
 import { afterAll, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 import type { ChatAttempt } from '../../lib/chatCompletion'
 
@@ -20,7 +20,7 @@ it('settles a cancelled dispatch intent when its original executor proves zero H
   await db
     .insert(schema.users)
     .values({ id, username: id, password_hash: 'fixture', created_at: now, updated_at: now })
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id,
     user_id: id,
     kind: 'analysis',

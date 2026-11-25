@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import {
   applyPromptRewriteGuard,
   buildAspectInstruction,
@@ -343,10 +343,9 @@ it('authorizes an unmetered stage without a price and consumes quota only on sub
   expect(response.status).toBe(200)
   expect(unmeteredQuotaUsed).toBe(1)
   expect(reserveCalls).toBe(0)
-  const [task] = await db
-    .select()
-    .from(schema.tasks)
-    .where(eq(schema.tasks.client_request_id, clientRequestId))
+  const [task] = await selectTestTasks(db).where(
+    eq(schema.tasks.client_request_id, clientRequestId),
+  )
   expect(task?.metering).toMatchObject({ mode: 'none', model: 'gpt-image-2.5-flare' })
   expect(await (await request(proposal.authorizationId)).json()).toMatchObject({
     budgetCap: 0,
@@ -389,7 +388,7 @@ it('rejects an unmetered submission after real quota exhaustion without leaving 
   expect(response.status).toBe(429)
   expect(await response.json()).toMatchObject({ error: 'daily_quota_exceeded', quota: 1, used: 1 })
   expect(
-    await db.select().from(schema.tasks).where(eq(schema.tasks.client_request_id, clientRequestId)),
+    await selectTestTasks(db).where(eq(schema.tasks.client_request_id, clientRequestId)),
   ).toHaveLength(0)
   expect(await (await request(proposal.authorizationId)).json()).toMatchObject({
     budgetCap: 0,
@@ -920,7 +919,7 @@ it('keeps the proposed spec, rejects a drifted confirmation, and expires an idle
       taskIds: ['stage-inflight'],
     })),
   }
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id: 'stage-inflight',
     user_id: 'stage-owner',
     provider: 'openai-compat',
@@ -1235,7 +1234,7 @@ it('expires an idle authorization behind a full batch of in-flight rows', async 
   for (let index = 0; index < STAGE_AUTHORIZATION_EXPIRE_BATCH; index += 1) {
     const id = `inflight-${seed.id}-${index}`
     const taskId = `task-${id}`
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: taskId,
       user_id: 'stage-owner',
       provider: 'openai-compat',
@@ -1406,7 +1405,7 @@ it('accepts the no_rewrite guard and composition suffix the dispatch layer pins 
   const state = await (await request(proposal.authorizationId)).json()
   expect(state.attempts[0].taskIds).toEqual([request_id])
   // 上游拿到的仍是带 guard 的那一句：只放宽比较，不改提交内容。
-  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, request_id))
+  const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, request_id))
   expect((task!.request_payload as { prompt: string }).prompt).toBe(
     `${applyPromptRewriteGuard('嫩芽')}${suffix}`,
   )
@@ -2180,10 +2179,7 @@ it('submits an authorized image and a fractional reference video through confirm
     )
     expect(videoSubmit.status).toBe(200)
     const accepted = await videoSubmit.json()
-    const [task] = await db
-      .select()
-      .from(schema.tasks)
-      .where(eq(schema.tasks.id, accepted.request_id))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, accepted.request_id))
     expect(task?.request_payload).toMatchObject({
       prompt: '海浪',
       video: { duration_seconds: 5, resolution: '720p', aspect_ratio: '16:9' },

@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test'
 import { resolve } from 'node:path'
 import { Agent } from '@earendil-works/pi-agent-core'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import { sql } from 'drizzle-orm'
 import { Elysia } from 'elysia'
 import { _setPrivateBffOverlayForTesting } from '../../lib/private-overlay'
@@ -160,7 +160,7 @@ describe('对话轮的预扣', () => {
 
     const { frames } = await runTurn(conversationId, '把背景换成浅木色')
 
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task).toMatchObject({
       id: turnIdOf(frames),
       kind: 'chat',
@@ -184,7 +184,7 @@ describe('对话轮的预扣', () => {
       references: [REFERENCE],
     })
 
-    expect(await db.select().from(schema.tasks)).toEqual([])
+    expect(await selectTestTasks(db)).toEqual([])
     expect(await storage.listPrefix(`agent/${conversationId}/`)).toEqual([])
   })
 

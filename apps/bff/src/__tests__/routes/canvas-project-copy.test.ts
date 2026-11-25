@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import {
   CANVAS_UPLOAD_DEVICE_META,
   CANVAS_UPLOAD_STALE_MS,
@@ -614,7 +614,7 @@ it('copy requires video originals for nodes and local candidates, while retainin
     .update(schema.media_objects)
     .set({ content_type: 'video/mp4' })
     .where(eq(schema.media_objects.id, clip))
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id: task,
     user_id: 'owner',
     provider: 'openai-compat',

@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import { queueTask } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 
@@ -63,7 +63,7 @@ async function insertTask(
   upstreamInvocationCount = 0,
   meteringMode: 'none' | 'credits' | null = null,
 ) {
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id,
     provider: 'openai-compat',
     model: 'gpt-image-2',
@@ -212,7 +212,7 @@ describe('metering snapshot terminal behavior', () => {
         heldBy(SETTLEMENT_TOKEN),
       ),
     ).toBe(true)
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task).toMatchObject({
       id: 'none-completed',
       status: 'completed',
@@ -237,7 +237,7 @@ describe('metering snapshot terminal behavior', () => {
         heldBy(SETTLEMENT_TOKEN),
       ),
     ).toBe(true)
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task).toMatchObject({ id: 'none-failed', status: 'failed', metering: { mode: 'none' } })
     expect(task?.error_message).toBe('free upstream failure')
     expect(task?.completed_at).toBe(2345)
@@ -250,7 +250,7 @@ describe('metering snapshot terminal behavior', () => {
       new Request('http://localhost/v1/queue/requests/none-cancelled/cancel', { method: 'PUT' }),
     )
     expect(response.status).toBe(200)
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task).toMatchObject({
       id: 'none-cancelled',
       status: 'cancelled',
@@ -281,7 +281,7 @@ describe('metering snapshot terminal behavior', () => {
       { taskId: 'credits-terminal', outcome: 'completed' },
       { taskId: 'legacy-terminal', outcome: 'failed' },
     ])
-    const rows = await db.select().from(schema.tasks)
+    const rows = await selectTestTasks(db)
     expect(rows.find((row) => row.id === 'credits-terminal')).toMatchObject({ status: 'completed' })
     expect(rows.find((row) => row.id === 'legacy-terminal')).toMatchObject({ status: 'failed' })
   })
@@ -295,7 +295,7 @@ describe('metering snapshot terminal behavior', () => {
     }
     expect(await finishTask('terminal-once', update, heldBy(SETTLEMENT_TOKEN))).toBe(true)
     expect(await finishTask('terminal-once', update, heldBy(SETTLEMENT_TOKEN))).toBe(false)
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task).toMatchObject({ id: 'terminal-once', status: 'completed' })
     expect(settlements).toHaveLength(1)
   })
@@ -493,7 +493,7 @@ describe('queueTask 终态与结算口径', () => {
       await db.delete(schema.tasks)
       await insertTask(path.id, path.from, 1, 'credits')
       await path.run()
-      const [task] = await db.select().from(schema.tasks)
+      const [task] = await selectTestTasks(db)
       expect(task?.status, path.id).toBe(path.status)
       expect(settlements, path.id).toEqual([{ taskId: path.id, ...path.settlement }])
     }
@@ -514,7 +514,7 @@ describe('queueTask 终态与结算口径', () => {
         heldBy(SETTLEMENT_TOKEN),
       )
       expect(settlements, status).toEqual([])
-      const [task] = await db.select().from(schema.tasks)
+      const [task] = await selectTestTasks(db)
       expect(task?.status).toBe(status)
     }
   })

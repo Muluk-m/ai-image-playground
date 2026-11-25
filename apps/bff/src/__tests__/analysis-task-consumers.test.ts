@@ -1,5 +1,5 @@
 import { afterAll, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 import { installRecordingTaskHooks } from './helpers/privateOverlayStub'
 
@@ -13,7 +13,7 @@ afterAll(close)
 
 async function analysisTask(id: string, dispatched: boolean) {
   const now = Date.now()
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id,
     kind: 'analysis',
     provider: 'openai-compat',

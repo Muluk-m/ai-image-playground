@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { createDb, type DbHandle } from '@image-playground/db'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase, type TestTaskSeed } from '@image-playground/db/testing'
 import {
   exportGenerationTasks,
   generationTasksCsv,
@@ -95,8 +95,8 @@ beforeAll(async () => {
     },
   ])
 
-  type TaskInsert = typeof handle.schema.tasks.$inferInsert
-  await handle.db.insert(handle.schema.tasks).values([
+  type TaskInsert = TestTaskSeed
+  await insertTestTasks(handle.db, [
     {
       id: 'rm-task-1',
       user_id: 'rm-user-1',

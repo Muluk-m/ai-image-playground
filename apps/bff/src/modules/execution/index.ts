@@ -50,10 +50,10 @@ export {
   setQueueTaskPollingForTesting,
 } from './task-outcome'
 export {
+  insertTaskPayload,
   patchTaskPayload,
   patchTaskPayloads,
   readTaskPayloads,
-  syncTaskPayloads,
 } from './task-payloads'
 export {
   findAccessibleTaskInput,

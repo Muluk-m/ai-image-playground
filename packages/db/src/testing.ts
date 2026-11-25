@@ -1,7 +1,17 @@
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { SQL } from 'bun'
+import { eq, getTableColumns } from 'drizzle-orm'
+import type { DbHandle } from './client'
 import { runMigrations } from './migrate'
+import { type NewTask, type NewTaskPayload, task_payloads, tasks } from './schemas/execution'
+import {
+  resolvedTaskArchivePayload,
+  resolvedTaskMetering,
+  resolvedTaskRequestPayload,
+  resolvedTaskResultPayload,
+  resolvedTaskUpstreamBody,
+} from './task-payload-fallback'
 
 const DATABASE_NAME_PATTERN = /^[a-z0-9_]+$/
 /** PostgreSQL silently truncates longer identifiers, so two long suite names could collide. */
@@ -129,4 +139,75 @@ async function ensureTemplate(
   buildingUrl.pathname = `/${buildingName}`
   await runMigrations(buildingUrl.toString())
   await admin.unsafe(`ALTER DATABASE "${buildingName}" RENAME TO "${templateName}"`)
+}
+
+export type TestTaskSeed = NewTask & {
+  request_payload: NewTaskPayload['request_payload']
+  metering?: NewTaskPayload['metering']
+  result_payload?: NewTaskPayload['result_payload']
+  archive_payload?: NewTaskPayload['archive_payload']
+  upstream_body?: NewTaskPayload['upstream_body']
+}
+
+/**
+ * 测试专用任务写入辅助：将热列写入 `tasks`（若未显式提供 `device_id` 则沿用 `request_payload.device_id`），
+ * 同时将冷载荷写入 `task_payloads`，避免各测试文件重复拼两张表。
+ */
+export async function insertTestTasks(
+  executor: Pick<DbHandle['db'], 'insert'>,
+  input: TestTaskSeed | readonly TestTaskSeed[],
+): Promise<void> {
+  const rows = Array.isArray(input) ? input : [input]
+  if (rows.length === 0) return
+  await executor.insert(tasks).values(
+    rows.map(
+      ({
+        request_payload,
+        metering: _metering,
+        result_payload: _resultPayload,
+        archive_payload: _archivePayload,
+        upstream_body: _upstreamBody,
+        device_id,
+        ...task
+      }) => {
+        const derivedDeviceId =
+          typeof request_payload?.device_id === 'string' ? request_payload.device_id : null
+        return {
+          ...task,
+          device_id: device_id !== undefined ? device_id : derivedDeviceId,
+        }
+      },
+    ),
+  )
+  await executor.insert(task_payloads).values(
+    rows.map(
+      ({ id, request_payload, metering, result_payload, archive_payload, upstream_body }) => ({
+        task_id: id,
+        request_payload,
+        ...(metering !== undefined ? { metering } : {}),
+        ...(result_payload !== undefined ? { result_payload } : {}),
+        ...(archive_payload !== undefined ? { archive_payload } : {}),
+        ...(upstream_body !== undefined ? { upstream_body } : {}),
+      }),
+    ),
+  )
+}
+
+const testTaskSelection = {
+  ...getTableColumns(tasks),
+  request_payload: resolvedTaskRequestPayload,
+  metering: resolvedTaskMetering,
+  result_payload: resolvedTaskResultPayload,
+  archive_payload: resolvedTaskArchivePayload,
+  upstream_body: resolvedTaskUpstreamBody,
+} as const
+
+/**
+ * 测试专用任务查询构造器：自动左连 `task_payloads` 并还原冷载荷列，可直接链式 `.where()` / `.orderBy()` / `.limit()`。
+ */
+export function selectTestTasks(executor: Pick<DbHandle['db'], 'select'>) {
+  return executor
+    .select(testTaskSelection)
+    .from(tasks)
+    .leftJoin(task_payloads, eq(task_payloads.task_id, tasks.id))
 }

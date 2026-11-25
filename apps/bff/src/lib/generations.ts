@@ -34,10 +34,9 @@ function listedGeneration(userId: string, ...extra: Array<SQL | undefined>) {
     eq(table.user_id, userId),
     isNull(table.deleted_at),
     sql`NOT EXISTS (
-      SELECT 1 FROM ${schema.tasks} task
-      LEFT JOIN ${schema.task_payloads} payload ON payload.task_id = task.id
-      WHERE task.id = ${table.id}
-        AND (CASE WHEN payload.task_id IS NOT NULL THEN payload.request_payload ELSE task.request_payload END) ->> 'output_retention' = 'candidate'
+      SELECT 1 FROM ${schema.task_payloads} payload
+      WHERE payload.task_id = ${table.id}
+        AND payload.request_payload ->> 'output_retention' = 'candidate'
     )`,
     sql`NOT (
       ${table.status} = 'completed'

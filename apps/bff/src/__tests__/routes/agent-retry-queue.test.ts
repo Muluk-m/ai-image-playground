@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import {
   type AgentBackgroundJobsResponse,
   type AgentMessageView,
@@ -158,12 +158,12 @@ async function failedCall() {
   const [end] = eventsOfType(frames, 'toolEnd')
   // 生成工具只拟稿：这一刻还没有任务，用户在卡上确认之后才提交。
   expect(end!.status).toBe('awaiting_confirmation')
-  expect(await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))).toEqual([])
+  expect(await selectTestTasks(db).where(eq(schema.tasks.kind, 'queue'))).toEqual([])
   await confirmPendingDrafts(app, conversationId, {
     deviceId: DEVICE,
     cookie: `${USER_SESSION_COOKIE}=${sessionToken}`,
   })
-  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))
+  const [task] = await selectTestTasks(db).where(eq(schema.tasks.kind, 'queue'))
   // 这里只看重试：原来那次失败按规则会唤醒智能体（见 agent-wake），先记成已投递，免得唤醒轮
   // 在测试中途抢着调用对话模型。
   await db
@@ -257,10 +257,9 @@ describe('重试排队', () => {
     expect(next.result).toMatchObject({ status: 'submitted', job: { media: 'image' } })
     expect(jobs.find((job) => job.messageId === third.id)!.result.status).toBe('queued')
     expect(await taskCount()).toBe(before + 2)
-    const [submitted] = await db
-      .select()
-      .from(schema.tasks)
-      .where(eq(schema.tasks.id, next.result.job!.taskId))
+    const [submitted] = await selectTestTasks(db).where(
+      eq(schema.tasks.id, next.result.job!.taskId),
+    )
     expect(submitted!.request_payload.n).toBe(1)
     expect(submitted!.request_payload.prompt).toBe(submittedPrompt(PROMPT))
     expect(submitted!.user_id).toBe(USER_ID)

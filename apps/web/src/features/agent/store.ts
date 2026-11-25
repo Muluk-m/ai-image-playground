@@ -1722,7 +1722,8 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
         localPersistence,
         onUnsent,
       })
-      if (!(await outgoing.persist())) return 'cancelled'
+      const persisted = outgoing.persist()
+      if (!(typeof persisted === 'boolean' ? persisted : await persisted)) return 'cancelled'
       let quietUnsent = false
       if (get().turn === 'running' && conversationId) {
         const accepted = await queueMessage(

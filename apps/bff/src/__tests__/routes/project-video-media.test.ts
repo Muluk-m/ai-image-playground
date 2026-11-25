@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, expect, it, spyOn } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 
@@ -47,7 +47,7 @@ beforeEach(async () => {
   owner = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession('video-owner', tx))}`
   stranger = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession('video-stranger', tx))}`
   await source.write('video-task/out/0', video, 'video/mp4')
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id: 'video-task',
     provider: 'openai-compat',
     model: 'fixture-video',

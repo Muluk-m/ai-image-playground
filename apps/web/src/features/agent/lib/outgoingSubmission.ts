@@ -66,8 +66,11 @@ export interface OutgoingSubmissionInput {
 }
 
 export interface OutgoingSubmission {
-  /** 交出去之前先落本机并等它写完；账号换了返回 false。 */
-  persist(): Promise<boolean>
+  /**
+   * 交出去之前先落本机并等它写完；账号换了返回 false。没有要落的东西时同步返回，
+   * 调用方据此决定要不要 await——多等一拍会改变消息上屏与起轮的时机。
+   */
+  persist(): boolean | Promise<boolean>
   /** 准备媒体身份；成功后本机日志改记新身份，重试时不必再传原图。账号换了抛错。 */
   prepare(): Promise<TurnSubmissionSnapshot | null>
   /** 会话刚建出来：本机那份补上会话，重发时才知道发去哪里。 */
@@ -100,32 +103,36 @@ export function createOutgoingSubmission(input: OutgoingSubmissionInput): Outgoi
   }
 
   return {
-    async persist() {
-      if (input.localPersistence) {
-        await input.localPersistence.stage({
-          ...input.snapshot,
-          id: input.id,
-          text: input.text,
-          mode: input.mode,
-          clarificationAnswer: input.clarificationAnswer,
-        })
-        if (!input.sameAccount()) return false
-      }
-      if (journaled) {
-        await journal.remember({
-          id: input.id,
-          projectId: journaled.projectId,
-          conversationId: input.conversationId,
-          text: input.text,
-          ...input.snapshot,
-          mode: input.mode,
-          ...(input.modelOverride ? { modelOverride: input.modelOverride } : {}),
-          clarificationAnswer: input.clarificationAnswer,
-          createdAt: now(),
-        })
-        input.localPersistence?.committed(input.id)
-      }
-      return input.sameAccount()
+    persist() {
+      // 没有要落的（无项目、输入框也没交暂存）就同步判定：发送随即上屏起轮，不能平白多等一拍。
+      if (!input.localPersistence && !journaled) return input.sameAccount()
+      return (async () => {
+        if (input.localPersistence) {
+          await input.localPersistence.stage({
+            ...input.snapshot,
+            id: input.id,
+            text: input.text,
+            mode: input.mode,
+            clarificationAnswer: input.clarificationAnswer,
+          })
+          if (!input.sameAccount()) return false
+        }
+        if (journaled) {
+          await journal.remember({
+            id: input.id,
+            projectId: journaled.projectId,
+            conversationId: input.conversationId,
+            text: input.text,
+            ...input.snapshot,
+            mode: input.mode,
+            ...(input.modelOverride ? { modelOverride: input.modelOverride } : {}),
+            clarificationAnswer: input.clarificationAnswer,
+            createdAt: now(),
+          })
+          input.localPersistence?.committed(input.id)
+        }
+        return input.sameAccount()
+      })()
     },
 
     async prepare() {

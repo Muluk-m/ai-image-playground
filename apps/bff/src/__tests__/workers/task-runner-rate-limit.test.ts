@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
@@ -90,7 +90,7 @@ afterAll(async () => {
 })
 
 async function insertLiteTask(id: string, n: number, submittedAt = Date.now()) {
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id,
     provider: 'gemini',
     model: LITE,
@@ -101,7 +101,7 @@ async function insertLiteTask(id: string, n: number, submittedAt = Date.now()) {
 }
 
 async function readTask(id: string) {
-  const [row] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+  const [row] = await selectTestTasks(db).where(eq(schema.tasks.id, id))
   return row!
 }
 

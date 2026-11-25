@@ -1,5 +1,10 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import {
+  insertTestTasks,
+  resetTestDatabase,
+  selectTestTasks,
+  type TestTaskSeed,
+} from '@image-playground/db/testing'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { extractMeta } from '../../lib/extractImages'
@@ -82,11 +87,8 @@ async function readTask(id: string) {
   return row
 }
 
-async function insertTask(
-  id: string,
-  overrides: Partial<typeof schema.tasks.$inferInsert> = {},
-): Promise<void> {
-  await db.insert(schema.tasks).values({
+async function insertTask(id: string, overrides: Partial<TestTaskSeed> = {}): Promise<void> {
+  await insertTestTasks(db, {
     id,
     provider: 'openai-compat',
     model: 'gpt-image-2',
@@ -129,7 +131,7 @@ describe('async submit phase', () => {
     // 两次提交是并发发出去的，谁先回来落哪一位由网络决定：这一条要钉的是「两个上游任务号都记下了」，
     // 不是它们的先后。钉顺序会让这条用例在 CI 上随机变红。
     expect([...(row?.taskIds ?? [])].sort()).toEqual(['imgtask_1', 'imgtask_2'])
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, 'flare-multi'))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, 'flare-multi'))
     expect(extractMeta('openai-compat', task?.result_payload).images).toHaveLength(2)
   })
 
@@ -336,10 +338,7 @@ describe('restart recovery', () => {
       invocations: 1,
       taskIds: ['imgtask_batch'],
     })
-    const [task] = await db
-      .select()
-      .from(schema.tasks)
-      .where(eq(schema.tasks.id, 'gpt-native-resume'))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, 'gpt-native-resume'))
     expect(extractMeta('openai-compat', task?.result_payload).images).toHaveLength(2)
     expect(upstream.calls).toEqual(['http://localhost:9999/v1/images/tasks/imgtask_batch'])
   })
