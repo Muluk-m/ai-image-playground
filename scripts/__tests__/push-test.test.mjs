@@ -170,6 +170,26 @@ test('a newer failed rerun outweighs an older passing run', () =>
     assert.equal(originTest(env), before)
   }))
 
+test('a rerun keeps its id and created_at; the latest started attempt still decides', () =>
+  withEnv((env) => {
+    const runs = [
+      runOf(env.feat, { id: 8, created_at: '2026-11-25T01:00:00Z', run_started_at: '2026-11-25T01:00:00Z' }),
+      runOf(env.feat, { id: 7, created_at: '2026-11-25T00:00:00Z', run_started_at: '2026-11-25T02:00:00Z', run_attempt: 2 }),
+    ]
+    const perRun = { 8: jobs(), 7: jobs({ typecheck: 'failure' }) }
+    const r = run(env, { runs, jobList: [], perRun })
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /run 7: typecheck/)
+  }))
+
+test('works with a relative remote URL', () =>
+  withEnv((env) => {
+    env.git(env.clone, 'remote', 'set-url', 'origin', '../origin.git')
+    const r = run(env, { runs: [runOf(env.feat)], jobList: jobs() })
+    assert.equal(r.status, 0, r.stderr)
+    assert.ok(contains(env, 'main') && contains(env, 'feat'))
+  }))
+
 test('a newest failed run with no passing run is reported by its id', () =>
   withEnv((env) => {
     const runs = [runOf(env.feat, { id: 8, created_at: '2026-11-25T01:00:00Z' }), runOf(env.feat, { status: 'in_progress' })]

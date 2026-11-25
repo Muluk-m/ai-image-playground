@@ -96,15 +96,16 @@ for b in "${branches[@]}"; do
   shas+=("$sha")
 done
 
-# One line about the commit's Web checks, decided by its newest run (any event) so an old green
-# never hides a newer red. A format dispatch (biome --write before lint) proves nothing and is
+# One line about the commit's Web checks, decided by its most recently started run (any event; a
+# rerun keeps its id and created_at but gets a new run_started_at) so an old green never hides a
+# newer red. A format dispatch (biome --write before lint) proves nothing and is
 # passed over. Prints one of:
 #   ok | pending | none | error
 #   bad <run-id> <failed jobs> | missing <run-id> <required jobs that were skipped or absent>
 verdict() {
   local sha=$1 runs ids id status jobs
   runs=$(gh api "repos/$repo/actions/workflows/web.yml/runs?head_sha=$sha&per_page=20") || { echo error; return; }
-  ids=$(jq -r --arg sha "$sha" '[.workflow_runs[] | select(.head_sha == $sha)] | sort_by(.created_at) | reverse | .[:10][] | "\(.id) \(.status)"' <<<"$runs") ||
+  ids=$(jq -r --arg sha "$sha" '[.workflow_runs[] | select(.head_sha == $sha)] | sort_by(.run_started_at // .created_at) | reverse | .[:10][] | "\(.id) \(.status)"' <<<"$runs") ||
     { echo error; return; }
   while read -r id status; do
     [ -n "$id" ] || continue
@@ -210,8 +211,11 @@ for attempt in $(seq 1 "$attempts"); do
   wt=$(mktemp -d "${TMPDIR:-/tmp}/push-test.XXXXXX")
   rmdir "$wt"
   git worktree add -q --detach "$wt" "$test_sha"
-  for ref in main "${branches[@]}"; do
-    if ! git -C "$wt" merge -q --no-edit -m "Merge $ref into test" "refs/remotes/$remote/$ref" >/dev/null; then
+  # Merge the exact commits checked above, never the remote-tracking refs: another fetch (an IDE,
+  # another terminal) may move those at any moment, and the worktree shares them.
+  for i in -1 "${!branches[@]}"; do
+    if [ "$i" = -1 ]; then ref=main rev=$main_sha; else ref=${branches[$i]} rev=${shas[$i]}; fi
+    if ! git -C "$wt" merge -q --no-edit -m "Merge $ref into test" "$rev" >/dev/null; then
       files=$(git -C "$wt" diff --name-only --diff-filter=U | sed 's/^/    /')
       git -C "$wt" merge --abort || true
       code=3 die "merging $ref into test conflicts; test is unchanged. Conflicting files:
@@ -231,7 +235,8 @@ $files
     echo "push-test: main moved while merging; merging again (attempt $attempt/$attempts)."
     continue
   fi
-  if out=$(git -C "$wt" push -q "$remote" "HEAD:refs/heads/test" 2>&1); then
+  # Push from the caller's repository: a relative remote URL resolves against the current directory.
+  if out=$(git push -q "$remote" "$head:refs/heads/test" 2>&1); then
     echo "push-test: pushed test ${head:0:9} (main ${main_sha:0:9} + ${branches[*]})."
     echo "  Follow it: gh run list --repo $repo --workflow deploy-test.yml --commit $head"
     exit 0
