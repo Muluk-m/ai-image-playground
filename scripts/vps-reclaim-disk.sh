@@ -34,7 +34,8 @@ acquire_host_deploy_lock "reclaim-disk" || exit $?
 before_gb=$(docker_root_free_gb)
 echo "Docker disk free before cleanup: ${before_gb}G"
 if [ -x "$repo_root/scripts/segmenter-deploy.sh" ]; then
-  "$repo_root/scripts/segmenter-deploy.sh" prune || true
+  SEGMENTER_PREV_RETENTION_SECONDS="${SEGMENTER_PREV_RETENTION_SECONDS:-}" \
+    "$repo_root/scripts/segmenter-deploy.sh" prune || true
 fi
 releases_root=${RELEASES_ROOT:-${HOME:?HOME must be set}/releases}
 reclaim_deploy_disk "$releases_root/.none" "" "$keep"

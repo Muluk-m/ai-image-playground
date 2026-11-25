@@ -266,7 +266,7 @@ ttl = int(ttl_raw)
 def parse_ts(raw: str) -> datetime.datetime:
     if not raw or raw.startswith("0001-01-01"):
         raise ValueError("unset timestamp")
-    normalized = re.sub(r"(\.\d{6})\d+", r"\1", raw.strip())
+    normalized = re.sub(r"\.(\d+)", lambda m: "." + (m.group(1) + "000000")[:6], raw.strip())
     if normalized.endswith("Z"):
         normalized = normalized[:-1] + "+00:00"
     dt = datetime.datetime.fromisoformat(normalized)

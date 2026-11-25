@@ -391,10 +391,17 @@ describe('segmenter-deploy.sh (one shared, versioned container)', () => {
     expect(run(['prune']).status).toBe(0)
     expect(read().containers[`${shared}-prev`]).toBeDefined()
 
-    // Past retention window (10 days >= 7 days) and live container is healthy: remove -prev.
+    // Past retention window (10 days >= 7 days) with Go RFC3339Nano trimmed fractional seconds
+    // (1-digit and 5-digit fractions) and live container healthy: remove -prev.
+    const trimFraction = (iso: string, digits: number) =>
+      iso.replace(/\.\d+Z$/, `.${'54321'.slice(0, digits)}Z`)
     seed({
-      [shared]: container({ version: '2', startedAt: daysAgo(10) }),
-      [`${shared}-prev`]: container({ version: '1', running: false, finishedAt: daysAgo(10) }),
+      [shared]: container({ version: '2', startedAt: trimFraction(daysAgo(10), 1) }),
+      [`${shared}-prev`]: container({
+        version: '1',
+        running: false,
+        finishedAt: trimFraction(daysAgo(10), 5),
+      }),
     })
     const pruned = run(['prune'])
     expect(pruned.status, pruned.stderr).toBe(0)

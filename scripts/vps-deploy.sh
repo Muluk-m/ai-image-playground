@@ -99,7 +99,8 @@ if [ -n "$segmenter_image" ]; then
   fi
 fi
 if [ -x "$repo_root/scripts/segmenter-deploy.sh" ]; then
-  "$repo_root/scripts/segmenter-deploy.sh" prune || true
+  SEGMENTER_PREV_RETENTION_SECONDS="${SEGMENTER_PREV_RETENTION_SECONDS:-}" \
+    "$repo_root/scripts/segmenter-deploy.sh" prune || true
 fi
 # Free anything past the retention window before refusing the pull. Tags in this release stay:
 # a rollback or a retry may already have them locally, and deleting them would make the pull

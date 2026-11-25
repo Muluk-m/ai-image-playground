@@ -150,6 +150,54 @@ describe('release_untagged_image', () => {
     expect(result.removed).toBe(true)
     expect(result.out).toContain('sha256:abc')
   })
+
+  it('还带着 ai-image-playground-pg-backup:local 等其他本地仓库别名时不删', () => {
+    expect(releaseUntagged(['ai-image-playground-pg-backup:local', registryRef]).removed).toBe(
+      false,
+    )
+  })
+
+  it('多仓库 digest 引用导致按 ID 删除冲突时，按 digest 逐条卸载即可无 -f 释放', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aip-release-multirepo-'))
+    const calls = join(dir, 'calls')
+    const refsFile = join(dir, 'refs')
+    writeFileSync(refsFile, `ai-image-playground@sha256:abc\n${registryRef}\n`)
+    writeFileSync(
+      join(dir, 'docker'),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "${calls}"
+case "$1 $2" in
+  'image inspect')
+    [ -s "${refsFile}" ] || exit 1
+    cat "${refsFile}" ;;
+  'rmi '*)
+    ref=$2
+    case "$ref" in
+      sha256:*)
+        # 真实 Docker 在多仓库引用下不带 -f 按 ID 删除会直接报冲突。
+        echo "conflict: unable to delete $ref (must be forced) - image is referenced in multiple repositories" >&2
+        exit 1 ;;
+      *@*)
+        grep -Fxv "$ref" "${refsFile}" > "${refsFile}.next" || true
+        mv "${refsFile}.next" "${refsFile}" ;;
+    esac ;;
+esac
+`,
+      { mode: 0o755 },
+    )
+    const out = execFileSync(
+      'sh',
+      ['-c', `. "$0"; release_untagged_image "$1" "$2"`, lib, 'sha256:abc', 'ai-image-playground'],
+      { encoding: 'utf8', env: { ...process.env, PATH: `${dir}:${process.env.PATH}` } },
+    )
+    const log = readFileSync(calls, 'utf8').split('\n').filter(Boolean)
+    expect(out).toContain('released the registry reference of sha256:abc')
+    expect(log).toContain('rmi ai-image-playground@sha256:abc')
+    expect(log).toContain(`rmi ${registryRef}`)
+    expect(log).not.toContain('rmi sha256:abc')
+    expect(readFileSync(refsFile, 'utf8').trim()).toBe('')
+    rmSync(dir, { recursive: true, force: true })
+  })
 })
 
 describe('reclaim_deploy_disk', () => {
@@ -450,6 +498,43 @@ describe('vps-reclaim-disk.sh', () => {
     }
     expect(status).toBe(75)
     expect(existsSync(calls)).toBe(false)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('会把 deploy.env 里未 export 的 SEGMENTER_PREV_RETENTION_SECONDS 透传给 segmenter-deploy.sh prune', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aip-reclaim-env-'))
+    const bin = join(dir, 'bin')
+    const fakeRepo = join(dir, 'repo')
+    const config = join(dir, 'config')
+    mkdirSync(bin)
+    mkdirSync(join(fakeRepo, 'scripts/lib'), { recursive: true })
+    mkdirSync(join(config, 'ai-image-playground'), { recursive: true })
+    writeFileSync(join(fakeRepo, 'scripts/vps-reclaim-disk.sh'), readFileSync(reclaimScript))
+    chmodSync(join(fakeRepo, 'scripts/vps-reclaim-disk.sh'), 0o755)
+    writeFileSync(join(fakeRepo, 'scripts/lib/deploy-common.sh'), readFileSync(lib))
+    const seen = join(dir, 'seen')
+    writeFileSync(
+      join(fakeRepo, 'scripts/segmenter-deploy.sh'),
+      `#!/bin/sh\nprintf '%s retention=%s\\n' "$*" "$SEGMENTER_PREV_RETENTION_SECONDS" >> '${seen}'\n`,
+      { mode: 0o755 },
+    )
+    writeFileSync(
+      join(config, 'ai-image-playground/deploy.env'),
+      'SEGMENTER_PREV_RETENTION_SECONDS=86400\n',
+    )
+    writeFileSync(join(bin, 'docker'), `#!/bin/sh\ncase "$1" in info) echo / ;; esac\n`, {
+      mode: 0o755,
+    })
+    execFileSync('sh', [join(fakeRepo, 'scripts/vps-reclaim-disk.sh')], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        XDG_CONFIG_HOME: config,
+        HOME: dir,
+      },
+    })
+    expect(readFileSync(seen, 'utf8').trim()).toBe('prune retention=86400')
     rmSync(dir, { recursive: true, force: true })
   })
 })

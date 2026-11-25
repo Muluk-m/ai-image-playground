@@ -92,19 +92,38 @@ select_stale_images() {
 # registry reference among the names too, so a count is never zero and the image is never
 # reclaimed. An image another local tag still names, or one already gone, is left alone.
 release_untagged_image() {
-  repo=${2%%:*}
-  names=$(docker image inspect "$1" \
+  untag_id=$1
+  names=$(docker image inspect "$untag_id" \
     --format '{{range .RepoTags}}{{println .}}{{end}}{{range .RepoDigests}}{{println .}}{{end}}' \
     2>/dev/null) || return 0
-  # Local tags always carry `:` (`<repo>:<tag>`). Digest references carry `@` and must not count as
-  # a local tag: under containerd snapshotters Docker also keeps `<repo>@sha256:...` in RepoDigests
-  # after `docker tag`, which would otherwise prevent untagged images from ever being released.
-  printf '%s\n' "$names" | grep -q "^$repo:" && return 0
+  # Keep the image whenever ANY local tag still points at it (`ai-image-playground:*`,
+  # `ai-image-playground-pg-backup:local`, or a hand-named tag). Real tags contain `:` without `@`
+  # and are not `<none>:<none>`. Digest references carry `@` and must not count as a local tag:
+  # under containerd snapshotters Docker keeps `<repo>@sha256:...` in RepoTags/RepoDigests after
+  # untagging, which would otherwise pin untagged images forever.
+  if printf '%s\n' "$names" |
+    awk 'NF && $0 != "<none>:<none>" && index($0, "@") == 0 && index($0, ":") > 0 { found = 1; exit } END { exit !found }'; then
+    return 0
+  fi
+  # Remove each digest reference individually first: when containerd keeps both
+  # `<local-repo>@sha256:...` and `<registry>@sha256:...`, `docker rmi <id>` without `-f` fails
+  # with a multi-repository conflict. Removing by digest avoids `-f` while still letting Docker
+  # refuse removal if any container uses the image.
+  digests=$(printf '%s\n' "$names" | awk 'NF && index($0, "@") > 0 && !seen[$0]++')
+  if [ -n "$digests" ]; then
+    for digest_ref in $digests; do
+      docker rmi "$digest_ref" >/dev/null 2>&1 || true
+    done
+    if ! docker image inspect "$untag_id" --format '{{.Id}}' >/dev/null 2>&1; then
+      echo "released the registry reference of $untag_id"
+      return 0
+    fi
+  fi
   # 发布已经切过去了：回收失败只留下这个镜像，不能让 set -e 把整次部署判成失败。
-  if docker rmi "$1" >/dev/null 2>&1; then
-    echo "released the registry reference of $1"
+  if docker rmi "$untag_id" >/dev/null 2>&1; then
+    echo "released the registry reference of $untag_id"
   else
-    echo "could not release $1; leaving it" >&2
+    echo "could not release $untag_id; leaving it" >&2
   fi
 }
 
@@ -201,9 +220,9 @@ collect_container_image_ids() {
         docker inspect --format '{{.Image}}' "$cid" 2>/dev/null || true
       done
     fi
-    for ref in $raw_refs; do
-      printf '%s\n' "$ref"
-      resolved=$(docker image inspect "$ref" --format '{{.Id}}' 2>/dev/null) || resolved=
+    for container_ref in $raw_refs; do
+      printf '%s\n' "$container_ref"
+      resolved=$(docker image inspect "$container_ref" --format '{{.Id}}' 2>/dev/null) || resolved=
       case "$resolved" in sha256:*) printf '%s\n' "$resolved" ;; esac
     done
   } | awk 'NF && !seen[$0]++' | tr '\n' ' '
@@ -215,9 +234,9 @@ collect_container_image_ids() {
 # RepoTag pointing at them, so `select_stale_images` protects running tags by name.
 resolve_tags_for_image_refs() {
   {
-    for ref in $1; do
-      printf '%s\n' "$ref"
-      docker image inspect "$ref" --format '{{range .RepoTags}}{{println .}}{{end}}' 2>/dev/null || true
+    for tag_ref in $1; do
+      printf '%s\n' "$tag_ref"
+      docker image inspect "$tag_ref" --format '{{range .RepoTags}}{{println .}}{{end}}' 2>/dev/null || true
     done
   } | awk 'NF && !seen[$0]++' | tr '\n' ' '
 }
@@ -235,18 +254,18 @@ prune_edition_images() {
     echo "no images to prune for $1 (keeping $2)"
     return 0
   fi
-  for image in $stale; do
-    image_id=$(docker image inspect "$image" --format '{{.Id}}' 2>/dev/null) || image_id=
-    if [ -n "$image_id" ] && [ -n "$protected_ids" ]; then
+  for prune_image in $stale; do
+    prune_image_id=$(docker image inspect "$prune_image" --format '{{.Id}}' 2>/dev/null) || prune_image_id=
+    if [ -n "$prune_image_id" ] && [ -n "$protected_ids" ]; then
       case " $protected_ids " in
-        *" $image_id "*) echo "kept protected image $image ($image_id)"; continue ;;
+        *" $prune_image_id "*) echo "kept protected image $prune_image ($prune_image_id)"; continue ;;
       esac
     fi
-    if docker rmi "$image" >/dev/null 2>&1; then
-      echo "pruned $image"
-      [ -z "$image_id" ] || release_untagged_image "$image_id" "${1%%:*}"
+    if docker rmi "$prune_image" >/dev/null 2>&1; then
+      echo "pruned $prune_image"
+      [ -z "$prune_image_id" ] || release_untagged_image "$prune_image_id" "${1%%:*}"
     else
-      echo "could not prune $image; leaving it" >&2
+      echo "could not prune $prune_image; leaving it" >&2
     fi
   done
 }
@@ -256,16 +275,16 @@ prune_edition_images() {
 # Under containerd snapshotters (Docker 29+), a digest-pulled image whose local tag was removed
 # keeps `<registry>@sha256:...` in RepoTags, so `docker image prune -f` (`dangling=true`) never
 # matches it. Sweep the registry repository directly and release any image not referenced by a
-# container and carrying no local `ai-image-playground:<tag>`.
+# container and carrying no local tag.
 prune_orphaned_registry_images() {
   guard_ids=$1
   docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' "$ghcr_repository" 2>/dev/null |
-    while read -r ref short_id; do
-      case "$ref" in "$ghcr_repository":*) ;; *) continue ;; esac
-      [ -n "${short_id:-}" ] || continue
-      full_id=$(docker image inspect "$short_id" --format '{{.Id}}' 2>/dev/null) || continue
-      case " $guard_ids " in *" $full_id "*|*" $short_id "*) continue ;; esac
-      release_untagged_image "$full_id" "ai-image-playground"
+    while read -r orphan_ref orphan_short_id; do
+      case "$orphan_ref" in "$ghcr_repository":*) ;; *) continue ;; esac
+      [ -n "${orphan_short_id:-}" ] || continue
+      orphan_full_id=$(docker image inspect "$orphan_short_id" --format '{{.Id}}' 2>/dev/null) || continue
+      case " $guard_ids " in *" $orphan_full_id "*|*" $orphan_short_id "*) continue ;; esac
+      release_untagged_image "$orphan_full_id" "ai-image-playground"
     done
 }
 
@@ -275,24 +294,24 @@ prune_orphaned_registry_images() {
 # more (e.g. after bumping cloudflared, fluent-bit, otel-collector or openobserve in compose).
 prune_unused_sidecar_images() {
   guard_ids=$1
-  for repo in \
+  for sidecar_repo in \
     cloudflare/cloudflared \
     fluent/fluent-bit \
     otel/opentelemetry-collector-contrib \
     public.ecr.aws/zinclabs/openobserve
   do
-    docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' "$repo" 2>/dev/null |
-      while read -r ref short_id; do
-        case "$ref" in "$repo":*) ;; *) continue ;; esac
-        [ -n "${short_id:-}" ] || continue
-        full_id=$(docker image inspect "$short_id" --format '{{.Id}}' 2>/dev/null) || full_id=$short_id
-        case " $guard_ids " in *" $full_id "*|*" $short_id "*|*" $ref "*) continue ;; esac
-        target=$ref
-        case "$ref" in *':<none>') target=$full_id ;; esac
-        if docker rmi "$target" >/dev/null 2>&1; then
-          echo "pruned unused sidecar image $ref"
+    docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' "$sidecar_repo" 2>/dev/null |
+      while read -r sidecar_ref sidecar_short_id; do
+        case "$sidecar_ref" in "$sidecar_repo":*) ;; *) continue ;; esac
+        [ -n "${sidecar_short_id:-}" ] || continue
+        sidecar_full_id=$(docker image inspect "$sidecar_short_id" --format '{{.Id}}' 2>/dev/null) || sidecar_full_id=$sidecar_short_id
+        case " $guard_ids " in *" $sidecar_full_id "*|*" $sidecar_short_id "*|*" $sidecar_ref "*) continue ;; esac
+        sidecar_target=$sidecar_ref
+        case "$sidecar_ref" in *':<none>') sidecar_target=$sidecar_full_id ;; esac
+        if docker rmi "$sidecar_target" >/dev/null 2>&1; then
+          echo "pruned unused sidecar image $sidecar_ref"
         else
-          echo "could not prune sidecar image $ref; leaving it" >&2
+          echo "could not prune sidecar image $sidecar_ref; leaving it" >&2
         fi
       done
   done
