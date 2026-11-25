@@ -261,7 +261,7 @@ start_log_collector() {
 }
 
 # Same footing as the log collector: watches the deployment, is not part of it. A failure here is a
-# warning; server_logs keeps the logs and the BFF drops spans it cannot export.
+# warning; container logs stay in docker logs / log-collector buffer and the BFF drops spans it cannot export.
 start_observability() {
   if observability_switch_unreadable; then
     echo "Warning: OBSERVABILITY_ENABLED in $env_file refers to another variable; write true or false. Observability services left as they are." >&2
@@ -289,7 +289,7 @@ start_observability() {
     echo "Warning: OBSERVABILITY_ENABLED=true but OBS_PROXY_URL is not set in $env_file; the log-pipeline alert is not observed." >&2
   fi
   compose up --detach --no-deps openobserve otel-collector obs-proxy ||
-    echo "Warning: the observability services did not start; server_logs still has the logs." >&2
+    echo "Warning: the observability services did not start; container logs remain in docker logs / log-collector buffer." >&2
 }
 
 # up and rollback move production, and the log collector and first install below touch containers

@@ -750,6 +750,13 @@
       "when": 1795800000000,
       "tag": "0108_media_objects_asset_image_index",
       "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1795900000000,
+      "tag": "0109_drop_server_logs",
+      "breakpoints": true
     }
   ]
 }
