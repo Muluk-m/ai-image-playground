@@ -1,5 +1,5 @@
 import type { AnnouncementPublicItem } from '@image-playground/shared'
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import EmptyState from '../../components/patterns/EmptyState'
 import PageHeader from '../../components/patterns/PageHeader'
@@ -100,8 +100,9 @@ function UpdateEntry({ item, locale }: { item: AnnouncementPublicItem; locale: s
  * 有演示时放在右侧。
  */
 export default function ChangelogPage() {
-  const { t, i18n } = useTranslation('announcements')
+  const { t, i18n } = useTranslation(['announcements', 'common'])
   const user = useAuth().user
+  const [retryAttempt, setRetryAttempt] = useState(0)
   const items = useSyncExternalStore(
     subscribeAnnouncementPanel,
     announcementItems,
@@ -131,7 +132,7 @@ export default function ChangelogPage() {
     return () => {
       cancelled = true
     }
-  }, [i18n.language, user])
+  }, [i18n.language, retryAttempt, user])
 
   useEffect(() => {
     if (status !== 'ready') return
@@ -144,8 +145,27 @@ export default function ChangelogPage() {
     <main className="flex h-[calc(100dvh-var(--mobile-nav-height,0px)-var(--mobile-topbar-height,0px)-var(--app-inset,0px)*2)] flex-col bg-background">
       <PageHeader title={t('changelogTitle')} />
       <div className="min-h-0 flex-1 overflow-y-auto px-6 py-8">
+        {status === 'loading' && items.length === 0 ? (
+          <div
+            className="flex items-center justify-center py-16 text-muted-foreground"
+            role="status"
+          >
+            <Icon name="loading" size="md" className="animate-spin" />
+          </div>
+        ) : null}
         {status === 'error' ? (
-          <p className="text-body-sm text-muted-foreground">{t('loadError')}</p>
+          <div role="alert" className="flex items-center gap-3 text-body-sm text-muted-foreground">
+            <p>{t('loadError')}</p>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setRetryAttempt((count) => count + 1)}
+            >
+              <Icon name="refresh" size="xs" />
+              {t('common:action.retry')}
+            </Button>
+          </div>
         ) : null}
         {status === 'ready' && items.length === 0 ? (
           <EmptyState icon={<Icon name="notify" size="lg" />} title={t('empty')} />

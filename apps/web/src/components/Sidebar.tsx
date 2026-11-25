@@ -128,8 +128,10 @@ export default function Sidebar() {
   // 正在打开的那个项目。切项目要落盘旧画布再取云端那份，网络慢时是秒级的等待，
   // 这一行不给反馈的话点下去像没反应。
   const [opening, setOpening] = useState<string | null>(null)
+  const [creating, setCreating] = useState<'chat' | 'canvas' | null>(null)
+  const navBusy = opening !== null || creating !== null
   const openProject = async (id: string, immersive = false) => {
-    if (opening) return
+    if (opening || creating) return
     setOpening(id)
     try {
       if (!(await useAgentStore.getState().selectProject(id))) return
@@ -144,7 +146,13 @@ export default function Sidebar() {
 
   const openProjects = useLibraryStore((s) => s.openProjects)
   const newProject = async (experience: 'chat' | 'canvas') => {
-    if (!(await useAgentStore.getState().createProject(undefined, false, experience))) return
+    if (opening || creating) return
+    setCreating(experience)
+    try {
+      if (!(await useAgentStore.getState().createProject(undefined, false, experience))) return
+    } finally {
+      setCreating(null)
+    }
     setAppMode('canvas')
   }
 
@@ -317,6 +325,8 @@ export default function Sidebar() {
             projects={chats}
             selectedId={appMode === 'canvas' ? selectedId : undefined}
             opening={opening}
+            busy={navBusy}
+            creating={creating === 'chat'}
             onAdd={() => void newProject('chat')}
             onOpen={(id) => void openProject(id)}
             onImmersive={(id) => void openProject(id, true)}
@@ -328,6 +338,8 @@ export default function Sidebar() {
             projects={canvases}
             selectedId={appMode === 'canvas' ? selectedId : undefined}
             opening={opening}
+            busy={navBusy}
+            creating={creating === 'canvas'}
             onAdd={() => void newProject('canvas')}
             onOpen={(id) => void openProject(id)}
             onImmersive={(id) => void openProject(id, true)}
@@ -400,6 +412,8 @@ function ProjectSection({
   projects,
   selectedId,
   opening,
+  busy,
+  creating,
   onAdd,
   onOpen,
   onImmersive,
@@ -410,6 +424,8 @@ function ProjectSection({
   projects: readonly CanvasProject[]
   selectedId: string | undefined
   opening: string | null
+  busy: boolean
+  creating: boolean
   onAdd: () => void
   onOpen: (id: string) => void
   onImmersive: (id: string) => void
@@ -423,12 +439,17 @@ function ProjectSection({
           type="button"
           variant="ghost"
           size="icon-xs"
+          disabled={busy}
           onClick={onAdd}
           aria-label={addLabel}
           autoTooltip={false}
           className="ml-auto text-muted-foreground"
         >
-          <Icon name="add" size="xs" />
+          {creating ? (
+            <Icon name="loading" size="xs" className="animate-spin" />
+          ) : (
+            <Icon name="add" size="xs" />
+          )}
         </Button>
       </div>
       {projects.map((project) => {
@@ -444,7 +465,7 @@ function ProjectSection({
             <Button
               type="button"
               variant="ghost"
-              disabled={opening !== null}
+              disabled={busy}
               onClick={() => onOpen(project.id)}
               className="h-full min-w-0 flex-1 justify-start gap-2 px-1 text-body-sm font-normal text-inherit hover:bg-transparent hover:text-inherit disabled:opacity-100"
             >
@@ -460,6 +481,7 @@ function ProjectSection({
               type="button"
               variant="ghost"
               size="icon-xs"
+              disabled={busy}
               onClick={() => onImmersive(project.id)}
               aria-label={immersiveLabel}
               autoTooltip={false}

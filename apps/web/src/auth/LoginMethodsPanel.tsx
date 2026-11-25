@@ -94,7 +94,8 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmation, setShowConfirmation] = useState(false)
   const [confirmUnlinkProvider, setConfirmUnlinkProvider] = useState<string | null>(null)
-  const [pending, setPending] = useState(false)
+  const [pendingAction, setPendingAction] = useState<'password' | { unlink: string } | null>(null)
+  const pending = pendingAction !== null
   const [notice, setNotice] = useState<PanelNotice | null>(null)
   const [errorKey, setErrorKey] = useState<PanelErrorKey | null>(null)
 
@@ -155,7 +156,7 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
       return
     }
 
-    setPending(true)
+    setPendingAction('password')
     setErrorKey(null)
     try {
       await updateOwnPassword({
@@ -166,28 +167,46 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
       setNewPassword('')
       setConfirmation('')
       setNotice({ key: methods.password ? 'methods.passwordUpdated' : 'methods.passwordSet' })
-      setMethods(await fetchLoginMethods())
+      setMethods((current) => (current ? { ...current, password: true } : current))
+      try {
+        setMethods(await fetchLoginMethods())
+      } catch {
+        // Password change already succeeded; keep the optimistic state without surfacing a false error.
+      }
     } catch (err) {
       setErrorKey(passwordErrorKey(err))
     } finally {
-      setPending(false)
+      setPendingAction(null)
     }
   }
 
   async function unlink(provider: string): Promise<void> {
     if (pending) return
-    setConfirmUnlinkProvider(null)
-    setPending(true)
+    setPendingAction({ unlink: provider })
     setErrorKey(null)
     setNotice(null)
     try {
       await unlinkOAuthProvider(provider)
+      setConfirmUnlinkProvider(null)
       setNotice({ key: 'methods.unlinked' })
-      setMethods(await fetchLoginMethods())
+      setMethods((current) =>
+        current
+          ? {
+              ...current,
+              identities: current.identities.filter((item) => item.provider !== provider),
+            }
+          : current,
+      )
+      try {
+        setMethods(await fetchLoginMethods())
+      } catch {
+        // Unlink already succeeded; keep the updated list without overwriting the success notice.
+      }
     } catch (err) {
+      setConfirmUnlinkProvider(null)
       setErrorKey(unlinkErrorKey(err))
     } finally {
-      setPending(false)
+      setPendingAction(null)
     }
   }
 
@@ -338,6 +357,9 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                   </div>
                 </div>
                 <Button type="submit" disabled={pending} className="w-full">
+                  {pendingAction === 'password' ? (
+                    <Icon name="loading" className="animate-spin" />
+                  ) : null}
                   {methods.password ? t('methods.updatePassword') : t('methods.setPassword')}
                 </Button>
               </form>
@@ -387,6 +409,10 @@ export function LoginMethodsPanel({ onClose }: { onClose: () => void }) {
                               disabled={pending}
                               onClick={() => void unlink(provider.id)}
                             >
+                              {typeof pendingAction === 'object' &&
+                              pendingAction?.unlink === provider.id ? (
+                                <Icon name="loading" size="xs" className="animate-spin" />
+                              ) : null}
                               {t('methods.confirmUnlink')}
                             </Button>
                           </div>

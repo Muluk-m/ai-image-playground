@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import Dialog from '../../../components/patterns/Dialog'
 import { Button } from '../../../components/ui/button'
+import { Icon } from '../../../components/ui/icon'
 import { Input } from '../../../components/ui/input'
 import { useTranslation } from '../../../i18n'
 
@@ -14,7 +15,7 @@ interface NamingDialogProps {
   /** 输入框左侧的缩略图 */
   preview?: ReactNode
   onCancel: () => void
-  onSave: (name: string) => void
+  onSave: (name: string) => void | Promise<void>
 }
 
 /** 存素材 / 存模板共用的取名对话框；空名一律不保存。 */
@@ -29,27 +30,53 @@ export default function NamingDialog({
 }: NamingDialogProps) {
   const { t } = useTranslation()
   const [name, setName] = useState(defaultName)
+  const [saving, setSaving] = useState(false)
+  const mountedRef = useRef(true)
+  const savingRef = useRef(false)
   const formId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    mountedRef.current = true
     inputRef.current?.focus()
+    inputRef.current?.select()
+    return () => {
+      mountedRef.current = false
+    }
   }, [])
 
   const finalName = name.trim() || defaultName.trim()
 
+  const handleSubmit = async () => {
+    if (!finalName || savingRef.current) return
+    savingRef.current = true
+    setSaving(true)
+    try {
+      await onSave(finalName)
+    } finally {
+      savingRef.current = false
+      if (mountedRef.current) setSaving(false)
+    }
+  }
+
+  const handleClose = () => {
+    if (savingRef.current) return
+    onCancel()
+  }
+
   return (
     <Dialog
-      onClose={onCancel}
+      onClose={handleClose}
       tier="raised"
       title={title}
       className="max-w-sm"
       footer={
         <>
-          <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+          <Button type="button" variant="ghost" size="sm" disabled={saving} onClick={handleClose}>
             {t('action.cancel')}
           </Button>
-          <Button type="submit" form={formId} size="sm" disabled={!finalName}>
+          <Button type="submit" form={formId} size="sm" disabled={!finalName || saving}>
+            {saving && <Icon name="loading" size="xs" className="animate-spin" />}
             {t('action.save')}
           </Button>
         </>
@@ -59,7 +86,7 @@ export default function NamingDialog({
         id={formId}
         onSubmit={(e) => {
           e.preventDefault()
-          if (finalName) onSave(finalName)
+          void handleSubmit()
         }}
       >
         {description && <p className="mt-1 text-xs text-muted-foreground">{description}</p>}
@@ -73,7 +100,13 @@ export default function NamingDialog({
           <Input
             ref={inputRef}
             value={name}
+            disabled={saving}
             onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.nativeEvent.isComposing || e.keyCode === 229)) {
+                e.preventDefault()
+              }
+            }}
             placeholder={placeholder}
             maxLength={40}
             className="min-w-0 flex-1 rounded-xl"

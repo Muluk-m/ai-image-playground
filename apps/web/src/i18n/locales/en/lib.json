@@ -77,7 +77,7 @@
     "missingModelId": "Pick a model first"
   },
   "param": {
-    "actualResponseValue": "Actual API response value"
+    "actualResponseValue": "Actual generated value"
   },
   "model": {
     "noEditSupport": "This model has no reference image support (image-to-image); switch models to use it"
@@ -95,7 +95,7 @@
     "iframeDenied": "Copy failed: the embedding page did not grant clipboard permission"
   },
   "storage": {
-    "adoptTxAborted": "Syncing local history ({{store}}) was interrupted. Refresh and try again."
+    "adoptTxAborted": "Syncing local history was interrupted. Refresh and try again."
   },
   "mention": {
     "imageLabel": "@Image {{n}}",

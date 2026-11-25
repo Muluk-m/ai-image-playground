@@ -45,7 +45,7 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
   const [editing, setEditing] = useState<{ id: string; name: string } | null>(null)
   const [visibleCounts, setVisibleCounts] = useState(INITIAL_VISIBLE)
   // 切项目要落盘旧画布再取云端那份，网络慢时是秒级的等待，只置灰的话点下去像没反应。
-  const [pending, setPending] = useState<string | 'new' | null>(null)
+  const [pending, setPending] = useState<string | 'new-chat' | 'new-canvas' | null>(null)
   const busy = pending !== null
   const catalog = useMemo(() => projectCatalog(projects, cloudCatalog), [projects, cloudCatalog])
   const selectedId = catalogProjectId(
@@ -83,7 +83,7 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
       setOpen(false)
       return
     }
-    setPending(id ?? 'new')
+    setPending(id ?? (experience === 'canvas' ? 'new-canvas' : 'new-chat'))
     try {
       const opened = id
         ? await useAgentStore.getState().selectProject(id)
@@ -346,7 +346,7 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
               onClick={() => void enter(undefined, 'chat')}
             >
               <span className={footerIcon}>
-                {pending === 'new' ? (
+                {pending === 'new-chat' ? (
                   <Icon name="loading" className="h-4 w-4 animate-spin" aria-hidden="true" />
                 ) : (
                   <Icon name="add" className="h-4 w-4" aria-hidden="true" />
@@ -363,7 +363,11 @@ export default function ProjectNavigation({ leading }: { leading?: ReactNode }) 
               onClick={() => void enter(undefined, 'canvas')}
             >
               <span className={footerIcon}>
-                <Icon name="add" className="h-4 w-4" aria-hidden="true" />
+                {pending === 'new-canvas' ? (
+                  <Icon name="loading" className="h-4 w-4 animate-spin" aria-hidden="true" />
+                ) : (
+                  <Icon name="add" className="h-4 w-4" aria-hidden="true" />
+                )}
               </span>
               {t('navigation.newCanvas')}
             </Button>

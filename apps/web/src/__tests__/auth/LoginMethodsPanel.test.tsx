@@ -203,6 +203,7 @@ describe('LoginMethodsPanel', () => {
     expect(document.body.textContent).toContain('尚未使用')
     expect(document.body.textContent).toContain('最近使用')
     await clickButton('撤销连接')
+    await clickButton('确认撤销')
     expect(fetcher).toHaveBeenLastCalledWith(
       'https://api.example.com/api/me/cli-connections/cli-one',
       expect.objectContaining({ method: 'DELETE', credentials: 'include' }),
@@ -236,20 +237,22 @@ describe('LoginMethodsPanel', () => {
       }),
     )
     await render()
-    const revoke = Array.from(document.body.querySelectorAll('button')).find(
-      (item) => item.textContent === '撤销连接',
+    await clickButton('撤销连接')
+    const confirmRevoke = Array.from(document.body.querySelectorAll('button')).find(
+      (item) => item.textContent === '确认撤销',
     )
-    if (!revoke) throw new Error('Missing revoke action')
+    if (!confirmRevoke) throw new Error('Missing confirm revoke action')
     await act(async () => {
-      revoke.click()
-      revoke.click()
+      confirmRevoke.click()
+      confirmRevoke.click()
     })
     expect(mutations).toBe(1)
-    expect(revoke.disabled).toBe(true)
+    expect(confirmRevoke.disabled).toBe(true)
     await act(async () => resolveRevoke(Response.json({ error: 'unavailable' }, { status: 503 })))
     expect(document.body.textContent).toContain('未能撤销连接，请重试。')
     expect(document.body.textContent).toContain('Laptop CLI')
     await clickButton('撤销连接')
+    await clickButton('确认撤销')
     expect(mutations).toBe(2)
     expect(document.body.textContent).toContain('暂无已连接的插件')
   })

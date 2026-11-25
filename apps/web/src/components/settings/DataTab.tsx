@@ -24,8 +24,19 @@ export default function DataTab() {
   const [importTasks, setImportTasks] = useState(true)
   const [clearConfig, setClearConfig] = useState(true)
   const [clearTasks, setClearTasks] = useState(true)
+  const [isExportingData, setIsExportingData] = useState(false)
   const [isImportingData, setIsImportingData] = useState(false)
   const [loggingOut, setLoggingOut] = useState(false)
+
+  const handleExport = async () => {
+    if (isExportingData || (!exportConfig && !exportTasks)) return
+    setIsExportingData(true)
+    try {
+      await exportData({ exportConfig, exportTasks })
+    } finally {
+      setIsExportingData(false)
+    }
+  }
 
   const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -92,10 +103,11 @@ export default function DataTab() {
           type="button"
           variant="secondary"
           className="w-full"
-          disabled={!exportConfig && !exportTasks}
-          onClick={() => exportData({ exportConfig, exportTasks })}
+          disabled={(!exportConfig && !exportTasks) || isExportingData}
+          onClick={() => void handleExport()}
         >
-          {t('data.exportSelected')}
+          {isExportingData ? <Icon name="loading" className="animate-spin" /> : null}
+          {isExportingData ? t('data.exporting') : t('data.exportSelected')}
         </Button>
       </SettingsSection>
 

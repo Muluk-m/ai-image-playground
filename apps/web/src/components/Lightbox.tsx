@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { originalBlob } from '../features/image-export/sources'
-import { openImageExport } from '../features/image-export/store'
+import { openImageExport, useImageExportStore } from '../features/image-export/store'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useImagePreview } from '../hooks/useImagePreview'
 import { useTranslation } from '../i18n'
@@ -178,6 +178,15 @@ export default function Lightbox() {
   useEffect(() => {
     if (!lightboxImageId || !showNav) return
     const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return
+      const target = e.target
+      if (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')
+      ) {
+        return
+      }
+      if (useStore.getState().confirmDialog || useImageExportStore.getState().request) return
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
         goPrev()
@@ -1230,7 +1239,7 @@ function LightboxInner({
             </span>
           </div>
         )}
-        {showNav && !isZoomed && (
+        {showNav && !isZoomed && !originalUnavailable && (
           <div className="animate-fade-in absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none">
             <span className="px-3 py-1.5 bg-black/55 text-white text-xs rounded-full backdrop-blur-sm tabular-nums">
               {currentIndex + 1} / {total}

@@ -1,5 +1,5 @@
 import { ASSET_KINDS, LOOK_PURPOSES } from '@image-playground/shared'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Overlay from '../../../components/patterns/Overlay'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
@@ -117,8 +117,20 @@ export default function CreateRecordDialog(props: Props) {
     }
   }
 
+  const hasDraft = files.length > 0 || name.trim().length > 0 || description.trim().length > 0
+
   const handleClose = () => {
     if (saving) return
+    if (hasDraft) {
+      useStore.getState().setConfirmDialog({
+        title: t('asset.discardTitle'),
+        message: t('asset.discardMessage'),
+        confirmText: t('asset.discardConfirm'),
+        tone: 'warning',
+        action: props.onClose,
+      })
+      return
+    }
     props.onClose()
   }
 
@@ -138,6 +150,7 @@ export default function CreateRecordDialog(props: Props) {
               type="button"
               variant="outline"
               size="sm"
+              disabled={saving}
               onClick={() => handoffToAgent(command)}
               className="ml-auto"
             >
@@ -200,6 +213,7 @@ export default function CreateRecordDialog(props: Props) {
               type="button"
               variant="outline"
               size="sm"
+              disabled={saving}
               onClick={() => fileInputRef.current?.click()}
             >
               <Icon name="add" />
@@ -210,6 +224,7 @@ export default function CreateRecordDialog(props: Props) {
                 type="button"
                 variant="outline"
                 size="sm"
+                disabled={saving}
                 onClick={() => folderInputRef.current?.click()}
               >
                 <Icon name="folder" />
@@ -220,6 +235,7 @@ export default function CreateRecordDialog(props: Props) {
           <input
             ref={fileInputRef}
             type="file"
+            disabled={saving}
             accept="image/*"
             multiple={isAsset}
             className="hidden"
@@ -232,6 +248,7 @@ export default function CreateRecordDialog(props: Props) {
             <input
               ref={folderInputRef}
               type="file"
+              disabled={saving}
               // React 的类型里没有这个非标准属性，但 Chrome / Edge / Safari / Firefox 都支持。
               {...{ webkitdirectory: '' }}
               multiple
@@ -253,6 +270,7 @@ export default function CreateRecordDialog(props: Props) {
             <span className="relative block">
               <Input
                 value={name}
+                disabled={saving}
                 onChange={(e) => setName(e.target.value.slice(0, NAME_MAX))}
                 placeholder={t(`${ns}.namePlaceholder`)}
                 maxLength={NAME_MAX}
@@ -275,6 +293,7 @@ export default function CreateRecordDialog(props: Props) {
                       type="button"
                       variant="outline"
                       role="radio"
+                      disabled={saving}
                       aria-checked={assetKind === one}
                       onClick={() => setAssetKind(one)}
                       className={`flex-1 ${assetKind === one ? CHOICE_ON : CHOICE_OFF}`}
@@ -288,6 +307,7 @@ export default function CreateRecordDialog(props: Props) {
                       type="button"
                       variant="outline"
                       role="radio"
+                      disabled={saving}
                       aria-checked={purpose === one}
                       onClick={() => setPurpose(one)}
                       className={`flex-1 ${purpose === one ? CHOICE_ON : CHOICE_OFF}`}
@@ -307,6 +327,7 @@ export default function CreateRecordDialog(props: Props) {
             <Textarea
               rows={3}
               value={description}
+              disabled={saving}
               onChange={(e) => setDescription(e.target.value)}
               placeholder={
                 isAsset
@@ -342,6 +363,13 @@ export default function CreateRecordDialog(props: Props) {
 /** 本地文件的预览地址，随文件列表建与撤。 */
 function useObjectUrls(files: File[]): Array<{ key: string; url: string }> {
   const ref = useRef<Map<File, string>>(new Map())
+  useEffect(
+    () => () => {
+      for (const url of ref.current.values()) URL.revokeObjectURL(url)
+      ref.current.clear()
+    },
+    [],
+  )
   const map = ref.current
   for (const [file, url] of map) {
     if (!files.includes(file)) {
