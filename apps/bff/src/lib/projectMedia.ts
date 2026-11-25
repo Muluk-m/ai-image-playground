@@ -62,40 +62,25 @@ export async function lockMediaOwner(tx: BffTransaction, userId: string) {
 }
 
 /**
- * Call with the user's row locked: old assets and new media share one capacity boundary.
- * Evaluated in a single SQL statement so concurrent online backfill sees one MVCC snapshot.
- * Synced asset rows store `reserved_bytes = 0` during Phase 5.4a Expand (preventing pre-5.4a
- * containers from double-counting during rolling deploys), so we count `bytes` for asset rows
- * and `reserved_bytes` for durable uploads, plus unmigrated `user_asset_objects`.
+ * Call with the user's row locked: synced assets and durable media share one capacity boundary in `media_objects`.
+ * Synced asset rows count `bytes`; durable uploads count `reserved_bytes`.
  */
 export async function mediaUsage(tx: BffTransaction, userId: string, now = Date.now()) {
   const rows = (await tx.execute(sql`
-    SELECT (
-      COALESCE(
-        (SELECT SUM(
-           CASE WHEN m.asset_image_id IS NOT NULL THEN m.bytes ELSE m.reserved_bytes END
-         )
-         FROM media_objects m
-         WHERE m.user_id = ${userId}
-           AND (
-             m.attachment_managed = true
-             OR m.asset_image_id IS NOT NULL
-             OR m.status = 'ready'
-             OR m.expires_at > ${new Date(now)}
-           )),
-        0
-      )
-      + COALESCE(
-        (SELECT SUM(a.bytes) FROM user_asset_objects a
-         WHERE a.user_id = ${userId}
-           AND NOT EXISTS (
-             SELECT 1 FROM media_objects m
-             WHERE m.user_id = a.user_id
-               AND m.asset_image_id = a.image_id
-           )),
-        0
-      )
+    SELECT COALESCE(
+      SUM(
+        CASE WHEN m.asset_image_id IS NOT NULL THEN m.bytes ELSE m.reserved_bytes END
+      ),
+      0
     ) AS total
+    FROM media_objects m
+    WHERE m.user_id = ${userId}
+      AND (
+        m.attachment_managed = true
+        OR m.asset_image_id IS NOT NULL
+        OR m.status = 'ready'
+        OR m.expires_at > ${new Date(now)}
+      )
   `)) as unknown as Array<{ total?: string | number }>
   return Number(rows[0]?.total ?? 0)
 }
@@ -848,16 +833,6 @@ export async function finishDeletingMedia(
         ),
       )
       .returning({ id: media.id })
-    if (deleted.length > 0 && row.assetImageId) {
-      await tx
-        .delete(schema.user_asset_objects)
-        .where(
-          and(
-            eq(schema.user_asset_objects.user_id, userId),
-            eq(schema.user_asset_objects.image_id, row.assetImageId),
-          ),
-        )
-    }
     return deleted.length > 0
   })
 }
@@ -1044,17 +1019,6 @@ export async function reclaimUnreferencedAssetMedia(
             assetImageId: media.asset_image_id,
           })
         if (!marked) return null
-        // 仍持有 user_sync_state 行锁时同步撤下旧账本行，封堵滚动发布期旧代 POST /api/sync 复用该图。
-        if (marked.assetImageId) {
-          await tx
-            .delete(schema.user_asset_objects)
-            .where(
-              and(
-                eq(schema.user_asset_objects.user_id, candidate.userId),
-                eq(schema.user_asset_objects.image_id, marked.assetImageId),
-              ),
-            )
-        }
         return marked
       })
       if (!claimed) continue

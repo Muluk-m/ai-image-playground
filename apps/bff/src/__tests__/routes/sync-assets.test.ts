@@ -264,6 +264,6 @@ describe('sync asset images', () => {
     await upload(owner, 'image-1', bytes(8))
     await db.delete(schema.users)
 
-    expect(await db.select().from(schema.user_asset_objects)).toEqual([])
+    expect(await db.select().from(schema.media_objects)).toEqual([])
   })
 })

@@ -476,9 +476,9 @@ describe('POST /api/sync', () => {
 
     const ledger = await db
       .select()
-      .from(schema.user_asset_objects)
-      .where(eq(schema.user_asset_objects.user_id, 'sync-user'))
-    expect(ledger.map((row) => row.image_id).sort()).toEqual(['image-hash-1', 'image-hash-2'])
+      .from(schema.media_objects)
+      .where(eq(schema.media_objects.user_id, 'sync-user'))
+    expect(ledger.map((row) => row.asset_image_id).sort()).toEqual(['image-hash-1', 'image-hash-2'])
   })
 
   it('rejects a malformed body and half-written records', async () => {
