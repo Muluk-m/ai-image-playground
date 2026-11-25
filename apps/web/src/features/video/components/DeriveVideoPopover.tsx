@@ -1,5 +1,5 @@
 import { type VideoDeriveMode, videoRateMultiplier } from '@image-playground/shared'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Credits from '../../../components/Credits'
 import { SettingsChoice } from '../../../components/composer/SettingsPanel'
 import { LABEL, PANEL_SECTION } from '../../../components/panelStyles'
@@ -59,6 +59,13 @@ export default function DeriveVideoPopover({
 
   const [submitting, setSubmitting] = useState(false)
   const submittingRef = useRef(false)
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   const submit = async () => {
     if (submittingRef.current || guard.blocked || !prompt.trim()) return
@@ -67,15 +74,20 @@ export default function DeriveVideoPopover({
     try {
       if (!(await onSubmit({ mode, prompt, seconds }))) return
       useStore.getState().showToast(t('derive.submitted', { label }), 'success')
-      onClose()
+      if (mountedRef.current) onClose()
     } finally {
       submittingRef.current = false
-      setSubmitting(false)
+      if (mountedRef.current) setSubmitting(false)
     }
   }
 
   return (
-    <Dialog onClose={onClose} tier={tier} title={title} className="max-w-sm">
+    <Dialog
+      onClose={submitting ? () => {} : onClose}
+      tier={tier}
+      title={title}
+      className="max-w-sm"
+    >
       <div className={`${LABEL} mb-1.5`}>{t('field.description')}</div>
       <Textarea
         autoFocus
@@ -83,7 +95,7 @@ export default function DeriveVideoPopover({
         value={prompt}
         onChange={(event) => setPrompt(event.target.value)}
         onKeyDown={(event) => {
-          if (event.nativeEvent.isComposing) return
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
             event.preventDefault()
             void submit()
@@ -95,7 +107,7 @@ export default function DeriveVideoPopover({
         className="resize-none"
       />
 
-      <div className="mt-3">
+      <fieldset disabled={submitting} className="mt-3 border-0 p-0">
         {mode === 'extend' ? (
           <SettingsChoice
             label={t('derive.extendLabel')}
@@ -112,7 +124,7 @@ export default function DeriveVideoPopover({
             })}
           </p>
         )}
-      </div>
+      </fieldset>
 
       <div className={`${PANEL_SECTION} mt-4`}>
         {guard.blocked && guard.disabledReason && (

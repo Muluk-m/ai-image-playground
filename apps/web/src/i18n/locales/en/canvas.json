@@ -563,6 +563,9 @@
     "trimStart": "Start (seconds)",
     "trimEnd": "End (seconds)",
     "trimHint": "Keeps the original video. Existing and future timeline clips use this range.",
+    "trimLoading": "Loading video…",
+    "trimLoadFailed": "Could not load the video. Please try again.",
+    "trimInvalidRange": "End time must be at least 0.1s after start and within the video duration.",
     "candidateUnavailable": "This candidate is unavailable or has expired. The current main result is unchanged.",
     "mainResult": "Main result",
     "resultStale": "Inputs changed · regenerate to update",
@@ -616,7 +619,11 @@
     "inpaintHint": "Paint over the area to change. Unmarked areas stay unchanged.",
     "annotateHint": "Mark the image and describe your changes. Generated images will omit the marks.",
     "drawHint": "Save your strokes as a new candidate, keeping the original.",
-    "sourceChanged": "The source image changed or was removed. Reopen the editor from the canvas."
+    "sourceChanged": "The source image changed or was removed. Reopen the editor from the canvas.",
+    "loading": "Loading image…",
+    "discardTitle": "Discard unsaved edits?",
+    "discardMessage": "Closing now will discard your strokes and instructions.",
+    "discardConfirm": "Discard"
   },
   "storyboard": {
     "title": "Storyboard",
@@ -712,6 +719,9 @@
   "scriptBrief": {
     "switchConfirmTitle": "Switch template?",
     "switchConfirmMessage": "Switching to \"{{title}}\" will replace your current edits.",
+    "discardTitle": "Discard unsaved brief?",
+    "discardMessage": "Closing now will discard your unsaved edits.",
+    "discardConfirm": "Discard",
     "open": "Script brief",
     "title": "Script brief",
     "hint": "Pick a popular brief, or leave a field on automatic. Confirm writes a text node only.",
@@ -769,6 +779,7 @@
     "empty": "Nothing found",
     "loading": "Loading assets…",
     "loadFailed": "Some items could not be loaded",
+    "retry": "Retry",
     "selected": "{{count}} selected",
     "download": "Download",
     "apply": "Apply to canvas",

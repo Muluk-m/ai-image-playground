@@ -35,10 +35,11 @@ export interface CanvasAssets {
   /** 所有项目还有没读到的对话。 */
   readonly hasMore: boolean
   readonly loadMore: () => void
+  readonly retry: () => void
 }
 
 /** 本项目对话的消息：正在聊的就用实时消息，否则读一次历史。落库时间都从历史取。 */
-function useProjectMessages(conversationId: string | null) {
+function useProjectMessages(conversationId: string | null, reloadTick: number) {
   const accountKey = scopedStorageName('canvas-assets')
   const live = useAgentStore((s) =>
     conversationId && s.conversationId === conversationId ? s.messages : null,
@@ -67,7 +68,7 @@ function useProjectMessages(conversationId: string | null) {
     return () => {
       cancelled = true
     }
-  }, [conversationId, accountKey])
+  }, [conversationId, accountKey, reloadTick])
   const messages = useMemo(
     () => live ?? (history ? panelStateFromHistory(history).messages : NO_MESSAGES),
     [live, history],
@@ -81,6 +82,7 @@ function useBatchAssets(
   conversationId: string | null,
   messages: readonly AgentPanelMessage[],
   time: (message: AgentPanelMessage) => number,
+  reloadTick: number,
 ) {
   const batchMessages = useMemo(
     () =>
@@ -171,7 +173,7 @@ function useBatchAssets(
       unsubscribe()
       clearTimeout(timer)
     }
-  }, [batchKey, conversationId, accountKey])
+  }, [batchKey, conversationId, accountKey, reloadTick])
   return { items: useMemo(() => Object.values(byBatch).flat(), [byBatch]), failed }
 }
 
@@ -260,9 +262,16 @@ export function useCanvasAssets(
   scope: CanvasAssetScope,
   canvasItems: readonly CanvasAssetItem[] = [],
 ): CanvasAssets {
-  const project = useProjectMessages(conversationId)
-  const batch = useBatchAssets(conversationId, project.messages, project.time)
+  const [reloadTick, setReloadTick] = useState(0)
+  const [batchReloadTick, setBatchReloadTick] = useState(0)
+  const project = useProjectMessages(conversationId, reloadTick)
+  const batch = useBatchAssets(conversationId, project.messages, project.time, batchReloadTick)
   const others = useOtherAssets(scope === 'all', conversationId)
+  const retry = useCallback(() => {
+    if (project.failed) setReloadTick((tick) => tick + 1)
+    if (batch.failed) setBatchReloadTick((tick) => tick + 1)
+    if (scope === 'all' && others.failed) others.loadMore()
+  }, [project.failed, batch.failed, scope, others.failed, others.loadMore])
   const projectItems = useMemo(
     () =>
       conversationId
@@ -285,5 +294,6 @@ export function useCanvasAssets(
     failed: project.failed || batch.failed || (all && others.failed),
     hasMore: all && others.hasMore,
     loadMore: others.loadMore,
+    retry,
   }
 }

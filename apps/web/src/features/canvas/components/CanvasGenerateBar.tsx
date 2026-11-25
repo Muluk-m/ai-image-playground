@@ -210,16 +210,26 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
         ? t('generate.hintSelected', { count: imageCount })
         : null
 
+  const [submitting, setSubmitting] = useState(false)
+  const submittingRef = useRef(false)
+
   const run = async () => {
-    if (!canSubmit) return
+    if (!canSubmit || submittingRef.current) return
     if (video) {
       // 视频要先过校验与门禁才受理；被拒时保留输入，用户改一下就能再发。
-      const submitted = prompt
-      const accepted = referenceItems
-        ? await submitReferenceVideo(editor, referenceItems, submitted)
-        : await submitVideoFromCanvas(editor, submitted)
-      if (!accepted) return
-      if (useCanvasComposer.getState().prompt === submitted) setPrompt('')
+      submittingRef.current = true
+      setSubmitting(true)
+      try {
+        const submitted = prompt
+        const accepted = referenceItems
+          ? await submitReferenceVideo(editor, referenceItems, submitted)
+          : await submitVideoFromCanvas(editor, submitted)
+        if (!accepted) return
+        if (useCanvasComposer.getState().prompt === submitted) setPrompt('')
+      } finally {
+        submittingRef.current = false
+        setSubmitting(false)
+      }
     } else {
       // 发起即返回：不 await，输入条立即恢复可交互（并发语义）。
       void submitFromCanvas(editor, prompt)
@@ -347,6 +357,7 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing || e.keyCode === 229) return
               if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
                 e.preventDefault()
                 void run()
@@ -373,8 +384,9 @@ export default function CanvasGenerateBar({ editor }: { editor: CanvasEditor }) 
           action={
             <CreationSend
               onClick={() => void run()}
-              disabled={!canSubmit}
-              title={submissionGuard.disabledReason ?? t('common:action.generate')}
+              busy={submitting}
+              disabled={!canSubmit || submitting}
+              title={submissionGuard.disabledReason ?? videoRefusal ?? t('common:action.generate')}
               aria-label={t('common:action.generate')}
             />
           }

@@ -308,23 +308,29 @@ export default function KonvaCanvas({ editor }: { editor: CanvasEditor }) {
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.key === ' ') setSpaceDown(false)
     }
+    const onBlur = () => setSpaceDown(false)
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
     return () => {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
     }
   }, [doc])
 
   // ===== 粘贴：系统剪贴板图片优先，其次画布内部剪贴板（⌘C 复制的元素） =====
   useEffect(() => {
     const onPaste = (e: ClipboardEvent) => {
+      if (useTimelineEditor.getState().openId !== null) return
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
       const target = e.target as HTMLElement | null
-      // 输入框里的粘贴（生成条 prompt / 文字编辑）不拦
+      // 输入框及弹窗/侧栏里的粘贴不漏到底层画布
       if (
         target?.tagName === 'INPUT' ||
         target?.tagName === 'TEXTAREA' ||
-        target?.isContentEditable
+        target?.isContentEditable ||
+        target?.closest('[role="dialog"],.studio-sidebar,.studio-agent-job-inbox')
       )
         return
       const pasted = [...(e.clipboardData?.files ?? [])]

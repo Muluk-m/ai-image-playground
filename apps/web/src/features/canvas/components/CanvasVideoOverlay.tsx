@@ -22,6 +22,9 @@ export default function CanvasVideoOverlay({
   useSyncExternalStore(editor.doc.subscribe, () => editor.doc.version)
   const overlays = useRef<HTMLDivElement>(null)
   const [playingId, setPlayingId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!active) setPlayingId(null)
+  }, [active])
   const { camera } = editor.doc
   const videos = canvasVideos(editor)
 

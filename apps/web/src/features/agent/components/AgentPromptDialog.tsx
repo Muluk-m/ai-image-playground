@@ -29,7 +29,7 @@ export default function AgentPromptDialog({
     closeRef.current?.focus()
   }, [])
   return (
-    <Overlay onClose={onClose} role="none">
+    <Overlay onClose={saving ? () => {} : onClose} role="none">
       <section
         role="dialog"
         aria-modal="true"
@@ -47,6 +47,7 @@ export default function AgentPromptDialog({
             variant="ghost"
             size="icon-sm"
             aria-label={t('promptDialog.closeAria')}
+            disabled={saving}
             onClick={onClose}
           >
             <Icon name="close" />
@@ -124,9 +125,15 @@ export default function AgentPromptDialog({
               {t('promptDialog.templateName')}
               <Input
                 autoFocus
+                disabled={saving}
                 aria-label={t('promptDialog.templateName')}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.nativeEvent.isComposing || e.keyCode === 229)) {
+                    e.preventDefault()
+                  }
+                }}
                 maxLength={40}
                 placeholder={t('promptDialog.templateNamePlaceholder')}
                 className="mt-1 text-foreground"
