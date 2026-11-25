@@ -221,6 +221,13 @@ export default function LookDetail({
               type="button"
               size="sm"
               disabled={needsRetune || !canGenerate}
+              title={
+                needsRetune
+                  ? t('look.needsRetuneHint')
+                  : !canGenerate
+                    ? t('look.noModelHint')
+                    : undefined
+              }
               onClick={() => onGenerate(look)}
               className="flex-1"
             >
@@ -231,6 +238,7 @@ export default function LookDetail({
               variant="outline"
               size="sm"
               disabled={!canGenerate}
+              title={!canGenerate ? t('look.noModelHint') : undefined}
               onClick={() => onTune(look)}
               className="flex-1"
             >

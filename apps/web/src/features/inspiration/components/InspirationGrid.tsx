@@ -56,7 +56,7 @@ export default function InspirationGrid({ scroller }: Props) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
         <p className="text-body-sm text-muted-foreground">
-          {status === 'error' ? t('manifest.invalid') : t('list.empty')}
+          {status === 'error' ? t('manifest.loadFailed') : t('list.empty')}
         </p>
         {status === 'error' && (
           <Button

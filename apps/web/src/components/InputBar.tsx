@@ -394,6 +394,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   // 可重试的那几张在缩略图上点「重试」重传（BUG-41），不再靠点发送去隐式重传。
   const { failed: failedUploads, pending: uploadsPending } = referenceUploadGate(uploadReferences)
   const canvasSubmittingRef = useRef(false)
+  const [canvasSubmitting, setCanvasSubmitting] = useState(false)
   const uploadsBlocked = uploadsPending > 0 || failedUploads.length > 0
   // 快速生成不在选图时上传：每张图在本机解一次，坏图与智能创作上传时同一套标法（BUG-59）。
   const quickImages = useMemo(() => (toCanvas ? [] : inputImages), [toCanvas, inputImages])
@@ -599,6 +600,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
       const gate = referenceUploadGate(draft.references)
       if (gate.oversized || gate.pending > 0 || gate.failed.length) return
       canvasSubmittingRef.current = true
+      setCanvasSubmitting(true)
       void (async () => {
         try {
           await startCanvasFromComposer(
@@ -608,6 +610,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
           )
         } finally {
           canvasSubmittingRef.current = false
+          setCanvasSubmitting(false)
         }
       })()
     } else if (activeLook) void submitWithLook(activeLook, lookBody)
@@ -632,11 +635,11 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
   const submitDisabled =
     image26Unavailable ||
     (lookSubmitting && !lookCancellable) ||
-    (!lookSubmitting && apiReady && (!submitReady || batchSending))
+    (!lookSubmitting && apiReady && (!submitReady || batchSending || canvasSubmitting))
   const submitLabel =
     lookSubmitting && lookCancellable
       ? t('common:action.cancel')
-      : lookSubmitting || batchSending
+      : lookSubmitting || batchSending || canvasSubmitting
         ? t('submit.submitting')
         : toCanvas
           ? t('submit.startCanvas')
@@ -2152,7 +2155,7 @@ export default function InputBar({ inline = false }: { inline?: boolean } = {}) 
                     autoTooltip={false}
                     cost={batchImageCount > 0 ? batchTotalCredits?.toLocaleString() : undefined}
                     streaming={lookSubmitting}
-                    busy={batchSending}
+                    busy={batchSending || canvasSubmitting}
                     onClick={onSubmitClick}
                     disabled={submitDisabled}
                     aria-description={submitTitle !== submitLabel ? submitTitle : undefined}

@@ -66,6 +66,13 @@ export default function LookCard({
             variant="ghost"
             size="sm"
             disabled={needsRetune || !canGenerate}
+            title={
+              needsRetune
+                ? t('look.needsRetuneHint')
+                : !canGenerate
+                  ? t('look.noModelHint')
+                  : undefined
+            }
             onClick={() => onGenerate(look)}
             className="h-auto bg-primary/10 px-2.5 py-1 text-label-sm font-medium text-primary hover:bg-primary/20 hover:text-primary"
           >
@@ -76,6 +83,7 @@ export default function LookCard({
             variant="outline"
             size="sm"
             disabled={!canGenerate}
+            title={!canGenerate ? t('look.noModelHint') : undefined}
             onClick={() => onTune(look)}
             className="h-auto px-2.5 py-1 text-label-sm font-normal"
           >

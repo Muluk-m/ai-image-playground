@@ -74,7 +74,7 @@
     "missingModelId": "请先选择模型"
   },
   "param": {
-    "actualResponseValue": "API 实际响应值"
+    "actualResponseValue": "实际生成参数"
   },
   "model": {
     "noEditSupport": "当前模型不支持参考图（图生图），切换模型后可用"
@@ -92,7 +92,7 @@
     "iframeDenied": "复制失败：内嵌页面未授予剪贴板权限"
   },
   "storage": {
-    "adoptTxAborted": "同步本地历史记录中断（{{store}}），请刷新后重试"
+    "adoptTxAborted": "同步本地历史记录中断，请刷新后重试"
   },
   "mention": {
     "imageLabel": "@图{{n}}",

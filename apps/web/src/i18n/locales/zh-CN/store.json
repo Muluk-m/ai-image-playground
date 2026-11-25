@@ -33,7 +33,7 @@
     "persistFailed": "遮罩这次可以用，但没能存到本地，刷新后需要重画"
   },
   "error": {
-    "manifestMissing": "ZIP 中缺少 manifest.json",
+    "manifestMissing": "不是有效的备份文件（缺少数据索引）",
     "notAnImage": "不是有效的图片"
   },
   "toast": {

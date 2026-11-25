@@ -474,6 +474,8 @@ export function DraftInput({
   value,
   onCommit,
   className,
+  onBlur,
+  onKeyDown,
   ...props
 }: Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> & {
   value: string
@@ -481,6 +483,7 @@ export function DraftInput({
 }) {
   const [draft, setDraft] = useState(value)
   const [synced, setSynced] = useState(value)
+  const cancelledRef = useRef(false)
   if (synced !== value) {
     setSynced(value)
     setDraft(value)
@@ -494,9 +497,32 @@ export function DraftInput({
     <Input
       {...props}
       value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => e.key === 'Enter' && commit()}
+      onChange={(e) => {
+        cancelledRef.current = false
+        setDraft(e.target.value)
+      }}
+      onBlur={(e) => {
+        if (cancelledRef.current) {
+          cancelledRef.current = false
+          setDraft(value)
+        } else {
+          commit()
+        }
+        onBlur?.(e)
+      }}
+      onKeyDown={(e) => {
+        onKeyDown?.(e)
+        if (e.defaultPrevented || e.nativeEvent.isComposing || e.keyCode === 229) return
+        if (e.key === 'Enter') {
+          commit()
+        } else if (e.key === 'Escape') {
+          e.preventDefault()
+          e.stopPropagation()
+          cancelledRef.current = true
+          setDraft(value)
+          e.currentTarget.blur()
+        }
+      }}
       className={cn('rounded-lg bg-background text-body-sm tabular-nums', className)}
     />
   )

@@ -156,10 +156,7 @@ function runTransaction<T>(
     tx.oncomplete = () => resolve(read())
     tx.onerror = () => reject(tx.error)
     tx.onabort = () =>
-      reject(
-        tx.error ??
-          new UserFacingError(i18next.t('storage.adoptTxAborted', { ns: 'lib', store: storeName })),
-      )
+      reject(tx.error ?? new UserFacingError(i18next.t('storage.adoptTxAborted', { ns: 'lib' })))
   })
 }
 
