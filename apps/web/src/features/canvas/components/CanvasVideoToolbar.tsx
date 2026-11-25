@@ -1,5 +1,5 @@
 import type { VideoDeriveMode } from '@image-playground/shared'
-import { useState, useSyncExternalStore } from 'react'
+import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Icon } from '../../../components/ui/icon'
 import { useTranslation } from '../../../i18n'
 import { isVideoModeAvailable, videoModelOptions } from '../../../lib/channels/videoChannels'
@@ -50,9 +50,18 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
   // 选中即参考：打开那一刻的选区，之后改选区不影响面板。
   const [referencing, setReferencing] = useState<CanvasInputEntry[] | null>(null)
   const [busy, setBusy] = useState<{ id: string; kind: 'first' | 'last' | 'download' } | null>(null)
+  const toolbarRef = useRef<HTMLDivElement>(null)
+  const [toolbarWidth, setToolbarWidth] = useState(0)
 
   const node = editor.doc.tool === 'select' ? selectedCanvasVideo(editor) : null
   const bounds = node ? editor.getElementPageBounds(node.id) : undefined
+
+  useLayoutEffect(() => {
+    const el = toolbarRef.current
+    if (!el) return
+    const measured = Math.ceil(el.getBoundingClientRect().width)
+    if (measured > 0 && measured !== toolbarWidth) setToolbarWidth(measured)
+  }, [node?.id, toolbarWidth])
 
   const openDerive = (
     source: CanvasVideoNode,
@@ -253,8 +262,10 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
   }
   if (!bounds) return popover || null
 
-  const { camera } = editor.doc
-  const left = (bounds.x - camera.x) * camera.zoom
+  const { camera, viewport } = editor.doc
+  const rawLeft = (bounds.x - camera.x) * camera.zoom
+  const maxLeft = Math.max(8, viewport.width - (toolbarWidth || 220) - 8)
+  const left = Math.max(8, Math.min(rawLeft, maxLeft))
   const top = (bounds.y - camera.y) * camera.zoom
   const bottom = (bounds.y + bounds.h - camera.y) * camera.zoom
   const checks = {
@@ -267,11 +278,12 @@ export default function CanvasVideoToolbar({ editor }: { editor: CanvasEditor })
   return (
     <>
       <div
+        ref={toolbarRef}
         role="toolbar"
         aria-label={t('videoToolbar.aria')}
         className="absolute z-20 flex items-center gap-0.5 rounded-lg border border-border bg-card p-0.5 shadow-md"
         style={{
-          left: Math.max(8, left),
+          left,
           top: top - TOOLBAR_OFFSET >= 8 ? top - TOOLBAR_OFFSET : bottom + 8,
         }}
         onPointerDown={(event) => event.stopPropagation()}

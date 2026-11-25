@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import { JobProgress } from '../../../components/assistant-ui/elements/job-progress'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
+import { useCloseOnEscape } from '../../../hooks/useCloseOnEscape'
 import { useCompactWorkspaceHeader } from '../../../hooks/useMobileWorkspace'
 import { useSlidingIndicator } from '../../../hooks/useSlidingIndicator'
 import { useTranslation } from '../../../i18n'
@@ -227,19 +228,15 @@ export default function AgentJobInbox() {
     visible: tabSlideVisible,
   } = useSlidingIndicator(open ? tab : null)
   const host = useRef<HTMLDivElement>(null)
+  useCloseOnEscape(open, () => setOpen(false))
   useEffect(() => {
     if (!open) return
     const dismiss = (event: PointerEvent) => {
       if (!host.current?.contains(event.target as Node)) setOpen(false)
     }
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false)
-    }
     document.addEventListener('pointerdown', dismiss)
-    document.addEventListener('keydown', escape)
     return () => {
       document.removeEventListener('pointerdown', dismiss)
-      document.removeEventListener('keydown', escape)
     }
   }, [open])
   // 在跑的分两拨：上游真在画的是处理中，还等在队列里（本机重试队列或服务端排队）的是排队中。

@@ -122,6 +122,7 @@ export default function NodeTextEditor({
       className="studio-node-text-editor nodrag nopan nowheel"
       onKeyDown={(event) => {
         event.stopPropagation()
+        if (event.nativeEvent.isComposing || event.keyCode === 229) return
         if (event.key === 'Escape' || (event.key === 'Enter' && (event.metaKey || event.ctrlKey))) {
           event.preventDefault()
           onDone()

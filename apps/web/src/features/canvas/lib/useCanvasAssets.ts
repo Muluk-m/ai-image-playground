@@ -35,10 +35,11 @@ export interface CanvasAssets {
   /** 所有项目还有没读到的对话。 */
   readonly hasMore: boolean
   readonly loadMore: () => void
+  readonly retry: () => void
 }
 
 /** 本项目对话的消息：正在聊的就用实时消息，否则读一次历史。落库时间都从历史取。 */
-function useProjectMessages(conversationId: string | null) {
+function useProjectMessages(conversationId: string | null, reloadTick: number) {
   const accountKey = scopedStorageName('canvas-assets')
   const live = useAgentStore((s) =>
     conversationId && s.conversationId === conversationId ? s.messages : null,
@@ -67,7 +68,7 @@ function useProjectMessages(conversationId: string | null) {
     return () => {
       cancelled = true
     }
-  }, [conversationId, accountKey])
+  }, [conversationId, accountKey, reloadTick])
   const messages = useMemo(
     () => live ?? (history ? panelStateFromHistory(history).messages : NO_MESSAGES),
     [live, history],
@@ -260,9 +261,14 @@ export function useCanvasAssets(
   scope: CanvasAssetScope,
   canvasItems: readonly CanvasAssetItem[] = [],
 ): CanvasAssets {
-  const project = useProjectMessages(conversationId)
+  const [reloadTick, setReloadTick] = useState(0)
+  const project = useProjectMessages(conversationId, reloadTick)
   const batch = useBatchAssets(conversationId, project.messages, project.time)
   const others = useOtherAssets(scope === 'all', conversationId)
+  const retry = useCallback(() => {
+    if (project.failed) setReloadTick((tick) => tick + 1)
+    if (scope === 'all' && others.failed) others.loadMore()
+  }, [project.failed, scope, others.failed, others.loadMore])
   const projectItems = useMemo(
     () =>
       conversationId
@@ -285,5 +291,6 @@ export function useCanvasAssets(
     failed: project.failed || batch.failed || (all && others.failed),
     hasMore: all && others.hasMore,
     loadMore: others.loadMore,
+    retry,
   }
 }
