@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo } from 'react'
 import { taskExportSources } from '../features/image-export/sources'
 import { openImageExport } from '../features/image-export/store'
+import { useAnimatedNumber } from '../hooks/useAnimatedNumber'
 import { useHistoryTasks } from '../hooks/useHistoryTasks'
 import { useTranslation } from '../i18n'
 import { taskMatchesStatusFilter } from '../lib/taskStatusFilter'
@@ -116,6 +117,11 @@ export default function TaskBulkActions({
     clearSelection()
   }, [tasks, selectedTaskIds, showToast, clearSelection, t])
 
+  const { display: animatedCount } = useAnimatedNumber(
+    selectedTaskIds.length > 0 ? selectedTaskIds.length : null,
+    180,
+  )
+
   if (selectedTaskIds.length === 0) return null
 
   return (
@@ -140,7 +146,7 @@ export default function TaskBulkActions({
           </Button>
         </Hint>
         <span className="px-1.5 text-xs font-medium tabular-nums text-foreground">
-          {t('bulk.selectedCount', { count: selectedTaskIds.length })}
+          {t('bulk.selectedCount', { count: animatedCount ?? selectedTaskIds.length })}
         </span>
         <div className="mx-1 h-5 w-px bg-muted" />
         <Hint tooltip={allSelected ? t('bulk.deselectAll') : t('bulk.selectAllVisible')}>
