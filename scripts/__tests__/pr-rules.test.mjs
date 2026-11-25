@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { destructiveMigrationOps, evaluatePr, section, stripComments } from '../pr-rules.mjs'
+import {
+  destructiveMigrationOps,
+  evaluatePr,
+  hydrateMigrationContents,
+  section,
+  stripComments,
+} from '../pr-rules.mjs'
 
 const template = readFileSync(new URL('../../.github/pull_request_template.md', import.meta.url), 'utf8')
 const file = (filename, extra = {}) => ({ filename, status: 'modified', additions: 1, deletions: 1, ...extra })
@@ -193,10 +199,10 @@ test('large PRs warn, without counting lockfiles and drizzle snapshots', () => {
 })
 
 test('new migrations without a rollback file warn', () => {
-  const added = file('packages/db/drizzle/0101_x.sql', { status: 'added' })
+  const added = file('packages/db/drizzle/0101_x.sql', { status: 'added', content: 'CREATE TABLE x (id text);' })
   assert.match(evaluatePr({ files: [added], body: body() }).warns.join(), /没有回滚 SQL/)
   const withRollback = [added, file('packages/db/drizzle/rollback/0101_x.down.sql', { status: 'added' })]
-  assert.deepEqual(evaluatePr({ files: withRollback, body: body() }).warns, [])
+  assert.deepEqual(evaluatePr({ files: withRollback, body: body() }), { fails: [], warns: [], costFiles: [] })
   // 同一 PR 删掉或移走回滚文件，不算有回滚。
   const removed = [added, file('packages/db/drizzle/rollback/0101_x.down.sql', { status: 'removed' })]
   assert.match(evaluatePr({ files: removed, body: body() }).warns.join(), /没有回滚 SQL/)
@@ -233,11 +239,32 @@ test('destructive migrations require retention/backup confirmation in rollback s
     '回滚时需 revert 迁移、drizzle 快照与 _journal.json。',
     '尚未到保留期，暂未核对留存数据，也无备份副本。',
     '尚未核验已全量回填，未完成回填验收。',
+    '历史数据未全量回填。',
+    '没有可验证备份。',
+    '计划完成全量回填后再执行。',
+    '预计下周完成全量回填后再删表。',
+    '准备做 PG 快照后再执行本次清理。',
   ]) {
     assert.match(
       evaluatePr({ files: [dropTable, rollbackFile], body: body({ rollback: weak }) }).fails.join(),
       /不可逆删除（DROP TABLE）/,
       weak,
+    )
+  }
+
+  // 明确未到期/未满留存期/待核验的时间闸门是独立失败条件，不能被其他子句的「已备份/可恢复」覆盖
+  for (const unmetGate of [
+    '已核对 #1937，最早执行日期为 2026-11-27（尚未到期）；历史数据已备份。',
+    '关联 #1937 的保留期尚未到期，生产历史数据已备份且验证可恢复。',
+    '尚在 7 天留存期内，已提前完成 PG 冷备。',
+    '最早可发布时间为 2026-11-28（待到期后发布），已备份。',
+    '尚未到 2026-11-28，历史数据已备份。',
+    '生产历史数据未全量回填，但已有备份。',
+  ]) {
+    assert.match(
+      evaluatePr({ files: [dropTable, rollbackFile], body: body({ rollback: unmetGate }) }).fails.join(),
+      /尚未到期或核验未完成/,
+      unmetGate,
     )
   }
 
@@ -251,12 +278,18 @@ test('destructive migrations require retention/backup confirmation in rollback s
     assert.deepEqual(destructiveMigrationOps(f), ['DROP TABLE'], tricky)
   }
 
-  // DO [LANGUAGE plpgsql] $$ ... EXECUTE 动态 SQL、省略 COLUMN 关键字的 ALTER TABLE DROP、DROP SCHEMA CASCADE 均应命中
+  // DO [LANGUAGE plpgsql] $$ ... EXECUTE 动态 SQL（含带括号表达式 EXECUTE ('...')）、省略 COLUMN 关键字的 ALTER TABLE DROP、DROP SCHEMA CASCADE 均应命中
   const dynamicDrop = file('packages/db/drizzle/0125_dynamic.sql', {
     status: 'added',
     patch: "+DO LANGUAGE plpgsql $$\n+BEGIN\n+  EXECUTE $sql$DROP TABLE IF EXISTS public.old_logs$sql$;\n+  EXECUTE format('ALTER TABLE public.tasks DROP COLUMN IF EXISTS %I', 'old_col');\n+END $$;",
   })
   assert.deepEqual(destructiveMigrationOps(dynamicDrop), ['DROP TABLE', 'DROP COLUMN'])
+
+  const parenthesizedExecute = file('packages/db/drizzle/0125_exec_paren.sql', {
+    status: 'added',
+    patch: "+DO $$\n+BEGIN\n+  EXECUTE ('DROP TABLE IF EXISTS public.old_logs');\n+  EXECUTE (format('ALTER TABLE public.tasks DROP COLUMN %I', 'old_col'));\n+END $$;",
+  })
+  assert.deepEqual(destructiveMigrationOps(parenthesizedExecute), ['DROP TABLE', 'DROP COLUMN'])
 
   const omittedColumnKeyword = file('packages/db/drizzle/0126_omit_col.sql', {
     status: 'added',
@@ -308,9 +341,40 @@ test('destructive migrations require retention/backup confirmation in rollback s
   })
   assert.match(evaluatePr({ files: [trunc], body: body() }).fails.join(), /TRUNCATE/)
 
-  // patch 缺失时（超大 diff 被 GitHub 省略）按文件名兜底命中 _drop_
+  // content 与 patch 均缺失时（超大 diff 被 GitHub 省略且未拉取完整文件）：按文件名命中且对中性文件名也 fail-closed
   const omittedPatch = file('packages/db/drizzle/0122_drop_legacy.sql', { status: 'added' })
-  assert.match(evaluatePr({ files: [omittedPatch], body: body() }).fails.join(), /diff 被截断/)
+  assert.match(evaluatePr({ files: [omittedPatch], body: body() }).fails.join(), /SQL 内容未获取，按文件名命中/)
+
+  const omittedNeutral = file('packages/db/drizzle/0128_cleanup_legacy.sql', { status: 'added' })
+  assert.match(evaluatePr({ files: [omittedNeutral], body: body() }).fails.join(), /无法自动排除不可逆删除/)
+
+  // 补齐完整 content 后，中性文件名超大安全迁移应正常放行
+  const hydratedSafe = file('packages/db/drizzle/0128_cleanup_legacy.sql', {
+    status: 'added',
+    content: 'CREATE INDEX IF NOT EXISTS idx_cleanup ON public.tasks (id);',
+  })
+  assert.deepEqual(destructiveMigrationOps(hydratedSafe), [])
+
+  // 修改既有迁移：跨行 DROP TABLE（patch 仅改第二行表名）在 content 或含上下文 patch 下均可命中；位于既有块注释内不误报
+  const modifiedSplitDropViaPatch = file('packages/db/drizzle/0129_edit_existing.sql', {
+    status: 'modified',
+    patch: '@@ -1,2 +1,2 @@\n DROP TABLE\n-  public.old_logs;\n+  public.server_logs;',
+  })
+  assert.deepEqual(destructiveMigrationOps(modifiedSplitDropViaPatch), ['DROP TABLE'])
+
+  const modifiedSplitDropViaContent = file('packages/db/drizzle/0129_edit_existing.sql', {
+    status: 'modified',
+    patch: '@@ -2,1 +2,1 @@\n-  public.old_logs;\n+  public.server_logs;',
+    content: 'DROP TABLE\n  public.server_logs;',
+  })
+  assert.deepEqual(destructiveMigrationOps(modifiedSplitDropViaContent), ['DROP TABLE'])
+
+  const modifiedInsideBlockComment = file('packages/db/drizzle/0130_edit_comment.sql', {
+    status: 'modified',
+    patch: '@@ -10,1 +10,2 @@\n+DROP TABLE public.server_logs;',
+    content: '/*\n历史说明：\n\n\n\n\n\n\n\nDROP TABLE public.server_logs;\n*/\nSELECT 1;',
+  })
+  assert.deepEqual(destructiveMigrationOps(modifiedInsideBlockComment), [])
 
   // 非破坏性 DROP、权限/触发器语境 TRUNCATE、双引号列名 "truncate"、注释及非代码美元定界字符串均不误报
   const safeMigration = file('packages/db/drizzle/0123_safe_cleanup.sql', {
@@ -341,6 +405,32 @@ test('destructive migrations require retention/backup confirmation in rollback s
     }),
     { fails: [], warns: [], costFiles: [] },
   )
+})
+
+test('hydrateMigrationContents fetches full SQL only for active migration files', async () => {
+  const calls = []
+  const input = [
+    file('packages/db/drizzle/0131_big.sql', { status: 'added', sha: 'sha-1' }),
+    file('packages/db/drizzle-billing/0031_big.sql', { status: 'modified', sha: 'sha-2' }),
+    file('packages/db/drizzle/0132_removed.sql', { status: 'removed', sha: 'sha-3' }),
+    file('packages/db/drizzle/0133_failed.sql', { status: 'added', sha: 'sha-err' }),
+    file('apps/bff/src/index.ts', { status: 'modified', sha: 'sha-4' }),
+  ]
+  const out = await hydrateMigrationContents(input, async (f) => {
+    calls.push(f.filename)
+    if (f.sha === 'sha-err') throw new Error('network error')
+    return `/* ${f.sha} */\nDROP TABLE public.old_logs;`
+  })
+  assert.deepEqual(calls, [
+    'packages/db/drizzle/0131_big.sql',
+    'packages/db/drizzle-billing/0031_big.sql',
+    'packages/db/drizzle/0133_failed.sql',
+  ])
+  assert.deepEqual(destructiveMigrationOps(out[0]), ['DROP TABLE'])
+  assert.deepEqual(destructiveMigrationOps(out[1]), ['DROP TABLE'])
+  assert.equal(out[2].content, undefined)
+  assert.match(destructiveMigrationOps(out[3]).join(), /SQL 内容未获取/)
+  assert.equal(out[4].content, undefined)
 })
 
 test('section reads a heading up to the next one, ignoring comments', () => {

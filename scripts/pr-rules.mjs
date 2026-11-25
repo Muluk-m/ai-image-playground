@@ -61,30 +61,57 @@ export const LARGE_PR_LINES = 1000
 const MIGRATION = /^packages\/db\/drizzle\/(\d{4}_[^/]+)\.sql$/
 const ANY_MIGRATION = /^packages\/db\/drizzle(?:-billing)?\/(\d{4}_[^/]+)\.sql$/
 
-/** 不可逆破坏性迁移检测：回滚 SQL 只能重建空结构，无法恢复原数据。 */
-const DESTRUCTIVE_TAG = /(?:^|_)(?:drop|truncate)(?:_|$)/i
-const NEGATED_RETENTION_CLAUSE =
-  /(?:尚未|暂未|未核对|未确认|未验证|未完成|未到|尚在|待确认|待核验|不确定|是否|不可恢复|无法|无备份|没有备份|未备份)/
-const POSITIVE_RETENTION_CONFIRMATION =
-  /(?:已过期|已到期|无日期限制|无时间限制|无需保留|无历史数据|已清空|(?:确认|核验)(?:该|目标)?表(?:为|已)空|已全量回填|全量回填|回填零差异|回填验收|已回填|零差异验收|已备份|已有.{0,6}备份|已验证.{0,6}(?:备份|恢复)|可验证(?:恢复)?(?:副本|备份)|冷备(?:已|可|完成)|(?:备份|冷备|恢复|PG)\s*快照)/i
+/** 判断路径是否为需要检查的数据库 SQL 迁移文件。 */
+export const isMigrationFile = (filename) => ANY_MIGRATION.test(filename)
 
-/** 仅认可正向、非否定子句中的留存/到期/回填/备份核验，防止「重建空表」「不可恢复」「drizzle 快照」「尚未到保留期」绕过。 */
-function hasRetentionConfirmationNote(text) {
-  if (!explained(text)) return false
-  return text
-    .split(/[。；;，,：:\n！？!?]+/)
-    .map((clause) => clause.trim())
-    .some(
-      (clause) =>
-        clause.length > 0 &&
-        !NEGATED_RETENTION_CLAUSE.test(clause) &&
-        POSITIVE_RETENTION_CONFIRMATION.test(clause),
-    )
+/** 为未删除的迁移文件补齐完整新文件内容，避免 diff 截断或修改既有迁移时丢失 SQL 上下文。 */
+export async function hydrateMigrationContents(files, fetchContent) {
+  return Promise.all(
+    files.map(async (f) => {
+      if (f.status === 'removed' || !isMigrationFile(f.filename) || typeof f.content === 'string') {
+        return f
+      }
+      try {
+        const content = await fetchContent(f)
+        return typeof content === 'string' ? { ...f, content } : f
+      } catch {
+        return f
+      }
+    }),
+  )
 }
 
-/** 紧跟在可执行代码块前导关键字后的字符串/美元块需递归提取内部 SQL。 */
+/** 不可逆破坏性迁移检测：回滚 SQL 只能重建空结构，无法恢复原数据。 */
+const DESTRUCTIVE_TAG = /(?:^|_)(?:drop|truncate)(?:_|$)/i
+const UNMET_RETENTION_GATE =
+  /(?:(?:尚未|暂未|还未|仍未|未)(?:到期|过期|满\s*\d+\s*[天日小时]|到.{0,24}(?:保留|留存|发布|执行|日期|时间|窗口|\d{4}[-/年]\d{1,2}|\d{1,2}[-/月]\d{1,2}))|待(?:到期|过期|满\s*\d+\s*[天日小时])|尚在.{0,12}(?:保留|留存|观察|窗口)期|(?:保留|留存|观察|窗口)期.{0,8}(?:尚未|暂未|还未|仍未|未)|(?:最早|最晚).{0,10}(?:发布|执行|删除).{0,24}(?:尚未|暂未|还未|仍未|未到|未满)|(?:待|尚未|暂未|还未|仍未|未)(?:核对|确认|验证|完成).{0,14}(?:留存|保留|日期|时间|回填|历史数据|备份)|(?:未|尚未|暂未|还未|仍未|没有|无)全量回填)/
+const NON_AFFIRMATIVE_CLAUSE =
+  /(?:尚未|暂未|还未|仍未|未(?:[能曾达满到过做经完核确验全备清回])|没有|无(?:法|备份|恢复|冷备|快照)|不可恢复|不能|并非|并不|不确保|不保证|不确定|未知|待(?:确认|核验|验证|完成|回填|备份|到期)|是否|计划|拟(?:于|在)?|预计|准备|打算|之后再|后再执行)/
+const POSITIVE_RETENTION_CONFIRMATION =
+  /(?:已过期|已到期|无日期限制|无时间限制|无需保留|确认无历史数据|已清空|(?:确认|核验)(?:该|目标)?表(?:为|已)空|已(?:完成)?全量回填|全量回填(?:已完成|通过|零差异)|已回填(?:完成|验收|并?零差异)|(?:完成|通过)回填(?:零差异)?验收|回填零差异(?:已)?(?:验收|通过|确认)|已备份|已有.{0,6}(?:可恢复|已验证)?备份|已验证.{0,8}(?:备份|恢复|冷备|快照)|冷备(?:已|完成)|(?:备份|冷备|恢复|PG)\s*快照(?:已|可用|可恢复|验证))/i
+
+/**
+ * 评估「怎么回滚」中的留存/时间闸门核验结论：
+ * - `blocked`：任一子句明确说明留存期/最早可发布时间尚未到期或核验未完成（不得被其他子句的备份确认覆盖）；
+ * - `confirmed`：无未到期阻断，且至少存在一条正向、非否定、非未来计划的留存/到期/回填/备份核验结论；
+ * - `missing`：未提供有效核验结论。
+ */
+function evaluateRetentionNote(text) {
+  if (!explained(text)) return 'missing'
+  const clauses = text
+    .split(/[。；;，,：:\n！？!?]+/)
+    .map((clause) => clause.trim())
+    .filter(Boolean)
+  if (clauses.some((clause) => UNMET_RETENTION_GATE.test(clause))) return 'blocked'
+  const affirmed = clauses.some(
+    (clause) => !NON_AFFIRMATIVE_CLAUSE.test(clause) && POSITIVE_RETENTION_CONFIRMATION.test(clause),
+  )
+  return affirmed ? 'confirmed' : 'missing'
+}
+
+/** 紧跟在可执行代码块前导关键字后的字符串/美元块需递归提取内部 SQL（含 EXECUTE ('...') 等带括号表达式）。 */
 const EXEC_CODE_PREFIX =
-  /\b(?:EXECUTE\s+(?:format\s*\(\s*)?|DO\s+(?:LANGUAGE\s+\S+\s+)?|AS\s*)$/i
+  /\b(?:EXECUTE\s+(?:(?:format\s*)?\(\s*)*|DO\s+(?:LANGUAGE\s+\S+\s+)?|AS\s*)$/i
 
 /**
  * 轻量 PostgreSQL 词法剥离：
@@ -204,38 +231,61 @@ function extractExecutableSql(input) {
   return out
 }
 
-/** 提取统一 diff 中新增的可执行 SQL，返回命中的不可逆破坏性 DDL 操作名。 */
-export function destructiveMigrationOps(file) {
-  if (typeof file.patch === 'string') {
-    const added = file.patch
-      .split('\n')
-      .filter((line) => line.startsWith('+') && !line.startsWith('+++'))
-      .map((line) => line.slice(1))
-      .join('\n')
-    const sql = extractExecutableSql(added)
-    const hits = new Set()
-
-    if (/\bDROP\s+TABLE\b/i.test(sql)) hits.add('DROP TABLE')
-    if (/\bDROP\s+COLUMN\b/i.test(sql)) hits.add('DROP COLUMN')
-    if (/\bDROP\s+SCHEMA\b[^;]*\bCASCADE\b/i.test(sql)) hits.add('DROP SCHEMA CASCADE')
-    if (/(?:^|;|\b(?:BEGIN|THEN|ELSE|LOOP)\b)\s*TRUNCATE\b/i.test(sql)) hits.add('TRUNCATE')
-
-    for (const stmt of sql.split(';')) {
-      if (!/\bALTER\s+TABLE\b/i.test(stmt)) continue
-      if (
-        /\bDROP\s+(?:IF\s+EXISTS\s+)?(?!CONSTRAINT\b|DEFAULT\b|NOT\s+NULL\b|EXPRESSION\b|IDENTITY\b|COLUMN\b|TABLE\b)[A-Za-z_]/i.test(
-          stmt,
-        )
-      ) {
-        hits.add('DROP COLUMN')
-      }
+/** 从统一 diff 提取改动后的 SQL 片段（保留上下文行与新增行，忽略删除行），按 hunk 用 `;` 隔离。 */
+function patchPostImageSql(patch) {
+  const chunks = []
+  let current = []
+  for (const line of patch.split('\n')) {
+    if (line.startsWith('@@')) {
+      if (current.length) chunks.push(current.join('\n'))
+      current = []
+      continue
     }
+    if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('\\')) continue
+    if (line.startsWith('+') || line.startsWith(' ')) current.push(line.slice(1))
+  }
+  if (current.length) chunks.push(current.join('\n'))
+  return chunks.join('\n;\n')
+}
 
-    return [...hits]
+/** 检测一段 SQL 中的不可逆破坏性 DDL 操作名。 */
+function detectDestructiveOps(rawSql) {
+  const sql = extractExecutableSql(rawSql)
+  const hits = new Set()
+
+  if (/\bDROP\s+TABLE\b/i.test(sql)) hits.add('DROP TABLE')
+  if (/\bDROP\s+COLUMN\b/i.test(sql)) hits.add('DROP COLUMN')
+  if (/\bDROP\s+SCHEMA\b[^;]*\bCASCADE\b/i.test(sql)) hits.add('DROP SCHEMA CASCADE')
+  if (/(?:^|;|\b(?:BEGIN|THEN|ELSE|LOOP)\b)\s*TRUNCATE\b/i.test(sql)) hits.add('TRUNCATE')
+
+  for (const stmt of sql.split(';')) {
+    if (!/\bALTER\s+TABLE\b/i.test(stmt)) continue
+    if (
+      /\bDROP\s+(?:IF\s+EXISTS\s+)?(?!CONSTRAINT\b|DEFAULT\b|NOT\s+NULL\b|EXPRESSION\b|IDENTITY\b|COLUMN\b|TABLE\b)[A-Za-z_]/i.test(
+        stmt,
+      )
+    ) {
+      hits.add('DROP COLUMN')
+    }
+  }
+
+  return [...hits]
+}
+
+/** 提取迁移文件中的不可逆破坏性 DDL 操作名：优先解析完整文件 content，其次解析 patch（含上下文行），均缺失时 fail-closed 兜底。 */
+export function destructiveMigrationOps(file) {
+  if (typeof file.content === 'string') {
+    return detectDestructiveOps(file.content)
+  }
+  if (typeof file.patch === 'string') {
+    return detectDestructiveOps(patchPostImageSql(file.patch))
   }
   const tag = ANY_MIGRATION.exec(file.filename)?.[1]
-  if (file.status === 'added' && tag && DESTRUCTIVE_TAG.test(tag)) {
-    return ['DROP/TRUNCATE（diff 被截断，按文件名兜底命中）']
+  if (file.status !== 'removed' && tag) {
+    if (DESTRUCTIVE_TAG.test(tag)) {
+      return ['DROP/TRUNCATE（SQL 内容未获取，按文件名命中）']
+    }
+    return ['SQL 内容未获取（diff 被截断且未拉取完整文件，无法自动排除不可逆删除）']
   }
   return []
 }
@@ -366,7 +416,7 @@ export function evaluatePr({ files, body }) {
   const rollbackNotes = [section(body, '怎么回滚'), section(body, '迁移与回滚')]
     .filter(Boolean)
     .join('\n')
-  const hasRetentionConfirmation = hasRetentionConfirmationNote(rollbackNotes)
+  const retentionStatus = evaluateRetentionNote(rollbackNotes)
 
   for (const f of files) {
     const m = f.status === 'added' && MIGRATION.exec(f.filename)
@@ -382,13 +432,17 @@ export function evaluatePr({ files, body }) {
     const ops = destructiveMigrationOps(f)
     if (!ops.length) continue
     const opList = ops.join(' / ')
-    if (!hasRetentionConfirmation) {
+    if (retentionStatus === 'blocked') {
       fails.push(
-        `迁移 \`${anyM[1]}\` 包含不可逆删除（${opList}）：回滚 SQL 只能重建空结构，无法恢复原数据。请在「怎么回滚」写明关联 Issue/ADR 的留存或时间闸门、历史数据留存/回填零差异核验，以及可恢复备份确认（AGENTS.md「部署与灾备」）。`,
+        `迁移 \`${anyM[1]}\` 包含不可逆删除（${opList}），且「怎么回滚」显示留存期/最早可发布时间尚未到期或核验未完成；未到日期且完成核验前不得合并或发布（AGENTS.md「部署与灾备」）。`,
+      )
+    } else if (retentionStatus === 'missing') {
+      fails.push(
+        `迁移 \`${anyM[1]}\` 包含不可逆删除（${opList}）：回滚 SQL 只能重建空结构，无法恢复原数据。请在「怎么回滚」写明关联 Issue/ADR 的留存期与最早可发布时间（已到期/无日期限制）、历史数据留存或回填零差异核验，以及可恢复备份确认（AGENTS.md「部署与灾备」）。`,
       )
     } else {
       warns.push(
-        `迁移 \`${anyM[1]}\` 包含不可逆删除（${opList}），请评审核对关联 Issue/ADR 的留存期与最早执行日期，确认生产历史数据已过期、已回填或有可验证恢复副本后再合并。`,
+        `迁移 \`${anyM[1]}\` 包含不可逆删除（${opList}），请评审核对关联 Issue/ADR 的留存期与最早可发布时间，确认生产历史数据已过期、已回填或有可验证恢复副本后再合并。`,
       )
     }
   }
