@@ -18,11 +18,7 @@ import {
   refreshOperatorConfigIfChanged,
 } from './lib/operator-config-overrides'
 import { startPeriodicSteps } from './lib/periodic'
-import {
-  purgeDeletingUnreferencedMedia,
-  purgeExpiredAttachmentMedia,
-  reclaimUnreferencedAssetMedia,
-} from './lib/projectMedia'
+import { purgeDeletingUnreferencedMedia, purgeExpiredAttachmentMedia } from './lib/projectMedia'
 import { initTelemetry, shutdownTelemetry } from './lib/telemetry'
 import { refreshUpstreamKeySources } from './lib/upstream/gpt-direct-admin'
 import { logFingerprintMacSourceOnce } from './lib/upstream/gpt-key-config'
@@ -156,8 +152,8 @@ const stopMaintenance = startPeriodicSteps(
             run: async (signal: AbortSignal) => {
               await purgeExpiredAttachmentMedia()
               if (signal.aborted) return
-              await reclaimUnreferencedAssetMedia(Date.now(), undefined, signal)
-              if (signal.aborted) return
+              // Contract 2a 阶段暂不挂载 reclaimUnreferencedAssetMedia，保持与 v0.4.481 滚发及回滚兼容
+              // （避免删除 media_objects + R2 后遗留旧表 user_asset_objects 幽灵行）；待 Contract 2b 删表时一并挂载。
               await purgeDeletingUnreferencedMedia(signal)
             },
           },

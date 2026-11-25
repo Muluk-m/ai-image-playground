@@ -454,6 +454,7 @@ it('restores historical text with an expired image reference without replacing i
       })
     ).status,
   ).toBe(200)
+  await db.delete(schema.media_references).where(eq(schema.media_references.user_id, owner.userId))
   await db
     .delete(schema.media_objects)
     .where(eq(schema.media_objects.asset_image_id, 'historical-image'))
