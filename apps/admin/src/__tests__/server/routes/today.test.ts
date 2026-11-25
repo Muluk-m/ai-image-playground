@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { todayWindow } from '../../../../contracts'
 import { useMemoryLogSource } from '../helpers/memory-log-source'
 
@@ -35,7 +35,7 @@ const task = {
   },
   submitted_at: from + 1000,
 }
-await writer.db.insert(writer.schema.tasks).values([
+await insertTestTasks(writer.db, [
   ...Array.from({ length: 101 }, (_, i) => ({
     ...task,
     id: `today-${String(i).padStart(3, '0')}`,
@@ -385,7 +385,7 @@ describe('today generation overview', () => {
   it('supports rich multi-facet filtering, sorting, summary percentiles, and window facets', async () => {
     const richFrom = from + 10 * 86400_000
     const richTo = richFrom + 3600_000
-    await writer.db.insert(writer.schema.tasks).values([
+    await insertTestTasks(writer.db, [
       {
         ...task,
         id: 'rich-fast-direct',

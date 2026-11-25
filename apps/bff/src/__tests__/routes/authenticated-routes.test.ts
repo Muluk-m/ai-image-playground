@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { SQL } from 'bun'
 import { eq, sql } from 'drizzle-orm'
 import sharp from 'sharp'
@@ -200,7 +200,7 @@ describe('BFF optional user auth', () => {
 
   it('lets the configured service identity fetch task and image reads only', async () => {
     const owner = await createTestUser('image-owner', ACCEPTED_PHRASE)
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: 'service-image-task',
       provider: 'openai-compat',
       model: 'gpt-image-2',
@@ -216,7 +216,7 @@ describe('BFF optional user auth', () => {
       submitted_at: Date.now(),
       completed_at: Date.now(),
     })
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: 'service-gemini-image-task',
       provider: 'gemini',
       model: 'gemini-3-pro',
@@ -239,7 +239,7 @@ describe('BFF optional user auth', () => {
     })
     await storage.write('service-object-task/in/0', Buffer.from('OBJECT-INPUT'), 'image/png')
     await storage.write('service-object-task/out/0', Buffer.from('OBJECT-OUTPUT'), 'image/png')
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: 'service-object-task',
       provider: 'openai-compat',
       model: 'gpt-image-2',

@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { SpanKind, SpanStatusCode } from '@opentelemetry/api'
 import { InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
@@ -120,7 +120,7 @@ describe('上游请求链路', () => {
   })
 
   it('每条上游请求一个 CLIENT span 挂在执行 span 下并把 traceparent 带给上游；429 标错，退避记成 event', async () => {
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: 'traced',
       provider: 'gemini',
       model: LITE,

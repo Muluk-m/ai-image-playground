@@ -1,6 +1,6 @@
 import { afterAll, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import type { AgentBatchGenerationItem, AgentBatchPage } from '@image-playground/shared'
 
 process.env.DATABASE_URL = await resetTestDatabase('batch_review')
@@ -355,7 +355,7 @@ it('retains expired tasks when a non-null unknown snapshot cannot yet be reconci
   const { purgeOldTasks } = await import('../../db/maintenance')
   await seedDependencyBatch('purge-unknown', 'failed')
   const taskId = 'purge-unknown-first'
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id: taskId,
     user_id: 'purge-unknown',
     provider: 'openai-compat',

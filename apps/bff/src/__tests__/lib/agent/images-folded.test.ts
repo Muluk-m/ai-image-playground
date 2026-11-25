@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { projectArtifactId } from '@image-playground/shared'
 import sharp from 'sharp'
 import { TEST_RESULT_PAYLOAD } from '../../helpers/agentStubs'
@@ -30,7 +30,7 @@ async function conversation(): Promise<string> {
 
 /** 一条已经出完图的任务，挂在指定会话名下。 */
 async function completedTask(taskId: string, conversationId: string): Promise<void> {
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id: taskId,
     provider: 'openai-compat',
     model: 'gpt-image-1',
@@ -49,7 +49,7 @@ async function wideTask(taskId: string, conversationId: string): Promise<void> {
   })
     .png()
     .toBuffer()
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id: taskId,
     provider: 'openai-compat',
     model: 'gpt-image-1',

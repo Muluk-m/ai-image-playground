@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 import { InMemoryObjectStore } from '../../helpers/inMemoryObjectStore'
 import { recordingUpstreamFetch } from '../../helpers/upstreamStubs'
@@ -134,7 +134,7 @@ describe('TaskExecutionHooks fail-closed enforcement', () => {
     const upstream = recordingUpstreamFetch()
     setUpstreamFetchForTesting(upstream.fetch)
 
-    await db.insert(schema.tasks).values([
+    await insertTestTasks(db, [
       {
         id: 'masked-no-hook',
         provider: 'openai-compat',

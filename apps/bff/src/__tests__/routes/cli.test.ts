@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import { eq, sql } from 'drizzle-orm'
 import type { PrivateTaskHooks } from '../../lib/private-overlay'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
@@ -1003,7 +1003,7 @@ describe('CLI tokens', () => {
     })
     expect(create.status).toBe(403)
     expect(create.json.error.code).toBe('FORBIDDEN')
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
   })
 })
 
@@ -1087,7 +1087,7 @@ describe('native GIF and SVG', () => {
     expect(billing.reservations).toEqual([
       expect.objectContaining({ model: IMAGE_26, credits: 37, unitMultiplier: 3.7 }),
     ])
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(JSON.stringify(task)).toContain('"output_format":"gif"')
     expect(JSON.stringify(task)).toContain('"frame_count":6')
     expect(JSON.stringify(task)).toContain('"size":"768x768"')
@@ -1168,7 +1168,7 @@ describe('native GIF and SVG', () => {
       headers: bearer(access_token),
     })
     expect(created.status).toBe(200)
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(JSON.stringify(task)).toContain('"output_format":"svg"')
   })
 
@@ -1205,7 +1205,7 @@ describe('native GIF and SVG', () => {
         expect(res.json.error.message).toContain(message)
       }
     }
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
     expect(billing.reservations).toHaveLength(0)
   })
 })
@@ -1259,7 +1259,7 @@ describe('capabilities and dry-run', () => {
       headers: bearer(access_token),
     })
     expect(created.status).toBe(200)
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task?.model).toBe(caps.json.data.default_model)
 
     // With the direct route back, GPT 2K is submittable and the first model is the default again.
@@ -1287,7 +1287,7 @@ describe('capabilities and dry-run', () => {
       quote: { estimated_credits: 10 },
       creates_job: false,
     })
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
     expect(billing.reservations).toHaveLength(0)
 
     const created = await call('POST', '/v1/image-jobs', { body, headers: bearer(access_token) })
@@ -1307,7 +1307,7 @@ describe('capabilities and dry-run', () => {
       code: 'QUOTA_EXCEEDED',
       details: { reset_at: '2099-01-01T00:00:00.000Z' },
     })
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
     expect(billing.reservations).toHaveLength(0)
   })
 
@@ -1337,7 +1337,7 @@ describe('capabilities and dry-run', () => {
         details: { required: 10, max_credits: 5 },
       })
     }
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
     expect(billing.reservations).toHaveLength(0)
 
     // INSUFFICIENT_CREDITS includes origin-aware top_up_url and connected account username.
@@ -1480,10 +1480,9 @@ describe('capabilities and dry-run', () => {
           unitMultiplier: multiplier,
         },
       ])
-      const [task] = await db
-        .select()
-        .from(schema.tasks)
-        .where(eq(schema.tasks.id, created.json.data.job.job_id as string))
+      const [task] = await selectTestTasks(db).where(
+        eq(schema.tasks.id, created.json.data.job.job_id as string),
+      )
       expect(task?.request_payload.image_size).toBe(image_size)
     }
   })
@@ -1497,7 +1496,7 @@ describe('capabilities and dry-run', () => {
       headers: bearer(access_token),
     })
     expect(created.status).toBe(200)
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task?.request_payload.image_size).toBe('4K')
   })
 
@@ -1535,7 +1534,7 @@ describe('CLI GPT image pricing', () => {
       expect(denied.status).toBe(403)
       expect(denied.json.error.code).toBe('PLAN_REQUIRED')
     }
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
     expect(await db.select().from(schema.generation_commands)).toHaveLength(0)
     expect(billing.reservations).toHaveLength(0)
     expect(await db.execute(sql`SELECT * FROM cli_test_holds`)).toHaveLength(0)
@@ -1558,7 +1557,7 @@ describe('CLI GPT image pricing', () => {
     expect(preview.json.data.quote).toEqual({ estimated_credits: 12 })
     const created = await call('POST', '/v1/image-jobs', { body, headers: bearer(access_token) })
     expect(created.status).toBe(200)
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task?.request_payload).toMatchObject({
       size: '2560x1440',
       quality: 'medium',
@@ -1647,13 +1646,13 @@ describe('CLI GPT image pricing', () => {
     expect(preview.json.data.adjustments).toEqual(
       aspect_ratio === 'auto' ? [{ field: 'ratio', from: 'auto', to: '1:1' }] : [],
     )
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
     expect(await db.execute(sql`SELECT * FROM cli_test_holds`)).toHaveLength(0)
     const created = await call('POST', '/v1/image-jobs', { body, headers: bearer(access_token) })
     expect(created.status).toBe(200)
     expect(created.json.data.request_hash).toBe(preview.json.data.request_hash)
     expect(created.json.data.adjustments).toEqual(preview.json.data.adjustments)
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task?.request_payload).toMatchObject({ size, quality, strict_image_request: true })
     expect(task?.request_payload.n).toBe(1)
     expect(task?.request_payload.image_size).toBeUndefined()
@@ -1694,7 +1693,7 @@ describe('CLI GPT image pricing', () => {
     expect(billing.settlements).toEqual([{ taskId: jobId, outcome: 'failed' }])
     expect(requests).toHaveLength(failure === 'disabled' ? 0 : 1)
     expect(requests.every((url) => new URL(url).hostname === 'api.openai.com')).toBe(true)
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, jobId))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, jobId))
     expect(task).toMatchObject({ error_type: 'plan_required', next_retry_at: null })
   })
 
@@ -1711,7 +1710,7 @@ describe('CLI GPT image pricing', () => {
         details: { required: 12, max_credits: 0 },
       })
     }
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
     expect(await db.select().from(schema.generation_commands)).toHaveLength(0)
     expect(billing.reservations).toHaveLength(0)
     expect(await db.execute(sql`SELECT * FROM cli_test_holds`)).toHaveLength(0)
@@ -1720,7 +1719,7 @@ describe('CLI GPT image pricing', () => {
       headers: bearer(access_token),
     })
     expect(allowed.status).toBe(200)
-    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(await selectTestTasks(db)).toHaveLength(1)
   })
 
   it.each([
@@ -1764,7 +1763,7 @@ describe('CLI GPT image pricing', () => {
       expect(nonMemberDirectOff.json.error.code).toBe('PLAN_REQUIRED')
       expect(nonMemberDirectOff.json.error.details).toBeUndefined()
     }
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
     expect(await db.select().from(schema.generation_commands)).toHaveLength(0)
     expect(billing.reservations).toHaveLength(0)
     expect(await db.execute(sql`SELECT * FROM cli_test_holds`)).toHaveLength(0)
@@ -1800,7 +1799,7 @@ describe('CLI GPT image pricing', () => {
       details: { required: 18, max_credits: 12 },
     })
     expect(billing.reservations).toHaveLength(1)
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
     expect(await db.select().from(schema.generation_commands)).toHaveLength(0)
     expect(await db.execute(sql`SELECT * FROM cli_test_holds`)).toHaveLength(0)
     billing.reservePrice = 10
@@ -1823,7 +1822,7 @@ describe('CLI GPT image pricing', () => {
       code: 'MAX_CREDITS_EXCEEDED',
       details: { required: 10, max_credits: 0 },
     })
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
     expect(await db.select().from(schema.generation_commands)).toHaveLength(0)
     expect(await db.execute(sql`SELECT * FROM cli_test_holds`)).toHaveLength(0)
   })
@@ -1845,7 +1844,7 @@ describe('CLI GPT image pricing', () => {
     expect(replay.status).toBe(200)
     expect(replay.json.data.job.id).toBe(created.json.data.job.id)
     expect(replay.json.data.request_hash).toBe(created.json.data.request_hash)
-    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(await selectTestTasks(db)).toHaveLength(1)
     expect(billing.reservations).toHaveLength(1)
     expect(await db.execute(sql`SELECT credits FROM cli_test_holds`)).toEqual([{ credits: 12 }])
     const mismatch = await call('POST', '/v1/image-jobs', {
@@ -1869,7 +1868,7 @@ describe('CLI GPT image pricing', () => {
       headers: { cookie: user.cookie },
     })
     expect(created.status).toBe(200)
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task?.request_payload).toMatchObject({ size: '2720x1536', quality: 'medium' })
     expect(await db.execute(sql`SELECT credits FROM cli_test_holds`)).toEqual([{ credits: 12 }])
   })
@@ -1906,7 +1905,7 @@ describe('jobs', () => {
     const first = await call('POST', '/v1/image-jobs', { body, headers: bearer(access_token) })
     const again = await call('POST', '/v1/image-jobs', { body, headers: bearer(access_token) })
     expect(again.json.data.job.job_id).toBe(first.json.data.job.job_id)
-    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(await selectTestTasks(db)).toHaveLength(1)
     expect(billing.reservations).toHaveLength(1)
     expect(await db.select().from(schema.cli_jobs)).toHaveLength(1)
 
@@ -1964,9 +1963,9 @@ describe('jobs', () => {
     })
     const persistingId = persisting.json.data.job.job_id as string
     await db
-      .update(schema.tasks)
+      .update(schema.task_payloads)
       .set({ archive_payload: { images: [] } as never })
-      .where(eq(schema.tasks.id, persistingId))
+      .where(eq(schema.task_payloads.task_id, persistingId))
     const status = await call('GET', `/v1/jobs/${persistingId}`, {
       headers: bearer(ownerTokens.access_token),
     })

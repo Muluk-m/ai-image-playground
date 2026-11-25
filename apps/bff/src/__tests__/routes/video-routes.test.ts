@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase, type TestTaskSeed } from '@image-playground/db/testing'
 import { VIDEO_MODEL_SUPPORT } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import {
@@ -147,12 +147,12 @@ async function submit(model: string, body: Record<string, unknown>) {
 async function insertCompletedVideo(
   id: string,
   mime = 'video/mp4',
-  overrides: Partial<typeof schema.tasks.$inferInsert> = {},
+  overrides: Partial<TestTaskSeed> = {},
 ): Promise<void> {
   const bytes = mime === 'video/mp4' ? MP4_BYTES : PNG_BYTES
   await storage.write(`${id}/out/0`, bytes, mime)
   const now = Date.now()
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id,
     provider: 'openai-compat',
     model: 'grok-imagine-video',
@@ -170,7 +170,7 @@ async function insertCompletedVideo(
 /** 结果还没归档进对象存储，`data[].url` 直接指向上游。 */
 async function insertUrlVideo(id: string): Promise<void> {
   const now = Date.now()
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id,
     provider: 'openai-compat',
     model: 'grok-imagine-video',
@@ -184,9 +184,9 @@ async function insertUrlVideo(id: string): Promise<void> {
 
 async function storedVideo(requestId: unknown): Promise<Record<string, unknown> | undefined> {
   const [task] = await db
-    .select({ request_payload: schema.tasks.request_payload })
-    .from(schema.tasks)
-    .where(eq(schema.tasks.id, String(requestId)))
+    .select({ request_payload: schema.task_payloads.request_payload })
+    .from(schema.task_payloads)
+    .where(eq(schema.task_payloads.task_id, String(requestId)))
   return (task?.request_payload as { video?: Record<string, unknown> } | undefined)?.video
 }
 

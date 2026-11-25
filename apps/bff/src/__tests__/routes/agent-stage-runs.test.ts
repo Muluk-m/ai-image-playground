@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, expect, it, spyOn } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import {
   type AgentTurnParams,
   canvasOrigin,
@@ -252,7 +252,7 @@ async function submitted(
   charged: number,
 ) {
   const state = await stored(id)
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id: taskId,
     user_id: USER_ID,
     provider: 'openai-compat',

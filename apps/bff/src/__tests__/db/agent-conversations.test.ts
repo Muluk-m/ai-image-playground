@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import type { AgentCompactionRecord } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
 
@@ -83,7 +83,7 @@ describe('agent conversations', () => {
       ['own', conversation.id, '完整提示词\n保留所有细节'],
       ['foreign', foreign.id, '不可泄露'],
     ] as const) {
-      await db.insert(schema.tasks).values({
+      await insertTestTasks(db, {
         id,
         provider: 'openai-compat',
         model: 'gpt-image-1',

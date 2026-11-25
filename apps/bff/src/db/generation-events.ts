@@ -11,7 +11,7 @@ export async function publishGenerations(tx: Transaction, taskIds: string[]) {
     const tasks = await tx
       .select({ id: schema.tasks.id, userId: schema.tasks.user_id })
       .from(schema.tasks)
-      .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
+      .innerJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
       .where(
         and(
           inArray(schema.tasks.id, taskIds.slice(offset, offset + TASK_BATCH_SIZE)),
@@ -57,13 +57,7 @@ export async function publishGenerations(tx: Transaction, taskIds: string[]) {
           WHEN payload.request_payload ->> 'output_retention' = 'canvas' THEN jsonb_build_object('kind', 'canvas')
           ELSE jsonb_build_object('kind', 'studio') END
         FROM ${schema.tasks}
-        LEFT JOIN ${schema.task_payloads} tp ON tp.task_id = ${schema.tasks.id}
-        CROSS JOIN LATERAL (
-          SELECT
-            CASE WHEN tp.task_id IS NOT NULL THEN tp.request_payload ELSE ${schema.tasks.request_payload} END AS request_payload,
-            CASE WHEN tp.task_id IS NOT NULL THEN tp.result_payload ELSE ${schema.tasks.result_payload} END AS result_payload,
-            CASE WHEN tp.task_id IS NOT NULL THEN tp.archive_payload ELSE ${schema.tasks.archive_payload} END AS archive_payload
-        ) payload
+        INNER JOIN ${schema.task_payloads} payload ON payload.task_id = ${schema.tasks.id}
         WHERE ${schema.tasks.user_id} = ${userId}
           AND ${inArray(schema.tasks.id, ids.slice(offset, offset + TASK_BATCH_SIZE))}
         ON CONFLICT (id) DO UPDATE SET status = excluded.status,

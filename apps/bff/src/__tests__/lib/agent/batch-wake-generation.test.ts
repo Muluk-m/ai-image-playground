@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_agent_batch_wake_generation')
 
@@ -63,7 +63,7 @@ async function seedBatch(id: string, outcomes: readonly ('completed' | 'failed')
       params: { model: 'fixture', provider: 'openai-compat' as const },
       dependencies: [],
     })
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: taskId,
       user_id: 'owner',
       provider: 'openai-compat',

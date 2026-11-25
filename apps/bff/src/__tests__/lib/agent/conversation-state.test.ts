@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_agent_conversation_state')
 
@@ -95,7 +95,7 @@ async function batch(
       params: { model: 'fixture', provider: 'openai-compat' as const },
       dependencies: [],
     })
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: taskId,
       user_id: 'owner',
       provider: 'openai-compat',
@@ -415,7 +415,7 @@ describe('removed batch items (BUG-51)', () => {
   // 真正提交过的版本以 attempts 为准：plans.confirmation 在修订提案时就会写入。
   const submit = async (batchId: string, version: number, key: string, attempt = 1) => {
     const taskId = `${batchId}-${version}-${key}-${attempt}`
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: taskId,
       user_id: 'owner',
       provider: 'openai-compat',

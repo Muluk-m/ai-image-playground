@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, expect, it, spyOn } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import { eq, sql } from 'drizzle-orm'
 import sharp from 'sharp'
 import {
@@ -121,7 +121,7 @@ it.each([
   })
   expect(submitted.status).toBe(200)
   const { request_id } = await submitted.json()
-  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, request_id))
+  const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, request_id))
   expect(task!.request_payload).toMatchObject({ prompt: input.prompt, no_rewrite })
   const detail = await request(`/api/generations/${request_id}`, deviceB)
   expect(await detail.json()).toMatchObject({ prompt: input.prompt, parameters: { no_rewrite } })
@@ -237,7 +237,7 @@ it('升级前的带参考图任务也校验原参数并保留永久重试回执'
   )
   expect(afterPurge.status).toBe(200)
   expect((await afterPurge.json()).request_id).toBe(original.request_id)
-  expect(await db.select().from(schema.tasks)).toHaveLength(0)
+  expect(await selectTestTasks(db)).toHaveLength(0)
 })
 
 it('旧任务参考图不可读时保留原任务，不把重试变成新生成', async () => {
@@ -837,9 +837,9 @@ it('归档等待超过一小时后停止自动重试，并保留长期存储中�
   const detail = await (await request(`/api/generations/${id}`, deviceB)).json()
   expect(detail.status).toBe('failed')
   const [task] = await db
-    .select({ archivePayload: schema.tasks.archive_payload })
-    .from(schema.tasks)
-    .where(eq(schema.tasks.id, id))
+    .select({ archivePayload: schema.task_payloads.archive_payload })
+    .from(schema.task_payloads)
+    .where(eq(schema.task_payloads.task_id, id))
   expect(task?.archivePayload).not.toBeNull()
   expect((await durable.listPrefix(`${id}/`)).length).toBeGreaterThan(0)
   expect(calls).toBe(1)
@@ -1204,7 +1204,7 @@ it('首次归档凭据写入短暂失败仍保存已返回原图，不释放响�
     sql`CREATE FUNCTION generation_checkpoint_fault() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF nextval('generation_checkpoint_fault') = 1 THEN RAISE EXCEPTION 'checkpoint temporarily unavailable'; END IF; RETURN NEW; END; $$`,
   )
   await db.execute(
-    sql`CREATE TRIGGER generation_checkpoint_fault BEFORE UPDATE OF archive_payload ON tasks FOR EACH ROW WHEN (OLD.archive_payload IS NULL AND NEW.archive_payload IS NOT NULL) EXECUTE FUNCTION generation_checkpoint_fault()`,
+    sql`CREATE TRIGGER generation_checkpoint_fault BEFORE UPDATE OF archive_payload ON task_payloads FOR EACH ROW WHEN (OLD.archive_payload IS NULL AND NEW.archive_payload IS NOT NULL) EXECUTE FUNCTION generation_checkpoint_fault()`,
   )
   try {
     await runTask(id)
@@ -1216,7 +1216,7 @@ it('首次归档凭据写入短暂失败仍保存已返回原图，不释放响�
     expect(await durable.read(new URL(originalUrl).pathname.slice(1))).toEqual(new Uint8Array(png))
     expect(calls).toBe(1)
   } finally {
-    await db.execute(sql`DROP TRIGGER generation_checkpoint_fault ON tasks`)
+    await db.execute(sql`DROP TRIGGER generation_checkpoint_fault ON task_payloads`)
     await db.execute(sql`DROP FUNCTION generation_checkpoint_fault()`)
     await db.execute(sql`DROP SEQUENCE generation_checkpoint_fault`)
   }
@@ -1239,7 +1239,7 @@ it('keeps Grok account-pool details out of queue and agent responses while retai
     )
     expect(body.error.type).toBe('upstream_error')
   }
-  const [stored] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+  const [stored] = await selectTestTasks(db).where(eq(schema.tasks.id, id))
   expect(stored!.error_message).toBe(raw)
   const { queueTaskOutcome } = await import('../../modules/execution')
   expect(queueTaskOutcome(stored!)).toMatchObject({
@@ -1250,7 +1250,7 @@ it('keeps Grok account-pool details out of queue and agent responses while retai
 
 it('hides canvas candidates from the works list and its counts', async () => {
   const now = Date.now()
-  await db.insert(schema.tasks).values([
+  await insertTestTasks(db, [
     {
       id: '11111111-1111-4111-8111-111111111111',
       provider: 'openai-compat',
@@ -1338,7 +1338,7 @@ it('keeps node candidates uncharged and temporary while adopted main media survi
   expect(submitted.status).toBe(200)
   const { request_id: id } = await submitted.json()
   await runTask(id)
-  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+  const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, id))
   expect(task?.status).toBe('completed')
   expect(task?.request_payload.output_retention).toBe('candidate')
   expect(await db.select().from(schema.media_objects)).toHaveLength(0)
@@ -1371,7 +1371,8 @@ it('keeps node candidates uncharged and temporary while adopted main media survi
 })
 
 it('cleans more than one candidate batch while retaining a failed prefix for the next sweep', async () => {
-  await db.insert(schema.tasks).values(
+  await insertTestTasks(
+    db,
     Array.from({ length: 205 }, (_, index) => ({
       id: `candidate-${String(index).padStart(3, '0')}`,
       provider: 'openai-compat' as const,
@@ -1396,7 +1397,7 @@ it('cleans more than one candidate batch while retaining a failed prefix for the
     cleanup.mockRestore()
   }
   expect(await purgeOldTasks()).toBe(1)
-  expect(await db.select().from(schema.tasks)).toEqual([])
+  expect(await selectTestTasks(db)).toEqual([])
 })
 
 it('实际尺寸取落库原件的真实像素：Gemini 不回报 size，OpenAI 回报值与原图不符时也以原图为准', async () => {
@@ -1474,8 +1475,9 @@ it('promotes only the selected canvas output into works, and promoting it again 
   const { request_id: otherId } = await other.json()
   await runTask(otherId)
   const before = await db
-    .select({ status: schema.tasks.status, metering: schema.tasks.metering })
+    .select({ status: schema.tasks.status, metering: schema.task_payloads.metering })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(eq(schema.tasks.id, id))
 
   expect(
@@ -1514,8 +1516,9 @@ it('promotes only the selected canvas output into works, and promoting it again 
   expect(afterSecond.items).toHaveLength(1)
 
   const after = await db
-    .select({ status: schema.tasks.status, metering: schema.tasks.metering })
+    .select({ status: schema.tasks.status, metering: schema.task_payloads.metering })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(eq(schema.tasks.id, id))
   expect(after).toEqual(before)
 })
@@ -1812,7 +1815,7 @@ it('does not retag studio or agent generations when promote is called', async ()
   })
 
   const agentId = '33333333-3333-4333-8333-333333333333'
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id: agentId,
     provider: 'openai-compat',
     model: 'gpt-image-2',

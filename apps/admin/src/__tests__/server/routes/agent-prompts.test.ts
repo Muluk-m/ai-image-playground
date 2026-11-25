@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { applyPromptRewriteGuard, buildAspectInstruction } from '@image-playground/shared'
 import type { AgentPromptsResult } from '../../../../contracts'
 
@@ -73,7 +73,7 @@ const task = (id: string, status: 'completed' | 'failed' | 'queued' = 'completed
     images: ['PRIVATE_BASE64'],
   } as never,
 })
-await writer.db.insert(writer.schema.tasks).values([
+await insertTestTasks(writer.db, [
   task('confirmed'),
   task('direct'),
   task('failed', 'failed'),
@@ -117,7 +117,7 @@ await writer.db.insert(writer.schema.users).values({
 await writer.db
   .insert(writer.schema.agent_conversations)
   .values({ id: 'owned', user_id: 'owner', title: 'owned', created_at: now, updated_at: now })
-await writer.db.insert(writer.schema.tasks).values({
+await insertTestTasks(writer.db, {
   ...task('cancelled'),
   status: 'cancelled',
   agent_conversation_id: 'owned',
@@ -139,7 +139,7 @@ await writer.db.insert(writer.schema.agent_jobs).values([
     submitted_at: now,
   },
 ])
-await writer.db.insert(writer.schema.tasks).values({ ...task('direct-2'), agent_turn_id: 'turn' })
+await insertTestTasks(writer.db, { ...task('direct-2'), agent_turn_id: 'turn' })
 await writer.db.insert(writer.schema.agent_tool_calls).values({
   conversation_id: 'conversation',
   message_id: 'edit-call',

@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createDb } from '@image-playground/db'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import type { OpsSnapshot } from '../../../../contracts'
 
@@ -62,7 +62,7 @@ const base = {
   request_payload: { prompt: 'x', device_id: 'ops-device' },
 } as const
 
-await writer.db.insert(writer.schema.tasks).values([
+await insertTestTasks(writer.db, [
   { ...base, id: 'ops-queued-old', status: 'queued', submitted_at: now - 12 * minute },
   { ...base, id: 'ops-queued-new', status: 'queued', submitted_at: now - 1 * minute },
   {
@@ -90,7 +90,7 @@ await writer.db.insert(writer.schema.tasks).values([
   // 对话轮也是 tasks 里的一行，但不属于生成队列，看板的队列一栏不数它。
   { ...base, id: 'ops-chat-turn', kind: 'chat', status: 'queued', submitted_at: now - 30 * minute },
 ])
-await writer.db.insert(writer.schema.tasks).values({
+await insertTestTasks(writer.db, {
   ...base,
   id: 'ops-failed',
   status: 'failed',

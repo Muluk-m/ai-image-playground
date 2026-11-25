@@ -197,7 +197,7 @@ describe('createDb', () => {
     const [row] = await client`SELECT 1 + 1 AS sum`
     expect(row).toEqual({ sum: 2 })
   })
-  it('round-trips epoch milliseconds and JSONB while deriving device_id', async () => {
+  it('round-trips epoch milliseconds and JSONB payloads with explicit device_id', async () => {
     const { db, schema } = handle()
     const submittedAt = 1_786_264_321_123
     await db.insert(schema.tasks).values({
@@ -205,14 +205,22 @@ describe('createDb', () => {
       provider: 'openai-compat',
       model: 'm',
       status: 'queued',
-      request_payload: { prompt: 'x', device_id: 'd-aaaaaaaa' },
+      device_id: 'd-aaaaaaaa',
       submitted_at: submittedAt,
+    })
+    await db.insert(schema.task_payloads).values({
+      task_id: 'test-rw',
+      request_payload: { prompt: 'x', device_id: 'd-aaaaaaaa' },
     })
 
     const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, 'test-rw'))
+    const [payload] = await db
+      .select()
+      .from(schema.task_payloads)
+      .where(eq(schema.task_payloads.task_id, 'test-rw'))
     expect(task?.submitted_at).toBe(submittedAt)
-    expect(task?.request_payload).toMatchObject({ prompt: 'x', device_id: 'd-aaaaaaaa' })
     expect(task?.device_id).toBe('d-aaaaaaaa')
+    expect(payload?.request_payload).toMatchObject({ prompt: 'x', device_id: 'd-aaaaaaaa' })
   })
 
   it('cascades user deletion to sessions', async () => {

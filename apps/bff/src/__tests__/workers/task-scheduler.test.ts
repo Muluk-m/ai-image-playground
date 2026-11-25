@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { and, eq, sql } from 'drizzle-orm'
 import {
@@ -42,7 +42,7 @@ afterAll(async () => {
 })
 
 async function insertTask(id: string, provider: 'openai-compat' | 'gemini', submittedAt: number) {
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id,
     provider,
     model: 'test-model',
@@ -97,7 +97,7 @@ describe('TaskScheduler', () => {
       },
     ])
     for (let i = 0; i < 3; i++) {
-      await db.insert(schema.tasks).values({
+      await insertTestTasks(db, {
         id: `full-running-${i}`,
         user_id: 'full-account',
         provider: 'openai-compat',
@@ -107,7 +107,7 @@ describe('TaskScheduler', () => {
         submitted_at: i + 1,
       })
     }
-    await db.insert(schema.tasks).values([
+    await insertTestTasks(db, [
       ...Array.from({ length: 40 }, (_, index) => ({
         id: `full-queued-${index}`,
         user_id: 'full-account',
@@ -159,7 +159,7 @@ describe('TaskScheduler', () => {
         updated_at: stamp,
       },
     ])
-    await db.insert(schema.tasks).values([
+    await insertTestTasks(db, [
       ...Array.from({ length: 40 }, (_, index) => ({
         id: `busy-queued-${index}`,
         user_id: 'busy-account',
@@ -418,7 +418,7 @@ describe('recoverAbandonedTasks', () => {
   })
 
   async function insertInProgress(id: string, startedAt: number, attemptCount = 0) {
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id,
       provider: 'openai-compat',
       model: 'test-model',
@@ -434,7 +434,7 @@ describe('recoverAbandonedTasks', () => {
 
   it('requeues abandoned rows and leaves queued schedules untouched', async () => {
     await insertTask('queued-due', 'openai-compat', 1)
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: 'queued-future',
       provider: 'openai-compat',
       model: 'test-model',
@@ -491,7 +491,7 @@ describe('recoverAbandonedTasks', () => {
       },
     })
     // attempt_count=0：重试预算是满的，所以「没回队」只能是 kind 判出来的。
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: 'chat-turn',
       kind: 'chat',
       provider: 'openai-compat',
@@ -579,7 +579,7 @@ describe('purgeOldTasks', () => {
   })
 
   it('deletes rows before their object prefixes', async () => {
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: 'expired-task',
       provider: 'openai-compat',
       model: 'test-model',
@@ -605,7 +605,7 @@ describe('purgeOldTasks', () => {
   })
 
   it('leaves a harmless lifecycle orphan when prefix deletion is interrupted', async () => {
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: 'orphan-task',
       provider: 'openai-compat',
       model: 'test-model',
@@ -630,7 +630,8 @@ describe('purgeOldTasks', () => {
 
 it('dispatches analysis through its own bounded consumer and includes it in deployment drain', async () => {
   await db.delete(schema.tasks)
-  await db.insert(schema.tasks).values(
+  await insertTestTasks(
+    db,
     ['analysis-first', 'analysis-second'].map((id, index) => ({
       id,
       kind: 'analysis' as const,

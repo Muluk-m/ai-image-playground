@@ -71,11 +71,6 @@ const jobColumns = {
   archive_payload: resolvedTaskArchivePayload,
 } as const
 
-const jobLockColumns = {
-  ...jobBaseColumns,
-  archive_payload: schema.tasks.archive_payload,
-} as const
-
 type JobRow = {
   id: string
   status: TaskStatus
@@ -256,10 +251,10 @@ export async function cancelJob(userId: string, jobId: string): Promise<CliJob> 
   const access = ownedJob(userId, jobId)
   const postCommitHooks: Array<() => Promise<void>> = []
   const cancelled = await db.transaction(async (tx) => {
-    const [locked] = await tx.select(jobLockColumns).from(schema.tasks).where(access).for('update')
+    const [locked] = await tx.select(jobBaseColumns).from(schema.tasks).where(access).for('update')
     if (!locked) throw new CliRequestError('NOT_FOUND')
     const payload = (await readTaskPayloads(tx, [locked.id])).get(locked.id)
-    const row = payload ? { ...locked, archive_payload: payload.archive_payload } : locked
+    const row = { ...locked, archive_payload: payload?.archive_payload ?? null }
     if (row.status === 'cancelled') return []
     if (!['queued', 'in_progress'].includes(row.status) || row.archive_payload)
       throw new CliRequestError('JOB_NOT_CANCELLABLE', {

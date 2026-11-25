@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import {
   canvasInputFingerprint,
   canvasMainResult,
@@ -286,7 +286,7 @@ it('editing a finalized board makes it draft and immediately stales frames and v
     ['shot-video', 'video', 'video'],
   ] as const) {
     const taskId = crypto.randomUUID()
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: taskId,
       user_id: userId,
       provider: 'openai-compat',

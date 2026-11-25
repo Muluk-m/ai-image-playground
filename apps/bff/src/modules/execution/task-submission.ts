@@ -40,7 +40,7 @@ import {
   strictImage26Refusal,
 } from './submission-tier'
 import type { ExecutionTransaction } from './task-lifecycle-bus'
-import { syncTaskPayloads } from './task-payloads'
+import { insertTaskPayload } from './task-payloads'
 import {
   assertTaskSubmissionPluginRegistered,
   type CreateQueueTaskInput,
@@ -226,20 +226,23 @@ async function submitQueueTask(
         model: input.model,
         status: 'queued',
         reconciliation_required: input.reconciliationRequired ?? false,
-        request_payload: requestPayload,
         submitted_at: now,
         user_id: input.userId,
+        device_id: requestPayload.device_id ?? null,
         client_request_id: input.request.client_request_id ?? null,
         agent_conversation_id: input.agent?.conversationId ?? null,
         agent_turn_id: input.agent?.turnId ?? null,
-        metering,
         traceparent: currentTraceparent(),
       })
       .onConflictDoNothing()
       .returning({ id: schema.tasks.id, submitted_at: schema.tasks.submitted_at })
 
     if (inserted.length === 0) return { kind: 'idempotency_conflict' as const }
-    await syncTaskPayloads(tx, [id])
+    await insertTaskPayload(tx, {
+      task_id: id,
+      request_payload: requestPayload,
+      metering,
+    })
     // 提交链路上记下任务 ID：从任务反查提交 trace、从提交 trace 找到任务，两个方向都能查。
     trace.getActiveSpan()?.setAttribute('task.id', id)
 

@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import {
   type AgentBackgroundJobCancelResponse,
   type AgentBackgroundJobsResponse,
@@ -116,14 +116,14 @@ function types(frames: { event: AgentTurnEvent }[]): string[] {
 }
 
 async function onlyTask() {
-  const tasks = await db.select().from(schema.tasks)
+  const tasks = await selectTestTasks(db)
   expect(tasks).toHaveLength(1)
   return tasks[0]!
 }
 
 /** 测试里的迷你 worker：认领任务、按真实路径收尾，就像它在轮结束之后才跑完。 */
 async function finishTask(taskId: string, outcome: 'completed' | 'failed' | 'in_progress') {
-  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId))
+  const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, taskId))
   if (outcome === 'in_progress') {
     await workerClaims(taskId)
     return
@@ -193,7 +193,7 @@ describe('生成改为后台任务', () => {
     expect(types(frames)).toEqual(['turnStart', 'toolStart', 'toolEnd', 'turnEnd'])
     expect(frames.at(-1)?.event).toMatchObject({ type: 'turnEnd', stopReason: 'completed' })
     expect(calls).toHaveLength(1)
-    expect(await db.select().from(schema.tasks)).toEqual([])
+    expect(await selectTestTasks(db)).toEqual([])
     const [end] = eventsOfType(frames, 'toolEnd')
     expect(end).toMatchObject({ toolCallId: 'call-1', status: 'awaiting_confirmation' })
     expect(end!.job).toBeUndefined()
@@ -279,7 +279,7 @@ describe('生成改为后台任务', () => {
 
       const frames = await runTurn(conversationId, '画一只橘猫', { autoSubmit: true })
 
-      expect(await db.select().from(schema.tasks)).toEqual([])
+      expect(await selectTestTasks(db)).toEqual([])
       const [end] = eventsOfType(frames, 'toolEnd')
       // 退回待确认：不报错、不中断整轮，稿子留给用户。
       expect(end).toMatchObject({ toolCallId: 'call-1', status: 'awaiting_confirmation' })
@@ -356,7 +356,7 @@ describe('生成改为后台任务', () => {
     await finishTask(task.id, 'completed')
     const { purgeOldTasks } = await import('../../db/maintenance')
     expect(await purgeOldTasks(-1)).toBe(1)
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
 
     const [job] = await readJobs(conversationId)
     expect(job!.result).toMatchObject({ status: 'succeeded', job: { taskId: task.id } })
@@ -470,9 +470,8 @@ describe('生成改为后台任务', () => {
     reply.push('两张都在画了')
     const seen = await readFrames(response, 1)
     const turnId = eventsOfType(seen, 'turnStart')[0]!.turnId
-    for (let i = 0; i < 400 && (await db.select().from(schema.tasks)).length < 2; i++)
-      await Bun.sleep(5)
-    const tasks = await db.select().from(schema.tasks).where(eq(schema.tasks.agent_turn_id, turnId))
+    for (let i = 0; i < 400 && (await selectTestTasks(db)).length < 2; i++) await Bun.sleep(5)
+    const tasks = await selectTestTasks(db).where(eq(schema.tasks.agent_turn_id, turnId))
     expect(tasks).toHaveLength(2)
     const done = tasks.find((task) => task.client_request_id?.endsWith(':call-1'))
     const running = tasks.find((task) => task.client_request_id?.endsWith(':call-2'))
@@ -480,16 +479,15 @@ describe('生成改为后台任务', () => {
     await finishTask(done!.id, 'completed')
     await finishTask(running!.id, 'in_progress')
     // 别的会话里不相干的任务不受影响。
-    const [other] = await db
-      .insert(schema.tasks)
-      .values({
-        ...running!,
-        id: crypto.randomUUID(),
-        client_request_id: null,
-        agent_conversation_id: earlier,
-        status: 'queued',
-      })
-      .returning()
+    const otherId = crypto.randomUUID()
+    await insertTestTasks(db, {
+      ...running!,
+      id: otherId,
+      client_request_id: null,
+      agent_conversation_id: earlier,
+      status: 'queued',
+    })
+    const other = { id: otherId }
     finalized.length = 0
 
     const stopped = await request(
@@ -508,7 +506,7 @@ describe('生成改为后台任务', () => {
     }
 
     const status = async (id: string) =>
-      (await db.select().from(schema.tasks).where(eq(schema.tasks.id, id)))[0]!.status
+      (await selectTestTasks(db).where(eq(schema.tasks.id, id)))[0]!.status
     expect(await status(done!.id)).toBe('completed')
     expect(await status(running!.id)).toBe('cancelled')
     expect(await status(other!.id)).toBe('queued')
@@ -543,12 +541,8 @@ describe('生成改为后台任务', () => {
     reply.push('在画了')
     const seen = await readFrames(response, 1)
     const turnId = eventsOfType(seen, 'turnStart')[0]!.turnId
-    for (let i = 0; i < 400 && (await db.select().from(schema.tasks)).length < 1; i++)
-      await Bun.sleep(5)
-    const [task] = await db
-      .select()
-      .from(schema.tasks)
-      .where(eq(schema.tasks.agent_turn_id, turnId))
+    for (let i = 0; i < 400 && (await selectTestTasks(db)).length < 1; i++) await Bun.sleep(5)
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.agent_turn_id, turnId))
     await finishTask(task!.id, 'in_progress')
     finalized.length = 0
 
@@ -563,7 +557,7 @@ describe('生成改为后台任务', () => {
       await Bun.sleep(5)
     }
 
-    const [after] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, task!.id))
+    const [after] = await selectTestTasks(db).where(eq(schema.tasks.id, task!.id))
     expect(after!.status).toBe('in_progress')
     expect(finalized).toEqual([])
   })
@@ -584,7 +578,7 @@ describe('生成改为后台任务', () => {
     })
     expect(deleted.status).toBe(200)
 
-    const [after] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, task.id))
+    const [after] = await selectTestTasks(db).where(eq(schema.tasks.id, task.id))
     expect(after!.status).toBe('cancelled')
   })
 })
@@ -658,7 +652,11 @@ describe('后台任务的进度与取消', () => {
     })
 
     // 结果已归档、正在确认。
-    await setTask({ lease_expires_at: Date.now() + 60_000, archive_payload: { outputs: [] } })
+    await setTask({ lease_expires_at: Date.now() + 60_000 })
+    await db
+      .update(schema.task_payloads)
+      .set({ archive_payload: { outputs: [] } })
+      .where(eq(schema.task_payloads.task_id, task.id))
     expect((await readJobs(conversationId))[0]!.progress).toMatchObject({
       stage: 'running',
       phase: 'confirming',
@@ -706,7 +704,7 @@ describe('后台任务的进度与取消', () => {
     })
     expect(job.progress).toBeUndefined()
 
-    const [after] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, task.id))
+    const [after] = await selectTestTasks(db).where(eq(schema.tasks.id, task.id))
     expect(after!.status).toBe('cancelled')
     expect(finalized).toEqual([])
 
@@ -756,7 +754,7 @@ describe('后台任务的进度与取消', () => {
     // 别人的会话：连会话都找不到。
     expect((await cancelJob(conversationId, task.id, 'device-someoneelse')).status).toBe(404)
 
-    const [after] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, task.id))
+    const [after] = await selectTestTasks(db).where(eq(schema.tasks.id, task.id))
     expect(after!.status).toBe('queued')
     expect(finalized).toEqual([])
   })

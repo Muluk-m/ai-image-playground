@@ -9,7 +9,7 @@ import {
   unmeteredEntitlements,
   unmeteredQuota,
 } from '@image-playground/db/billing'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import { and, eq } from 'drizzle-orm'
 import { ensureAccount } from '../../../modules/billing/accounts'
 import { InMemoryObjectStore } from '../../helpers/inMemoryObjectStore'
@@ -325,7 +325,7 @@ it('executes unmetered generation without a price and retains its snapshot after
     .set({ enabled: false })
     .where(eq(unmeteredEntitlements.user_id, user.userId))
   await runTask(taskId)
-  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId))
+  const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, taskId))
   expect(task).toMatchObject({
     status: 'completed',
     metering: { mode: 'none' },

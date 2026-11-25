@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 import {
   redactTaskErrorMessage,
@@ -18,7 +18,7 @@ process.env.PORT = '0'
 const writer = createDb(databaseUrl)
 const now = Date.now()
 const dataUrl = `data:image/png;base64,${'A'.repeat(80)}`
-await writer.db.insert(writer.schema.tasks).values({
+await insertTestTasks(writer.db, {
   id: 'secret-task',
   provider: 'gemini',
   model: 'gemini-3-pro',
@@ -147,9 +147,9 @@ describe('getTask', () => {
     expect(task!.upstream_body).not.toContain('sk-abcdefghijklmnopqrstuvwxyz')
     expect(redactUpstreamBody(task!.upstream_body)).toBe(task!.upstream_body)
     const [stored] = await writer.db
-      .select({ request_payload: writer.schema.tasks.request_payload })
-      .from(writer.schema.tasks)
-      .where(eq(writer.schema.tasks.id, 'secret-task'))
+      .select({ request_payload: writer.schema.task_payloads.request_payload })
+      .from(writer.schema.task_payloads)
+      .where(eq(writer.schema.task_payloads.task_id, 'secret-task'))
     expect(JSON.stringify(stored?.request_payload)).toContain('keep this prompt')
     expect(JSON.stringify(stored?.request_payload)).toContain('sk-abcdefghijklmnopqrstuvwxyz')
   })

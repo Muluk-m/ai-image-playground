@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 import {
   _setPrivateBffOverlayForTesting,
@@ -66,7 +66,7 @@ async function startInflightTask(
   id: string,
   attemptCount = 0,
 ): Promise<{ running: Promise<void> }> {
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id,
     provider: 'openai-compat',
     model: 'test-model',
@@ -118,7 +118,7 @@ describe('shutdown abort', () => {
   })
 
   it('marks an undispatched exhausted retry as interrupted', async () => {
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: 'drain-exhausted-undispatched',
       provider: 'openai-compat',
       model: 'test-model',

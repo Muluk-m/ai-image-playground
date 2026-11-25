@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import {
   type AgentBackgroundJobsResponse,
   type AgentToolResultBlock,
@@ -187,7 +187,7 @@ function confirmDrafts(conversationId: string) {
 
 /** 这个会话建出来的视频任务。对话轮自己的那条 chat 任务不带档位，按这个筛掉。 */
 async function videoTasks() {
-  return (await db.select().from(schema.tasks)).filter((one) => one.request_payload.video)
+  return (await selectTestTasks(db)).filter((one) => one.request_payload.video)
 }
 
 async function videoTask() {
@@ -317,9 +317,7 @@ describe('智能体生视频工具', () => {
     )
     const drafts = eventsOfType(frames, 'toolEnd')
     expect(drafts).toEqual([expect.objectContaining({ toolName: name, status: 'failed' })])
-    expect(
-      (await db.select().from(schema.tasks)).filter((one) => one.kind === 'queue'),
-    ).toHaveLength(0)
+    expect((await selectTestTasks(db)).filter((one) => one.kind === 'queue')).toHaveLength(0)
     const names = calls[0]!.tools!.map((tool) => tool.function.name)
     for (const name of ['generateImage', 'generateVideo', 'arrangeTimeline'])
       expect(names).not.toContain(name)
@@ -748,7 +746,7 @@ describe('智能体生视频工具', () => {
     await runTurn(conversationId, '用[image 1]做视频', [{ imageId: 'canvas-1', dataUrl: PIXEL }])
 
     // 这一轮只留下对话本身的任务，没有视频任务。
-    const tasks = await db.select().from(schema.tasks)
+    const tasks = await selectTestTasks(db)
     expect(tasks.filter((task) => task.request_payload.video)).toHaveLength(0)
     expect(modelReport(calls)).toContain('referenceUnsupported')
   })
@@ -768,7 +766,7 @@ describe('智能体生视频工具', () => {
 
     await runTurn(conversationId, '用[image 1]做视频', [{ imageId: 'canvas-1', dataUrl: PIXEL }])
 
-    const tasks = await db.select().from(schema.tasks)
+    const tasks = await selectTestTasks(db)
     expect(tasks.filter((task) => task.request_payload.video)).toHaveLength(0)
     expect(modelReport(calls)).toContain('referenceUnsupported')
   })
@@ -847,7 +845,7 @@ describe('智能体生视频工具', () => {
 
     // 视频任务一条都没落库、一分都没预扣：没提交就没花钱，这正是「宁可不花钱先说」。
     // （对话轮自己那条任务与预扣照常，所以按模型筛。）
-    const tasks = await db.select().from(schema.tasks)
+    const tasks = await selectTestTasks(db)
     expect(tasks.filter((task) => task.model === modelId)).toHaveLength(0)
     expect(billing.reservations.filter((one) => one.model === modelId)).toHaveLength(0)
     const [end] = eventsOfType(frames, 'toolEnd')

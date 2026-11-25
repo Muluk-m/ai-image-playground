@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { projectArtifactId } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { TEST_IMAGE_CHANNEL } from '../../../helpers/agentStubs'
@@ -279,7 +279,7 @@ it('finds an archived attachment outside the message window and edits it without
 it('keeps unavailable originals visible as unavailable and never falls back to an older task payload', async () => {
   const turn = await conversation('catalog-unavailable')
   const original = await generated('unavailable-output', 0, Date.now(), turn.conversationId)
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id: 'unavailable-output',
     user_id: USER,
     provider: 'openai-compat',
@@ -358,7 +358,7 @@ it('exposes the catalog, declarations and guidance to signed-in image and video 
 it('still views delivered task outputs in deployments without durable generation archival', async () => {
   const turn = await conversation('catalog-no-sync')
   const id = 'legacy-no-sync'
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id,
     user_id: USER,
     provider: 'openai-compat',
@@ -403,7 +403,7 @@ it('preserves retained legacy outputs with unknown source without bypassing unav
     .update(schema.generation_records)
     .set({ source: null })
     .where(eq(schema.generation_records.id, 'unknown-source'))
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id: 'unknown-source',
     user_id: USER,
     provider: 'openai-compat',

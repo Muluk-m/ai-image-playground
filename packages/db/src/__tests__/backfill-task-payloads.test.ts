@@ -30,12 +30,34 @@ function sampleTask(id: string, prompt: string) {
   }
 }
 
+async function insertLegacyTasks(rows: ReturnType<typeof sampleTask>[]) {
+  for (const row of rows) {
+    await handle.client`
+      INSERT INTO tasks (
+        id, provider, model, status, request_payload, metering, result_payload, archive_payload, upstream_body, submitted_at
+      )
+      VALUES (
+        ${row.id},
+        ${row.provider},
+        ${row.model},
+        ${row.status},
+        ${JSON.stringify(row.request_payload)}::text::jsonb,
+        ${JSON.stringify(row.metering)}::text::jsonb,
+        ${JSON.stringify(row.result_payload)}::text::jsonb,
+        ${JSON.stringify(row.archive_payload)}::text::jsonb,
+        ${row.upstream_body},
+        to_timestamp(${row.submitted_at} / 1000.0)
+      )
+    `
+  }
+}
+
 describe('backfillTaskPayloads', () => {
   it('backfills missing task_payloads rows in keyset batches and is idempotent', async () => {
     const rows = Array.from({ length: 7 }, (_, i) =>
       sampleTask(`task-${String(i).padStart(2, '0')}`, `prompt-${i}`),
     )
-    await handle.db.insert(schema.tasks).values(rows)
+    await insertLegacyTasks(rows)
 
     const before = await verifyTaskPayloadsConsistency(handle.client)
     expect(before).toMatchObject({
@@ -79,7 +101,7 @@ describe('backfillTaskPayloads', () => {
     const rows = Array.from({ length: 5 }, (_, i) =>
       sampleTask(`slice-${String(i).padStart(2, '0')}`, `prompt-${i}`),
     )
-    await handle.db.insert(schema.tasks).values(rows)
+    await insertLegacyTasks(rows)
 
     const slice1 = await backfillTaskPayloads(handle.client, {
       batchSize: 2,
@@ -131,7 +153,7 @@ describe('backfillTaskPayloads', () => {
   })
 
   it('preserves existing task_payloads rows by default and repairs drift when repairMismatches is set', async () => {
-    await handle.db.insert(schema.tasks).values([sampleTask('task-a', 'fresh-prompt')])
+    await insertLegacyTasks([sampleTask('task-a', 'fresh-prompt')])
     await handle.db.insert(schema.task_payloads).values({
       task_id: 'task-a',
       request_payload: { prompt: 'stale-prompt', device_id: 'dev-backfill' },
@@ -167,7 +189,7 @@ describe('backfillTaskPayloads', () => {
     expect(afterDelete).toMatchObject({ totalTasks: 0, totalPayloads: 0 })
 
     // Re-running repair on already-consistent rows writes zero rows.
-    await handle.db.insert(schema.tasks).values([sampleTask('task-b', 'clean-prompt')])
+    await insertLegacyTasks([sampleTask('task-b', 'clean-prompt')])
     await backfillTaskPayloads(handle.client, { batchSize: 10, delayMs: 0 })
     const cleanRepair = await backfillTaskPayloads(handle.client, {
       batchSize: 10,

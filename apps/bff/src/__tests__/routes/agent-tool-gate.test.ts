@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import {
   type AgentConfirmationResponse,
   type AgentConversationSnapshot,
@@ -112,12 +112,9 @@ async function waitForTurns(conversationId: string, count: number): Promise<void
 }
 
 function tasksOf(conversationId: string) {
-  return db
-    .select()
-    .from(schema.tasks)
-    .where(
-      and(eq(schema.tasks.agent_conversation_id, conversationId), eq(schema.tasks.kind, 'queue')),
-    )
+  return selectTestTasks(db).where(
+    and(eq(schema.tasks.agent_conversation_id, conversationId), eq(schema.tasks.kind, 'queue')),
+  )
 }
 
 function cards(messages: readonly AgentMessageView[]) {

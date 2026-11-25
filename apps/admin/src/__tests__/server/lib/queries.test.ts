@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 
 const TEST_DB = await resetTestDatabase('admin_queries')
 process.env.ADMIN_PASSWORD = 'test-pass-1234'
@@ -30,7 +30,7 @@ const seedTask = (
   ...(status === 'completed' ? { completed_at: now - daysAgo * dayMs + 1000 } : {}),
 })
 
-await writer.db.insert(writer.schema.tasks).values([
+await insertTestTasks(writer.db, [
   seedTask('t1', 'dev-A-aaaa', 'openai-compat', 'gpt-image-2', 'completed', 0),
   seedTask('t2', 'dev-A-aaaa', 'openai-compat', 'gpt-image-2', 'completed', 0),
   {

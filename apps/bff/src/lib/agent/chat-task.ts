@@ -2,7 +2,7 @@ import { resolvedTaskRequestPayload } from '@image-playground/db'
 import type { AgentTurnCost, AgentTurnUsage } from '@image-playground/shared'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import { finishTask, heldBy, syncTaskPayloads } from '../../modules/execution'
+import { finishTask, heldBy, insertTaskPayload } from '../../modules/execution'
 import {
   type BffTransaction,
   type ChatPricing,
@@ -141,14 +141,7 @@ async function insertChatTask(
     provider: 'openai-compat',
     model: input.model,
     status: 'in_progress',
-    // 会话内容不进后台，占位里只留设备号——它喂的是 device_id 那个生成列。
-    request_payload: { prompt: '', device_id: input.deviceId },
-    metering: {
-      mode: 'credits',
-      model: input.model,
-      quantity: 1,
-      unitMultiplier: 1,
-    },
+    device_id: input.deviceId,
     submitted_at: now,
     started_at: now,
     user_id: input.userId,
@@ -157,7 +150,16 @@ async function insertChatTask(
     execution_token: agentExecutionToken(input.taskId),
     lease_expires_at: now + AGENT_EXECUTION_LEASE_MS,
   })
-  await syncTaskPayloads(tx, [input.taskId])
+  await insertTaskPayload(tx, {
+    task_id: input.taskId,
+    request_payload: { prompt: '', device_id: input.deviceId },
+    metering: {
+      mode: 'credits',
+      model: input.model,
+      quantity: 1,
+      unitMultiplier: 1,
+    },
+  })
 }
 
 /** 工具任务各自独立计费，只用轮 id 关联，所以本轮的账要从任务表反查再归集。 */

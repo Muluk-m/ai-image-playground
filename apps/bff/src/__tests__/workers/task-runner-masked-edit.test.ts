@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, expect, it, spyOn } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 import sharp from 'sharp'
 import {
@@ -85,7 +85,7 @@ async function submit(id: string, cloud = false) {
     input_images: [url(source)],
     mask: url(mask),
   })
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id,
     user_id: cloud ? 'owner' : undefined,
     provider: 'openai-compat',
@@ -99,7 +99,7 @@ async function submit(id: string, cloud = false) {
   )
 }
 async function task(id: string) {
-  return (await db.select().from(schema.tasks).where(eq(schema.tasks.id, id)))[0]!
+  return (await selectTestTasks(db).where(eq(schema.tasks.id, id)))[0]!
 }
 
 it('archives the untouched candidate but delivers only the protected result', async () => {
@@ -274,7 +274,7 @@ it('only checks the regions: one upstream call, an untouched region stays as it 
       input_images: [url(await encode(base))],
       mask: url(await encode(selection)),
     })
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id,
       provider: 'openai-compat',
       model: 'test-model',

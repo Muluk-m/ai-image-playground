@@ -18,7 +18,8 @@ for (const state of ['queued', 'completed', 'unknown', 'missing-status', 'null-s
         await tx`INSERT INTO agent_batch_plans (batch_id, version, title, rule, digest, item_count, estimate_snapshot, created_at) VALUES (${state}, 1, 'plan', 'rule', 'digest', 1, '{}'::jsonb, ${now})`
         await tx`INSERT INTO agent_batch_items (batch_id, version, key, ordinal, kind, inputs, prompt, params, dependencies) VALUES (${state}, 1, 'one', 0, 'generation', '[]'::jsonb, 'prompt', '{}'::jsonb, '[]'::jsonb)`
         const status = state === 'queued' ? 'queued' : 'completed'
-        await tx`INSERT INTO tasks (id, user_id, provider, model, status, request_payload, submitted_at) VALUES (${state}, ${state}, 'openai-compat', 'fixture', ${status}, '{"device_id":"fixture","prompt":"one","n":1}'::jsonb, ${now})`
+        await tx`INSERT INTO tasks (id, user_id, provider, model, status, device_id, submitted_at) VALUES (${state}, ${state}, 'openai-compat', 'fixture', ${status}, 'fixture', ${now})`
+        await tx`INSERT INTO task_payloads (task_id, request_payload) VALUES (${state}, '{"device_id":"fixture","prompt":"one","n":1}'::jsonb)`
         await tx`INSERT INTO agent_batch_attempts (batch_id, version, item_key, attempt, task_id, reserved_credits, submitted_at) VALUES (${state}, 1, 'one', 1, ${state}, 7, ${now})`
         if (state === 'unknown')
           await tx`UPDATE agent_batch_attempts SET terminal_snapshot = '{"status":"failed","errorCode":"result_unknown","actualCredits":null}'::jsonb WHERE batch_id = ${state}`

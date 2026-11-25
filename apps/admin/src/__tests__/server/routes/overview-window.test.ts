@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { useMemoryLogSource } from '../helpers/memory-log-source'
 
 const databaseUrl = await resetTestDatabase('admin_overview_window')
@@ -56,7 +56,7 @@ const task = (
   upstream_invocation_count,
 })
 
-await writer.db.insert(writer.schema.tasks).values([
+await insertTestTasks(writer.db, [
   task('still', 'gpt-image-2', { prompt: 'still', device_id: 'dev', n: 2 }, 4),
   task('decimal-n', 'gpt-image-2-decimal', { prompt: 'half', device_id: 'dev', n: 2.5 }, 5),
   task(

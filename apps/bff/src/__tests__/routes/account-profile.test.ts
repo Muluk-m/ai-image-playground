@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import {
   type AccountProfileView,
   type AccountSessionView,
@@ -386,7 +386,7 @@ describe('account deletion', () => {
     const me = (await (await request('/api/auth/me', { session })).json()) as {
       user: { id: string }
     }
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: 'owned-task',
       provider: 'openai-compat',
       model: 'test-model',

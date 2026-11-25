@@ -1,7 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { verifyTaskPayloadsConsistency } from '@image-playground/db'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 
 const TEST_DB = await resetTestDatabase('bff_task_payloads_dual_write')
@@ -46,8 +45,8 @@ async function readPayload(taskId: string) {
   return row
 }
 
-describe('task_payloads same-transaction dual-write', () => {
-  it('mirrors queue submission, degrade merge, archive checkpoint, requeue, and completion into task_payloads', async () => {
+describe('task_payloads single-write contract (Contract 1a)', () => {
+  it('writes cold payloads exclusively to task_payloads and keeps tasks cold columns NULL', async () => {
     const submitted = await createQueueTask({
       entry: 'web-direct',
       provider: 'openai-compat',
@@ -62,6 +61,12 @@ describe('task_payloads same-transaction dual-write', () => {
     expect(submitted.kind).toBe('created')
     if (submitted.kind !== 'created') throw new Error('expected created')
     const taskId = submitted.taskId
+
+    const [taskRow] = await db
+      .select({ device_id: schema.tasks.device_id })
+      .from(schema.tasks)
+      .where(eq(schema.tasks.id, taskId))
+    expect(taskRow?.device_id).toBe('dual-write-device')
 
     const initialPayload = await readPayload(taskId)
     expect(initialPayload).toMatchObject({
@@ -108,24 +113,39 @@ describe('task_payloads same-transaction dual-write', () => {
       archive_payload: null,
       result_payload: { images: [{ index: 0, key: `${taskId}/0.png` }] },
     })
-    expect(await verifyTaskPayloadsConsistency(db.$client)).toMatchObject({
-      totalTasks: 1,
-      totalPayloads: 1,
-      missingCount: 0,
-      mismatchCount: 0,
+
+    // Contract 1a guarantee: runtime code never writes to the 5 deprecated cold columns on tasks.
+    const [legacyCols] = await db.$client<
+      {
+        request_payload: unknown
+        metering: unknown
+        result_payload: unknown
+        archive_payload: unknown
+        upstream_body: string | null
+      }[]
+    >`
+      SELECT request_payload, metering, result_payload, archive_payload, upstream_body
+      FROM tasks
+      WHERE id = ${taskId}
+    `
+    expect(legacyCols).toEqual({
+      request_payload: null,
+      metering: null,
+      result_payload: null,
+      archive_payload: null,
+      upstream_body: null,
     })
   })
 
-  it('backfills pre-existing tasks rows on update and clears transient fields on requeue', async () => {
+  it('updates task_payloads in place and clears transient fields on requeue', async () => {
     const now = Date.now()
-    // Simulate a task created by an older container before PR-5.2 rolled out (no task_payloads row yet).
-    await db.insert(schema.tasks).values([
+    await insertTestTasks(db, [
       {
-        id: 'legacy-requeue-1',
+        id: 'requeue-1',
         provider: 'openai-compat',
         model: 'gpt-image-2',
         status: 'in_progress',
-        request_payload: { prompt: 'legacy one', device_id: 'legacy-dev' },
+        request_payload: { prompt: 'one', device_id: 'dev-1' },
         metering: { mode: 'credits', model: 'gpt-image-2', quantity: 1, unitMultiplier: 1 },
         result_payload: { stale: true },
         upstream_body: '502 bad gateway',
@@ -135,11 +155,11 @@ describe('task_payloads same-transaction dual-write', () => {
         started_at: now - 5_000,
       },
       {
-        id: 'legacy-poll-2',
+        id: 'poll-2',
         provider: 'openai-compat',
         model: 'gpt-image-2',
         status: 'in_progress',
-        request_payload: { prompt: 'legacy two', device_id: 'legacy-dev' },
+        request_payload: { prompt: 'two', device_id: 'dev-1' },
         metering: { mode: 'none', model: 'gpt-image-2', quantity: 1, unitMultiplier: 1 },
         upstream_body: 'transient timeout',
         execution_token: TOKEN,
@@ -149,42 +169,41 @@ describe('task_payloads same-transaction dual-write', () => {
       },
     ])
 
-    expect(await saveArchiveCheckpoint('legacy-requeue-1', { step: 1 }, heldBy(TOKEN))).toBe(true)
-    expect(await readPayload('legacy-requeue-1')).toMatchObject({
-      task_id: 'legacy-requeue-1',
-      request_payload: { prompt: 'legacy one', device_id: 'legacy-dev' },
+    expect(await saveArchiveCheckpoint('requeue-1', { step: 1 }, heldBy(TOKEN))).toBe(true)
+    expect(await readPayload('requeue-1')).toMatchObject({
+      task_id: 'requeue-1',
+      request_payload: { prompt: 'one', device_id: 'dev-1' },
       archive_payload: { step: 1 },
     })
 
-    expect(await requeueTask('legacy-requeue-1', 1, now + 5_000, heldBy(TOKEN))).toBe(true)
-    expect(await readPayload('legacy-requeue-1')).toMatchObject({
+    expect(await requeueTask('requeue-1', 1, now + 5_000, heldBy(TOKEN))).toBe(true)
+    expect(await readPayload('requeue-1')).toMatchObject({
       result_payload: null,
       upstream_body: null,
     })
 
-    expect(await requeueTasksForPolling(['legacy-poll-2'], heldBy(TOKEN))).toBe(1)
-    expect(await readPayload('legacy-poll-2')).toMatchObject({
-      request_payload: { prompt: 'legacy two', device_id: 'legacy-dev' },
+    expect(await requeueTasksForPolling(['poll-2'], heldBy(TOKEN))).toBe(1)
+    expect(await readPayload('poll-2')).toMatchObject({
+      request_payload: { prompt: 'two', device_id: 'dev-1' },
       upstream_body: null,
     })
 
-    // Re-claim legacy-requeue-1 directly and test requeueTaskArchive + finishTask(preserveArchive: true)
     await db
       .update(schema.tasks)
       .set({ status: 'in_progress', execution_token: TOKEN, lease_expires_at: now + 60_000 })
-      .where(eq(schema.tasks.id, 'legacy-requeue-1'))
-    expect(
-      await requeueTaskArchive('legacy-requeue-1', now + 5_000, { step: 2 }, heldBy(TOKEN)),
-    ).toBe(true)
-    expect((await readPayload('legacy-requeue-1'))?.archive_payload).toEqual({ step: 2 })
+      .where(eq(schema.tasks.id, 'requeue-1'))
+    expect(await requeueTaskArchive('requeue-1', now + 5_000, { step: 2 }, heldBy(TOKEN))).toBe(
+      true,
+    )
+    expect((await readPayload('requeue-1'))?.archive_payload).toEqual({ step: 2 })
 
     await db
       .update(schema.tasks)
       .set({ status: 'in_progress', execution_token: TOKEN, lease_expires_at: now + 60_000 })
-      .where(eq(schema.tasks.id, 'legacy-requeue-1'))
+      .where(eq(schema.tasks.id, 'requeue-1'))
     expect(
       await finishTask(
-        'legacy-requeue-1',
+        'requeue-1',
         {
           status: 'failed',
           completedAt: now,
@@ -194,16 +213,9 @@ describe('task_payloads same-transaction dual-write', () => {
         heldBy(TOKEN),
       ),
     ).toBe(true)
-    expect(await readPayload('legacy-requeue-1')).toMatchObject({
+    expect(await readPayload('requeue-1')).toMatchObject({
       archive_payload: { step: 2 },
       upstream_body: 'upstream 500 body',
-    })
-
-    expect(await verifyTaskPayloadsConsistency(db.$client)).toMatchObject({
-      totalTasks: 2,
-      totalPayloads: 2,
-      missingCount: 0,
-      mismatchCount: 0,
     })
   })
 })

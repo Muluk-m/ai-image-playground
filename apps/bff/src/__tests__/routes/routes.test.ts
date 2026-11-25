@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import { QUEUE_MAX_INPUT_IMAGES, QUEUE_PROMPT_MAX_CHARS } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import sharp from 'sharp'
@@ -189,7 +189,7 @@ describe('BFF queue routes', () => {
     )
     expect(status).toBe(200)
     const id = responseRequestId(json)
-    const [stored] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    const [stored] = await selectTestTasks(db).where(eq(schema.tasks.id, id))
     expect(stored?.request_payload).not.toHaveProperty('extra')
 
     await runTask(id)
@@ -219,7 +219,7 @@ describe('BFF queue routes', () => {
     )
     expect(status).toBe(200)
     const id = responseRequestId(json)
-    const [storedTask] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    const [storedTask] = await selectTestTasks(db).where(eq(schema.tasks.id, id))
     expect(storedTask?.request_payload.input_images).toEqual([
       { object: `${id}/in/0`, mime: 'image/png' },
     ])
@@ -280,7 +280,7 @@ describe('BFF queue routes', () => {
     )
     expect(status).toBe(200)
     const id = responseRequestId(json)
-    const [storedTask] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    const [storedTask] = await selectTestTasks(db).where(eq(schema.tasks.id, id))
     expect(storedTask?.request_payload.mask).toEqual({
       object: `${id}/in/1`,
       mime: 'image/png',
@@ -318,7 +318,7 @@ describe('BFF queue routes', () => {
     const id = responseRequestId(submitted.json)
     await runTask(id)
 
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, id))
     expect(task?.status).toBe('completed')
     expect(task?.result_payload).toMatchObject({
       data: [{ object: `${id}/out/0`, mime: 'image/png', revised_prompt: 'done' }],
@@ -357,7 +357,7 @@ describe('BFF queue routes', () => {
     const id = responseRequestId(submitted.json)
     await runTask(id)
 
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, id))
     expect(task?.result_payload).toMatchObject({
       data: [{ object: `${id}/out/0`, mime: 'image/webp' }],
     })
@@ -396,7 +396,7 @@ describe('BFF queue routes', () => {
     const id = responseRequestId(submitted.json)
     await runTask(id)
 
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, id))
     expect(task?.result_payload).toMatchObject({
       candidates: [
         {
@@ -442,7 +442,7 @@ describe('BFF queue routes', () => {
       const id = responseRequestId(submitted.json)
       await runTask(id)
 
-      const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+      const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, id))
       expect(task?.result_payload).toMatchObject({
         data: [
           {
@@ -494,7 +494,7 @@ describe('BFF queue routes', () => {
     expect(attempts).toBe(2)
     expect(storage.events.filter((event) => event === `read:${id}/in/0`)).toHaveLength(2)
     expect(storage.objects.has(`${id}/in/0`)).toBe(true)
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, id))
     expect(task).toMatchObject({ status: 'completed', attempt_count: 1 })
   })
 
@@ -512,7 +512,7 @@ describe('BFF queue routes', () => {
     expect(first.status).toBe(200)
     expect(second.status).toBe(200)
     expect(responseRequestId(first.json)).toBe(responseRequestId(second.json))
-    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(await selectTestTasks(db)).toHaveLength(1)
     expect(await db.select().from(schema.daily_quota)).toMatchObject([{ count: 1 }])
     expect(storage.objects.size).toBe(1)
   })
@@ -528,7 +528,7 @@ describe('BFF queue routes', () => {
     )
     expect(failedSubmit.status).toBe(503)
     expect(failedSubmit.json).toMatchObject({ error: 'object_storage_error' })
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
     expect(storage.events.filter((event) => event.startsWith('write:'))).toHaveLength(3)
 
     setUpstreamFetchForTesting(
@@ -583,7 +583,7 @@ describe('BFF queue routes', () => {
 
     // admin 排查要的是「上游到底回了什么」：状态码 + 原始 envelope 一并落库，
     // 否则只剩 extractErrorMessage 抽出来的那一句，error.code 之类全丢。
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, id))
     expect(task).toMatchObject({
       upstream_status: 401,
       upstream_body: '{"error":{"message":"invalid api key"}}',
@@ -605,7 +605,7 @@ describe('BFF queue routes', () => {
     const id = (json as { request_id: string }).request_id
     await runTask(id)
 
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, id))
     expect(task).toMatchObject({
       status: 'failed',
       error_type: 'upstream_result_unknown',
@@ -625,7 +625,7 @@ describe('BFF queue routes', () => {
     // 不替换 fetch；worker 会真去 connect 9999 失败。但我们抢在 worker 完成前测。
     // 用直接插入数据库的方式构造 queued 但 worker 未跑的状态。
     const id = 'pending-test-id'
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id,
       provider: 'openai-compat',
       model: 'x',
@@ -640,7 +640,7 @@ describe('BFF queue routes', () => {
 
   it('PUT cancel marks queued task as cancelled', async () => {
     const id = 'cancel-test-id'
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id,
       provider: 'openai-compat',
       model: 'x',
@@ -693,7 +693,7 @@ describe('BFF queue routes', () => {
     for (const body of rejected) {
       expect((await jsonReq('POST', path, body)).status).toBe(400)
     }
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
     expect(storage.objects.size).toBe(0)
 
     const atLimit = await jsonReq(
@@ -740,7 +740,7 @@ describe('BFF queue routes', () => {
       created_at: now,
       updated_at: now,
     })
-    await db.insert(schema.tasks).values([
+    await insertTestTasks(db, [
       {
         id: 'historic-owned-task',
         provider: 'openai-compat',

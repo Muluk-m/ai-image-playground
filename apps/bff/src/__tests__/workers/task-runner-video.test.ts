@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase, type TestTaskSeed } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 import {
   _setPrivateBffOverlayForTesting,
@@ -162,9 +162,10 @@ async function readTask(id: string) {
       errorMessage: schema.tasks.error_message,
       invocations: schema.tasks.upstream_invocation_count,
       taskIds: schema.tasks.upstream_task_ids,
-      result: schema.tasks.result_payload,
+      result: schema.task_payloads.result_payload,
     })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(eq(schema.tasks.id, id))
   return row
 }
@@ -172,9 +173,9 @@ async function readTask(id: string) {
 async function insertVideoTask(
   id: string,
   model: string,
-  overrides: Partial<typeof schema.tasks.$inferInsert> = {},
+  overrides: Partial<TestTaskSeed> = {},
 ): Promise<void> {
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id,
     provider: 'openai-compat',
     model,

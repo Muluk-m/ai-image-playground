@@ -2,7 +2,7 @@ import { afterAll, expect, it } from 'bun:test'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { Elysia } from 'elysia'
 
 const temp = await mkdtemp(join(tmpdir(), 'production-export-'))
@@ -186,7 +186,7 @@ it('exports owned completed video candidates by frozen document membership and r
       ['video-result', owner.userId],
       ['foreign-result', foreign.userId],
     ]) {
-      await db.insert(schema.tasks).values({
+      await insertTestTasks(db, {
         id: taskId!,
         user_id: userId!,
         agent_conversation_id: owner.id,

@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import type { AlertMessage } from '@image-playground/shared'
 import { eq, sql } from 'drizzle-orm'
 import type { OperatorSettingsResult as Settings } from '../../lib/operator-config-overrides'
@@ -439,7 +439,8 @@ describe('operator config internal API', () => {
   it('updates an existing analysis scheduler concurrency on its next poll', async () => {
     const launched: string[] = []
     const { promise: held, resolve: release } = Promise.withResolvers<void>()
-    await db.insert(schema.tasks).values(
+    await insertTestTasks(
+      db,
       [1, 2].map((index) => ({
         id: `analysis-${index}`,
         kind: 'analysis' as const,

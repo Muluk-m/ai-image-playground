@@ -1,3 +1,4 @@
+import type { NewTaskPayload } from '@image-playground/db'
 import {
   type AgentToolErrorCode,
   degradeGptImage26ForSub2api,
@@ -6,6 +7,7 @@ import {
   isGptDirectModel,
   isGptImage26Model,
   isGptSub2apiDeliverable,
+  type PersistedSubmitRequest,
   QUEUE_TIMEOUTS,
   queueTask,
   type TaskErrorType,
@@ -56,9 +58,7 @@ const CLEARED_ON_REQUEUE = {
   lease_expires_at: null,
   error_message: null,
   error_type: null,
-  result_payload: null,
   upstream_status: null,
-  upstream_body: null,
 } as const satisfies Partial<typeof schema.tasks.$inferInsert>
 
 /**
@@ -106,14 +106,13 @@ export async function requeueTasksForPolling(ids: readonly string[], fence: SQL)
 
 export async function saveArchiveCheckpoint(
   id: string,
-  payload: (typeof schema.tasks.$inferInsert)['archive_payload'],
+  payload: NewTaskPayload['archive_payload'],
   fence: SQL,
 ) {
   return db.transaction(async (tx) => {
     const updated = await tx
       .update(schema.tasks)
       .set({
-        archive_payload: payload,
         archive_retry_started_at: sql`coalesce(${schema.tasks.archive_retry_started_at}, now())`,
       })
       .where(stillRunning(id, fence))
@@ -129,7 +128,7 @@ export async function saveArchiveCheckpoint(
 export async function requeueTaskArchive(
   id: string,
   nextRetryAt: number,
-  payload: (typeof schema.tasks.$inferInsert)['archive_payload'] | undefined,
+  payload: NewTaskPayload['archive_payload'] | undefined,
   fence: SQL,
 ) {
   return db.transaction(async (tx) => {
@@ -138,7 +137,6 @@ export async function requeueTaskArchive(
       .set({
         status: 'queued',
         next_retry_at: nextRetryAt,
-        archive_payload: payload,
         archive_retry_started_at: sql`coalesce(${schema.tasks.archive_retry_started_at}, now())`,
         error_message: '图片已生成，正在重试保存',
         error_type: 'object_storage_error',
@@ -146,7 +144,9 @@ export async function requeueTaskArchive(
       .where(stillRunning(id, fence))
       .returning({ id: schema.tasks.id })
     const ids = updated.map((row) => row.id)
-    await patchTaskPayloads(tx, ids, payload !== undefined ? { archive_payload: payload } : {})
+    if (payload !== undefined) {
+      await patchTaskPayloads(tx, ids, { archive_payload: payload })
+    }
     await publishGenerations(tx, ids)
     return updated.length > 0
   })
@@ -206,7 +206,7 @@ export type TerminalTaskUpdate = {
   attemptCount?: number
   /** 对话轮自己数上游调了几次；生图任务不传，沿用行上累计的那个数。 */
   upstreamInvocationCount?: number
-  resultPayload?: (typeof schema.tasks.$inferInsert)['result_payload']
+  resultPayload?: NewTaskPayload['result_payload']
   errorMessage?: string
   errorType?: TaskErrorType
   upstreamStatus?: number | null
@@ -262,14 +262,11 @@ export async function finishTask(
       .update(schema.tasks)
       .set({
         status,
-        ...(update.preserveArchive ? {} : { archive_payload: null }),
         attempt_count: update.attemptCount,
         upstream_invocation_count: update.upstreamInvocationCount,
-        result_payload: update.resultPayload,
         error_message: update.errorMessage ?? null,
         error_type: update.errorType ?? null,
         upstream_status: update.upstreamStatus,
-        upstream_body: update.upstreamBody,
         completed_at: update.completedAt,
       })
       .where(
@@ -289,20 +286,16 @@ export async function finishTask(
         agentTurnId: schema.tasks.agent_turn_id,
         userId: schema.tasks.user_id,
         model: schema.tasks.model,
-        metering: schema.tasks.metering,
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
-        request: schema.tasks.request_payload,
         gptRoute: schema.tasks.gpt_route,
       })
     if (!finished) return false
     const existingPayload = (await readTaskPayloads(tx, [finished.id])).get(finished.id)
-    const effectiveFinished = existingPayload
-      ? {
-          ...finished,
-          metering: existingPayload.metering,
-          request: existingPayload.request_payload,
-        }
-      : finished
+    const effectiveFinished = {
+      ...finished,
+      metering: existingPayload?.metering ?? null,
+      request: existingPayload?.request_payload ?? ({ prompt: '' } as PersistedSubmitRequest),
+    }
     await patchTaskPayload(tx, finished.id, {
       ...(update.preserveArchive ? {} : { archive_payload: null }),
       ...(update.resultPayload !== undefined ? { result_payload: update.resultPayload } : {}),
@@ -388,17 +381,16 @@ export async function cancelTasks(access: SQL, options: CancelTasksOptions = {})
         agentConversationId: schema.tasks.agent_conversation_id,
         agentTurnId: schema.tasks.agent_turn_id,
         userId: schema.tasks.user_id,
-        metering: schema.tasks.metering,
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
       })
     const payloads = await readTaskPayloads(
       tx,
       rows.map((row) => row.id),
     )
-    const resolvedRows = rows.map((row) => {
-      const payload = payloads.get(row.id)
-      return payload ? { ...row, metering: payload.metering } : row
-    })
+    const resolvedRows = rows.map((row) => ({
+      ...row,
+      metering: payloads.get(row.id)?.metering ?? null,
+    }))
     const event: TasksCancelledEvent = {
       tasks: resolvedRows.map((row) => ({
         taskId: row.id,

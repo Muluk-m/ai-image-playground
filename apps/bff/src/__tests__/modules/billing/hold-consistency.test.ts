@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
 import { creditAccounts, creditLedger, taskHolds } from '@image-playground/db/billing'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import {
   checkHoldConsistency,
   formatConsistencyReport,
@@ -51,7 +51,7 @@ async function seedTask(input: {
 }): Promise<void> {
   await seedUser('user-1')
   const finished = ['completed', 'failed', 'cancelled'].includes(input.status)
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id: input.id,
     provider: 'openai-compat',
     model: 'gpt-image-2',

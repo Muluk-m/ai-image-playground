@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import type { SubmitRequest } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import sharp from 'sharp'
@@ -93,7 +93,7 @@ it('persists original prompt facts while queueing the prompt', async () => {
   })
   expect(outcome.kind).toBe('created')
   if (outcome.kind !== 'created') throw new Error('unreachable')
-  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, outcome.taskId))
+  const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, outcome.taskId))
   expect(task!.request_payload.prompt).toBe(originalPrompt)
   expect(task!.request_payload.prompt_shaping).toMatchObject({
     original_prompt: originalPrompt,
@@ -119,7 +119,7 @@ it('denies ended subscriptions before creating a task or hold', async () => {
     taskHooks: { ...EMPTY_PRIVATE_BFF_OVERLAY.taskHooks, canSubmitTask: async () => false },
   })
   expect((await submit4k()).kind).toBe('private_billing_denied')
-  expect(await db.select().from(schema.tasks)).toHaveLength(0)
+  expect(await selectTestTasks(db)).toHaveLength(0)
 })
 
 it('creates a still Image 2.6 task when the direct key is unavailable', async () => {
@@ -145,7 +145,7 @@ it('creates a still Image 2.6 task when the direct key is unavailable', async ()
     })
     expect(result.kind).toBe('created')
     if (result.kind !== 'created') return
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, result.taskId))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, result.taskId))
     expect(task?.request_payload).toMatchObject({
       output_format: 'png',
       size: '1024x1024',
@@ -183,7 +183,7 @@ it('degrades a 2K high Image 2.6 still to 1K medium before billing when direct c
     })
     expect(result.kind).toBe('created')
     if (result.kind !== 'created') return
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, result.taskId))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, result.taskId))
     expect(task?.request_payload).toMatchObject({
       size: '1024x1024',
       quality: 'medium',
@@ -223,7 +223,7 @@ it('degrades a GIF to a 1K still when the direct key is unavailable', async () =
     })
     expect(result.kind).toBe('created')
     if (result.kind !== 'created') return
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, result.taskId))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, result.taskId))
     expect(task?.request_payload).toMatchObject({
       output_format: 'png',
       size: '1024x1024',
@@ -283,7 +283,7 @@ it('rejects a 768×16 GIF before creating a task or invoking billing', async () 
       fields: ['size', 'frame_count'],
     })
     expect(billingCalled).toBe(false)
-    expect(await db.select().from(schema.tasks)).toEqual([])
+    expect(await selectTestTasks(db)).toEqual([])
   } finally {
     config.gptImage26.enabled = enabled
     if (direct === undefined) delete process.env.GPT_DIRECT_ENABLED
@@ -319,7 +319,7 @@ it('accepts a GIF that omits the frame defaults shown in the settings control', 
     })
     expect(result.kind).toBe('created')
     if (result.kind !== 'created') return
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, result.taskId))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, result.taskId))
     expect(task?.request_payload).toMatchObject({
       output_format: 'gif',
       size: '768x768',
@@ -364,7 +364,7 @@ it('keeps an explicit 12-frame GIF instead of filling the 6-frame default', asyn
     })
     expect(result.kind).toBe('created')
     if (result.kind !== 'created') return
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, result.taskId))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, result.taskId))
     expect(task?.request_payload).toMatchObject({ frame_count: 12, frame_duration_ms: 100 })
   } finally {
     config.gptImage26.enabled = enabled
@@ -400,7 +400,7 @@ it('accepts a still 2K high-quality Image 2.6 request without rewriting it', asy
     })
     expect(result.kind).toBe('created')
     if (result.kind !== 'created') return
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, result.taskId))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, result.taskId))
     expect(task?.request_payload).toMatchObject({
       size: '2560x1440',
       quality: 'high',
@@ -507,10 +507,7 @@ it('replays the same Image 2.6 command when direct availability flips', async ()
   })
   expect(downFirst.kind).toBe('created')
   if (downFirst.kind !== 'created') return
-  const [degraded] = await db
-    .select()
-    .from(schema.tasks)
-    .where(eq(schema.tasks.id, downFirst.taskId))
+  const [degraded] = await selectTestTasks(db).where(eq(schema.tasks.id, downFirst.taskId))
   expect(degraded?.request_payload.image26_degrade?.kind).toBe('size_quality')
   expect(degraded?.metering).toMatchObject({ unitMultiplier: 3.3 })
   process.env.GPT_DIRECT_ENABLED = 'true'
@@ -526,7 +523,7 @@ it('denies 4K by default when the private billing hook is missing', async () => 
   await ensureBillingUser()
   _setPrivateBffOverlayForTesting({ ...EMPTY_PRIVATE_BFF_OVERLAY, present: true })
   expect((await submit4k()).kind).toBe('private_billing_denied')
-  expect(await db.select().from(schema.tasks)).toHaveLength(0)
+  expect(await selectTestTasks(db)).toHaveLength(0)
 })
 
 describe('non-member resolution ceiling', () => {
@@ -574,7 +571,7 @@ describe('non-member resolution ceiling', () => {
   async function storedRequest(outcome: Awaited<ReturnType<typeof createQueueTask>>) {
     expect(outcome.kind).toBe('created')
     if (outcome.kind !== 'created') throw new Error('expected a task')
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, outcome.taskId))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, outcome.taskId))
     return task!.request_payload
   }
 
@@ -643,7 +640,7 @@ describe('non-member resolution ceiling', () => {
       }),
     )
     expect(allowed).toMatchObject({ size: '2560x1440', quality: 'medium' })
-    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(await selectTestTasks(db)).toHaveLength(1)
   })
 
   it('downgrades a non-member Gemini 4K submission to 2K and rejects the same request from the CLI', async () => {
@@ -774,7 +771,7 @@ describe('non-member resolution ceiling', () => {
     )
     const payload = await storedRequest(outcome)
     expect(payload.image_size).toBe('2K')
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task!.metering).toMatchObject({ unitMultiplier: 1.5, tier: { memberApplied: false } })
   })
 
@@ -792,7 +789,7 @@ describe('non-member resolution ceiling', () => {
       () => withMember(false),
     )
     expect(outcome.kind).toBe('private_billing_denied')
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
     expect(store.objects.size).toBe(0)
   })
 
@@ -861,7 +858,7 @@ describe('submitPrepared', () => {
         throw new Error('caller rolled back')
       }),
     ).rejects.toThrow('caller rolled back')
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
     expect(store.objects.size).toBe(0)
   })
 
@@ -890,7 +887,7 @@ describe('submitPrepared', () => {
         await submit(0).catch(() => undefined)
       }),
     ).rejects.toThrow('metering hook failed')
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
     expect(store.objects.size).toBe(0)
   })
 
@@ -921,7 +918,7 @@ it('ignores a strict flag supplied inside a website request body', async () => {
   })
   expect(outcome.kind).toBe('created')
   if (outcome.kind !== 'created') throw new Error('expected a website task')
-  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, outcome.taskId))
+  const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, outcome.taskId))
   expect(task!.request_payload).not.toHaveProperty('strict_image_request')
 })
 
@@ -940,7 +937,7 @@ it('replays an existing command when strict execution policy is introduced', asy
   expect(replay).toEqual(original)
   const rollbackReplay = await createQueueTask(input)
   expect(rollbackReplay).toEqual(original)
-  expect(await db.select().from(schema.tasks)).toHaveLength(1)
+  expect(await selectTestTasks(db)).toHaveLength(1)
 })
 
 it('同一幂等键重放时不再归档参考图', async () => {
@@ -1030,7 +1027,7 @@ async function submit(input: Submission) {
   })
   expect(outcome.kind).toBe('created')
   if (outcome.kind !== 'created') throw new Error('unreachable')
-  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, outcome.taskId))
+  const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, outcome.taskId))
   return task!.request_payload
 }
 
