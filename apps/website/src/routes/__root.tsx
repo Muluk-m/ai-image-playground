@@ -7,7 +7,8 @@ import {
 } from '@tanstack/react-router'
 import { siteAssetUrl } from '../../../web/src/features/guide/content/siteAssets'
 import { THEME_BOOT_SCRIPT } from '../../../web/src/theme/bootScript'
-import { copy, findPage, localeFromPath } from '../catalog'
+import { copy, editions, findPage, localeFromPath } from '../catalog'
+import { Brand } from '../components/Site'
 import { ROOT_LOCALE_SELECTION_SCRIPT } from '../localeSelection'
 import { ROOT_SESSION_SELECTION_SCRIPT } from '../rootSessionSelection'
 import cssUrl from '../site.css?url'
@@ -35,11 +36,27 @@ function NotFound() {
   const path = useRouterState({ select: (state) => state.location.pathname })
   const locale = localeFromPath(path)
   const text = copy[locale]
+  const home = locale === 'en' ? '/en/' : '/'
   return (
-    <main className="site-missing">
-      <h1>{text.notFound}</h1>
-      <a href={locale === 'en' ? '/en/' : '/'}>{text.back}</a>
-    </main>
+    <div className="marketing-site" data-locale={locale}>
+      <nav className="site-nav" aria-label={text.brand}>
+        <a href={home}>
+          <Brand locale={locale} />
+        </a>
+      </nav>
+      <main className="site-missing">
+        <p className="site-eyebrow">404</p>
+        <h1>{text.notFound}</h1>
+        <div className="site-missing-actions">
+          <a className="site-missing-primary" href={home}>
+            {text.back}
+          </a>
+          <a className="site-missing-secondary" href={editions[locale].root}>
+            {text.guide}
+          </a>
+        </div>
+      </main>
+    </div>
   )
 }
 function Document() {

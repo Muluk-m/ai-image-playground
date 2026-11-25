@@ -101,7 +101,7 @@
     "remove": "Remove",
     "fellBack": "Fell back to {{format}}",
     "canvasLimit": "Output {{width}}×{{height}} exceeds the browser canvas limit",
-    "undecodable": "This browser can't decode it",
+    "undecodable": "This browser cannot open this image format",
     "failed": "Processing failed",
     "note": {
       "upscaled": "Upscaled",
@@ -157,7 +157,7 @@
     "zipHint": "Multiple files download as one ZIP",
     "jpegHint": "JPG has no transparency; transparent areas become white",
     "videoHint": "Videos export as the original file; size and format apply to images only",
-    "undecodable": "Unsupported image format",
+    "undecodable": "This browser cannot open this image format",
     "select": "Select",
     "downloadOriginal": "Download original",
     "export": "Export",

@@ -89,17 +89,10 @@ function DevicesIndex() {
           })
         }
         chips={[]}
-        definitions={[
-          {
-            key: 'sort',
-            label: '排序',
-            kind: 'single',
-            options: SORTS.map((key) => ({ value: key, label: SORT_LABEL[key] })),
-          },
-        ]}
-        values={{ sort }}
-        onChange={(_key, value) => setSort(value as SortKey)}
-        onRemove={() => setSort(DEFAULT_SORT)}
+        definitions={[]}
+        values={{}}
+        onChange={() => {}}
+        onRemove={() => {}}
         onClear={() =>
           void navigate({
             to: '.',
@@ -126,7 +119,12 @@ function DevicesIndex() {
       {q.isPending ? (
         <PendingState label="加载设备" />
       ) : q.isError ? (
-        <ErrorState label="加载失败" error={q.error} />
+        <ErrorState
+          label="加载失败"
+          error={q.error}
+          retrying={q.isFetching}
+          onRetry={() => void q.refetch()}
+        />
       ) : (
         <div className="overflow-hidden rounded-xl border bg-card">
           <DeviceTable devices={q.data.devices} range={range} />

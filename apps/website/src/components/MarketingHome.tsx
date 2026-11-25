@@ -78,10 +78,19 @@ function Film({ label, caption }: { label: string; caption: string }) {
 export function MarketingHome({ locale, start }: { locale: Locale; start: () => void }) {
   const text = marketingCopy[locale]
   const [contactOpen, setContactOpen] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const home = locale === 'en' ? '/en/' : '/'
   const guide = editions[locale].root
   // 选了「跟随系统」的人，系统切换明暗时页面也跟着换。
   useEffect(() => initTheme(), [])
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [menuOpen])
   const openContact = (event: { preventDefault(): void }) => {
     event.preventDefault()
     if (contactEntryOpen()) {
@@ -125,7 +134,7 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
   return (
     <main className="mkt" data-locale={locale}>
       <div className="mkt-wrap">
-        <nav className="mkt-nav">
+        <nav className="mkt-nav" aria-label={text.brand}>
           <a className="mkt-brand" href={home}>
             <img src={MARK} width={24} height={24} alt="" />
             {text.brand}
@@ -155,6 +164,7 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
             <a
               href={locale === 'en' ? '/' : '/en/'}
               hrefLang={locale === 'en' ? 'zh-CN' : 'en'}
+              aria-label={locale === 'en' ? 'Switch to Chinese' : '切换到英文'}
               onClick={() => rememberSiteLocale(locale === 'en' ? 'zh-CN' : 'en')}
             >
               {locale === 'en' ? '中文' : 'EN'}
@@ -162,8 +172,47 @@ export function MarketingHome({ locale, start }: { locale: Locale; start: () => 
             <button type="button" className="mkt-signin" onClick={start}>
               {text.nav.signIn}
             </button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="mkt-menu-btn"
+              aria-expanded={menuOpen}
+              aria-controls="mkt-mobile-menu"
+              aria-label={
+                menuOpen
+                  ? locale === 'en'
+                    ? 'Close navigation menu'
+                    : '关闭导航菜单'
+                  : locale === 'en'
+                    ? 'Open navigation menu'
+                    : '打开导航菜单'
+              }
+              onClick={() => setMenuOpen((prev) => !prev)}
+            >
+              <Icon name={menuOpen ? 'close' : 'list'} />
+            </Button>
           </div>
         </nav>
+        {menuOpen ? (
+          <div id="mkt-mobile-menu" className="mkt-mobile-menu">
+            <a href="#cases" onClick={() => setMenuOpen(false)}>
+              {text.nav.cases}
+            </a>
+            <a href="#features" onClick={() => setMenuOpen(false)}>
+              {text.nav.features}
+            </a>
+            <a href="/explore" onClick={() => setMenuOpen(false)}>
+              {text.nav.inspiration}
+            </a>
+            <a href={guide} onClick={() => setMenuOpen(false)}>
+              {text.nav.guide}
+            </a>
+            <a href="/pricing" onClick={() => setMenuOpen(false)}>
+              {text.nav.pricing}
+            </a>
+          </div>
+        ) : null}
 
         <header className="mkt-hero">
           <div>

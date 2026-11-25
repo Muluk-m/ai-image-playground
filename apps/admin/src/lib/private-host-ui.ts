@@ -7,6 +7,14 @@
 export { Button } from '../components/ui/button'
 export { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
 export {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../components/ui/dialog'
+export {
   Form,
   FormControl,
   FormDescription,

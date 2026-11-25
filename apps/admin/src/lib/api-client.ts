@@ -26,6 +26,8 @@ export class UnauthorizedError extends ApiError {
   }
 }
 
+export { formatAdminError } from './format-error'
+
 // router / queryClient 由 main.tsx 启动后注入，避免 api-client.ts ↔ main.tsx
 // 循环依赖（main.tsx 也 import api-client 的话）。
 let _router: AnyRouter | null = null

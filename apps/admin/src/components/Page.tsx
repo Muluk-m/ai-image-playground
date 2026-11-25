@@ -1,5 +1,5 @@
 import { Link, type LinkProps } from '@tanstack/react-router'
-import { Loader2 } from 'lucide-react'
+import { Loader2, RefreshCw } from 'lucide-react'
 import { Fragment, type ReactNode } from 'react'
 
 import {
@@ -10,8 +10,10 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from '@/components/ui/breadcrumb'
+import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { SidebarTrigger } from '@/components/ui/sidebar'
+import { formatAdminError } from '@/lib/format-error'
 import { cn } from '@/lib/utils'
 
 export interface Crumb {
@@ -92,10 +94,31 @@ export function PendingState({ label, className }: { label: string; className?: 
   )
 }
 
-export function ErrorState({ label, error }: { label: string; error: unknown }) {
+export function ErrorState({
+  label,
+  error,
+  onRetry,
+  retrying,
+}: {
+  label: string
+  error: unknown
+  onRetry?: () => void
+  retrying?: boolean
+}) {
   return (
-    <div className="rounded-lg border border-destructive/50 bg-destructive/5 p-6 text-sm text-destructive">
-      {label}：{(error as Error).message}
+    <div
+      role="alert"
+      className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-destructive/50 bg-destructive/5 p-6 text-sm text-destructive"
+    >
+      <span>
+        {label}：{formatAdminError(error)}
+      </span>
+      {onRetry ? (
+        <Button type="button" size="sm" variant="outline" disabled={retrying} onClick={onRetry}>
+          <RefreshCw className={cn('size-3.5', retrying && 'animate-spin')} aria-hidden="true" />
+          重试
+        </Button>
+      ) : null}
     </div>
   )
 }

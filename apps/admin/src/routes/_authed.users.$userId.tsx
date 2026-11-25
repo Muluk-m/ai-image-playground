@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { apiClient } from '@/lib/api-client'
 import { bytes } from '@/lib/format'
+import { formatAdminError } from '@/lib/format-error'
 import { PrivateAdminUserDetailPanel, usePrivateAdminUserSummaries } from '@/lib/private-overlay'
 import { useUserDetail } from '@/lib/queries'
 import { clearTaskView, parseUserDetailSearch } from '@/lib/search-params'
@@ -74,6 +75,7 @@ function UserOperations({ user }: { user: AdminUserRow }) {
         title={user.active_sessions === 0 ? '当前无活跃会话' : undefined}
         onClick={() => {
           setNotice(null)
+          mutation.reset()
           setConfirming('sessions')
         }}
       >
@@ -85,6 +87,7 @@ function UserOperations({ user }: { user: AdminUserRow }) {
         disabled={mutation.isPending}
         onClick={() => {
           setNotice(null)
+          mutation.reset()
           setConfirming('status')
         }}
       >
@@ -96,12 +99,14 @@ function UserOperations({ user }: { user: AdminUserRow }) {
           {notice}
         </span>
       ) : null}
-      {mutation.isError ? <span className="text-xs text-destructive">操作失败，请重试</span> : null}
       <UserFormDialog mode="reset" user={user} open={resetting} onOpenChange={setResetting} />
       <DangerConfirmDialog
         open={confirming !== null}
         onOpenChange={(open) => {
-          if (!open) setConfirming(null)
+          if (!open && !mutation.isPending) {
+            mutation.reset()
+            setConfirming(null)
+          }
         }}
         title={
           confirming === 'sessions'
@@ -126,6 +131,7 @@ function UserOperations({ user }: { user: AdminUserRow }) {
         }
         destructive={confirming === 'sessions' || user.status === 'active'}
         pending={mutation.isPending}
+        error={mutation.isError ? formatAdminError(mutation.error) : null}
         onConfirm={(reason) => {
           if (!confirming) return
           mutation.mutate({ operation: confirming, reason })
@@ -152,7 +158,12 @@ function UserDetailPage() {
         {query.isPending ? (
           <PendingState label="加载用户档案" />
         ) : query.isError ? (
-          <ErrorState label="加载失败" error={query.error} />
+          <ErrorState
+            label="加载失败"
+            error={query.error}
+            retrying={query.isFetching}
+            onRetry={() => void query.refetch()}
+          />
         ) : !query.data || !user ? (
           <EmptyState label={`未找到用户 ${userId}`} />
         ) : (
