@@ -106,6 +106,55 @@ describe('useFlipList', () => {
     )
   })
 
+  it('continues smoothly from previous layout plus remaining animation offset when reflowing mid-flight', () => {
+    let runningOffsetX = 0
+    const cancel = vi.fn(() => {
+      runningOffsetX = 0
+    })
+    const animate = vi.fn(() => ({ cancel, playState: 'running' }) as unknown as Animation)
+    Element.prototype.animate = animate
+
+    act(() => root.render(<GridHarness items={['a']} />))
+    const a = host.querySelector<HTMLElement>('[data-flip-id="a"]')!
+    let layoutLeft = 100
+    a.getBoundingClientRect = () =>
+      ({
+        left: layoutLeft + runningOffsetX,
+        top: 0,
+        right: layoutLeft + runningOffsetX + 120,
+        bottom: 120,
+        width: 120,
+        height: 120,
+        x: layoutLeft + runningOffsetX,
+        y: 0,
+        toJSON: () => {},
+      }) as DOMRect
+
+    // Record initial baseline at 100.
+    act(() => root.render(<GridHarness items={['a', 'b']} />))
+    animate.mockClear()
+
+    // First reflow: 100 -> 200 (starts running animation).
+    layoutLeft = 200
+    act(() => root.render(<GridHarness items={['p1', 'a', 'b']} />))
+    expect(animate).toHaveBeenCalledWith(
+      [{ transform: 'translate3d(-100px, 0px, 0)' }, { transform: 'translate3d(0, 0, 0)' }],
+      expect.objectContaining({ duration: 240 }),
+    )
+
+    // Mid-flight at remaining offset -50 (visually at 150), second reflow moves layout to 300.
+    // Expected delta = 150 - 300 = -150px (NOT 250 - 300 = -50px).
+    animate.mockClear()
+    runningOffsetX = -50
+    layoutLeft = 300
+    act(() => root.render(<GridHarness items={['p2', 'p1', 'a', 'b']} />))
+    expect(cancel).toHaveBeenCalled()
+    expect(animate).toHaveBeenCalledWith(
+      [{ transform: 'translate3d(-150px, 0px, 0)' }, { transform: 'translate3d(0, 0, 0)' }],
+      expect.objectContaining({ duration: 240 }),
+    )
+  })
+
   it('skips FLIP animations under prefers-reduced-motion: reduce', () => {
     mockReducedMotion(true)
     const animate = vi.fn()

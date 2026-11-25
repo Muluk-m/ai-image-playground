@@ -374,15 +374,8 @@ export default function TaskGrid({
     const top = Math.round(grid.getBoundingClientRect().top + window.scrollY)
     if (Math.abs(top - scrollMargin) > 1) setScrollMargin(top)
   })
-  // 任务新增、删除、筛选或展开套卡时，留在网格里的相邻卡片平滑补位。
-  const flipOrderKey = useMemo(
-    () =>
-      items
-        .slice(0, 60)
-        .map((item) => item.key)
-        .join(','),
-    [items],
-  )
+  // 任务新增、删除、筛选或展开套卡时，留在网格里的相邻卡片平滑补位（完整列表键，可见裁剪在 useFlipList 内处理）。
+  const flipOrderKey = useMemo(() => items.map((item) => item.key).join(','), [items])
   useFlipList(gridRef, '[data-task-id]', 'data-task-id', flipOrderKey)
   // 框选按布局算卡片位置：滚出视口而未挂载的卡也照样参与选择。
   cardRects.current = () => {

@@ -19,7 +19,8 @@ function prefersReducedMotion(): boolean {
  * 轻量级列表/网格 FLIP 重排补位：
  * - 新项插入、删除或筛选重排时，让留在列表里的相邻卡片平滑滑到新坐标，不再瞬间跳格。
  * - 使用相对容器内容原点的坐标（含 container.scrollLeft/scrollTop），window 滚动与内部滚动容器均不误触。
- * - 途中再次重排先采集当前视觉位置、取消旧动画，再读真实布局写入基准，既丝滑衔接又不污染基准坐标。
+ * - 途中再次重排时，通过 `visualRect - newLayoutRect` 提取旧动画当帧残留偏移并叠加到上一轮基准坐标
+ *   `prevLayout + animOffset`，避免直接拿「新布局 + 旧偏移」当起点导致跳动。
  * - 遵守 `prefers-reduced-motion: reduce`，视口宽度变化或超视口大跳变时自动跳过。
  */
 export function useFlipList(
@@ -57,9 +58,9 @@ export function useFlipList(
     const scrollLeft = container.scrollLeft
     const scrollTop = container.scrollTop
 
-    // 1. 批量读：对仍在播放旧 FLIP 动画的卡片先记下它的当前视觉起点，保证连击/快速筛选无缝衔接。
+    // 1. 批量读：对仍在播放旧 FLIP 动画的卡片先记下它叠加旧动画后的当前屏幕位置（= 新布局 + 旧动画偏移）。
     const activeNodes: HTMLElement[] = []
-    const liveVisualPoints = new Map<string, ContentPoint>()
+    const visualBeforeCancel = new Map<string, ContentPoint>()
     for (const el of nodes) {
       const running = animationsRef.current.get(el)
       if (!running || running.playState !== 'running') continue
@@ -67,7 +68,7 @@ export function useFlipList(
       if (key) {
         const visualRect = el.getBoundingClientRect()
         if (visualRect.width > 0 && visualRect.height > 0) {
-          liveVisualPoints.set(key, {
+          visualBeforeCancel.set(key, {
             left: visualRect.left - cRectBefore.left + scrollLeft,
             top: visualRect.top - cRectBefore.top + scrollTop,
           })
@@ -100,11 +101,17 @@ export function useFlipList(
       nextRects.set(key, { left: contentLeft, top: contentTop })
 
       if (!canAnimate || !inViewport || moves.length >= MAX_FLIP_ITEMS) continue
-      const origin = liveVisualPoints.get(key) ?? prevRects.get(key)
-      if (!origin) continue
+      const prev = prevRects.get(key)
+      if (!prev) continue
 
-      const dx = origin.left - contentLeft
-      const dy = origin.top - contentTop
+      // 若旧动画尚未结束：旧动画当帧残留偏移 = visualBeforeCancel - newLayout，
+      // 真实接续起点 = prevLayout + animOffset。
+      const visual = visualBeforeCancel.get(key)
+      const originLeft = visual ? prev.left + (visual.left - contentLeft) : prev.left
+      const originTop = visual ? prev.top + (visual.top - contentTop) : prev.top
+
+      const dx = originLeft - contentLeft
+      const dy = originTop - contentTop
       if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue
       if (Math.abs(dy) > viewportH * 1.5 || Math.abs(dx) > viewportW * 1.2) continue
 

@@ -44,7 +44,7 @@ function parseMetric(value: ReactNode): ParsedMetric | null {
     const match = SIMPLE_METRIC_RE.exec(value.trim())
     if (!match) return null
     const rawNum = match[1]
-    const num = Number(rawNum.replaceAll(',', ''))
+    const num = Number(rawNum.replace(/,/g, ''))
     if (!Number.isFinite(num)) return null
     const dot = rawNum.indexOf('.')
     return {

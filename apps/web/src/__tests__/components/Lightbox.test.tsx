@@ -178,10 +178,24 @@ describe('Lightbox 触控手势', () => {
     const shell = lightboxRoot().querySelector<HTMLDivElement>('[data-lightbox-media-shell]')!
 
     // Short drag springs back and stays open.
-    vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValueOnce(400)
+    vi.spyOn(performance, 'now')
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(400)
+      .mockReturnValueOnce(420)
     fireTouch(image, 'touchstart', [{ x: 150, y: 200 }])
     expect(fireTouch(image, 'touchmove', [{ x: 152, y: 245 }])).toBe(true)
     expect(shell.style.transform).toContain('translate3d(')
+    fireTouch(image, 'touchend', [])
+    expect(useStore.getState().lightboxImageId).toBe('img-1')
+    expect(shell.style.transform).toBe('')
+
+    // Fast short drag followed by a pause > 100ms expires stale velocity and springs back.
+    vi.spyOn(performance, 'now')
+      .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(1010)
+      .mockReturnValueOnce(1200)
+    fireTouch(image, 'touchstart', [{ x: 150, y: 200 }])
+    expect(fireTouch(image, 'touchmove', [{ x: 151, y: 250 }])).toBe(true)
     fireTouch(image, 'touchend', [])
     expect(useStore.getState().lightboxImageId).toBe('img-1')
     expect(shell.style.transform).toBe('')
