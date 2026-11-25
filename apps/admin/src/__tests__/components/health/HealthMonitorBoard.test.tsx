@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import {
   formatAvailability,
@@ -256,6 +257,23 @@ describe('HealthMonitorBoard interactions', () => {
       ),
     }
     rerender(<HealthMonitorBoard snapshot={agedOut} />)
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+  })
+
+  it('switches pinned tooltip cleanly when clicking a second bucket after focus moves', async () => {
+    const user = userEvent.setup()
+    render(<HealthMonitorBoard snapshot={sampleSnapshot()} />)
+
+    const agentPills = screen.getAllByRole('button', { name: /claude-sonnet-4-6/ })
+    await user.click(agentPills[1]!)
+    expect(screen.getByRole('tooltip')).toHaveTextContent('1.82s')
+
+    // Clicking another bucket triggers focus before click; must pin the newly clicked bucket instead of dismissing.
+    await user.click(agentPills[0]!)
+    expect(screen.getByRole('tooltip')).toHaveTextContent('无流量')
+
+    // Clicking the already-pinned bucket toggles it closed.
+    await user.click(agentPills[0]!)
     expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
   })
 })

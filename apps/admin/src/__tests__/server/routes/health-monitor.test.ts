@@ -47,8 +47,8 @@ await insertTestTasks(writer.db, [
     model: 'gpt-image-1.5',
     gpt_route: 'direct',
     status: 'completed',
-    attempt_count: 2,
-    // Retried task has started_at overwritten on attempt 2; must be excluded from queue_wait_p50_ms.
+    // requeueTask increments attempt_count to 1 on the first retry; must be excluded from queue_wait_p50_ms.
+    attempt_count: 1,
     submitted_at: now - 6 * minute,
     started_at: now - 3 * minute,
     completed_at: now - 3 * minute + 12_000,

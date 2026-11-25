@@ -228,9 +228,10 @@ function HealthComponentRow({
   const tooltipId = useId()
   const stripRef = useRef<HTMLDivElement>(null)
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([])
-  // 按桶身份 start_at 追踪选中与焦点，轮询跨桶推进时固定浮层仍锁定同一时间段；移出窗口或切时间范围时自动收起。
-  const [activeStartAt, setActiveStartAt] = useState<number | null>(null)
-  const [pinned, setPinned] = useState(false)
+  // 分离固定桶（pinnedStartAt）与悬停/聚焦桶（hoverStartAt）：
+  // 点击新桶时浏览器先触发 focus 再触发 click，分离后不会把固定选择提前改写为新桶导致 click 误关。
+  const [pinnedStartAt, setPinnedStartAt] = useState<number | null>(null)
+  const [hoverStartAt, setHoverStartAt] = useState<number | null>(null)
   const [focusStartAt, setFocusStartAt] = useState<number | null>(
     () => component.buckets[component.buckets.length - 1]?.start_at ?? null,
   )
@@ -238,10 +239,11 @@ function HealthComponentRow({
 
   useEffect(() => {
     void range
-    setActiveStartAt(null)
-    setPinned(false)
+    setPinnedStartAt(null)
+    setHoverStartAt(null)
   }, [range])
 
+  const activeStartAt = pinnedStartAt ?? hoverStartAt
   const totalBuckets = component.buckets.length
   const activeIndex =
     activeStartAt === null
@@ -259,8 +261,8 @@ function HealthComponentRow({
   // 固定查看的桶滚出当前时间窗口时自动清理固定态。
   useEffect(() => {
     if (activeStartAt !== null && activeIndex === -1) {
-      setActiveStartAt(null)
-      setPinned(false)
+      setPinnedStartAt(null)
+      setHoverStartAt(null)
     }
   }, [activeStartAt, activeIndex])
 
@@ -273,18 +275,26 @@ function HealthComponentRow({
     setPlacement(rect.top < POPOVER_FLIP_TOP_THRESHOLD_PX ? 'bottom' : 'top')
   }
 
-  const activate = (idx: number, pin = false) => {
+  const activateHover = (idx: number) => {
     const bucket = component.buckets[idx]
     if (!bucket) return
     measurePlacement()
-    setActiveStartAt(bucket.start_at)
+    setHoverStartAt(bucket.start_at)
     setFocusStartAt(bucket.start_at)
-    if (pin) setPinned(true)
+  }
+
+  const pinBucket = (idx: number) => {
+    const bucket = component.buckets[idx]
+    if (!bucket) return
+    measurePlacement()
+    setPinnedStartAt(bucket.start_at)
+    setHoverStartAt(null)
+    setFocusStartAt(bucket.start_at)
   }
 
   const dismiss = () => {
-    setActiveStartAt(null)
-    setPinned(false)
+    setPinnedStartAt(null)
+    setHoverStartAt(null)
   }
 
   useEffect(() => {
@@ -295,8 +305,8 @@ function HealthComponentRow({
         event.target instanceof Node &&
         !stripRef.current.contains(event.target)
       ) {
-        setActiveStartAt(null)
-        setPinned(false)
+        setPinnedStartAt(null)
+        setHoverStartAt(null)
       }
     }
     document.addEventListener('pointerdown', onPointerDown)
@@ -316,7 +326,8 @@ function HealthComponentRow({
     else if (event.key === 'End') next = totalBuckets - 1
     if (next !== null && next !== idx) {
       event.preventDefault()
-      activate(next, pinned)
+      if (pinnedStartAt !== null) pinBucket(next)
+      else activateHover(next)
       buttonRefs.current[next]?.focus()
     }
   }
@@ -348,7 +359,7 @@ function HealthComponentRow({
         ref={stripRef}
         className="relative"
         onMouseLeave={() => {
-          if (!pinned) setActiveStartAt(null)
+          if (pinnedStartAt === null) setHoverStartAt(null)
         }}
       >
         {activeBucket ? (
@@ -379,15 +390,18 @@ function HealthComponentRow({
                 aria-label={`${component.name} ${formatBucketWindow(bucket.start_at, bucket.end_at, range)} ${STATUS_LABEL[bucket.status]} ${bucket.total > 0 ? `成功率 ${formatAvailability(bucket.success_rate)}` : '无样本'}`}
                 aria-describedby={selected ? tooltipId : undefined}
                 onMouseEnter={() => {
-                  if (!pinned) activate(idx)
+                  if (pinnedStartAt === null) activateHover(idx)
                 }}
                 onClick={() => {
-                  if (pinned && activeIndex === idx) dismiss()
-                  else activate(idx, true)
+                  if (pinnedStartAt === bucket.start_at) dismiss()
+                  else pinBucket(idx)
                 }}
-                onFocus={() => activate(idx)}
+                onFocus={() => {
+                  if (pinnedStartAt === null) activateHover(idx)
+                }}
                 onBlur={() => {
-                  if (!pinned) setActiveStartAt((prev) => (prev === bucket.start_at ? null : prev))
+                  if (pinnedStartAt === null)
+                    setHoverStartAt((prev) => (prev === bucket.start_at ? null : prev))
                 }}
                 onKeyDown={(event) => onPillKeyDown(event, idx)}
                 className={cn(

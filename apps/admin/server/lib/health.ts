@@ -26,6 +26,21 @@ export {
 
 /** 用提交时间下界裁剪 `tasks` 历史分区（48h 裕量覆盖慢任务/对账任务）。 */
 const GENERATION_SUBMITTED_LOOKBACK_SEC = 48 * 3600
+/** 短 TTL 缓存 + 同参数并发合并，避免多管理员/多标签页 30 秒轮询放大只读库聚合负载。 */
+const HEALTH_CACHE_TTL_MS = 15_000
+
+interface CachedHealthEntry {
+  readonly expiresAt: number
+  readonly snapshot: HealthMonitorSnapshot
+}
+
+const healthCache = new Map<string, CachedHealthEntry>()
+const healthInFlight = new Map<string, Promise<HealthMonitorSnapshot>>()
+
+export function resetHealthMonitorCacheForTesting(): void {
+  healthCache.clear()
+  healthInFlight.clear()
+}
 
 function optionalMs(value: unknown): number | null {
   if (value === null || value === undefined) return null
@@ -33,10 +48,40 @@ function optionalMs(value: unknown): number | null {
   return Number.isFinite(num) && num >= 0 ? Math.round(num) : null
 }
 
-/** 从只读库并行读取生成任务、Agent 模型调用（含 TTFT）与核心接口健康数据（3 条 GROUPING SETS 单次扫描）。 */
+/** 从只读库并行读取生成任务、Agent 模型调用（含 TTFT）与核心接口健康数据（3 条 GROUPING SETS 单次扫描，带短缓存与并发合并）。 */
 export async function readHealthMonitor(
   range: HealthRange = DEFAULT_HEALTH_RANGE,
   includePolicy = false,
+  explicitNow?: number,
+): Promise<HealthMonitorSnapshot> {
+  if (explicitNow !== undefined) {
+    return queryHealthMonitor(range, includePolicy, explicitNow)
+  }
+
+  const cacheKey = `${process.env.DATABASE_URL ?? ''}|${range}|${includePolicy ? '1' : '0'}`
+  const cached = healthCache.get(cacheKey)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.snapshot
+  }
+
+  const existing = healthInFlight.get(cacheKey)
+  if (existing) return existing
+
+  const promise = queryHealthMonitor(range, includePolicy)
+    .then((snapshot) => {
+      healthCache.set(cacheKey, { expiresAt: Date.now() + HEALTH_CACHE_TTL_MS, snapshot })
+      return snapshot
+    })
+    .finally(() => {
+      healthInFlight.delete(cacheKey)
+    })
+  healthInFlight.set(cacheKey, promise)
+  return promise
+}
+
+async function queryHealthMonitor(
+  range: HealthRange,
+  includePolicy: boolean,
   explicitNow?: number,
 ): Promise<HealthMonitorSnapshot> {
   const { db } = getDbHandle()
@@ -71,11 +116,11 @@ export async function readHealthMonitor(
             WHEN status = 'completed' AND started_at IS NOT NULL AND completed_at >= started_at
             THEN EXTRACT(EPOCH FROM completed_at - started_at) * 1000
           END AS duration_ms,
-          -- 仅统计首次尝试的排队耗时（重试任务 started_at 会被覆写，不含先前执行耗时），且同步遵守 includePolicy 口径。
+          -- 仅统计首次尝试的排队耗时（attempt_count 记录已回队失败次数，首次执行为 0），且同步遵守 includePolicy 口径。
           CASE
             WHEN started_at IS NOT NULL
               AND started_at >= submitted_at
-              AND attempt_count <= 1
+              AND attempt_count = 0
               AND (status = 'completed' OR error_type IS DISTINCT FROM 'content_policy' OR ${includePolicy})
             THEN EXTRACT(EPOCH FROM started_at - submitted_at) * 1000
           END AS queue_wait_ms
