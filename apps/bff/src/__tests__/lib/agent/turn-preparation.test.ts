@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import type { AgentToolResultBlock, AgentTurnReference } from '@image-playground/shared'
 import { AGENT_MAX_CONSECUTIVE_WAKES } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
@@ -135,7 +135,7 @@ async function conversationWithResult(artifacts: readonly string[] = []): Promis
       await storage.write(object, TEST_IMAGE.png, 'image/png')
       data.push({ object, mime: 'image/png' })
     }
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: TASK_ID,
       user_id: USER_ID,
       provider: 'openai-compat',

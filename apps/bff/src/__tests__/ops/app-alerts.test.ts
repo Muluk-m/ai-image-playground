@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it, spyOn } from 'bun:test'
 import { createDb } from '@image-playground/db'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { type AlertMessage, OPS_THRESHOLDS } from '@image-playground/shared'
 import { eq, inArray } from 'drizzle-orm'
 import { OpsStorageError } from '../../lib/ops-storage-error'
@@ -31,7 +31,7 @@ await writer.db.insert(writer.schema.users).values({
   updated_at: now,
 })
 
-await writer.db.insert(writer.schema.tasks).values([
+await insertTestTasks(writer.db, [
   {
     id: 'waiting-long',
     provider: 'openai-compat',
@@ -95,7 +95,7 @@ await writer.db.insert(writer.schema.tasks).values([
     submitted_at: now - 50 * minute,
   },
 ])
-await writer.db.insert(writer.schema.tasks).values([
+await insertTestTasks(writer.db, [
   {
     id: 'system-failure',
     user_id: 'full-alert-account',
@@ -235,7 +235,7 @@ describe('observeApp', () => {
       task('slow-old', 3 * hour, 5 * minute),
       task('slow-failed', 40 * minute, 5 * minute, 'failed'),
     ]
-    await writer.db.insert(writer.schema.tasks).values(rows)
+    await insertTestTasks(writer.db, rows)
     try {
       const slow = (await observeApp({ now })).slowGenerations?.find(
         (one) => one.model === 'slow-alert-model',

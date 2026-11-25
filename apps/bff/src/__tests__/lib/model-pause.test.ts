@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import type { ManagedModelsView } from '@image-playground/shared'
 
 const TEST_DB = await resetTestDatabase('bff_model_pause')
@@ -40,7 +40,7 @@ const channel: InternalChannel = {
 }
 
 async function fail(id: string, errorType: TaskErrorType) {
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id,
     provider: 'openai-compat',
     model: MODEL,

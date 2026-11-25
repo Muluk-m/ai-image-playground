@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 
 const TEST_DB = await resetTestDatabase('admin_devices_route')
 process.env.ADMIN_PASSWORD = 'test-pass-1234'
@@ -11,7 +11,7 @@ process.env.PORT = '0'
 
 const writer = createDb(TEST_DB)
 const now = Date.now()
-await writer.db.insert(writer.schema.tasks).values({
+await insertTestTasks(writer.db, {
   id: 'task-A1',
   provider: 'openai-compat',
   model: 'gpt-image-2',

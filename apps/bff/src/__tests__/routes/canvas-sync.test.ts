@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import {
   beginCanvasTimelineEdit,
   canvasNodeJobs,
@@ -567,7 +567,7 @@ it('authorizes candidate tasks without charging media storage and preserves refe
     [taskId, 'owner'],
     [otherTaskId, 'other'],
   ])
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: task!,
       user_id: user!,
       provider: 'openai-compat',
@@ -656,7 +656,7 @@ it('checks every fan-out job task, not only the visible pending job', async () =
     [owned, 'owner'],
     [other, 'other'],
   ])
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: task!,
       user_id: user!,
       provider: 'openai-compat',

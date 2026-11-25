@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { type AgentTurnEvent } from '@image-playground/shared'
 import { Elysia } from 'elysia'
 import {
@@ -121,7 +121,7 @@ async function insertCompletedBatch(conversationId: string, id = '5c9a2650') {
     params: { model: 'fixture', provider: 'openai-compat' },
     dependencies: [],
   })
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id: taskId,
     user_id: OWNER,
     provider: 'openai-compat',

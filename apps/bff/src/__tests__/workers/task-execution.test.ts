@@ -1,5 +1,10 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import {
+  insertTestTasks,
+  resetTestDatabase,
+  selectTestTasks,
+  type TestTaskSeed,
+} from '@image-playground/db/testing'
 import { eq, sql } from 'drizzle-orm'
 import type { InternalChannel } from '../../lib/channels'
 import type { TaskExecution } from '../../workers/task-execution'
@@ -97,11 +102,8 @@ const PLAIN_INPUT = {
   input_images: [{ object: 'stale/in/0', mime: 'image/png' }],
 }
 
-async function insertQueuedTask(
-  id: string,
-  values: Partial<typeof schema.tasks.$inferInsert> = {},
-): Promise<void> {
-  await db.insert(schema.tasks).values({
+async function insertQueuedTask(id: string, values: Partial<TestTaskSeed> = {}): Promise<void> {
+  await insertTestTasks(db, {
     id,
     provider: 'openai-compat',
     model: 'test-model',
@@ -113,7 +115,7 @@ async function insertQueuedTask(
 }
 
 async function readTask(id: string) {
-  const [row] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, id))
+  const [row] = await selectTestTasks(db).where(eq(schema.tasks.id, id))
   return row
 }
 

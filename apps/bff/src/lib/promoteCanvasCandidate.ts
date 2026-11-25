@@ -62,8 +62,6 @@ export async function promoteCanvasCandidate(
       const [lockedRow] = await tx
         .select({
           status: schema.tasks.status,
-          request: schema.tasks.request_payload,
-          result: schema.tasks.result_payload,
           agentConversationId: schema.tasks.agent_conversation_id,
           kind: schema.tasks.kind,
         })
@@ -72,11 +70,10 @@ export async function promoteCanvasCandidate(
         .limit(1)
         .for('update')
       const payload = lockedRow ? (await readTaskPayloads(tx, [taskId])).get(taskId) : undefined
-      const locked = lockedRow
-        ? payload
+      const locked =
+        lockedRow && payload
           ? { ...lockedRow, request: payload.request_payload, result: payload.result_payload }
-          : lockedRow
-        : undefined
+          : undefined
       if (
         !locked ||
         locked.status !== 'completed' ||
@@ -97,12 +94,6 @@ export async function promoteCanvasCandidate(
         )
         .limit(1)
       const nextRequest = { ...locked.request, output_retention: 'canvas' as const }
-      await tx
-        .update(schema.tasks)
-        .set({
-          request_payload: nextRequest,
-        })
-        .where(eq(schema.tasks.id, taskId))
       await patchTaskPayload(tx, taskId, { request_payload: nextRequest })
       await publishGenerations(tx, [taskId])
       if (!linked) {
@@ -171,7 +162,6 @@ async function markCanvas(userId: string, taskId: string): Promise<void> {
     const [lockedRow] = await tx
       .select({
         status: schema.tasks.status,
-        request: schema.tasks.request_payload,
         agentConversationId: schema.tasks.agent_conversation_id,
         kind: schema.tasks.kind,
       })
@@ -180,17 +170,10 @@ async function markCanvas(userId: string, taskId: string): Promise<void> {
       .limit(1)
       .for('update')
     const payload = lockedRow ? (await readTaskPayloads(tx, [taskId])).get(taskId) : undefined
-    const locked = lockedRow
-      ? payload
-        ? { ...lockedRow, request: payload.request_payload }
-        : lockedRow
-      : undefined
+    const locked =
+      lockedRow && payload ? { ...lockedRow, request: payload.request_payload } : undefined
     if (!locked || locked.status !== 'completed' || !isCanvasTask(locked)) return
     const nextRequest = { ...locked.request, output_retention: 'canvas' as const }
-    await tx
-      .update(schema.tasks)
-      .set({ request_payload: nextRequest })
-      .where(eq(schema.tasks.id, taskId))
     await patchTaskPayload(tx, taskId, { request_payload: nextRequest })
     await publishGenerations(tx, [taskId])
     await tx

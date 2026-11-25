@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase, type TestTaskSeed } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_execution_ownership')
@@ -26,8 +26,8 @@ beforeEach(async () => {
 })
 afterAll(close)
 
-async function task(id: string, values: Partial<typeof schema.tasks.$inferInsert> = {}) {
-  await db.insert(schema.tasks).values({
+async function task(id: string, values: Partial<TestTaskSeed> = {}) {
+  await insertTestTasks(db, {
     id,
     provider: 'openai-compat',
     model: 'test',

@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import { creditAccounts, creditLedger, modelPrices, taskHolds } from '@image-playground/db/billing'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 
 const TEST_DB = await resetTestDatabase('agent_admin_a298')
@@ -48,7 +48,7 @@ async function seedUser(userId: string): Promise<void> {
 }
 
 async function seedTask(taskId: string, model: string): Promise<void> {
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id: taskId,
     provider: 'openai-compat',
     model,

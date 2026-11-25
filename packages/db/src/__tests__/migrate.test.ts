@@ -248,14 +248,16 @@ describe('runMigrations', () => {
 
   it('creates PostgreSQL-native JSONB and timestamptz columns', async () => {
     const rows = (await connection.client.unsafe(`
-      SELECT column_name, data_type, is_generated
+      SELECT column_name, data_type, is_generated, is_nullable
       FROM information_schema.columns
       WHERE table_schema = 'public' AND table_name = 'tasks'
-    `)) as ColumnMetadata[]
+    `)) as (ColumnMetadata & { is_nullable: string })[]
     const byName = Object.fromEntries(rows.map((row) => [row.column_name, row]))
     expect(byName.request_payload?.data_type).toBe('jsonb')
+    expect(byName.request_payload?.is_nullable).toBe('YES')
     expect(byName.submitted_at?.data_type).toBe('timestamp with time zone')
-    expect(byName.device_id?.is_generated).toBe('ALWAYS')
+    expect(byName.device_id?.data_type).toBe('text')
+    expect(byName.device_id?.is_generated).toBe('NEVER')
     expect(byName.upstream_status?.data_type).toBe('integer')
     expect(byName.upstream_body?.data_type).toBe('text')
   })
@@ -1161,6 +1163,102 @@ describe('runMigrations', () => {
           { user_id: 'u-rollback', image_id: 'img-rb', bytes: 123, content_type: 'image/png' },
         ])
         expect(await sql`SELECT id FROM media_objects WHERE user_id = 'u-rollback'`).toEqual([])
+      } finally {
+        await sql.close()
+      }
+    })
+  }, 30_000)
+
+  it('decouples tasks.device_id and cold columns in 0110, bridges legacy writers, and restores cleanly on rollback', async () => {
+    await withEmptyDatabase('tasks_decouple_0110_upgrade', async (url) => {
+      await migrateUntil(url, '0109_drop_server_logs')
+      const sql = new SQL(url, { max: 1 })
+      try {
+        await sql`GRANT SELECT ON public.queue_tasks TO PUBLIC`
+        await sql`
+          INSERT INTO tasks (id, provider, model, status, request_payload, submitted_at)
+          VALUES ('pre-0110', 'openai-compat', 'gpt-image-2', 'completed', '{"prompt":"old","device_id":"dev-pre"}'::jsonb, now())
+        `
+        await sql`
+          INSERT INTO task_payloads (task_id, request_payload, result_payload, upstream_body)
+          VALUES ('pre-0110', '{"prompt":"old","device_id":"dev-pre"}'::jsonb, '{"ok":true}'::jsonb, 'old-err')
+        `
+
+        await runMigrations(url)
+
+        // Existing row keeps device_id after DROP EXPRESSION.
+        expect(await sql`SELECT device_id FROM tasks WHERE id = 'pre-0110'`).toEqual([
+          { device_id: 'dev-pre' },
+        ])
+
+        // Wave 1 writer: omits tasks.request_payload (NULL) and writes device_id + task_payloads.
+        await sql`
+          INSERT INTO tasks (id, provider, model, status, device_id, submitted_at)
+          VALUES ('wave1-task', 'openai-compat', 'gpt-image-2', 'in_progress', 'dev-w1', now())
+        `
+        await sql`
+          INSERT INTO task_payloads (task_id, request_payload, metering)
+          VALUES ('wave1-task', '{"prompt":"w1","device_id":"dev-w1"}'::jsonb, '{"mode":"none","model":"gpt-image-2","quantity":1,"unitMultiplier":1}'::jsonb)
+        `
+        expect(
+          await sql`SELECT device_id, request_payload FROM queue_tasks WHERE id = 'wave1-task'`,
+        ).toEqual([{ device_id: 'dev-w1', request_payload: { prompt: 'w1', device_id: 'dev-w1' } }])
+
+        // Legacy draining writer updating tasks.result_payload on a Wave 1 row (tasks.request_payload IS NULL)
+        // must update task_payloads in place without tripping task_payloads.request_payload NOT NULL.
+        await sql`
+          UPDATE tasks
+          SET result_payload = '{"from_v0481":true}'::jsonb
+          WHERE id = 'wave1-task'
+        `
+        expect(
+          await sql`SELECT request_payload, result_payload FROM task_payloads WHERE task_id = 'wave1-task'`,
+        ).toEqual([
+          {
+            request_payload: { prompt: 'w1', device_id: 'dev-w1' },
+            result_payload: { from_v0481: true },
+          },
+        ])
+
+        // Legacy writer inserting tasks.request_payload without device_id still gets device_id filled by bridge trigger.
+        await sql`
+          INSERT INTO tasks (id, provider, model, status, request_payload, submitted_at)
+          VALUES ('legacy-insert', 'openai-compat', 'gpt-image-2', 'queued', '{"prompt":"leg","device_id":"dev-leg"}'::jsonb, now())
+        `
+        expect(await sql`SELECT device_id FROM tasks WHERE id = 'legacy-insert'`).toEqual([
+          { device_id: 'dev-leg' },
+        ])
+
+        // Rollback 0110 must back-sync tasks from task_payloads, restore NOT NULL + GENERATED ALWAYS + index + grants.
+        await sql.unsafe(
+          await Bun.file(
+            join(migrationsDirectory, 'rollback/0110_tasks_decouple_cold_columns.down.sql'),
+          ).text(),
+        )
+        const cols = (await sql`
+          SELECT column_name, is_generated, is_nullable
+          FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'tasks'
+            AND column_name IN ('device_id', 'request_payload')
+          ORDER BY column_name
+        `) as { column_name: string; is_generated: string; is_nullable: string }[]
+        expect(cols).toEqual([
+          { column_name: 'device_id', is_generated: 'ALWAYS', is_nullable: 'YES' },
+          { column_name: 'request_payload', is_generated: 'NEVER', is_nullable: 'NO' },
+        ])
+        expect(
+          await sql`SELECT device_id, request_payload, result_payload FROM queue_tasks WHERE id = 'wave1-task'`,
+        ).toEqual([
+          {
+            device_id: 'dev-w1',
+            request_payload: { prompt: 'w1', device_id: 'dev-w1' },
+            result_payload: { from_v0481: true },
+          },
+        ])
+        expect(
+          await sql`SELECT privilege_type FROM information_schema.table_privileges
+            WHERE table_schema = 'public' AND table_name = 'queue_tasks' AND grantee = 'PUBLIC'`,
+        ).toEqual([{ privilege_type: 'SELECT' }])
       } finally {
         await sql.close()
       }

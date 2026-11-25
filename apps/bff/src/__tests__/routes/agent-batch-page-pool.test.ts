@@ -1,6 +1,6 @@
 import { afterAll, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import type { AgentBatchPage } from '@image-playground/shared'
 import { inArray, sql } from 'drizzle-orm'
 
@@ -94,7 +94,7 @@ async function seed(id: string, legacy = false) {
     })
   }
   if (legacy) {
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: `${id}-task`,
       user_id: id,
       provider: 'openai-compat',

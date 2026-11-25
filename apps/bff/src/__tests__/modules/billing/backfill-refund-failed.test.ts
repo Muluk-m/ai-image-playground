@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
 import { creditAccounts, creditLedger, taskHolds } from '@image-playground/db/billing'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 import { backfillRefundFailedTasks } from '../../../modules/billing/backfill-refund-failed'
 
@@ -60,7 +60,7 @@ async function seedSettledTask(input: {
 }): Promise<void> {
   const subscriptionAmount = input.subscriptionAmount ?? 0
   const rechargeAmount = input.rechargeAmount ?? 0
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id: input.taskId,
     provider: 'openai-compat',
     model: 'gpt-image-2',

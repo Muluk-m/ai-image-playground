@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import type { AgentClarificationBlock } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
@@ -279,7 +279,7 @@ describe('范围确认卡', () => {
     ).toBe(503)
     // 提议发出后这一轮就停：轮到用户确认。
     expect(calls).toHaveLength(1)
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
 
     // 用户在卡上确认：同一份原件按 id 引用，蒙版与原图同尺寸，标注只作编号区域。
     const mask = await storeMedia(USER, MASK, 'image/png')
@@ -317,7 +317,7 @@ describe('范围确认卡', () => {
     expect(end).toMatchObject({ toolName: 'editImage' })
     expect(end!.status).not.toBe('awaiting_confirmation')
     expect(end!.job?.taskId).toBeString()
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, end!.job!.taskId))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, end!.job!.taskId))
     expect(task!.model).toBe('gpt-image-2.5-flare')
     // 确认后默认出 2 张。
     expect(task!.request_payload.n).toBe(2)
@@ -408,7 +408,7 @@ describe('范围确认卡', () => {
     const [end] = eventsOfType(answered, 'toolEnd')
     expect(end).toMatchObject({ toolName: 'editImage' })
     expect(end!.status).not.toBe('awaiting_confirmation')
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, end!.job!.taskId))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, end!.job!.taskId))
     expect(task!.model).toBe('gpt-image-2.5-flare')
     expect(task!.request_payload.n).toBe(2)
     expect(task!.request_payload.preserve_outside_mask).toBe(true)
@@ -455,7 +455,7 @@ describe('范围确认卡', () => {
       .join('')
     expect(said).toContain('没有改图')
     expect(said).not.toMatch(/手动|圈选后|自己画/)
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
     const stored = await db
       .select()
       .from(schema.agent_messages)
@@ -503,7 +503,7 @@ describe('范围确认卡', () => {
     const [end] = eventsOfType(frames, 'toolEnd')
     expect(end).toMatchObject({ toolName: 'editImage', status: 'failed' })
     expect(end!.message).toContain('等用户确认')
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
   })
 
   it('edits an obvious single target directly: no region card is forced on a localized ask', async () => {
@@ -617,7 +617,7 @@ describe('范围确认卡', () => {
       .map((event) => (event as unknown as { delta: string }).delta)
       .join('')
     expect(said).not.toContain('没有改图')
-    expect(await db.select().from(schema.tasks)).toHaveLength(0)
+    expect(await selectTestTasks(db)).toHaveLength(0)
   }, 20_000)
 
   it('also gives the model one retry when its arguments fail the tool schema', async () => {

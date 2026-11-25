@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import {
   type AgentMessageView,
   type AgentToolResultBlock,
@@ -211,7 +211,7 @@ describe('智能体生图工具', () => {
     expect((await pendingCards(conversationId))[0]?.block.prompt).toBe(prompt)
     const [confirmed] = await confirmPendingDrafts(app, conversationId, { deviceId: DEVICE })
     expect(confirmed?.prompt).toBe(prompt)
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task?.request_payload.prompt).toBe(submittedPrompt(prompt))
   })
 
@@ -259,7 +259,7 @@ describe('智能体生图工具', () => {
     expect(confirmed).toMatchObject({ status: 'submitted', prompt: '一只橘猫坐在窗台上' })
 
     const turnStart = eventsOfType(frames, 'turnStart')[0]!
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task!.id).toBe(confirmed!.job!.taskId)
     expect(task!.agent_conversation_id).toBe(conversationId)
     expect(task!.agent_turn_id).toBe(turnStart.turnId)
@@ -362,7 +362,7 @@ describe('智能体生图工具', () => {
     )
     expect(new Set(artifactIds).size).toBe(5)
 
-    const tasks = await db.select().from(schema.tasks)
+    const tasks = await selectTestTasks(db)
     expect(tasks).toHaveLength(2)
     // 张数各归各的：确认之后每条任务带的还是模型给它的那个数。
     const submittedTasks = tasks.map((task) => [
@@ -431,7 +431,7 @@ describe('智能体生图工具', () => {
     stop()
     expect(result).toMatchObject({ toolCallId: 'call-1', status: 'failed' })
     expect(result!.message).toContain('上游拒绝了这张图')
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task!.status).toBe('failed')
   })
 

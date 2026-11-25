@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { randomBytes } from 'node:crypto'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import {
   type AgentConversationSnapshot,
   type AgentToolResultBlock,
@@ -136,9 +136,7 @@ async function waitForTurns(conversationId: string, count: number): Promise<void
 
 async function tasksOf(conversationId: string) {
   return (
-    db
-      .select()
-      .from(schema.tasks)
+    selectTestTasks(db)
       .where(eq(schema.tasks.agent_conversation_id, conversationId))
       // 与 `agent_jobs` 的排序对齐：同一毫秒确认的两张稿，两处认的先后才是同一个。
       .orderBy(schema.tasks.submitted_at, schema.tasks.id)
@@ -161,7 +159,7 @@ async function wakes(conversationId: string) {
  * 测试里的迷你 worker：认领一条任务、再按真实路径收尾——唤醒判断就发生在收尾的那个事务里。
  */
 async function work(taskId: string, outcome: 'completed' | 'failed', completedAt = Date.now()) {
-  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId))
+  const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, taskId))
   const finished = await workerSettles(
     taskId,
     outcome === 'completed'

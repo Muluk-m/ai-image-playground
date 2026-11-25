@@ -1,6 +1,6 @@
 import { afterAll, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import type { AgentBatchPage } from '@image-playground/shared'
 import { sql } from 'drizzle-orm'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
@@ -105,7 +105,7 @@ it('shows rolled-over source dependencies using their frozen approved attempts',
     { key: 'source-retried', version: 2, attempt: 2, status: 'completed' as const },
   ]) {
     const taskId = `${id}-${one.key}-${one.attempt}`
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: taskId,
       user_id: id,
       provider: 'openai-compat',
@@ -201,7 +201,7 @@ it('reads only page result payloads while preserving global costs, cross-page de
   for (let ordinal = 1; ordinal <= 20; ordinal++) {
     for (let attempt = 1; attempt <= (ordinal === 1 ? 3 : 1); attempt++) {
       const taskId = `item-${ordinal}-attempt-${attempt}`
-      await db.insert(schema.tasks).values({
+      await insertTestTasks(db, {
         id: taskId,
         user_id: id,
         provider: 'openai-compat',

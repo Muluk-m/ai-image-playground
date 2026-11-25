@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb, OAUTH_ONLY_PASSWORD_HASH } from '@image-playground/db'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { eq, sql } from 'drizzle-orm'
 
 const databaseUrl = await resetTestDatabase('admin_users_route')
@@ -92,7 +92,7 @@ await writer.db.insert(writer.schema.user_sessions).values({
   created_at: now - 1000,
   expires_at: now + 3600_000,
 })
-await writer.db.insert(writer.schema.tasks).values([
+await insertTestTasks(writer.db, [
   {
     id: 'user-task-completed',
     provider: 'openai-compat',

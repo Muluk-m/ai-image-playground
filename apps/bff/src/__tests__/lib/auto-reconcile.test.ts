@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase, type TestTaskSeed } from '@image-playground/db/testing'
 import { type AlertMessage, QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
@@ -55,11 +55,8 @@ afterAll(async () => {
   await close()
 })
 
-async function insertReconciling(
-  id: string,
-  values: Partial<typeof schema.tasks.$inferInsert> = {},
-): Promise<void> {
-  await db.insert(schema.tasks).values({
+async function insertReconciling(id: string, values: Partial<TestTaskSeed> = {}): Promise<void> {
+  await insertTestTasks(db, {
     id,
     provider: 'openai-compat',
     model: 'gpt-image-2',
@@ -81,7 +78,7 @@ async function readTask(id: string) {
 }
 
 it('records when confirmation started and waits five minutes before the first check', async () => {
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id: 'just-entered',
     provider: 'openai-compat',
     model: 'gpt-image-2',
@@ -263,7 +260,7 @@ it('uses the reconciling partial indexes for due reconciliation and overdue aler
         ? now - QUEUE_TIMEOUTS.RECONCILE_ALERT_AFTER_MS - (2 - index) * minute
         : now - 5 * minute,
   }))
-  await db.insert(schema.tasks).values([...fillers, ...backedOffAlerted, ...dueTimed])
+  await insertTestTasks(db, [...fillers, ...backedOffAlerted, ...dueTimed])
   await insertReconciling('due-null-retry', {
     next_retry_at: null,
     reconcile_started_at: now - 5 * minute,

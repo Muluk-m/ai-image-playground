@@ -1,8 +1,5 @@
 import { hostname } from 'node:os'
-import {
-  taskHasArchivePayloadSqlForAlias,
-  taskRequestPayloadSubquerySql,
-} from '@image-playground/db'
+import { type TaskPayload, taskHasArchivePayloadSqlForAlias } from '@image-playground/db'
 import {
   type PersistedSubmitRequest,
   type QueueProvider,
@@ -74,16 +71,13 @@ export function leaseLostAfterFailedRenewal(
 
 type TaskRow = typeof schema.tasks.$inferSelect
 
-/** 认领时一并读到的这一行：worker 要的列，一次 `UPDATE ... RETURNING` 拿齐。 */
+/** 认领时一并读到的这一行：worker 要的列，热列走 `UPDATE ... RETURNING`，冷载荷走 `task_payloads`。 */
 export type ClaimedTask = Pick<
   TaskRow,
   | 'reconciliation_required'
   | 'provider'
   | 'model'
-  | 'request_payload'
-  | 'metering'
   | 'user_id'
-  | 'archive_payload'
   | 'archive_retry_started_at'
   | 'attempt_count'
   | 'upstream_task_ids'
@@ -92,7 +86,8 @@ export type ClaimedTask = Pick<
   | 'submitted_at'
   | 'gpt_route'
   | 'traceparent'
->
+> &
+  Pick<TaskPayload, 'request_payload' | 'metering' | 'archive_payload'>
 
 /** 已提交的上游异步任务：回读只为补提交缺口，已落库的 id 一律只轮不重提。 */
 export interface UpstreamSubmission {
@@ -135,14 +130,14 @@ export interface TaskExecution {
   /** 把输入原件挪进长期存储并落库；失去这一行时返回 null，原 request_payload 不动。 */
   preserveInputs(request: PersistedSubmitRequest): Promise<PersistedSubmitRequest | null>
   /** 存档检查点：产物字节已经落地，收尾前先把去处记下来。 */
-  saveCheckpoint(payload: TaskRow['archive_payload']): Promise<boolean>
+  saveCheckpoint(payload: TaskPayload['archive_payload']): Promise<boolean>
   /** 写终态并触发结算、唤醒与产物发布。 */
   finish(update: TerminalTaskUpdate): Promise<boolean>
   reconcile(reason: string, options?: { requireReconciliation?: boolean }): Promise<boolean>
   /** 退回 queued 等下一次尝试。 */
   requeue(attemptJustFailed: number, nextRetryAt: number): Promise<boolean>
   /** 退回 queued 只重试保存：结果还在，不消耗模型尝试次数。 */
-  requeueArchive(nextRetryAt: number, payload?: TaskRow['archive_payload']): Promise<boolean>
+  requeueArchive(nextRetryAt: number, payload?: TaskPayload['archive_payload']): Promise<boolean>
   /** 停心跳并摘掉进程内登记：这次执行不再被 cancel / 停机点名。 */
   release(): void
 }
@@ -220,18 +215,20 @@ class TaskExecutionHandle implements TaskExecution {
     fields: readonly { field: string; from?: string; to?: string }[]
   }): Promise<void> {
     await db.transaction(async (tx) => {
-      const updated = await tx
-        .update(schema.tasks)
+      const owned = await tx
+        .select({ id: schema.tasks.id })
+        .from(schema.tasks)
+        .where(this.#own())
+        .for('update')
+      if (owned.length === 0) return
+      await tx
+        .update(schema.task_payloads)
         .set({
           // Bun SQL binds string params for `::jsonb` as JSON string scalars, which turns `||`
           // into a 2-element array instead of merging objects; cast via `::text::jsonb` (see common.ts).
-          request_payload: sql`${taskRequestPayloadSubquerySql} || ${JSON.stringify({ image26_degrade: record })}::text::jsonb`,
+          request_payload: sql`${schema.task_payloads.request_payload} || ${JSON.stringify({ image26_degrade: record })}::text::jsonb`,
         })
-        .where(this.#own())
-        .returning({ id: schema.tasks.id, requestPayload: schema.tasks.request_payload })
-      if (updated.length > 0) {
-        await patchTaskPayload(tx, this.taskId, { request_payload: updated[0]!.requestPayload })
-      }
+        .where(eq(schema.task_payloads.task_id, this.taskId))
     })
   }
 
@@ -356,18 +353,18 @@ class TaskExecutionHandle implements TaskExecution {
   async preserveInputs(request: PersistedSubmitRequest): Promise<PersistedSubmitRequest | null> {
     const next = await durableGenerationInputs(request)
     return db.transaction(async (tx) => {
-      const updated = await tx
-        .update(schema.tasks)
-        .set({ request_payload: next })
+      const owned = await tx
+        .select({ id: schema.tasks.id })
+        .from(schema.tasks)
         .where(this.#own())
-        .returning({ id: schema.tasks.id })
-      if (updated.length === 0) return null
+        .for('update')
+      if (owned.length === 0) return null
       await patchTaskPayload(tx, this.taskId, { request_payload: next })
       return next
     })
   }
 
-  saveCheckpoint(payload: TaskRow['archive_payload']): Promise<boolean> {
+  saveCheckpoint(payload: TaskPayload['archive_payload']): Promise<boolean> {
     return saveArchiveCheckpoint(this.taskId, payload, this.#fence())
   }
 
@@ -414,7 +411,7 @@ class TaskExecutionHandle implements TaskExecution {
 
   async requeueArchive(
     nextRetryAt: number,
-    payload?: TaskRow['archive_payload'],
+    payload?: TaskPayload['archive_payload'],
   ): Promise<boolean> {
     const requeued = await requeueTaskArchive(this.taskId, nextRetryAt, payload, this.#fence())
     if (requeued) recordTaskOutcome('archive_requeued')
@@ -683,10 +680,7 @@ export async function claimTaskExecution(
         reconciliation_required: schema.tasks.reconciliation_required,
         provider: schema.tasks.provider,
         model: schema.tasks.model,
-        request_payload: schema.tasks.request_payload,
-        metering: schema.tasks.metering,
         user_id: schema.tasks.user_id,
-        archive_payload: schema.tasks.archive_payload,
         archive_retry_started_at: schema.tasks.archive_retry_started_at,
         attempt_count: schema.tasks.attempt_count,
         upstream_task_ids: schema.tasks.upstream_task_ids,
@@ -698,15 +692,16 @@ export async function claimTaskExecution(
       })
     if (!row) return null
     const payload = (await readTaskPayloads(tx, [id])).get(id)
+    if (!payload) {
+      throw new Error(`task_payloads row missing for task ${id}`)
+    }
     await publishGenerations(tx, [id])
-    return payload
-      ? {
-          ...row,
-          request_payload: payload.request_payload,
-          metering: payload.metering,
-          archive_payload: payload.archive_payload,
-        }
-      : row
+    return {
+      ...row,
+      request_payload: payload.request_payload,
+      metering: payload.metering,
+      archive_payload: payload.archive_payload,
+    }
   })
   if (!claimed) return null
   if (idleSlot)

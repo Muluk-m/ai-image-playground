@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, expect, it, spyOn } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { sql } from 'drizzle-orm'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
@@ -945,11 +945,12 @@ it.each([
   const { eq } = await import('drizzle-orm')
   await db
     .update(schema.tasks)
-    .set({
-      reconciliation_required: true,
-      request_payload: { ...archivedInputs, preserve_outside_mask: true },
-    })
+    .set({ reconciliation_required: true })
     .where(eq(schema.tasks.id, id))
+  await db
+    .update(schema.task_payloads)
+    .set({ request_payload: { ...archivedInputs, preserve_outside_mask: true } })
+    .where(eq(schema.task_payloads.task_id, id))
   const { claimTaskExecution } = await import('../../workers/task-execution')
   const { generationSourceCheckpoint } = await import('../../lib/generationMedia')
   const execution = await claimTaskExecution(id)
@@ -1035,7 +1036,7 @@ it('停机中止清理时保留未清完持久对象的对账任务，下一轮�
   const ids = ['purge-reconcile-a', 'purge-reconcile-b']
   const old = Date.now() - 60_000
   for (const id of ids) {
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id,
       provider: 'openai-compat',
       model: 'fixture',

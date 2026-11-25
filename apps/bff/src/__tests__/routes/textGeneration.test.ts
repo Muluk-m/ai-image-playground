@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import { Elysia } from 'elysia'
 import { _setPrivateBffOverlayForTesting } from '../../lib/private-overlay'
 import { completionStream } from '../helpers/agentStubs'
@@ -83,7 +83,7 @@ it('generates with the selected chat model, full source text and one billed task
   expect(JSON.stringify(calls[0]?.messages)).toContain('主角名叫青禾。')
   expect(billing.reservations).toHaveLength(1)
   expect(billing.settlements).toMatchObject([{ outcome: 'completed', upstreamInvocationCount: 1 }])
-  const [task] = await db.select().from(schema.tasks)
+  const [task] = await selectTestTasks(db)
   expect(task).toMatchObject({
     kind: 'chat',
     status: 'completed',
@@ -104,7 +104,7 @@ it('uses account unmetered metering before pricing and does not reserve or settl
   expect(billing.reservations).toEqual([])
   expect(billing.settlements).toEqual([])
   expect(billing.quotaCalls).toHaveLength(1)
-  const [task] = await db.select().from(schema.tasks)
+  const [task] = await selectTestTasks(db)
   expect(task?.metering).toMatchObject({
     mode: 'none',
     model: 'fixture-agent-model',
@@ -134,7 +134,7 @@ it('returns account quota exhaustion before dispatch and leaves no canvas text t
     reset_at: '2099-01-01T00:00:00.000Z',
   })
   expect(calls).toEqual([])
-  expect(await db.select().from(schema.tasks)).toEqual([])
+  expect(await selectTestTasks(db)).toEqual([])
 })
 
 it('rejects unauthenticated and unlisted models before charging or dispatching', async () => {
@@ -156,7 +156,7 @@ it('does not dispatch or leave a task when the balance cannot cover generation',
     available: 0,
   })
   expect(calls).toEqual([])
-  expect(await db.select().from(schema.tasks)).toEqual([])
+  expect(await selectTestTasks(db)).toEqual([])
   expect(billing.settlements).toEqual([])
 })
 
@@ -166,7 +166,7 @@ it('releases the reservation on an upstream failure without returning generated 
   expect(response.status).toBe(502)
   expect(await response.json()).toEqual({ error: 'text_generation_failed' })
   expect(billing.settlements).toMatchObject([{ outcome: 'failed', upstreamInvocationCount: 1 }])
-  const [task] = await db.select().from(schema.tasks)
+  const [task] = await selectTestTasks(db)
   expect(task?.status).toBe('failed')
 })
 
@@ -222,7 +222,7 @@ it('rejects missing pricing without an upstream call or leftover task', async ()
     model: 'fixture-agent-model',
   })
   expect(calls).toEqual([])
-  expect(await db.select().from(schema.tasks)).toEqual([])
+  expect(await selectTestTasks(db)).toEqual([])
 })
 
 it('uses the configured display label without exposing provider names in canvas text models', async () => {

@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import {
   type AgentConversationSnapshot,
   type AgentToolResultBlock,
@@ -165,10 +165,7 @@ async function resumes(conversationId: string) {
 }
 
 async function tasksOf(conversationId: string) {
-  return db
-    .select()
-    .from(schema.tasks)
-    .where(eq(schema.tasks.agent_conversation_id, conversationId))
+  return selectTestTasks(db).where(eq(schema.tasks.agent_conversation_id, conversationId))
 }
 
 async function jobsOf(conversationId: string) {

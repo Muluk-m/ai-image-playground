@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import type { SubmitRequest } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import {
@@ -126,7 +126,7 @@ async function submitVia(entry: Entry, base: Input): Promise<Outcome> {
 async function stored(outcome: Outcome) {
   expect(outcome.kind).toBe('created')
   if (outcome.kind !== 'created') throw new Error('expected a task')
-  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, outcome.taskId))
+  const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, outcome.taskId))
   return task!.request_payload
 }
 
@@ -149,7 +149,7 @@ describe('GPT 4K high request by entry', () => {
         const outcome = await submitVia(entry, baseInput('gpt'))
         if (expected === 'denied') {
           expect(outcome.kind).toBe('private_billing_denied')
-          expect(await db.select().from(schema.tasks)).toHaveLength(0)
+          expect(await selectTestTasks(db)).toHaveLength(0)
           return
         }
         const payload = await stored(outcome)
@@ -175,7 +175,7 @@ describe('Gemini 4K request by entry', () => {
         const outcome = await submitVia(entry, baseInput('gemini'))
         if (expected === 'denied') {
           expect(outcome.kind).toBe('private_billing_denied')
-          expect(await db.select().from(schema.tasks)).toHaveLength(0)
+          expect(await selectTestTasks(db)).toHaveLength(0)
           return
         }
         expect((await stored(outcome)).image_size).toBe(expected)
@@ -188,7 +188,7 @@ describe('metering.tier snapshot', () => {
   async function tierOf(outcome: Outcome) {
     expect(outcome.kind).toBe('created')
     if (outcome.kind !== 'created') throw new Error('expected a task')
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, outcome.taskId))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, outcome.taskId))
     return task!.metering?.tier
   }
 

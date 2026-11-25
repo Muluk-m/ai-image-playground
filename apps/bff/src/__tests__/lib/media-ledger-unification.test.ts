@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { OAUTH_ONLY_PASSWORD_HASH } from '@image-playground/db'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase, type TestTaskSeed } from '@image-playground/db/testing'
 import { readUserAssetBytes } from '@image-playground/read-models'
 import { and, eq } from 'drizzle-orm'
 import { InMemoryObjectStore } from '../helpers/inMemoryObjectStore'
@@ -333,7 +333,7 @@ describe('unified media ledger (Contract 2a Stop-Write)', () => {
         created_at: now,
       },
     ])
-    await db.insert(schema.tasks).values([
+    await insertTestTasks(db, [
       {
         id: 'queued-unrelated-task',
         user_id: 'ledger-user',
@@ -352,7 +352,7 @@ describe('unified media ledger (Contract 2a Stop-Write)', () => {
         request_payload: {
           prompt: 'uses asset',
           input_images: [{ object: 'users/ledger-user/assets/img-task-ref', mime: 'image/png' }],
-        } as unknown as (typeof schema.tasks.$inferInsert)['request_payload'],
+        } as unknown as TestTaskSeed['request_payload'],
         submitted_at: now,
       },
     ])

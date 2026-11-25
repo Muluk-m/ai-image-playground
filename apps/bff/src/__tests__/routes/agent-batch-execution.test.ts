@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import { DEVICE_ID_HEADER } from '@image-playground/shared'
 import { and, eq, sql } from 'drizzle-orm'
 import sharp from 'sharp'
@@ -2362,10 +2362,9 @@ it('confirms one independently priced analysis after its origin turn settled and
       status: 'available',
       estimatedChargeCredits: 7,
     })
-    const originalTasks = await db
-      .select()
-      .from(schema.tasks)
-      .where(eq(schema.tasks.agent_conversation_id, conversation.id))
+    const originalTasks = await selectTestTasks(db).where(
+      eq(schema.tasks.agent_conversation_id, conversation.id),
+    )
     expect(originalTasks).toHaveLength(1)
     expect(originalTasks[0]).toMatchObject({ kind: 'chat', status: 'completed' })
     const originalSettlements = billing.settlements.filter(
@@ -2381,9 +2380,11 @@ it('confirms one independently priced analysis after its origin turn settled and
     expect(confirmed.status).toBe(200)
     const accepted = await confirmed.json()
     const taskId = accepted.items[0].execution.taskId
-    expect(
-      (await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId)))[0],
-    ).toMatchObject({ kind: 'analysis', status: 'queued', agent_turn_id: null })
+    expect((await selectTestTasks(db).where(eq(schema.tasks.id, taskId)))[0]).toMatchObject({
+      kind: 'analysis',
+      status: 'queued',
+      agent_turn_id: null,
+    })
     const secondConfirmation = await request(`${path}/confirm`, command)
     expect(secondConfirmation.status).toBe(200)
     expect(billing.reservations.filter((one) => one.taskId === taskId)).toHaveLength(1)
@@ -2422,9 +2423,9 @@ it('confirms one independently priced analysis after its origin turn settled and
       artifacts: [],
     })
     expect(calls).toBe(1)
-    expect(
-      await db.select().from(schema.tasks).where(eq(schema.tasks.id, originalTasks[0]!.id)),
-    ).toEqual(originalTasks)
+    expect(await selectTestTasks(db).where(eq(schema.tasks.id, originalTasks[0]!.id))).toEqual(
+      originalTasks,
+    )
     expect(billing.settlements.filter((one) => one.taskId === originalTasks[0]!.id)).toEqual(
       originalSettlements,
     )
@@ -2687,7 +2688,7 @@ it('terminal unmetered cancellation retains none metering and no settlement', as
   ).json()
   const taskId = accepted.items[0].execution.taskId
   expect((await request(`v1/queue/requests/${taskId}/cancel`, {}, 'PUT')).status).toBe(200)
-  const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, taskId))
+  const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, taskId))
   expect(task.metering).toMatchObject({ mode: 'none' })
   expect(billing.settlements.filter((one) => one.taskId === taskId)).toHaveLength(0)
 })

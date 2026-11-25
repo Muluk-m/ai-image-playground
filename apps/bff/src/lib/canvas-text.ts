@@ -5,7 +5,7 @@ import {
 } from '@earendil-works/pi-ai'
 import { and, eq, sql } from 'drizzle-orm'
 import { db, schema } from '../db/client'
-import { finishTask, heldBy, syncTaskPayloads } from '../modules/execution'
+import { finishTask, heldBy, insertTaskPayload } from '../modules/execution'
 import { type ChatTaskPricing, chatTaskPricing, chatTurnsBilled } from './agent/chat-task'
 import { compactionSettings } from './agent/compaction-settings'
 import { agentStreamFn } from './agent/model'
@@ -163,14 +163,17 @@ export async function generateCanvasText(
         model: model.id,
         status: 'in_progress',
         user_id: userId,
-        request_payload: { prompt: '', device_id: input.deviceId },
-        metering: { mode: meteringMode, model: model.id, quantity: 1, unitMultiplier: 1 },
+        device_id: input.deviceId,
         submitted_at: now,
         started_at: now,
         execution_token: token,
         lease_expires_at: now + 120_000,
       })
-      await syncTaskPayloads(tx, [id])
+      await insertTaskPayload(tx, {
+        task_id: id,
+        request_payload: { prompt: '', device_id: input.deviceId },
+        metering: { mode: meteringMode, model: model.id, quantity: 1, unitMultiplier: 1 },
+      })
       if (unmetered && userId && hooks.consumeUnmeteredQuota) {
         const quota = await hooks.consumeUnmeteredQuota({
           tx,

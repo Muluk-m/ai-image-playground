@@ -1,5 +1,5 @@
 import { afterAll, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import type { AgentToolContext } from '../../../lib/agent/tools/types'
 import type { ObjectRangeReader, ObjectStore } from '../../../lib/objectStore'
 
@@ -29,7 +29,7 @@ function context(): AgentToolContext {
 }
 
 async function completedVideo(id: string, item: Record<string, unknown>): Promise<void> {
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id,
     provider: 'openai-compat',
     model: 'video-model',

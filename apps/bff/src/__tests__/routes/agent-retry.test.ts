@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import {
   type AgentBackgroundJobsResponse,
   type AgentMessageView,
@@ -145,9 +145,9 @@ async function failedCall(errorType: TaskErrorType = 'upstream_timeout', calls: 
   const [end] = eventsOfType(frames, 'toolEnd')
   // 生成工具只拟稿：这一刻还没有任务，用户在卡上确认之后才提交。
   expect(end!.status).toBe('awaiting_confirmation')
-  expect(await db.select().from(schema.tasks)).toEqual([])
+  expect(await selectTestTasks(db)).toEqual([])
   await confirmPendingDrafts(app, conversationId, { deviceId: DEVICE })
-  const [task] = await db.select().from(schema.tasks)
+  const [task] = await selectTestTasks(db)
   // 这里只看重试：原来那次失败按规则会唤醒智能体（见 agent-wake），先记成已投递，免得唤醒轮
   // 在测试中途抢着调用对话模型。
   await db
@@ -192,7 +192,7 @@ describe('单张重试', () => {
     expect(response.status).toBe(200)
     const { message } = (await response.json()) as AgentRetryResponse
     const record = toolBlock(message)
-    const tasks = await db.select().from(schema.tasks)
+    const tasks = await selectTestTasks(db)
     const retried = tasks.find((task) => task.id !== originalTaskId)!
     expect(record).toMatchObject({
       status: 'submitted',
@@ -287,7 +287,7 @@ describe('单张重试', () => {
     )
 
     expect(cancelled.status).toBe(200)
-    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, retryTaskId))
+    const [task] = await selectTestTasks(db).where(eq(schema.tasks.id, retryTaskId))
     expect(task!.status).toBe('cancelled')
     const job = (await readJobs(conversationId)).find((one) => one.messageId === message.id)
     expect(job!.result).toMatchObject({ status: 'failed', errorCode: 'cancelled' })
@@ -313,7 +313,7 @@ describe('单张重试', () => {
     const a = ((await first.json()) as AgentRetryResponse).message
     const b = ((await second.json()) as AgentRetryResponse).message
     expect(b.id).toBe(a.id)
-    expect(await db.select().from(schema.tasks)).toHaveLength(2)
+    expect(await selectTestTasks(db)).toHaveLength(2)
 
     // 补上之后再点，给回的仍是那一条，不再出第三张。
     await finishTask(toolBlock(a).job!.taskId, 'completed')
@@ -321,7 +321,7 @@ describe('单张重试', () => {
     const replayed = ((await later.json()) as AgentRetryResponse).message
     expect(replayed.id).toBe(a.id)
     expect(toolBlock(replayed).status).toBe('succeeded')
-    expect(await db.select().from(schema.tasks)).toHaveLength(2)
+    expect(await selectTestTasks(db)).toHaveLength(2)
     const records = (await readMessages(conversationId)).filter((message) => {
       const block = message.content[0]
       return block?.type === 'toolResult' && block.retryOf
@@ -406,7 +406,7 @@ describe('单张重试', () => {
 
     expect(response.status).toBe(422)
     expect(await response.json()).toEqual({ error: 'not_retryable' })
-    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(await selectTestTasks(db)).toHaveLength(1)
   })
 
   it('refuses a retry of a retry record', async () => {
@@ -464,7 +464,7 @@ describe('单张重试', () => {
 
     expect(response.status).toBe(409)
     expect(await response.json()).toEqual({ error: 'retry_refused', code: 'model_unavailable' })
-    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(await selectTestTasks(db)).toHaveLength(1)
   })
 
   it('does not retry a card of someone else', async () => {
@@ -477,6 +477,6 @@ describe('单张重试', () => {
       }),
     )
     expect(response.status).toBe(404)
-    expect(await db.select().from(schema.tasks)).toHaveLength(1)
+    expect(await selectTestTasks(db)).toHaveLength(1)
   })
 })

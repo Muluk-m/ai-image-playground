@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 import {
   _setPrivateBffOverlayForTesting,
@@ -56,16 +56,17 @@ async function readTask(id: string) {
       errorMessage: schema.tasks.error_message,
       completedAt: schema.tasks.completed_at,
       invocations: schema.tasks.upstream_invocation_count,
-      archivePayload: schema.tasks.archive_payload,
+      archivePayload: schema.task_payloads.archive_payload,
       archiveRetryStartedAt: schema.tasks.archive_retry_started_at,
     })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(eq(schema.tasks.id, id))
   return row
 }
 
 async function insertQueuedTask(id: string, attemptCount = 0): Promise<void> {
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id,
     provider: 'openai-compat',
     model: 'test-model',
@@ -130,7 +131,7 @@ describe('object store write failure', () => {
 describe('durable archive retry budget', () => {
   it('stops an hour-old save retry without another upstream call and keeps its checkpoint', async () => {
     const checkpoint = { archive_store: 'durable', data: [{ object: 'expired/out/0' }] }
-    await db.insert(schema.tasks).values({
+    await insertTestTasks(db, {
       id: 'archive-expired',
       provider: 'openai-compat',
       model: 'test-model',

@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase, type TestTaskSeed } from '@image-playground/db/testing'
 import { eq } from 'drizzle-orm'
 import type { InternalChannel } from '../../lib/channels'
 import { installRecordingTaskHooks } from '../helpers/privateOverlayStub'
@@ -82,13 +82,10 @@ afterAll(async () => {
 })
 
 let seq = 0
-async function queue(
-  userId: string,
-  values: Partial<typeof schema.tasks.$inferInsert> = {},
-): Promise<string> {
+async function queue(userId: string, values: Partial<TestTaskSeed> = {}): Promise<string> {
   seq += 1
   const id = `${userId}-${String(seq).padStart(4, '0')}`
-  await db.insert(schema.tasks).values({
+  await insertTestTasks(db, {
     id,
     user_id: userId,
     provider: 'openai-compat',
@@ -101,7 +98,7 @@ async function queue(
   return id
 }
 
-async function running(userId: string, values: Partial<typeof schema.tasks.$inferInsert> = {}) {
+async function running(userId: string, values: Partial<TestTaskSeed> = {}) {
   return queue(userId, {
     status: 'in_progress',
     started_at: Date.now(),

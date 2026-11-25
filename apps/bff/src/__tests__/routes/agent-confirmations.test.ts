@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test'
 import { resolve } from 'node:path'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import { insertTestTasks, resetTestDatabase, selectTestTasks } from '@image-playground/db/testing'
 import {
   type AgentMessageView,
   type AgentToolResultBlock,
@@ -204,12 +204,9 @@ function blockOf(json: unknown): AgentToolResultBlock {
 
 /** 这个会话建出来的生成任务。对话轮自己的那条 chat 任务不在此列。 */
 function generationTasks(conversationId: string) {
-  return db
-    .select()
-    .from(schema.tasks)
-    .where(
-      and(eq(schema.tasks.agent_conversation_id, conversationId), eq(schema.tasks.kind, 'queue')),
-    )
+  return selectTestTasks(db).where(
+    and(eq(schema.tasks.agent_conversation_id, conversationId), eq(schema.tasks.kind, 'queue')),
+  )
 }
 
 /** 为生成预扣下的那几笔。对话模型的预扣与确认无关，不算在内。 */
@@ -508,7 +505,7 @@ describe('生成前确认', () => {
     const taskA = 'task-cas-a'
     const taskB = 'task-cas-b'
     const taskFast = 'task-fast-race'
-    await db.insert(schema.tasks).values([
+    await insertTestTasks(db, [
       {
         id: taskA,
         provider: 'openai-compat',
@@ -646,9 +643,7 @@ describe('生成前确认', () => {
       ).toBe(true)
       const { purgeOldTasks } = await import('../../db/maintenance')
       await purgeOldTasks(-1)
-      expect(
-        await db.select().from(schema.tasks).where(eq(schema.tasks.id, task!.id)),
-      ).toHaveLength(1)
+      expect(await selectTestTasks(db).where(eq(schema.tasks.id, task!.id))).toHaveLength(1)
     } finally {
       _setPrivateBffOverlayForTesting(overlay)
     }

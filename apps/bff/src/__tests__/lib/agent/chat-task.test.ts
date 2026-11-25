@@ -1,5 +1,10 @@
 import { afterAll, beforeEach, describe, expect, it } from 'bun:test'
-import { resetTestDatabase } from '@image-playground/db/testing'
+import {
+  insertTestTasks,
+  resetTestDatabase,
+  selectTestTasks,
+  type TestTaskSeed,
+} from '@image-playground/db/testing'
 import type { AgentTurnUsage } from '@image-playground/shared'
 import { installRecordingTaskHooks } from '../../helpers/privateOverlayStub'
 
@@ -86,10 +91,10 @@ const VIDEO_PAYLOAD = {
   prompt: '海浪拍打礁石',
   device_id: DEVICE,
   video: { duration_seconds: 5, aspect_ratio: '16:9', resolution: '720p' },
-} as const satisfies (typeof schema.tasks.$inferInsert)['request_payload']
+} as const satisfies TestTaskSeed['request_payload']
 
 /** 工具提交的任务：各自独立计费，只用会话与轮关联。 */
-function toolTask(id: string, turnId: string): typeof schema.tasks.$inferInsert {
+function toolTask(id: string, turnId: string): TestTaskSeed {
   return {
     id,
     kind: 'queue',
@@ -171,7 +176,7 @@ describe('reserveChatTask', () => {
     const { turnId, reservation } = await reserve({ estimatedInputTokens: 3_000 })
 
     expect(expectReserved(reservation).reservedCredits).toBe(60)
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task).toMatchObject({
       id: turnId,
       kind: 'chat',
@@ -192,7 +197,7 @@ describe('reserveChatTask', () => {
     const { reservation } = await reserve({ estimatedInputTokens: 3_000 })
 
     expect(reservation).toEqual({ kind: 'insufficient_credits', required: 78, available: 12 })
-    expect(await db.select().from(schema.tasks)).toEqual([])
+    expect(await selectTestTasks(db)).toEqual([])
   })
 
   it('refuses the turn when the price table does not know the model', async () => {
@@ -201,7 +206,7 @@ describe('reserveChatTask', () => {
     const { reservation } = await reserve({ estimatedInputTokens: 3_000 })
 
     expect(reservation).toEqual({ kind: 'price_unavailable', model: MODEL })
-    expect(await db.select().from(schema.tasks)).toEqual([])
+    expect(await selectTestTasks(db)).toEqual([])
   })
 })
 
@@ -304,7 +309,7 @@ describe('settling a chat task', () => {
 
     expect(settlement).toMatchObject({ taskId: turnId, outcome: 'completed' })
     expect(settlement.actualUsage).toBeUndefined()
-    const [task] = await db.select().from(schema.tasks)
+    const [task] = await selectTestTasks(db)
     expect(task).toMatchObject({ status: 'completed', upstream_invocation_count: 2 })
   })
 
@@ -312,7 +317,7 @@ describe('settling a chat task', () => {
     billing.settledCredits = 42
     billing.creditsPerTask = 85
     const { turnId, reservation } = await reserve({ estimatedInputTokens: 3_000 })
-    await db.insert(schema.tasks).values([
+    await insertTestTasks(db, [
       toolTask(`${turnId}-image`, turnId),
       { ...toolTask(`${turnId}-video`, turnId), request_payload: VIDEO_PAYLOAD },
       // 别的轮的任务不进这一轮的账。
