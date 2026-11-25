@@ -176,7 +176,7 @@ func TestDamagedRegistryIsKeptAsideNotOverwritten(t *testing.T) {
 	}
 }
 
-// The web manifest publishes the generic CLI package for --dir copies (extra_packages.custom);
+// The web manifest publishes the generic CLI package for --dir copies (dir_package);
 // a hot update only lands as intended while both bundles hold the same files.
 func TestDirCopiesBundleTheSameFilesAsTheGenericHosts(t *testing.T) {
 	_, custom, err := bundleFilesForHost(customHost)

@@ -1,6 +1,6 @@
 # Updates
 
-Both the `muvloom` CLI binary and installed Skills (`claude-code`, `codex`, `workbuddy`, `cursor`, `windsurf`, `cline`, `openclaw` copies with `.muvloom-skill.json`) automatically check Muvloom's official `/cli/skill-manifest.json` at most once every 24 hours during `muvloom auth status`:
+Both the `muvloom` CLI binary and installed Skills (`claude-code`, `codex`, `workbuddy`, `cursor`, `windsurf`, `cline`, `openclaw` copies and every directory installed with `skill install --dir`, each with `.muvloom-skill.json`) automatically check Muvloom's official `/cli/skill-manifest.json` at most once every 24 hours during `muvloom auth status`:
 
 - **SHA-256 verified**: every binary and Skill archive is verified against exact byte count and SHA-256 before atomic replacement.
 - **Non-blocking**: bounded timeout budget; offline or slow networks never fail or stall generation commands.

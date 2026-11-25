@@ -461,6 +461,34 @@ func TestRemoteManifestTakesDirCopiesFromDirPackageOnly(t *testing.T) {
 	}
 }
 
+// A manifest without dir_package (every one before it) leaves --dir copies alone, and a custom
+// entry under packages or extra_packages is never taken as theirs.
+func TestRemoteManifestIgnoresCustomHostOutsideDirPackage(t *testing.T) {
+	zipBytes, hash, files := buildTestSkillZip(t, map[string][]byte{"SKILL.md": []byte("# x\n")})
+	sum := sha256.Sum256(zipBytes)
+	pkg := RemoteManifestBundle{Archive: "muvloom-cli-skill.zip", ArchiveSHA256: hex.EncodeToString(sum[:]), FileHash: hash, Files: files}
+	for name, m := range map[string]RemoteManifest{
+		"no dir_package":     {Packages: map[string]RemoteManifestBundle{"claude-code": pkg}},
+		"custom in packages": {Packages: map[string]RemoteManifestBundle{"claude-code": pkg, customHost: pkg}},
+		"custom in extra":    {Packages: map[string]RemoteManifestBundle{"claude-code": pkg}, ExtraPackages: map[string]RemoteManifestBundle{customHost: pkg}},
+	} {
+		m.SchemaVersion, m.Skill, m.Version, m.BundleVersion = 1, "muvloom", SkillVersion+".1", BundleVersion
+		body, err := json.Marshal(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) }))
+		got, err := fetchManifest(context.Background(), safeHTTPClient(srv.Client()), srv.URL)
+		srv.Close()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if _, ok := got.Packages[customHost]; ok {
+			t.Fatalf("%s: custom host taken from outside dir_package", name)
+		}
+	}
+}
+
 func TestRemoteUpdateRefusesADirCopyThatIsNoLongerRegistered(t *testing.T) {
 	t.Setenv("MUVLOOM_CONFIG_DIR", t.TempDir())
 	home, cwd := t.TempDir(), t.TempDir()
