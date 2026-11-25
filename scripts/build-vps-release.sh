@@ -68,12 +68,14 @@ build_image() {
   remote=$ghcr_repository:$2
   context=$3
   shift 3
-  # Production and test reuse public and pinned-overlay build stages through the registry cache.
-  # The backup image uses another Dockerfile and must not replace the application cache.
+  # Each component reads and (on production releases) writes its own registry build cache so the
+  # backup sidecar and segmenter reuse their heavy dependency/weight layers without writing into
+  # the application cache.
   if [ "$transport" = registry ]; then
-    set -- --cache-from "type=registry,ref=${ghcr_repository}:buildcache" "$@"
+    cache_tag=${build_cache_tag:-buildcache}
+    set -- --cache-from "type=registry,ref=${ghcr_repository}:${cache_tag}" "$@"
     if [ "${export_build_cache:-0}" = 1 ]; then
-      set -- --cache-to "type=registry,ref=${ghcr_repository}:buildcache,mode=max" "$@"
+      set -- --cache-to "type=registry,ref=${ghcr_repository}:${cache_tag},mode=max" "$@"
     fi
   fi
   if [ "$transport" = registry ]; then
@@ -103,9 +105,10 @@ mkdir -p "$output"
 version=$public_sha+$private_sha
 image=ai-image-playground:$target-$(printf %.12s "$public_sha")-$(printf %.12s "$private_sha")
 registry_tag=$target-$(printf %.12s "$public_sha")-$(printf %.12s "$private_sha")
-# Only production exports the shared application build cache. A test release is built before its
-# gates finish (deploy-test.yml), so an unchecked commit must not write the cache production reads;
-# it still reads it.
+# Only production exports the shared build caches. A test release is built before its gates finish
+# (deploy-test.yml), so an unchecked commit must not write any cache production reads; it still
+# reads them.
+build_cache_tag=buildcache
 export_build_cache=1
 [ "$target" != test ] || export_build_cache=0
 build_image "$image" "$registry_tag" "$snapshot/public" \
@@ -114,8 +117,11 @@ printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$target" "$image" "$image_id" "$public_sha" "
   "$repo_digest" >> "$output/images.tsv"
 images="$image"
 # The backup sidecar is also prebuilt; production Compose has no build context.
-# Do not export its layers into the application build cache.
-export_build_cache=0
+# A cache of its own keeps the `apk add aws-cli` layer byte-identical across releases instead of
+# producing ~230 MB of unique layer bytes on every deploy.
+build_cache_tag=buildcache-backup
+export_build_cache=1
+[ "$target" != test ] || export_build_cache=0
 backup_image=ai-image-playground:backup-$(printf %.12s "$public_sha")
 build_image "$backup_image" "backup-$(printf %.12s "$public_sha")" "$snapshot/public/deploy/backup" \
   --build-arg "APP_VERSION=$public_sha"
@@ -131,14 +137,10 @@ if [ "$target" != test ]; then
   segmenter_image=ai-image-playground:segmenter-$segmenter_version-$(printf %.12s "$public_sha")
   # A cache of its own keeps the dependency and weight layers byte-identical between releases,
   # so the VPS pulls only the small top layer.
-  if [ "$transport" = registry ]; then
-    set -- --cache-from "type=registry,ref=${ghcr_repository}:buildcache-segmenter" \
-      --cache-to "type=registry,ref=${ghcr_repository}:buildcache-segmenter,mode=max"
-  else
-    set --
-  fi
+  build_cache_tag=buildcache-segmenter
+  export_build_cache=1
   build_image "$segmenter_image" "segmenter-$segmenter_version-$(printf %.12s "$public_sha")" "$snapshot/public/deploy/segmenter" \
-    "$@" --build-arg "APP_VERSION=$public_sha" --build-arg "SEGMENTER_VERSION=$segmenter_version"
+    --build-arg "APP_VERSION=$public_sha" --build-arg "SEGMENTER_VERSION=$segmenter_version"
   printf 'segmenter\t%s\t%s\t%s\t-\t%s\n' "$segmenter_image" "$image_id" "$public_sha" "$repo_digest" >> "$output/images.tsv"
   images="$images $segmenter_image"
 fi

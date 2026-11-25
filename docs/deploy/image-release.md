@@ -285,4 +285,12 @@ scripts/app-compose.sh rollback <project> <旧镜像>
 
 运行中镜像不得删除。回滚优先使用 VPS 本地保留的镜像。本地镜像缺失时，由当前安全发布工具按已验证 digest 重新拉取，再执行回滚。GHCR 镜像清理不属于本流程。
 
+**VPS 磁盘回收**：每次发布由 `reclaim_deploy_disk` 自动清理超代镜像（`paid` 与 `backup` 默认留 `DEPLOY_KEEP_IMAGES=2` 代，`test` 默认留 `DEPLOY_KEEP_TEST_IMAGES=1` 代，`segmenter` 默认留 `DEPLOY_KEEP_SEGMENTER_IMAGES=1` 代，运行中容器按完整镜像 ID 保护）、已无本地 tag 的孤儿 `ghcr.io/muluk-m/ai-image-playground@sha256:...` 引用、未被引用的旧版第三方边车镜像（`cloudflared`、`fluent-bit`、`otel-collector`、`openobserve`），以及超出 `DEPLOY_KEEP_RELEASES`（默认 30）的历史已发布/失败目录；`rollout-runtime.sh` 会回收首次安装遗留的已退出 `migrate-1` / `dependency-check-1` 容器，`segmenter-deploy.sh prune` 会在主容器稳定运行满 `SEGMENTER_PREV_RETENTION_SECONDS`（默认 7 天）后回收已停止的 `image-playground-segmenter-prev`。需要手工腾空间时，不要直接跑无锁的 `docker image prune -a`（容易撞上并发发布刚拉下的镜像），改用带主机锁的入口：
+
+```sh
+~/deploy-runtimes/current-paid/scripts/vps-reclaim-disk.sh
+```
+
+若此时正有发布持有 `deploy.lock`，脚本以退出码 75 退出且不做任何修改。
+
 `paid` 与 `test` 的部署脚本均按 `main` 提交放在 `~/deploy-runtimes/<提交>/`，随每次发布自动解出（`paid` 取所发提交，`test` 取当前 `main` 最新提交），分别由 `current-paid`、`current-test` 指向最近一次成功发布的版本；固定入口 `/home/ubuntu/bin/aip-ci-receive` 由 receiver 从 `main` 自动更新并带时间戳备份，只有新主机首次安装时手工放置。手工入口须明确传 `paid` 或 `test` 及数据发布目录，不执行 VPS 旧检出或历史发布包内的脚本。备份、恢复及历史备用记录见[灾备手册](cold-recovery.md)。

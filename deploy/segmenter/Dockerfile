@@ -21,12 +21,10 @@ COPY fetch-model.mjs ./
 RUN node fetch-model.mjs /models
 
 FROM node:24-bookworm-slim
-ARG APP_VERSION=unknown
 # deploy/segmenter/VERSION; the VPS replaces the running segmenter only when this differs.
 ARG SEGMENTER_VERSION=0
 LABEL online.muvloom.segmenter.version=$SEGMENTER_VERSION
-ENV APP_VERSION=$APP_VERSION \
-  SEGMENTER_VERSION=$SEGMENTER_VERSION \
+ENV SEGMENTER_VERSION=$SEGMENTER_VERSION \
   NODE_ENV=production \
   PORT=8080 \
   SEGMENTER_MODEL_DIR=/models \
@@ -38,6 +36,10 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=model /models /models
 COPY package.json server.mjs ./
+# Declared after the dependency and model weight copies so a new commit SHA does not bust the
+# heavy layers below it.
+ARG APP_VERSION=unknown
+ENV APP_VERSION=$APP_VERSION
 USER node
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

@@ -15,13 +15,13 @@ Agent 从 PR 到上线的完整链路，以及每一步谁能拍板。命令与�
 | 步骤 | 谁拍板 | 说明 |
 | --- | --- | --- |
 | 修 bug、功能或行为变更的 PR 合并 main（合并后待发布，不自动上线） | Agent，检查齐了即可 | 检查见「合并前检查」；确认没问题即可直接 squash merge。涉及成本或结算的要在描述和汇报里写清并标出影响 |
-| 带数据库迁移的 PR 合并 main | Agent，检查齐了即可 | 迁移必须兼容新旧两代后端并带回滚 SQL；改编号前按 AGENTS.md 先查两个库已跑过的迁移 |
+| 带数据库迁移的 PR 合并 main | Agent，检查齐了即可 | 迁移必须兼容新旧两代后端并带回滚 SQL；改编号前按 AGENTS.md 先查两个库已跑过的迁移；**带 `DROP` 或删数据的迁移须在 PR 描述里写明「最早可发布时间」** |
 | 发布 CLI（打 `cli-vX.Y.Z` 标签） | Agent，检查齐了即可 | 见 [CLI 发布](cli-release.md)；发布后先用官方安装脚本试装，确认安装与版本正常 |
 | 生产常规回滚（revert PR） | Agent | 冒烟不过或出事故时直接开 revert PR 合并，并触发 Deploy production 发出；事后在汇报里写清现象、影响和回滚目标 |
-| 触发 Deploy production（发布当前 main） | **需 Nain 说发布**（回滚除外） | 一律走幂等入口 `scripts/release.sh [--include <sha>]`，禁止裸跑 `gh workflow run deploy.yml`。默认 `mode=incremental`；`full` 全部重发。Nain 说了发布，Agent 直接执行并跟进，不再另行确认 |
+| 触发 Deploy production（发布当前 main） | **需 Nain 说发布**（回滚除外） | 一律走幂等入口 `scripts/release.sh [--include <sha>]`，禁止裸跑 `gh workflow run deploy.yml`。默认 `mode=incremental`；`full` 全部重发。发布前先跑 `scripts/release-status.sh` 核对待发提交中是否含带 `DROP`/删数据迁移的 PR——`--pin-sha` 只锁死触发时刻的 `main` HEAD、不能跳过已合入 `main` 的迁移；未到其标注的「最早可发布时间」不得触发，须等到期或交 Nain 评估是否先回退该 PR。Nain 说了发布且核对无阻断，Agent 直接执行并跟进，不再另行确认 |
 | 重跑失败的 Deploy production job | Agent | 只按失败 job 重跑，不重跑整单 |
 | 绕过流水线手动发布 / 手工前端回滚（`scripts/pages-release.sh`） | **需 Nain 批准** | 正常路径是 Deploy production workflow；绕过它（macmini2 构建、手工上传）没有检查和自动回滚 |
-| 改服务器上的 `app.env` / `operator-config.json` | **需 Nain 批准** | 手工改，先备份，见下文 |
+| 改生产配置与密钥（`prod.json` / Secrets Store / `legacy` 下的 `app.env`） | **需 Nain 批准** | `rendered` 下非密钥配置与能力开关改 `deploy/deployments/prod.json` 走 PR 发布，密钥经 `provision.ts secrets push` 写 Secrets Store；`legacy` 下手工改 `app.env` / `operator-config.json` 须先备份 |
 | 重启、重建、停止生产容器 | **需 Nain 批准** | 包括 `app-compose.sh up` |
 | 共享 segmenter 的 `up` / `rollback` / `detach` | **需 Nain 批准** | 全部部署共用一个实例 |
 | 推 `test` 分支发测试环境 | Agent | 测试环境独立，但调用真实供应商，花的是真钱 |
@@ -119,7 +119,7 @@ curl -fsS https://test.muvloom.online/version.json
 
 **先止血，再回滚。** 出问题的是单个功能或单个模型时，先关掉它，往往比回滚整个版本更快、波及更小：
 
-- **关能力开关**：能力在服务器上的 `operator-config.json` 的 `capabilities` 里（求值见 `apps/bff/src/lib/capabilities.ts`），一律 deny by default。把出问题的能力改成 `false`，按[智能体上线手册「十、回滚」](../deploy/agent-rollout.md)的方式先备份再 `scripts/app-compose.sh up <project>`。配置写坏服务会拒绝启动而不是降级（[ADR 0001](../adr/0001-capability-config-fails-closed.md)），改完先校验 JSON。
+- **关能力开关**：能力求值见 `apps/bff/src/lib/capabilities.ts`，一律 deny by default。`configSource: "rendered"` 下能力开关声明在 `deploy/deployments/<name>.json` 的 `operator.capabilities` 字段，把出问题的能力改成 `false` 开 PR 合并并发布生效（不再读服务器上的 `apps/<project>/operator-config.json`）；仅在 `configSource: "legacy"`（或经 Nain 批准以 `CONFIG_SOURCE=legacy` 应急切回旧布局）时，才直接修改服务器上的 `operator-config.json` 并按[智能体上线手册「十、回滚」](../deploy/agent-rollout.md)备份后运行 `scripts/app-compose.sh up <project>`。配置写坏服务会拒绝启动而不是降级（[ADR 0001](../adr/0001-capability-config-fails-closed.md)），改完先校验 JSON。
 - **下架模型**：在 Admin 的「模型」页把出问题的模型切到下架，写进公开库 `model_availability`（`apps/bff/src/lib/model-availability.ts`），页面和服务端都不再提供它，不用重新发布。
 - 止血之后照样按下面的方式回滚或修复，并在汇报里写明止血做了什么、什么时候恢复。
 
@@ -145,13 +145,15 @@ curl -fsS https://test.muvloom.online/version.json
 
 ## 六、服务器上的配置与共享组件
 
-- **`app.env` 里的供应商 key 只在服务器上。** 不进仓库、不进 GitHub secret、不贴进 PR 或对话。改它要 Nain 批准，在服务器上手工改，改之前先备份：
+- **生产配置与密钥（ADR 0035）**：密钥不进仓库、不进 GitHub secret、不贴进 PR 或对话。
+  - `configSource: "rendered"`（当前 `prod` 与 `test`）：非密钥配置和能力开关改 `deploy/deployments/<name>.json` 走 PR 发布；密钥存 Cloudflare Secrets Store（经 `deploy/config-worker/provision.ts secrets push <prod|test> <文件>` 写入，需 Nain 批准），发布时由 `scripts/config-render.sh` 渲染到 `~/.config/ai-image-playground/rendered/<project>/`。改服务器上的 `apps/<project>/app.env` 或 `operator-config.json` 不会生效。
+  - 仅在 `configSource: "legacy"`（或经 Nain 批准以 `CONFIG_SOURCE=legacy` 应急回退）时，才手工改服务器上的 `app.env` 并先备份：
 
-  ```sh
-  d=~/.config/ai-image-playground/apps/<project>
-  ts=$(date -u +%Y%m%dT%H%M%SZ)
-  cp -a $d/app.env $d/app.env.bak-<用途>-$ts
-  ```
+    ```sh
+    d=~/.config/ai-image-playground/apps/<project>
+    ts=$(date -u +%Y%m%dT%H%M%SZ)
+    cp -a $d/app.env $d/app.env.bak-<用途>-$ts
+    ```
 
-  `app.env` 是 compose 的 `env_file`，改完要重建（`./scripts/app-compose.sh up <project>`），`restart` 不会重读；重建也要 Nain 批准。恢复就把备份拷回去再重建。完整步骤见[智能体上线手册](../deploy/agent-rollout.md)第二节与回滚一节。
-- **segmenter 全局只有一个实例** `image-playground-segmenter`，muvloom 生产与测试环境共用。`SEGMENTER_EDITIONS` 仅支持 `paid` / `test`。只有生产发布会 `up` 它；测试发布只 `attach`，从不构建、启动或替换。不要为某个环境单独起一份，也不要手动 `up`、`rollback`、`detach`。见 `scripts/segmenter-deploy.sh` 开头的说明和 [deploy/segmenter/README.md](../../deploy/segmenter/README.md)。
+    `app.env` 是 compose 的 `env_file`，改完要重建（`CONFIG_SOURCE=legacy ./scripts/app-compose.sh up <project>`），`restart` 不会重读；重建也要 Nain 批准。恢复就把备份拷回去再重建。完整步骤见[智能体上线手册](../deploy/agent-rollout.md)第二节与回滚一节。
+- **segmenter 全局只有一个实例** `image-playground-segmenter`，muvloom 生产与测试环境共用。`configSource: "rendered"` 下由部署描述的 `segmenter` 字段控制，`SEGMENTER_EDITIONS`（仅支持 `paid` / `test`）只对 `legacy` 生效。只有生产发布会 `up` 它；测试发布只 `attach`，从不构建、启动或替换。不要为某个环境单独起一份，也不要手动 `up`、`rollback`、`detach`。见 `scripts/segmenter-deploy.sh` 开头的说明和 [deploy/segmenter/README.md](../../deploy/segmenter/README.md)。

@@ -1043,14 +1043,14 @@ describe('app-compose.sh up', () => {
     expect(logLines().some((line) => /^(create|run|stop|rm) /.test(line))).toBe(false)
   })
 
-  it('reads the deployment descriptor on hand runs so a stale rendered/ directory never overrides legacy', () => {
+  it('reads the deployment descriptor on hand runs instead of guessing from disk', () => {
     const prodConfig = join(xdg, 'ai-image-playground/apps/image-playground-paid')
-    const staleRendered = join(xdg, 'ai-image-playground/rendered/image-playground-paid')
     write(join(prodConfig, 'app.env'), 'APP_IMAGE=fixture:new\n')
     write(join(prodConfig, 'migrate.env'), '')
     write(join(prodConfig, 'cloudflared/credentials.json'), '{}')
-    write(join(staleRendered, 'deploy.env'), 'COMPOSE_PROJECT=image-playground-paid\n')
-    const result = spawnSync('sh', [composeScript, 'compose', 'image-playground-paid', 'ps'], {
+    // prod.json declares configSource=rendered, so a hand run without rendered/deploy.env refuses
+    // to fall back to app.env silently.
+    const refused = spawnSync('sh', [composeScript, 'compose', 'image-playground-paid', 'ps'], {
       encoding: 'utf8',
       timeout: 20_000,
       env: {
@@ -1063,7 +1063,30 @@ describe('app-compose.sh up', () => {
         CONFIG_SOURCE: '',
       },
     })
-    expect(result.status, result.stderr).toBe(0)
+    expect(refused.status).toBe(1)
+    expect(refused.stderr).toContain('configSource is rendered but')
+
+    // An explicit CONFIG_SOURCE=legacy override still works even if a stale rendered/ dir sits on disk.
+    const staleRendered = join(xdg, 'ai-image-playground/rendered/image-playground-paid')
+    write(join(staleRendered, 'deploy.env'), 'COMPOSE_PROJECT=image-playground-paid\n')
+    const legacyOverride = spawnSync(
+      'sh',
+      [composeScript, 'compose', 'image-playground-paid', 'ps'],
+      {
+        encoding: 'utf8',
+        timeout: 20_000,
+        env: {
+          ...process.env,
+          PATH: `${join(root, 'bin')}:${process.env.PATH}`,
+          MOCK_ROOT: root,
+          XDG_CONFIG_HOME: xdg,
+          APP_CONFIG_DIR: '',
+          RENDERED_DIR: '',
+          CONFIG_SOURCE: 'legacy',
+        },
+      },
+    )
+    expect(legacyOverride.status, legacyOverride.stderr).toBe(0)
     const log = logLines().join('\n')
     expect(log).toContain(`${prodConfig}/app.env`)
     expect(log).not.toContain('compose.rendered.yaml')
@@ -1306,5 +1329,50 @@ describe('app-compose.sh up', () => {
     expect(result.log).toContainEqual(
       expect.stringMatching(/^compose .* up --detach --no-deps --wait admin$/),
     )
+  })
+
+  it('removes stopped legacy compose one-off containers (migrate-1, dependency-check-1) without touching running ones', () => {
+    currentGeneration({ image: newImage }, { image: newImage })
+    container('fixture-migrate-1', { state: 'exited', image: 'fixture:legacy' })
+    container('fixture-dependency-check-1', { state: 'exited', image: 'fixture:legacy' })
+    const result = run()
+    expect(result.status, result.stderr).toBe(0)
+    expect(exists('fixture-migrate-1')).toBe(false)
+    expect(exists('fixture-dependency-check-1')).toBe(false)
+
+    // A running one-off container (if any) must never be stopped or removed.
+    container('fixture-migrate-1', { state: 'running', image: 'fixture:legacy' })
+    const second = run()
+    expect(second.status, second.stderr).toBe(0)
+    expect(exists('fixture-migrate-1')).toBe(true)
+  })
+
+  it('removes one-off bootstrap containers at the end of first install after every dependent compose up', () => {
+    config = join(xdg, 'ai-image-playground/apps/fixture')
+    write(join(config, 'app.env'), 'APP_IMAGE=fixture:new\n')
+    write(join(config, 'migrate.env'), '')
+    write(join(config, 'cloudflared/config.yml'), 'ingress: []\n')
+    write(join(config, 'cloudflared/credentials.json'), '{}')
+    const result = spawnSync('sh', [composeScript, 'up', 'fixture'], {
+      encoding: 'utf8',
+      timeout: 20_000,
+      env: {
+        ...process.env,
+        PATH: `${join(root, 'bin')}:${process.env.PATH}`,
+        MOCK_ROOT: root,
+        XDG_CONFIG_HOME: xdg,
+        APP_IMAGE: 'fixture:new',
+        APP_CONFIG_DIR: '',
+        RENDERED_DIR: '',
+      },
+    })
+    expect(result.status, result.stderr).toBe(0)
+    const log = logLines()
+    const cloudflaredUp = indexOf(log, /^compose .* up --detach --wait cloudflared pg-backup$/)
+    const hostCollectorUp = indexOf(log, /^compose .* up --detach host-collector$/)
+    const oneoffRm = indexOf(log, /^compose .* rm --force dependency-check migrate$/)
+    expect(cloudflaredUp).toBeGreaterThan(-1)
+    expect(hostCollectorUp).toBeGreaterThan(cloudflaredUp)
+    expect(oneoffRm).toBeGreaterThan(hostCollectorUp)
   })
 })

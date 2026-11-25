@@ -30,7 +30,8 @@
 
 <!--
 写清楚出问题时怎么撤：revert 这个 PR 就行，还是要回滚镜像、前端版本或配置；
-有迁移的写明回滚 SQL 和兼容性；改了 app.env 或 operator-config 的写明恢复方式。
+有迁移的写明回滚 SQL 和兼容性；带 DROP 或删数据的迁移必须写明「最早可发布时间」（如等前置停止读写版本稳定后的时间点），供生产发布前核对；
+改了 app.env 或 operator-config 的写明恢复方式。
 步骤参考 docs/agents/release.md「五、回滚」。
 -->
 

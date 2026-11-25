@@ -448,13 +448,30 @@ describe('receivers with the shared segmenter', () => {
     expect(calls).toContain('segmenter detach image-playground-paid')
   })
 
-  it('skips the self-test when that version already runs', () => {
-    productionRelease([backupRow, segmenterRow])
+  it('skips pulling, self-testing, starting and re-tagging the segmenter when that version already runs', () => {
+    rmSync(join(release, 'images.tar.gz'))
+    const segDigest = digest('4')
+    writeFileSync(
+      join(release, 'images.tsv'),
+      `${[
+        `paid\tai-image-playground:paid-${short}-${short}\t${imageId}\t${sha}\t${sha}\t${digest('2')}`,
+        `backup\tai-image-playground:backup-${short}\t${imageId}\t${sha}\t-\t${digest('3')}`,
+        `segmenter\t${segmenterImage}\t${imageId}\t${sha}\t-\t${segDigest}`,
+      ].join('\n')}\n`,
+    )
+    checksums()
+    writeFileSync(join(root, 'logged-in'), '')
     env.TEST_SEGMENTER_CURRENT_EXIT = '0'
-    expect(run().status).toBe(0)
+    const result = run()
+    expect(result.status, result.stderr).toBe(0)
     const calls = readFileSync(log, 'utf8').split('\n')
+    expect(calls).toContain('segmenter current 3')
+    expect(calls).toContain('segmenter prune')
+    expect(calls).not.toContain(`pull ${segDigest}`)
+    expect(calls).not.toContain(`tag ${segDigest} ${segmenterImage}`)
     expect(calls).not.toContain(selfTest)
-    expect(calls).toContain(`segmenter up ${segmenterImage} 3`)
+    expect(calls).not.toContain(`segmenter up ${segmenterImage} 3`)
+    expect(calls).not.toContain(`tag ${segmenterImage} ai-image-playground:segmenter`)
   })
 
   it('keeps the release going on the running segmenter when the new version does not start', () => {

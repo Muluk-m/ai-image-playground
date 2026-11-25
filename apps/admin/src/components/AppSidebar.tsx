@@ -12,6 +12,7 @@ import {
   type LucideIcon,
   MessageSquareText,
   MonitorSmartphone,
+  Radar,
   ReceiptText,
   RefreshCw,
   ScrollText,
@@ -50,6 +51,7 @@ export type NavTo =
   | '/inspirations/categories'
   | '/announcements'
   | '/ops'
+  | '/status'
   | '/errors'
   | '/logs'
   | '/audit'
@@ -106,6 +108,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     entries: [
       { to: '/logs', icon: ScrollText, label: '服务端日志' },
       { to: '/ops', icon: HeartPulse, label: '运维看板' },
+      { to: '/status', icon: Radar, label: '健康监测' },
       { to: '/errors', icon: Bug, label: '前端错误' },
     ],
   },

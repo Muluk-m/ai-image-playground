@@ -129,7 +129,6 @@ beforeEach(() => {
   out = join(root, 'out')
   log = join(root, 'calls')
   for (const f of [
-    'deploy/deployments/prod.json',
     'scripts/build-vps-release.sh',
     'scripts/check-test-isolation.sh',
     'scripts/vps-deploy.sh',
@@ -138,6 +137,11 @@ beforeEach(() => {
     mkdirSync(resolve(join(checkout, f), '..'), { recursive: true })
     cpSync(join(source, f), join(checkout, f))
   }
+  // This suite tests image transport and digest verification, not config-render.sh.
+  write(
+    join(checkout, 'deploy/deployments/prod.json'),
+    '{\n  "name": "prod",\n  "legacy": { "composeProject": "image-playground-paid" },\n  "configSource": "legacy",\n  "segmenter": true\n}\n',
+  )
   // The receiver hands each edition to app-compose.sh; the stub only records the rollout.
   write(
     join(checkout, 'scripts/app-compose.sh'),
@@ -203,7 +207,10 @@ describe('build-vps-release.sh, registry transport (default)', () => {
     const p = pub.slice(0, 12)
     const q = priv.slice(0, 12)
     const all = calls()
-    for (const remote of [`${repoName}:paid-${p}-${q}`, `${repoName}:backup-${p}`]) {
+    for (const [remote, cacheTag] of [
+      [`${repoName}:paid-${p}-${q}`, 'buildcache'],
+      [`${repoName}:backup-${p}`, 'buildcache-backup'],
+    ] as const) {
       // One Docker v2 manifest per image, so the digest the VPS pulls names exactly this image.
       const build = all.find(
         (c) =>
@@ -212,12 +219,11 @@ describe('build-vps-release.sh, registry transport (default)', () => {
       )
       expect(build).toContain('--provenance=false --sbom=false')
       expect(build).not.toContain('--load')
-      // Shared stages are reused across workflows; only the application writes this cache.
-      expect(build).toContain(`--cache-from type=registry,ref=${repoName}:buildcache`)
-      if (remote === `${repoName}:paid-${p}-${q}`) {
-        expect(build).toContain(`--cache-to type=registry,ref=${repoName}:buildcache,mode=max`)
-      } else {
-        expect(build).not.toContain('--cache-to')
+      // Each component reuses and exports its own registry cache on production releases.
+      expect(build).toContain(`--cache-from type=registry,ref=${repoName}:${cacheTag}`)
+      expect(build).toContain(`--cache-to type=registry,ref=${repoName}:${cacheTag},mode=max`)
+      if (cacheTag !== 'buildcache') {
+        expect(build).not.toContain(`ref=${repoName}:buildcache,mode=max`)
       }
     }
     // Nothing goes through the local Docker store any more.
@@ -252,7 +258,14 @@ describe('build-vps-release.sh, registry transport (default)', () => {
   it('builds the versioned segmenter only for production releases, never for test, with a layer cache of its own', () => {
     writeFileSync(join(root, 'logged-in'), '')
     expect(build('test').status).toBe(0)
-    expect(calls().some((c) => c.includes(':segmenter-'))).toBe(false)
+    const testCalls = calls()
+    expect(testCalls.some((c) => c.includes(':segmenter-'))).toBe(false)
+    // Test reads both build caches without exporting either, so unchecked commits never poison prod.
+    const testBackup = testCalls.find(
+      (c) => c.startsWith('buildx build') && c.includes(`name=${repoName}:backup-`),
+    )
+    expect(testBackup).toContain(`--cache-from type=registry,ref=${repoName}:buildcache-backup`)
+    expect(testBackup).not.toContain('--cache-to')
     expect(readFileSync(join(out, 'images.tsv'), 'utf8')).not.toContain('segmenter')
     rmSync(out, { recursive: true })
     rmSync(log)

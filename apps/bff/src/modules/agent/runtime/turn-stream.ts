@@ -32,6 +32,7 @@ export interface TurnStreamController {
   readonly streamFn: StreamFn
   recordSideCall(kind: 'web_search' | 'compaction', attempt: SideCallAttempt): Promise<void>
   recordCompactionAttempt(attempt: SideCallAttempt): Promise<void>
+  markFirstToken(): void
   finishModelCall(message: AssistantMessage): Promise<void>
   waitDispatchAccounting(): Promise<void>
   settlement(): ReturnType<ReturnType<typeof createAgentUsageLedger>['settlement']>
@@ -171,6 +172,9 @@ export function createTurnStreamController(input: {
         state.failure = agentTurnFailure(state.error, attempt.localRejection, attempt.model)
       }
       await ledger.recordSideCall('compaction', attempt)
+    },
+    markFirstToken() {
+      if (modelCallId) ledger.markFirstToken(modelCallId)
     },
     async finishModelCall(message) {
       if (!modelCallId) return

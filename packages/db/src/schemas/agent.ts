@@ -446,6 +446,8 @@ export const agent_model_calls = pgTable(
     cache_read_tokens: integer('cache_read_tokens'),
     cache_write_tokens: integer('cache_write_tokens'),
     tool_calls: bunJsonb('tool_calls').$type<{ id: string; name: string }[]>(),
+    /** 从请求发出到收到首个有效输出块（文本/思考/工具参数）的毫秒数；非流式或历史调用为 null。 */
+    ttft_ms: integer('ttft_ms'),
     started_at: epochMs('started_at').notNull(),
     finished_at: epochMs('finished_at'),
   },
