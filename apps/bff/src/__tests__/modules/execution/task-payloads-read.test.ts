@@ -576,22 +576,39 @@ describe('task_payloads direct reads and partial updates (Contract 1a)', () => {
     }
   })
 
-  it('continues operating cleanly even after all 5 cold columns are physically dropped from tasks (Wave 2 forward-compat)', async () => {
+  it('operates end-to-end with all 5 cold columns and legacy sync triggers removed by 0112 (Contract 1b)', async () => {
     const now = Date.now()
-    await db.$client`DROP TRIGGER IF EXISTS trg_tasks_sync_request_payload ON public.tasks`
-    await db.$client`DROP TRIGGER IF EXISTS trg_tasks_sync_metering ON public.tasks`
-    await db.$client`DROP TRIGGER IF EXISTS trg_tasks_sync_result_payload ON public.tasks`
-    await db.$client`DROP TRIGGER IF EXISTS trg_tasks_sync_archive_payload ON public.tasks`
-    await db.$client`DROP TRIGGER IF EXISTS trg_tasks_sync_upstream_body ON public.tasks`
-    await db.$client`DROP TRIGGER IF EXISTS trg_tasks_fill_device_id_legacy ON public.tasks`
-    await db.$client`
-      ALTER TABLE public.tasks
-        DROP COLUMN request_payload,
-        DROP COLUMN metering,
-        DROP COLUMN result_payload,
-        DROP COLUMN archive_payload,
-        DROP COLUMN upstream_body
-    `
+    expect(
+      await db.$client`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'tasks'
+          AND column_name IN (
+            'request_payload',
+            'metering',
+            'result_payload',
+            'archive_payload',
+            'upstream_body'
+          )
+      `,
+    ).toEqual([])
+    expect(
+      await db.$client`
+        SELECT tgname
+        FROM pg_trigger
+        WHERE NOT tgisinternal
+          AND tgname IN (
+            'trg_tasks_sync_request_payload',
+            'trg_tasks_sync_metering',
+            'trg_tasks_sync_result_payload',
+            'trg_tasks_sync_archive_payload',
+            'trg_tasks_sync_upstream_body',
+            'trg_tasks_fill_device_id_legacy',
+            'trg_task_payloads_skip_legacy_null_insert'
+          )
+      `,
+    ).toEqual([])
 
     await db.insert(schema.users).values({
       id: 'u-wave2-compat',
