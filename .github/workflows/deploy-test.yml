@@ -137,6 +137,7 @@ jobs:
         with:
           label: test-startup-public
       - run: pnpm --dir apps/admin build
+      - run: sh scripts/deploy-integration.sh
 
   # Smaller than web.yml's three shards: bff's Bun suites on one runner, the other packages on
   # another, and the web vitest sharded across two. Nothing stacks extra concurrency on one machine: a timing test

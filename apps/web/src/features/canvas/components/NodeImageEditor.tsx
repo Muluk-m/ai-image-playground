@@ -1,5 +1,5 @@
 import type Konva from 'konva'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Image as KImage, Layer, Stage } from 'react-konva'
 import Overlay from '../../../components/patterns/Overlay'
 import { Button } from '../../../components/ui/button'
@@ -185,7 +185,9 @@ export default function NodeImageEditor({
     setRedo((previous) => previous.slice(0, -1))
   }
   const historyActionsRef = useRef({ undoStroke, redoStroke })
-  historyActionsRef.current = { undoStroke, redoStroke }
+  useLayoutEffect(() => {
+    historyActionsRef.current = { undoStroke, redoStroke }
+  })
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return

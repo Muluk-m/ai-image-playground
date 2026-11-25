@@ -1,6 +1,6 @@
 # 0034：单仓模块化单体、商业代码脱敏并入与热路径渐进重构
 
-日期：2026-11-22。状态：已实施（Phase 0–6 架构重构与零停机 Expand 阶段已全部合入 `main`；Contract 删列/删表待生产发布与回填验收后执行）。关联：[ADR 0003](0003-agent-runtime-in-bff-process.md)、[ADR 0012](0012-agent-background-jobs-and-postgres-inbox.md)、[ADR 0023](0023-canvas-document-on-yjs.md)、[ADR 0033](0033-observability-on-opentelemetry.md)。
+日期：2026-11-22。状态：已全部实施完成（Phase 0–6 架构重构与 Contract Wave 1–2 全部删表/删列清理均已合入 `main`；仅余按需运维启用可选 PgBouncer 连接池）。关联：[ADR 0003](0003-agent-runtime-in-bff-process.md)、[ADR 0012](0012-agent-background-jobs-and-postgres-inbox.md)、[ADR 0023](0023-canvas-document-on-yjs.md)、[ADR 0033](0033-observability-on-opentelemetry.md)。
 
 ## 背景
 
@@ -68,17 +68,13 @@
 | Phase 5 | #2020, #2024, #2025, #2026, #2027 | `tasks` 对账局部索引、`task_payloads` Expand/双写/切读、统一媒体账本与零搬运回填、工作台大图预签名直传与精确下标透传 |
 | Phase 6 | #2028, #2029, #2030 | 移除 PG `server_logs` 运行时清理与旧缓冲代码、可选 PgBouncer 事务连接池与 `DIRECT_DATABASE_URL` 直连路由、锁定棘轮与完结 ADR |
 | Contract Wave 1 | #2033, #2034, #2035 | 删除 `server_logs` 表（`0109`）、停止读写 `user_asset_objects`、解耦 `tasks.device_id` 并停止读写 `tasks` 冷载荷列（`0110`） |
-| Contract Wave 2 | 本 PR (Contract 2b) | 删除已退场的 `user_asset_objects` 表（`0111`，含删表前幂等补齐）、移除回填脚本并挂载 `reclaimUnreferencedAssetMedia` 周期回收 |
+| Contract Wave 2 | #2037, 本 PR (Contract 1b) | 删除 `user_asset_objects` 表（`0111`）并挂载 `reclaimUnreferencedAssetMedia`；删除 `tasks` 5 个冷载荷列与兼容触发器（`0112`）并移除一次性回填脚本 |
 
-## 生产发布后回填与 Contract 收尾手册
+## 生产回填与 Contract 收尾记录（已完成）
 
-Phase 5–6（`v0.4.481`）上线排空及全量回填零差异验收均已完成，Contract Wave 1（`#2033` / `#2034` / `#2035`，`v0.4.484`）已上线排空，收尾进度如下：
+Phase 5–6（`v0.4.481`）上线排空、生产全量回填零差异验收以及 Contract Wave 1（`#2033` / `#2034` / `#2035`，`v0.4.484`）与 Contract Wave 2（`#2037` + 本 PR）均已完成：
 
-1. **回填并校验 `task_payloads`（已完成，待 Contract 1b 清理脚本）**：生产已完成 `--repair` 与 `--verify-only` 零差异验收（`missingCount = 0`、`mismatchCount = 0`）。
-2. **统一媒体账本回填与退场 `user_asset_objects`（已完成）**：生产已完成零差异回填验收；Contract 2a（`#2034`）已停止全部应用读写；Contract 2b 通过 `0111_drop_user_asset_objects.sql`（删表前对未迁移行做幂等补齐）删除 `public.user_asset_objects` 并在 `apps/bff/src/index.ts` 挂载 `reclaimUnreferencedAssetMedia` 周期回收，原一次性回填脚本 `scripts/backfill-asset-media.ts` 已随表退场移除。
-3. **（可选）启用共享 PgBouncer 事务连接池**：按 [PgBouncer 连接池手册](../deploy/pgbouncer.md) 先在宿主机 `infra.env` 配置 `PGBOUNCER_AUTH_PASSWORD`，依次执行 `scripts/infra-compose.sh provision`（确保既有 `app_user` 具备角色级默认超时 GUC）、`provision-pooler` 与 `up-pooler`，再先后在 `deploy/deployments/test.json`、`prod.json` 开启 `database.pooler: true` 验收。
-4. **Contract 清理进度**：
-   - **Contract 3（退场 `server_logs`）**：已完成（`#2033`，`0109_drop_server_logs.sql`）；
-   - **Contract 2（退场 `user_asset_objects` 与周期回收）**：已完成（`#2034` + Contract 2b `0111_drop_user_asset_objects.sql`）；
-   - **Contract 1a（`tasks` 停读写旧列并解耦 `device_id`）**：已完成（`#2035`，`0110_tasks_decouple_cold_columns.sql`）；
-   - **Contract 1b（`tasks` 物理删列，剩余唯一收尾项）**：删除 `0106`/`0110` 兼容同步触发器与函数，物理删除 `tasks` 的 5 个冷列（`request_payload`、`result_payload`、`archive_payload`、`metering`、`upstream_body`）并移除一次性回填脚本 `scripts/backfill-task-payloads.ts`。
+1. **`task_payloads` 回填与 `tasks` 瘦身（已完成）**：生产已完成 `--repair` / `--verify-only` 零差异验收（`totalTasks = 3004`，`missingCount = 0`、`mismatchCount = 0`）；Contract 1a（`#2035` / `0110`）解耦 `tasks.device_id` 并停写 5 个冷列上线排空；Contract 1b（`0112_drop_tasks_cold_columns.sql`）移除 `0106`/`0110` 兼容同步触发器与函数并物理删除 `tasks` 5 个冷列，一次性回填脚本 `scripts/backfill-task-payloads.ts` 已随列退场移除。
+2. **统一媒体账本回填与退场 `user_asset_objects`（已完成）**：生产已完成零差异回填验收（`totalLegacyAssets = 7`，5 项差异计数均为 `0`）；Contract 2a（`#2034`）已停止全部应用读写；Contract 2b（`#2037` / `0111_drop_user_asset_objects.sql`）删除 `public.user_asset_objects` 并在 `apps/bff/src/index.ts` 拆步挂载 `reclaimUnreferencedAssetMedia` 周期回收，原一次性回填脚本 `scripts/backfill-asset-media.ts` 已随表退场移除。
+3. **退场 `server_logs`（已完成）**：Contract 3（`#2033` / `0109_drop_server_logs.sql`）已将 Admin 测试日志夹具迁至内存并删除 `public.server_logs` 表。
+4. **（可选、按需运维启用）共享 PgBouncer 事务连接池**：代码与基础设施编排已随 `#2029` 完备，默认保持关闭；如需启用，按 [PgBouncer 连接池手册](../deploy/pgbouncer.md) 先在宿主机 `infra.env` 配置 `PGBOUNCER_AUTH_PASSWORD`，依次执行 `scripts/infra-compose.sh provision`、`provision-pooler` 与 `up-pooler`，再先后在 `deploy/deployments/test.json`、`prod.json` 开启 `database.pooler: true` 验收。

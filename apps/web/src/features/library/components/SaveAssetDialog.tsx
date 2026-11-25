@@ -1,4 +1,5 @@
 import { useTranslation } from '../../../i18n'
+import { useStore } from '../../../store'
 import { useLibraryStore } from '../store'
 import AssetThumb from './AssetThumb'
 import NamingDialog from './NamingDialog'
@@ -21,7 +22,11 @@ export default function SaveAssetDialog() {
       defaultName={pending.defaultName}
       preview={<AssetThumb imageId={pending.imageId} alt="" />}
       onCancel={cancelNaming}
-      onSave={(name) => saveAsset(pending.imageId, name)}
+      onSave={(name) =>
+        saveAsset(pending.imageId, name).catch(() => {
+          useStore.getState().showToast(t('asset.saveFailed'), 'error')
+        })
+      }
     />
   )
 }

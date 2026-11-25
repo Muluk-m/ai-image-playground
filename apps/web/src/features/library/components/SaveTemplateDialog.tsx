@@ -1,4 +1,5 @@
 import { useTranslation } from '../../../i18n'
+import { useStore } from '../../../store'
 import { useLibraryStore } from '../store'
 import NamingDialog from './NamingDialog'
 
@@ -16,7 +17,11 @@ export default function SaveTemplateDialog() {
       description={t('saveTemplate.description')}
       placeholder={t('saveTemplate.placeholder')}
       onCancel={cancelNamingTemplate}
-      onSave={(name) => saveTemplate(name)}
+      onSave={(name) =>
+        saveTemplate(name).catch(() => {
+          useStore.getState().showToast(t('look.saveFailed'), 'error')
+        })
+      }
     />
   )
 }

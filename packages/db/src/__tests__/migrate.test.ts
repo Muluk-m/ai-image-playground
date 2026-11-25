@@ -105,8 +105,8 @@ describe('runMigrations', () => {
         await runMigrations(url)
         expect(await guardObjects()).toEqual({ trigger: 0, fn: 0, table: null })
         const unfencedClaim = async (id: string) => {
-          await sql`INSERT INTO tasks (id, provider, model, status, request_payload, submitted_at)
-            VALUES (${id}, 'openai-compat', 'test', 'queued', '{}', now())`
+          await sql`INSERT INTO tasks (id, provider, model, status, submitted_at)
+            VALUES (${id}, 'openai-compat', 'test', 'queued', now())`
           return (await sql`UPDATE tasks SET status = 'in_progress' WHERE id = ${id} RETURNING id`)
             .length
         }
@@ -141,7 +141,7 @@ describe('runMigrations', () => {
       try {
         await sql`GRANT SELECT ON queue_tasks TO PUBLIC`
         await sql`CREATE VIEW existing_reader AS SELECT id FROM queue_tasks`
-        await runMigrations(url)
+        await migrateUntil(url, '0097_task_gpt_route_attribution')
         await sql`INSERT INTO tasks (id, provider, model, status, request_payload, submitted_at, gpt_route, gpt_key_fingerprint)
           VALUES ('direct', 'openai-compat', 'gpt-image-2.5-flare', 'completed', '{}', now(), 'direct', 'abcd1234'),
                  ('chat', 'openai-compat', 'chat-model', 'completed', '{}', now(), NULL, NULL)`
@@ -247,19 +247,35 @@ describe('runMigrations', () => {
   })
 
   it('creates PostgreSQL-native JSONB and timestamptz columns', async () => {
-    const rows = (await connection.client.unsafe(`
+    const taskRows = (await connection.client.unsafe(`
       SELECT column_name, data_type, is_generated, is_nullable
       FROM information_schema.columns
       WHERE table_schema = 'public' AND table_name = 'tasks'
     `)) as (ColumnMetadata & { is_nullable: string })[]
-    const byName = Object.fromEntries(rows.map((row) => [row.column_name, row]))
-    expect(byName.request_payload?.data_type).toBe('jsonb')
-    expect(byName.request_payload?.is_nullable).toBe('YES')
-    expect(byName.submitted_at?.data_type).toBe('timestamp with time zone')
-    expect(byName.device_id?.data_type).toBe('text')
-    expect(byName.device_id?.is_generated).toBe('NEVER')
-    expect(byName.upstream_status?.data_type).toBe('integer')
-    expect(byName.upstream_body?.data_type).toBe('text')
+    const tasksByName = Object.fromEntries(taskRows.map((row) => [row.column_name, row]))
+    expect(tasksByName.submitted_at?.data_type).toBe('timestamp with time zone')
+    expect(tasksByName.device_id?.data_type).toBe('text')
+    expect(tasksByName.device_id?.is_generated).toBe('NEVER')
+    expect(tasksByName.upstream_status?.data_type).toBe('integer')
+    // 0112_drop_tasks_cold_columns removes the 5 cold payload columns from tasks.
+    expect(tasksByName.request_payload).toBeUndefined()
+    expect(tasksByName.metering).toBeUndefined()
+    expect(tasksByName.result_payload).toBeUndefined()
+    expect(tasksByName.archive_payload).toBeUndefined()
+    expect(tasksByName.upstream_body).toBeUndefined()
+
+    const payloadRows = (await connection.client.unsafe(`
+      SELECT column_name, data_type, is_generated, is_nullable
+      FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = 'task_payloads'
+    `)) as (ColumnMetadata & { is_nullable: string })[]
+    const payloadsByName = Object.fromEntries(payloadRows.map((row) => [row.column_name, row]))
+    expect(payloadsByName.request_payload?.data_type).toBe('jsonb')
+    expect(payloadsByName.request_payload?.is_nullable).toBe('NO')
+    expect(payloadsByName.metering?.data_type).toBe('jsonb')
+    expect(payloadsByName.result_payload?.data_type).toBe('jsonb')
+    expect(payloadsByName.archive_payload?.data_type).toBe('jsonb')
+    expect(payloadsByName.upstream_body?.data_type).toBe('text')
   })
 
   it('stores the optional production document as PostgreSQL JSONB', async () => {
@@ -685,9 +701,10 @@ describe('runMigrations', () => {
         }
         expect(after.slice(before.length).map(migrationStamp)).toEqual(expectedForwardMigrations)
         const columns =
-          await client`SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'tasks' AND column_name = 'metering'`
+          await client`SELECT data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'task_payloads' AND column_name = 'metering'`
         expect(columns).toEqual([{ data_type: 'jsonb', is_nullable: 'YES' }])
-        const [saved] = await client`SELECT metering FROM tasks WHERE id = 'main-upgrade-sentinel'`
+        const [saved] =
+          await client`SELECT metering FROM task_payloads WHERE task_id = 'main-upgrade-sentinel'`
         expect(saved.metering).toBeNull()
         const [retained] =
           await client`SELECT created_at FROM oauth_clients WHERE id = 'muvloom-cli'`
@@ -714,11 +731,14 @@ describe('runMigrations', () => {
         const [oauth] = await client`SELECT id FROM oauth_clients WHERE id = 'muvloom-cli'`
         expect(oauth?.id).toBe('muvloom-cli')
         const columns =
-          await client`SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'tasks' AND column_name = 'metering'`
+          await client`SELECT data_type FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'task_payloads' AND column_name = 'metering'`
         expect(columns).toEqual([{ data_type: 'jsonb' }])
         const rows =
           await client`SELECT created_at FROM drizzle.__drizzle_migrations ORDER BY created_at`
         expect(rows).toHaveLength(journal.entries.length - 2)
+        expect(
+          rows.map((row: { created_at: string | number }) => String(row.created_at)),
+        ).toContain('1793600000000')
         expect(
           rows.map((row: { created_at: string | number }) => String(row.created_at)),
         ).not.toContain('1793000000000')
@@ -746,7 +766,8 @@ describe('runMigrations', () => {
           await client`SELECT id, hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id`
         expect(after.slice(0, before.length)).toEqual(before)
         expect(after).toHaveLength(journal.entries.length)
-        const [saved] = await client`SELECT metering FROM tasks WHERE id = 'test-upgrade-sentinel'`
+        const [saved] =
+          await client`SELECT metering FROM task_payloads WHERE task_id = 'test-upgrade-sentinel'`
         expect(saved.metering).toEqual(metering)
         const [retained] =
           await client`SELECT created_at FROM oauth_clients WHERE id = 'muvloom-cli'`
@@ -1191,7 +1212,7 @@ describe('runMigrations', () => {
           VALUES ('pre-0110', '{"prompt":"old","device_id":"dev-pre"}'::jsonb, '{"ok":true}'::jsonb, 'old-err')
         `
 
-        await runMigrations(url)
+        await migrateUntil(url, '0110_tasks_decouple_cold_columns')
 
         // Existing rows keep device_id after DROP EXPRESSION and unbackfilled rows are backfilled idempotently.
         expect(
@@ -1337,7 +1358,7 @@ describe('runMigrations', () => {
           VALUES ('u-0111', 'look-0111', 'look', 'desc', 'body', 'legacy-img-1', '[]'::jsonb, ${now}, ${now}, 1)
         `
 
-        await runMigrations(url)
+        await migrateUntil(url, '0111_drop_user_asset_objects')
 
         expect(await sql`SELECT to_regclass('public.user_asset_objects')::text AS rel`).toEqual([
           { rel: null },
@@ -1370,6 +1391,119 @@ describe('runMigrations', () => {
         ).toEqual([
           { user_id: 'u-0111', image_id: 'legacy-img-1', bytes: 512, content_type: 'image/png' },
         ])
+      } finally {
+        await sql.close()
+      }
+    })
+  }, 30_000)
+
+  it('drops tasks cold payload columns and legacy bridge triggers in 0112 and restores cleanly on rollback', async () => {
+    await withEmptyDatabase('drop_tasks_cold_columns_0112', async (url) => {
+      await migrateUntil(url, '0111_drop_user_asset_objects')
+      const sql = new SQL(url, { max: 1 })
+      try {
+        await sql`
+          INSERT INTO tasks (id, provider, model, status, device_id, submitted_at)
+          VALUES ('wave1-0112', 'openai-compat', 'gpt-image-2', 'completed', 'dev-0112', now())
+        `
+        await sql`
+          INSERT INTO task_payloads (task_id, request_payload, metering, result_payload, archive_payload, upstream_body)
+          VALUES (
+            'wave1-0112',
+            '{"prompt":"kept","device_id":"dev-0112"}'::jsonb,
+            '{"mode":"none","model":"gpt-image-2","quantity":1,"unitMultiplier":1}'::jsonb,
+            '{"ok":true}'::jsonb,
+            '{"stage":1}'::jsonb,
+            'err-body'
+          )
+        `
+
+        await runMigrations(url)
+
+        expect(
+          await sql`
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'tasks'
+              AND column_name IN ('request_payload', 'metering', 'result_payload', 'archive_payload', 'upstream_body')
+          `,
+        ).toEqual([])
+        expect(
+          await sql`
+            SELECT tgname
+            FROM pg_trigger
+            WHERE NOT tgisinternal
+              AND tgname IN (
+                'trg_tasks_sync_request_payload',
+                'trg_tasks_sync_metering',
+                'trg_tasks_sync_result_payload',
+                'trg_tasks_sync_archive_payload',
+                'trg_tasks_sync_upstream_body',
+                'trg_tasks_fill_device_id_legacy',
+                'trg_task_payloads_skip_legacy_null_insert'
+              )
+          `,
+        ).toEqual([])
+        expect(
+          await sql`
+            SELECT proname
+            FROM pg_proc p
+            JOIN pg_namespace n ON n.oid = p.pronamespace
+            WHERE n.nspname = 'public'
+              AND p.proname IN (
+                'sync_task_payload_column_from_tasks_update',
+                'fill_task_device_id_from_legacy_request',
+                'skip_legacy_empty_patch_task_payload_insert'
+              )
+          `,
+        ).toEqual([])
+        expect(
+          await sql`SELECT id, device_id, request_payload, result_payload, upstream_body FROM public.queue_tasks WHERE id = 'wave1-0112'`,
+        ).toEqual([
+          {
+            id: 'wave1-0112',
+            device_id: 'dev-0112',
+            request_payload: { prompt: 'kept', device_id: 'dev-0112' },
+            result_payload: { ok: true },
+            upstream_body: 'err-body',
+          },
+        ])
+
+        const rollbackSql = await Bun.file(
+          join(migrationsDirectory, 'rollback/0112_drop_tasks_cold_columns.down.sql'),
+        ).text()
+        await sql.unsafe(rollbackSql)
+        // Idempotent when re-executed.
+        await sql.unsafe(rollbackSql)
+
+        expect(
+          await sql`
+            SELECT request_payload, metering, result_payload, archive_payload, upstream_body
+            FROM public.tasks
+            WHERE id = 'wave1-0112'
+          `,
+        ).toEqual([
+          {
+            request_payload: { prompt: 'kept', device_id: 'dev-0112' },
+            metering: { mode: 'none', model: 'gpt-image-2', quantity: 1, unitMultiplier: 1 },
+            result_payload: { ok: true },
+            archive_payload: { stage: 1 },
+            upstream_body: 'err-body',
+          },
+        ])
+        // Restored bridge triggers work for legacy writers.
+        await sql`
+          INSERT INTO tasks (id, provider, model, status, request_payload, submitted_at)
+          VALUES ('legacy-0112-rb', 'openai-compat', 'gpt-image-2', 'queued', '{"prompt":"rb","device_id":"dev-rb"}'::jsonb, now())
+        `
+        expect(await sql`SELECT device_id FROM tasks WHERE id = 'legacy-0112-rb'`).toEqual([
+          { device_id: 'dev-rb' },
+        ])
+        await sql`UPDATE tasks SET result_payload = '{"synced":true}'::jsonb WHERE id = 'wave1-0112'`
+        expect(
+          await sql`SELECT result_payload FROM task_payloads WHERE task_id = 'wave1-0112'`,
+        ).toEqual([{ result_payload: { synced: true } }])
       } finally {
         await sql.close()
       }

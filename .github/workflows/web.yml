@@ -166,6 +166,17 @@ jobs:
       - run: pnpm typecheck
       # admin 的 build 也是 tsc -b，紧跟 typecheck 跑能直接用它留下的 tsbuildinfo。
       - run: pnpm --dir apps/admin build
+  # 发布脚本与真 Docker 的集成检查：真 compose 解析生成配置的 overlay、真 cloudflared 读挂载的文件、
+  # 真 bind mount 的更新语义。这些靠替身测不出来（scripts/deploy-integration.sh）。
+  deploy-integration:
+    needs: prior
+    if: needs.prior.outputs.verified != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - run: sh scripts/deploy-integration.sh
   build:
     needs: prior
     if: needs.prior.outputs.verified != 'true'

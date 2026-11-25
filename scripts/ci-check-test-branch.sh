@@ -25,7 +25,7 @@ if git merge-base --is-ancestor "$main" "$head"; then
 fi
 
 behind=$(git rev-list --count "$head..$main")
-echo "::error::test is behind $remote/main by $behind commit(s). Merge $remote/main into test and push again; the test site is only built from a branch that already contains main."
+echo "::error::test is behind $remote/main by $behind commit(s). Run scripts/test-sync.sh [your-branch] to merge $remote/main into test and push; the test site is only built from a branch that already contains main."
 echo
 echo "Missing from test:"
 git log --oneline --no-decorate "$head..$main"

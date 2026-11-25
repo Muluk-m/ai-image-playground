@@ -2,6 +2,9 @@
 set -eu
 # Release-boundary guard: test can never inherit the muvloom target or production credentials.
 reject() { echo "Test isolation check failed: $1" >&2; exit 1; }
+# Bytes, as Docker reads env files: in a UTF-8 locale BSD awk will not match the BOM's bytes.
+LC_ALL=C
+export LC_ALL
 mode=${1:?pages or runtime required}
 input=${2:?configuration path required}
 case "$mode" in

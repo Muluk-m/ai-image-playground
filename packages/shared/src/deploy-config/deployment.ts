@@ -86,6 +86,11 @@ export const DeploymentSchema = Type.Object(
       },
       { additionalProperties: false },
     ),
+    /**
+     * 发布时配置从哪来：`rendered` 由配置中心按本描述和 Secrets Store 生成，`legacy` 读 VPS 上手工维护的
+     * `app.env`（过渡期，P7 删除）。发布脚本只认这里，切换就是改这一行的 PR；实际来源与此不符时发布失败。
+     */
+    configSource: Type.Union([Type.Literal('rendered'), Type.Literal('legacy')]),
     /** 是否接入宿主机共享的 EdgeTAM 分割服务（deploy/segmenter）。 */
     segmenter: Type.Boolean(),
     auth: Type.Object(

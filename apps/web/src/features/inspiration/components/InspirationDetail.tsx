@@ -139,10 +139,20 @@ export default function InspirationDetail() {
     }
   }, [previous, next])
 
+  const safeClose = () => {
+    if (pendingRef.current) return
+    closeDetail()
+  }
+
+  const safeShowDetail = (id: string) => {
+    if (pendingRef.current) return
+    showDetail(id)
+  }
+
   useEffect(() => {
     if (!item) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || useStore.getState().confirmDialog) return
+      if (event.defaultPrevented || pendingRef.current || useStore.getState().confirmDialog) return
       const target = event.target
       if (
         target instanceof HTMLElement &&
@@ -188,7 +198,7 @@ export default function InspirationDetail() {
     if ((scrollerRef.current?.scrollTop ?? 0) > 8) return
     const dy = event.clientY - start.y
     const dx = event.clientX - start.x
-    if (dy > 72 && dy > Math.abs(dx)) closeDetail()
+    if (dy > 72 && dy > Math.abs(dx)) safeClose()
   }
 
   const copyPrompt = async () => {
@@ -237,12 +247,7 @@ export default function InspirationDetail() {
   }
 
   return (
-    <Overlay
-      onClose={pendingAction ? () => {} : closeDetail}
-      role="none"
-      label={inspirationTitle(item)}
-      className="max-md:p-0"
-    >
+    <Overlay onClose={safeClose} role="none" label={inspirationTitle(item)} className="max-md:p-0">
       <div
         role="dialog"
         aria-modal="true"
@@ -258,7 +263,8 @@ export default function InspirationDetail() {
         <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5 md:hidden">
           <Button
             type="button"
-            onClick={closeDetail}
+            disabled={pendingAction !== null}
+            onClick={safeClose}
             aria-label={t('detail.back')}
             variant="ghost"
             size="icon-sm"
@@ -331,9 +337,9 @@ export default function InspirationDetail() {
             variant="secondary"
             autoTooltip={false}
             aria-label={t('detail.prev')}
-            disabled={!previous}
+            disabled={!previous || pendingAction !== null}
             className="absolute left-3 top-1/2 -translate-y-1/2 bg-black/55 text-white hover:bg-black/70"
-            onClick={() => previous && showDetail(previous.id)}
+            onClick={() => previous && safeShowDetail(previous.id)}
           >
             <Icon name="chevronLeft" />
           </Button>
@@ -343,9 +349,9 @@ export default function InspirationDetail() {
             variant="secondary"
             autoTooltip={false}
             aria-label={t('detail.next')}
-            disabled={!next}
+            disabled={!next || pendingAction !== null}
             className="absolute right-3 top-1/2 -translate-y-1/2 bg-black/55 text-white hover:bg-black/70"
-            onClick={() => next && showDetail(next.id)}
+            onClick={() => next && safeShowDetail(next.id)}
           >
             <Icon name="chevronRight" />
           </Button>
@@ -390,8 +396,9 @@ export default function InspirationDetail() {
               size="icon-xs"
               variant="ghost"
               autoTooltip={false}
+              disabled={pendingAction !== null}
               aria-label={t('detail.close')}
-              onClick={closeDetail}
+              onClick={safeClose}
             >
               <Icon name="close" />
             </Button>
