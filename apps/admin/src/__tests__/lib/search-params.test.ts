@@ -1,3 +1,4 @@
+import { defaultParseSearch } from '@tanstack/react-router'
 import { describe, expect, it } from 'vitest'
 import {
   parseAgentPromptsSearch,
@@ -5,6 +6,7 @@ import {
   parseDevicesSearch,
   parseFullscreen,
   parseGenerationTasksSearch,
+  parseHealthSearch,
   parseImgIdx,
   parseImgKind,
   parseRange,
@@ -239,5 +241,18 @@ describe('generation task rich filters and sort params', () => {
     expect(parseGenerationTasksSearch({ preset: '24h', sort: 'invalid', dir: 'sideways' })).toEqual(
       { preset: '24h' },
     )
+  })
+})
+
+describe('parseHealthSearch', () => {
+  it('preserves range and includePolicy=1 parsed by TanStack Router defaultParseSearch', () => {
+    const parsed = defaultParseSearch('?range=24h&includePolicy=1') as Record<string, unknown>
+    expect(parsed.includePolicy).toBe(1)
+    expect(parseHealthSearch(parsed)).toEqual({ range: '24h', includePolicy: '1' })
+    expect(parseHealthSearch({ range: '7d', includePolicy: '1' })).toEqual({
+      range: '7d',
+      includePolicy: '1',
+    })
+    expect(parseHealthSearch({ includePolicy: 0 })).toEqual({})
   })
 })

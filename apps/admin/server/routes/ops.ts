@@ -1,5 +1,6 @@
 import { Elysia } from 'elysia'
-import { parseOpsRange } from '../../contracts'
+import { parseHealthIncludePolicy, parseHealthRange, parseOpsRange } from '../../contracts'
+import { readHealthMonitor } from '../lib/health'
 import { requireAuth } from '../lib/middleware'
 import { buildOpsSnapshot } from '../lib/ops'
 import {
@@ -19,6 +20,10 @@ export const opsRoutes = new Elysia()
   .use(requireAuth)
   .get('/api/ops', ({ query }) =>
     buildOpsSnapshot(undefined, undefined, parseOpsRange(query.range)),
+  )
+
+  .get('/api/ops/health', ({ query }) =>
+    readHealthMonitor(parseHealthRange(query.range), parseHealthIncludePolicy(query.includePolicy)),
   )
 
   .get('/api/ops/logs', async ({ query, status }) => {

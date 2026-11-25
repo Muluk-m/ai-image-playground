@@ -34,6 +34,8 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
    * 预算闸门是启发式的（`request-budget.ts`），不记偏差就永远不知道它偏了多少、偏向哪边。
    */
   const estimates = new Map<string, number>()
+  const dispatchedAt = new Map<string, number>()
+  const ttftMsById = new Map<string, number>()
   const calls = schema.agent_model_calls
   const scope = and(
     eq(calls.conversation_id, identity.conversationId),
@@ -43,6 +45,7 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
   return {
     async begin(purpose: CallPurpose, model: string, context?: Context): Promise<string> {
       const id = crypto.randomUUID()
+      const startedAt = Date.now()
       const imageCount =
         context?.messages.reduce(
           (count, message) =>
@@ -53,6 +56,7 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
           0,
         ) ?? 0
       if (context) estimates.set(id, requestInputTokens(context))
+      dispatchedAt.set(id, startedAt)
       await db.insert(calls).values({
         id,
         conversation_id: identity.conversationId,
@@ -64,7 +68,7 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
         input_image_count: imageCount,
         status: 'in_progress',
         http_dispatch_count: 0,
-        started_at: Date.now(),
+        started_at: startedAt,
       })
       return id
     },
@@ -79,7 +83,17 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
         .where(and(scope, eq(calls.id, id), eq(calls.http_dispatch_count, 0)))
         .returning({ purpose: calls.purpose })
       if (!dispatched) throw new Error('Model call cannot be dispatched twice')
+      // 派发证据落库后（guardedAgentFetch 紧接着发起上游 fetch）再记 TTFT 起点，避免把本地 DB 写入耗时计入模型首字延迟。
+      dispatchedAt.set(id, Date.now())
       if (dispatched.purpose === 'conversation') upstreamInvocationCount += 1
+    },
+
+    /** 记录首个有效输出块到达时刻；单次调用只记一次，随 finish 落库。 */
+    markFirstToken(id: string, now = Date.now()): void {
+      if (ttftMsById.has(id)) return
+      const start = dispatchedAt.get(id)
+      if (start === undefined) return
+      ttftMsById.set(id, Math.max(0, Math.round(now - start)))
     },
 
     /** The request was cancelled while its durable dispatch evidence was being recorded. */
@@ -96,10 +110,14 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
         .returning({ purpose: calls.purpose })
       if (cancelled?.purpose === 'conversation') upstreamInvocationCount -= 1
       estimates.delete(id)
+      dispatchedAt.delete(id)
+      ttftMsById.delete(id)
     },
 
     async rejected(id: string, error: AgentRequestBudgetError): Promise<void> {
       estimates.delete(id)
+      dispatchedAt.delete(id)
+      ttftMsById.delete(id)
       await db
         .update(calls)
         .set({
@@ -113,6 +131,9 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
     },
 
     async finish(id: string, message: AssistantMessage): Promise<void> {
+      const ttftMs = ttftMsById.get(id) ?? null
+      dispatchedAt.delete(id)
+      ttftMsById.delete(id)
       const reported = message.usage
       // pi 在上游缺 usage 时填零；不能将占位零宣称为已知的免费调用。
       const usage =
@@ -142,6 +163,7 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
           tool_calls: message.content.flatMap((part) =>
             part.type === 'toolCall' ? [{ id: part.id, name: part.name }] : [],
           ),
+          ttft_ms: ttftMs,
           finished_at: Date.now(),
         })
         .where(and(scope, eq(calls.id, id), eq(calls.status, 'in_progress')))

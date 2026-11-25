@@ -159,6 +159,133 @@ export const OPS_RANGE_LABEL: Record<OpsRange, string> = {
   '7d': '7 天',
 }
 
+export const HEALTH_RANGES = ['6h', '24h', '7d'] as const
+export type HealthRange = (typeof HEALTH_RANGES)[number]
+export const DEFAULT_HEALTH_RANGE: HealthRange = '6h'
+
+export const HEALTH_RANGE_META: Record<
+  HealthRange,
+  {
+    readonly label: string
+    readonly bucketLabel: string
+    readonly windowSeconds: number
+    readonly bucketSeconds: number
+    readonly bucketCount: number
+    readonly startLabel: string
+  }
+> = {
+  '6h': {
+    label: '6 小时',
+    bucketLabel: '5 分钟/格',
+    windowSeconds: 6 * 3600,
+    bucketSeconds: 5 * 60,
+    bucketCount: 72,
+    startLabel: '6 小时前',
+  },
+  '24h': {
+    label: '24 小时',
+    bucketLabel: '15 分钟/格',
+    windowSeconds: 24 * 3600,
+    bucketSeconds: 15 * 60,
+    bucketCount: 96,
+    startLabel: '24 小时前',
+  },
+  '7d': {
+    label: '7 天',
+    bucketLabel: '2 小时/格',
+    windowSeconds: 7 * 24 * 3600,
+    bucketSeconds: 2 * 3600,
+    bucketCount: 84,
+    startLabel: '7 天前',
+  },
+}
+
+export function parseHealthRange(value: unknown): HealthRange {
+  return typeof value === 'string' && (HEALTH_RANGES as readonly string[]).includes(value)
+    ? (value as HealthRange)
+    : DEFAULT_HEALTH_RANGE
+}
+
+export function parseHealthIncludePolicy(value: unknown): boolean {
+  return value === '1' || value === 1 || value === 'true' || value === true
+}
+
+export type HealthStatus = 'healthy' | 'degraded' | 'outage' | 'idle'
+export type HealthComponentKind = 'generation' | 'agent' | 'api'
+
+export interface HealthBucket {
+  readonly start_at: number
+  readonly end_at: number
+  readonly status: HealthStatus
+  readonly total: number
+  readonly succeeded: number
+  readonly failed: number
+  readonly success_rate: number | null
+  readonly policy_blocked?: number
+  readonly ttft_p50_ms?: number | null
+  readonly ttft_p95_ms?: number | null
+  readonly duration_p50_ms?: number | null
+  readonly duration_p95_ms?: number | null
+  readonly queue_wait_p50_ms?: number | null
+}
+
+export interface HealthComponent {
+  readonly id: string
+  readonly kind: HealthComponentKind
+  readonly name: string
+  readonly badge?: string | null
+  readonly status: HealthStatus
+  readonly availability: number | null
+  readonly total: number
+  readonly succeeded: number
+  readonly failed: number
+  readonly policy_blocked?: number
+  readonly ttft_p50_ms?: number | null
+  readonly ttft_p95_ms?: number | null
+  readonly duration_p50_ms?: number | null
+  readonly duration_p95_ms?: number | null
+  readonly queue_wait_p50_ms?: number | null
+  readonly buckets: readonly HealthBucket[]
+}
+
+export interface HealthGroup {
+  readonly id: string
+  readonly kind: HealthComponentKind
+  readonly name: string
+  readonly status: HealthStatus
+  readonly availability: number | null
+  readonly total: number
+  readonly succeeded: number
+  readonly failed: number
+  readonly components: readonly HealthComponent[]
+}
+
+export interface HealthMonitorSummary {
+  readonly status: HealthStatus
+  readonly availability: number | null
+  readonly generation_total: number
+  readonly generation_availability: number | null
+  readonly generation_p50_ms: number | null
+  readonly agent_total: number
+  readonly agent_availability: number | null
+  readonly agent_ttft_p50_ms: number | null
+  readonly api_total: number
+  readonly api_availability: number | null
+  readonly api_p95_ms: number | null
+}
+
+export interface HealthMonitorSnapshot {
+  readonly generated_at: number
+  readonly range: HealthRange
+  readonly include_policy: boolean
+  readonly bucket_ms: number
+  readonly bucket_count: number
+  readonly window_start_at: number
+  readonly window_end_at: number
+  readonly summary: HealthMonitorSummary
+  readonly groups: readonly HealthGroup[]
+}
+
 export const SORT_LABEL: Record<SortKey, string> = {
   last_seen: '最近活跃',
   today_count: '今日任务',

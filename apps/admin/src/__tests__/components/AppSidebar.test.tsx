@@ -128,5 +128,7 @@ describe('prompt & feedback navigation', () => {
     expect(entries).toContainEqual(
       expect.objectContaining({ to: '/feedback', label: '用户反馈', gated: true }),
     )
+    const opsEntries = NAV_GROUPS.find((group) => group.label === '运维')?.entries
+    expect(opsEntries).toContainEqual(expect.objectContaining({ to: '/status', label: '健康监测' }))
   })
 })

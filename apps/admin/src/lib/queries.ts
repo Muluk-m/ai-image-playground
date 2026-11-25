@@ -26,6 +26,8 @@ import type {
   ClientErrorEventsResult,
   ClientErrorsResult,
   DeviceDetailResult,
+  HealthMonitorSnapshot,
+  HealthRange,
   ListAuditsResult,
   ListDevicesResult,
   ListUsersResult,
@@ -231,6 +233,23 @@ export function useOps(range: OpsRange, refetchInterval = 30_000, enabled = true
     queryFn: () => apiClient.get<OpsSnapshot>(`/api/ops?range=${range}`),
     refetchInterval,
     enabled,
+  })
+}
+
+/** 健康监测快照：按时间窗口与策略拒图口径聚合生成任务、Agent 模型（含 TTFT）及核心接口。 */
+export function useHealthMonitor(
+  range: HealthRange,
+  includePolicy: boolean,
+  refetchInterval = 30_000,
+) {
+  return useQuery({
+    queryKey: ['ops-health', { range, includePolicy }],
+    queryFn: () =>
+      apiClient.get<HealthMonitorSnapshot>(
+        `/api/ops/health?range=${range}&includePolicy=${includePolicy ? '1' : '0'}`,
+      ),
+    staleTime: 0,
+    refetchInterval,
   })
 }
 
