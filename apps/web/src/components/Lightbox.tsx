@@ -337,6 +337,7 @@ function LightboxInner({
   const tyRef = useRef(0)
   const closingRef = useRef(false)
   const closeFallbackTimerRef = useRef<number | null>(null)
+  const closeCancelRef = useRef<(() => void) | null>(null)
   const initialImageIdRef = useRef(imageId)
   const didOpenFlipRef = useRef(false)
   const pendingOpenFlipRectRef = useRef<DOMRect | null>(null)
@@ -434,6 +435,7 @@ function LightboxInner({
 
   useEffect(() => {
     return () => {
+      closeCancelRef.current?.()
       if (closeFallbackTimerRef.current != null) {
         window.clearTimeout(closeFallbackTimerRef.current)
       }
@@ -514,32 +516,47 @@ function LightboxInner({
         ],
         { duration, easing, fill: 'forwards' },
       )
-      if (backdrop && typeof backdrop.animate === 'function') {
-        backdrop.animate([{ opacity: readOpacity(backdrop) }, { opacity: 0 }], {
-          duration,
-          easing,
-          fill: 'forwards',
-        })
-      }
-      if (chrome && typeof chrome.animate === 'function') {
-        chrome.animate([{ opacity: readOpacity(chrome) }, { opacity: 0 }], {
-          duration: Math.min(duration, 140),
-          easing,
-          fill: 'forwards',
-        })
-      }
+      const backdropAnim =
+        backdrop && typeof backdrop.animate === 'function'
+          ? backdrop.animate([{ opacity: readOpacity(backdrop) }, { opacity: 0 }], {
+              duration,
+              easing,
+              fill: 'forwards',
+            })
+          : null
+      const chromeAnim =
+        chrome && typeof chrome.animate === 'function'
+          ? chrome.animate([{ opacity: readOpacity(chrome) }, { opacity: 0 }], {
+              duration: Math.min(duration, 140),
+              easing,
+              fill: 'forwards',
+            })
+          : null
 
       let settled = false
-      const finish = () => {
-        if (settled) return
-        settled = true
+      const clearPendingClose = () => {
         anim.onfinish = null
         anim.oncancel = null
         if (closeFallbackTimerRef.current != null) {
           window.clearTimeout(closeFallbackTimerRef.current)
           closeFallbackTimerRef.current = null
         }
+        closeCancelRef.current = null
+      }
+      const finish = () => {
+        if (settled) return
+        settled = true
+        clearPendingClose()
         onClose()
+      }
+      closeCancelRef.current = () => {
+        if (settled) return
+        settled = true
+        clearPendingClose()
+        anim.cancel()
+        backdropAnim?.cancel()
+        chromeAnim?.cancel()
+        closingRef.current = false
       }
       anim.onfinish = finish
       anim.oncancel = finish
@@ -548,10 +565,11 @@ function LightboxInner({
     [imageId, onClose],
   )
 
-  // 切换图片时重置缩放与拖拽关闭偏移（同一 imageId 从缩略图升级为原图时保留当前缩放与位移）
+  // 切换图片时取消未完成的关闭动画并重置缩放与拖拽关闭偏移（同一 imageId 从缩略图升级为原图时保留状态）
   const zoomIdentity = imageId || src
   useEffect(() => {
     void zoomIdentity
+    closeCancelRef.current?.()
     scaleRef.current = 1
     txRef.current = 0
     tyRef.current = 0
