@@ -1,5 +1,5 @@
 import { OAUTH_ERROR_QUERY_PARAM } from '@image-playground/shared'
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import {
   discardPendingSubmission,
   hasPendingSubmission,
@@ -89,10 +89,12 @@ export default function SiteAuth({
     }
   }, [locale, page, attempt])
   const visible = open || page === 'login'
+  const wasVisible = useRef(visible)
   useEffect(() => {
-    if (visible && status === 'error') {
+    if (!wasVisible.current && visible && status === 'error') {
       setAttempt((a) => a + 1)
     }
+    wasVisible.current = visible
   }, [visible, status])
   if (!visible) return null
   const close = () => {

@@ -479,6 +479,14 @@ export function ServerLogsBlock({
                     event.preventDefault()
                     setSearch('')
                     setSearchError('')
+                    if (state.q !== undefined || expressionFilters.current) {
+                      const next = { ...state }
+                      for (const key of Object.keys(expressionFilters.current ?? {}))
+                        delete next[key as keyof ServerLogFilters]
+                      delete next.q
+                      expressionFilters.current = null
+                      change(next)
+                    }
                   }
                 }}
                 maxLength={1200}
@@ -494,6 +502,14 @@ export function ServerLogsBlock({
                   onClick={() => {
                     setSearch('')
                     setSearchError('')
+                    if (state.q !== undefined || expressionFilters.current) {
+                      const next = { ...state }
+                      for (const key of Object.keys(expressionFilters.current ?? {}))
+                        delete next[key as keyof ServerLogFilters]
+                      delete next.q
+                      expressionFilters.current = null
+                      change(next)
+                    }
                   }}
                 >
                   <X className="size-3.5" />
