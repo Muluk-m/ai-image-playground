@@ -45,7 +45,7 @@ export default function AgentArtifactEditDialog({
   /** `panel` 嵌在制作面板里：不盖遮罩、不困住焦点，Escape 由编辑器自己收起。 */
   presentation?: 'panel' | 'overlay'
 }) {
-  const { t } = useTranslation('agent')
+  const { t } = useTranslation(['agent', 'canvas'])
   const showToast = useStore((state) => state.showToast)
   const dialogRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
@@ -644,6 +644,21 @@ export default function AgentArtifactEditDialog({
     }
   }
 
+  const requestClose = () => {
+    if (busy) return
+    if (markPresent || instruction.trim()) {
+      useStore.getState().setConfirmDialog({
+        title: t('canvas:pixelEdit.discardTitle'),
+        message: t('canvas:pixelEdit.discardMessage'),
+        confirmText: t('canvas:pixelEdit.discardConfirm'),
+        tone: 'danger',
+        action: onClose,
+      })
+      return
+    }
+    onClose()
+  }
+
   const editor = (
     <div
       ref={dialogRef}
@@ -657,11 +672,12 @@ export default function AgentArtifactEditDialog({
           presentation === 'panel' &&
           event.key === 'Escape' &&
           !busy &&
-          !event.nativeEvent.isComposing
+          !event.nativeEvent.isComposing &&
+          event.keyCode !== 229
         ) {
           event.preventDefault()
           event.stopPropagation()
-          onClose()
+          requestClose()
           return
         }
         if (
@@ -684,7 +700,7 @@ export default function AgentArtifactEditDialog({
         <Button
           variant="ghost"
           type="button"
-          onClick={onClose}
+          onClick={requestClose}
           disabled={busy}
           aria-label={t('tool.closePreview')}
           size="icon-sm"
@@ -909,6 +925,7 @@ export default function AgentArtifactEditDialog({
                 type="button"
                 key={value}
                 size="sm"
+                disabled={busy}
                 className="aria-pressed:bg-accent aria-pressed:text-accent-foreground"
                 aria-pressed={extension === value}
                 onClick={() => setExtension(value)}
@@ -971,6 +988,7 @@ export default function AgentArtifactEditDialog({
         ) : (
           <Textarea
             className="max-h-40 resize-y"
+            disabled={busy}
             value={instruction}
             onChange={(event) => setInstruction(event.target.value)}
             placeholder={t(`tool.${action}Placeholder`)}
@@ -986,6 +1004,18 @@ export default function AgentArtifactEditDialog({
           <Button
             type="button"
             onClick={generate}
+            aria-busy={busy || undefined}
+            title={
+              loading || !working || !ready
+                ? t('tool.loadingPreview')
+                : marked && !markPresent
+                  ? t('canvas:inpaint.paintFirst')
+                  : action === 'inpaint' && !regionPrompt.hasProse
+                    ? t('canvas:inpaint.enterPrompt')
+                    : regionPrompt.hasMissing
+                      ? t('canvas:inpaint.missingMarker')
+                      : undefined
+            }
             disabled={
               busy ||
               drawing ||
@@ -998,6 +1028,7 @@ export default function AgentArtifactEditDialog({
               (marked && (!markPresent || (action === 'inpaint' && !regionPrompt.hasProse)))
             }
           >
+            {busy && <Icon name="loading" className="animate-spin" />}
             {busy ? t('tool.submittingEdit') : t('tool.generateEdit')}
           </Button>
         </div>
@@ -1006,7 +1037,7 @@ export default function AgentArtifactEditDialog({
   )
   if (presentation === 'panel') return editor
   return (
-    <Overlay onClose={busy ? () => {} : onClose} tier="artifact" layout="center" role="none">
+    <Overlay onClose={busy ? () => {} : requestClose} tier="artifact" layout="center" role="none">
       {editor}
     </Overlay>
   )

@@ -40,6 +40,10 @@ interface ToolboxState {
   items: ToolboxItem[]
   /** 打开的工具；为 null 时主区是目录页。与地址 `/tools/<工具>` 同步。 */
   activeTool: ToolId | null
+  /** 正在压缩或解码导入中的批次数；> 0 时给用户明确的加载反馈。 */
+  importingCount: number
+  beginImport: () => void
+  endImport: () => void
   add: (files: readonly File[]) => Promise<void>
   remove: (id: string) => void
   /** 合成工具按导入顺序排版，这里调顺序。 */
@@ -68,40 +72,49 @@ function releaseItem(item: ToolboxItem): void {
 export const useToolboxStore = create<ToolboxState>()((set, get) => ({
   items: [],
   activeTool: toolFromPath(globalThis.location?.pathname ?? '/'),
+  importingCount: 0,
+  beginImport: () => set((state) => ({ importingCount: state.importingCount + 1 })),
+  endImport: () => set((state) => ({ importingCount: Math.max(0, state.importingCount - 1) })),
   // 逐张解码：一次 Promise.all 几十张 4000px 的图会把内存峰值顶上去。
   // `createImageBitmap` 默认按 EXIF 摆正，后面的工具拿到的都是已经正过来的像素。
   add: async (files) => {
+    if (files.length === 0) return
     const version = intakeVersion
-    for (const file of files) {
-      const id = crypto.randomUUID()
-      const base = {
-        id,
-        name: file.name,
-        url: URL.createObjectURL(file),
-        type: file.type,
-        size: file.size,
-      }
-      let item: ToolboxItem
-      try {
-        const { bitmap, preview } = await decodeToolboxImage(file)
-        if (preview !== file) {
-          URL.revokeObjectURL(base.url)
-          base.url = URL.createObjectURL(preview)
+    get().beginImport()
+    try {
+      for (const file of files) {
+        const id = crypto.randomUUID()
+        const base = {
+          id,
+          name: file.name,
+          url: URL.createObjectURL(file),
+          type: file.type,
+          size: file.size,
         }
-        bitmaps.set(id, bitmap)
-        originals.set(id, file)
-        item = { ...base, width: bitmap.width, height: bitmap.height, decodable: true }
-      } catch {
-        item = { ...base, width: 0, height: 0, decodable: false }
+        let item: ToolboxItem
+        try {
+          const { bitmap, preview } = await decodeToolboxImage(file)
+          if (preview !== file) {
+            URL.revokeObjectURL(base.url)
+            base.url = URL.createObjectURL(preview)
+          }
+          bitmaps.set(id, bitmap)
+          originals.set(id, file)
+          item = { ...base, width: bitmap.width, height: bitmap.height, decodable: true }
+        } catch {
+          item = { ...base, width: 0, height: 0, decodable: false }
+        }
+        if (version !== intakeVersion) {
+          bitmaps.get(id)?.close()
+          bitmaps.delete(id)
+          originals.delete(id)
+          URL.revokeObjectURL(base.url)
+          return
+        }
+        set((state) => ({ items: [...state.items, item] }))
       }
-      if (version !== intakeVersion) {
-        bitmaps.get(id)?.close()
-        bitmaps.delete(id)
-        originals.delete(id)
-        URL.revokeObjectURL(base.url)
-        return
-      }
-      set((state) => ({ items: [...state.items, item] }))
+    } finally {
+      get().endImport()
     }
   },
   remove: (id) => {

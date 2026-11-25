@@ -92,7 +92,8 @@ export default function ToolShell({
 }) {
   const { t } = useTranslation('toolbox')
   const count = useToolboxStore((state) => state.items.length)
-  const { dragging, dropZoneProps, inputs, openFiles, openFolder } = useToolboxIntake(busy)
+  const { dragging, importing, dropZoneProps, inputs, openFiles, openFolder } =
+    useToolboxIntake(busy)
   const name = t(`tool.${tool.id}.name`)
   const [localDownloading, setLocalDownloading] = useState(false)
   const [sending, setSending] = useState(false)
@@ -139,7 +140,13 @@ export default function ToolShell({
       className="flex h-[calc(100dvh-var(--mobile-nav-height,0px)-var(--mobile-topbar-height,0px)-var(--app-inset,0px)*2)] flex-col"
     >
       {inputs}
-      <ToolboxHeader tool={tool} busy={busy} onAddImages={openFiles} onAddFolder={openFolder} />
+      <ToolboxHeader
+        tool={tool}
+        busy={busy}
+        importing={importing}
+        onAddImages={openFiles}
+        onAddFolder={openFolder}
+      />
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
         <div className="shrink-0 border-b border-border lg:w-48 lg:border-b-0 lg:border-r">
           <ToolList active={tool.id} busy={busy} />

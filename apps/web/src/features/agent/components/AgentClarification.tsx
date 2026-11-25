@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useRef, useState } from 'react'
 import { OptionList } from '../../../components/assistant-ui/elements/option-list'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
@@ -49,13 +49,24 @@ export default function AgentClarification({
   const [writing, setWriting] = useState(false)
   const [other, setOther] = useState('')
   const [expanded, setExpanded] = useState(false)
-  const locked = answered || running
+  const [submitting, setSubmitting] = useState(false)
+  const submittingRef = useRef(false)
+  const locked = answered || running || submitting
   const written = other.trim()
+
+  const sendAnswer = (text: string) => {
+    if (submittingRef.current || locked || !text) return
+    submittingRef.current = true
+    setSubmitting(true)
+    void Promise.resolve(useAgentStore.getState().send(text)).finally(() => {
+      submittingRef.current = false
+      setSubmitting(false)
+    })
+  }
 
   const submitOther = (event: FormEvent) => {
     event.preventDefault()
-    if (locked || !written) return
-    void useAgentStore.getState().send(written)
+    sendAnswer(written)
   }
 
   if (message.maskProposal) {
@@ -125,14 +136,14 @@ export default function AgentClarification({
         rowClassName="studio-clarification-option"
         options={visible}
         choice={knownAnswer ? [answer] : answered ? [] : undefined}
-        pending={running && !answered}
+        pending={(running || submitting) && !answered}
         selectedLabel={knownAnswer ? t('clarification.selected') : undefined}
         aria-label={message.question}
         onConfirm={
-          knownAnswer || answered
+          knownAnswer || answered || locked
             ? undefined
             : ([option]) => {
-                void useAgentStore.getState().send(option)
+                if (option) sendAnswer(option)
               }
         }
       />
@@ -157,11 +168,15 @@ export default function AgentClarification({
               className={CARD_CONTROL}
               aria-label={t('clarification.otherAria')}
               value={other}
-              disabled={running}
+              disabled={locked}
               placeholder={t('clarification.otherPlaceholder')}
               onChange={(event) => setOther(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' && event.nativeEvent.isComposing) event.preventDefault()
+                if (
+                  event.key === 'Enter' &&
+                  (event.nativeEvent.isComposing || event.keyCode === 229)
+                )
+                  event.preventDefault()
               }}
             />
             <Button

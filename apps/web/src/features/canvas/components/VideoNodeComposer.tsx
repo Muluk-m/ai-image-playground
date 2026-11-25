@@ -7,6 +7,7 @@ import {
   CreationSend,
   CreationToolbar,
 } from '../../../components/creation/CreationFrame'
+import SubmissionBillingAction from '../../../components/SubmissionBillingAction'
 import { Button } from '../../../components/ui/button'
 import { Icon } from '../../../components/ui/icon'
 import { Popover, PopoverContent, PopoverTrigger } from '../../../components/ui/popover'
@@ -19,6 +20,7 @@ import {
 } from '../../../components/ui/select'
 import { useTranslation } from '../../../i18n'
 import { videoModelOptions } from '../../../lib/channels/videoChannels'
+import { acceptImageFiles } from '../../../lib/imageFiles'
 import { API_MAX_IMAGES } from '../../../lib/inputImageLimit'
 import { usePrivateSubmissionGuard } from '../../../lib/privateOverlay'
 import { useStore } from '../../../store'
@@ -137,6 +139,7 @@ export default function VideoNodeComposer({
         ? t('nodes.mediaMissing')
         : undefined
   const canSend =
+    !guard.blocked &&
     !inputError &&
     !busy &&
     !uploads.uploading &&
@@ -384,11 +387,18 @@ export default function VideoNodeComposer({
             aria-label={t('nodes.composerSend')}
             disabled={!canSend}
             busy={busy}
+            title={guard.disabledReason ?? inputError}
             onClick={send}
           />
         }
         status={
           <>
+            {guard.blocked && guard.disabledReason && (
+              <p role="alert" className="text-destructive">
+                {guard.disabledReason}
+              </p>
+            )}
+            <SubmissionBillingAction blockedAction={guard.blockedAction} />
             {inputError && (
               <p role="status" className="text-muted-foreground">
                 {inputError}
@@ -417,9 +427,10 @@ export default function VideoNodeComposer({
         accept="image/*"
         hidden
         onChange={async (event) => {
-          const file = event.target.files?.[0]
+          const picked = [...(event.target.files ?? [])]
           event.target.value = ''
-          if (!file?.type.startsWith('image/')) return
+          const [file] = acceptImageFiles(picked, { keepOversized: true })
+          if (!file) return
           if (
             allRefs.filter((ref) => ref.kind === 'image').length >=
             (mode === 'reference' ? referenceMax : API_MAX_IMAGES)

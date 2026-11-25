@@ -105,7 +105,11 @@ export function useModelChoices() {
 function moveOptionFocus(event: KeyboardEvent<HTMLElement>) {
   const step = { ArrowDown: 1, ArrowUp: -1 }[event.key]
   if (step === undefined && event.key !== 'Home' && event.key !== 'End') return
-  const items = [...event.currentTarget.querySelectorAll<HTMLElement>('[role="option"]')]
+  const items = [
+    ...event.currentTarget.querySelectorAll<HTMLElement>(
+      '[role="option"]:not([disabled]):not([aria-disabled="true"])',
+    ),
+  ]
   if (!items.length) return
   event.preventDefault()
   const index = items.indexOf(document.activeElement as HTMLElement)
@@ -236,8 +240,10 @@ export function ModelList({
       })
     : options
   const groups = groupByFamily(visible)
-  const firstShown = groups[0]?.options[0]
-  const hasSelected = visible.some((option) => option.value === value)
+  const firstShown =
+    groups.flatMap((group) => group.options).find((option) => !option.unavailable) ??
+    groups[0]?.options[0]
+  const hasSelected = visible.some((option) => option.value === value && !option.unavailable)
   return (
     <div className={cn('flex min-h-0 flex-col gap-1', className)}>
       {options.length > SEARCH_THRESHOLD && (
@@ -410,7 +416,7 @@ export function ModelSelector({
           event.preventDefault()
           const content = event.currentTarget as HTMLElement
           content
-            .querySelector<HTMLElement>('input, [role="option"][tabindex="0"]')
+            .querySelector<HTMLElement>('input, [role="option"][tabindex="0"]:not([disabled])')
             ?.focus({ preventScroll: false })
         }}
         onEscapeKeyDown={(event) => {

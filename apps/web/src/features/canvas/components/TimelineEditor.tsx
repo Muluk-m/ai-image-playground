@@ -90,6 +90,10 @@ function TimelineEditor({
   const [playing, setPlaying] = useState(false)
   const [playIndex, setPlayIndex] = useState(0)
   const [measured, setMeasured] = useState<Record<string, number>>({})
+  const [videoError, setVideoError] = useState(false)
+  const [historyState, setHistoryState] = useState({ undo: 0, redo: 0 })
+  const undoStack = useRef<TimelineClip[][]>([])
+  const redoStack = useRef<TimelineClip[][]>([])
   const video = useRef<HTMLVideoElement>(null)
   const root = useRef<HTMLDivElement>(null)
   const pendingSeek = useRef<number | null>(null)
@@ -135,6 +139,7 @@ function TimelineEditor({
     if (!url) {
       live.current.playing = false
       setPlaying(false)
+      setVideoError(false)
       pendingSeek.current = null
       node.pause()
       node.removeAttribute('src')
@@ -142,6 +147,7 @@ function TimelineEditor({
       return
     }
     if (node.getAttribute('src') !== url) {
+      setVideoError(false)
       pendingSeek.current = sourceTime
       node.src = url
       node.load()
@@ -213,13 +219,68 @@ function TimelineEditor({
     void node.play().catch(() => stop())
   }
 
+  const syncHistory = () =>
+    setHistoryState({ undo: undoStack.current.length, redo: redoStack.current.length })
+
+  const pushHistory = () => {
+    undoStack.current.push(live.current.clips)
+    if (undoStack.current.length > 50) undoStack.current.shift()
+    redoStack.current = []
+    syncHistory()
+  }
+
   /** 改了片段表：停下，播放头留在原处（超出新总长就到末尾），预览按新表重新定位。 */
-  const update = (next: TimelineClip[], change?: Parameters<typeof followSelection>[1]) => {
+  const update = (
+    next: TimelineClip[],
+    change?: Parameters<typeof followSelection>[1],
+    record = true,
+  ) => {
     stop()
+    if (record) pushHistory()
     setClips(next)
     live.current.clips = next
     if (change) setSelected((current) => followSelection(current, change))
     seek(time, next)
+  }
+
+  const undo = () => {
+    const previous = undoStack.current.pop()
+    if (!previous) return
+    redoStack.current.push(live.current.clips)
+    syncHistory()
+    setSelected((current) =>
+      current !== null && current >= previous.length
+        ? previous.length > 0
+          ? previous.length - 1
+          : null
+        : current,
+    )
+    update(previous, undefined, false)
+  }
+
+  const redo = () => {
+    const next = redoStack.current.pop()
+    if (!next) return
+    undoStack.current.push(live.current.clips)
+    syncHistory()
+    setSelected((current) =>
+      current !== null && current >= next.length
+        ? next.length > 0
+          ? next.length - 1
+          : null
+        : current,
+    )
+    update(next, undefined, false)
+  }
+
+  const retryVideo = () => {
+    const node = video.current
+    const url = urlOf(live.current.clips, live.current.playIndex)
+    if (!node || !url) return
+    setVideoError(false)
+    node.src = url
+    node.load()
+    seek(time)
   }
 
   const close = () => {
@@ -247,9 +308,19 @@ function TimelineEditor({
   const onKeyDown = (event: ReactKeyboardEvent) => {
     // 所有按键停在编辑器里：画布的 Delete / ⌘Z / 字母工具键会作用到画布本身。
     event.stopPropagation()
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
-      event.preventDefault()
-      return
+    if ((event.metaKey || event.ctrlKey) && !event.altKey) {
+      const key = event.key.toLowerCase()
+      if (key === 'z') {
+        event.preventDefault()
+        if (event.shiftKey) redo()
+        else undo()
+        return
+      }
+      if (key === 'y') {
+        event.preventDefault()
+        redo()
+        return
+      }
     }
     const target = event.target as HTMLElement
     if (target.tagName === 'INPUT' || target.getAttribute('role') === 'slider') return
@@ -283,20 +354,44 @@ function TimelineEditor({
             {t('timeline.overflow', { max: PROJECT_TIMELINE_MAX_CLIPS })}
           </p>
         )}
-        <header className="flex items-center justify-between border-b border-border px-4 py-2">
+        <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
           <h2 className="text-sm font-medium">
             {t('timeline.editorTitle')} · {clips.length} · {clock(total)}
           </h2>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={close}
-            aria-label={t('timeline.done')}
-          >
-            <Icon name="close" />
-            {t('timeline.done')}
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              disabled={historyState.undo === 0}
+              onClick={undo}
+              aria-label={t('toolbar.undo')}
+              title={t('toolbar.undo')}
+            >
+              <Icon name="undo" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              disabled={historyState.redo === 0}
+              onClick={redo}
+              aria-label={t('toolbar.redo')}
+              title={t('toolbar.redo')}
+            >
+              <Icon name="redo" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={close}
+              aria-label={t('timeline.done')}
+            >
+              <Icon name="close" />
+              {t('timeline.done')}
+            </Button>
+          </div>
         </header>
 
         <div className="relative flex min-h-0 flex-1 items-center justify-center bg-black">
@@ -306,11 +401,17 @@ function TimelineEditor({
             playsInline
             crossOrigin="use-credentials"
             onLoadedMetadata={() => {
+              setVideoError(false)
               const node = video.current
               if (!node || pendingSeek.current === null) return
               node.currentTime = pendingSeek.current
               pendingSeek.current = null
               if (live.current.playing) void node.play().catch(() => stop())
+            }}
+            onError={() => {
+              if (!video.current?.getAttribute('src')) return
+              stop()
+              setVideoError(true)
             }}
             onEnded={() => {
               if (live.current.playing) advance(live.current.playIndex)
@@ -318,6 +419,18 @@ function TimelineEditor({
           >
             <track kind="captions" />
           </video>
+          {videoError && !missingNow && clips.length > 0 && (
+            <div
+              role="alert"
+              className="absolute flex flex-col items-center gap-2 rounded-xl border border-border bg-card/95 px-4 py-3 text-center shadow-lg"
+            >
+              <p className="text-sm text-destructive">{t('nodes.trimLoadFailed')}</p>
+              <Button type="button" variant="outline" size="sm" onClick={retryVideo}>
+                <Icon name="refresh" />
+                {t('assetsPanel.retry')}
+              </Button>
+            </div>
+          )}
           {missingNow && (
             <p className="absolute text-sm text-muted-foreground">{t('timeline.missing')}</p>
           )}
@@ -364,10 +477,17 @@ function TimelineEditor({
             seek(startOfClip(clips, sourceOf, index))
           }}
           onMove={(from, to) => update(moveClip(clips, from, to), { kind: 'move', from, to })}
-          onTrim={(index, edge, seconds) => {
-            const next = [...clips]
-            next[index] = trimClip(clips[index]!, edge, seconds, sourceOf(clips[index]!.elementId))
-            update(next)
+          onTrimStart={pushHistory}
+          onTrim={(index, edge, seconds, record = true) => {
+            const current = live.current.clips
+            const next = [...current]
+            next[index] = trimClip(
+              current[index]!,
+              edge,
+              seconds,
+              sourceOf(current[index]!.elementId),
+            )
+            update(next, undefined, record)
           }}
           onRemove={(index) => update(removeClip(clips, index), { kind: 'remove', index })}
           onLocate={
@@ -443,6 +563,7 @@ function ClipTrack({
   selected,
   onSelect,
   onMove,
+  onTrimStart,
   onTrim,
   onRemove,
   onLocate,
@@ -453,7 +574,8 @@ function ClipTrack({
   selected: number | null
   onSelect: (index: number) => void
   onMove: (from: number, to: number) => void
-  onTrim: (index: number, edge: 'in' | 'out', seconds: number) => void
+  onTrimStart: () => void
+  onTrim: (index: number, edge: 'in' | 'out', seconds: number, record?: boolean) => void
   onRemove: (index: number) => void
   onLocate?: (index: number) => void
 }) {
@@ -481,7 +603,8 @@ function ClipTrack({
             if (dragFrom !== null) onMove(dragFrom, index)
             setDragFrom(null)
           }}
-          onTrim={(edge, seconds) => onTrim(index, edge, seconds)}
+          onTrimStart={onTrimStart}
+          onTrim={(edge, seconds, record) => onTrim(index, edge, seconds, record)}
           onRemove={() => onRemove(index)}
           onLocate={onLocate ? () => onLocate(index) : undefined}
           onMoveLeft={index > 0 ? () => onMove(index, index - 1) : undefined}
@@ -503,6 +626,7 @@ function ClipCard({
   onDragStart,
   onDragEnd,
   onDrop,
+  onTrimStart,
   onTrim,
   onRemove,
   onLocate,
@@ -519,7 +643,8 @@ function ClipCard({
   onDragStart: () => void
   onDragEnd: () => void
   onDrop: () => void
-  onTrim: (edge: 'in' | 'out', seconds: number) => void
+  onTrimStart: () => void
+  onTrim: (edge: 'in' | 'out', seconds: number, record?: boolean) => void
   onRemove: () => void
   onLocate?: () => void
   onMoveLeft?: () => void
@@ -548,8 +673,14 @@ function ClipCard({
     const target = event.currentTarget
     target.setPointerCapture(event.pointerId)
     setTrimming(true)
-    const move = (moveEvent: PointerEvent) =>
-      onTrim(edge, origin + (moveEvent.clientX - startX) / TRACK_PX_PER_SECOND)
+    let recorded = false
+    const move = (moveEvent: PointerEvent) => {
+      if (!recorded) {
+        onTrimStart()
+        recorded = true
+      }
+      onTrim(edge, origin + (moveEvent.clientX - startX) / TRACK_PX_PER_SECOND, false)
+    }
     const end = () => {
       target.removeEventListener('pointermove', move)
       target.removeEventListener('pointerup', end)

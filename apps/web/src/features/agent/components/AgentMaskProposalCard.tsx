@@ -462,6 +462,8 @@ export default function AgentMaskProposalCard({
   const [drawing, setDrawing] = useState(false)
   const [sketch, setSketch] = useState<Point[] | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [loadAttempt, setLoadAttempt] = useState(0)
+  const submittingRef = useRef(false)
   const [writing, setWriting] = useState(false)
   const [other, setOther] = useState('')
   // 反选：卡片上点选、画笔调整的始终是主体；显示与确认时取它以外的部分（往主体里收一圈）。
@@ -636,7 +638,7 @@ export default function AgentMaskProposalCard({
     return () => {
       active = false
     }
-  }, [answered, proposal, redraw])
+  }, [answered, proposal, redraw, loadAttempt])
 
   const pointOnImage = (event: PointerEvent<HTMLElement>): Point | null => {
     const image = imageRef.current
@@ -993,7 +995,8 @@ export default function AgentMaskProposalCard({
 
   const confirm = async () => {
     const mask = maskRef.current
-    if (!mask || locked || !ready || refining) return
+    if (!mask || submittingRef.current || locked || !ready || refining) return
+    submittingRef.current = true
     setSubmitting(true)
     try {
       // 服务端分割时已经外扩过一圈；用户手画的部分按他画的来，不再另外外扩。
@@ -1029,6 +1032,7 @@ export default function AgentMaskProposalCard({
     } catch {
       showToast(t('maskProposal.prepareFailed'), 'error')
     } finally {
+      submittingRef.current = false
       setSubmitting(false)
     }
   }
@@ -1266,6 +1270,21 @@ export default function AgentMaskProposalCard({
             className={stateChip.look === 'loading' ? 'animate-spin' : undefined}
           />
           {stateChip.text}
+          {status === 'failed' && !locked && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="xs"
+              className="ml-1 h-5 px-1.5 text-xs"
+              onClick={() => {
+                setStatus('loading')
+                setLoadAttempt((value) => value + 1)
+              }}
+            >
+              <Icon name="refresh" size="xs" />
+              {t('error.retry')}
+            </Button>
+          )}
         </span>
       </div>
       {ready && (
@@ -1432,8 +1451,13 @@ export default function AgentMaskProposalCard({
           onSubmit={(event) => {
             event.preventDefault()
             const written = other.trim()
-            if (locked || !written) return
-            void useAgentStore.getState().send(written)
+            if (submittingRef.current || locked || !written) return
+            submittingRef.current = true
+            setSubmitting(true)
+            void Promise.resolve(useAgentStore.getState().send(written)).finally(() => {
+              submittingRef.current = false
+              setSubmitting(false)
+            })
           }}
         >
           <Input
@@ -1444,7 +1468,8 @@ export default function AgentMaskProposalCard({
             placeholder={t('clarification.otherPlaceholder')}
             onChange={(event) => setOther(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter' && event.nativeEvent.isComposing) event.preventDefault()
+              if (event.key === 'Enter' && (event.nativeEvent.isComposing || event.keyCode === 229))
+                event.preventDefault()
             }}
           />
           <Button
