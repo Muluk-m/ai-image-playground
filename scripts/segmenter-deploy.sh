@@ -251,11 +251,12 @@ detach() {
 prune() {
   ttl=${SEGMENTER_PREV_RETENTION_SECONDS:-604800}
   case "$ttl" in ''|*[!0-9]*) ttl=604800 ;; esac
-  exists "$prev" || return 0
-  ! running "$prev" || return 0
+  prev_id=$(docker inspect "$prev" --format '{{.Id}}' 2>/dev/null || true)
+  [ -n "$prev_id" ] || return 0
+  ! running "$prev_id" || return 0
   exists "$container" && usable "$container" || return 0
   started=$(docker inspect "$container" --format '{{.State.StartedAt}}' 2>/dev/null || true)
-  finished=$(docker inspect "$prev" --format '{{.State.FinishedAt}}' 2>/dev/null || true)
+  finished=$(docker inspect "$prev_id" --format '{{.State.FinishedAt}}' 2>/dev/null || true)
   [ -n "$started" ] && [ -n "$finished" ] || return 0
   if ! python3 - "$started" "$finished" "$ttl" <<'PY'
 import datetime, re, sys
@@ -288,10 +289,15 @@ PY
   then
     return 0
   fi
-  if docker rm "$prev" >/dev/null 2>&1; then
-    echo "removed expired $prev"
+  # Re-verify the immutable container ID is still stopped and still named `/$prev`, then remove
+  # by ID without `-f`. A concurrent `rollback` that swapped names and restarted `$prev_id` cannot
+  # make this delete the newly swapped-out container.
+  ! running "$prev_id" || return 0
+  [ "$(docker inspect "$prev_id" --format '{{.Name}}' 2>/dev/null || true)" = "/$prev" ] || return 0
+  if docker rm "$prev_id" >/dev/null 2>&1; then
+    echo "removed expired $prev ($prev_id)"
   else
-    echo "Warning: could not remove expired $prev" >&2
+    echo "Warning: could not remove expired $prev ($prev_id)" >&2
   fi
 }
 
