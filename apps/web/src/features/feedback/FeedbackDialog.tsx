@@ -354,7 +354,6 @@ export default function FeedbackDialog({
     setErrorText(null)
     try {
       const response = await sendFeedbackMessage({ body: trimmed, attachment })
-      setLoadError(false)
       if (before !== undefined) {
         showPage(undefined)
       } else {
@@ -368,6 +367,9 @@ export default function FeedbackDialog({
             hasOlder: current.hasOlder || next.length > FEEDBACK_MESSAGE_PAGE_SIZE,
           }
         })
+        if (loadError) {
+          setReload((count) => count + 1)
+        }
       }
       setDraft('')
       setAttachment(null)

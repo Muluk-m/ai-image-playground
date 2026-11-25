@@ -284,6 +284,7 @@ export function PaymentPanel({
   const busy = pendingAction !== null
   useTranslation()
   const sequence = useRef(0)
+  const refreshSeq = useRef(0)
   const busyRef = useRef(false)
   const shouldPoll = order.status === 'pending' || order.status === 'review'
   useEffect(() => {
@@ -291,6 +292,7 @@ export function PaymentPanel({
     let alive = true
     setRefreshing(true)
     const attempt = ++sequence.current
+    const refreshAttempt = ++refreshSeq.current
     void orderRequest<PurchaseOrder>(`/${initial.id}`)
       .then((next) => {
         if (alive && attempt === sequence.current) {
@@ -299,10 +301,10 @@ export function PaymentPanel({
         }
       })
       .catch(() => {
-        if (alive) setError(true)
+        if (alive && attempt === sequence.current) setError(true)
       })
       .finally(() => {
-        if (alive && attempt === sequence.current) setRefreshing(false)
+        if (alive && refreshAttempt === refreshSeq.current) setRefreshing(false)
       })
     return () => {
       alive = false

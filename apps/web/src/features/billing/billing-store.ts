@@ -403,7 +403,7 @@ export function openBilling(): void {
 
 export function openPricing(options?: { period?: BillingPeriodMonths }): void {
   clearPendingWorkspaceSheet()
-  lastPricingOptions = { period: validPeriod(options?.period) }
+  lastPricingOptions = { period: fromCycleTag(toCycleTag(options?.period)) }
   window.dispatchEvent(new Event(OPEN_PRICING_EVENT))
 }
 
