@@ -134,6 +134,10 @@ describe('BFF queue routes', () => {
         ok: true,
         version: `${'a'.repeat(40)}+${'b'.repeat(40)}`,
         release: 'unknown',
+        config: {
+          source: 'unknown',
+          digest: null,
+        },
       })
     } finally {
       if (previous === undefined) delete process.env.APP_VERSION

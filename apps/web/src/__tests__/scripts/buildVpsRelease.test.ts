@@ -129,6 +129,7 @@ beforeEach(() => {
   out = join(root, 'out')
   log = join(root, 'calls')
   for (const f of [
+    'deploy/deployments/prod.json',
     'scripts/build-vps-release.sh',
     'scripts/check-test-isolation.sh',
     'scripts/vps-deploy.sh',
