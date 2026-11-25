@@ -49,7 +49,7 @@ const runOf = (sha, over = {}) => ({ id: 7, head_sha: sha, status: 'completed', 
 const jobs = (over = {}) => required.map((name) => ({ name, conclusion: name in over ? over[name] : 'success' }))
 
 // Fake `gh api`: answers from runs.json / jobs.json; a dispatch logs and swaps in the *-after fixtures.
-function run(env, { runs, jobList, after, args = ['feat'], perRun = {}, deploys = [], fail = false, deployChecks }) {
+function run(env, { runs, jobList, after, args = ['feat'], perRun = {}, deploys = [], fail = false, deployChecks, extraEnv = {} }) {
   const bin = join(env.dir, 'bin')
   execFileSync('mkdir', ['-p', bin])
   writeFileSync(join(env.dir, 'runs.json'), JSON.stringify({ workflow_runs: runs }))
@@ -100,7 +100,7 @@ esac
   chmodSync(join(bin, 'gh'), 0o755)
   return spawnSync('bash', [script, ...args], {
     cwd: env.clone,
-    env: { ...process.env, ...gitEnv, PATH: `${bin}:${process.env.PATH}`, TEST_SYNC_REPO: 'o/r', TEST_SYNC_POLL: '0', TEST_SYNC_FOLLOW_WAIT: '0' },
+    env: { ...process.env, ...gitEnv, PATH: `${bin}:${process.env.PATH}`, TEST_SYNC_REPO: 'o/r', TEST_SYNC_POLL: '0', TEST_SYNC_FOLLOW_WAIT: '0', ...extraEnv },
     encoding: 'utf8',
   })
 }
@@ -313,6 +313,15 @@ test('re-merges when main moved before Deploy test checked the pushed head', () 
     assert.match(r.stdout, /main moved before Deploy test started[\s\S]*Deploy test accepted/)
     assert.match(env.git(env.dir, '--git-dir', env.origin, 'log', '--format=%s', 'test'), /late main/)
     assert.ok(contains(env, 'main') && contains(env, 'feat'))
+  }))
+
+test('gives up watching the branch check at the deadline even when polling without delay', () =>
+  withEnv((env) => {
+    const started = Date.now()
+    const r = run(env, { runs: [runOf(env.feat)], jobList: jobs(), extraEnv: { TEST_SYNC_FOLLOW_WAIT: '2' } })
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stderr, /could not confirm Deploy test's branch check \(no verdict after 2s\)/)
+    assert.ok(Date.now() - started < 20000)
   }))
 
 test('with no branches (or only main/test) it just syncs main, without asking GitHub', () => {

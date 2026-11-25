@@ -214,7 +214,8 @@ ensure_deployed() {
 # Deploy test checks "test contains main" when its Backend images job starts, a minute or two
 # after the push; main can move in between. Watch that one step: ok | behind | unknown <why>.
 branch_check() {
-  local sha=$1 waited=0 run id jobs step
+  local sha=$1 run id jobs step deadline
+  deadline=$(($(date +%s) + follow_wait))
   while :; do
     run=$(gh api "repos/$repo/actions/workflows/deploy-test.yml/runs?head_sha=$sha&per_page=20" |
       jq -c --arg sha "$sha" '[.workflow_runs[] | select(.head_sha == $sha and .event == "push")] | sort_by(.created_at) | last // empty' 2>/dev/null) || run=
@@ -230,9 +231,8 @@ branch_check() {
         *) echo "unknown branch check $step in run $id"; return ;;
       esac
     fi
-    [ "$waited" -lt "$follow_wait" ] || { echo "unknown no verdict after ${follow_wait}s"; return; }
+    [ "$(date +%s)" -lt "$deadline" ] || { echo "unknown no verdict after ${follow_wait}s"; return; }
     sleep "$poll"
-    waited=$((waited + poll))
   done
 }
 
