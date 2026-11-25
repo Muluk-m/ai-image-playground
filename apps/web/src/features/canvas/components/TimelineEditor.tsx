@@ -237,6 +237,7 @@ function TimelineEditor({
     change?: Parameters<typeof followSelection>[1],
     record = true,
   ) => {
+    if (record && sameClips(next, live.current.clips, sourceOf)) return
     stop()
     if (record) pushHistory()
     setClips(next)
@@ -484,21 +485,19 @@ function TimelineEditor({
             if (trimmingActiveRef.current) return
             update(moveClip(clips, from, to), { kind: 'move', from, to })
           }}
-          onTrimStart={pushHistory}
           onTrimActiveChange={(active) => {
             trimmingActiveRef.current = active
             setTrimmingActive(active)
           }}
           onTrim={(index, edge, seconds, record = true) => {
             const current = live.current.clips
+            const prev = current[index]!
+            const trimmed = trimClip(prev, edge, seconds, sourceOf(prev.elementId))
+            if (trimmed.in === prev.in && trimmed.out === prev.out) return false
             const next = [...current]
-            next[index] = trimClip(
-              current[index]!,
-              edge,
-              seconds,
-              sourceOf(current[index]!.elementId),
-            )
+            next[index] = trimmed
             update(next, undefined, record)
+            return true
           }}
           onRemove={(index) => {
             if (trimmingActiveRef.current) return
@@ -577,7 +576,6 @@ function ClipTrack({
   selected,
   onSelect,
   onMove,
-  onTrimStart,
   onTrimActiveChange,
   onTrim,
   onRemove,
@@ -589,9 +587,8 @@ function ClipTrack({
   selected: number | null
   onSelect: (index: number) => void
   onMove: (from: number, to: number) => void
-  onTrimStart: () => void
   onTrimActiveChange: (active: boolean) => void
-  onTrim: (index: number, edge: 'in' | 'out', seconds: number, record?: boolean) => void
+  onTrim: (index: number, edge: 'in' | 'out', seconds: number, record?: boolean) => boolean
   onRemove: (index: number) => void
   onLocate?: (index: number) => void
 }) {
@@ -619,7 +616,6 @@ function ClipTrack({
             if (dragFrom !== null) onMove(dragFrom, index)
             setDragFrom(null)
           }}
-          onTrimStart={onTrimStart}
           onTrimActiveChange={onTrimActiveChange}
           onTrim={(edge, seconds, record) => onTrim(index, edge, seconds, record)}
           onRemove={() => onRemove(index)}
@@ -643,7 +639,6 @@ function ClipCard({
   onDragStart,
   onDragEnd,
   onDrop,
-  onTrimStart,
   onTrimActiveChange,
   onTrim,
   onRemove,
@@ -661,9 +656,8 @@ function ClipCard({
   onDragStart: () => void
   onDragEnd: () => void
   onDrop: () => void
-  onTrimStart: () => void
   onTrimActiveChange: (active: boolean) => void
-  onTrim: (edge: 'in' | 'out', seconds: number, record?: boolean) => void
+  onTrim: (edge: 'in' | 'out', seconds: number, record?: boolean) => boolean
   onRemove: () => void
   onLocate?: () => void
   onMoveLeft?: () => void
@@ -697,11 +691,12 @@ function ClipCard({
     onTrimActiveChange(true)
     let recorded = false
     const move = (moveEvent: PointerEvent) => {
-      if (!recorded) {
-        onTrimStart()
-        recorded = true
-      }
-      onTrim(edge, origin + (moveEvent.clientX - startX) / TRACK_PX_PER_SECOND, false)
+      const changed = onTrim(
+        edge,
+        origin + (moveEvent.clientX - startX) / TRACK_PX_PER_SECOND,
+        !recorded,
+      )
+      if (changed) recorded = true
     }
     const end = () => {
       if (trimCleanupRef.current === end) trimCleanupRef.current = null
