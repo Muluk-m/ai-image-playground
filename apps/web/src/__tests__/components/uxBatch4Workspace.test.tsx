@@ -107,7 +107,7 @@ describe('AgentConfirmationGate rejection recovery', () => {
       await act(async () =>
         root.render(
           <AgentConfirmationGate
-            pending={[{ kind: 'draft', messageId: 'm1', title: 'Shot 1' }]}
+            pending={[{ kind: 'draft', messageId: 'm1' }]}
             onJump={vi.fn()}
             onSendAnyway={vi.fn()}
           />,
