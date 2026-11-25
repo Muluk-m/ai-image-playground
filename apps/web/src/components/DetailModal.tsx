@@ -311,7 +311,7 @@ export default function DetailModal() {
         ? () => {
             void removeTaskOutput(task, index)
               .then((outcome) => {
-                if (outcome === 'removed' && useStore.getState().detailTaskId === task.id) {
+                if (outcome === 'gone' && useStore.getState().detailTaskId === task.id) {
                   setDetailTaskId(null)
                 }
               })

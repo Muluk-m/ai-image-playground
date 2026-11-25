@@ -60,7 +60,7 @@ describe('fetchRemoteManifest', () => {
     mockFetch(() =>
       Promise.resolve(new Response(JSON.stringify({ version: 'oops' }), { status: 200 })),
     )
-    await expect(fetchRemoteManifest('https://x/manifest.json')).rejects.toThrow(/结构无效/)
+    await expect(fetchRemoteManifest('https://x/manifest.json')).rejects.toThrow(/灵感库数据异常/)
   })
 
   it('drops items with missing required fields but keeps the manifest', async () => {
