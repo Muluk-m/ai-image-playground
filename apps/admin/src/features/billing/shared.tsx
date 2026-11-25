@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { ApiError } from '../../lib/private-host'
+import { ApiError, formatAdminError } from '../../lib/private-host'
 
 const fieldClass =
   'h-9 w-full rounded-md border border-input bg-background px-3 text-sm outline-none transition-shadow focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50'
@@ -84,9 +84,15 @@ function ErrorText({ error }: { error: unknown }) {
       ? error.body.error
       : undefined
   const message = typeof code === 'string' ? BILLING_ERROR_LABELS[code] : undefined
+  const fallback =
+    typeof formatAdminError === 'function'
+      ? formatAdminError(error)
+      : error instanceof Error
+        ? error.message
+        : String(error)
   return (
     <p role="alert" className="text-xs text-destructive">
-      操作失败：{message ?? (error instanceof Error ? error.message : String(error))}
+      操作失败：{message ?? fallback}
     </p>
   )
 }

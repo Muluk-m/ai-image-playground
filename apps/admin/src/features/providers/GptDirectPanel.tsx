@@ -4,7 +4,7 @@ import type {
   GptDirectKeyView,
 } from '@image-playground/shared'
 import { useQueryClient } from '@tanstack/react-query'
-import { ArrowDown, ArrowUp, Plus } from 'lucide-react'
+import { ArrowDown, ArrowUp, Loader2, Plus } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import { FuzzyTime } from '@/components/FuzzyTime'
 import { Kpi } from '@/components/Kpi'
@@ -79,9 +79,10 @@ export function GptDirectPanel({
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null)
+  const [disableTarget, setDisableTarget] = useState<{ id: string; label: string } | null>(null)
 
-  async function run(id: string, task: () => Promise<GptDirectAdminView>) {
-    if (pending) return
+  async function run(id: string, task: () => Promise<GptDirectAdminView>): Promise<boolean> {
+    if (pending) return false
     setPending(id)
     setError(null)
     try {
@@ -91,6 +92,7 @@ export function GptDirectPanel({
         client.invalidateQueries({ queryKey: gptDirectQueryKey }),
         client.invalidateQueries({ queryKey: modelsQueryKey }),
       ])
+      return true
     } catch (cause) {
       setError(failureMessage(cause))
       if (
@@ -101,6 +103,7 @@ export function GptDirectPanel({
       ) {
         await client.invalidateQueries({ queryKey: gptDirectQueryKey })
       }
+      return false
     } finally {
       setPending(null)
     }
@@ -278,8 +281,13 @@ export function GptDirectPanel({
                       }}
                       onToggle={() => {
                         if (!key.id) return
+                        if (key.enabled) {
+                          setError(null)
+                          setDisableTarget({ id: key.id, label: key.label || key.fingerprint })
+                          return
+                        }
                         void run(`toggle-${key.id}`, () =>
-                          updateGptDirectKey(key.id as string, { enabled: !key.enabled }),
+                          updateGptDirectKey(key.id as string, { enabled: true }),
                         )
                       }}
                       onBudget={(budgetUsd) => {
@@ -290,6 +298,7 @@ export function GptDirectPanel({
                       }}
                       onDelete={() => {
                         if (!key.id) return
+                        setError(null)
                         setDeleteTarget({ id: key.id, label: key.label || key.fingerprint })
                       }}
                       onRestore={() => {
@@ -416,12 +425,96 @@ export function GptDirectPanel({
       </div>
 
       <Dialog
-        open={deleteTarget !== null}
+        open={disableTarget !== null}
         onOpenChange={(open) => {
-          if (!open && pending === null) setDeleteTarget(null)
+          if (!open && pending === null) {
+            setDisableTarget(null)
+            setError(null)
+          }
         }}
       >
-        <DialogContent>
+        <DialogContent
+          onEscapeKeyDown={(event) => {
+            if (pending !== null) event.preventDefault()
+          }}
+          onPointerDownOutside={(event) => {
+            if (pending !== null) event.preventDefault()
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>停用 OpenAI 直连密钥</DialogTitle>
+            <DialogDescription>
+              确认停用 <code className="font-mono">{disableTarget?.label}</code>？
+              停用后该密钥将不再参与直连调度，剩余流量会切到其他可用密钥或回退通道。
+            </DialogDescription>
+          </DialogHeader>
+          {error ? (
+            <p role="alert" className="text-xs text-danger">
+              {error}
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={pending !== null}
+              onClick={() => {
+                setDisableTarget(null)
+                setError(null)
+              }}
+            >
+              取消
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={pending !== null || !disableTarget?.id}
+              aria-busy={
+                pending !== null &&
+                disableTarget !== null &&
+                pending === `toggle-${disableTarget.id}`
+              }
+              onClick={async () => {
+                const target = disableTarget
+                if (!target?.id) return
+                const ok = await run(`toggle-${target.id}`, () =>
+                  updateGptDirectKey(target.id, { enabled: false }),
+                )
+                if (ok) setDisableTarget(null)
+              }}
+            >
+              {pending !== null &&
+              disableTarget !== null &&
+              pending === `toggle-${disableTarget.id}` ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+              ) : null}
+              {pending !== null &&
+              disableTarget !== null &&
+              pending === `toggle-${disableTarget.id}`
+                ? '停用中…'
+                : '确认停用'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && pending === null) {
+            setDeleteTarget(null)
+            setError(null)
+          }
+        }}
+      >
+        <DialogContent
+          onEscapeKeyDown={(event) => {
+            if (pending !== null) event.preventDefault()
+          }}
+          onPointerDownOutside={(event) => {
+            if (pending !== null) event.preventDefault()
+          }}
+        >
           <DialogHeader>
             <DialogTitle>删除 OpenAI 直连密钥</DialogTitle>
             <DialogDescription>
@@ -429,12 +522,20 @@ export function GptDirectPanel({
               删除后如密钥池为空将回退到部署环境变量或 sub2api。
             </DialogDescription>
           </DialogHeader>
+          {error ? (
+            <p role="alert" className="text-xs text-danger">
+              {error}
+            </p>
+          ) : null}
           <DialogFooter>
             <Button
               type="button"
               variant="outline"
               disabled={pending !== null}
-              onClick={() => setDeleteTarget(null)}
+              onClick={() => {
+                setDeleteTarget(null)
+                setError(null)
+              }}
             >
               取消
             </Button>
@@ -442,14 +543,24 @@ export function GptDirectPanel({
               type="button"
               variant="destructive"
               disabled={pending !== null || !deleteTarget?.id}
-              onClick={() => {
+              aria-busy={
+                pending !== null && deleteTarget !== null && pending === `delete-${deleteTarget.id}`
+              }
+              onClick={async () => {
                 const target = deleteTarget
                 if (!target?.id) return
-                setDeleteTarget(null)
-                void run(`delete-${target.id}`, () => deleteGptDirectKey(target.id))
+                const ok = await run(`delete-${target.id}`, () => deleteGptDirectKey(target.id))
+                if (ok) setDeleteTarget(null)
               }}
             >
-              确认删除
+              {pending !== null &&
+              deleteTarget !== null &&
+              pending === `delete-${deleteTarget.id}` ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+              ) : null}
+              {pending !== null && deleteTarget !== null && pending === `delete-${deleteTarget.id}`
+                ? '删除中…'
+                : '确认删除'}
             </Button>
           </DialogFooter>
         </DialogContent>

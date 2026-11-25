@@ -44,7 +44,7 @@
     },
     "providers": {
       "title": "Third-party AI and processors",
-      "body": "To generate an image or video, the prompt, reference images, and related parameters for that task are sent to the model provider used for the request. Infrastructure providers also host the app, store files, and process payments.\n\nThose processors only handle data as needed to provide their piece of the service. We do not sell your personal information. If you connect with your own API key, the browser sends the request to the address you entered, and that provider’s terms apply."
+      "body": "To generate an image or video, the prompt, reference images, and related parameters for that task are sent to the model provider used for the request. Infrastructure providers also host the app, store files, and process payments.\n\nThose processors only handle data as needed to provide their piece of the service. We do not sell your personal information."
     },
     "retention": {
       "title": "Retention",
@@ -56,7 +56,9 @@
       "action": "contact us",
       "after": ".",
       "updates": "We may update these pages as the product or the law changes. The updated text applies when it is published. If a change materially affects your rights, we will give a reasonable notice in the product.",
-      "dialogTitle": "Contact us"
+      "dialogTitle": "Contact us",
+      "copy": "Copy email",
+      "copied": "Copied"
     }
   }
 }

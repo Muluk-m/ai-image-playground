@@ -34,7 +34,7 @@ import {
   X,
   XCircle,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { DateTimePicker } from '@/components/DateTimePicker'
 import { SegmentedControl } from '@/components/SegmentedControl'
 import { ShortId } from '@/components/ShortId'
@@ -314,6 +314,7 @@ export function OrdersPanel() {
         : '',
   )
   const [selected, setSelected] = useState<string | null>(query || null)
+  const [detailBusy, setDetailBusy] = useState(false)
   const [filter, setFilter] = useState<OrderFilter>('open')
 
   const result = useQuery({
@@ -377,10 +378,31 @@ export function OrdersPanel() {
               <Input
                 aria-label="订单码或订单号"
                 placeholder="订单码 / 订单号"
-                className="pl-9"
+                className="pl-9 pr-8"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (
+                    e.key === 'Escape' &&
+                    !e.nativeEvent.isComposing &&
+                    e.keyCode !== 229 &&
+                    query
+                  ) {
+                    e.preventDefault()
+                    setQuery('')
+                  }
+                }}
               />
+              {query ? (
+                <button
+                  type="button"
+                  aria-label="清空订单号"
+                  className="absolute right-2 top-1/2 inline-flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:text-foreground"
+                  onClick={() => setQuery('')}
+                >
+                  <X className="size-3.5" aria-hidden="true" />
+                </button>
+              ) : null}
             </div>
             <Input
               aria-label="实收金额"
@@ -447,10 +469,25 @@ export function OrdersPanel() {
       {result.isError ? (
         <div
           role="alert"
-          className="flex items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive"
         >
-          <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
-          订单读取失败，请重试。
+          <span className="inline-flex items-center gap-2">
+            <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
+            订单读取失败，请重试。
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={result.isFetching}
+            onClick={() => void result.refetch()}
+          >
+            <RefreshCw
+              className={cn('size-3.5', result.isFetching && 'animate-spin')}
+              aria-hidden="true"
+            />
+            重试
+          </Button>
         </div>
       ) : null}
 
@@ -526,15 +563,27 @@ export function OrdersPanel() {
         <Sheet
           open
           onOpenChange={(open) => {
-            if (!open) setSelected(null)
+            if (!open && !detailBusy) setSelected(null)
           }}
         >
-          <SheetContent className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-[576px]">
+          <SheetContent
+            closeDisabled={detailBusy}
+            onEscapeKeyDown={(event) => {
+              if (detailBusy) event.preventDefault()
+            }}
+            onPointerDownOutside={(event) => {
+              if (detailBusy) event.preventDefault()
+            }}
+            className="flex w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-[576px]"
+          >
             <OrderDetail
               key={selected}
               id={selected}
               catalog={catalog.data}
-              onClose={() => setSelected(null)}
+              onBusyChange={setDetailBusy}
+              onClose={() => {
+                if (!detailBusy) setSelected(null)
+              }}
             />
           </SheetContent>
         </Sheet>
@@ -546,10 +595,12 @@ export function OrdersPanel() {
 function OrderDetail({
   id,
   catalog,
+  onBusyChange,
   onClose,
 }: {
   id: string
   catalog: Catalog | undefined
+  onBusyChange?: (busy: boolean) => void
   onClose: () => void
 }) {
   const client = useQueryClient()
@@ -580,6 +631,11 @@ function OrderDetail({
       ])
     },
   })
+
+  useEffect(() => {
+    onBusyChange?.(mutation.isPending)
+    return () => onBusyChange?.(false)
+  }, [mutation.isPending, onBusyChange])
 
   if (!order) {
     return (

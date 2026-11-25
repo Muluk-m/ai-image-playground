@@ -52,14 +52,31 @@ function OpsPage() {
       {query.data ? (
         <>
           {query.isError ? (
-            <p role="status" className="mb-3 text-sm text-danger">
-              上次刷新失败，下面是之前取到的快照。
-            </p>
+            <div
+              role="status"
+              className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-danger"
+            >
+              <span>上次刷新失败，下面是之前取到的快照。</span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={query.isFetching}
+                onClick={() => void query.refetch()}
+              >
+                重试
+              </Button>
+            </div>
           ) : null}
           <OpsBoard snapshot={query.data} range={range} />
         </>
       ) : query.isError ? (
-        <ErrorState label="运维看板加载失败" error={query.error} />
+        <ErrorState
+          label="运维看板加载失败"
+          error={query.error}
+          retrying={query.isFetching}
+          onRetry={() => void query.refetch()}
+        />
       ) : (
         <PendingState label="正在查看部署状况" />
       )}

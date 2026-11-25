@@ -45,8 +45,11 @@
 .mkt-links { display: flex; gap: 26px; font-size: 14px; color: var(--mkt-muted); }
 .mkt-links a:hover, .mkt-nav-end a:hover { color: var(--mkt-ink); }
 .mkt-nav-end { margin-left: auto; display: flex; align-items: center; flex: none; gap: 22px; font-size: 14px; color: var(--mkt-muted); white-space: nowrap; }
-/* 窄屏收起中间导航后，右侧还留着一个「定价」。 */
+/* 窄屏收起中间导航后，右侧还留着一个「定价」和移动端菜单按钮。 */
 .mkt-nav-pricing { display: none; }
+.mkt-nav-end > .mkt-menu-btn { display: none; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
+.mkt-menu-btn svg { width: 18px; height: 18px; }
+.mkt-mobile-menu { display: none; }
 .mkt-theme { display: inline-flex; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
 .mkt-theme:hover { color: var(--mkt-ink); }
 .mkt-theme svg { width: 16px; height: 16px; }
@@ -214,11 +217,23 @@
 }
 /* 手机：收起中间导航，标题在上、截图在下。 */
 @media (max-width: 760px) {
-  .mkt-wrap { padding: 0 20px; }
-  .mkt-nav { height: 56px; gap: 12px; }
+  .mkt-wrap { padding: 0 16px; }
+  .mkt-nav { height: 56px; gap: 8px; }
   .mkt-links { display: none; }
-  .mkt-nav-end { gap: 18px; }
-  .mkt-nav-pricing { display: inline; }
+  .mkt-nav-end { gap: 10px; }
+  .mkt-nav-pricing { display: none; }
+  .mkt-nav-end > .mkt-menu-btn { display: inline-flex; align-items: center; justify-content: center; }
+  .mkt-mobile-menu {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--mkt-line);
+    font-size: 14px;
+    color: var(--mkt-muted);
+  }
+  .mkt-mobile-menu a { padding: 8px 4px; border-radius: 6px; }
+  .mkt-mobile-menu a:hover { color: var(--mkt-ink); background: var(--mkt-soft); }
   /* 可见文字不变。伪元素把定价、语言、登录的命中区补到至少 44×44，居中伸出，不占布局。 */
   .mkt-nav-end > a,
   .mkt-nav-end > button { position: relative; }
@@ -249,9 +264,11 @@
   .cbox .cacts { flex: 1 1 100%; }
   .cbox .cacts .cbtn { flex: 1; text-align: center; }
 }
-@media (max-width: 360px) {
-  .mkt-wrap { padding: 0 16px; }
-  .mkt-nav-end { gap: 14px; }
-  .mkt-shot { margin-right: -16px; }
+@media (max-width: 420px) {
+  .mkt-wrap { padding: 0 12px; }
+  .mkt-nav { gap: 6px; }
+  .mkt-brand { font-size: 14px; gap: 6px; }
+  .mkt-nav-end { gap: 6px; font-size: 13px; }
+  .mkt-shot { margin-right: -12px; }
   .mkt-title { font-size: 24px; }
 }

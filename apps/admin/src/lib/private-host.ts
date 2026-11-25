@@ -7,3 +7,4 @@
  */
 
 export { ApiError, apiClient } from './api-client'
+export { formatAdminError } from './format-error'

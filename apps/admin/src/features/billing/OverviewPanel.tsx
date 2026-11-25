@@ -1,6 +1,8 @@
 import type { BillingOverview } from '@image-playground/shared'
 import { useQuery } from '@tanstack/react-query'
+import { RefreshCw } from 'lucide-react'
 import { apiClient } from '../../lib/private-host'
+import { Button } from '../../lib/private-host-ui'
 import { ActivityHeatGraph } from './ActivityHeatGraph'
 import { CHAT_USAGE_FIELDS, useChatUsage } from './chat-usage'
 import { credits } from './shared'
@@ -29,8 +31,24 @@ function OverviewMetrics() {
     )
   if (overview.isError)
     return (
-      <div className="rounded-xl border border-destructive/40 p-5 text-sm text-destructive">
-        商业运营数据读取失败
+      <div
+        role="alert"
+        className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/40 bg-destructive/5 p-5 text-sm text-destructive"
+      >
+        <span>商业运营数据读取失败</span>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={overview.isFetching}
+          onClick={() => void overview.refetch()}
+        >
+          <RefreshCw
+            className={overview.isFetching ? 'size-3.5 animate-spin' : 'size-3.5'}
+            aria-hidden="true"
+          />
+          重试
+        </Button>
       </div>
     )
   const data = overview.data

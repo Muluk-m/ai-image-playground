@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { ApiError } from '@/lib/api-client'
+import { formatAdminError } from '@/lib/format-error'
 import { cn } from '@/lib/utils'
 
 const DEPTH_LABELS: Record<AgentProfileKey, string> = {
@@ -257,7 +258,12 @@ export function AgentModelSettingsForm({
       setProbeResults((current) => ({ ...current, [slot]: result }))
     } catch (err) {
       if (probeEpochRef.current !== epoch) return
-      const message = err instanceof ApiError && err.message ? err.message : '探测请求失败'
+      const message =
+        typeof formatAdminError === 'function'
+          ? formatAdminError(err)
+          : err instanceof ApiError && err.message
+            ? err.message
+            : '探测请求失败'
       setProbeResults((current) => ({
         ...current,
         [slot]: { ok: false, status: 'failed', latencyMs: 0, message },
@@ -732,6 +738,7 @@ function ProviderEditor({
     () => provider.models.length > 0 || provider.template === 'custom',
   )
   const [expandedModels, setExpandedModels] = useState<Record<number, boolean>>({})
+  const [confirmRemove, setConfirmRemove] = useState(false)
 
   function toggleModelExpanded(index: number) {
     setExpandedModels((current) => ({ ...current, [index]: !current[index] }))
@@ -775,18 +782,37 @@ function ProviderEditor({
                 : '缺密钥'}
           </span>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          disabled={inUse}
-          onClick={onRemove}
-          aria-label={`删除 ${provider.name}`}
-          title={inUse ? '先将使用此 Provider 的档位改到其他 Provider' : undefined}
-        >
-          <Trash2 className="size-3.5" />
-          删除
-        </Button>
+        {confirmRemove && !inUse ? (
+          <div className="flex items-center gap-1.5">
+            <Button
+              type="button"
+              variant="destructive"
+              size="xs"
+              onClick={() => {
+                setConfirmRemove(false)
+                onRemove()
+              }}
+            >
+              确认删除
+            </Button>
+            <Button type="button" variant="ghost" size="xs" onClick={() => setConfirmRemove(false)}>
+              取消
+            </Button>
+          </div>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            disabled={inUse}
+            onClick={() => setConfirmRemove(true)}
+            aria-label={`删除 ${provider.name}`}
+            title={inUse ? '先将使用此 Provider 的档位改到其他 Provider' : undefined}
+          >
+            <Trash2 className="size-3.5" />
+            删除
+          </Button>
+        )}
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">

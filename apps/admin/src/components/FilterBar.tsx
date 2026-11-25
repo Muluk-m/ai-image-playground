@@ -27,7 +27,9 @@ export interface FilterChip {
 export interface FilterDefinition {
   key: string
   label: string
-  kind: 'single' | 'multi' | 'number' | 'text'
+  kind: 'single' | 'multi' | 'number' | 'text' | 'datetime'
+  /** For `kind: 'datetime'`, whether to treat the selected minute as end-of-minute (`:59.999`). */
+  endOfMinute?: boolean
   options?: ReadonlyArray<{ value: string; label: string }>
   placeholder?: string
 }
@@ -39,7 +41,10 @@ export function presetWindow(preset: 'today' | '7d' | '30d', now = Date.now()) {
 }
 
 export function beijingInput(at: number): string {
-  return new Date(at + 8 * 3600_000).toISOString().slice(0, 16)
+  if (!Number.isFinite(at)) return ''
+  const shifted = new Date(at + 8 * 3600_000)
+  if (Number.isNaN(shifted.getTime())) return ''
+  return shifted.toISOString().slice(0, 16)
 }
 
 export function parseBeijingInput(value: string, end = false): number {
@@ -131,6 +136,18 @@ export function FilterBar({
           <Input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (
+                event.key === 'Escape' &&
+                !event.nativeEvent.isComposing &&
+                event.keyCode !== 229 &&
+                draft
+              ) {
+                event.preventDefault()
+                setDraft('')
+                if (search) onSearch('')
+              }
+            }}
             placeholder={searchPlaceholder}
             aria-label={searchPlaceholder}
             className="h-8 pl-8 pr-7 text-xs"
@@ -151,31 +168,38 @@ export function FilterBar({
         </form>
         <SavedViews pageKey={savedViewKey} />
       </div>
-      <div className="flex flex-wrap items-center gap-2 border-t px-2.5 py-2">
-        {chips.map((chip) => (
-          <span
-            key={chip.key}
-            className="inline-flex h-7 items-center overflow-hidden rounded-md border text-xs"
-          >
-            <span className="px-2 text-muted-foreground">{chip.label}</span>
-            <span className="border-x px-2 font-medium">{chip.value}</span>
-            <button
-              type="button"
-              className="inline-flex h-full w-7 items-center justify-center text-muted-foreground hover:text-foreground"
-              aria-label={`移除${chip.label}`}
-              onClick={() => onRemove(chip.key)}
+      {chips.length > 0 || definitions.length > 0 || Boolean(search) ? (
+        <div className="flex flex-wrap items-center gap-2 border-t px-2.5 py-2">
+          {chips.map((chip) => (
+            <span
+              key={chip.key}
+              className="inline-flex h-7 items-center overflow-hidden rounded-md border text-xs"
             >
-              <X className="size-3" />
-            </button>
-          </span>
-        ))}
-        <AddFilter definitions={definitions} values={values} onChange={onChange} />
-        {chips.length || search ? (
-          <Button variant="ghost" size="sm" className="ml-auto h-7 px-2 text-xs" onClick={onClear}>
-            清空
-          </Button>
-        ) : null}
-      </div>
+              <span className="px-2 text-muted-foreground">{chip.label}</span>
+              <span className="border-x px-2 font-medium">{chip.value}</span>
+              <button
+                type="button"
+                className="inline-flex h-full w-7 items-center justify-center text-muted-foreground hover:text-foreground"
+                aria-label={`移除${chip.label}`}
+                onClick={() => onRemove(chip.key)}
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+          <AddFilter definitions={definitions} values={values} onChange={onChange} />
+          {chips.length || search ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto h-7 px-2 text-xs"
+              onClick={onClear}
+            >
+              清空
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -249,8 +273,16 @@ function AddFilter({
   const [open, setOpen] = useState(false)
   const [key, setKey] = useState(definitions[0]?.key ?? '')
   const definition = definitions.find((item) => item.key === key) ?? definitions[0]
-  const [draft, setDraft] = useState(values[key] ?? '')
-  useEffect(() => setDraft(values[key] ?? ''), [key, values])
+  const toDraftValue = (def: FilterDefinition | undefined, raw: string | undefined) => {
+    if (!raw) return ''
+    if (def?.kind === 'datetime') {
+      const ts = Number(raw)
+      return Number.isFinite(ts) ? beijingInput(ts) : ''
+    }
+    return raw
+  }
+  const [draft, setDraft] = useState(() => toDraftValue(definition, values[key]))
+  useEffect(() => setDraft(toDraftValue(definition, values[key])), [definition, key, values])
   if (!definition) return null
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -278,6 +310,13 @@ function AddFilter({
           onSubmit={(event) => {
             event.preventDefault()
             if (!draft.trim()) return
+            if (definition.kind === 'datetime') {
+              const ts = parseBeijingInput(draft.trim(), definition.endOfMinute)
+              if (!Number.isFinite(ts)) return
+              onChange(definition.key, String(ts))
+              setOpen(false)
+              return
+            }
             const current = values[definition.key]
             const next =
               definition.kind === 'multi' && current
@@ -290,7 +329,14 @@ function AddFilter({
             setOpen(false)
           }}
         >
-          {definition.kind === 'single' || definition.kind === 'multi' ? (
+          {definition.kind === 'datetime' ? (
+            <DateTimePicker
+              aria-label={definition.label}
+              placeholder={definition.placeholder ?? `选择${definition.label}`}
+              value={draft}
+              onChange={setDraft}
+            />
+          ) : definition.kind === 'single' || definition.kind === 'multi' ? (
             definition.options ? (
               <Select value={draft || undefined} onValueChange={setDraft}>
                 <SelectTrigger aria-label={definition.label} className="h-8 text-xs">
