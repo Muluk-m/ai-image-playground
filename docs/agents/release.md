@@ -41,19 +41,20 @@ Agent 从 PR 到上线的完整链路，以及每一步谁能拍板。命令与�
 
 `test` 分支推上去就由 `.github/workflows/deploy-test.yml` 发布：先发测试后端 `image-playground-test`（`test-api.muvloom.online`，独立数据库 `aip_test` 与 R2 桶 `muvloom-test`），再发 https://test.muvloom.online。第一步 `scripts/ci-check-test-branch.sh` 检查 `test` 是否包含最新 `main`，落后就直接失败。
 
-推 `test` 的规则：
-
-- `test` 必须包含 `main`。从远端最新的 `test` 出发，把最新 `origin/main` 和工作分支合进去，再普通推送。对远端来说这是一次快进。
-- 只用 fetch 加快进，不 force-push，不 rebase `test`。推送被拒说明别人刚推过，重新 fetch 后再合一次。
-- 不在 `test` 上直接改代码，也不把 `test` 合回工作分支或 `main`。
+推 `test` 一律用 `scripts/push-test.sh`，不手工合并推送：
 
 ```sh
-git fetch origin
-git switch -c test-push origin/test
-git merge --no-edit origin/main
-git merge --no-edit <工作分支>
-git push origin HEAD:test
+git push origin <工作分支>               # 先推工作分支
+scripts/push-test.sh <工作分支> [<另一个分支>...]
 ```
+
+脚本做三件事，对应 Deploy test 过去反复失败的两类原因：
+
+- **分支没跑 CI 就进 test。** 每个分支推上去的那个提交，必须有一次 `Web checks`（PR、push 或手动派发均可）把 Deploy test 门禁要的 job（列表取自 `scripts/ci-reuse-web-checks.sh` 的 `REQUIRED`）全部跑绿；没有就派发一次并等待（默认最多 45 分钟，`--wait-ci` 调整，`--no-dispatch` 改为直接失败）。有失败就停下，列出失败的 job。本地分支和远端不一致也拒绝，避免漏掉没推的提交。
+- **推送时 main 刚好前进，test 落后 main 被拦。** 在临时 worktree 里从最新 `origin/test` 合入最新 `origin/main` 和这些分支，推送前再 fetch 一次 main，变了就重合；推送被拒（别人刚推过 test）也重来，最多 5 次。只快进推送，不 force-push、不 rebase，不动调用者的工作区。
+- 合并冲突时退出码 3，test 不变；按全局 Git 约定在从 `origin/test` 建的 relay worktree 里解决后再推。
+
+仍然适用：不在 `test` 上直接改代码，也不把 `test` 合回工作分支或 `main`。分支落后 main 时脚本会提示，它的 CI 没覆盖这些 main 提交，合并结果由 Deploy test 自己的门禁兜底；改动和 main 交叉多的，先把 main 合进工作分支、推送、等 CI 再推 test。
 
 跟进 Deploy test 跑完，再核对测试站的版本并实测改动，见下面的「上线核对」。测试环境用真实供应商 key，生成照样花钱，冒烟控制在最小用量。测试通过不代表可以上生产。
 
