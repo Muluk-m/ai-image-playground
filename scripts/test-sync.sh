@@ -257,11 +257,12 @@ for attempt in $(seq 1 "$attempts"); do
   wt=$(mktemp -d "${TMPDIR:-/tmp}/aip-test-sync.XXXXXX")
   rmdir "$wt"
   git worktree add -q --detach "$wt" "$test_sha"
+  # --ff overrides a user's merge.ff=only, which would otherwise turn every real merge into a "conflict".
   # Merge the exact commits checked above, never the remote-tracking refs: another fetch (an IDE,
   # another terminal) may move those at any moment, and the worktree shares them.
   for i in -1 $(idx); do
     if [ "$i" = -1 ]; then ref=main rev=$main_sha; else ref=${branches[$i]} rev=${shas[$i]}; fi
-    if ! git -C "$wt" merge -q --no-edit -m "Merge $ref into test" "$rev" >/dev/null; then
+    if ! git -C "$wt" merge -q --ff --no-edit -m "Merge $ref into test" "$rev" >/dev/null; then
       files=$(git -C "$wt" diff --name-only --diff-filter=U | sed 's/^/    /')
       git -C "$wt" merge --abort || true
       code=3 die "merging $ref into test conflicts; test is unchanged. Conflicting files:

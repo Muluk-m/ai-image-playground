@@ -49,7 +49,7 @@ const runOf = (sha, over = {}) => ({ id: 7, head_sha: sha, status: 'completed', 
 const jobs = (over = {}) => required.map((name) => ({ name, conclusion: name in over ? over[name] : 'success' }))
 
 // Fake `gh api`: answers from runs.json / jobs.json; a dispatch logs and swaps in the *-after fixtures.
-function run(env, { runs, jobList, after, args = ['feat'], perRun = {}, deploys = [], fail = false, deployChecks, extraEnv = {} }) {
+function run(env, { runs, jobList, after, args = ['feat'], perRun = {}, deploys = [], fail = false, deployChecks, extraEnv = {}, cwd = env.clone }) {
   const bin = join(env.dir, 'bin')
   execFileSync('mkdir', ['-p', bin])
   writeFileSync(join(env.dir, 'runs.json'), JSON.stringify({ workflow_runs: runs }))
@@ -99,7 +99,7 @@ esac
   )
   chmodSync(join(bin, 'gh'), 0o755)
   return spawnSync('bash', [script, ...args], {
-    cwd: env.clone,
+    cwd,
     env: { ...process.env, ...gitEnv, PATH: `${bin}:${process.env.PATH}`, TEST_SYNC_REPO: 'o/r', TEST_SYNC_POLL: '0', TEST_SYNC_FOLLOW_WAIT: '0', ...extraEnv },
     encoding: 'utf8',
   })
@@ -322,6 +322,36 @@ test('gives up watching the branch check at the deadline even when polling witho
     assert.equal(r.status, 0, r.stderr)
     assert.match(r.stderr, /could not confirm Deploy test's branch check \(no verdict after 2s\)/)
     assert.ok(Date.now() - started < 20000)
+  }))
+
+test('keeps commits other sessions already put on test', () =>
+  withEnv((env) => {
+    env.git(env.clone, 'switch', '-q', '-c', 'other', 'origin/test')
+    env.commit('other.txt', 'other\n')
+    env.git(env.clone, 'push', '-q', 'origin', 'HEAD:test')
+    env.git(env.clone, 'switch', '-q', 'main')
+    const r = run(env, { runs: [runOf(env.feat)], jobList: jobs() })
+    assert.equal(r.status, 0, r.stderr)
+    assert.equal(env.git(env.dir, '--git-dir', env.origin, 'show', 'test:other.txt'), 'other')
+    assert.ok(contains(env, 'main') && contains(env, 'feat'))
+    assert.equal(env.git(env.clone, 'worktree', 'list').split('\n').length, 1)
+  }))
+
+test('still merges diverged branches when the user sets merge.ff=only', () =>
+  withEnv((env) => {
+    env.git(env.clone, 'config', 'merge.ff', 'only')
+    const r = run(env, { runs: [runOf(env.feat)], jobList: jobs() })
+    assert.equal(r.status, 0, r.stderr)
+    assert.ok(contains(env, 'main') && contains(env, 'feat'))
+  }))
+
+test('works in a single-branch clone whose fetch refspec only tracks main', () =>
+  withEnv((env) => {
+    const single = join(env.dir, 'single')
+    env.git(env.dir, 'clone', '-q', '--single-branch', '-b', 'main', env.origin, single)
+    const r = run(env, { runs: [runOf(env.feat)], jobList: jobs(), cwd: single })
+    assert.equal(r.status, 0, r.stderr)
+    assert.ok(contains(env, 'main') && contains(env, 'feat'))
   }))
 
 test('with no branches (or only main/test) it just syncs main, without asking GitHub', () => {
