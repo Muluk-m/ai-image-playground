@@ -2,13 +2,13 @@ import { afterAll, describe, expect, it } from 'bun:test'
 import { createDb } from '@image-playground/db'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import { todayWindow } from '../../../../contracts'
-import { useTableLogSource } from '../helpers/table-log-source'
+import { useMemoryLogSource } from '../helpers/memory-log-source'
 
 process.env.DATABASE_URL = await resetTestDatabase('admin_today')
 process.env.ADMIN_PASSWORD = 'test-pass-1234'
 process.env.ADMIN_COOKIE_SECRET = 'test-cookie-secret-32-bytes-min!!'
 const writer = createDb(process.env.DATABASE_URL)
-await useTableLogSource(writer)
+const logSource = await useMemoryLogSource()
 const from = Date.UTC(2026, 9, 1, 16)
 const to = from + 3600_000
 await writer.db.insert(writer.schema.users).values([
@@ -121,7 +121,7 @@ const log = {
   task_id: 'today-failed',
   fields: { stack: 'redacted stack' },
 }
-await writer.db.insert(writer.schema.server_logs).values([
+logSource.insert([
   { ...log, id: 'error', level: 'error' },
   { ...log, id: 'fatal', level: 'fatal' },
   { ...log, id: 'warn', level: 'warn' },
@@ -175,7 +175,7 @@ describe('today generation overview', () => {
         received_at: i === 0 ? start - 1 : i === 8 ? end + 1 : start + i,
       })),
     )
-    await writer.db.insert(writer.schema.server_logs).values(
+    logSource.insert(
       Array.from({ length: 9 }, (_, i) => ({
         ...log,
         id: `activity-server-${i}`,

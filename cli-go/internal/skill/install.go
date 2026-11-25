@@ -19,14 +19,14 @@ import (
 
 // BundleVersion is tied to the native CLI release. Keep the bundled Skill and
 // the executable on the same version so hosts can report what was installed.
-const BundleVersion = "0.2.9"
+const BundleVersion = "0.2.10"
 
 // SkillVersion is the version of the Skill assets bundled here and published in
 // /cli/skill-manifest.json. On a CLI release it matches BundleVersion (e.g. "0.2.7").
 // For prompt-only hot-updates shipped via Web deploy without a new CLI binary, bump
 // SkillVersion to a dotted patch (e.g. "0.2.7.1") so installed CLIs auto-update safely
 // without downgrading.
-const SkillVersion = "0.2.9"
+const SkillVersion = "0.2.10"
 
 //go:embed assets
 var bundled embed.FS
