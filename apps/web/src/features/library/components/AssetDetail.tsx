@@ -102,8 +102,23 @@ export default function AssetDetail({
     }
   }
 
+  const requestClose = () => {
+    if (saving || attaching) return
+    if (editing && description !== (asset.description ?? '')) {
+      useStore.getState().setConfirmDialog({
+        title: t('asset.discardTitle'),
+        message: t('asset.discardMessage'),
+        confirmText: t('asset.discardConfirm'),
+        tone: 'warning',
+        action: onClose,
+      })
+      return
+    }
+    onClose()
+  }
+
   return (
-    <Overlay onClose={onClose} tier="raised" layout="fill" backdrop="none" label={asset.name}>
+    <Overlay onClose={requestClose} tier="raised" layout="fill" backdrop="none" label={asset.name}>
       <div className="absolute inset-y-0 right-0 flex w-full max-w-sm flex-col overflow-hidden border-l border-border bg-card shadow-dialog">
         <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-4">
           <h3 className="min-w-0 flex-1 truncate text-base font-semibold text-foreground">
@@ -119,7 +134,8 @@ export default function AssetDetail({
             type="button"
             variant="ghost"
             autoTooltip={false}
-            onClick={onClose}
+            disabled={saving || attaching}
+            onClick={requestClose}
             aria-label={t('common:action.close')}
             className="text-muted-foreground hover:bg-muted hover:text-foreground"
           >
@@ -193,7 +209,12 @@ export default function AssetDetail({
                   type="button"
                   variant="ghost"
                   autoTooltip={false}
-                  onClick={() => setLightboxImageId(view.imageId)}
+                  onClick={() =>
+                    setLightboxImageId(
+                      view.imageId,
+                      asset.views.map((entry) => entry.imageId),
+                    )
+                  }
                   aria-label={t('asset.zoom')}
                   className="group relative aspect-square h-auto w-full overflow-hidden rounded-xl border border-border bg-muted p-0 hover:bg-muted"
                 >

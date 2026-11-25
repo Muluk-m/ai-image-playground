@@ -28,6 +28,7 @@
     "includeConfig": "Include settings",
     "includeTasks": "Include tasks and images",
     "exportSelected": "Export selected data",
+    "exporting": "Exporting…",
     "importFromZip": "Import selected data from ZIP",
     "importing": "Importing...",
     "clearSelected": "Clear selected data",

@@ -58,8 +58,18 @@ export default function InspirationDetail() {
   const { t } = useTranslation(['inspiration', 'common'])
   const [imageSrc, setImageSrc] = useState('')
   const [, setMeasured] = useState(0)
+  const [pendingAction, setPendingAction] = useState<'apply' | 'reference' | null>(null)
+  const pendingRef = useRef(false)
+  const mountedRef = useRef(true)
   const swipe = useRef<{ x: number; y: number } | null>(null)
   const scrollerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   const item = useMemo(
     () =>
@@ -132,6 +142,7 @@ export default function InspirationDetail() {
   useEffect(() => {
     if (!item) return
     const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || useStore.getState().confirmDialog) return
       const target = event.target
       if (
         target instanceof HTMLElement &&
@@ -204,9 +215,30 @@ export default function InspirationDetail() {
     setMeasured((value) => value + 1)
   }
 
+  const runAction = async (kind: 'apply' | 'reference') => {
+    if (pendingRef.current) return
+    if (kind === 'apply') {
+      await applyInspiration(item, {
+        onBusyChange: (busy) => {
+          pendingRef.current = busy
+          if (mountedRef.current) setPendingAction(busy ? 'apply' : null)
+        },
+      })
+      return
+    }
+    pendingRef.current = true
+    setPendingAction('reference')
+    try {
+      await useInspirationAsReference(item)
+    } finally {
+      pendingRef.current = false
+      if (mountedRef.current) setPendingAction(null)
+    }
+  }
+
   return (
     <Overlay
-      onClose={closeDetail}
+      onClose={pendingAction ? () => {} : closeDetail}
       role="none"
       label={inspirationTitle(item)}
       className="max-md:p-0"
@@ -461,14 +493,26 @@ export default function InspirationDetail() {
                 type="button"
                 variant="outline"
                 className="shrink-0"
-                onClick={() => void useInspirationAsReference(item)}
+                disabled={pendingAction !== null}
+                onClick={() => void runAction('reference')}
               >
-                <Icon name="imageAdd" />
+                <Icon
+                  name={pendingAction === 'reference' ? 'loading' : 'imageAdd'}
+                  className={pendingAction === 'reference' ? 'animate-spin' : undefined}
+                />
                 {t('detail.useAsReference')}
               </Button>
             )}
-            <Button type="button" className="min-w-0 flex-1" onClick={() => applyInspiration(item)}>
-              <Icon name="generate" />
+            <Button
+              type="button"
+              className="min-w-0 flex-1"
+              disabled={pendingAction !== null}
+              onClick={() => void runAction('apply')}
+            >
+              <Icon
+                name={pendingAction === 'apply' ? 'loading' : 'generate'}
+                className={pendingAction === 'apply' ? 'animate-spin' : undefined}
+              />
               {referenceCount > 0 ? t('detail.applyWithReference') : t('detail.apply')}
             </Button>
           </div>

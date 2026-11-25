@@ -25,9 +25,21 @@ import { plainPrompt } from './promptArgs'
  * - 尝试切到匹配 provider+model 的 profile（同族模型可回退）；找不到时 toast 警告但仍应用 prompt/params
  * - 应用后关闭 Panel
  */
-export function applyInspiration(item: InspirationItem) {
+export function applyInspiration(
+  item: InspirationItem,
+  options?: { onBusyChange?: (busy: boolean) => void },
+): Promise<void> {
   const main = useStore.getState()
   const hasUnsavedInput = main.prompt.trim().length > 0
+
+  const run = async () => {
+    options?.onBusyChange?.(true)
+    try {
+      await doApply(item)
+    } finally {
+      options?.onBusyChange?.(false)
+    }
+  }
 
   if (hasUnsavedInput) {
     main.setConfirmDialog({
@@ -37,12 +49,12 @@ export function applyInspiration(item: InspirationItem) {
       cancelText: i18next.t('action.cancel'),
       showCancel: true,
       tone: 'warning',
-      action: () => void doApply(item),
+      action: () => void run(),
     })
-    return
+    return Promise.resolve()
   }
 
-  void doApply(item)
+  return run()
 }
 
 async function doApply(item: InspirationItem): Promise<void> {

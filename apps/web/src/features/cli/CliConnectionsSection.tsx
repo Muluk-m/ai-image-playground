@@ -30,10 +30,11 @@ export default function CliConnectionsSection({
   watchUntil?: number
   onUnavailable?: () => void
 }) {
-  const { t, i18n } = useTranslation('auth')
+  const { t, i18n } = useTranslation(['auth', 'common'])
   const [connections, setConnections] = useState<CliConnectionSummary[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'failed' | 'unavailable'>('loading')
   const [attempt, setAttempt] = useState(0)
+  const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null)
   const [revoking, setRevoking] = useState<string | null>(null)
   const [notice, setNotice] = useState<'revoked' | 'revokeFailed' | null>(null)
   const revocation = useRef<AbortController | null>(null)
@@ -126,8 +127,18 @@ export default function CliConnectionsSection({
       if (!controller.signal.aborted) setNotice('revokeFailed')
     } finally {
       revocation.current = null
-      if (!controller.signal.aborted) setRevoking(null)
+      if (!controller.signal.aborted) {
+        setRevoking(null)
+        setConfirmRevokeId(null)
+      }
     }
+  }
+
+  function reload() {
+    setConfirmRevokeId(null)
+    setState('loading')
+    setNotice(null)
+    setAttempt((current) => current + 1)
   }
 
   if (state === 'unavailable') return null
@@ -167,11 +178,7 @@ export default function CliConnectionsSection({
           size="icon-sm"
           aria-label={t('cliConnections.refresh')}
           disabled={state === 'loading' || revoking !== null}
-          onClick={() => {
-            setState('loading')
-            setNotice(null)
-            setAttempt((current) => current + 1)
-          }}
+          onClick={reload}
         >
           <Icon name="refresh" />
         </Button>
@@ -186,10 +193,14 @@ export default function CliConnectionsSection({
         </div>
       ) : state === 'failed' ? (
         <div
-          className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3"
+          className="flex items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3"
           role="alert"
         >
           <p className="text-body-sm text-destructive">{t('cliConnections.loadFailed')}</p>
+          <Button type="button" variant="outline" size="sm" onClick={reload} className="shrink-0">
+            <Icon name="refresh" size="xs" />
+            {t('common:action.retry')}
+          </Button>
         </div>
       ) : connections.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border/80 bg-background/40 px-4 py-8 text-center">
@@ -343,20 +354,46 @@ export default function CliConnectionsSection({
                     </div>
                   </div>
 
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="xs"
-                    className="shrink-0 self-start border-border/80 bg-transparent text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive sm:self-center"
-                    disabled={revoking !== null}
-                    onClick={() => void revoke(connection.id)}
-                  >
-                    {t(
-                      revoking === connection.id
-                        ? 'cliConnections.revoking'
-                        : 'cliConnections.revoke',
-                    )}
-                  </Button>
+                  {confirmRevokeId === connection.id ? (
+                    <div className="flex shrink-0 items-center gap-1.5 self-start sm:self-center">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        disabled={revoking !== null}
+                        onClick={() => setConfirmRevokeId(null)}
+                      >
+                        {t('common:action.cancel')}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="xs"
+                        disabled={revoking !== null}
+                        onClick={() => void revoke(connection.id)}
+                      >
+                        {revoking === connection.id ? (
+                          <Icon name="loading" size="xs" className="animate-spin" />
+                        ) : null}
+                        {t(
+                          revoking === connection.id
+                            ? 'cliConnections.revoking'
+                            : 'cliConnections.confirmRevoke',
+                        )}
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="xs"
+                      className="shrink-0 self-start border-border/80 bg-transparent text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive sm:self-center"
+                      disabled={revoking !== null}
+                      onClick={() => setConfirmRevokeId(connection.id)}
+                    >
+                      {t('cliConnections.revoke')}
+                    </Button>
+                  )}
                 </div>
               </li>
             )
