@@ -219,10 +219,11 @@ describe('runMigrations', () => {
     expect(index?.indexdef).toContain('(task_id) WHERE (task_id IS NOT NULL)')
   })
 
-  it('indexes ordered context queries within a container', async () => {
-    const [index] =
-      await connection.client`SELECT indexdef FROM pg_indexes WHERE tablename = 'server_logs' AND indexname = 'idx_server_logs_instance_at'`
-    expect(index?.indexdef).toContain('(instance, at DESC, id DESC)')
+  it('drops retired server_logs table (0109_drop_server_logs)', async () => {
+    const [row] = await connection.client<
+      { rel: string | null }[]
+    >`SELECT to_regclass('public.server_logs')::text AS rel`
+    expect(row?.rel).toBeNull()
   })
 
   it('records an ordered migration version', async () => {
