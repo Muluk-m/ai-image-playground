@@ -333,14 +333,7 @@ export default function AgentAssetDrawer({
     selectedCount > 0 ? selectedCount : null,
     180,
   )
-  const shownOrderKey = useMemo(
-    () =>
-      shown
-        .slice(0, 60)
-        .map((item) => item.id)
-        .join(','),
-    [shown],
-  )
+  const shownOrderKey = useMemo(() => shown.map((item) => item.id).join(','), [shown])
   useFlipList(gridRef, '.studio-assets-card', 'data-asset-id', shownOrderKey)
 
   return (
@@ -358,7 +351,7 @@ export default function AgentAssetDrawer({
       }
     >
       <aside
-        className="studio-assets-drawer motion-reduce:!transition-none"
+        className="studio-assets-drawer touch-pan-y motion-reduce:!transition-none"
         role="dialog"
         aria-modal="true"
         aria-label={t('assets.title')}

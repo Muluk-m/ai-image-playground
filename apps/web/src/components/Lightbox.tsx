@@ -19,6 +19,7 @@ const TOUCH_DRAG_THRESHOLD_PX = 8
 /** 未缩放状态下纵向拖出这个距离或抛掷速度即可跟手关闭 */
 const DISMISS_DISTANCE_PX = 110
 const DISMISS_VELOCITY_PX_MS = 0.55
+const VELOCITY_STALE_MS = 100
 const FLIP_OPEN_MS = 280
 const FLIP_CLOSE_MS = 200
 const FLIP_OPEN_EASING = 'cubic-bezier(0.22, 1, 0.36, 1)'
@@ -702,8 +703,9 @@ function LightboxInner({
       dragRef.current.active = false
       const dm = dismissRef.current
       if (dm.active) {
+        const effectiveVy = performance.now() - dm.lastTime <= VELOCITY_STALE_MS ? dm.vy : 0
         const shouldClose =
-          Math.abs(dm.dy) >= DISMISS_DISTANCE_PX || Math.abs(dm.vy) >= DISMISS_VELOCITY_PX_MS
+          Math.abs(dm.dy) >= DISMISS_DISTANCE_PX || Math.abs(effectiveVy) >= DISMISS_VELOCITY_PX_MS
         if (shouldClose) {
           requestClose(dm.dy >= 0 ? 1 : -1)
         } else {
@@ -937,8 +939,10 @@ function LightboxInner({
         dragRef.current.pending = false
         const dm = dismissRef.current
         if (dm.active) {
+          const effectiveVy = performance.now() - dm.lastTime <= VELOCITY_STALE_MS ? dm.vy : 0
           const shouldClose =
-            Math.abs(dm.dy) >= DISMISS_DISTANCE_PX || Math.abs(dm.vy) >= DISMISS_VELOCITY_PX_MS
+            Math.abs(dm.dy) >= DISMISS_DISTANCE_PX ||
+            Math.abs(effectiveVy) >= DISMISS_VELOCITY_PX_MS
           if (shouldClose) {
             requestClose(dm.dy >= 0 ? 1 : -1)
           } else {

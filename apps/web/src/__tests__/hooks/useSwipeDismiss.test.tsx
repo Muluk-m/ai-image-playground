@@ -79,12 +79,59 @@ describe('useSwipeDismiss', () => {
     expect(onDismiss).not.toHaveBeenCalled()
 
     // Short slow pull springs back instead of dismissing.
-    vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValueOnce(500)
+    vi.spyOn(performance, 'now')
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(500)
+      .mockReturnValueOnce(520)
     fireTouch(drawer, 'touchstart', 20, 100)
     fireTouch(drawer, 'touchmove', 55, 102)
     expect(drawer.dataset.dragging).toBe('true')
     fireTouch(drawer, 'touchend', 55, 102)
     expect(onDismiss).not.toHaveBeenCalled()
     expect(drawer.dataset.offset).toBe('0')
+  })
+
+  it('expires stale flick velocity after a pause and cancels when a second finger lands', () => {
+    const onDismiss = vi.fn()
+    act(() => root.render(<DrawerHarness onDismiss={onDismiss} />))
+    const drawer = host.querySelector<HTMLElement>('[data-drawer]')!
+
+    // Fast short drag (35px in 10ms = 3.5px/ms), then pause 200ms before releasing.
+    vi.spyOn(performance, 'now')
+      .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(1010)
+      .mockReturnValueOnce(1210)
+    fireTouch(drawer, 'touchstart', 20, 100)
+    fireTouch(drawer, 'touchmove', 55, 101)
+    fireTouch(drawer, 'touchend', 55, 101)
+    expect(onDismiss).not.toHaveBeenCalled()
+
+    // Right drag transitions to 2-finger pinch: must cancel and not dismiss when 1st finger lifts.
+    fireTouch(drawer, 'touchstart', 20, 100)
+    fireTouch(drawer, 'touchmove', 160, 102)
+    expect(drawer.dataset.dragging).toBe('true')
+    const twoFingerStart = new TouchEvent('touchstart', {
+      bubbles: true,
+      cancelable: true,
+      touches: [
+        { clientX: 160, clientY: 102, target: drawer },
+        { clientX: 200, clientY: 120, target: drawer },
+      ] as unknown as Touch[],
+    })
+    act(() => {
+      drawer.dispatchEvent(twoFingerStart)
+    })
+    expect(drawer.dataset.dragging).toBe('false')
+    expect(drawer.dataset.offset).toBe('0')
+    const oneFingerLeft = new TouchEvent('touchend', {
+      bubbles: true,
+      cancelable: true,
+      touches: [{ clientX: 200, clientY: 120, target: drawer }] as unknown as Touch[],
+    })
+    act(() => {
+      drawer.dispatchEvent(oneFingerLeft)
+    })
+    fireTouch(drawer, 'touchend', 200, 120)
+    expect(onDismiss).not.toHaveBeenCalled()
   })
 })
