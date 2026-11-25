@@ -861,8 +861,8 @@ export const ASSET_RECLAIM_GRACE_MS = 24 * 60 * 60 * 1000
  * 引用该素材的在途任务或运行中智能体执行引用的同步素材图片（`asset_image_id IS NOT NULL`）。
  * 采用两阶段排他可恢复删除协议：
  * 1. 事务 1 按 `lockMediaOwner -> lockUserSyncState -> media_objects FOR UPDATE` 持锁，用独立查询在最新快照
- *    复核全部保护条件，通过后在同一事务内把 `media_objects.status` 置为 `'deleting'`（调用前提：线上与回滚基线
- *    均已不再读写旧 `user_asset_objects` 表，或在 Contract 2b 删表后由定时任务挂载）；
+ *    复核全部保护条件，通过后在同一事务内把 `media_objects.status` 置为 `'deleting'`（已于 Contract 2b
+ *    在 `apps/bff/src/index.ts` 周期维护挂载，旧 `user_asset_objects` 表已删除）；
  * 2. 委托 `finishDeletingMedia(userId, mediaId, { requireDeleting: true })` 在 `lockMediaOwner` 排他锁内按
  *    精确 `media.id` 校验行仍处于 `deleting` 后执行 `deleteObject` 并删除账本行。若步骤 1 与步骤 2 之间已被另一
  *    `purgeDeletingUnreferencedMedia` 清扫且同 `imageId` 被重新上传成新行，旧 `media.id` 已不存在，绝不误删新对象；
