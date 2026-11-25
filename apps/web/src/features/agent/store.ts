@@ -89,6 +89,7 @@ import { readAutoSubmitPreference } from './lib/autoSubmitPreference'
 import { type AgentJobSession, createAgentBackgroundJobs } from './lib/backgroundJobs'
 import { agentCanvasSink, onAgentCanvasSinkChange } from './lib/canvasSink'
 import { conversationCache } from './lib/conversationCache'
+import { createConversationOpener } from './lib/conversationOpener'
 import { browserConversationPrefetch } from './lib/conversationPrefetch'
 import { agentDraftStillDrafting } from './lib/draftingTurn'
 import {
@@ -142,7 +143,7 @@ import { type AgentRetryRefusal, agentRetryRemaining, agentRetrySlotTasks } from
 import { describeSendFailure } from './lib/sendFailure'
 import { agentToolFailureText, promptAgentRecharge } from './lib/toolFailure'
 import { failPatch, reduceTurnEvent, TURN_FAILED } from './lib/turnEvents'
-import { createTurnFollower, turnSource } from './lib/turnFollower'
+import { createTurnFollower } from './lib/turnFollower'
 import { toAgentTurnParams } from './lib/turnParams'
 import { applyTurnSessionEvent, IDLE_TURN_FIELDS } from './lib/turnSession'
 import {
@@ -157,12 +158,11 @@ import type {
   AgentToolMessage,
   AgentTurnFooter,
   AgentTurnStatus,
+  ReturnedMessagesErrorCode,
 } from './types'
 
 // 文案按调用时取，不在模块加载时定死：切语言之后新出的报错要跟着换语言。
 const TURN_RATE_LIMITED = () => i18next.t('error.rateLimited', { ns: 'agent' })
-const CONVERSATION_UNREADABLE = () => i18next.t('error.conversationUnreadable', { ns: 'agent' })
-const CONVERSATION_GONE = () => i18next.t('error.conversationGone', { ns: 'agent' })
 
 /** 登录后 scope 会变，所以每次现算，不缓存。 */
 const conversationKey = () => scopedStorageName(AGENT_CONVERSATION_KEY)
@@ -366,8 +366,6 @@ export interface AgentState {
    */
   confirmAllPrompts(): Promise<{ confirmed: number; failure: AgentPromptConfirmResult | null }>
 }
-
-type ReturnedMessagesErrorCode = 'stop_failed' | 'return_handoff_failed' | 'fallback'
 
 class ReturnedMessagesPersistenceError extends Error {
   readonly code: 'return_handoff_failed' | 'fallback'
@@ -777,86 +775,32 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     jobs.resume(conversationId, get().messages)
   }
 
-  /**
-   * 读回会话历史并挂上仍在跑的那一轮。切会话、以及起轮撞上别的标签页时走的都是这一条。
-   * `turnId` 是起轮的 409 给出的兜底：历史里的 activeTurn 更新，但那一轮可能在这次读取之前
-   * 刚好跑完——续播端点对已经结束的轮同样重放，用户照样看得到它的内容。
-   */
-  const openConversation = async (conversationId: string, turnId?: string) => {
-    const currentDelivery = resetDelivery()
-    const owner = historyCache.bind(conversationCache(conversationId))
-    const isCurrent = () => currentDelivery() && owner.isCurrent()
-    const same = get().conversationId === conversationId
-    set({
-      // 换会话：草稿卡上改过的字、任务进度这些都跟着那个会话走，不带进新的。
-      ...(same ? { conversationId } : sessionReset(conversationId)),
-      error: null,
-      errorDiagnostic: null,
-      ...applyTurnSessionEvent(get(), 'finish'),
-      activeTurn: null,
-      historyCached: same && get().historyCached,
-      historyLoading: true,
-      historyFailed: false,
-      returnedMessagesPending: false,
-      returnedMessagesError: null,
-    })
-    if (!same) releaseIdleAgentNodeRunOrigins()
-    selectCanvasWorkspace(conversationSceneKey(conversationId))
-    let remoteSettled = false
-    void owner.read().then((panel) => {
-      if (!panel || !isCurrent() || remoteSettled || get().messages.length > 0) return
-      set({ ...panel, historyCached: true })
-    })
-    let state: AgentConversationState
-    try {
-      state = await fetchMessages(conversationId)
-      remoteSettled = true
-      if (!isCurrent()) return
-    } catch (thrown) {
-      if (!isCurrent()) return
-      // 只有服务端明说「没有」或「不是你的」才忘掉会话：其它失败（旧 bundle 打新服务端的 400、
-      // 5xx、断网）里会话还在，忘掉它等于把用户的历史无声弄丢，报错让用户知道是读不到。
-      const gone =
-        thrown instanceof AgentRequestError && (thrown.status === 404 || thrown.status === 403)
-      if (!gone) set({ historyLoading: false, historyFailed: true })
-      const project = currentCanvasProject()
-      if (gone) {
-        remoteSettled = true
-        set({ messages: [], turns: {}, historyCached: false })
-        void historyCache.forget(conversationId)
-      }
-      if (gone && project?.conversationId === conversationId) {
-        try {
-          await useCanvasProjectStore.getState().update(project.id, { conversationId: null })
-          if (!isCurrent()) return
-          openProject(project.id)
-          set({ ...sessionReset(null), error: CONVERSATION_GONE(), errorDiagnostic: null })
-          releaseIdleAgentNodeRunOrigins()
-        } catch {
-          if (isCurrent()) {
-            set({ historyLoading: false, historyFailed: true })
-            fail(CONVERSATION_UNREADABLE())
-          }
-        }
-      } else if (gone) get().startNewConversation()
-      else fail(CONVERSATION_UNREADABLE())
-      return
-    }
-    adoptSnapshot(conversationId, state)
-    set({ historyCached: false, historyLoading: false, historyFailed: false })
-    void owner.write({ messages: get().messages, turns: get().turns })
-    await recoverReturnedMessages(conversationId)
-    if (!isCurrent()) return
-    const active = state.activeTurn?.turnId ?? turnId
-    if (!active) {
-      // 历史读回来了、也没有在跑的轮：发送途中丢掉的那几条现在补发。
-      const project = currentCanvasProject()
-      if (project?.conversationId === conversationId) void resumeOutgoing(project.id)
-      return
-    }
-    set({ ...applyTurnSessionEvent(get(), 'ensureRunning'), activeTurn: { turnId: active } })
-    await follow(conversationId, turnSource(state, active), null, delivery.beginTurn())
-  }
+  const openConversation = createConversationOpener({
+    get,
+    set,
+    sessionReset,
+    resetDelivery,
+    fetchMessages: (conversationId) => fetchMessages(conversationId),
+    bindCache: (conversationId) => historyCache.bind(conversationCache(conversationId)),
+    forgetCache: (conversationId) => historyCache.forget(conversationId),
+    releaseRunOrigins: () => releaseIdleAgentNodeRunOrigins(),
+    selectWorkspace: (conversationId) =>
+      selectCanvasWorkspace(conversationSceneKey(conversationId)),
+    adoptSnapshot: (conversationId, taken) => adoptSnapshot(conversationId, taken),
+    recoverReturnedMessages: (conversationId) => recoverReturnedMessages(conversationId),
+    resumeOutgoing: (projectId) => void resumeOutgoing(projectId),
+    followActive: (conversationId, source) =>
+      follow(conversationId, source, null, delivery.beginTurn()),
+    fail: (message) => fail(message),
+    startNewConversation: () => get().startNewConversation(),
+    project: {
+      current: () => currentCanvasProject(),
+      detach: async (projectId) => {
+        await useCanvasProjectStore.getState().update(projectId, { conversationId: null })
+      },
+      open: (projectId) => openProject(projectId),
+    },
+  })
 
   /**
    * 服务端历史里已经有这一句了。文本与带图张数都对得上就算同一条：本机那份是交出去
