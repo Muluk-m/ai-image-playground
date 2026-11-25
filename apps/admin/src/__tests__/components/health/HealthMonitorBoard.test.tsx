@@ -151,20 +151,30 @@ describe('HealthMonitorBoard interactions', () => {
     expect(screen.getByText(/TTFT 中位数 1\.82s/)).toBeInTheDocument()
     expect(screen.getByText(/耗时 P50 14\.5s · 40 次/)).toBeInTheDocument()
 
-    // Hover an Agent bucket pill -> shows TTFT median and P95 popover.
-    const agentPills = screen.getAllByRole('listitem', { name: /claude-sonnet-4-6/ })
+    // Hover an Agent bucket pill -> shows TTFT median and P95 tooltip via aria-describedby.
+    const agentPills = screen.getAllByRole('button', { name: /claude-sonnet-4-6/ })
+    expect(agentPills[0]).toHaveAttribute('tabindex', '-1')
+    expect(agentPills[1]).toHaveAttribute('tabindex', '0')
     fireEvent.mouseEnter(agentPills[1]!)
-    expect(screen.getByText('首 Token 中位数')).toBeInTheDocument()
+    expect(screen.getByRole('tooltip')).toHaveTextContent('首 Token 中位数')
     expect(screen.getByText('1.82s')).toBeInTheDocument()
     expect(screen.getByText('3.10s')).toBeInTheDocument()
 
-    // Hover a Generation bucket pill -> shows duration, queue wait, and policy_blocked count.
-    const genPills = screen.getAllByRole('listitem', { name: /gpt-image-1\.5/ })
-    fireEvent.mouseEnter(genPills[1]!)
+    // Keyboard Escape dismisses the tooltip; ArrowLeft navigates to previous bucket.
+    fireEvent.keyDown(agentPills[1]!, { key: 'Escape' })
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+    fireEvent.keyDown(agentPills[1]!, { key: 'ArrowLeft' })
+    expect(screen.getByRole('tooltip')).toHaveTextContent('无流量')
+
+    // Click pins a Generation bucket pill -> shows duration, queue wait, and policy_blocked count.
+    const genPills = screen.getAllByRole('button', { name: /gpt-image-1\.5/ })
+    fireEvent.click(genPills[1]!)
     expect(screen.getByText('生成耗时中位数')).toBeInTheDocument()
     expect(screen.getByText('排队等待中位数')).toBeInTheDocument()
     expect(screen.getByText('内容策略拒图')).toBeInTheDocument()
     expect(screen.getByText('2 次')).toBeInTheDocument()
+    fireEvent.click(genPills[1]!)
+    expect(screen.queryByText('生成耗时中位数')).not.toBeInTheDocument()
 
     // Collapse the OpenAI group card.
     const groupToggle = screen.getByRole('button', { name: /OpenAI 兼容生成/ })

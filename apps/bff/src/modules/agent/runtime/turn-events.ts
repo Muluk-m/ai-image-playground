@@ -87,10 +87,11 @@ export function attachTurnEventHandler(input: {
     if (event.type === 'message_update') {
       const update = event.assistantMessageEvent
       if (
-        (update.type === 'text_delta' ||
+        update.type === 'toolcall_start' ||
+        ((update.type === 'text_delta' ||
           update.type === 'thinking_delta' ||
           update.type === 'toolcall_delta') &&
-        update.delta.length > 0
+          update.delta.length > 0)
       ) {
         stream.markFirstToken()
       }

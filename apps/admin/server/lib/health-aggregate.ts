@@ -439,8 +439,15 @@ export function buildHealthMonitorSnapshot(input: HealthRawInput): HealthMonitor
         ]
   const groups: HealthGroup[] = [...resolvedGenGroups, agentGroup, apiGroup]
 
-  const allTotal = genTotal + agentTotal + apiTotal
-  const allSucceeded = genSucceeded + agentSucceeded + apiSucceeded
+  const genAvailability = genTotal > 0 ? genSucceeded / genTotal : null
+  const agentAvailability = agentTotal > 0 ? agentSucceeded / agentTotal : null
+  const apiAvailability = apiTotal > 0 ? apiSucceeded / apiTotal : null
+  // 综合可用率按各活跃维度取最低值（与 worstStatus 同口径），避免高频接口轮询稀释业务生成/Agent 故障。
+  const activeAvailabilities = [genAvailability, agentAvailability, apiAvailability].filter(
+    (v): v is number => v !== null,
+  )
+  const overallAvailability =
+    activeAvailabilities.length > 0 ? Math.min(...activeAvailabilities) : null
 
   return {
     generated_at: input.now,
@@ -452,15 +459,15 @@ export function buildHealthMonitorSnapshot(input: HealthRawInput): HealthMonitor
     window_end_at: windowEndAt,
     summary: {
       status: worstStatus(groups.map((g) => g.status)),
-      availability: allTotal > 0 ? allSucceeded / allTotal : null,
+      availability: overallAvailability,
       generation_total: genTotal,
-      generation_availability: genTotal > 0 ? genSucceeded / genTotal : null,
+      generation_availability: genAvailability,
       generation_p50_ms: input.generationOverallP50Ms,
       agent_total: agentTotal,
-      agent_availability: agentTotal > 0 ? agentSucceeded / agentTotal : null,
+      agent_availability: agentAvailability,
       agent_ttft_p50_ms: input.agentOverallTtftP50Ms,
       api_total: apiTotal,
-      api_availability: apiTotal > 0 ? apiSucceeded / apiTotal : null,
+      api_availability: apiAvailability,
       api_p95_ms: input.apiSummary.p95_ms,
     },
     groups,

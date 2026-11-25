@@ -248,6 +248,7 @@ export function useHealthMonitor(
       apiClient.get<HealthMonitorSnapshot>(
         `/api/ops/health?range=${range}&includePolicy=${includePolicy ? '1' : '0'}`,
       ),
+    staleTime: 0,
     refetchInterval,
   })
 }

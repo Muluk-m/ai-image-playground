@@ -1,5 +1,5 @@
 import { AlertTriangle, ChevronUp, CircleCheck, MinusCircle, XCircle } from 'lucide-react'
-import { useState } from 'react'
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react'
 import { Kpi } from '@/components/Kpi'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { HEALTH_RANGE_META } from '@/lib/search-params'
@@ -40,6 +40,9 @@ const STATUS_TONE: Record<HealthStatus, 'default' | 'success' | 'warning' | 'dan
   outage: 'danger',
   idle: 'default',
 }
+
+/** 浮层展开所需顶部净空（吸顶页头 ~110px + 浮层最大高度 ~190px）。 */
+const POPOVER_FLIP_TOP_THRESHOLD_PX = 310
 
 export function formatAvailability(ratio: number | null): string {
   if (ratio === null || !Number.isFinite(ratio)) return '—'
@@ -104,23 +107,31 @@ function MetricRow({ label, value }: { label: string; value: string }) {
 }
 
 function BucketPopover({
+  id,
   component,
   bucket,
   range,
   anchorPercent,
+  placement,
 }: {
+  id: string
   component: HealthComponent
   bucket: HealthBucket
   range: HealthRange
   anchorPercent: number
+  placement: 'top' | 'bottom'
 }) {
-  const clamped = Math.min(86, Math.max(14, anchorPercent))
   return (
     <div
-      role="status"
-      aria-live="polite"
-      className="pointer-events-none absolute bottom-[calc(100%+10px)] z-40 w-64 -translate-x-1/2 rounded-lg border bg-popover p-3 text-popover-foreground shadow-lg"
-      style={{ left: `${clamped}%` }}
+      id={id}
+      role="tooltip"
+      className={cn(
+        'pointer-events-none absolute z-20 w-64 max-w-[calc(100vw-2rem)] -translate-x-1/2 rounded-lg border bg-popover p-3 text-popover-foreground shadow-lg',
+        placement === 'top' ? 'bottom-[calc(100%+10px)]' : 'top-[calc(100%+10px)]',
+      )}
+      style={{
+        left: `clamp(8rem, ${anchorPercent}%, calc(100% - 8rem))`,
+      }}
     >
       <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
         {formatBucketWindow(bucket.start_at, bucket.end_at, range)}
@@ -214,11 +225,74 @@ function HealthComponentRow({
   component: HealthComponent
   range: HealthRange
 }) {
+  const tooltipId = useId()
+  const stripRef = useRef<HTMLDivElement>(null)
+  const buttonRefs = useRef<Array<HTMLButtonElement | null>>([])
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
-  const activeBucket = activeIndex !== null ? (component.buckets[activeIndex] ?? null) : null
+  const [pinned, setPinned] = useState(false)
+  const [focusIndex, setFocusIndex] = useState(() => Math.max(0, component.buckets.length - 1))
+  const [placement, setPlacement] = useState<'top' | 'bottom'>('top')
+
   const totalBuckets = component.buckets.length
+  const safeFocusIndex = Math.min(focusIndex, Math.max(0, totalBuckets - 1))
+  const activeBucket = activeIndex !== null ? (component.buckets[activeIndex] ?? null) : null
   const anchorPercent =
     activeIndex !== null && totalBuckets > 0 ? ((activeIndex + 0.5) / totalBuckets) * 100 : 50
+
+  const measurePlacement = () => {
+    const rect = stripRef.current?.getBoundingClientRect()
+    if (!rect || rect.height === 0) {
+      setPlacement('top')
+      return
+    }
+    setPlacement(rect.top < POPOVER_FLIP_TOP_THRESHOLD_PX ? 'bottom' : 'top')
+  }
+
+  const activate = (idx: number, pin = false) => {
+    measurePlacement()
+    setActiveIndex(idx)
+    setFocusIndex(idx)
+    if (pin) setPinned(true)
+  }
+
+  const dismiss = () => {
+    setActiveIndex(null)
+    setPinned(false)
+  }
+
+  useEffect(() => {
+    if (activeIndex === null) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (
+        stripRef.current &&
+        event.target instanceof Node &&
+        !stripRef.current.contains(event.target)
+      ) {
+        setActiveIndex(null)
+        setPinned(false)
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [activeIndex])
+
+  const onPillKeyDown = (event: KeyboardEvent<HTMLButtonElement>, idx: number) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      dismiss()
+      return
+    }
+    let next: number | null = null
+    if (event.key === 'ArrowRight') next = Math.min(totalBuckets - 1, idx + 1)
+    else if (event.key === 'ArrowLeft') next = Math.max(0, idx - 1)
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = totalBuckets - 1
+    if (next !== null && next !== idx) {
+      event.preventDefault()
+      activate(next, pinned)
+      buttonRefs.current[next]?.focus()
+    }
+  }
 
   return (
     <div className="space-y-2">
@@ -243,17 +317,25 @@ function HealthComponentRow({
         </div>
       </div>
 
-      <div className="relative" onMouseLeave={() => setActiveIndex(null)}>
+      <div
+        ref={stripRef}
+        className="relative"
+        onMouseLeave={() => {
+          if (!pinned) setActiveIndex(null)
+        }}
+      >
         {activeBucket ? (
           <BucketPopover
+            id={tooltipId}
             component={component}
             bucket={activeBucket}
             range={range}
             anchorPercent={anchorPercent}
+            placement={placement}
           />
         ) : null}
         <div
-          role="list"
+          role="group"
           aria-label={`${component.name} 健康状态时间线`}
           className="flex h-7 w-full items-stretch gap-[2px] sm:gap-[3px]"
         >
@@ -262,12 +344,25 @@ function HealthComponentRow({
             return (
               <button
                 key={bucket.start_at}
+                ref={(el) => {
+                  buttonRefs.current[idx] = el
+                }}
                 type="button"
-                role="listitem"
+                tabIndex={idx === safeFocusIndex ? 0 : -1}
                 aria-label={`${component.name} ${formatBucketWindow(bucket.start_at, bucket.end_at, range)} ${STATUS_LABEL[bucket.status]} ${bucket.total > 0 ? `成功率 ${formatAvailability(bucket.success_rate)}` : '无样本'}`}
-                onMouseEnter={() => setActiveIndex(idx)}
-                onFocus={() => setActiveIndex(idx)}
-                onBlur={() => setActiveIndex((prev) => (prev === idx ? null : prev))}
+                aria-describedby={selected ? tooltipId : undefined}
+                onMouseEnter={() => {
+                  if (!pinned) activate(idx)
+                }}
+                onClick={() => {
+                  if (pinned && activeIndex === idx) dismiss()
+                  else activate(idx, true)
+                }}
+                onFocus={() => activate(idx)}
+                onBlur={() => {
+                  if (!pinned) setActiveIndex((prev) => (prev === idx ? null : prev))
+                }}
+                onKeyDown={(event) => onPillKeyDown(event, idx)}
                 className={cn(
                   'min-w-0 flex-1 rounded-[3px] transition-transform duration-100 motion-reduce:transition-none focus-visible:outline-none',
                   PILL_BG[bucket.status],
@@ -365,7 +460,7 @@ export function HealthMonitorBoard({ snapshot }: { snapshot: HealthMonitorSnapsh
           label="综合可用率"
           value={formatAvailability(summary.availability)}
           tone={STATUS_TONE[summary.status]}
-          note={OVERALL_LABEL[summary.status]}
+          note={`按最弱维度取底 · ${OVERALL_LABEL[summary.status]}`}
         />
         <Kpi
           label="生成任务"

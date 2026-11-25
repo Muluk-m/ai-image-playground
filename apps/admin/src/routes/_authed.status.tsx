@@ -19,7 +19,7 @@ const HEALTH_RANGE_OPTIONS = HEALTH_RANGES.map((value) => ({
   label: HEALTH_RANGE_META[value].label,
 }))
 
-export const Route = createFileRoute('/_authed/health')({
+export const Route = createFileRoute('/_authed/status')({
   validateSearch: parseHealthSearch,
   component: HealthMonitorPage,
 })

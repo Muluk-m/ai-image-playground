@@ -181,5 +181,23 @@ describe('GET /api/ops/health', () => {
     expect(directWithPolicy.total).toBe(2)
     expect(directWithPolicy.failed).toBe(1)
     expect(directWithPolicy.availability).toBe(0.5)
+
+    // 7d (2h buckets) aligns to UTC epoch cleanly even when DB session TimeZone has an odd-hour offset.
+    await getDbHandle().client`SET TIME ZONE 'Asia/Tokyo'`
+    try {
+      const weekRes = await app.handle(
+        new Request('http://localhost/api/ops/health?range=7d', {
+          headers: { cookie },
+        }),
+      )
+      expect(weekRes.status).toBe(200)
+      const weekSnap = (await weekRes.json()) as HealthMonitorSnapshot
+      expect(weekSnap.bucket_count).toBe(84)
+      const weekAgent = weekSnap.groups.find((g) => g.id === 'agent:models')!.components[0]!
+      expect(weekAgent.buckets.reduce((sum, b) => sum + b.total, 0)).toBe(weekAgent.total)
+      expect(weekAgent.buckets.at(-1)!.total).toBe(1)
+    } finally {
+      await getDbHandle().client`RESET TIME ZONE`
+    }
   })
 })

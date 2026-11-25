@@ -195,6 +195,8 @@ describe('buildHealthMonitorSnapshot', () => {
     expect(snap.summary.agent_ttft_p50_ms).toBe(1_450)
     expect(snap.summary.generation_p50_ms).toBe(16_000)
     expect(snap.summary.api_p95_ms).toBe(280)
+    // Overall availability uses the weakest active dimension (generation 17/19) instead of being diluted by 400 API requests.
+    expect(snap.summary.availability).toBeCloseTo(17 / 19, 6)
   })
 
   it('counts content_policy rejections as failures when includePolicy is true', () => {
