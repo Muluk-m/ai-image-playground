@@ -4,7 +4,7 @@ import type {
   GeminiDirectKeyView,
 } from '@image-playground/shared'
 import { useQueryClient } from '@tanstack/react-query'
-import { ArrowDown, ArrowUp, BarChart3, Cpu, Plus, Sparkles } from 'lucide-react'
+import { ArrowDown, ArrowUp, BarChart3, Cpu, Loader2, Plus, Sparkles } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 
 import { FuzzyTime } from '@/components/FuzzyTime'
@@ -92,9 +92,10 @@ export function GeminiDirectPanel({
   const [pending, setPending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<GeminiDirectKeyView | null>(null)
+  const [disableTarget, setDisableTarget] = useState<GeminiDirectKeyView | null>(null)
 
-  async function run(id: string, task: () => Promise<GeminiDirectAdminView>) {
-    if (pending) return
+  async function run(id: string, task: () => Promise<GeminiDirectAdminView>): Promise<boolean> {
+    if (pending) return false
     setPending(id)
     setError(null)
     try {
@@ -104,6 +105,7 @@ export function GeminiDirectPanel({
         client.invalidateQueries({ queryKey: geminiDirectQueryKey }),
         client.invalidateQueries({ queryKey: modelsQueryKey }),
       ])
+      return true
     } catch (cause) {
       setError(failureMessage(cause))
       if (
@@ -112,6 +114,7 @@ export function GeminiDirectPanel({
       ) {
         void client.invalidateQueries({ queryKey: geminiDirectQueryKey })
       }
+      return false
     } finally {
       setPending(null)
     }
@@ -304,8 +307,13 @@ export function GeminiDirectPanel({
                         }}
                         onToggle={() => {
                           if (!key.id) return
+                          if (key.enabled) {
+                            setError(null)
+                            setDisableTarget(key)
+                            return
+                          }
                           void run(`toggle-${key.id}`, () =>
-                            updateGeminiDirectKey(key.id as string, { enabled: !key.enabled }),
+                            updateGeminiDirectKey(key.id as string, { enabled: true }),
                           )
                         }}
                         onBudget={(budgetUsd) => {
@@ -484,12 +492,93 @@ export function GeminiDirectPanel({
         </div>
 
         <Dialog
-          open={deleteTarget !== null}
+          open={disableTarget !== null}
           onOpenChange={(open) => {
-            if (!open && pending === null) setDeleteTarget(null)
+            if (!open && pending === null) {
+              setDisableTarget(null)
+              setError(null)
+            }
           }}
         >
-          <DialogContent>
+          <DialogContent
+            onEscapeKeyDown={(event) => {
+              if (pending !== null) event.preventDefault()
+            }}
+            onPointerDownOutside={(event) => {
+              if (pending !== null) event.preventDefault()
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>停用 Gemini 直连密钥</DialogTitle>
+              <DialogDescription>
+                确认停用 <code className="font-mono">{disableTarget?.label}</code>？
+                停用后该密钥将不再参与直连调度，剩余流量会切到其他可用密钥或回退通道。
+              </DialogDescription>
+            </DialogHeader>
+            {error ? (
+              <p role="alert" className="text-xs text-danger">
+                {error}
+              </p>
+            ) : null}
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={pending !== null}
+                onClick={() => setDisableTarget(null)}
+              >
+                取消
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={pending !== null || !disableTarget?.id}
+                aria-busy={
+                  pending !== null &&
+                  disableTarget?.id !== null &&
+                  pending === `toggle-${disableTarget?.id}`
+                }
+                onClick={async () => {
+                  const target = disableTarget
+                  if (!target?.id) return
+                  const ok = await run(`toggle-${target.id}`, () =>
+                    updateGeminiDirectKey(target.id as string, { enabled: false }),
+                  )
+                  if (ok) setDisableTarget(null)
+                }}
+              >
+                {pending !== null &&
+                disableTarget?.id !== null &&
+                pending === `toggle-${disableTarget?.id}` ? (
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                ) : null}
+                {pending !== null &&
+                disableTarget?.id !== null &&
+                pending === `toggle-${disableTarget?.id}`
+                  ? '停用中…'
+                  : '确认停用'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={deleteTarget !== null}
+          onOpenChange={(open) => {
+            if (!open && pending === null) {
+              setDeleteTarget(null)
+              setError(null)
+            }
+          }}
+        >
+          <DialogContent
+            onEscapeKeyDown={(event) => {
+              if (pending !== null) event.preventDefault()
+            }}
+            onPointerDownOutside={(event) => {
+              if (pending !== null) event.preventDefault()
+            }}
+          >
             <DialogHeader>
               <DialogTitle>删除 Gemini 直连密钥</DialogTitle>
               <DialogDescription>
@@ -497,6 +586,11 @@ export function GeminiDirectPanel({
                 删除后如密钥池为空将回退到部署环境变量。
               </DialogDescription>
             </DialogHeader>
+            {error ? (
+              <p role="alert" className="text-xs text-danger">
+                {error}
+              </p>
+            ) : null}
             <DialogFooter>
               <Button
                 type="button"
@@ -510,14 +604,30 @@ export function GeminiDirectPanel({
                 type="button"
                 variant="destructive"
                 disabled={pending !== null || !deleteTarget?.id}
-                onClick={() => {
+                aria-busy={
+                  pending !== null &&
+                  deleteTarget?.id !== null &&
+                  pending === `delete-${deleteTarget?.id}`
+                }
+                onClick={async () => {
                   const target = deleteTarget
                   if (!target?.id) return
-                  setDeleteTarget(null)
-                  void run(`delete-${target.id}`, () => deleteGeminiDirectKey(target.id as string))
+                  const ok = await run(`delete-${target.id}`, () =>
+                    deleteGeminiDirectKey(target.id as string),
+                  )
+                  if (ok) setDeleteTarget(null)
                 }}
               >
-                确认删除
+                {pending !== null &&
+                deleteTarget?.id !== null &&
+                pending === `delete-${deleteTarget?.id}` ? (
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+                ) : null}
+                {pending !== null &&
+                deleteTarget?.id !== null &&
+                pending === `delete-${deleteTarget?.id}`
+                  ? '删除中…'
+                  : '确认删除'}
               </Button>
             </DialogFooter>
           </DialogContent>

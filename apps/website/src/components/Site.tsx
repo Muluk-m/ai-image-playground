@@ -30,47 +30,100 @@ export function Site({ page }: { page: SitePage }) {
   const text = copy[page.locale]
   const [login, setLogin] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   useEffect(() => {
     setMounted(true)
     return initTheme()
   }, [])
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMenuOpen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [menuOpen])
   const start = () => setLogin(true)
+  const loginPending = (
+    <main className="site-login-pending">
+      <Brand locale={page.locale} />
+      <h1>{text.loginTitle}</h1>
+      <p role="status">{text.loading}</p>
+      <a href="/image">{text.start} →</a>
+    </main>
+  )
   const navigation = (
-    <nav className="site-nav" aria-label={text.brand}>
-      <a href={page.locale === 'en' ? '/en/' : '/'}>
-        <Brand locale={page.locale} />
-      </a>
-      <div className="site-nav-links">
-        <a href="/explore">{text.explore}</a>
-        <a href="/pricing">{text.pricing}</a>
-        <a href={editions[page.locale].root}>{text.guide}</a>
-      </div>
-      <div className="site-nav-actions">
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="mkt-theme"
-          aria-label={marketingCopy[page.locale].nav.theme}
-          onClick={toggleSiteTheme}
-        >
-          <Icon name="light" className="sun" />
-          <Icon name="dark" className="moon" />
-        </Button>
-        <a
-          href={alternatePage(page).path}
-          hrefLang={alternatePage(page).locale}
-          className="site-language"
-          onClick={() => rememberSiteLocale(alternatePage(page).locale)}
-        >
-          {page.locale === 'en' ? '中文' : 'EN'}
+    <>
+      <nav className="site-nav" aria-label={text.brand}>
+        <a href={page.locale === 'en' ? '/en/' : '/'}>
+          <Brand locale={page.locale} />
         </a>
-        <Button onClick={start}>
-          {text.start}
-          <Icon name="arrowRight" />
-        </Button>
-      </div>
-    </nav>
+        <div className="site-nav-links">
+          <a href="/explore">{text.explore}</a>
+          <a href="/pricing">{text.pricing}</a>
+          <a href={editions[page.locale].root}>{text.guide}</a>
+        </div>
+        <div className="site-nav-actions">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="mkt-theme"
+            aria-label={marketingCopy[page.locale].nav.theme}
+            onClick={toggleSiteTheme}
+          >
+            <Icon name="light" className="sun" />
+            <Icon name="dark" className="moon" />
+          </Button>
+          <a
+            href={alternatePage(page).path}
+            hrefLang={alternatePage(page).locale}
+            aria-label={page.locale === 'en' ? 'Switch to Chinese' : '切换到英文'}
+            className="site-language"
+            onClick={() => rememberSiteLocale(alternatePage(page).locale)}
+          >
+            {page.locale === 'en' ? '中文' : 'EN'}
+          </a>
+          <Button onClick={start}>
+            {text.start}
+            <Icon name="arrowRight" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="site-menu-btn"
+            aria-expanded={menuOpen}
+            aria-controls="site-mobile-menu"
+            aria-label={
+              menuOpen
+                ? page.locale === 'en'
+                  ? 'Close navigation menu'
+                  : '关闭导航菜单'
+                : page.locale === 'en'
+                  ? 'Open navigation menu'
+                  : '打开导航菜单'
+            }
+            onClick={() => setMenuOpen((prev) => !prev)}
+          >
+            <Icon name={menuOpen ? 'close' : 'list'} />
+          </Button>
+        </div>
+      </nav>
+      {menuOpen ? (
+        <div id="site-mobile-menu" className="site-mobile-menu">
+          <a href="/explore" onClick={() => setMenuOpen(false)}>
+            {text.explore}
+          </a>
+          <a href="/pricing" onClick={() => setMenuOpen(false)}>
+            {text.pricing}
+          </a>
+          <a href={editions[page.locale].root} onClick={() => setMenuOpen(false)}>
+            {text.guide}
+          </a>
+        </div>
+      ) : null}
+    </>
   )
   return (
     <div className="marketing-site" data-locale={page.locale}>
@@ -115,14 +168,7 @@ export function Site({ page }: { page: SitePage }) {
           ) : null}
         </>
       )}
-      {page.kind === 'login' && !mounted ? (
-        <main className="site-login-pending">
-          <Brand locale={page.locale} />
-          <h1>{text.loginTitle}</h1>
-          <p>{text.loading}</p>
-          <a href="/image">{text.start} →</a>
-        </main>
-      ) : null}
+      {page.kind === 'login' && !mounted ? loginPending : null}
       {mounted && (page.kind === 'home' || page.kind === 'login' || login) ? (
         <AuthBoundary
           locale={page.locale}
@@ -134,7 +180,9 @@ export function Site({ page }: { page: SitePage }) {
         >
           <Suspense
             fallback={
-              login || page.kind === 'login' ? (
+              page.kind === 'login' ? (
+                loginPending
+              ) : login ? (
                 <p className="site-connect" role="status">
                   {text.loading}
                 </p>

@@ -45,8 +45,11 @@
 .mkt-links { display: flex; gap: 26px; font-size: 14px; color: var(--mkt-muted); }
 .mkt-links a:hover, .mkt-nav-end a:hover { color: var(--mkt-ink); }
 .mkt-nav-end { margin-left: auto; display: flex; align-items: center; flex: none; gap: 22px; font-size: 14px; color: var(--mkt-muted); white-space: nowrap; }
-/* 窄屏收起中间导航后，右侧还留着一个「定价」。 */
+/* 窄屏收起中间导航后，右侧还留着一个「定价」和移动端菜单按钮。 */
 .mkt-nav-pricing { display: none; }
+.mkt-menu-btn { display: none; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
+.mkt-menu-btn svg { width: 18px; height: 18px; }
+.mkt-mobile-menu { display: none; }
 .mkt-theme { display: inline-flex; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; }
 .mkt-theme:hover { color: var(--mkt-ink); }
 .mkt-theme svg { width: 16px; height: 16px; }
@@ -217,8 +220,20 @@
   .mkt-wrap { padding: 0 20px; }
   .mkt-nav { height: 56px; gap: 12px; }
   .mkt-links { display: none; }
-  .mkt-nav-end { gap: 18px; }
+  .mkt-nav-end { gap: 16px; }
   .mkt-nav-pricing { display: inline; }
+  .mkt-menu-btn { display: inline-flex; align-items: center; justify-content: center; }
+  .mkt-mobile-menu {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--mkt-line);
+    font-size: 14px;
+    color: var(--mkt-muted);
+  }
+  .mkt-mobile-menu a { padding: 8px 4px; border-radius: 6px; }
+  .mkt-mobile-menu a:hover { color: var(--mkt-ink); background: var(--mkt-soft); }
   /* 可见文字不变。伪元素把定价、语言、登录的命中区补到至少 44×44，居中伸出，不占布局。 */
   .mkt-nav-end > a,
   .mkt-nav-end > button { position: relative; }

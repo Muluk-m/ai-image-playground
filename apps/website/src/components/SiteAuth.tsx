@@ -105,14 +105,16 @@ export default function SiteAuth({
   if (status !== 'ready')
     return (
       <Overlay onClose={close} label={text.loginTitle}>
-        <div className="site-auth-status" role="status">
+        <div className="site-auth-status" role={status === 'error' ? 'alert' : 'status'}>
           <p>{status === 'error' ? text.unavailable : text.loading}</p>
-          {status === 'error' ? (
-            <Button onClick={() => setAttempt((a) => a + 1)}>{text.retry}</Button>
-          ) : null}
-          <Button variant="ghost" onClick={close}>
-            {text.close}
-          </Button>
+          <div className="flex items-center gap-2">
+            {status === 'error' ? (
+              <Button onClick={() => setAttempt((a) => a + 1)}>{text.retry}</Button>
+            ) : null}
+            <Button variant="ghost" onClick={close}>
+              {text.close}
+            </Button>
+          </div>
         </div>
       </Overlay>
     )

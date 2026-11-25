@@ -26,6 +26,46 @@ export class UnauthorizedError extends ApiError {
   }
 }
 
+export function formatAdminError(error: unknown): string {
+  if (error instanceof UnauthorizedError) {
+    return '登录已过期，请重新登录'
+  }
+  if (error instanceof ApiError) {
+    const body =
+      error.body && typeof error.body === 'object'
+        ? (error.body as { message?: unknown; error?: unknown })
+        : null
+    if (
+      typeof body?.message === 'string' &&
+      body.message.trim() &&
+      !/^HTTP \d+/i.test(body.message.trim())
+    ) {
+      return body.message.trim()
+    }
+    if (error.status === 401) return '登录已过期，请重新登录'
+    if (error.status === 403) return '当前账号没有执行该操作的权限'
+    if (error.status === 404) return '请求的记录不存在或已被删除'
+    if (error.status === 409) return '数据状态已发生变化，请刷新后重试'
+    if (error.status === 429) return '请求过于频繁，请稍后再试'
+    if (error.status >= 500) return '服务暂时不可用，请稍后重试'
+    return '请求未能完成，请检查输入后重试'
+  }
+  if (error instanceof Error) {
+    const msg = error.message.trim()
+    if (
+      !msg ||
+      /failed to fetch|networkerror|load failed|fetch failed|aborted|timeout/i.test(msg)
+    ) {
+      return '网络连接失败，请检查网络后重试'
+    }
+    if (/^HTTP \d+/i.test(msg)) {
+      return '服务暂时不可用，请稍后重试'
+    }
+    return msg
+  }
+  return '操作未能完成，请稍后重试'
+}
+
 // router / queryClient 由 main.tsx 启动后注入，避免 api-client.ts ↔ main.tsx
 // 循环依赖（main.tsx 也 import api-client 的话）。
 let _router: AnyRouter | null = null

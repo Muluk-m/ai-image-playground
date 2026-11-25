@@ -99,7 +99,7 @@
     "remove": "移除",
     "fellBack": "已回退 {{format}}",
     "canvasLimit": "输出 {{width}}×{{height}} 超出浏览器画布上限",
-    "undecodable": "这个浏览器解不开",
+    "undecodable": "当前浏览器暂不支持打开此图片格式",
     "failed": "处理失败",
     "note": {
       "upscaled": "已放大",
@@ -148,7 +148,7 @@
     "zipHint": "多个文件会打包成 ZIP 下载",
     "jpegHint": "JPG 不支持透明，透明区域会填充为白色",
     "videoHint": "视频按原文件导出，尺寸和格式只对图片生效",
-    "undecodable": "无法解码此格式",
+    "undecodable": "当前浏览器暂不支持打开此图片格式",
     "select": "选择",
     "downloadOriginal": "下载原图",
     "export": "导出",

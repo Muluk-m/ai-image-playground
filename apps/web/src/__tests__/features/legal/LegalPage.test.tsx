@@ -65,6 +65,8 @@ describe('LegalPage contact', () => {
     expect(dialog?.querySelector(`a[href="${SUPPORT_MAILTO}"]`)).not.toBeNull()
     expect(dialog?.querySelector('a[href*="x.com"]')).toBeNull()
     expect(dialog?.textContent).not.toContain('运营')
+    expect(dialog?.textContent).toContain('复制邮箱')
+    expect(document.body.textContent).not.toContain('自备密钥')
   })
 
   it('offers the same contact entry on the privacy policy', () => {

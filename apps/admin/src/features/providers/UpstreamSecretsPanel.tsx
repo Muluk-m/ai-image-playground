@@ -1,4 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query'
+import { Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { ErrorState, PendingState } from '@/components/Page'
 import { Badge } from '@/components/ui/badge'
@@ -65,7 +66,15 @@ function failureMessage(cause: unknown): string {
 export function UpstreamSecretsPanel() {
   const query = useUpstreamSecrets()
   if (query.isPending) return <PendingState label="加载上游密钥" />
-  if (query.isError) return <ErrorState label="加载上游密钥失败" error={query.error} />
+  if (query.isError)
+    return (
+      <ErrorState
+        label="加载上游密钥失败"
+        error={query.error}
+        retrying={query.isFetching}
+        onRetry={() => void query.refetch()}
+      />
+    )
   return <UpstreamSecretList data={query.data} />
 }
 
@@ -148,7 +157,6 @@ function SecretCard({ secret, writable }: { secret: UpstreamSecretView; writable
 
   async function clear() {
     if (secret.source !== 'admin' || pending) return
-    setConfirmClear(false)
     setPending('clear')
     setError(null)
     setNotice(null)
@@ -156,6 +164,7 @@ function SecretCard({ secret, writable }: { secret: UpstreamSecretView; writable
     await enqueueWrite(async () => {
       try {
         apply(await clearUpstreamSecret(secret.id), '已清除后台密钥')
+        setConfirmClear(false)
       } catch (cause) {
         setError(failureMessage(cause))
       } finally {
@@ -293,8 +302,23 @@ function SecretCard({ secret, writable }: { secret: UpstreamSecretView; writable
         ) : null}
         {error ? <p className="text-xs text-danger">{error}</p> : null}
       </form>
-      <Dialog open={confirmClear} onOpenChange={setConfirmClear}>
-        <DialogContent className="sm:max-w-md">
+      <Dialog
+        open={confirmClear}
+        onOpenChange={(next) => {
+          if (!next && pending === 'clear') return
+          setConfirmClear(next)
+          if (!next) setError(null)
+        }}
+      >
+        <DialogContent
+          className="sm:max-w-md"
+          onEscapeKeyDown={(event) => {
+            if (pending === 'clear') event.preventDefault()
+          }}
+          onPointerDownOutside={(event) => {
+            if (pending === 'clear') event.preventDefault()
+          }}
+        >
           <DialogHeader>
             <DialogTitle>清除 {secret.label} 后台密钥？</DialogTitle>
           </DialogHeader>
@@ -309,6 +333,11 @@ function SecretCard({ secret, writable }: { secret: UpstreamSecretView; writable
               '回退到服务器环境变量配置（若未配置环境变量则该通道将不可用）。'
             )}
           </p>
+          {error ? (
+            <p role="alert" className="text-xs text-danger">
+              {error}
+            </p>
+          ) : null}
           <DialogFooter>
             <Button
               variant="outline"
@@ -317,8 +346,16 @@ function SecretCard({ secret, writable }: { secret: UpstreamSecretView; writable
             >
               取消
             </Button>
-            <Button variant="destructive" onClick={() => void clear()} disabled={pending !== null}>
-              确认清除
+            <Button
+              variant="destructive"
+              onClick={() => void clear()}
+              disabled={pending !== null}
+              aria-busy={pending === 'clear'}
+            >
+              {pending === 'clear' ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+              ) : null}
+              {pending === 'clear' ? '清除中…' : '确认清除'}
             </Button>
           </DialogFooter>
         </DialogContent>

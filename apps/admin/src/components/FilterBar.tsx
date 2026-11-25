@@ -27,7 +27,9 @@ export interface FilterChip {
 export interface FilterDefinition {
   key: string
   label: string
-  kind: 'single' | 'multi' | 'number' | 'text'
+  kind: 'single' | 'multi' | 'number' | 'text' | 'datetime'
+  /** For `kind: 'datetime'`, whether to treat the selected minute as end-of-minute (`:59.999`). */
+  endOfMinute?: boolean
   options?: ReadonlyArray<{ value: string; label: string }>
   placeholder?: string
 }
@@ -131,6 +133,18 @@ export function FilterBar({
           <Input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (
+                event.key === 'Escape' &&
+                !event.nativeEvent.isComposing &&
+                event.keyCode !== 229 &&
+                draft
+              ) {
+                event.preventDefault()
+                setDraft('')
+                if (search) onSearch('')
+              }
+            }}
             placeholder={searchPlaceholder}
             aria-label={searchPlaceholder}
             className="h-8 pl-8 pr-7 text-xs"
@@ -249,8 +263,16 @@ function AddFilter({
   const [open, setOpen] = useState(false)
   const [key, setKey] = useState(definitions[0]?.key ?? '')
   const definition = definitions.find((item) => item.key === key) ?? definitions[0]
-  const [draft, setDraft] = useState(values[key] ?? '')
-  useEffect(() => setDraft(values[key] ?? ''), [key, values])
+  const toDraftValue = (def: FilterDefinition | undefined, raw: string | undefined) => {
+    if (!raw) return ''
+    if (def?.kind === 'datetime') {
+      const ts = Number(raw)
+      return Number.isFinite(ts) ? beijingInput(ts) : ''
+    }
+    return raw
+  }
+  const [draft, setDraft] = useState(() => toDraftValue(definition, values[key]))
+  useEffect(() => setDraft(toDraftValue(definition, values[key])), [definition, key, values])
   if (!definition) return null
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -278,6 +300,13 @@ function AddFilter({
           onSubmit={(event) => {
             event.preventDefault()
             if (!draft.trim()) return
+            if (definition.kind === 'datetime') {
+              const ts = parseBeijingInput(draft.trim(), definition.endOfMinute)
+              if (!Number.isFinite(ts)) return
+              onChange(definition.key, String(ts))
+              setOpen(false)
+              return
+            }
             const current = values[definition.key]
             const next =
               definition.kind === 'multi' && current
@@ -290,7 +319,14 @@ function AddFilter({
             setOpen(false)
           }}
         >
-          {definition.kind === 'single' || definition.kind === 'multi' ? (
+          {definition.kind === 'datetime' ? (
+            <DateTimePicker
+              aria-label={definition.label}
+              placeholder={definition.placeholder ?? `选择${definition.label}`}
+              value={draft}
+              onChange={setDraft}
+            />
+          ) : definition.kind === 'single' || definition.kind === 'multi' ? (
             definition.options ? (
               <Select value={draft || undefined} onValueChange={setDraft}>
                 <SelectTrigger aria-label={definition.label} className="h-8 text-xs">

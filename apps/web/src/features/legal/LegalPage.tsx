@@ -2,6 +2,7 @@ import { SUPPORT_CONTACT, SUPPORT_MAILTO } from '@image-playground/shared'
 import { type ReactNode, useEffect, useState } from 'react'
 import Dialog from '../../components/patterns/Dialog'
 import { Button } from '../../components/ui/button'
+import { Icon } from '../../components/ui/icon'
 import { i18next, setDocumentTitleOverride, useTranslation } from '../../i18n'
 import { useLocalePicker } from '../../i18n/useLocalePicker'
 import { isPrivacyPath } from '../../lib/appPaths'
@@ -34,15 +35,15 @@ export default function LegalPage() {
   return (
     <main className="min-h-svh bg-background text-foreground">
       <header className="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-3xl items-center gap-4 px-5">
+        <div className="mx-auto flex min-h-14 max-w-3xl flex-wrap items-center gap-x-4 gap-y-2 px-5 py-2">
           <a
             href={locale === 'en' ? '/en/' : '/'}
-            className="flex items-center gap-2 font-semibold"
+            className="flex shrink-0 items-center gap-2 font-semibold"
           >
             <img src="/brand/muvloom-mark.svg" alt="" width={24} height={24} />
             {t('brand')}
           </a>
-          <nav className="ml-auto flex items-center gap-3 text-sm text-muted-foreground">
+          <nav className="ml-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
             <a
               href="/terms"
               aria-current={privacy ? undefined : 'page'}
@@ -144,12 +145,32 @@ function ContactSection({ onOpen }: { onOpen: () => void }) {
 
 function ContactDialog({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation('legal')
+  const [copied, setCopied] = useState(false)
+  useEffect(() => {
+    if (!copied) return
+    const timer = window.setTimeout(() => setCopied(false), 2000)
+    return () => window.clearTimeout(timer)
+  }, [copied])
+
+  async function copyEmail() {
+    try {
+      await navigator.clipboard?.writeText(SUPPORT_CONTACT.email)
+      setCopied(true)
+    } catch {
+      // Clipboard API unavailable; mailto link remains selectable.
+    }
+  }
+
   return (
     <Dialog title={t('sections.contact.dialogTitle')} onClose={onClose}>
-      <div className="flex flex-col items-start gap-3 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
         <a href={SUPPORT_MAILTO} className={textLinkClass}>
           {SUPPORT_CONTACT.email}
         </a>
+        <Button type="button" size="xs" variant="outline" onClick={() => void copyEmail()}>
+          <Icon name={copied ? 'check' : 'copy'} size="xs" />
+          {copied ? t('sections.contact.copied') : t('sections.contact.copy')}
+        </Button>
       </div>
     </Dialog>
   )

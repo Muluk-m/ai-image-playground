@@ -6,4 +6,4 @@
  * `@/` 别名一起拖进来，overlay 的 bun 测试只要 apiClient 时不该为此付出解析 `@/lib/utils` 的代价。
  */
 
-export { ApiError, apiClient } from './api-client'
+export { ApiError, apiClient, formatAdminError } from './api-client'

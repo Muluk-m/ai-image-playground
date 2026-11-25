@@ -11,7 +11,7 @@ import type {
 } from '@image-playground/shared'
 import { MAX_CREDIT_BALANCE } from '@image-playground/shared'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Loader2 } from 'lucide-react'
+import { Loader2, RefreshCw } from 'lucide-react'
 import { type ReactNode, type Ref, useEffect, useId, useRef, useState } from 'react'
 import { useForm, useWatch } from 'react-hook-form'
 import { z } from 'zod'
@@ -23,6 +23,12 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
   Form,
   FormControl,
   FormDescription,
@@ -270,16 +276,21 @@ function ledgerLabel(entry: LedgerEntry): string {
 function RechargeForm({
   balance,
   pending,
+  resetEpoch,
   onSubmit,
 }: {
   balance: number
   pending: boolean
+  resetEpoch: number
   onSubmit: (input: BillingAction) => void
 }) {
   const form = useForm<RechargeValues>({
     resolver: zodResolver(rechargeSchema),
     defaultValues: { amount: '', reason: '', funding: 'free', paidAmount: '' },
   })
+  useEffect(() => {
+    if (resetEpoch > 0) form.reset({ amount: '', reason: '', funding: 'free', paidAmount: '' })
+  }, [form, resetEpoch])
   const deducting = Number(useWatch({ control: form.control, name: 'amount' })) < 0
   const funding = useWatch({ control: form.control, name: 'funding' })
   return (
@@ -367,17 +378,22 @@ function SubscriptionCreditsForm({
   balance,
   expiresAt,
   pending,
+  resetEpoch,
   onSubmit,
 }: {
   balance: number
   expiresAt: number | null
   pending: boolean
+  resetEpoch: number
   onSubmit: (input: BillingAction) => void
 }) {
   const form = useForm<SubscriptionCreditsValues>({
     resolver: zodResolver(subscriptionCreditsSchema),
     defaultValues: { amount: '', reason: '' },
   })
+  useEffect(() => {
+    if (resetEpoch > 0) form.reset({ amount: '', reason: '' })
+  }, [form, resetEpoch])
   const deducting = Number(useWatch({ control: form.control, name: 'amount' })) < 0
   return (
     <Card className="min-w-0">
@@ -450,12 +466,14 @@ function SubscriptionForm({
   plans,
   currentPlanId,
   pending,
+  resetEpoch,
   onEdit,
   onSubmit,
 }: {
   plans: Plan[]
   currentPlanId: string | null
   pending: boolean
+  resetEpoch: number
   onEdit: () => void
   onSubmit: (input: BillingAction) => void
 }) {
@@ -471,6 +489,18 @@ function SubscriptionForm({
       paidAmount: '',
     },
   })
+  useEffect(() => {
+    if (resetEpoch > 0) {
+      form.reset({
+        planId: defaultPlanId,
+        period: '1',
+        startsAt: toLocalInput(Date.now()),
+        reason: '',
+        funding: 'free',
+        paidAmount: '',
+      })
+    }
+  }, [defaultPlanId, form, resetEpoch])
   useEffect(() => {
     if (form.getValues('planId') === '' && defaultPlanId !== '')
       form.setValue('planId', defaultPlanId)
@@ -645,10 +675,12 @@ function SubscriptionForm({
 function ExpiryForm({
   subscription,
   pending,
+  resetEpoch,
   onSubmit,
 }: {
   subscription: AccountSnapshot['subscription']
   pending: boolean
+  resetEpoch: number
   onSubmit: (input: BillingAction) => void
 }) {
   const form = useForm<ExpiryValues>({
@@ -658,6 +690,11 @@ function ExpiryForm({
   useEffect(() => {
     form.setValue('endsAt', subscription ? toLocalInput(subscription.ends_at) : '')
   }, [form, subscription?.id, subscription?.ends_at])
+  useEffect(() => {
+    if (resetEpoch > 0) {
+      form.reset({ endsAt: subscription ? toLocalInput(subscription.ends_at) : '', reason: '' })
+    }
+  }, [form, resetEpoch, subscription])
   return (
     <Card className="min-w-0">
       <CardHeader className="pb-4">
@@ -726,6 +763,138 @@ function ExpiryForm({
   )
 }
 
+function BillingActionConfirmDialog({
+  action,
+  username,
+  plans,
+  pending,
+  error,
+  onOpenChange,
+  onConfirm,
+}: {
+  action: BillingAction | null
+  username: string
+  plans: Plan[]
+  pending: boolean
+  error: unknown
+  onOpenChange: (open: boolean) => void
+  onConfirm: () => void
+}) {
+  const summary = action ? describeBillingAction(action, plans) : null
+  return (
+    <Dialog open={action !== null} onOpenChange={onOpenChange}>
+      <DialogContent
+        onEscapeKeyDown={(event) => {
+          if (pending) event.preventDefault()
+        }}
+        onPointerDownOutside={(event) => {
+          if (pending) event.preventDefault()
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>{summary?.title ?? '确认账务操作'}</DialogTitle>
+          <DialogDescription>
+            操作将立即生效并写入审计日志，请核对以下信息后确认执行。
+          </DialogDescription>
+        </DialogHeader>
+        {summary && action ? (
+          <dl className="space-y-2 rounded-lg border bg-muted/30 p-3 text-xs">
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className="text-muted-foreground">目标用户</dt>
+              <dd className="font-medium text-foreground">{username}</dd>
+            </div>
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className="text-muted-foreground">变更内容</dt>
+              <dd className="font-mono font-medium text-foreground">{summary.detail}</dd>
+            </div>
+            {summary.extra ? (
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="text-muted-foreground">补充信息</dt>
+                <dd className="text-foreground">{summary.extra}</dd>
+              </div>
+            ) : null}
+            <div className="flex items-baseline justify-between gap-3">
+              <dt className="text-muted-foreground">操作原因</dt>
+              <dd className="max-w-[260px] break-words text-right text-foreground">
+                {action.reason}
+              </dd>
+            </div>
+          </dl>
+        ) : null}
+        <ErrorText error={error} />
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={pending}
+            onClick={() => onOpenChange(false)}
+          >
+            取消
+          </Button>
+          <Button
+            type="button"
+            variant={summary?.destructive ? 'destructive' : 'default'}
+            disabled={pending || !action}
+            aria-busy={pending}
+            onClick={onConfirm}
+          >
+            {pending ? <Loader2 className="size-3.5 animate-spin" aria-hidden="true" /> : null}
+            {pending ? '提交中…' : (summary?.confirmLabel ?? '确认执行')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function describeBillingAction(
+  action: BillingAction,
+  plans: Plan[],
+): { title: string; detail: string; extra?: string; confirmLabel: string; destructive: boolean } {
+  if (action.kind === 'recharge') {
+    const deduct = action.amount < 0
+    return {
+      title: deduct ? '确认扣减充值积分' : '确认补发 / 入账充值积分',
+      detail: `${action.amount > 0 ? '+' : ''}${credits(action.amount)} 积分`,
+      extra:
+        action.paidAmountCents !== null
+          ? `记录实收 ${money(action.paidAmountCents)}`
+          : '免费补偿 / 调整（不计入实付）',
+      confirmLabel: deduct ? '确认扣减' : '确认入账',
+      destructive: deduct,
+    }
+  }
+  if (action.kind === 'subscription-credits') {
+    const deduct = action.amount < 0
+    return {
+      title: deduct ? '确认扣减套餐积分' : '确认补发套餐积分',
+      detail: `${action.amount > 0 ? '+' : ''}${credits(action.amount)} 套餐积分`,
+      confirmLabel: deduct ? '确认扣减' : '确认补发',
+      destructive: deduct,
+    }
+  }
+  if (action.kind === 'subscription') {
+    const planName = plans.find((plan) => plan.id === action.planId)?.name ?? action.planId
+    return {
+      title: '确认开通 / 续期套餐',
+      detail: `${planName} · ${action.periodMonths} 个月`,
+      extra: `${dateTime(action.startsAt)} 起 · ${
+        action.paidAmountCents !== null
+          ? `实收 ${money(action.paidAmountCents)}`
+          : '免费赠送（不计入实付）'
+      }`,
+      confirmLabel: '确认开通',
+      destructive: false,
+    }
+  }
+  return {
+    title: '确认调整套餐截止时间',
+    detail: `新截止时间：${dateTime(action.endsAt)}`,
+    confirmLabel: '确认修改',
+    destructive: false,
+  }
+}
+
 function UserDetailPanel({
   userId,
   username,
@@ -739,6 +908,13 @@ function UserDetailPanel({
 }) {
   const [tab, setTab] = useState('tasks')
   const [billingTarget, setBillingTarget] = useState<'credits' | 'subscription' | null>(null)
+  const [confirmAction, setConfirmAction] = useState<BillingAction | null>(null)
+  const [resetEpochs, setResetEpochs] = useState<Record<BillingAction['kind'], number>>({
+    recharge: 0,
+    'subscription-credits': 0,
+    subscription: 0,
+    expiry: 0,
+  })
   const creditForm = useRef<HTMLDivElement>(null)
   const subscriptionForm = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -868,7 +1044,12 @@ function UserDetailPanel({
       }
       return payment?.operation_id ?? null
     },
-    onSuccess: async (paymentId) => {
+    onSuccess: async (paymentId, variables) => {
+      setConfirmAction(null)
+      setResetEpochs((prev) => ({
+        ...prev,
+        [variables.input.kind]: prev[variables.input.kind] + 1,
+      }))
       if (paymentId && readPendingPayment(paymentStorageKey)?.id === paymentId) {
         localStorage.removeItem(paymentStorageKey)
         setPaymentRecovery({ key: paymentStorageKey, payment: null, error: null })
@@ -902,7 +1083,22 @@ function UserDetailPanel({
           {accountQuery.isPending ? (
             <p className="text-sm text-muted-foreground">正在读取 {username} 的积分账户…</p>
           ) : accountQuery.isError || !data ? (
-            <p className="text-sm text-destructive">积分账户读取失败</p>
+            <div className="flex items-center justify-between gap-2 text-sm text-destructive">
+              <span>积分账户读取失败</span>
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                disabled={accountQuery.isFetching}
+                onClick={() => void accountQuery.refetch()}
+              >
+                <RefreshCw
+                  className={accountQuery.isFetching ? 'size-3 animate-spin' : 'size-3'}
+                  aria-hidden="true"
+                />
+                重试
+              </Button>
+            </div>
           ) : (
             <AccountFacts data={data} plans={catalogQuery.data?.plans ?? []} />
           )}
@@ -922,7 +1118,22 @@ function UserDetailPanel({
           {chatUsageQuery.isPending ? (
             <p className="text-sm text-muted-foreground">正在读取对话消耗…</p>
           ) : chatUsageQuery.isError || !chatUsageQuery.data ? (
-            <p className="text-sm text-destructive">对话消耗读取失败</p>
+            <div className="flex items-center justify-between gap-2 text-sm text-destructive">
+              <span>对话消耗读取失败</span>
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                disabled={chatUsageQuery.isFetching}
+                onClick={() => void chatUsageQuery.refetch()}
+              >
+                <RefreshCw
+                  className={chatUsageQuery.isFetching ? 'size-3 animate-spin' : 'size-3'}
+                  aria-hidden="true"
+                />
+                重试
+              </Button>
+            </div>
           ) : (
             <ChatUsageFacts usage={chatUsageQuery.data} />
           )}
@@ -1016,14 +1227,22 @@ function UserDetailPanel({
                   <RechargeForm
                     balance={data.account.recharge_balance}
                     pending={mutation.isPending}
-                    onSubmit={(input) => mutation.mutate({ input })}
+                    resetEpoch={resetEpochs.recharge}
+                    onSubmit={(input) => {
+                      resetMutation()
+                      setConfirmAction(input)
+                    }}
                   />
                 </div>
                 <SubscriptionCreditsForm
                   balance={data.account.subscription_balance}
                   expiresAt={data.account.subscription_expires_at}
                   pending={mutation.isPending}
-                  onSubmit={(input) => mutation.mutate({ input })}
+                  resetEpoch={resetEpochs['subscription-credits']}
+                  onSubmit={(input) => {
+                    resetMutation()
+                    setConfirmAction(input)
+                  }}
                 />
                 <div
                   ref={subscriptionForm}
@@ -1034,16 +1253,41 @@ function UserDetailPanel({
                     plans={plans}
                     currentPlanId={data.subscription?.plan_id ?? null}
                     pending={mutation.isPending}
+                    resetEpoch={resetEpochs.subscription}
                     onEdit={resetMutation}
-                    onSubmit={(input) => mutation.mutate({ input })}
+                    onSubmit={(input) => {
+                      resetMutation()
+                      setConfirmAction(input)
+                    }}
                   />
                 </div>
                 <ExpiryForm
                   subscription={data.subscription}
                   pending={mutation.isPending}
-                  onSubmit={(input) => mutation.mutate({ input })}
+                  resetEpoch={resetEpochs.expiry}
+                  onSubmit={(input) => {
+                    resetMutation()
+                    setConfirmAction(input)
+                  }}
                 />
               </div>
+              <BillingActionConfirmDialog
+                action={confirmAction}
+                username={username}
+                plans={plans}
+                pending={mutation.isPending}
+                error={confirmAction ? mutation.error : null}
+                onOpenChange={(open) => {
+                  if (!open && !mutation.isPending) {
+                    setConfirmAction(null)
+                    resetMutation()
+                  }
+                }}
+                onConfirm={() => {
+                  if (!confirmAction) return
+                  mutation.mutate({ input: confirmAction })
+                }}
+              />
               <div className="mt-3 min-h-5" aria-live="polite">
                 {mutation.isPending ? (
                   <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">

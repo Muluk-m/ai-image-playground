@@ -353,7 +353,7 @@ export function Guide({ page }: { page: SitePage }) {
                 setQuery('')
               }
             }}
-            className="pr-8"
+            className="pr-8 [&::-webkit-search-cancel-button]:appearance-none"
           />
           {query ? (
             <Button

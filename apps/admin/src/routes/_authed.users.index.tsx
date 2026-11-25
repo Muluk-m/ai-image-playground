@@ -110,6 +110,18 @@ function UsersPage() {
   )
 }
 
+function formatBeijingDateTime(at: number): string {
+  return new Date(at).toLocaleString('zh-CN', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  })
+}
+
 function UsersContent({
   query,
   billingEnabled,
@@ -132,7 +144,7 @@ function UsersContent({
     chips.push({
       key: 'registered',
       label: '注册时间',
-      value: `${search.registeredFrom ?? '…'} – ${search.registeredTo ?? '…'}`,
+      value: `${search.registeredFrom ? formatBeijingDateTime(search.registeredFrom) : '不限'} – ${search.registeredTo ? formatBeijingDateTime(search.registeredTo) : '不限'}`,
     })
   function update(patch: Partial<ReturnType<typeof Route.useSearch>>) {
     void navigate({
@@ -204,8 +216,19 @@ function UsersContent({
               { value: 'disabled', label: '已停用' },
             ],
           },
-          { key: 'registeredFrom', label: '注册起点（毫秒）', kind: 'number' },
-          { key: 'registeredTo', label: '注册终点（毫秒）', kind: 'number' },
+          {
+            key: 'registeredFrom',
+            label: '注册起点',
+            kind: 'datetime',
+            placeholder: '选择注册起点',
+          },
+          {
+            key: 'registeredTo',
+            label: '注册终点',
+            kind: 'datetime',
+            endOfMinute: true,
+            placeholder: '选择注册终点',
+          },
         ]}
         values={{
           status: search.status ?? '',
@@ -223,7 +246,12 @@ function UsersContent({
         onClear={() => void navigate({ search: {}, replace: true })}
       />
       {query.isError ? (
-        <ErrorState label="加载用户失败" error={query.error} />
+        <ErrorState
+          label="加载用户失败"
+          error={query.error}
+          retrying={query.isFetching}
+          onRetry={() => void query.refetch()}
+        />
       ) : !data ? (
         <PendingState label="加载用户" />
       ) : (

@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { DangerConfirmDialog } from '@/components/DangerConfirmDialog'
@@ -82,8 +82,21 @@ export function UserFormDialog({ mode, user, open, onOpenChange }: UserFormDialo
       : '保存后该用户的所有现有登录会话会立即失效。'
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && mutation.isPending) return
+        onOpenChange(next)
+      }}
+    >
+      <DialogContent
+        onEscapeKeyDown={(event) => {
+          if (mutation.isPending) event.preventDefault()
+        }}
+        onPointerDownOutside={(event) => {
+          if (mutation.isPending) event.preventDefault()
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
@@ -172,12 +185,16 @@ export function UserFormDialog({ mode, user, open, onOpenChange }: UserFormDialo
             </Button>
             <Button
               type="submit"
+              aria-busy={mutation.isPending}
               disabled={
                 mutation.isPending ||
                 password.length < 8 ||
                 (mode === 'create' && username.trim().length < 3)
               }
             >
+              {mutation.isPending ? (
+                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
+              ) : null}
               {mutation.isPending ? '保存中…' : mode === 'create' ? '创建用户' : '保存新密码'}
             </Button>
           </DialogFooter>
