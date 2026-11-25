@@ -88,6 +88,12 @@ func makeRemoteFixtureServer(
 				Files:         cliFiles,
 			},
 		},
+		DirPackage: &RemoteManifestBundle{
+			Archive:       "muvloom-cli-skill.zip",
+			ArchiveSHA256: hex.EncodeToString(cliZipSum[:]),
+			FileHash:      cliHash,
+			Files:         cliFiles,
+		},
 	}
 	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {
@@ -178,7 +184,7 @@ func TestMaybeAutoUpdateHotUpdatesInPlaceThrottlesAndPreservesEditedCopies(t *te
 			".muvloom-skill.json":     []byte(`{"skill":"muvloom","version":"ignored"}`),
 		},
 		map[string][]byte{
-			"SKILL.md":          []byte("---\nname: muvloom\ndescription: Hot updated CLI\n---\n# New CLI\n"),
+			"SKILL.md":           []byte("---\nname: muvloom\ndescription: Hot updated CLI\n---\n# New CLI\n"),
 			"agents/openai.yaml": []byte("name: muvloom\n"),
 		},
 		&manifestHits,
@@ -412,6 +418,66 @@ func TestMaybeAutoUpdateSkipsNetworkWhenNoSkillsInstalled(t *testing.T) {
 	}
 }
 
+func TestRemoteUpdateHotUpdatesADirInstallInItsRegisteredDirectory(t *testing.T) {
+	t.Setenv("MUVLOOM_CONFIG_DIR", t.TempDir())
+	home, cwd, parent := t.TempDir(), t.TempDir(), t.TempDir()
+	res, err := Install(InstallOptions{Dir: parent, Home: home, CWD: cwd})
+	if err != nil || res.Host != customHost {
+		t.Fatalf("--dir install = %+v, %v", res, err)
+	}
+	srv := makeRemoteFixtureServer(t, SkillVersion+".1",
+		map[string][]byte{"SKILL.md": []byte("# workbuddy\n")},
+		map[string][]byte{"SKILL.md": []byte("# hot updated\n")}, nil, nil)
+	defer srv.Close()
+	opts := RemoteUpdateOptions{Home: home, CWD: cwd, StateDir: t.TempDir(), BaseURL: srv.URL, HTTP: srv.Client()}
+
+	check, err := CheckOrUpdateRemote(context.Background(), opts, true)
+	if err != nil || check.Status != "update_available" {
+		t.Fatalf("check = %+v, %v", check, err)
+	}
+	got, err := CheckOrUpdateRemote(context.Background(), opts, false)
+	if err != nil || got.Status != "updated" || len(got.Updated) != 1 || got.Updated[0].Path != res.Path || got.Updated[0].Host != customHost {
+		t.Fatalf("update = %+v, %v", got, err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(res.Path, "SKILL.md")); string(data) != "# hot updated\n" {
+		t.Fatalf("SKILL.md = %q", data)
+	}
+	installed, _ := Installed(home, cwd)
+	if len(installed) != 1 || installed[0].Host != customHost || installed[0].Version != SkillVersion+".1" || !installed[0].Intact {
+		t.Fatalf("status after hot update = %+v", installed)
+	}
+}
+
+func TestRemoteManifestTakesDirCopiesFromDirPackageOnly(t *testing.T) {
+	srv := makeRemoteFixtureServer(t, SkillVersion+".1",
+		map[string][]byte{"SKILL.md": []byte("# w\n")}, map[string][]byte{"SKILL.md": []byte("# c\n")}, nil, nil)
+	defer srv.Close()
+	manifest, err := fetchManifest(context.Background(), safeHTTPClient(srv.Client()), srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pkg, ok := manifest.Packages[customHost]; !ok || pkg.Archive != "muvloom-cli-skill.zip" {
+		t.Fatalf("dir package = %+v, %v", pkg, ok)
+	}
+}
+
+func TestRemoteUpdateRefusesADirCopyThatIsNoLongerRegistered(t *testing.T) {
+	t.Setenv("MUVLOOM_CONFIG_DIR", t.TempDir())
+	home, cwd := t.TempDir(), t.TempDir()
+	res, err := Install(InstallOptions{Dir: t.TempDir(), Home: home, CWD: cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := Installation{Path: res.Path, foundHost: customHost, foundScope: customScope}
+	if _, _, err := remoteSkillRootAndDest(item, home, cwd); err != nil {
+		t.Fatalf("registered copy: %v", err)
+	}
+	item.Path = filepath.Join(t.TempDir(), "muvloom")
+	if _, _, err := remoteSkillRootAndDest(item, home, cwd); err == nil {
+		t.Fatal("an unregistered directory must not be written")
+	}
+}
+
 func TestRemoteUpdateCheckOnlyIsStrictlyReadOnly(t *testing.T) {
 	home, cwd := t.TempDir(), t.TempDir()
 	if _, err := Install(InstallOptions{Host: "workbuddy", Scope: "user", Home: home}); err != nil {
@@ -564,8 +630,8 @@ func TestRemoteUpdateHandlesDirectoryCaseRenameAndFileDirTransitions(t *testing.
 		t,
 		v1,
 		map[string][]byte{
-			"SKILL.md":              []byte("# v1\n"),
-			"References/topic.md":   []byte("# file form\n"),
+			"SKILL.md":            []byte("# v1\n"),
+			"References/topic.md": []byte("# file form\n"),
 		},
 		map[string][]byte{"SKILL.md": []byte("# cli\n")},
 		nil, nil,
@@ -586,7 +652,7 @@ func TestRemoteUpdateHandlesDirectoryCaseRenameAndFileDirTransitions(t *testing.
 		t,
 		v2,
 		map[string][]byte{
-			"SKILL.md":                    []byte("# v2\n"),
+			"SKILL.md":                     []byte("# v2\n"),
 			"References/topic.md/guide.md": []byte("# dir form\n"),
 		},
 		map[string][]byte{"SKILL.md": []byte("# cli\n")},
