@@ -1330,4 +1330,49 @@ describe('app-compose.sh up', () => {
       expect.stringMatching(/^compose .* up --detach --no-deps --wait admin$/),
     )
   })
+
+  it('removes stopped legacy compose one-off containers (migrate-1, dependency-check-1) without touching running ones', () => {
+    currentGeneration({ image: newImage }, { image: newImage })
+    container('fixture-migrate-1', { state: 'exited', image: 'fixture:legacy' })
+    container('fixture-dependency-check-1', { state: 'exited', image: 'fixture:legacy' })
+    const result = run()
+    expect(result.status, result.stderr).toBe(0)
+    expect(exists('fixture-migrate-1')).toBe(false)
+    expect(exists('fixture-dependency-check-1')).toBe(false)
+
+    // A running one-off container (if any) must never be stopped or removed.
+    container('fixture-migrate-1', { state: 'running', image: 'fixture:legacy' })
+    const second = run()
+    expect(second.status, second.stderr).toBe(0)
+    expect(exists('fixture-migrate-1')).toBe(true)
+  })
+
+  it('removes one-off bootstrap containers at the end of first install after every dependent compose up', () => {
+    config = join(xdg, 'ai-image-playground/apps/fixture')
+    write(join(config, 'app.env'), 'APP_IMAGE=fixture:new\n')
+    write(join(config, 'migrate.env'), '')
+    write(join(config, 'cloudflared/config.yml'), 'ingress: []\n')
+    write(join(config, 'cloudflared/credentials.json'), '{}')
+    const result = spawnSync('sh', [composeScript, 'up', 'fixture'], {
+      encoding: 'utf8',
+      timeout: 20_000,
+      env: {
+        ...process.env,
+        PATH: `${join(root, 'bin')}:${process.env.PATH}`,
+        MOCK_ROOT: root,
+        XDG_CONFIG_HOME: xdg,
+        APP_IMAGE: 'fixture:new',
+        APP_CONFIG_DIR: '',
+        RENDERED_DIR: '',
+      },
+    })
+    expect(result.status, result.stderr).toBe(0)
+    const log = logLines()
+    const cloudflaredUp = indexOf(log, /^compose .* up --detach --wait cloudflared pg-backup$/)
+    const hostCollectorUp = indexOf(log, /^compose .* up --detach host-collector$/)
+    const oneoffRm = indexOf(log, /^compose .* rm --force dependency-check migrate$/)
+    expect(cloudflaredUp).toBeGreaterThan(-1)
+    expect(hostCollectorUp).toBeGreaterThan(cloudflaredUp)
+    expect(oneoffRm).toBeGreaterThan(hostCollectorUp)
+  })
 })

@@ -12,11 +12,14 @@ let log: string
 let state: string
 
 interface Container {
+  id?: string
   networks: string[]
   version: string
   healthy: boolean
   running: boolean
   answers: boolean
+  startedAt?: string
+  finishedAt?: string
 }
 type State = { containers: Record<string, Container>; networks: string[] }
 
@@ -31,16 +34,28 @@ const [cmd, ...args] = process.argv.slice(2)
 fs.appendFileSync(process.env.CALL_LOG, [cmd, ...args].join(' ') + '\\n')
 const s = JSON.parse(fs.readFileSync(process.env.STATE, 'utf8'))
 const save = () => fs.writeFileSync(process.env.STATE, JSON.stringify(s))
-const c = (name) => s.containers[name]
+const findEntry = (ref) => {
+  if (s.containers[ref]) return [ref, s.containers[ref]]
+  for (const [name, obj] of Object.entries(s.containers)) {
+    if ((obj.id ?? 'cid-' + name) === ref) return [name, obj]
+  }
+  return null
+}
+const c = (ref) => findEntry(ref)?.[1]
 const fmt = args[args.indexOf('--format') + 1] ?? ''
 switch (cmd) {
   case 'inspect': {
-    const one = c(args[0])
-    if (!one) process.exit(1)
+    const found = findEntry(args[0])
+    if (!found) process.exit(1)
+    const [name, one] = found
     if (fmt.includes('Networks')) process.stdout.write(one.networks.map((n) => n + ' ').join(''))
     else if (fmt.includes('Health')) process.stdout.write(one.running && one.healthy ? 'healthy' : 'unhealthy')
     else if (fmt.includes('Labels')) process.stdout.write(one.version)
+    else if (fmt.includes('StartedAt')) process.stdout.write(one.startedAt ?? '')
+    else if (fmt.includes('FinishedAt')) process.stdout.write(one.finishedAt ?? '')
     else if (fmt.includes('Running')) process.stdout.write(String(one.running))
+    else if (fmt === '{{.Id}}') process.stdout.write(one.id ?? 'cid-' + name)
+    else if (fmt === '{{.Name}}') process.stdout.write('/' + name)
     break
   }
   case 'network': {
@@ -87,13 +102,16 @@ switch (cmd) {
     c(args[0]).running = false
     save()
     break
-  case 'rm':
-    if (process.env.FAIL_RM === args[args.length - 1]) process.exit(1)
+  case 'rm': {
+    const ref = args[args.length - 1]
+    const found = findEntry(ref)
+    if (process.env.FAIL_RM === ref || (found && process.env.FAIL_RM === found[0])) process.exit(1)
     // Like Docker: a running container needs -f.
-    if (c(args[args.length - 1])?.running && !args.includes('-f')) process.exit(1)
-    delete s.containers[args[args.length - 1]]
+    if (found?.[1]?.running && !args.includes('-f')) process.exit(1)
+    if (found) delete s.containers[found[0]]
     save()
     break
+  }
   case 'rename':
     s.containers[args[1]] = c(args[0])
     delete s.containers[args[0]]
@@ -372,5 +390,54 @@ describe('segmenter-deploy.sh (one shared, versioned container)', () => {
     expect(run(['attach', 'test', 'image-playground-test']).status).toBe(2)
     expect(run(['detach']).status).toBe(2)
     expect(run(['rollback', '3']).status).toBe(2)
+    expect(run(['prune', 'extra']).status).toBe(2)
+  })
+
+  it('prunes an expired stopped -prev copy while keeping recent or running ones', () => {
+    const daysAgo = (days: number) =>
+      new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+
+    // Within retention window (2 days < 7 days): keep -prev.
+    seed({
+      [shared]: container({ version: '2', startedAt: daysAgo(2) }),
+      [`${shared}-prev`]: container({ version: '1', running: false, finishedAt: daysAgo(2) }),
+    })
+    expect(run(['prune']).status).toBe(0)
+    expect(read().containers[`${shared}-prev`]).toBeDefined()
+
+    // Past retention window (10 days >= 7 days) with Go RFC3339Nano trimmed fractional seconds
+    // (1-digit and 5-digit fractions) and live container healthy: remove -prev.
+    const trimFraction = (iso: string, digits: number) =>
+      iso.replace(/\.\d+Z$/, `.${'54321'.slice(0, digits)}Z`)
+    seed({
+      [shared]: container({ version: '2', startedAt: trimFraction(daysAgo(10), 1) }),
+      [`${shared}-prev`]: container({
+        version: '1',
+        running: false,
+        finishedAt: trimFraction(daysAgo(10), 5),
+      }),
+    })
+    const pruned = run(['prune'])
+    expect(pruned.status, pruned.stderr).toBe(0)
+    expect(pruned.stdout).toContain(`removed expired ${shared}-prev`)
+    expect(calls()).toContain(`rm cid-${shared}-prev`)
+    expect(read().containers[`${shared}-prev`]).toBeUndefined()
+    expect(read().containers[shared]).toBeDefined()
+
+    // Never touch a running -prev (e.g. after a hand rollback).
+    seed({
+      [shared]: container({ version: '2', running: false, startedAt: daysAgo(10) }),
+      [`${shared}-prev`]: container({ version: '1', running: true, finishedAt: daysAgo(10) }),
+    })
+    expect(run(['prune']).status).toBe(0)
+    expect(read().containers[`${shared}-prev`]).toBeDefined()
+
+    // Missing timestamps fail safe and keep -prev.
+    seed({
+      [shared]: container({ version: '2' }),
+      [`${shared}-prev`]: container({ version: '1', running: false }),
+    })
+    expect(run(['prune']).status).toBe(0)
+    expect(read().containers[`${shared}-prev`]).toBeDefined()
   })
 })

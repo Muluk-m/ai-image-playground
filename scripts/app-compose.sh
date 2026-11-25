@@ -458,7 +458,11 @@ activate_backend_then_ingress() {
   # Started last and not waited on: the collector watches the deployment, it is not part of it,
   # so a collector that cannot start must not fail a rollout. The board shows it as missing.
   compose up --detach host-collector
-  # Once more, so a collector recreated just now is named too.
+  # One-shot bootstrap containers have exited after every dependent `compose up` completed; drop
+  # them at the end so no subsequent `compose up` recreates them via `depends_on` and they do not
+  # stay behind pinning the initial release image after future rollouts.
+  compose rm --force dependency-check migrate >/dev/null 2>&1 || true
+  # Once more, so a collector recreated just now is named and removed one-offs disappear.
   write_container_names
 }
 
