@@ -194,31 +194,42 @@ for i in $(idx); do
 done
 
 # test already holds everything: make sure that commit actually has (or gets) a deployment.
+# Returns 0 when it is already deployed; otherwise a run is going and `since` is set to the
+# earliest creation time branch_check should accept for it (empty: any run of the commit).
+since=
 ensure_deployed() {
   local sha=$1 last status conclusion url
+  since=
   last=$(gh api "repos/$repo/actions/workflows/deploy-test.yml/runs?head_sha=$sha&per_page=20" |
     jq -r --arg sha "$sha" '[.workflow_runs[] | select(.head_sha == $sha)] | sort_by(.created_at) | last // {} | "\(.status // "none")|\(.conclusion // "")|\(.html_url // "")"') ||
     die "could not read Deploy test runs for ${sha:0:9}"
   IFS='|' read -r status conclusion url <<<"$last"
   if [ "$status" != completed ] && [ "$status" != none ]; then
     echo "test-sync: Deploy test for ${sha:0:9} is $status: $url"
+    return 1
   elif [ "$conclusion" = success ]; then
     echo "test-sync: ${sha:0:9} is already deployed to the test site: $url"
-  else
-    gh api -X POST "repos/$repo/actions/workflows/deploy-test.yml/dispatches" -f ref=test >/dev/null ||
-      die "could not dispatch Deploy test"
-    echo "test-sync: last Deploy test for ${sha:0:9} was ${conclusion:-missing}; dispatched a new one."
+    return 0
   fi
+  # A few seconds of slack for clock skew; the run it replaces finished before now.
+  since=$(date -u -r $(($(date +%s) - 5)) +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$(($(date +%s) - 5))" +%Y-%m-%dT%H:%M:%SZ)
+  gh api -X POST "repos/$repo/actions/workflows/deploy-test.yml/dispatches" -f ref=test >/dev/null ||
+    die "could not dispatch Deploy test"
+  echo "test-sync: last Deploy test for ${sha:0:9} was ${conclusion:-missing}; dispatched a new one."
+  return 1
 }
 
 # Deploy test checks "test contains main" when its Backend images job starts, a minute or two
-# after the push; main can move in between. Watch that one step: ok | behind | unknown <why>.
+# after the push (or dispatch); main can move in between. Watch that one step of the newest push or
+# dispatch run of the commit created at or after $2: ok | behind | unknown <why>.
 branch_check() {
-  local sha=$1 run id jobs step deadline
+  local sha=$1 after=${2-} run id jobs step deadline
   deadline=$(($(date +%s) + follow_wait))
   while :; do
     run=$(gh api "repos/$repo/actions/workflows/deploy-test.yml/runs?head_sha=$sha&per_page=20" |
-      jq -c --arg sha "$sha" '[.workflow_runs[] | select(.head_sha == $sha and .event == "push")] | sort_by(.created_at) | last // empty' 2>/dev/null) || run=
+      jq -c --arg sha "$sha" --arg after "$after" '[.workflow_runs[]
+        | select(.head_sha == $sha and (.event == "push" or .event == "workflow_dispatch") and .created_at >= $after)]
+        | sort_by(.created_at) | last // empty' 2>/dev/null) || run=
     if [ -n "$run" ]; then
       id=$(jq -r .id <<<"$run")
       jobs=$(gh api "repos/$repo/actions/runs/$id/jobs?filter=latest&per_page=100" 2>/dev/null) || jobs='{"jobs":[]}'
@@ -273,44 +284,50 @@ $files
   head=$(git -C "$wt" rev-parse HEAD)
   if [ "$head" = "$test_sha" ]; then
     echo "test-sync: test already contains main and ${names:-nothing else}; nothing to push."
-    ensure_deployed "$test_sha"
-    exit 0
+    ensure_deployed "$test_sha" && exit 0
+    pushed=$test_sha
+  else
+    pushed=''
   fi
 
-  fetch main
-  if [ "$(git rev-parse "refs/remotes/$remote/main")" != "$main_sha" ]; then
-    echo "test-sync: main moved while merging; merging again (attempt $attempt/$attempts)."
-    continue
-  fi
-  # Push from the caller's repository: a relative remote URL resolves against the current directory.
-  # Every branch already passed Web checks; the pre-push hook would only re-run typecheck on the merge.
-  if out=$(AIP_PRE_PUSH=skip git push -q "$remote" "$head:refs/heads/test" 2>&1); then
-    echo "test-sync: pushed test ${head:0:9} (main ${main_sha:0:9} + ${names:-nothing else}); watching Deploy test's branch check."
-    read -r check why <<<"$(branch_check "$head")"
-    case $check in
-      ok)
-        echo "test-sync: Deploy test accepted ${head:0:9} (test contains main); it continues on its own."
-        echo "  Follow it: gh run list --repo $repo --workflow deploy-test.yml --commit $head"
-        exit 0
-        ;;
-      behind)
-        echo "test-sync: main moved before Deploy test started, so it rejected ${head:0:9}; merging again (attempt $attempt/$attempts)."
-        continue
-        ;;
-      *)
-        echo "test-sync: warning: could not confirm Deploy test's branch check ($why)." >&2
-        echo "  Check it: gh run list --repo $repo --workflow deploy-test.yml --commit $head"
-        exit 0
-        ;;
-    esac
-  fi
-  # Retry only when test really moved under us; anything else (permissions, protection, network)
-  # will not fix itself.
-  now=$(git ls-remote "$remote" refs/heads/test | cut -f1) || now=
-  if [ -z "$now" ] || [ "$now" = "$test_sha" ]; then
-    die "push to test failed:
+  if [ -z "$pushed" ]; then
+    fetch main
+    if [ "$(git rev-parse "refs/remotes/$remote/main")" != "$main_sha" ]; then
+      echo "test-sync: main moved while merging; merging again (attempt $attempt/$attempts)."
+      continue
+    fi
+    # Every branch already passed Web checks; the pre-push hook would only re-run typecheck on the merge.
+    if ! out=$(AIP_PRE_PUSH=skip git push -q "$remote" "$head:refs/heads/test" 2>&1); then
+      # Retry only when test really moved under us; anything else (permissions, protection, network)
+      # will not fix itself.
+      now=$(git ls-remote "$remote" refs/heads/test | cut -f1) || now=
+      if [ -z "$now" ] || [ "$now" = "$test_sha" ]; then
+        die "push to test failed:
 $out"
+      fi
+      echo "test-sync: test moved to ${now:0:9} while pushing; merging again (attempt $attempt/$attempts)."
+      continue
+    fi
+    pushed=$head
+    since=
+    echo "test-sync: pushed test ${head:0:9} (main ${main_sha:0:9} + ${names:-nothing else}); watching Deploy test's branch check."
   fi
-  echo "test-sync: test moved to ${now:0:9} while pushing; merging again (attempt $attempt/$attempts)."
+  read -r check why <<<"$(branch_check "$pushed" "$since")"
+  case $check in
+    ok)
+      echo "test-sync: Deploy test accepted ${pushed:0:9} (test contains main); it continues on its own."
+      echo "  Follow it: gh run list --repo $repo --workflow deploy-test.yml --commit $pushed"
+      exit 0
+      ;;
+    behind)
+      echo "test-sync: main moved before Deploy test started, so it rejected ${pushed:0:9}; merging again (attempt $attempt/$attempts)."
+      continue
+      ;;
+    *)
+      echo "test-sync: warning: could not confirm Deploy test's branch check ($why)." >&2
+      echo "  Check it: gh run list --repo $repo --workflow deploy-test.yml --commit $pushed"
+      exit 0
+      ;;
+  esac
 done
 die "gave up after $attempts attempts; test or main keeps moving"

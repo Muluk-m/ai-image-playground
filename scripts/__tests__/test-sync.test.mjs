@@ -297,6 +297,17 @@ test('nothing to push: redeploys a commit whose last Deploy test failed', () =>
     assert.match(readFileSync(join(env.dir, 'deploy-dispatched'), 'utf8'), /ref=test/)
   }))
 
+test('nothing to push: still re-merges when main moves before that deployment checks the branch', () =>
+  withEnv((env) => {
+    assert.equal(run(env, { runs: [runOf(env.feat)], jobList: jobs(), deployChecks: ['success'] }).status, 0)
+    // Same test head again; its (still running) deployment now finds main has moved.
+    rmSync(join(env.dir, 'heads'))
+    const r = run(env, { runs: [runOf(env.feat)], jobList: jobs(), deployChecks: ['failure', 'success'] })
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stdout, /nothing to push[\s\S]*is in_progress[\s\S]*merging again[\s\S]*pushed test[\s\S]*Deploy test accepted/)
+    assert.match(env.git(env.dir, '--git-dir', env.origin, 'log', '--format=%s', 'test'), /late main/)
+  }))
+
 test('nothing to push: leaves an already deployed commit alone', () =>
   withEnv((env) => {
     assert.equal(run(env, { runs: [runOf(env.feat)], jobList: jobs() }).status, 0)
