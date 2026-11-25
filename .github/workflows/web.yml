@@ -111,7 +111,7 @@ jobs:
           if-no-files-found: error
       - run: python3 scripts/test-cloud-test.py
       - run: node --test scripts/__tests__/ci-cli-required.test.mjs
-      - run: node --test scripts/__tests__/lock-closure-changed.test.mjs scripts/__tests__/test-guard.test.mjs scripts/__tests__/cost-impact.test.mjs scripts/__tests__/review-stats.test.mjs scripts/__tests__/test-shard.test.mjs scripts/__tests__/ci-reuse-web-checks.test.mjs scripts/__tests__/check-migrations.test.mjs scripts/__tests__/pr-rules.test.mjs
+      - run: node --test scripts/__tests__/lock-closure-changed.test.mjs scripts/__tests__/test-guard.test.mjs scripts/__tests__/cost-impact.test.mjs scripts/__tests__/review-stats.test.mjs scripts/__tests__/test-shard.test.mjs scripts/__tests__/ci-reuse-web-checks.test.mjs scripts/__tests__/check-migrations.test.mjs scripts/__tests__/pr-rules.test.mjs scripts/__tests__/test-sync.test.mjs
       # check-migrations: HEAD^1 is the main this PR merge commit (or main/test push) sits on, so a
       # deleted migration fails; origin/main supplies the newest stamp if main moved on since.
       # Pin HEAD^1 to a SHA before the fetch: a shallow fetch of a newer main can make HEAD the shallow

@@ -12,7 +12,7 @@ set -eu
 # behind main shows behaviour nobody is going to ship, and the difference is invisible on the
 # page. Merging it here would also mean resolving conflicts unattended — deciding between two
 # versions of the same change, which is how a test site ends up running something that exists
-# nowhere else. A red run is the signal; whoever pushed test merges main and pushes again.
+# nowhere else. A red run is the signal; push test with scripts/test-sync.sh, which merges main and retries.
 
 remote=${1:-origin}
 
@@ -25,7 +25,7 @@ if git merge-base --is-ancestor "$main" "$head"; then
 fi
 
 behind=$(git rev-list --count "$head..$main")
-echo "::error::test is behind $remote/main by $behind commit(s). Run scripts/test-sync.sh [your-branch] to merge $remote/main into test and push; the test site is only built from a branch that already contains main."
+echo "::error::test is behind $remote/main by $behind commit(s). Run scripts/test-sync.sh [your-branch] to merge $remote/main into test and push (it retries if main moves); the test site is only built from a branch that already contains main."
 echo
 echo "Missing from test:"
 git log --oneline --no-decorate "$head..$main"
