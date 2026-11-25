@@ -31,7 +31,7 @@ DEPLOY_MIN_FREE_GB=${DEPLOY_MIN_FREE_GB:-8}
 case "$target" in paid) config_deployment='prod'; config_project=$PAID_PROJECT ;; *) config_deployment='test'; config_project=$TEST_PROJECT ;; esac
 config_rendered_dir=$config_root/rendered/$config_project
 descriptor=$repo_root/deploy/deployments/$config_deployment.json
-config_source=$(sed -n 's/^[[:space:]]*"configSource":[[:space:]]*"\([a-z]*\)".*/\1/p' "$descriptor" 2>/dev/null | head -n 1)
+config_source=$(descriptor_config_source "$descriptor")
 case $config_source in
   rendered) config_center=true ;;
   legacy) config_center=false ;;

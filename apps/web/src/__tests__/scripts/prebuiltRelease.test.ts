@@ -534,6 +534,24 @@ describe('receivers with the shared segmenter', () => {
     expect(existsSync(log) ? readFileSync(log, 'utf8') : '').not.toMatch(/rollout /)
   })
 
+  it('parses a minified single-line descriptor and rejects malformed JSON', () => {
+    productionRelease([backupRow])
+    writeFileSync(
+      join(release, 'deploy/deployments/prod.json'),
+      '{"name":"prod","legacy":{"composeProject":"image-playground-paid"},"configSource":"legacy"}',
+    )
+    checksums()
+    const ok = run()
+    expect(ok.status, ok.stderr).toBe(0)
+    expect(ok.stdout).toContain('Configuration source: legacy')
+
+    writeFileSync(join(release, 'deploy/deployments/prod.json'), '{broken json')
+    checksums()
+    const bad = run()
+    expect(bad.status).not.toBe(0)
+    expect(bad.stderr).toContain('Cannot read deployment descriptor')
+  })
+
   it('attaches production when SEGMENTER_EDITIONS includes paid', () => {
     productionRelease([backupRow])
     env.SEGMENTER_EDITIONS = 'paid test'

@@ -24,7 +24,7 @@
 set -u
 
 REQUIRED=(
-  'lint' 'typecheck' 'build'
+  'lint' 'typecheck' 'build' 'deploy-integration'
   'bff (bff 1/3)' 'bff (bff 2/3)' 'bff (bff 3/3)' 'bff (packages)'
   'web-test (1/3)' 'web-test (2/3)' 'web-test (3/3)'
 )

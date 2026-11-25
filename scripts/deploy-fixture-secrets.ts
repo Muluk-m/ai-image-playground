@@ -28,7 +28,9 @@ for (const secret of SECRETS) {
     ? JSON.stringify({
         AccountTag: `${name}-account`,
         TunnelID: tunnelId,
-        TunnelSecret: `${name}-tunnel-secret`,
+        TunnelSecret: Buffer.from(`${name}-tunnel-secret-fixture-32-bytes`)
+          .subarray(0, 32)
+          .toString('base64'),
       })
     : `${name}-fixture-${secret.name.toLowerCase().replaceAll('_', '-')}`
   lines.push(`${secret.name}=${value}`)

@@ -103,4 +103,17 @@ describe('test-sync.sh', () => {
           .status,
       ).toBe(0)
   })
+
+  it('still merges diverged branches when the user sets merge.ff=only', () => {
+    commit(clone, 'main.txt', 'main\n', 'main moves')
+    git(clone, 'push', '-q', 'origin', 'HEAD:main')
+    git(clone, 'config', 'merge.ff', 'only')
+    const result = sync()
+    expect(result.status, result.stderr).toBe(0)
+    expect(
+      spawnSync('git', ['merge-base', '--is-ancestor', remoteHead('main'), remoteHead('test')], {
+        cwd: origin,
+      }).status,
+    ).toBe(0)
+  })
 })

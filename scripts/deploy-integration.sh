@@ -99,6 +99,33 @@ if docker run --rm -v "$tunnels/main:/etc/cloudflared:ro" "$cloudflared_image" \
   fail "cloudflared's default user reads 0600 files it does not own; the user override is no longer what protects them"
 fi
 
+echo '== verify cloudflared parses credentials.json (and rejects corrupt/missing ones)'
+# With --network none, cloudflared parses config + credentials.json (including Base64 TunnelSecret)
+# and logs `Starting tunnel tunnelID=<id>` before failing to reach the edge.
+run_out=$(timeout 8 docker run --rm --network none --user "$(id -u):$(id -g)" \
+  -v "$tunnels/main:/etc/cloudflared:ro" "$cloudflared_image" \
+  tunnel --no-autoupdate --config /etc/cloudflared/config.yml run 2>&1) || true
+printf '%s\n' "$run_out" | grep -q 'Starting tunnel tunnelID=22222222-2222-4222-8222-222222222222' ||
+  fail "cloudflared did not accept rendered credentials.json:\n$run_out"
+bad_dir=$work/bad-tunnel
+mkdir -p "$bad_dir"
+cp "$tunnels/main/config.yml" "$bad_dir/config.yml"
+printf '{"AccountTag":"x","TunnelID":"22222222-2222-4222-8222-222222222222","TunnelSecret":"not-base64!!!"}\n' > "$bad_dir/credentials.json"
+chmod 600 "$bad_dir/config.yml" "$bad_dir/credentials.json"
+bad_out=$(timeout 8 docker run --rm --network none --user "$(id -u):$(id -g)" \
+  -v "$bad_dir:/etc/cloudflared:ro" "$cloudflared_image" \
+  tunnel --no-autoupdate --config /etc/cloudflared/config.yml run 2>&1) || true
+if printf '%s\n' "$bad_out" | grep -q 'Starting tunnel tunnelID='; then
+  fail "cloudflared accepted corrupt credentials.json; the credentials check is ineffective"
+fi
+rm -f "$bad_dir/credentials.json"
+missing_out=$(timeout 8 docker run --rm --network none --user "$(id -u):$(id -g)" \
+  -v "$bad_dir:/etc/cloudflared:ro" "$cloudflared_image" \
+  tunnel --no-autoupdate --config /etc/cloudflared/config.yml run 2>&1) || true
+if printf '%s\n' "$missing_out" | grep -q 'Starting tunnel tunnelID='; then
+  fail "cloudflared started without credentials.json; the credentials check is ineffective"
+fi
+
 echo '== a running bind mount follows in-place writes, not replaced directories'
 mkdir -p "$work/mount"
 printf 'one\n' > "$work/mount/file"

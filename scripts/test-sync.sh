@@ -35,7 +35,7 @@ for ref in main "$@"; do
     echo "test already contains $remote/$ref"
     continue
   fi
-  if ! git -C "$work" merge -q --no-edit -m "Merge $remote/$ref into test" "$remote/$ref"; then
+  if ! git -C "$work" merge -q --ff --no-edit -m "Merge $remote/$ref into test" "$remote/$ref"; then
     git -C "$work" merge --abort >/dev/null 2>&1 || true
     echo "Merging $remote/$ref into test conflicts; nothing was pushed. Resolve it by hand." >&2
     exit 1

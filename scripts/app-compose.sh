@@ -67,19 +67,7 @@ RENDERED_DIR=${RENDERED_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playgrou
 # descriptor matching this project (so switching back to legacy is never undone by a stale rendered/
 # directory), and only falls back to what is on disk for fixture projects without a descriptor.
 if [ -z "${CONFIG_SOURCE:-}" ]; then
-  for descriptor in "$repo_root"/deploy/deployments/*.json; do
-    [ -f "$descriptor" ] || continue
-    case $descriptor in *.schema.json) continue ;; esac
-    descriptor_project=$(sed -n 's/^[[:space:]]*"composeProject":[[:space:]]*"\([^"]*\)".*/\1/p' "$descriptor" | head -n 1)
-    if [ "$descriptor_project" = "$project" ]; then
-      CONFIG_SOURCE=$(sed -n 's/^[[:space:]]*"configSource":[[:space:]]*"\([a-z]*\)".*/\1/p' "$descriptor" | head -n 1)
-      case $CONFIG_SOURCE in
-        rendered | legacy) ;;
-        *) echo "$descriptor names no configSource (rendered or legacy); refusing to guess" >&2; exit 1 ;;
-      esac
-      break
-    fi
-  done
+  CONFIG_SOURCE=$(project_descriptor_config_source "$repo_root/deploy/deployments" "$project")
 fi
 case ${CONFIG_SOURCE:-} in
   rendered)

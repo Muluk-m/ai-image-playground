@@ -37,6 +37,7 @@ if [ "${image_snapshot##* }" != 1 ] || [ -z "$image_id" ]; then
   exit 1
 fi
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+. "$repo_root/scripts/lib/deploy-common.sh"
 config_dir=${APP_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/apps/$project}
 state_dir=$config_dir/releases
 mkdir -p "$state_dir/activated"
@@ -48,19 +49,7 @@ rendered_dir=${RENDERED_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playgrou
 # hand run without it looks up the matching descriptor first and only falls back to disk for
 # fixture projects without a descriptor.
 if [ -z "${CONFIG_SOURCE:-}" ]; then
-  for descriptor in "$repo_root"/deploy/deployments/*.json; do
-    [ -f "$descriptor" ] || continue
-    case $descriptor in *.schema.json) continue ;; esac
-    descriptor_project=$(sed -n 's/^[[:space:]]*"composeProject":[[:space:]]*"\([^"]*\)".*/\1/p' "$descriptor" | head -n 1)
-    if [ "$descriptor_project" = "$project" ]; then
-      CONFIG_SOURCE=$(sed -n 's/^[[:space:]]*"configSource":[[:space:]]*"\([a-z]*\)".*/\1/p' "$descriptor" | head -n 1)
-      case $CONFIG_SOURCE in
-        rendered | legacy) ;;
-        *) echo "$descriptor names no configSource (rendered or legacy); refusing to guess" >&2; exit 1 ;;
-      esac
-      break
-    fi
-  done
+  CONFIG_SOURCE=$(project_descriptor_config_source "$repo_root/deploy/deployments" "$project")
 fi
 case ${CONFIG_SOURCE:-} in
   rendered)
@@ -102,7 +91,6 @@ else
 fi
 log_forward_dir=${LOG_FORWARD_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/log-forward/$project}
 mkdir -p "$log_forward_dir"
-. "$repo_root/scripts/lib/deploy-common.sh"
 runtime_lock=$state_dir/lock
 # Every entry that moves production takes the host deploy lock, so a hand-run rollout cannot
 # overlap a CI deploy of another project (test vs production). Run from vps-deploy.sh or from
