@@ -70,14 +70,27 @@ export default function ScriptBriefDialog({
     location: t('scriptBrief.location'),
     prop: t('scriptBrief.prop'),
   } as const
+  const requestClose = () => {
+    if (!dirty) {
+      onClose()
+      return
+    }
+    useStore.getState().setConfirmDialog({
+      title: t('scriptBrief.discardTitle'),
+      message: t('scriptBrief.discardMessage'),
+      confirmText: t('scriptBrief.discardConfirm'),
+      tone: 'warning',
+      action: onClose,
+    })
+  }
   return (
     <Dialog
       title={t('scriptBrief.title')}
-      onClose={onClose}
+      onClose={requestClose}
       className="max-w-3xl"
       footer={
         <>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={requestClose}>
             {t('scriptBrief.cancel')}
           </Button>
           <Button disabled={!brief.title.trim()} onClick={() => onConfirm(brief)}>

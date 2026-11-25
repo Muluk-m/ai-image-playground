@@ -86,6 +86,7 @@ export default function TextNodeComposer({
           className="max-h-40 min-h-[4.5rem] w-full resize-none border-0 bg-transparent px-0 py-0 shadow-none focus-visible:ring-0"
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing || event.keyCode === 229) return
             if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
               event.preventDefault()
               if (canSend && selected) onSubmit(selected)

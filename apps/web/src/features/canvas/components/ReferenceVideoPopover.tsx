@@ -181,13 +181,14 @@ export default function ReferenceVideoPopover({
               variant="ghost"
               size="icon-xs"
               aria-label={t('referenceVideo.moveUp', { no: index + 1 })}
-              disabled={index === 0}
+              disabled={submitting || index === 0}
               onClick={() => setItems((current) => moveInputItem(current, index, index - 1))}
               className="ml-auto text-muted-foreground"
             >
               <Icon name="chevronUp" />
             </Button>
             <Select
+              disabled={submitting}
               value={item.role}
               onValueChange={(role) =>
                 setItems((current) =>
@@ -221,23 +222,14 @@ export default function ReferenceVideoPopover({
               </SelectContent>
             </Select>
             {item.role === 'keyframe' && (
-              <Input
-                type="number"
-                inputMode="decimal"
-                min={0}
-                max={draft.duration}
-                step={1 / 3}
-                aria-label={t('referenceVideo.timestampAria', { no: index + 1 })}
-                value={timestampFieldValue(item.timestampSeconds)}
-                onChange={(event) => {
-                  const snapped = snapVideoKeyframeTimestamp(
-                    event.target.valueAsNumber,
-                    draft.duration,
-                  )
-                  if (snapped === null) return
+              <KeyframeTimestampInput
+                value={item.timestampSeconds}
+                duration={draft.duration}
+                disabled={submitting}
+                ariaLabel={t('referenceVideo.timestampAria', { no: index + 1 })}
+                onCommit={(snapped) =>
                   setItems((current) => setKeyframeTimestamp(current, index, snapped))
-                }}
-                className="h-8 w-16 rounded-full border-0 bg-muted px-2 text-xs shadow-none"
+                }
               />
             )}
           </li>
@@ -263,10 +255,11 @@ export default function ReferenceVideoPopover({
         className="resize-none"
       />
 
-      <div className="mt-3 flex flex-col gap-2">
+      <fieldset disabled={submitting} className="mt-3 flex flex-col gap-2 border-0 p-0">
         {option && (
           <>
             <Select
+              disabled={submitting}
               value={draft.model}
               onValueChange={(model) => useVideoStore.getState().setModel(model)}
             >
@@ -293,8 +286,65 @@ export default function ReferenceVideoPopover({
             />
           </>
         )}
-      </div>
+      </fieldset>
     </Dialog>
+  )
+}
+
+/** 允许清空或输入小数中间态，失焦时落格并回填合法秒数。 */
+function KeyframeTimestampInput({
+  value,
+  duration,
+  disabled,
+  ariaLabel,
+  onCommit,
+}: {
+  value: number | undefined
+  duration: number
+  disabled: boolean
+  ariaLabel: string
+  onCommit: (seconds: number) => void
+}) {
+  const formatted = timestampFieldValue(value)
+  const [draft, setDraft] = useState(formatted)
+  const [focused, setFocused] = useState(false)
+  useEffect(() => {
+    if (!focused) setDraft(formatted)
+  }, [formatted, focused])
+
+  return (
+    <Input
+      type="number"
+      inputMode="decimal"
+      min={0}
+      max={duration}
+      step={1 / 3}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      value={focused ? draft : formatted}
+      onFocus={() => {
+        setFocused(true)
+        setDraft(formatted)
+      }}
+      onChange={(event) => {
+        const next = event.target.value
+        setDraft(next)
+        if (!next.trim()) return
+        const snapped = snapVideoKeyframeTimestamp(Number(next), duration)
+        if (snapped !== null) onCommit(snapped)
+      }}
+      onBlur={() => {
+        setFocused(false)
+        const snapped = draft.trim() ? snapVideoKeyframeTimestamp(Number(draft), duration) : null
+        if (snapped !== null) {
+          onCommit(snapped)
+          setDraft(timestampFieldValue(snapped))
+        } else {
+          setDraft(formatted)
+        }
+      }}
+      className="h-8 w-16 rounded-full border-0 bg-muted px-2 text-xs shadow-none"
+    />
   )
 }
 

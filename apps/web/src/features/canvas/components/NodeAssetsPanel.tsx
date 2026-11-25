@@ -119,7 +119,7 @@ export default function NodeAssetsPanel({
 
   const gridRef = useRef<HTMLDivElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
-  const { hasMore, loading, failed, loadMore } = assets
+  const { hasMore, loading, failed, loadMore, retry } = assets
   useEffect(() => {
     const end = endRef.current
     if (!hasMore || loading || failed || !end || typeof IntersectionObserver === 'undefined') return
@@ -194,7 +194,7 @@ export default function NodeAssetsPanel({
   )
 
   return (
-    <Overlay onClose={onClose} tier="assets" layout="fill" role="none">
+    <Overlay onClose={busy ? () => {} : onClose} tier="assets" layout="fill" role="none">
       <div
         role="dialog"
         aria-modal="true"
@@ -237,6 +237,7 @@ export default function NodeAssetsPanel({
             size="sm"
             className="studio-canvas-assets-select"
             aria-pressed={selecting}
+            disabled={busy}
             onClick={toggleSelecting}
           >
             {selecting ? t('assetsPanel.cancel') : t('assetsPanel.select')}
@@ -247,6 +248,7 @@ export default function NodeAssetsPanel({
             size="icon-sm"
             className="studio-canvas-assets-iconbtn"
             aria-label={t('assetsPanel.close')}
+            disabled={busy}
             onClick={onClose}
           >
             <Icon name="close" />
@@ -307,14 +309,21 @@ export default function NodeAssetsPanel({
             </div>
           ))}
           {/* 还在翻页找时说「正在读取」，翻完仍为空才说没找到，避免长时间一片空白。 */}
-          {!shown.length && (
+          {!shown.length && !failed && (
             <p className="studio-canvas-assets-day" role="status">
-              {(loading || hasMore) && !failed
-                ? t('assetsPanel.loading')
-                : failed
-                  ? t('assetsPanel.loadFailed')
-                  : t('assetsPanel.empty')}
+              {loading || hasMore ? t('assetsPanel.loading') : t('assetsPanel.empty')}
             </p>
+          )}
+          {failed && (
+            <div
+              role="alert"
+              className="studio-canvas-assets-day flex flex-wrap items-center gap-2 text-destructive"
+            >
+              <span>{t('assetsPanel.loadFailed')}</span>
+              <Button type="button" variant="outline" size="xs" onClick={retry}>
+                {t('assetsPanel.retry')}
+              </Button>
+            </div>
           )}
           {hasMore && <div ref={endRef} className="studio-canvas-assets-end" aria-hidden />}
         </div>
