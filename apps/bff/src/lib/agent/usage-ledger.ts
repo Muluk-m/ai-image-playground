@@ -74,7 +74,6 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
     },
 
     async dispatched(id: string, requestBytes: number): Promise<void> {
-      dispatchedAt.set(id, Date.now())
       const [dispatched] = await db
         .update(calls)
         .set({
@@ -84,6 +83,8 @@ export function createAgentUsageLedger(identity: TurnIdentity) {
         .where(and(scope, eq(calls.id, id), eq(calls.http_dispatch_count, 0)))
         .returning({ purpose: calls.purpose })
       if (!dispatched) throw new Error('Model call cannot be dispatched twice')
+      // 派发证据落库后（guardedAgentFetch 紧接着发起上游 fetch）再记 TTFT 起点，避免把本地 DB 写入耗时计入模型首字延迟。
+      dispatchedAt.set(id, Date.now())
       if (dispatched.purpose === 'conversation') upstreamInvocationCount += 1
     },
 

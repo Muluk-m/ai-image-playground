@@ -35,10 +35,24 @@ await insertTestTasks(writer.db, [
     gpt_route: 'direct',
     status: 'failed',
     error_type: 'content_policy',
-    submitted_at: now - 3 * minute,
-    started_at: now - 3 * minute + 500,
+    // Long queue wait on a policy-rejected task must not affect default (includePolicy=0) queue_wait_p50_ms.
+    submitted_at: now - 5 * minute,
+    started_at: now - 3 * minute,
     completed_at: now - 3 * minute + 3_500,
     request_payload: { prompt: 'policy', device_id: 'hm-dev' },
+  },
+  {
+    id: 'hm-gpt-direct-retry-ok',
+    provider: 'openai-compat',
+    model: 'gpt-image-1.5',
+    gpt_route: 'direct',
+    status: 'completed',
+    attempt_count: 2,
+    // Retried task has started_at overwritten on attempt 2; must be excluded from queue_wait_p50_ms.
+    submitted_at: now - 6 * minute,
+    started_at: now - 3 * minute,
+    completed_at: now - 3 * minute + 12_000,
+    request_payload: { prompt: 'retry', device_id: 'hm-dev' },
   },
   {
     id: 'hm-gpt-sub2api-fail',
@@ -88,6 +102,19 @@ await writer.db.insert(writer.schema.agent_model_calls).values([
     local_rejection: 'request_bytes',
     started_at: now - 2 * minute,
     finished_at: now - 2 * minute + 10,
+  },
+  {
+    // Long-running stream that started >20m ago and just failed must land in the latest bucket via finished_at.
+    id: 'hm-call-long-fail',
+    conversation_id: 'hm-conv',
+    turn_id: 't-3',
+    device_id: 'hm-dev',
+    purpose: 'conversation',
+    model: 'gpt-5.2',
+    status: 'failed',
+    http_dispatch_count: 1,
+    started_at: now - 25 * minute,
+    finished_at: now - minute,
   },
 ])
 
@@ -145,19 +172,28 @@ describe('GET /api/ops/health', () => {
     const openaiGroup = snap.groups.find((g) => g.id === 'generation:openai-compat')!
     expect(openaiGroup).toBeDefined()
     const direct = openaiGroup.components.find((c) => c.badge === 'OpenAI 直连')!
-    expect(direct.total).toBe(1)
-    expect(direct.succeeded).toBe(1)
+    expect(direct.total).toBe(2)
+    expect(direct.succeeded).toBe(2)
     expect(direct.failed).toBe(0)
     expect(direct.policy_blocked).toBe(1)
     expect(direct.duration_p50_ms).toBe(12_000)
+    // Only the first-attempt completed task (800ms wait) counts; retried & policy-rejected waits are excluded.
+    expect(direct.queue_wait_p50_ms).toBe(800)
+    expect(direct.status).toBe('healthy')
 
     const agentGroup = snap.groups.find((g) => g.id === 'agent:models')!
-    expect(agentGroup.components).toHaveLength(1)
-    expect(agentGroup.components[0]!.name).toBe('claude-sonnet-4-6')
+    expect(agentGroup.components).toHaveLength(2)
+    const claude = agentGroup.components.find((c) => c.name === 'claude-sonnet-4-6')!
     // local_rejection must not be counted as an upstream model failure
-    expect(agentGroup.components[0]!.total).toBe(1)
-    expect(agentGroup.components[0]!.ttft_p50_ms).toBe(1_650)
+    expect(claude.total).toBe(1)
+    expect(claude.ttft_p50_ms).toBe(1_650)
     expect(snap.summary.agent_ttft_p50_ms).toBe(1_650)
+
+    const longFailModel = agentGroup.components.find((c) => c.name === 'gpt-5.2')!
+    expect(longFailModel.total).toBe(1)
+    expect(longFailModel.failed).toBe(1)
+    expect(longFailModel.status).toBe('outage')
+    expect(longFailModel.buckets.at(-1)!.failed).toBe(1)
 
     const apiGroup = snap.groups.find((g) => g.id === 'api:core')!
     expect(apiGroup.total).toBe(200)
@@ -178,9 +214,9 @@ describe('GET /api/ops/health', () => {
     const directWithPolicy = policySnap.groups
       .find((g) => g.id === 'generation:openai-compat')!
       .components.find((c) => c.badge === 'OpenAI 直连')!
-    expect(directWithPolicy.total).toBe(2)
+    expect(directWithPolicy.total).toBe(3)
     expect(directWithPolicy.failed).toBe(1)
-    expect(directWithPolicy.availability).toBe(0.5)
+    expect(directWithPolicy.availability).toBeCloseTo(2 / 3, 6)
 
     // 7d (2h buckets) aligns to UTC epoch cleanly even when DB session TimeZone has an odd-hour offset.
     await getDbHandle().client`SET TIME ZONE 'Asia/Tokyo'`
@@ -193,7 +229,9 @@ describe('GET /api/ops/health', () => {
       expect(weekRes.status).toBe(200)
       const weekSnap = (await weekRes.json()) as HealthMonitorSnapshot
       expect(weekSnap.bucket_count).toBe(84)
-      const weekAgent = weekSnap.groups.find((g) => g.id === 'agent:models')!.components[0]!
+      const weekAgent = weekSnap.groups
+        .find((g) => g.id === 'agent:models')!
+        .components.find((c) => c.name === 'claude-sonnet-4-6')!
       expect(weekAgent.buckets.reduce((sum, b) => sum + b.total, 0)).toBe(weekAgent.total)
       expect(weekAgent.buckets.at(-1)!.total).toBe(1)
     } finally {

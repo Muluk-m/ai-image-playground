@@ -183,4 +183,79 @@ describe('HealthMonitorBoard interactions', () => {
     expect(groupToggle).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByText('gpt-image-1.5')).not.toBeInTheDocument()
   })
+
+  it('keeps pinned tooltip anchored to bucket start_at across rolling refreshes and closes when aged out', () => {
+    const initial = sampleSnapshot()
+    const bucketMs = initial.bucket_ms
+    const pinnedStart = initial.groups[1]!.components[0]!.buckets[1]!.start_at
+    const { rerender } = render(<HealthMonitorBoard snapshot={initial} />)
+
+    const agentPills = screen.getAllByRole('button', { name: /claude-sonnet-4-6/ })
+    fireEvent.click(agentPills[1]!)
+    expect(screen.getByRole('tooltip')).toHaveTextContent('1.82s')
+
+    // Rolling refresh shifts the window forward by 1 bucket: pinnedStart moves from index 1 -> index 0.
+    const shifted: HealthMonitorSnapshot = {
+      ...initial,
+      generated_at: initial.generated_at + bucketMs,
+      window_start_at: initial.window_start_at + bucketMs,
+      window_end_at: initial.window_end_at + bucketMs,
+      groups: initial.groups.map((group) =>
+        group.id !== 'agent:models'
+          ? group
+          : {
+              ...group,
+              components: group.components.map((comp) => ({
+                ...comp,
+                buckets: [
+                  { ...comp.buckets[1]!, start_at: pinnedStart, end_at: pinnedStart + bucketMs },
+                  {
+                    start_at: pinnedStart + bucketMs,
+                    end_at: pinnedStart + 2 * bucketMs,
+                    status: 'healthy',
+                    total: 5,
+                    succeeded: 5,
+                    failed: 0,
+                    success_rate: 1,
+                    ttft_p50_ms: 990,
+                    duration_p50_ms: 3_100,
+                  },
+                ],
+              })),
+            },
+      ),
+    }
+    rerender(<HealthMonitorBoard snapshot={shifted} />)
+    // Must still display the pinned bucket's 1.82s rather than silently switching to the new bucket's 990ms.
+    expect(screen.getByRole('tooltip')).toHaveTextContent('1.82s')
+
+    // Once the pinned bucket rolls completely out of the window, tooltip closes cleanly.
+    const agedOut: HealthMonitorSnapshot = {
+      ...shifted,
+      groups: shifted.groups.map((group) =>
+        group.id !== 'agent:models'
+          ? group
+          : {
+              ...group,
+              components: group.components.map((comp) => ({
+                ...comp,
+                buckets: [
+                  {
+                    ...comp.buckets[1]!,
+                    start_at: pinnedStart + bucketMs,
+                    end_at: pinnedStart + 2 * bucketMs,
+                  },
+                  {
+                    ...comp.buckets[1]!,
+                    start_at: pinnedStart + 2 * bucketMs,
+                    end_at: pinnedStart + 3 * bucketMs,
+                  },
+                ],
+              })),
+            },
+      ),
+    }
+    rerender(<HealthMonitorBoard snapshot={agedOut} />)
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+  })
 })

@@ -22,13 +22,12 @@ const STATUS_SEVERITY: Record<HealthStatus, number> = {
 /** 当前实时状态回看最近几个时间桶（3 格：6h=15m / 24h=45m / 7d=6h）。 */
 const RECENT_ACTIVE_LOOKBACK = 3
 
-/** 单桶降级/异常判定阈值。 */
+/** 单桶降级/异常判定阈值（API 仅以 5xx 成功率判定，避免单分钟 P95 尖峰误报整窗降级）。 */
 export const HEALTH_THRESHOLDS = {
   OUTAGE_SUCCESS_RATE: 0.8,
   DEGRADED_SUCCESS_RATE: 0.98,
   AGENT_TTFT_DEGRADED_MS: 10_000,
   GENERATION_QUEUE_WAIT_DEGRADED_MS: 60_000,
-  API_P95_DEGRADED_MS: 3_000,
 } as const
 
 export interface BucketMetricsInput {
@@ -36,7 +35,6 @@ export interface BucketMetricsInput {
   readonly succeeded: number
   readonly ttft_p50_ms?: number | null
   readonly queue_wait_p50_ms?: number | null
-  readonly duration_p95_ms?: number | null
 }
 
 /** 根据单桶成功率和关键延迟指标判定状态。 */
@@ -59,13 +57,6 @@ export function classifyBucketStatus(
     kind === 'generation' &&
     input.queue_wait_p50_ms != null &&
     input.queue_wait_p50_ms > HEALTH_THRESHOLDS.GENERATION_QUEUE_WAIT_DEGRADED_MS
-  ) {
-    return 'degraded'
-  }
-  if (
-    kind === 'api' &&
-    input.duration_p95_ms != null &&
-    input.duration_p95_ms > HEALTH_THRESHOLDS.API_P95_DEGRADED_MS
   ) {
     return 'degraded'
   }
@@ -380,7 +371,6 @@ export function buildHealthMonitorSnapshot(input: HealthRawInput): HealthMonitor
       status: classifyBucketStatus('api', {
         total: row.requests,
         succeeded,
-        duration_p95_ms: row.p95_ms,
       }),
       total: row.requests,
       succeeded,

@@ -36,7 +36,12 @@ describe('health monitor status classification', () => {
       classifyBucketStatus('api', {
         total: 500,
         succeeded: 500,
-        duration_p95_ms: HEALTH_THRESHOLDS.API_P95_DEGRADED_MS + 1,
+      }),
+    ).toBe('healthy')
+    expect(
+      classifyBucketStatus('api', {
+        total: 100,
+        succeeded: 97,
       }),
     ).toBe('degraded')
   })

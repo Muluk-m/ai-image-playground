@@ -172,8 +172,8 @@ function BucketPopover({
             </>
           ) : (
             <>
-              <MetricRow label="响应 P50" value={formatLatencyMs(bucket.duration_p50_ms)} />
-              <MetricRow label="响应 P95" value={formatLatencyMs(bucket.duration_p95_ms)} />
+              <MetricRow label="分钟 P50 中位数" value={formatLatencyMs(bucket.duration_p50_ms)} />
+              <MetricRow label="分钟 P95 峰值" value={formatLatencyMs(bucket.duration_p95_ms)} />
               <MetricRow
                 label="请求 / 5xx"
                 value={`${bucket.total.toLocaleString('zh-CN')} / ${bucket.failed}`}
@@ -212,7 +212,7 @@ function ComponentLatencySummary({ component }: { component: HealthComponent }) 
   }
   return (
     <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-      P50 {formatLatencyMs(component.duration_p50_ms)} · P95{' '}
+      分钟 P50 {formatLatencyMs(component.duration_p50_ms)} · 分钟 P95 峰值{' '}
       {formatLatencyMs(component.duration_p95_ms)}
     </span>
   )
@@ -228,16 +228,41 @@ function HealthComponentRow({
   const tooltipId = useId()
   const stripRef = useRef<HTMLDivElement>(null)
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([])
-  const [activeIndex, setActiveIndex] = useState<number | null>(null)
+  // 按桶身份 start_at 追踪选中与焦点，轮询跨桶推进时固定浮层仍锁定同一时间段；移出窗口或切时间范围时自动收起。
+  const [activeStartAt, setActiveStartAt] = useState<number | null>(null)
   const [pinned, setPinned] = useState(false)
-  const [focusIndex, setFocusIndex] = useState(() => Math.max(0, component.buckets.length - 1))
+  const [focusStartAt, setFocusStartAt] = useState<number | null>(
+    () => component.buckets[component.buckets.length - 1]?.start_at ?? null,
+  )
   const [placement, setPlacement] = useState<'top' | 'bottom'>('top')
 
+  useEffect(() => {
+    void range
+    setActiveStartAt(null)
+    setPinned(false)
+  }, [range])
+
   const totalBuckets = component.buckets.length
-  const safeFocusIndex = Math.min(focusIndex, Math.max(0, totalBuckets - 1))
-  const activeBucket = activeIndex !== null ? (component.buckets[activeIndex] ?? null) : null
+  const activeIndex =
+    activeStartAt === null
+      ? -1
+      : component.buckets.findIndex((bucket) => bucket.start_at === activeStartAt)
+  const focusFound =
+    focusStartAt === null
+      ? -1
+      : component.buckets.findIndex((bucket) => bucket.start_at === focusStartAt)
+  const safeFocusIndex = focusFound >= 0 ? focusFound : Math.max(0, totalBuckets - 1)
+  const activeBucket = activeIndex >= 0 ? (component.buckets[activeIndex] ?? null) : null
   const anchorPercent =
-    activeIndex !== null && totalBuckets > 0 ? ((activeIndex + 0.5) / totalBuckets) * 100 : 50
+    activeIndex >= 0 && totalBuckets > 0 ? ((activeIndex + 0.5) / totalBuckets) * 100 : 50
+
+  // 固定查看的桶滚出当前时间窗口时自动清理固定态。
+  useEffect(() => {
+    if (activeStartAt !== null && activeIndex === -1) {
+      setActiveStartAt(null)
+      setPinned(false)
+    }
+  }, [activeStartAt, activeIndex])
 
   const measurePlacement = () => {
     const rect = stripRef.current?.getBoundingClientRect()
@@ -249,26 +274,28 @@ function HealthComponentRow({
   }
 
   const activate = (idx: number, pin = false) => {
+    const bucket = component.buckets[idx]
+    if (!bucket) return
     measurePlacement()
-    setActiveIndex(idx)
-    setFocusIndex(idx)
+    setActiveStartAt(bucket.start_at)
+    setFocusStartAt(bucket.start_at)
     if (pin) setPinned(true)
   }
 
   const dismiss = () => {
-    setActiveIndex(null)
+    setActiveStartAt(null)
     setPinned(false)
   }
 
   useEffect(() => {
-    if (activeIndex === null) return
+    if (activeIndex < 0) return
     const onPointerDown = (event: PointerEvent) => {
       if (
         stripRef.current &&
         event.target instanceof Node &&
         !stripRef.current.contains(event.target)
       ) {
-        setActiveIndex(null)
+        setActiveStartAt(null)
         setPinned(false)
       }
     }
@@ -321,7 +348,7 @@ function HealthComponentRow({
         ref={stripRef}
         className="relative"
         onMouseLeave={() => {
-          if (!pinned) setActiveIndex(null)
+          if (!pinned) setActiveStartAt(null)
         }}
       >
         {activeBucket ? (
@@ -360,7 +387,7 @@ function HealthComponentRow({
                 }}
                 onFocus={() => activate(idx)}
                 onBlur={() => {
-                  if (!pinned) setActiveIndex((prev) => (prev === idx ? null : prev))
+                  if (!pinned) setActiveStartAt((prev) => (prev === bucket.start_at ? null : prev))
                 }}
                 onKeyDown={(event) => onPillKeyDown(event, idx)}
                 className={cn(
@@ -475,7 +502,7 @@ export function HealthMonitorBoard({ snapshot }: { snapshot: HealthMonitorSnapsh
         <Kpi
           label="后端接口"
           value={formatAvailability(summary.api_availability)}
-          note={`P95 ${formatLatencyMs(summary.api_p95_ms)} · ${summary.api_total.toLocaleString('zh-CN')} 次`}
+          note={`分钟 P95 峰值 ${formatLatencyMs(summary.api_p95_ms)} · ${summary.api_total.toLocaleString('zh-CN')} 次`}
         />
       </div>
 

@@ -207,7 +207,7 @@ export function parseHealthRange(value: unknown): HealthRange {
 }
 
 export function parseHealthIncludePolicy(value: unknown): boolean {
-  return value === '1' || value === 'true' || value === true
+  return value === '1' || value === 1 || value === 'true' || value === true
 }
 
 export type HealthStatus = 'healthy' | 'degraded' | 'outage' | 'idle'

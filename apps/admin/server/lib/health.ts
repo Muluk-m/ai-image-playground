@@ -71,8 +71,12 @@ export async function readHealthMonitor(
             WHEN status = 'completed' AND started_at IS NOT NULL AND completed_at >= started_at
             THEN EXTRACT(EPOCH FROM completed_at - started_at) * 1000
           END AS duration_ms,
+          -- 仅统计首次尝试的排队耗时（重试任务 started_at 会被覆写，不含先前执行耗时），且同步遵守 includePolicy 口径。
           CASE
-            WHEN started_at IS NOT NULL AND started_at >= submitted_at
+            WHEN started_at IS NOT NULL
+              AND started_at >= submitted_at
+              AND attempt_count <= 1
+              AND (status = 'completed' OR error_type IS DISTINCT FROM 'content_policy' OR ${includePolicy})
             THEN EXTRACT(EPOCH FROM started_at - submitted_at) * 1000
           END AS queue_wait_ms
         FROM queue_tasks
@@ -104,7 +108,8 @@ export async function readHealthMonitor(
       WITH scoped AS (
         SELECT
           model,
-          EXTRACT(EPOCH FROM date_bin(make_interval(secs => ${bucketSeconds}), started_at, TIMESTAMPTZ '2000-01-01 00:00:00+00')) * 1000 AS bucket_at,
+          -- 终态调用按 finished_at 归桶（缺省回退 started_at），确保长流式调用刚失败时落在最新桶。
+          EXTRACT(EPOCH FROM date_bin(make_interval(secs => ${bucketSeconds}), COALESCE(finished_at, started_at), TIMESTAMPTZ '2000-01-01 00:00:00+00')) * 1000 AS bucket_at,
           status,
           CASE WHEN status = 'completed' AND ttft_ms IS NOT NULL THEN ttft_ms END AS valid_ttft_ms,
           CASE
@@ -112,8 +117,9 @@ export async function readHealthMonitor(
             THEN EXTRACT(EPOCH FROM finished_at - started_at) * 1000
           END AS duration_ms
         FROM agent_model_calls
-        WHERE started_at >= to_timestamp(${windowStartSec})
-          AND started_at < to_timestamp(${windowEndSec})
+        WHERE started_at >= to_timestamp(${submittedFloorSec})
+          AND COALESCE(finished_at, started_at) >= to_timestamp(${windowStartSec})
+          AND COALESCE(finished_at, started_at) < to_timestamp(${windowEndSec})
           AND purpose = 'conversation'
           AND status IN ('completed', 'failed')
           AND local_rejection IS NULL
