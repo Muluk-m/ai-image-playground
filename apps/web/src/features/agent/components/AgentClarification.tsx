@@ -58,13 +58,17 @@ export default function AgentClarification({
     if (submittingRef.current || locked || !text) return
     submittingRef.current = true
     setSubmitting(true)
-    void Promise.resolve()
-      .then(() => useAgentStore.getState().send(text))
-      .catch(() => {})
-      .finally(() => {
-        submittingRef.current = false
-        setSubmitting(false)
-      })
+    const finish = () => {
+      submittingRef.current = false
+      setSubmitting(false)
+    }
+    try {
+      void Promise.resolve(useAgentStore.getState().send(text))
+        .catch(() => {})
+        .finally(finish)
+    } catch {
+      finish()
+    }
   }
 
   const submitOther = (event: FormEvent) => {
@@ -143,7 +147,7 @@ export default function AgentClarification({
         selectedLabel={knownAnswer ? t('clarification.selected') : undefined}
         aria-label={message.question}
         onConfirm={
-          knownAnswer || answered || locked
+          knownAnswer || answered
             ? undefined
             : ([option]) => {
                 if (option) sendAnswer(option)
