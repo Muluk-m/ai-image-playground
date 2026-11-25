@@ -25,6 +25,13 @@ export function createSkillManifest(options?: { sourceDirectory?: string; binRoo
       files: Array<{ path: string; bytes: number; sha256: string }>
     }
   >
+  /** Package for `muvloom skill install --dir` copies (CLI 0.2.10+). */
+  dir_package: {
+    archive: string
+    archive_sha256: string
+    file_hash: string
+    files: Array<{ path: string; bytes: number; sha256: string }>
+  }
   cli?: {
     version: string
     binaries: Record<
