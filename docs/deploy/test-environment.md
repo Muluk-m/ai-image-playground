@@ -22,9 +22,10 @@
 
 ## 配置中心模式（ADR 0035）
 
-VPS 上存在 `~/.config/ai-image-playground/rendered/image-playground-test/` 目录时，test 改用配置中心，不再读 `apps/image-playground-test/` 下的 `app.env`、`migrate.env`、`operator-config.json` 和 `cloudflared/`。
+部署描述 `deploy/deployments/test.json` 的 `configSource` 为 `rendered` 时，test 用配置中心，不再读 `apps/image-playground-test/` 下的 `app.env`、`migrate.env`、`operator-config.json` 和 `cloudflared/`；为 `legacy` 时读 `app.env`。发布脚本只看这个字段，VPS 上有没有生成目录不影响判断。
 
-- **启用**：建这个空目录，下一次发布就会生效。**回退**：删掉这个目录，下一次发布回到 `app.env`。
+- **启用 / 回退**：改 `configSource` 的 PR，合入 main 后下一次 test 发布生效（test 执行 main 上的发布脚本和部署描述）。
+- **核对**：发布日志里会打出 `Configuration source: <来源>`；`rendered` 时发布后逐个确认执行器带有生成配置的摘要标签，没有就判发布失败。`/health` 的 `config.source`、`config.digest` 报告线上执行器实际用的配置。
 - **每次发布**：`vps-deploy.sh` 先用发布镜像跑 `scripts/config-render.sh test image-playground-test <镜像>`，再按生成目录跑 `check-test-isolation.sh runtime <生成目录>`；两步都在改动服务和数据库之前。
   - `config-render.sh` 凭 `~/.config/ai-image-playground/bootstrap.env` 里 test 的 Access token，从 Config Worker 取密钥，非密钥配置取自镜像里的 `deploy/deployments/test.json`。
   - 隔离检查先确认参与核对的键在各服务的 env 里取值一致（`APP_ROLE`、`PORT` 这类按服务不同的键不算），再合在一起核对；生产凭据按生产实际使用的位置比对（生产启用配置中心后读它的生成目录，否则读 `apps/image-playground-paid/app.env`）。
@@ -54,7 +55,7 @@ VPS 上存在 `~/.config/ai-image-playground/rendered/image-playground-test/` �
 4. API `/health` 返回本次提交版本（`<sha>+<sha>` 或 `<sha>`）后，才构建同一提交的测试前端；最终 `dist` 通过浏览器启动检查后才上传，上传后再验证测试域名的首页与项目深链接。
 5. 核验线上 `version.json`、TLS、CORS、登录、授权媒体与一次真实生成。
 
-GitHub 使用已有 VPS 与 Cloudflare secrets。CI 在读取 `PAGES_ENV` 后固定覆盖测试 API 为 `https://test-api.muvloom.online` 并清空 origin override，无需重写共享生产 secret 的 API 地址。共享 `PAGES_ENV` 与仓库外 `pages.env` 中的企业配置须使用 `ENTERPRISE_PUBLIC_ORIGIN` / `ENTERPRISE_BFF_BASE_URL`；旧键没有 fallback，更新前提见[部署手册](image-release.md#仓库外更新前提)。本机 `TEST_BFF_BASE_URL` 也必须使用测试 API 地址。测试使用单独 SSH key（secret `VPS_SSH_KEY_TEST`），在 VPS 绑定 `aip-ci-receive test`，只能发布 `test`；生产 key 绑定 `aip-ci-receive release`，只能发布 `paid`。`test` 镜像来自 `test` 分支本身，但宿主机执行的部署脚本由 receiver 自动从公开仓库 `main` 最新提交解出（不执行未合入 `main` 的分支脚本）；固定 `~/bin/aip-ci-receive` 自身变更时须在 VPS 备份更新。
+GitHub 使用已有 VPS 与 Cloudflare secrets。CI 在读取 `PAGES_ENV` 后固定覆盖测试 API 为 `https://test-api.muvloom.online` 并清空 origin override，无需重写共享生产 secret 的 API 地址。共享 `PAGES_ENV` 与仓库外 `pages.env` 中的企业配置须使用 `ENTERPRISE_PUBLIC_ORIGIN` / `ENTERPRISE_BFF_BASE_URL`；旧键没有 fallback，更新前提见[部署手册](image-release.md#仓库外更新前提)。本机 `TEST_BFF_BASE_URL` 也必须使用测试 API 地址。测试使用单独 SSH key（secret `VPS_SSH_KEY_TEST`），在 VPS 绑定 `aip-ci-receive test`，只能发布 `test`；生产 key 绑定 `aip-ci-receive release`，只能发布 `paid`。`test` 镜像来自 `test` 分支本身，但宿主机执行的部署脚本由 receiver 自动从公开仓库 `main` 最新提交解出（不执行未合入 `main` 的分支脚本）；`~/bin/aip-ci-receive` 自身也随 `main` 自动更新（备份旧版后替换，下一次发布生效）。
 
 发布成功后，独立的 `Browser scenarios` workflow（推送 `test` 时触发并等待发布成功）会在 runner 上用本地栈和 mock 上游跑一遍浏览器场景套件，只告警、不占用 `test-deploy` 并发组，见[浏览器场景套件](../agents/browser-scenarios.md)。
 
