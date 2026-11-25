@@ -214,6 +214,7 @@ describe('deploy config catalog', () => {
     expect(rendered.env.bff?.APP_DATABASE_URL).toBe(
       'postgresql://aip_test_app:p%40ss%2Fword@postgres:5432/aip_test',
     )
+    expect(rendered.env.bff?.APP_DIRECT_DATABASE_URL).toBeUndefined()
     expect(rendered.env.migrate?.MIGRATOR_DATABASE_URL).toBe(
       'postgresql://aip_test_migrator:fake-postgres_migrator_password@postgres:5432/aip_test',
     )
@@ -231,6 +232,34 @@ describe('deploy config catalog', () => {
       ENTERPRISE_TUNNEL_ENABLED: 'false',
       INFRA_NETWORK_NAME: 'image-playground-infra',
     })
+  })
+
+  it('routes app traffic through pgbouncer and emits APP_DIRECT_DATABASE_URL when database.pooler is enabled', () => {
+    const test = descriptor('test')
+    const pooled: Deployment = {
+      ...test,
+      database: { ...test.database, pooler: true },
+    }
+    const { rendered, problems } = renderDeployment(pooled, fakeSecrets(pooled))
+    expect(problems).toEqual([])
+    expect(rendered.env.bff?.APP_DATABASE_URL).toBe(
+      'postgresql://aip_test_app:p%40ss%2Fword@pgbouncer:6432/aip_test',
+    )
+    expect(rendered.env.bff?.APP_DIRECT_DATABASE_URL).toBe(
+      'postgresql://aip_test_app:p%40ss%2Fword@postgres:5432/aip_test',
+    )
+    expect(rendered.env.worker?.APP_DATABASE_URL).toBe(rendered.env.bff?.APP_DATABASE_URL)
+    expect(rendered.env.worker?.APP_DIRECT_DATABASE_URL).toBe(
+      rendered.env.bff?.APP_DIRECT_DATABASE_URL,
+    )
+    // migrate、admin、pg-backup 始终直连 postgres:5432，不走 PgBouncer。
+    expect(rendered.env.migrate?.MIGRATOR_DATABASE_URL).toBe(
+      'postgresql://aip_test_migrator:fake-postgres_migrator_password@postgres:5432/aip_test',
+    )
+    expect(rendered.env.admin?.ADMIN_DATABASE_URL).toBe(
+      'postgresql://aip_test_admin:fake-postgres_admin_password@postgres:5432/aip_test',
+    )
+    expect(rendered.env.admin?.APP_DIRECT_DATABASE_URL).toBeUndefined()
   })
 
   it('refuses to render without a required secret, without echoing any value', () => {

@@ -18,7 +18,8 @@ import { and, asc, eq, gt, inArray, or, type SQL } from 'drizzle-orm'
 import type { PgColumn } from 'drizzle-orm/pg-core'
 import { db, schema } from '../db/client'
 import type { BffTransaction } from './private-overlay'
-import { uploadedImageIds } from './sync-assets'
+import { lockMediaOwner } from './projectMedia'
+import { ensureAssetMediaIds, uploadedImageIds } from './sync-assets'
 
 interface ExistingMeta {
   readonly id: string
@@ -266,6 +267,144 @@ async function partitionByImages<Change extends { id: string }>(
   return { accepted, rejected }
 }
 
+/**
+ * 同步更新一条素材或模板在 `media_references` 中的引用边。
+ * 墓碑传入空数组即摘掉全部引用，并刷新被摘引媒体（含尚未回填引用边的旧记录对应 `removedImageIds`）
+ * 的 `updated_at`，确保离线端在宽限期内仍有机会完成 LWW 冲突收敛。
+ */
+async function syncOwnerMediaReferences(
+  tx: BffTransaction,
+  userId: string,
+  ownerKind: 'asset' | 'look',
+  ownerId: string,
+  imageIds: readonly string[],
+  removedImageIds: readonly string[],
+  now: number,
+): Promise<void> {
+  const existingRows = await tx
+    .select({ mediaId: schema.media_references.media_id })
+    .from(schema.media_references)
+    .where(
+      and(
+        eq(schema.media_references.user_id, userId),
+        eq(schema.media_references.owner_kind, ownerKind),
+        eq(schema.media_references.owner_id, ownerId),
+      ),
+    )
+  const existingIds = new Set(existingRows.map((row) => row.mediaId))
+  const touchRemovedLegacy = async () => {
+    const uniqueRemoved = [...new Set(removedImageIds.filter((id) => id.length > 0))]
+    if (!uniqueRemoved.length) return
+    // 尚未回填的旧图片摘引时先惰性物化，再把 updated_at 刷到当前时间，确保享有完整 24 小时宽限期。
+    await ensureAssetMediaIds(tx, userId, uniqueRemoved)
+    await tx
+      .update(schema.media_objects)
+      .set({ updated_at: now })
+      .where(
+        and(
+          eq(schema.media_objects.user_id, userId),
+          inArray(schema.media_objects.asset_image_id, uniqueRemoved),
+          eq(schema.media_objects.status, 'ready'),
+        ),
+      )
+  }
+  if (!imageIds.length) {
+    if (existingIds.size) {
+      await tx
+        .delete(schema.media_references)
+        .where(
+          and(
+            eq(schema.media_references.user_id, userId),
+            eq(schema.media_references.owner_kind, ownerKind),
+            eq(schema.media_references.owner_id, ownerId),
+          ),
+        )
+      await tx
+        .update(schema.media_objects)
+        .set({ updated_at: now })
+        .where(
+          and(
+            eq(schema.media_objects.user_id, userId),
+            inArray(schema.media_objects.id, [...existingIds]),
+          ),
+        )
+    }
+    await touchRemovedLegacy()
+    return
+  }
+
+  const mediaByImage = await ensureAssetMediaIds(tx, userId, imageIds)
+  const desiredIds = new Set<string>()
+  for (const imageId of imageIds) {
+    const mediaId = mediaByImage.get(imageId)
+    if (mediaId) desiredIds.add(mediaId)
+  }
+  const toAdd = [...desiredIds].filter((id) => !existingIds.has(id))
+  const toRemove = [...existingIds].filter((id) => !desiredIds.has(id))
+
+  if (toAdd.length) {
+    await tx
+      .insert(schema.media_references)
+      .values(
+        toAdd.map((mediaId) => ({
+          user_id: userId,
+          media_id: mediaId,
+          owner_kind: ownerKind,
+          owner_id: ownerId,
+          created_at: now,
+        })),
+      )
+      .onConflictDoNothing()
+  }
+  if (toRemove.length) {
+    await tx
+      .delete(schema.media_references)
+      .where(
+        and(
+          eq(schema.media_references.user_id, userId),
+          eq(schema.media_references.owner_kind, ownerKind),
+          eq(schema.media_references.owner_id, ownerId),
+          inArray(schema.media_references.media_id, toRemove),
+        ),
+      )
+    await tx
+      .update(schema.media_objects)
+      .set({ updated_at: now })
+      .where(
+        and(eq(schema.media_objects.user_id, userId), inArray(schema.media_objects.id, toRemove)),
+      )
+  }
+  await touchRemovedLegacy()
+}
+
+function existingAssetImageIds(row: {
+  readonly image_id: string | null
+  readonly views: Array<{ imageId: string; label: string; source: string }> | null
+  readonly deleted_at: number | null
+}): string[] {
+  if (row.deleted_at !== null) return []
+  const ids = new Set<string>()
+  if (row.image_id) ids.add(row.image_id)
+  for (const view of row.views ?? []) {
+    if (view.imageId) ids.add(view.imageId)
+  }
+  return [...ids]
+}
+
+function existingLookImageIds(row: {
+  readonly cover_image_id: string | null
+  readonly reference_image_ids: string[] | null
+  readonly deleted_at: number | null
+}): string[] {
+  if (row.deleted_at !== null) return []
+  const ids = new Set<string>()
+  if (row.cover_image_id) ids.add(row.cover_image_id)
+  for (const imageId of row.reference_image_ids ?? []) {
+    if (imageId) ids.add(imageId)
+  }
+  return [...ids]
+}
+
 async function mergeAssets(
   tx: BffTransaction,
   userId: string,
@@ -273,11 +412,23 @@ async function mergeAssets(
   allocate: AllocateVersion,
 ): Promise<string[]> {
   const table = schema.user_assets
-  const existing = await loadExistingMeta(
-    tx,
-    table,
-    userId,
-    changes.map((change) => change.id),
+  const ids = changes.map((change) => change.id)
+  const existingRows = ids.length
+    ? await tx
+        .select({
+          id: table.id,
+          updated_at: table.updated_at,
+          last_used_at: table.last_used_at,
+          deleted_at: table.deleted_at,
+          image_id: table.image_id,
+          views: table.views,
+        })
+        .from(table)
+        .where(and(eq(table.user_id, userId), inArray(table.id, ids)))
+    : []
+  const existing = new Map<string, ExistingMeta>(existingRows.map((row) => [row.id, row]))
+  const previousImagesById = new Map<string, string[]>(
+    existingRows.map((row) => [row.id, existingAssetImageIds(row)]),
   )
   return mergeChanges(changes, existing, allocate, {
     async write(change, version, lastUsedAt) {
@@ -324,6 +475,20 @@ async function mergeAssets(
                 : values.voice_id,
           },
         })
+      const nextImages = isSyncTombstone(change) ? [] : syncAssetImageIds(change)
+      const nextSet = new Set(nextImages)
+      const removedImages = (previousImagesById.get(change.id) ?? []).filter(
+        (imageId) => !nextSet.has(imageId),
+      )
+      await syncOwnerMediaReferences(
+        tx,
+        userId,
+        'asset',
+        change.id,
+        nextImages,
+        removedImages,
+        Date.now(),
+      )
     },
     async touch(id, version, lastUsedAt) {
       await tx
@@ -348,11 +513,23 @@ async function mergeLooks(
   allocate: AllocateVersion,
 ): Promise<string[]> {
   const table = schema.user_looks
-  const existing = await loadExistingMeta(
-    tx,
-    table,
-    userId,
-    changes.map((change) => change.id),
+  const ids = changes.map((change) => change.id)
+  const existingRows = ids.length
+    ? await tx
+        .select({
+          id: table.id,
+          updated_at: table.updated_at,
+          last_used_at: table.last_used_at,
+          deleted_at: table.deleted_at,
+          cover_image_id: table.cover_image_id,
+          reference_image_ids: table.reference_image_ids,
+        })
+        .from(table)
+        .where(and(eq(table.user_id, userId), inArray(table.id, ids)))
+    : []
+  const existing = new Map<string, ExistingMeta>(existingRows.map((row) => [row.id, row]))
+  const previousImagesById = new Map<string, string[]>(
+    existingRows.map((row) => [row.id, existingLookImageIds(row)]),
   )
   return mergeChanges(changes, existing, allocate, {
     async write(change, version, lastUsedAt) {
@@ -388,6 +565,20 @@ async function mergeLooks(
         .insert(table)
         .values(values)
         .onConflictDoUpdate({ target: [table.user_id, table.id], set: values })
+      const nextImages = isSyncTombstone(change) ? [] : syncLookImageIds(change)
+      const nextSet = new Set(nextImages)
+      const removedImages = (previousImagesById.get(change.id) ?? []).filter(
+        (imageId) => !nextSet.has(imageId),
+      )
+      await syncOwnerMediaReferences(
+        tx,
+        userId,
+        'look',
+        change.id,
+        nextImages,
+        removedImages,
+        Date.now(),
+      )
     },
     async touch(id, version, lastUsedAt) {
       await tx
@@ -434,6 +625,8 @@ export async function synchronize(
   const looks = dedupe(request.looks)
 
   return db.transaction(async (tx) => {
+    // 严格遵守全局锁序 users -> user_sync_state -> media_objects/media_references，避免与上传/回收死锁。
+    await lockMediaOwner(tx, userId)
     const startVersion = await lockSyncVersion(tx, userId)
     let version = startVersion
     const allocate: AllocateVersion = () => (version += 1)

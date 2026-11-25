@@ -33,6 +33,7 @@ function parseManifest(input: unknown): ClientCapabilityManifest | null {
 let currentManifest = disabledManifest()
 let attachmentLimits: AttachmentLimits | undefined
 let mediaLimits: MediaLimits | undefined
+let directSubmitExactMedia = false
 const CAPABILITY_RETRY_DELAYS_MS = [5000, 10_000]
 const CAPABILITY_DEADLINE_MS = 30_000
 
@@ -44,6 +45,7 @@ export async function bootstrapClientCapabilities(
   currentManifest = disabledManifest()
   attachmentLimits = undefined
   mediaLimits = undefined
+  directSubmitExactMedia = false
   if (!bffEnabled) return currentManifest
 
   let result: { body: unknown; parsed: ClientCapabilityManifest | null } | null = null
@@ -89,6 +91,14 @@ export async function bootstrapClientCapabilities(
         )
       )
         mediaLimits = { imageBytes: limits.imageBytes, imagePixels: limits.imagePixels }
+    }
+    if (
+      typeof body === 'object' &&
+      body !== null &&
+      'directSubmitExactMedia' in body &&
+      (body as { directSubmitExactMedia?: unknown }).directSubmitExactMedia === true
+    ) {
+      directSubmitExactMedia = true
     }
   } catch (error) {
     // A missing capability response must never enable a feature.
@@ -192,4 +202,9 @@ export function getMediaLimits(): Readonly<MediaLimits> | undefined {
 
 export function getAttachmentLimits(): Readonly<AttachmentLimits> | undefined {
   return attachmentLimits
+}
+
+/** 服务端是否支持队列提交原字节媒体直通（避免旧代 BFF 二次压缩破坏幂等哈希）。 */
+export function supportsDirectSubmitExactMedia(): boolean {
+  return directSubmitExactMedia
 }

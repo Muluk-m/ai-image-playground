@@ -25,7 +25,6 @@ mock.module(path('lib/operator-config-overrides.ts'), () => ({ refreshOperatorCo
 mock.module(path('lib/channels.ts'), () => ({ initChannels: () => ({ warnings: [] }), refreshChannelsIfChanged: noop }));
 mock.module(path('lib/heartbeat.ts'), () => ({ purgeStaleHeartbeats: done, startHeartbeat: () => noop }));
 mock.module(path('lib/logger.ts'), () => ({ log: { warn: noop, error: noop, info: noop, flush: noop } }));
-mock.module(path('lib/server-logs.ts'), () => ({ startServerLogs: () => done }));
 mock.module(path('lib/shared-maintenance.ts'), () => ({ startSharedMaintenance: () => done }));
 mock.module(path('lib/upstream/gpt-direct-admin.ts'), () => ({ refreshUpstreamKeySources: done }));
 mock.module(path('lib/upstream/gpt-key-config.ts'), () => ({ logFingerprintMacSourceOnce: noop }));

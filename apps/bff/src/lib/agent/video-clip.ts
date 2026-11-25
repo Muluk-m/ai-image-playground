@@ -1,3 +1,4 @@
+import { resolvedTaskResultPayload } from '@image-playground/db'
 import { parseProjectArtifactId } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
 import { config } from '../../config'
@@ -93,9 +94,10 @@ async function readStoredVideo(
     .select({
       status: schema.tasks.status,
       provider: schema.tasks.provider,
-      result_payload: schema.tasks.result_payload,
+      result_payload: resolvedTaskResultPayload,
     })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(
       and(
         eq(schema.tasks.agent_conversation_id, context.conversationId),

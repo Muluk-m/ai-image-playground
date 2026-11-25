@@ -7,7 +7,7 @@ import {
   bioError,
   nicknameError,
 } from '@image-playground/shared'
-import { eq, inArray } from 'drizzle-orm'
+import { eq, inArray, or } from 'drizzle-orm'
 import sharp from 'sharp'
 import { db, schema } from '../db/client'
 import { accountProfileView } from './account-profile-view'
@@ -288,6 +288,22 @@ export async function deleteOwnAccount(
         )
         await tx.delete(schema.analysis_tasks).where(eq(schema.analysis_tasks.user_id, userId))
       }
+
+      // 显式摘掉该用户自身及指向该用户媒体对象的全部引用，避免跨用户脏引用或外键顺序阻塞注销。
+      await tx
+        .delete(schema.media_references)
+        .where(
+          or(
+            eq(schema.media_references.user_id, userId),
+            inArray(
+              schema.media_references.media_id,
+              tx
+                .select({ id: schema.media_objects.id })
+                .from(schema.media_objects)
+                .where(eq(schema.media_objects.user_id, userId)),
+            ),
+          ),
+        )
 
       // tasks.user_id 是 NO ACTION，不先摘掉就删不掉用户。
       const tasks = await tx

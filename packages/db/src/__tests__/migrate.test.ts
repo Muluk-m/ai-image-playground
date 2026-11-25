@@ -874,7 +874,7 @@ describe('runMigrations', () => {
           `
         expect(await readIndexes()).toEqual([])
 
-        await ensureConcurrentIndexes(client)
+        await ensureConcurrentIndexes(client, { migrationTag: '0104_tasks_reconciling_index' })
         const built = await readIndexes()
         expect(built.map((row) => ({ relname: row.relname, indisvalid: row.indisvalid }))).toEqual([
           { relname: 'idx_tasks_reconciling_alert', indisvalid: true },
@@ -909,12 +909,259 @@ describe('runMigrations', () => {
         expect(builtConcurrently).toEqual([
           'idx_tasks_reconciling_next_retry',
           'idx_tasks_reconciling_alert',
+          'idx_media_objects_owner_asset_image',
         ])
         await expect(verifySchema(url)).resolves.toMatchObject({
           migrations: journal.entries.length,
         })
       } finally {
         await client.close()
+      }
+    })
+  }, 30_000)
+
+  it('switches queue_tasks cold payload columns to task_payloads with fallback and preserves grants', async () => {
+    await withEmptyDatabase('queue_tasks_payload_view_upgrade', async (url) => {
+      await migrateUntil(url, '0105_task_payloads')
+      const sql = new SQL(url, { max: 1 })
+      try {
+        await sql`GRANT SELECT ON queue_tasks TO PUBLIC`
+        await sql`CREATE VIEW queue_tasks_payload_reader AS SELECT id, request_payload FROM queue_tasks`
+        await runMigrations(url)
+
+        await sql`
+          INSERT INTO tasks (id, provider, model, status, request_payload, result_payload, upstream_body, submitted_at)
+          VALUES
+            ('backfilled', 'openai-compat', 'gpt-image-2', 'completed', '{"prompt":"old","device_id":"d1"}'::jsonb, '{"stale":true}'::jsonb, 'old err', now()),
+            ('unbackfilled', 'openai-compat', 'gpt-image-2', 'completed', '{"prompt":"legacy","device_id":"d1"}'::jsonb, '{"legacy":1}'::jsonb, 'legacy err', now())
+        `
+        await sql`
+          INSERT INTO task_payloads (task_id, request_payload, result_payload, upstream_body)
+          VALUES ('backfilled', '{"prompt":"new","device_id":"d1"}'::jsonb, NULL, 'new err')
+        `
+
+        const rows = await sql`
+          SELECT id, request_payload, result_payload, upstream_body
+          FROM queue_tasks
+          ORDER BY id
+        `
+        expect(rows).toEqual([
+          {
+            id: 'backfilled',
+            request_payload: { prompt: 'new', device_id: 'd1' },
+            result_payload: null,
+            upstream_body: 'new err',
+          },
+          {
+            id: 'unbackfilled',
+            request_payload: { prompt: 'legacy', device_id: 'd1' },
+            result_payload: { legacy: 1 },
+            upstream_body: 'legacy err',
+          },
+        ])
+        expect(
+          await sql`SELECT id, request_payload FROM queue_tasks_payload_reader ORDER BY id`,
+        ).toEqual([
+          { id: 'backfilled', request_payload: { prompt: 'new', device_id: 'd1' } },
+          { id: 'unbackfilled', request_payload: { prompt: 'legacy', device_id: 'd1' } },
+        ])
+        expect(
+          await sql`SELECT privilege_type FROM information_schema.table_privileges
+            WHERE table_schema = 'public' AND table_name = 'queue_tasks' AND grantee = 'PUBLIC'`,
+        ).toEqual([{ privilege_type: 'SELECT' }])
+
+        // Hot-column updates must not trigger sync into task_payloads.
+        await sql`UPDATE tasks SET status = 'failed' WHERE id = 'unbackfilled'`
+        expect(await sql`SELECT task_id FROM task_payloads WHERE task_id = 'unbackfilled'`).toEqual(
+          [],
+        )
+
+        // Direct cold-column updates (e.g. a pre-5.2 container draining during rolling deploy) must
+        // mirror ONLY the changed column(s) into task_payloads without clobbering untouched columns.
+        await sql`
+          UPDATE tasks
+          SET result_payload = '{"from_legacy_writer":true}'::jsonb
+          WHERE id = 'backfilled'
+        `
+        expect(
+          await sql`SELECT request_payload, result_payload, upstream_body FROM task_payloads WHERE task_id = 'backfilled'`,
+        ).toEqual([
+          {
+            request_payload: { prompt: 'new', device_id: 'd1' },
+            result_payload: { from_legacy_writer: true },
+            upstream_body: 'new err',
+          },
+        ])
+        expect(
+          await sql`SELECT request_payload, result_payload, upstream_body FROM queue_tasks WHERE id = 'backfilled'`,
+        ).toEqual([
+          {
+            request_payload: { prompt: 'new', device_id: 'd1' },
+            result_payload: { from_legacy_writer: true },
+            upstream_body: 'new err',
+          },
+        ])
+
+        // Even when tasks.result_payload is already NULL while task_payloads holds a non-NULL value,
+        // an explicit `UPDATE tasks SET result_payload = NULL` must fire the per-column trigger and
+        // clear task_payloads.result_payload without touching other columns.
+        await sql`
+          INSERT INTO tasks (id, provider, model, status, request_payload, result_payload, upstream_body, submitted_at)
+          VALUES ('null-clear', 'openai-compat', 'gpt-image-2', 'in_progress', '{"prompt":"old-null","device_id":"d1"}'::jsonb, NULL, 'old-up', now())
+        `
+        await sql`
+          INSERT INTO task_payloads (task_id, request_payload, result_payload, upstream_body)
+          VALUES ('null-clear', '{"prompt":"cold-null","device_id":"d1"}'::jsonb, '{"stale_cold":1}'::jsonb, 'cold-up')
+        `
+        await sql`UPDATE tasks SET result_payload = NULL WHERE id = 'null-clear'`
+        expect(
+          await sql`SELECT request_payload, result_payload, upstream_body FROM task_payloads WHERE task_id = 'null-clear'`,
+        ).toEqual([
+          {
+            request_payload: { prompt: 'cold-null', device_id: 'd1' },
+            result_payload: null,
+            upstream_body: 'cold-up',
+          },
+        ])
+
+        await sql.unsafe(
+          await Bun.file(
+            join(migrationsDirectory, 'rollback/0106_queue_tasks_payload_view.down.sql'),
+          ).text(),
+        )
+        // Rollback must back-sync authoritative task_payloads values onto tasks before switching
+        // queue_tasks back, so stale legacy values are never resurrected.
+        const rolledBackRows = await sql`
+          SELECT id, request_payload, result_payload, upstream_body
+          FROM queue_tasks
+          WHERE id IN ('backfilled', 'null-clear', 'unbackfilled')
+          ORDER BY id
+        `
+        expect(rolledBackRows).toEqual([
+          {
+            id: 'backfilled',
+            request_payload: { prompt: 'new', device_id: 'd1' },
+            result_payload: { from_legacy_writer: true },
+            upstream_body: 'new err',
+          },
+          {
+            id: 'null-clear',
+            request_payload: { prompt: 'cold-null', device_id: 'd1' },
+            result_payload: null,
+            upstream_body: 'cold-up',
+          },
+          {
+            id: 'unbackfilled',
+            request_payload: { prompt: 'legacy', device_id: 'd1' },
+            result_payload: { legacy: 1 },
+            upstream_body: 'legacy err',
+          },
+        ])
+        expect(
+          await sql`SELECT privilege_type FROM information_schema.table_privileges
+            WHERE table_schema = 'public' AND table_name = 'queue_tasks' AND grantee = 'PUBLIC'`,
+        ).toEqual([{ privilege_type: 'SELECT' }])
+        await sql`DROP VIEW queue_tasks_payload_reader`
+      } finally {
+        await sql.close()
+      }
+    })
+  }, 30_000)
+
+  it('unifies media ledger columns, builds 0108 index concurrently, fixes user cascade delete, and back-syncs on rollback', async () => {
+    await withEmptyDatabase('media_ledger_unification_upgrade', async (url) => {
+      await migrateUntil(url, '0106_queue_tasks_payload_view')
+      const sql = new SQL(url, { max: 1 })
+      try {
+        const builtConcurrently: string[] = []
+        await runMigrations(url, {
+          onConcurrentIndexBuilt: (name) => builtConcurrently.push(name),
+        })
+        expect(builtConcurrently).toEqual(['idx_media_objects_owner_asset_image'])
+        // All 0107 constraints must be validated by 0108 in its separate transaction.
+        const constraints = await sql<{ conname: string; convalidated: boolean }[]>`
+          SELECT conname, convalidated
+          FROM pg_constraint
+          WHERE conname IN (
+            'media_objects_storage_scope_check',
+            'media_references_owner_kind_check',
+            'media_references_media_id_fkey'
+          )
+          ORDER BY conname
+        `
+        expect(constraints).toEqual([
+          { conname: 'media_objects_storage_scope_check', convalidated: true },
+          { conname: 'media_references_media_id_fkey', convalidated: true },
+          { conname: 'media_references_owner_kind_check', convalidated: true },
+        ])
+
+        const now = new Date()
+        await sql`
+          INSERT INTO users (id, username, password_hash, status, created_at, updated_at)
+          VALUES
+            ('u-rollback', 'u-rollback', 'hash', 'active', ${now}, ${now}),
+            ('u-cascade', 'u-cascade', 'hash', 'active', ${now}, ${now})
+        `
+        // Unified media row exists only in media_objects (e.g. post-unification upload or sync).
+        await sql`
+          INSERT INTO media_objects (
+            id, user_id, sha256, bytes, content_type, status, attachment_managed,
+            reserved_bytes, staging_key, object_key, preview_bytes,
+            asset_image_id, storage_scope, expires_at, created_at, updated_at
+          )
+          VALUES
+            (
+              'm-rollback', 'u-rollback', 'asset:img-rb', 123, 'image/png', 'ready', false,
+              123, 'users/u-rollback/assets/img-rb', 'users/u-rollback/assets/img-rb', 0,
+              'img-rb', 'object', ${now}, ${now}, ${now}
+            ),
+            (
+              'm-cascade', 'u-cascade', 'asset:img-cas', 64, 'image/png', 'ready', false,
+              64, 'users/u-cascade/assets/img-cas', 'users/u-cascade/assets/img-cas', 0,
+              'img-cas', 'object', ${now}, ${now}, ${now}
+            )
+        `
+        await sql`
+          INSERT INTO media_references (user_id, media_id, owner_kind, owner_id, created_at)
+          VALUES
+            ('u-rollback', 'm-rollback', 'look', 'look-1', ${now}),
+            ('u-rollback', 'm-rollback', 'cli_reference', 'm-rollback', ${now}),
+            ('u-cascade', 'm-cascade', 'asset', 'asset-1', ${now})
+        `
+
+        // Direct deletion of a referenced media_objects row must still fail with FK violation.
+        // Wrap Bun's lazy SQLQuery in an async IIFE so expect().rejects receives a native Promise.
+        await expect(
+          (async () => {
+            await sql`DELETE FROM media_objects WHERE id = 'm-cascade'`
+          })(),
+        ).rejects.toThrow()
+        // Deleting the owning user must cascade both media_objects and media_references cleanly.
+        await sql`DELETE FROM users WHERE id = 'u-cascade'`
+        expect(await sql`SELECT id FROM media_objects WHERE user_id = 'u-cascade'`).toEqual([])
+        expect(
+          await sql`SELECT media_id FROM media_references WHERE user_id = 'u-cascade'`,
+        ).toEqual([])
+
+        // Rollback 0108 then 0107 must preserve u-rollback's asset in user_asset_objects.
+        await sql.unsafe(
+          await Bun.file(
+            join(migrationsDirectory, 'rollback/0108_media_objects_asset_image_index.down.sql'),
+          ).text(),
+        )
+        await sql.unsafe(
+          await Bun.file(
+            join(migrationsDirectory, 'rollback/0107_media_ledger_unification.down.sql'),
+          ).text(),
+        )
+        expect(
+          await sql`SELECT user_id, image_id, bytes, content_type FROM user_asset_objects WHERE user_id = 'u-rollback'`,
+        ).toEqual([
+          { user_id: 'u-rollback', image_id: 'img-rb', bytes: 123, content_type: 'image/png' },
+        ])
+        expect(await sql`SELECT id FROM media_objects WHERE user_id = 'u-rollback'`).toEqual([])
+      } finally {
+        await sql.close()
       }
     })
   }, 30_000)

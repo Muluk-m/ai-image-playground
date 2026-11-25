@@ -19,7 +19,6 @@ import {
 } from './lib/operator-config-overrides'
 import { startPeriodicSteps } from './lib/periodic'
 import { purgeDeletingUnreferencedMedia, purgeExpiredAttachmentMedia } from './lib/projectMedia'
-import { startServerLogs } from './lib/server-logs'
 import { initTelemetry, shutdownTelemetry } from './lib/telemetry'
 import { refreshUpstreamKeySources } from './lib/upstream/gpt-direct-admin'
 import { logFingerprintMacSourceOnce } from './lib/upstream/gpt-key-config'
@@ -28,7 +27,6 @@ import { purgeOldAgentTurnEvents } from './modules/agent'
 import { expireStaleStageAuthorizations } from './modules/agent/orchestration'
 
 initTelemetry('bff')
-const stopServerLogs = startServerLogs()
 config.assertValid()
 log.info(
   {
@@ -154,6 +152,8 @@ const stopMaintenance = startPeriodicSteps(
             run: async (signal: AbortSignal) => {
               await purgeExpiredAttachmentMedia()
               if (signal.aborted) return
+              // Expand 滚动发布阶段旧代 BFF 尚未退出且仍运行不含 storage_scope 感知的 deleting 清扫，
+              // 待生产完成 Expand 部署与零搬运回填后，再在切换/收口阶段挂载 reclaimUnreferencedAssetMedia。
               await purgeDeletingUnreferencedMedia(signal)
             },
           },
@@ -293,7 +293,6 @@ const upstreamSecretTimer = setInterval(() => {
 let shuttingDown = false
 
 async function finalize(exitCode = 0): Promise<never> {
-  await stopServerLogs()
   await closeDb()
   await shutdownTelemetry()
   // pino async transport：log.flush() 同步刷盘，防 process.exit 吞最后几行。

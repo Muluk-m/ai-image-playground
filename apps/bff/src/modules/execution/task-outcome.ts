@@ -1,4 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises'
+import { resolvedTaskResultPayload } from '@image-playground/db'
 import type { TaskErrorType, TaskStatus } from '@image-playground/shared'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
@@ -98,11 +99,12 @@ export async function awaitQueueTask(
       .select({
         status: schema.tasks.status,
         provider: schema.tasks.provider,
-        result_payload: schema.tasks.result_payload,
+        result_payload: resolvedTaskResultPayload,
         error_message: schema.tasks.error_message,
         error_type: schema.tasks.error_type,
       })
       .from(schema.tasks)
+      .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
       .where(eq(schema.tasks.id, taskId))
       .limit(1)
     if (!task) return { kind: 'failed', reason: '任务丢失了', errorType: 'unknown' }

@@ -1,3 +1,4 @@
+import { taskHasArchivePayloadSql } from '@image-playground/db'
 import type { QueueProvider } from '@image-playground/shared'
 import {
   and,
@@ -79,7 +80,7 @@ export async function selectRunnableTasks(
           eq(schema.tasks.provider, provider),
           eq(schema.tasks.status, 'queued'),
           eq(schema.tasks.kind, 'queue'),
-          options.excludeArchived ? isNull(schema.tasks.archive_payload) : undefined,
+          options.excludeArchived ? not(taskHasArchivePayloadSql) : undefined,
           or(isNull(schema.tasks.next_retry_at), lte(schema.tasks.next_retry_at, now)),
           excludedUsers.size || roundUsers.size
             ? or(

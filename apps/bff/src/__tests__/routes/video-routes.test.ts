@@ -780,4 +780,6 @@ class HugeVideoStore implements ObjectStore {
   }
 
   async deletePrefix(): Promise<void> {}
+
+  async deleteObject(): Promise<void> {}
 }

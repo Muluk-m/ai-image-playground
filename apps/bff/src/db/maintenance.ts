@@ -1,3 +1,4 @@
+import { resolvedTaskArchivePayload, taskRequestPayloadSubquerySql } from '@image-playground/db'
 import { QUEUE_TIMEOUTS } from '@image-playground/shared'
 import {
   and,
@@ -103,11 +104,12 @@ async function recoverTasks(scope: SQL, now: number): Promise<RecoveredTasks> {
       reconciliationRequired: schema.tasks.reconciliation_required,
       attemptCount: schema.tasks.attempt_count,
       upstreamTaskIds: schema.tasks.upstream_task_ids,
-      archivePayload: schema.tasks.archive_payload,
+      archivePayload: resolvedTaskArchivePayload,
       executionToken: schema.tasks.execution_token,
       invocationCount: schema.tasks.upstream_invocation_count,
     })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(and(eq(schema.tasks.status, 'in_progress'), recoverable))
 
   let resumedPolling = 0
@@ -308,7 +310,7 @@ export async function purgeOldTasks(
           and(
             purgeable,
             or(
-              sql`${schema.tasks.request_payload}->>'output_retention' = 'candidate'`,
+              sql`${taskRequestPayloadSubquerySql}->>'output_retention' = 'candidate'`,
               eq(schema.tasks.reconciliation_required, true),
             ),
             afterId === undefined ? undefined : gt(schema.tasks.id, afterId),
@@ -353,7 +355,7 @@ export async function purgeOldTasks(
     .where(
       and(
         purgeable,
-        sql`${schema.tasks.request_payload}->>'output_retention' IS DISTINCT FROM 'candidate'`,
+        sql`${taskRequestPayloadSubquerySql}->>'output_retention' IS DISTINCT FROM 'candidate'`,
         eq(schema.tasks.reconciliation_required, false),
       ),
     )

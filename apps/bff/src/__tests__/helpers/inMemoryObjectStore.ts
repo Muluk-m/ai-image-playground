@@ -90,4 +90,14 @@ export class InMemoryObjectStore implements ObjectStore {
       if (key.startsWith(prefix)) this.objects.delete(key)
     }
   }
+
+  async deleteObject(key: string): Promise<void> {
+    this.events.push(`deleteObject:${key}`)
+    await this.beforeDeletePrefix?.(key)
+    if (this.deleteFailuresRemaining > 0) {
+      this.deleteFailuresRemaining--
+      throw new Error('in-memory delete failure')
+    }
+    this.objects.delete(key)
+  }
 }

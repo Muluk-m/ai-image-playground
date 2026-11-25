@@ -175,8 +175,19 @@ export const syncRoutes = new Elysia()
       }
 
       const bytes = new Uint8Array(await request.arrayBuffer())
+      if (bytes.byteLength === 0) {
+        return status(400, { error: 'invalid_request', message: 'empty asset image' })
+      }
       const stored = await storeAssetImage(authUser.id, params.imageId, bytes, contentType)
-      if (!stored.ok) return status(413, { error: stored.error, limit: stored.limit })
+      if (!stored.ok) {
+        if (stored.error === 'asset_image_empty') {
+          return status(400, { error: 'invalid_request', message: 'empty asset image' })
+        }
+        if (stored.error === 'asset_media_deleting') {
+          return status(409, { error: 'media_deleting' })
+        }
+        return status(413, { error: stored.error, limit: stored.limit })
+      }
       return stored.result
     },
     { params: imageIdParams, parse: 'none' },

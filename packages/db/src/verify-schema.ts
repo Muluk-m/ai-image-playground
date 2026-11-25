@@ -72,6 +72,7 @@ export const EXPECTED_TABLES = [
   'host_samples',
   'service_heartbeats',
   'tasks',
+  'task_payloads',
   'task_dispatches',
   'user_asset_objects',
   'user_assets',
@@ -157,6 +158,7 @@ export const EXPECTED_INDEXES = [
   'media_objects_pkey',
   'media_references_user_id_owner_kind_owner_id_media_id_pk',
   'idx_media_objects_owner_hash',
+  'idx_media_objects_owner_asset_image',
   'idx_media_objects_pending',
   'idx_media_references_media',
   'generation_commands_user_id_command_id_pk',
@@ -262,6 +264,7 @@ export const EXPECTED_INDEXES = [
   'operator_audits_pkey',
   'service_heartbeats_service_instance_pk',
   'tasks_pkey',
+  'task_payloads_pkey',
   'task_dispatches_pkey',
   'idx_task_dispatches_task',
   'user_asset_objects_user_id_image_id_pk',
@@ -326,6 +329,8 @@ export const EXPECTED_COLUMNS = [
   'gpt_direct_admin_keys.fingerprint',
   'tasks.reconcile_alerted_at',
   'generation_images.deleted_at',
+  'media_objects.asset_image_id',
+  'media_objects.storage_scope',
 ] as const
 
 /** Columns whose type matters as much as their presence: the code reads them as JSON. */

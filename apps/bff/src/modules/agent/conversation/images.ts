@@ -1,3 +1,4 @@
+import { resolvedTaskResultPayload } from '@image-playground/db'
 import type {
   AgentMediaReference,
   AgentMessageView,
@@ -236,9 +237,10 @@ async function readTaskOutput(
     .select({
       status: schema.tasks.status,
       provider: schema.tasks.provider,
-      result_payload: schema.tasks.result_payload,
+      result_payload: resolvedTaskResultPayload,
     })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .leftJoin(schema.generation_records, eq(schema.generation_records.id, schema.tasks.id))
     // No-sync deployments and old records without source metadata still use retained tasks.
     // Never bypass deletion or a modern durable output's unavailable original.
@@ -351,6 +353,7 @@ export async function readConversationMedia(
   const fields = {
     objectKey: schema.media_objects.object_key,
     previewKey: schema.media_objects.preview_key,
+    storageScope: schema.media_objects.storage_scope,
     contentType: schema.media_objects.content_type,
   }
   const filter = and(
@@ -397,11 +400,12 @@ export async function readConversationMedia(
   const previewKey = variant === 'preview' ? row?.previewKey : null
   const key = previewKey ?? row?.objectKey
   if (!key) return null
+  const store = !previewKey && row.storageScope === 'object' ? objectStore() : durableMediaStore()
   return {
     bytes:
       maxBytes === undefined
-        ? await durableMediaStore().read(key)
-        : await readObjectWithinLimit(durableMediaStore(), key, maxBytes),
+        ? await store.read(key)
+        : await readObjectWithinLimit(store, key, maxBytes),
     // 预留的预览是 webp，原件那一行的 content type 对不上它，按字节认。
     contentType: previewKey ? 'image/webp' : row.contentType,
     reduced: previewKey !== null,
@@ -722,6 +726,7 @@ export async function validateConversationMediaSelections(
       width: schema.media_objects.width,
       height: schema.media_objects.height,
       objectKey: schema.media_objects.object_key,
+      storageScope: schema.media_objects.storage_scope,
       contentType: schema.media_objects.content_type,
     })
     .from(schema.media_objects)
@@ -747,16 +752,18 @@ export async function validateConversationMediaSelections(
       original.height !== mask.height
     )
       return false
+    const originalStore = original.storageScope === 'object' ? objectStore() : durableMediaStore()
+    const maskStore = mask.storageScope === 'object' ? objectStore() : durableMediaStore()
     try {
       await withVisualPreparation(async () =>
         imageSelection(
           {
             dataUrl: dataUrl(
-              await readObjectWithinLimit(durableMediaStore(), originalKey, visualByteLimit()),
+              await readObjectWithinLimit(originalStore, originalKey, visualByteLimit()),
               original.contentType,
             ),
             maskDataUrl: dataUrl(
-              await readObjectWithinLimit(durableMediaStore(), maskKey, visualByteLimit()),
+              await readObjectWithinLimit(maskStore, maskKey, visualByteLimit()),
               mask.contentType,
             ),
           },

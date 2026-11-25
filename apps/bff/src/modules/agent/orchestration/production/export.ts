@@ -1,3 +1,4 @@
+import { resolvedTaskResultPayload } from '@image-playground/db'
 import { type ProductionMediaReference, parseProjectArtifactId } from '@image-playground/shared'
 import { and, eq } from 'drizzle-orm'
 import { db, schema } from '../../../../db/client'
@@ -5,7 +6,7 @@ import { durableMediaStore } from '../../../../lib/durableMediaStore'
 import { resolveImageBytesRef } from '../../../../lib/extractImages'
 import { type ObjectRangeReader, objectStore } from '../../../../lib/objectStore'
 import { asQueueProvider } from '../../../../lib/queueProvider'
-import { assetObjectKey } from '../../../../lib/sync-assets'
+import { findAssetImageMeta } from '../../../../lib/sync-assets'
 import { taskAccessWhere } from '../../../../lib/task-access'
 import { productionMediaReferences, productionReferenceKey } from './asset-validation'
 import { productionGenerationMetadata } from './generation'
@@ -61,10 +62,11 @@ async function authorizeExport(
     const [task] = await db
       .select({
         provider: schema.tasks.provider,
-        result: schema.tasks.result_payload,
+        result: resolvedTaskResultPayload,
         status: schema.tasks.status,
       })
       .from(schema.tasks)
+      .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
       .where(
         and(
           taskAccessWhere(parsed.generationId, userId),
@@ -133,21 +135,14 @@ async function exportOriginal(
     if (!media) return missing()
     if (media.user_id !== userId) return notFound()
     return media.status === 'ready' && media.object_key
-      ? openStored(media.object_key, media.content_type, true)
+      ? openStored(media.object_key, media.content_type, media.storage_scope === 'durable')
       : missing(media.content_type)
   }
   if (reference.kind === 'asset') {
-    const [asset] = await db
-      .select({ mime: schema.user_asset_objects.content_type })
-      .from(schema.user_asset_objects)
-      .where(
-        and(
-          eq(schema.user_asset_objects.user_id, userId),
-          eq(schema.user_asset_objects.image_id, reference.imageId),
-        ),
-      )
-      .limit(1)
-    return asset ? openStored(assetObjectKey(userId, reference.imageId), asset.mime) : missing()
+    const asset = await findAssetImageMeta(db, userId, reference.imageId)
+    return asset
+      ? openStored(asset.objectKey, asset.contentType, asset.storageScope === 'durable')
+      : missing()
   }
   const parsed = parseProjectArtifactId(reference.artifactId)
   if (!parsed) return notFound()
@@ -155,9 +150,10 @@ async function exportOriginal(
     .select({
       status: schema.tasks.status,
       provider: schema.tasks.provider,
-      result: schema.tasks.result_payload,
+      result: resolvedTaskResultPayload,
     })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(
       and(
         taskAccessWhere(parsed.generationId, userId),

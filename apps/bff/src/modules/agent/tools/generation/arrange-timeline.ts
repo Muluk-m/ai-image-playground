@@ -1,3 +1,4 @@
+import { resolvedTaskRequestPayload } from '@image-playground/db'
 import {
   type AgentTimelineClip,
   type AgentTimelinePlan,
@@ -42,9 +43,10 @@ async function finishedVideoSeconds(
     .select({
       status: schema.tasks.status,
       user_id: schema.tasks.user_id,
-      request: schema.tasks.request_payload,
+      request: resolvedTaskRequestPayload,
     })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .innerJoin(schema.agent_jobs, eq(schema.agent_jobs.task_id, schema.tasks.id))
     .where(
       and(

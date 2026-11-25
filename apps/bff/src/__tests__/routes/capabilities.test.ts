@@ -24,7 +24,12 @@ describe('GET /api/capabilities', () => {
 
     expect(response.status).toBe(200)
     expect(Object.keys(body).sort()).toEqual(
-      [...exposedKeys, 'projectDocumentIdentity', 'canvasPendingMedia'].sort(),
+      [
+        ...exposedKeys,
+        'projectDocumentIdentity',
+        'canvasPendingMedia',
+        'directSubmitExactMedia',
+      ].sort(),
     )
     // 节点画布常开后（752adb55c）退役的四个旧字段不再下发。
     for (const retired of [
@@ -37,6 +42,7 @@ describe('GET /api/capabilities', () => {
     expect(body.projectDocumentIdentity).toBe(true)
     // 读取端（#1452）上线满一天后打开：客户端可写上传中节点，不再等图片上云才同步。
     expect(body.canvasPendingMedia).toBe(true)
+    expect(body.directSubmitExactMedia).toBe(true)
     expect(body['accounts:login']).toBe(true)
     expect(body['accounts:self-register']).toBe(false)
     expect(body['accounts:sync']).toBe(false)

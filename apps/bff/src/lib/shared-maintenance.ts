@@ -1,8 +1,7 @@
 import { SQL } from 'bun'
 import { sql } from 'drizzle-orm'
 import { type BunSQLDatabase, drizzle } from 'drizzle-orm/bun-sql'
-import { config } from '../config'
-import { schema } from '../db/client'
+import { resolveDirectDatabaseUrl, schema } from '../db/client'
 
 export const SHARED_MAINTENANCE_INTERVAL_MS = 5 * 60_000
 export type MaintenanceTransaction = Parameters<
@@ -31,7 +30,7 @@ export function createSharedMaintenance(options: SharedMaintenanceOptions) {
   const execute = async () => {
     try {
       if (!client) {
-        client = new SQL(process.env.DATABASE_URL?.trim() || config.databaseUrl, {
+        client = new SQL(resolveDirectDatabaseUrl(), {
           max: 1,
           idleTimeout: 0,
           maxLifetime: 0,

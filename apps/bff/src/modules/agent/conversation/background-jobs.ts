@@ -1,3 +1,4 @@
+import { resolvedTaskArchivePayload, resolvedTaskResultPayload } from '@image-playground/db'
 import {
   type AgentBackgroundJobProgress,
   type AgentBackgroundJobView,
@@ -174,11 +175,12 @@ export async function settleAgentJobs(
           id: schema.tasks.id,
           status: schema.tasks.status,
           provider: schema.tasks.provider,
-          result_payload: schema.tasks.result_payload,
+          result_payload: resolvedTaskResultPayload,
           error_message: schema.tasks.error_message,
           error_type: schema.tasks.error_type,
         })
         .from(schema.tasks)
+        .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
         .where(
           and(
             inArray(schema.tasks.id, lookupIds),
@@ -523,7 +525,7 @@ export async function agentJobViews(
       id: schema.tasks.id,
       status: schema.tasks.status,
       submitted_at: schema.tasks.submitted_at,
-      archive_payload: schema.tasks.archive_payload,
+      archive_payload: resolvedTaskArchivePayload,
       upstream_task_ids: schema.tasks.upstream_task_ids,
       lease_expires_at: schema.tasks.lease_expires_at,
       next_retry_at: schema.tasks.next_retry_at,
@@ -531,6 +533,7 @@ export async function agentJobViews(
       user_id: schema.tasks.user_id,
     })
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(
       and(
         inArray(schema.tasks.id, [...new Set(pending)]),

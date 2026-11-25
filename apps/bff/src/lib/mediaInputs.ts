@@ -4,7 +4,7 @@ import { config } from '../config'
 import { db, schema } from '../db/client'
 import { durableMediaStore } from './durableMediaStore'
 import { log } from './logger'
-import { ObjectStoreHttpError } from './objectStore'
+import { ObjectStoreHttpError, objectStore } from './objectStore'
 
 /** 提交里按云媒体身份给的输入图：`aip-media:<media_objects.id>`。 */
 export const MEDIA_INPUT_PATTERN = '^aip-media:[0-9a-f-]{36}$'
@@ -68,19 +68,21 @@ export async function resolveMediaInputs(
   inputs: readonly string[] | undefined,
   options: {
     readonly masked: boolean
+    /** 仅对这些输入下标保持原字节不二次压缩（工作台预签名直传的本地图），避免影响同请求内既有云媒体。 */
+    readonly exactIndices?: ReadonlySet<number>
     /** 请求自己的取消信号：客户端断开后不再替它等对象存储。 */
     readonly signal?: AbortSignal
   },
 ): Promise<string[] | undefined> {
   if (!inputs?.some((input) => MEDIA_INPUT.test(input))) return inputs ? [...inputs] : inputs
   if (!userId) throw new MediaInputError('按媒体引用输入图需要登录')
-  const ids = [
-    ...new Set(inputs.flatMap((input) => MEDIA_INPUT.exec(input)?.[1]?.toLowerCase() ?? [])),
-  ]
+  const indexedIds = inputs.map((input) => MEDIA_INPUT.exec(input)?.[1]?.toLowerCase() ?? null)
+  const ids = [...new Set(indexedIds.filter((id): id is string => id !== null))]
   const rows = await db
     .select({
       id: schema.media_objects.id,
       key: schema.media_objects.object_key,
+      storageScope: schema.media_objects.storage_scope,
       contentType: schema.media_objects.content_type,
       bytes: schema.media_objects.bytes,
     })
@@ -95,35 +97,40 @@ export async function resolveMediaInputs(
       ),
     )
   const found = new Map(rows.map((row) => [row.id.toLowerCase(), row]))
-  const resolved = new Map<string, Promise<string>>()
-  const load = (id: string) => {
+  // 先确权与体积校验，再按固定并发读取：16 张大图同时解码会占满内存，逐张串行又把延迟叠起来。
+  for (const id of ids) {
     const row = found.get(id)
     if (!row?.key) throw new MediaInputError('输入图片不存在或无权访问')
     if (row.bytes > config.operator.quotas['sync:asset-image-bytes'])
       throw new MediaInputError('输入图片过大')
-    const key = row.key
-    return readInput(id, key, options.signal).then((bytes) =>
-      options.masked ? exact(bytes, row.contentType) : compressed(bytes, row.contentType),
-    )
   }
-  // 先确权，再按固定并发读取：16 张大图同时解码会占满内存，逐张串行又把延迟叠起来。
-  for (const id of ids)
-    if (!found.get(id)?.key) throw new MediaInputError('输入图片不存在或无权访问')
+  const needExact = new Set<string>()
+  const needCompressed = new Set<string>()
+  for (let index = 0; index < indexedIds.length; index += 1) {
+    const id = indexedIds[index]
+    if (!id) continue
+    if (options.masked || options.exactIndices?.has(index)) needExact.add(id)
+    else needCompressed.add(id)
+  }
+  // 按媒体 ID 调度并在单次读取内产出该 ID 所需的精确/压缩变体，完成后立即释放原图字节，
+  // 将在途原图内存峰值严格限制在 LOAD_CONCURRENCY（3 张）以内。
+  const resolved = new Map<string, string>()
   const queue = [...ids]
   const worker = async () => {
     for (let id = queue.shift(); id; id = queue.shift()) {
-      const pending = load(id)
-      resolved.set(id, pending)
-      await pending
+      const row = found.get(id)!
+      const bytes = await readInput(id, row.key!, row.storageScope, options.signal)
+      if (needExact.has(id)) resolved.set(`${id}:1`, await exact(bytes, row.contentType))
+      if (needCompressed.has(id)) resolved.set(`${id}:0`, await compressed(bytes, row.contentType))
     }
   }
-  await Promise.all(Array.from({ length: Math.min(LOAD_CONCURRENCY, ids.length) }, worker))
-  return Promise.all(
-    inputs.map((input) => {
-      const id = MEDIA_INPUT.exec(input)?.[1]?.toLowerCase()
-      return id ? resolved.get(id)! : input
-    }),
-  )
+  await Promise.all(Array.from({ length: Math.min(LOAD_CONCURRENCY, queue.length) }, worker))
+  return inputs.map((input, index) => {
+    const id = indexedIds[index]
+    if (!id) return input
+    const wantExact = options.masked || Boolean(options.exactIndices?.has(index))
+    return resolved.get(`${id}:${wantExact ? 1 : 0}`)!
+  })
 }
 
 function abortable<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -181,14 +188,16 @@ function transient(status: number | string | undefined, timedOut: boolean): bool
 async function readInput(
   mediaId: string,
   key: string,
+  storageScope: 'durable' | 'object',
   requestSignal: AbortSignal | undefined,
 ): Promise<Uint8Array> {
+  const store = storageScope === 'object' ? objectStore() : durableMediaStore()
   for (let attempt = 1; ; attempt++) {
     const timeout = AbortSignal.timeout(readAttemptTimeoutMs)
     const signal = requestSignal ? AbortSignal.any([requestSignal, timeout]) : timeout
     const started = performance.now()
     try {
-      return await abortable(durableMediaStore().read(key, signal), signal)
+      return await abortable(store.read(key, signal), signal)
     } catch (error) {
       const clientGone = Boolean(requestSignal?.aborted)
       const status = storageStatus(error)

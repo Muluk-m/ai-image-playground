@@ -8,6 +8,7 @@ import {
   OPS_THRESHOLDS,
   type OpsBackups,
   type OpsRestoreDrill,
+  redactLogText,
   type UpstreamStat,
 } from '@image-playground/shared'
 import { and, desc, eq, sql } from 'drizzle-orm'
@@ -19,7 +20,6 @@ import {
   readRestoreDrill as readRestoreDrillFromStore,
 } from '../lib/ops-backups'
 import { OpsStorageError } from '../lib/ops-storage-error'
-import { redactLogText } from '../lib/server-log-buffer'
 import { directBudgetCapMicroUsd, directSpentThisMonth } from '../lib/upstream/gpt-budget'
 import { disabledDirectKeys } from '../lib/upstream/gpt-keys'
 import { selectRunnableTasks } from '../workers/runnable-tasks'

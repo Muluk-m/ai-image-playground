@@ -15,6 +15,7 @@ import { modelCapabilities } from '../../lib/channels'
 import { hydrateInputImages } from '../../lib/imageArchive'
 import { asQueueProvider } from '../../lib/queueProvider'
 import type { ExecutionTransaction } from './task-lifecycle-bus'
+import { readTaskPayloads } from './task-payloads'
 import type { CreateQueueTaskInput, CreateQueueTaskOutcome } from './task-submission-plugins'
 
 /**
@@ -223,21 +224,22 @@ export async function adoptLegacyCommand(
       .limit(1)
       .for('update')
     if (!task) return null
+    const payload = (await readTaskPayloads(tx, [task.id])).get(task.id)
+    const requestPayload = payload ? payload.request_payload : task.request_payload
     const provider = asQueueProvider(task.provider)
     // 遮罩提交改写过原始请求，重建不回去，所以不认领。
-    if (!provider || task.request_payload.preserve_outside_mask)
-      return { kind: 'idempotency_mismatch' }
+    if (!provider || requestPayload.preserve_outside_mask) return { kind: 'idempotency_mismatch' }
     let originalHash: string
     try {
-      const { video, ...payload } = task.request_payload
-      const { video: _video, ...request } = await hydrateInputImages(payload)
+      const { video, ...restPayload } = requestPayload
+      const { video: _video, ...request } = await hydrateInputImages(restPayload)
       originalHash = commandHash({
         provider,
         model: task.model,
         request,
         video,
         userId,
-        ...(task.request_payload.strict_image_request ? { strictImageRequest: true } : {}),
+        ...(requestPayload.strict_image_request ? { strictImageRequest: true } : {}),
         ...(task.agent_conversation_id && task.agent_turn_id
           ? {
               agent: { conversationId: task.agent_conversation_id, turnId: task.agent_turn_id },

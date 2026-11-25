@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { sqlBatchAttemptTarget } from '@image-playground/db'
+import { resolvedTaskResultPayload, sqlBatchAttemptTarget } from '@image-playground/db'
 import {
   type AgentBatchAttemptSnapshot,
   agentBatch,
@@ -93,12 +93,22 @@ export async function pauseBatchForAnalysisAuthentication(
 export async function reconcileAgentBatchProgress(batchId: string): Promise<void> {
   const rows = await db
     .select({
-      task: schema.tasks,
+      task: {
+        id: schema.tasks.id,
+        status: schema.tasks.status,
+        provider: schema.tasks.provider,
+        result_payload: resolvedTaskResultPayload,
+        completed_at: schema.tasks.completed_at,
+        upstream_status: schema.tasks.upstream_status,
+        error_message: schema.tasks.error_message,
+        error_type: schema.tasks.error_type,
+      },
       reservedCredits: schema.agent_batch_attempts.reserved_credits,
       price: schema.agent_batch_attempts.price_snapshot,
     })
     .from(schema.agent_batch_attempts)
     .innerJoin(schema.tasks, eq(schema.tasks.id, schema.agent_batch_attempts.task_id))
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(
       and(
         eq(schema.agent_batch_attempts.batch_id, batchId),

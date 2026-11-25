@@ -1,4 +1,21 @@
 export {
+  type AssetMediaConsistencyReport,
+  type BackfillAssetMediaBatch,
+  type BackfillAssetMediaOptions,
+  type BackfillAssetMediaPhase,
+  type BackfillAssetMediaResult,
+  backfillAssetMedia,
+  verifyAssetMediaConsistency,
+} from './backfill-asset-media'
+export {
+  type BackfillTaskPayloadsBatch,
+  type BackfillTaskPayloadsOptions,
+  type BackfillTaskPayloadsResult,
+  backfillTaskPayloads,
+  type TaskPayloadsConsistencyReport,
+  verifyTaskPayloadsConsistency,
+} from './backfill-task-payloads'
+export {
   createDb,
   type DbHandle,
   type DbPoolOptions,
@@ -14,3 +31,13 @@ export {
   sqlSumIntegerFromDigitText,
 } from './safe-integer'
 export * from './schema'
+export {
+  resolvedTaskArchivePayload,
+  resolvedTaskMetering,
+  resolvedTaskRequestPayload,
+  resolvedTaskResultPayload,
+  resolvedTaskUpstreamBody,
+  taskHasArchivePayloadSql,
+  taskHasArchivePayloadSqlForAlias,
+  taskRequestPayloadSubquerySql,
+} from './task-payload-fallback'

@@ -1,3 +1,4 @@
+import { resolvedTaskResultPayload } from '@image-playground/db'
 import {
   type ProductionContent,
   type ProductionMediaReference,
@@ -7,7 +8,9 @@ import { and, eq } from 'drizzle-orm'
 import { db, schema } from '../../../../db/client'
 import { resolveImageBytesRef } from '../../../../lib/extractImages'
 import type { BffTransaction } from '../../../../lib/private-overlay'
+import { lockMediaOwner } from '../../../../lib/projectMedia'
 import { asQueueProvider } from '../../../../lib/queueProvider'
+import { ensureAssetMediaIds, findAssetImageMeta } from '../../../../lib/sync-assets'
 import { taskAccessWhere } from '../../../../lib/task-access'
 import { productionMediaReferences, productionReferenceKey } from './asset-validation'
 
@@ -34,19 +37,9 @@ export async function validateProductionMediaReferences(
         .limit(1)
       if (!media?.contentType.startsWith(`${expectedMedia}/`)) return false
     } else if (reference.kind === 'asset') {
-      const [asset] = await executor
-        .select({
-          id: schema.user_asset_objects.image_id,
-          contentType: schema.user_asset_objects.content_type,
-        })
-        .from(schema.user_asset_objects)
-        .where(
-          and(
-            eq(schema.user_asset_objects.image_id, reference.imageId),
-            eq(schema.user_asset_objects.user_id, userId),
-          ),
-        )
-        .limit(1)
+      const asset = await findAssetImageMeta(executor, userId, reference.imageId, {
+        lockShare: true,
+      })
       if (!asset?.contentType.startsWith(`${expectedMedia}/`)) return false
     } else {
       const parsed = parseProjectArtifactId(reference.artifactId)
@@ -55,9 +48,10 @@ export async function validateProductionMediaReferences(
         .select({
           status: schema.tasks.status,
           provider: schema.tasks.provider,
-          result: schema.tasks.result_payload,
+          result: resolvedTaskResultPayload,
         })
         .from(schema.tasks)
+        .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
         .where(
           and(
             taskAccessWhere(parsed.generationId, userId),
@@ -96,12 +90,24 @@ export async function reconcileProductionReferences(
   const references = productionMediaReferences(next).filter(
     (reference) => !existing.has(productionReferenceKey(reference)),
   )
+  if (references.some((reference) => reference.kind === 'asset' || reference.kind === 'media')) {
+    await lockMediaOwner(tx, userId)
+  }
   if (!(await validateProductionMediaReferences(conversationId, userId, references, tx)))
     return false
-  const mediaIds = [
+  const assetImageIds = [
     ...new Set(
-      references.flatMap((reference) => (reference.kind === 'media' ? [reference.mediaId] : [])),
+      references.flatMap((reference) => (reference.kind === 'asset' ? [reference.imageId] : [])),
     ),
+  ]
+  const unifiedAssetMediaIds = assetImageIds.length
+    ? [...(await ensureAssetMediaIds(tx, userId, assetImageIds)).values()]
+    : []
+  const mediaIds = [
+    ...new Set([
+      ...references.flatMap((reference) => (reference.kind === 'media' ? [reference.mediaId] : [])),
+      ...unifiedAssetMediaIds,
+    ]),
   ]
   if (mediaIds.length) {
     // Same ownership edge as attached conversation images; no copy or library asset is created.

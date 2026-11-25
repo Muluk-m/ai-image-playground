@@ -27,6 +27,7 @@ import {
   type TasksCancelledEvent,
   type TerminalTaskStatus,
 } from './task-lifecycle-bus'
+import { patchTaskPayload, patchTaskPayloads, readTaskPayloads } from './task-payloads'
 
 /**
  * 「这一行还归这个执行者」：令牌对得上，租约还没过。过期的执行者可以跑完一次 fetch，
@@ -77,10 +78,9 @@ export async function requeueTask(
       .set({ ...CLEARED_ON_REQUEUE, attempt_count: attemptJustFailed, next_retry_at: nextRetryAt })
       .where(stillRunning(id, fence))
       .returning({ id: schema.tasks.id })
-    await publishGenerations(
-      tx,
-      updated.map((row) => row.id),
-    )
+    const ids = updated.map((row) => row.id)
+    await patchTaskPayloads(tx, ids, { result_payload: null, upstream_body: null })
+    await publishGenerations(tx, ids)
     return updated.length > 0
   })
 }
@@ -97,10 +97,9 @@ export async function requeueTasksForPolling(ids: readonly string[], fence: SQL)
       .set({ ...CLEARED_ON_REQUEUE, next_retry_at: null })
       .where(and(inArray(schema.tasks.id, [...ids]), eq(schema.tasks.status, 'in_progress'), fence))
       .returning({ id: schema.tasks.id })
-    await publishGenerations(
-      tx,
-      updated.map((row) => row.id),
-    )
+    const updatedIds = updated.map((row) => row.id)
+    await patchTaskPayloads(tx, updatedIds, { result_payload: null, upstream_body: null })
+    await publishGenerations(tx, updatedIds)
     return updated.length
   })
 }
@@ -119,10 +118,9 @@ export async function saveArchiveCheckpoint(
       })
       .where(stillRunning(id, fence))
       .returning({ id: schema.tasks.id })
-    await publishGenerations(
-      tx,
-      updated.map((row) => row.id),
-    )
+    const ids = updated.map((row) => row.id)
+    await patchTaskPayloads(tx, ids, { archive_payload: payload })
+    await publishGenerations(tx, ids)
     return updated.length > 0
   })
 }
@@ -147,10 +145,9 @@ export async function requeueTaskArchive(
       })
       .where(stillRunning(id, fence))
       .returning({ id: schema.tasks.id })
-    await publishGenerations(
-      tx,
-      updated.map((row) => row.id),
-    )
+    const ids = updated.map((row) => row.id)
+    await patchTaskPayloads(tx, ids, payload !== undefined ? { archive_payload: payload } : {})
+    await publishGenerations(tx, ids)
     return updated.length > 0
   })
 }
@@ -298,7 +295,20 @@ export async function finishTask(
         gptRoute: schema.tasks.gpt_route,
       })
     if (!finished) return false
-    const meteringMode = finished.metering?.mode === 'none' ? 'none' : 'credits'
+    const existingPayload = (await readTaskPayloads(tx, [finished.id])).get(finished.id)
+    const effectiveFinished = existingPayload
+      ? {
+          ...finished,
+          metering: existingPayload.metering,
+          request: existingPayload.request_payload,
+        }
+      : finished
+    await patchTaskPayload(tx, finished.id, {
+      ...(update.preserveArchive ? {} : { archive_payload: null }),
+      ...(update.resultPayload !== undefined ? { result_payload: update.resultPayload } : {}),
+      ...(update.upstreamBody !== undefined ? { upstream_body: update.upstreamBody } : {}),
+    })
+    const meteringMode = effectiveFinished.metering?.mode === 'none' ? 'none' : 'credits'
     const event: TaskFinishedEvent = {
       taskId: finished.id,
       taskKind: finished.kind,
@@ -312,7 +322,7 @@ export async function finishTask(
       upstreamStatus: update.upstreamStatus ?? null,
       upstreamInvocationCount: finished.upstreamInvocationCount,
       meteringMode,
-      actualUsage: gptSettledUsage(update, finished),
+      actualUsage: gptSettledUsage(update, effectiveFinished),
       resultPayload: update.resultPayload,
       media: update.media,
     }
@@ -381,8 +391,16 @@ export async function cancelTasks(access: SQL, options: CancelTasksOptions = {})
         metering: schema.tasks.metering,
         upstreamInvocationCount: schema.tasks.upstream_invocation_count,
       })
+    const payloads = await readTaskPayloads(
+      tx,
+      rows.map((row) => row.id),
+    )
+    const resolvedRows = rows.map((row) => {
+      const payload = payloads.get(row.id)
+      return payload ? { ...row, metering: payload.metering } : row
+    })
     const event: TasksCancelledEvent = {
-      tasks: rows.map((row) => ({
+      tasks: resolvedRows.map((row) => ({
         taskId: row.id,
         taskKind: row.kind,
         agentConversationId: row.agentConversationId,
@@ -394,7 +412,7 @@ export async function cancelTasks(access: SQL, options: CancelTasksOptions = {})
       completedAt,
       failedAs: options.failedAs,
     }
-    if (rows.length > 0) {
+    if (resolvedRows.length > 0) {
       await emitTasksCancelled(tx, 'before-settlement', event)
       if (event.tasks.some((task) => task.meteringMode !== 'none')) {
         assertTaskLifecycleListenerRegistered('billing-settlement')
@@ -405,9 +423,9 @@ export async function cancelTasks(access: SQL, options: CancelTasksOptions = {})
     }
     await publishGenerations(
       tx,
-      rows.map((row) => row.id),
+      resolvedRows.map((row) => row.id),
     )
-    return rows
+    return resolvedRows
   }
   if (options.tx) {
     const rows = await cancel(options.tx)

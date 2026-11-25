@@ -1,7 +1,8 @@
+import { resolvedTaskArchivePayload, taskHasArchivePayloadSql } from '@image-playground/db'
 import { type CliJobStatus, projectCliJobStatus, type TaskStatus } from '@image-playground/shared'
-import { and, desc, eq, inArray, isNull, lt, or, type SQL } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNull, lt, not, or, type SQL } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import { cancelTasks } from '../../modules/execution'
+import { cancelTasks, readTaskPayloads } from '../../modules/execution'
 import { loadMeteringPort } from '../billing-ports'
 import { taskProgressPhase } from '../task-progress'
 import { cancelUpstreamOfCancelledTasks } from '../upstream-cancel'
@@ -51,12 +52,11 @@ export interface CliJob {
   readonly error?: { readonly code: string; readonly message: string }
 }
 
-const jobColumns = {
+const jobBaseColumns = {
   id: schema.tasks.id,
   status: schema.tasks.status,
   model: schema.tasks.model,
   client_request_id: schema.tasks.client_request_id,
-  archive_payload: schema.tasks.archive_payload,
   upstream_task_ids: schema.tasks.upstream_task_ids,
   lease_expires_at: schema.tasks.lease_expires_at,
   submitted_at: schema.tasks.submitted_at,
@@ -64,6 +64,16 @@ const jobColumns = {
   completed_at: schema.tasks.completed_at,
   error_message: schema.tasks.error_message,
   error_type: schema.tasks.error_type,
+} as const
+
+const jobColumns = {
+  ...jobBaseColumns,
+  archive_payload: resolvedTaskArchivePayload,
+} as const
+
+const jobLockColumns = {
+  ...jobBaseColumns,
+  archive_payload: schema.tasks.archive_payload,
 } as const
 
 type JobRow = {
@@ -191,7 +201,11 @@ function ownedJob(userId: string, jobId: string): SQL {
 }
 
 export async function getJob(userId: string, jobId: string): Promise<CliJob> {
-  const [row] = await db.select(jobColumns).from(schema.tasks).where(ownedJob(userId, jobId))
+  const [row] = await db
+    .select(jobColumns)
+    .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
+    .where(ownedJob(userId, jobId))
   if (!row) throw new CliRequestError('NOT_FOUND')
   return (await toJobs([row], userId))[0]!
 }
@@ -223,6 +237,7 @@ export async function listJobs(
   const rows = await db
     .select(jobColumns)
     .from(schema.tasks)
+    .leftJoin(schema.task_payloads, eq(schema.task_payloads.task_id, schema.tasks.id))
     .where(and(...conditions))
     .orderBy(desc(schema.tasks.submitted_at), desc(schema.tasks.id))
     .limit(options.limit + 1)
@@ -241,14 +256,16 @@ export async function cancelJob(userId: string, jobId: string): Promise<CliJob> 
   const access = ownedJob(userId, jobId)
   const postCommitHooks: Array<() => Promise<void>> = []
   const cancelled = await db.transaction(async (tx) => {
-    const [row] = await tx.select(jobColumns).from(schema.tasks).where(access).for('update')
-    if (!row) throw new CliRequestError('NOT_FOUND')
+    const [locked] = await tx.select(jobLockColumns).from(schema.tasks).where(access).for('update')
+    if (!locked) throw new CliRequestError('NOT_FOUND')
+    const payload = (await readTaskPayloads(tx, [locked.id])).get(locked.id)
+    const row = payload ? { ...locked, archive_payload: payload.archive_payload } : locked
     if (row.status === 'cancelled') return []
     if (!['queued', 'in_progress'].includes(row.status) || row.archive_payload)
       throw new CliRequestError('JOB_NOT_CANCELLABLE', {
         details: { status: statusOf(row) },
       })
-    return cancelTasks(and(access, isNull(schema.tasks.archive_payload))!, {
+    return cancelTasks(and(access, not(taskHasArchivePayloadSql))!, {
       tx,
       onCommit: (hook) => postCommitHooks.push(hook),
     })

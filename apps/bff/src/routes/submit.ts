@@ -35,6 +35,8 @@ import {
 
 /** 与归档时的解码口径一致：base64 编码的 data URL。 */
 const DATA_URL_PATTERN = '^data:[^;,]+;base64,'
+/** 预签名直传已落盘的云媒体 UUID（等价于 `input_images` 里的 `aip-media:<id>`）。 */
+const UUID_PATTERN = '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
 
 const submitBodySchema = t.Object({
   prompt: t.String({ minLength: 1, maxLength: QUEUE_PROMPT_MAX_CHARS }),
@@ -76,6 +78,18 @@ const submitBodySchema = t.Object({
   // 已在云媒体里的图按身份给（`aip-media:<id>`），服务端自己读字节，浏览器不必下载再上传一遍。
   input_images: t.Optional(
     t.Array(t.String({ pattern: `${DATA_URL_PATTERN}|${MEDIA_INPUT_PATTERN}` }), {
+      maxItems: QUEUE_MAX_INPUT_IMAGES,
+    }),
+  ),
+  /** 预签名直传到对象存储后的媒体 ID 列表；追加在 `input_images` 之后并共用 `QUEUE_MAX_INPUT_IMAGES` 上限。 */
+  input_media_ids: t.Optional(
+    t.Array(t.String({ pattern: UUID_PATTERN }), {
+      maxItems: QUEUE_MAX_INPUT_IMAGES,
+    }),
+  ),
+  /** 仅标记本次由客户端预处理后预签名直传的输入图下标；这些下标跳过服务端二次压缩，避免影响同请求内既有云媒体并保持幂等哈希一致。 */
+  exact_input_indices: t.Optional(
+    t.Array(t.Number({ minimum: 0, maximum: QUEUE_MAX_INPUT_IMAGES - 1, multipleOf: 1 }), {
       maxItems: QUEUE_MAX_INPUT_IMAGES,
     }),
   ),
@@ -180,6 +194,16 @@ export const submitRoutes = new Elysia()
         return status(400, { error: 'model_unavailable', message: '该模型已下线，请换一个模型' })
       }
 
+      const totalInputImages =
+        (body.input_images?.length ?? 0) + (body.input_media_ids?.length ?? 0)
+      if (totalInputImages > QUEUE_MAX_INPUT_IMAGES) {
+        return status(400, {
+          error: 'invalid_request',
+          message: `输入图片不能超过 ${QUEUE_MAX_INPUT_IMAGES} 张`,
+          fields: ['input_images', 'input_media_ids'],
+        })
+      }
+
       let video = body.video as VideoRequest | undefined
       // 带阶段授权时，时长先收成提案快照用的那一档，再做模型校验。
       // 不带授权的 1.9 秒仍然是非法档位，原样拒绝。
@@ -204,7 +228,7 @@ export const submitRoutes = new Elysia()
       if (video) {
         // 带上驳回 code：界面按它查译文，message 只是中文回执。
         const rejected =
-          videoRequestRejection(model, video, body.input_images?.length ?? 0) ??
+          videoRequestRejection(model, video, totalInputImages) ??
           videoPromptRejection(model, body.prompt)
         if (rejected)
           return status(400, {
@@ -231,11 +255,31 @@ export const submitRoutes = new Elysia()
         }
       }
 
-      const { video: _rawVideo, stage_authorization: stageAuthorization, ...rest } = body
+      const {
+        video: _rawVideo,
+        stage_authorization: stageAuthorization,
+        input_media_ids: inputMediaIds,
+        exact_input_indices: exactInputIndices,
+        ...rest
+      } = body
+      if (exactInputIndices?.some((index) => index >= totalInputImages)) {
+        return status(400, {
+          error: 'invalid_request',
+          message: '输入图精确透传下标超出输入图数量范围',
+        })
+      }
+      const combinedRawInputs =
+        rest.input_images?.length || inputMediaIds?.length
+          ? [
+              ...(rest.input_images ?? []),
+              ...(inputMediaIds ?? []).map((id) => `aip-media:${id.toLowerCase()}`),
+            ]
+          : rest.input_images
       let inputImages: string[] | undefined
       try {
-        inputImages = await resolveMediaInputs(authUser?.id ?? null, rest.input_images, {
+        inputImages = await resolveMediaInputs(authUser?.id ?? null, combinedRawInputs, {
           masked: Boolean(rest.mask),
+          exactIndices: exactInputIndices?.length ? new Set(exactInputIndices) : undefined,
           signal: request.signal,
         })
       } catch (error) {

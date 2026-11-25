@@ -75,6 +75,7 @@ it('stops an object read when the tool is cancelled and passes that signal throu
       return []
     },
     async deletePrefix() {},
+    async deleteObject() {},
   }
   setObjectStoreForTesting(store)
 

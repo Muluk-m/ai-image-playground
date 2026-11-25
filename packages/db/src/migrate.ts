@@ -42,6 +42,14 @@ const concurrentIndexes: readonly ConcurrentIndexSpec[] = [
     createSql:
       'CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_tasks_reconciling_alert" ON "tasks" USING btree ("reconcile_started_at","id") WHERE "kind" = \'queue\' AND "status" = \'reconciling\' AND "reconcile_alerted_at" IS NULL',
   },
+  {
+    migrationTag: '0108_media_objects_asset_image_index',
+    name: 'idx_media_objects_owner_asset_image',
+    table: 'media_objects',
+    requiredColumns: ['user_id', 'asset_image_id'],
+    createSql:
+      'CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS "idx_media_objects_owner_asset_image" ON "media_objects" USING btree ("user_id","asset_image_id") WHERE "asset_image_id" IS NOT NULL',
+  },
 ]
 
 // Journal idx 13 and 80 were never issued. See packages/db/README.md before adding a migration.

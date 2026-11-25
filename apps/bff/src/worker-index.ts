@@ -18,7 +18,6 @@ import {
   refreshOperatorConfigIfChanged,
 } from './lib/operator-config-overrides'
 import { assertPrivateBffOverlayPresent, loadPrivateBffOverlay } from './lib/private-overlay'
-import { startServerLogs } from './lib/server-logs'
 import { startSharedMaintenance } from './lib/shared-maintenance'
 import { initTelemetry, shutdownTelemetry } from './lib/telemetry'
 import { refreshUpstreamKeySources } from './lib/upstream/gpt-direct-admin'
@@ -34,7 +33,6 @@ import { TaskScheduler } from './workers/task-scheduler'
 import { startWorkerHealthServer } from './workers/worker-health'
 
 initTelemetry('worker')
-const stopServerLogs = startServerLogs()
 config.assertValid()
 logFingerprintMacSourceOnce()
 await refreshUpstreamKeySources().catch((error) =>
@@ -223,7 +221,6 @@ log.info(
 let shuttingDown = false
 
 async function finalize(exitCode = 0): Promise<never> {
-  await stopServerLogs()
   await closeDb()
   await shutdownTelemetry()
   log.flush()

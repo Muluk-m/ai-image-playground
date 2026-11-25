@@ -1,5 +1,9 @@
 import { hostname } from 'node:os'
 import {
+  taskHasArchivePayloadSqlForAlias,
+  taskRequestPayloadSubquerySql,
+} from '@image-playground/db'
+import {
   type PersistedSubmitRequest,
   type QueueProvider,
   queueTask,
@@ -19,6 +23,8 @@ import { cancelLateUpstreamTasks } from '../lib/upstream-cancel'
 import {
   finishTask,
   heldBy,
+  patchTaskPayload,
+  readTaskPayloads,
   reconcileTasks,
   requeueTask,
   requeueTaskArchive,
@@ -213,12 +219,20 @@ class TaskExecutionHandle implements TaskExecution {
     kind: string
     fields: readonly { field: string; from?: string; to?: string }[]
   }): Promise<void> {
-    await db
-      .update(schema.tasks)
-      .set({
-        request_payload: sql`${schema.tasks.request_payload} || ${JSON.stringify({ image26_degrade: record })}::jsonb`,
-      })
-      .where(this.#own())
+    await db.transaction(async (tx) => {
+      const updated = await tx
+        .update(schema.tasks)
+        .set({
+          // Bun SQL binds string params for `::jsonb` as JSON string scalars, which turns `||`
+          // into a 2-element array instead of merging objects; cast via `::text::jsonb` (see common.ts).
+          request_payload: sql`${taskRequestPayloadSubquerySql} || ${JSON.stringify({ image26_degrade: record })}::text::jsonb`,
+        })
+        .where(this.#own())
+        .returning({ id: schema.tasks.id, requestPayload: schema.tasks.request_payload })
+      if (updated.length > 0) {
+        await patchTaskPayload(tx, this.taskId, { request_payload: updated[0]!.requestPayload })
+      }
+    })
   }
 
   async recordGptRoute(route: 'direct' | 'sub2api'): Promise<void> {
@@ -341,12 +355,16 @@ class TaskExecutionHandle implements TaskExecution {
 
   async preserveInputs(request: PersistedSubmitRequest): Promise<PersistedSubmitRequest | null> {
     const next = await durableGenerationInputs(request)
-    const updated = await db
-      .update(schema.tasks)
-      .set({ request_payload: next })
-      .where(this.#own())
-      .returning({ id: schema.tasks.id })
-    return updated.length > 0 ? next : null
+    return db.transaction(async (tx) => {
+      const updated = await tx
+        .update(schema.tasks)
+        .set({ request_payload: next })
+        .where(this.#own())
+        .returning({ id: schema.tasks.id })
+      if (updated.length === 0) return null
+      await patchTaskPayload(tx, this.taskId, { request_payload: next })
+      return next
+    })
   }
 
   saveCheckpoint(payload: TaskRow['archive_payload']): Promise<boolean> {
@@ -429,7 +447,7 @@ export function retryHoldsSlot(alias: string, now: number): SQL {
   const t = sql.identifier(alias)
   return sql`(${t}.status = 'queued'
     and ${t}.attempt_count > 0
-    and ${t}.archive_payload is null
+    and not ${taskHasArchivePayloadSqlForAlias(alias)}
     and ${t}.next_retry_at > to_timestamp(${now} / 1000.0)
     and ${t}.next_retry_at <= to_timestamp(${now + RETRY_SLOT_HOLD_MS} / 1000.0))`
 }
@@ -678,8 +696,17 @@ export async function claimTaskExecution(
         gpt_route: schema.tasks.gpt_route,
         traceparent: schema.tasks.traceparent,
       })
-    if (row) await publishGenerations(tx, [id])
-    return row
+    if (!row) return null
+    const payload = (await readTaskPayloads(tx, [id])).get(id)
+    await publishGenerations(tx, [id])
+    return payload
+      ? {
+          ...row,
+          request_payload: payload.request_payload,
+          metering: payload.metering,
+          archive_payload: payload.archive_payload,
+        }
+      : row
   })
   if (!claimed) return null
   if (idleSlot)
