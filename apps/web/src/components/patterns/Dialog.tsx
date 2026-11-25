@@ -16,10 +16,19 @@ export interface DialogSurfaceProps {
   /** 底栏按钮：左侧次要操作，右侧「取消」(outline) +「确认」(default) */
   footer?: ReactNode
   className?: string
+  /** 提交或处理中时禁止通过右上角、遮罩或 Esc 关闭对话框。 */
+  closeDisabled?: boolean
 }
 
 /** 已由宿主管理浮层时复用面板；不创建 portal，也不重复接管焦点。 */
-export function DialogSurface({ title, onClose, children, footer, className }: DialogSurfaceProps) {
+export function DialogSurface({
+  title,
+  onClose,
+  children,
+  footer,
+  className,
+  closeDisabled = false,
+}: DialogSurfaceProps) {
   const { t } = useTranslation('common')
   const titleId = useId()
   return (
@@ -40,10 +49,13 @@ export function DialogSurface({ title, onClose, children, footer, className }: D
           type="button"
           variant="ghost"
           size="icon-sm"
+          disabled={closeDisabled}
           aria-label={t('action.close')}
           // 图标按钮保持 32px，伪元素把可点区域扩到 44×44。
           className="relative text-muted-foreground after:absolute after:-inset-1.5 after:content-['']"
-          onClick={onClose}
+          onClick={() => {
+            if (!closeDisabled) onClose()
+          }}
         >
           <Icon name="close" />
         </Button>
@@ -65,7 +77,7 @@ export function DialogSurface({ title, onClose, children, footer, className }: D
 
 export default function Dialog({ tier, ...props }: DialogSurfaceProps & { tier?: OverlayTier }) {
   return (
-    <Overlay onClose={props.onClose} tier={tier} role="none">
+    <Overlay onClose={props.closeDisabled ? () => {} : props.onClose} tier={tier} role="none">
       <DialogSurface {...props} />
     </Overlay>
   )

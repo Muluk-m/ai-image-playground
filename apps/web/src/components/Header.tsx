@@ -133,7 +133,7 @@ export default function Header() {
     if (loggingOut) return
     setAccountMenuOpen(false)
     setLoggingOut(true)
-    void auth.logout(false)
+    void Promise.resolve(auth.logout(false)).finally(() => setLoggingOut(false))
   }
 
   const openSettings = () => {

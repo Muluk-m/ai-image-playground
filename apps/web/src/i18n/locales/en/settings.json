@@ -30,8 +30,11 @@
     "exportSelected": "Export selected data",
     "exporting": "Exporting…",
     "importFromZip": "Import selected data from ZIP",
-    "importing": "Importing...",
+    "importing": "Importing…",
+    "importConfirmTitle": "Import data from ZIP",
+    "importConfirmMessage": "Import the selected settings or tasks from “{{name}}” and merge them into your local data?",
     "clearSelected": "Clear selected data",
+    "clearing": "Clearing…",
     "clearMessage": "Clear the selected data? This cannot be undone."
   }
 }

@@ -134,6 +134,7 @@
     "deviceOthers_one": "{{n}} other device is signed in",
     "deviceOthers_other": "{{n}} other devices are signed in",
     "revokeOthers": "Sign out other devices",
+    "confirmRevokeOthers": "Confirm sign out",
     "revoking": "Signing out…",
     "deleteAccount": "Delete account",
     "deleteHint": "Permanently deletes this account",

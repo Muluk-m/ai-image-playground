@@ -105,6 +105,7 @@ export function AccountPanel({
   const [ledgerLoading, setLedgerLoading] = useState(false)
   const [ledgerError, setLedgerError] = useState(false)
   const [referralRefresh, setReferralRefresh] = useState(0)
+  const [settingsBusy, setSettingsBusy] = useState(false)
   const visibleBillingEntries = useMemo(
     () => toUserBillingEntries(billingEntries),
     [billingEntries],
@@ -153,7 +154,7 @@ export function AccountPanel({
 
   return (
     <Overlay
-      onClose={onClose}
+      onClose={settingsBusy ? () => {} : onClose}
       role="none"
       layout={mobileSettings ? 'fill' : 'center'}
       backdrop={mobileSettings ? 'none' : 'dim'}
@@ -195,6 +196,7 @@ export function AccountPanel({
                   size="default"
                   key={value}
                   type="button"
+                  disabled={settingsBusy && value !== activeView}
                   onClick={() => setView(value)}
                   aria-current={activeView === value ? 'page' : undefined}
                   className={`w-full justify-start gap-3 text-left ${
@@ -218,13 +220,20 @@ export function AccountPanel({
 
           {billingVisible ? (
             <div className="mt-auto space-y-2">
-              <Button size="default" type="button" onClick={onOpenPricing} className="w-full">
+              <Button
+                size="default"
+                type="button"
+                disabled={settingsBusy}
+                onClick={onOpenPricing}
+                className="w-full"
+              >
                 {tBilling('action.subscribe')}
               </Button>
               <Button
                 variant="outline"
                 size="default"
                 type="button"
+                disabled={settingsBusy}
                 onClick={onOpenRecharge}
                 className="w-full"
               >
@@ -241,8 +250,10 @@ export function AccountPanel({
                 variant="ghost"
                 size="icon-sm"
                 type="button"
+                disabled={settingsBusy}
                 aria-label={tBilling('settings.back')}
                 onClick={() => {
+                  if (settingsBusy) return
                   if (overviewVisible) setView('overview')
                   else onClose()
                 }}
@@ -290,7 +301,10 @@ export function AccountPanel({
                   variant="ghost"
                   size="icon-sm"
                   type="button"
-                  onClick={onClose}
+                  disabled={settingsBusy}
+                  onClick={() => {
+                    if (!settingsBusy) onClose()
+                  }}
                   aria-label={tBilling('account.closeAria')}
                   className="text-muted-foreground hover:text-foreground"
                 >
@@ -320,6 +334,7 @@ export function AccountPanel({
                     variant="ghost"
                     size="sm"
                     type="button"
+                    disabled={settingsBusy && value !== activeView}
                     onClick={() => setView(value)}
                     aria-pressed={activeView === value}
                     className={`min-w-0 flex-1 px-2 ${
@@ -356,7 +371,11 @@ export function AccountPanel({
 
           <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
             {activeView === 'settings' ? (
-              <AccountSettings username={username} onAccountDeleted={onAccountDeleted} />
+              <AccountSettings
+                username={username}
+                onAccountDeleted={onAccountDeleted}
+                onBusyChange={setSettingsBusy}
+              />
             ) : null}
             {activeView !== 'settings' && status === 'loading' && !account ? (
               <div className="py-12 text-center text-sm text-muted-foreground">

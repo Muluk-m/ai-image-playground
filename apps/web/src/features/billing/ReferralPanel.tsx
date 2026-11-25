@@ -22,6 +22,8 @@ import {
 } from './billing-store'
 import { tBilling, useTranslation } from './i18n'
 
+class ReferralTransferError extends Error {}
+
 export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
   useTranslation()
   const { status: billingStatus } = useBilling()
@@ -30,7 +32,8 @@ export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [pending, setPending] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [revision, setRevision] = useState(0)
   const operation = useRef<string | null>(null)
@@ -48,9 +51,10 @@ export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
         if (current !== generation.current) return
         setSummary(nextSummary)
         setPage(nextPage)
+        setLoadError(null)
       })
       .catch(() => {
-        if (current === generation.current) setError(tBilling('referral.loadFailed'))
+        if (current === generation.current) setLoadError(tBilling('referral.loadFailed'))
       })
       .finally(() => {
         if (current === generation.current) setLoading(false)
@@ -64,7 +68,7 @@ export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
     if (page.next_offset === null || loadingMore || loading || pending) return
     const current = generation.current
     setLoadingMore(true)
-    setError(null)
+    setLoadError(null)
     try {
       const next = await readBillingJson<ReferralRewardPage>(
         `/api/billing/referrals/rewards?offset=${page.next_offset}&limit=30`,
@@ -75,7 +79,7 @@ export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
           next_offset: next.next_offset,
         }))
     } catch {
-      setError(tBilling('referral.rewardsLoadFailed'))
+      setLoadError(tBilling('referral.rewardsLoadFailed'))
     } finally {
       setLoadingMore(false)
     }
@@ -85,7 +89,7 @@ export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
     if (pending) return
     operation.current ??= crypto.randomUUID()
     setPending(true)
-    setError(null)
+    setActionError(null)
     setNotice(null)
     try {
       const response = await authenticatedBffFetch(
@@ -97,17 +101,17 @@ export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
         },
       )
       if (!response.ok) {
-        const body = (await response.json()) as { error?: string }
+        const body = (await response.json().catch(() => ({}))) as { error?: string }
         if (body.error === 'no_rewards') {
           operation.current = null
           setRevision((value) => value + 1)
-          throw new Error(tBilling('referral.noRewards'))
+          throw new ReferralTransferError(tBilling('referral.noRewards'))
         }
         if (body.error === 'credit_balance_overflow')
-          throw new Error(tBilling('referral.balanceOverflow'))
+          throw new ReferralTransferError(tBilling('referral.balanceOverflow'))
         if (body.error === 'transfer_conflict')
-          throw new Error(tBilling('referral.transferConflict'))
-        throw new Error(tBilling('referral.transferUnconfirmed'))
+          throw new ReferralTransferError(tBilling('referral.transferConflict'))
+        throw new ReferralTransferError(tBilling('referral.transferUnconfirmed'))
       }
       const result = (await response.json()) as ReferralTransferResult
       operation.current = null
@@ -122,7 +126,11 @@ export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
       setRevision((value) => value + 1)
       await refreshBillingAfterSettlement()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : tBilling('referral.transferUnconfirmed'))
+      setActionError(
+        cause instanceof ReferralTransferError
+          ? cause.message
+          : tBilling('referral.transferUnconfirmed'),
+      )
       setRevision((value) => value + 1)
       await refreshBillingAfterSettlement()
     } finally {
@@ -142,7 +150,7 @@ export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
   async function copy(value: string, target: 'link' | 'code') {
     try {
       await copyTextToClipboard(value)
-      setError(null)
+      setActionError(null)
       setCopiedTarget(target)
       setNotice(tBilling('referral.copied'))
       if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current)
@@ -151,9 +159,11 @@ export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
         setNotice((current) => (current === tBilling('referral.copied') ? null : current))
       }, 1800)
     } catch {
-      setError(tBilling('referral.copyFailed'))
+      setActionError(tBilling('referral.copyFailed'))
     }
   }
+
+  const error = actionError ?? loadError
 
   return (
     <section className="space-y-4" aria-label={tBilling('nav.referrals')}>
@@ -168,7 +178,8 @@ export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
             size="sm"
             type="button"
             onClick={() => {
-              setError(null)
+              setLoadError(null)
+              setActionError(null)
               setRevision((value) => value + 1)
               void refreshBillingAfterSettlement()
             }}
@@ -253,9 +264,11 @@ export function ReferralPanel({ refreshKey }: { refreshKey: number }) {
                 disabled={
                   pending || loading || (summary.reward_balance === 0 && operation.current === null)
                 }
+                aria-busy={pending}
                 onClick={() => void transfer()}
                 className="mt-3 w-full"
               >
+                {pending ? <Icon name="loading" size="xs" className="animate-spin" /> : null}
                 {tBilling(
                   pending
                     ? 'referral.transferring'

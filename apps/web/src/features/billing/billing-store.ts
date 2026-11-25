@@ -1,5 +1,6 @@
 import type {
   UserAccountSnapshot as AccountSnapshot,
+  BillingPeriodMonths,
   Catalog as CatalogSnapshot,
   CreditAccount,
   ModelPrice,
@@ -235,9 +236,42 @@ export function useBilling(): BillingSnapshot {
 }
 
 type WorkspaceSheetKind = 'plans' | 'topup'
+export interface BillingModalIntentOptions {
+  period?: BillingPeriodMonths
+  amountYuan?: number
+}
 const WORKSPACE_SHEET_STORAGE_KEY = 'muvloom:workspace-sheet-intent'
 const WORKSPACE_SHEET_WINDOW_MS = 10 * 60 * 1000
-let pendingWorkspaceSheet: { kind: WorkspaceSheetKind; until: number } | null = null
+let pendingWorkspaceSheet: {
+  kind: WorkspaceSheetKind
+  until: number
+  period?: BillingPeriodMonths
+  amountYuan?: number
+} | null = null
+let lastPricingOptions: { period?: BillingPeriodMonths } = {}
+let lastRechargeOptions: { amountYuan?: number } = {}
+
+type SheetCycleTag = 'm' | 'q' | 'y'
+
+function toCycleTag(period: BillingPeriodMonths | undefined): SheetCycleTag | undefined {
+  if (period === 12) return 'y'
+  if (period === 3) return 'q'
+  if (period === 1) return 'm'
+  return undefined
+}
+
+function fromCycleTag(tag: unknown): BillingPeriodMonths | undefined {
+  if (tag === 'y' || tag === 12) return 12
+  if (tag === 'q' || tag === 3) return 3
+  if (tag === 'm' || tag === 1) return 1
+  return undefined
+}
+
+function validAmountYuan(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+    ? Math.round(value)
+    : undefined
+}
 
 function toModalName(kind: WorkspaceSheetKind): 'pricing' | 'recharge' {
   return kind === 'plans' ? 'pricing' : 'recharge'
@@ -256,21 +290,52 @@ function clearPendingWorkspaceSheet(): void {
   }
 }
 
-function readPendingWorkspaceSheet(): WorkspaceSheetKind | null {
+function readPendingWorkspaceSheet(): {
+  kind: WorkspaceSheetKind
+  period?: BillingPeriodMonths
+  amountYuan?: number
+} | null {
   const now = Date.now()
   if (pendingWorkspaceSheet) {
-    if (pendingWorkspaceSheet.until > now) return pendingWorkspaceSheet.kind
+    if (pendingWorkspaceSheet.until > now) {
+      return {
+        kind: pendingWorkspaceSheet.kind,
+        period: pendingWorkspaceSheet.period,
+        amountYuan: pendingWorkspaceSheet.amountYuan,
+      }
+    }
     clearPendingWorkspaceSheet()
     return null
   }
   try {
     const raw = window.sessionStorage.getItem(WORKSPACE_SHEET_STORAGE_KEY)
     if (!raw) return null
-    const [kind, untilText] = raw.split(':')
-    const until = Number(untilText)
-    if ((kind === 'plans' || kind === 'topup') && Number.isFinite(until) && until > now) {
-      pendingWorkspaceSheet = { kind, until }
-      return kind
+    if (raw.startsWith('{')) {
+      const parsed = JSON.parse(raw) as {
+        kind?: unknown
+        until?: unknown
+        cycle?: unknown
+        period?: unknown
+        amountYuan?: unknown
+      }
+      if (
+        (parsed.kind === 'plans' || parsed.kind === 'topup') &&
+        typeof parsed.until === 'number' &&
+        Number.isFinite(parsed.until) &&
+        parsed.until > now
+      ) {
+        const period = fromCycleTag(parsed.cycle ?? parsed.period)
+        const amountYuan = validAmountYuan(parsed.amountYuan)
+        pendingWorkspaceSheet = { kind: parsed.kind, until: parsed.until, period, amountYuan }
+        return { kind: parsed.kind, period, amountYuan }
+      }
+    } else {
+      const [kind, untilText] = raw.split(':')
+      const until = Number(untilText)
+      if ((kind === 'plans' || kind === 'topup') && Number.isFinite(until) && until > now) {
+        pendingWorkspaceSheet = { kind, until }
+        return { kind }
+      }
     }
     window.sessionStorage.removeItem(WORKSPACE_SHEET_STORAGE_KEY)
   } catch {
@@ -279,12 +344,21 @@ function readPendingWorkspaceSheet(): WorkspaceSheetKind | null {
   return null
 }
 
-export function queueBillingModal(modal: 'pricing' | 'recharge'): void {
+export function queueBillingModal(
+  modal: 'pricing' | 'recharge',
+  options?: BillingModalIntentOptions,
+): void {
   const kind = toSheetKind(modal)
   const until = Date.now() + WORKSPACE_SHEET_WINDOW_MS
-  pendingWorkspaceSheet = { kind, until }
+  const cycle = toCycleTag(options?.period)
+  const period = fromCycleTag(cycle)
+  const amountYuan = validAmountYuan(options?.amountYuan)
+  pendingWorkspaceSheet = { kind, until, period, amountYuan }
   try {
-    window.sessionStorage.setItem(WORKSPACE_SHEET_STORAGE_KEY, `${kind}:${until}`)
+    window.sessionStorage.setItem(
+      WORKSPACE_SHEET_STORAGE_KEY,
+      JSON.stringify({ kind, until, cycle, amountYuan }),
+    )
   } catch {
     // 忽略存储异常，内存态仍可用。
   }
@@ -299,22 +373,43 @@ export function hasPendingBillingModal(): boolean {
 }
 
 export function consumePendingBillingModal(): 'pricing' | 'recharge' | null {
-  const kind = readPendingWorkspaceSheet()
+  const entry = readPendingWorkspaceSheet()
   clearPendingWorkspaceSheet()
-  return kind ? toModalName(kind) : null
+  if (!entry) return null
+  if (entry.kind === 'plans') lastPricingOptions = { period: entry.period }
+  else lastRechargeOptions = { amountYuan: entry.amountYuan }
+  return toModalName(entry.kind)
+}
+
+export function peekPricingLaunchPeriod(): BillingPeriodMonths | undefined {
+  return lastPricingOptions.period
+}
+
+export function clearPricingLaunchPeriod(): void {
+  lastPricingOptions = {}
+}
+
+export function peekRechargeLaunchAmount(): number | undefined {
+  return lastRechargeOptions.amountYuan
+}
+
+export function clearRechargeLaunchAmount(): void {
+  lastRechargeOptions = {}
 }
 
 export function openBilling(): void {
   window.dispatchEvent(new Event(OPEN_BILLING_EVENT))
 }
 
-export function openPricing(): void {
+export function openPricing(options?: { period?: BillingPeriodMonths }): void {
   clearPendingWorkspaceSheet()
+  lastPricingOptions = { period: fromCycleTag(toCycleTag(options?.period)) }
   window.dispatchEvent(new Event(OPEN_PRICING_EVENT))
 }
 
-export function openRecharge(): void {
+export function openRecharge(options?: { amountYuan?: number }): void {
   clearPendingWorkspaceSheet()
+  lastRechargeOptions = { amountYuan: validAmountYuan(options?.amountYuan) }
   window.dispatchEvent(new Event(OPEN_RECHARGE_EVENT))
 }
 

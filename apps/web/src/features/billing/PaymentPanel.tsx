@@ -6,10 +6,15 @@ import { formatCredits, formatMoney, refreshBillingAfterSettlement } from './bil
 import { tBilling, useTranslation } from './i18n'
 import { orderRequest } from './orders-client'
 
+type PendingPaymentAction = 'claim' | 'cancel' | 'refresh-code' | null
+
 export function PaymentSurface({
   order,
   busy,
+  pendingAction = null,
   onAction,
+  onRefresh,
+  refreshing = false,
   onClose,
   now,
   confirmClaim = false,
@@ -17,7 +22,10 @@ export function PaymentSurface({
 }: {
   order: PurchaseOrder
   busy: boolean
+  pendingAction?: PendingPaymentAction
   onAction: (action: string) => void
+  onRefresh?: () => void
+  refreshing?: boolean
   onClose: () => void
   now: number
   confirmClaim?: boolean
@@ -61,6 +69,7 @@ export function PaymentSurface({
             )}`
       }
       onClose={onClose}
+      closeDisabled={busy}
       className="max-w-lg"
     >
       <div className="mt-2 text-center">
@@ -168,20 +177,28 @@ export function PaymentSurface({
           ) : null}
           <Button
             disabled={busy}
+            aria-busy={pendingAction === 'claim'}
             type="button"
             className="w-full"
             onClick={() => onAction(confirmClaim ? 'confirm-claim' : 'claim')}
           >
+            {pendingAction === 'claim' ? (
+              <Icon name="loading" size="xs" className="animate-spin" />
+            ) : null}
             {tBilling(confirmClaim ? 'orders.confirmClaim' : 'orders.claim')}
           </Button>
           {!order.payment_available ? (
             <Button
               disabled={busy}
+              aria-busy={pendingAction === 'refresh-code'}
               type="button"
               variant="outline"
               className="w-full"
               onClick={() => onAction('refresh-code')}
             >
+              {pendingAction === 'refresh-code' ? (
+                <Icon name="loading" size="xs" className="animate-spin" />
+              ) : null}
               {tBilling('orders.refreshCode')}
             </Button>
           ) : null}
@@ -193,6 +210,7 @@ export function PaymentSurface({
           <div className="flex gap-2">
             <Button
               disabled={busy}
+              aria-busy={pendingAction === 'cancel'}
               type="button"
               variant={confirmCancel ? 'destructive' : 'ghost'}
               className={
@@ -200,17 +218,47 @@ export function PaymentSurface({
               }
               onClick={() => onAction(confirmCancel ? 'confirm-cancel' : 'cancel')}
             >
+              {pendingAction === 'cancel' ? (
+                <Icon name="loading" size="xs" className="animate-spin" />
+              ) : null}
               {tBilling(confirmCancel ? 'orders.confirmCancel' : 'orders.cancel')}
             </Button>
-            <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              disabled={busy}
+              onClick={onClose}
+            >
               {tBilling('orders.later')}
             </Button>
           </div>
         </div>
       ) : (
-        <Button type="button" variant="outline" className="mt-4 w-full" onClick={onClose}>
-          {tBilling('orders.close')}
-        </Button>
+        <div className="mt-4 flex gap-2">
+          {onRefresh && status !== 'completed' ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              disabled={busy || refreshing}
+              aria-busy={refreshing}
+              onClick={onRefresh}
+            >
+              {refreshing ? <Icon name="loading" size="xs" className="animate-spin" /> : null}
+              {tBilling('action.refresh')}
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            className={onRefresh && status !== 'completed' ? 'flex-1' : 'w-full'}
+            disabled={busy}
+            onClick={onClose}
+          >
+            {tBilling('orders.close')}
+          </Button>
+        </div>
       )}
       <p className="mt-1 break-all text-center font-mono text-label-sm text-muted-foreground">
         {order.id}
@@ -227,50 +275,88 @@ export function PaymentPanel({
 }) {
   const [order, setOrder] = useState(initial),
     [now, setNow] = useState(Date.now()),
-    [busy, setBusy] = useState(false),
+    [pendingAction, setPendingAction] = useState<PendingPaymentAction>(null),
+    [refreshing, setRefreshing] = useState(false),
     [error, setError] = useState(false),
+    [reloadKey, setReloadKey] = useState(0),
     [confirmClaim, setConfirmClaim] = useState(false),
     [confirmCancel, setConfirmCancel] = useState(false)
+  const busy = pendingAction !== null
   useTranslation()
   const sequence = useRef(0)
+  const refreshSeq = useRef(0)
+  const busyRef = useRef(false)
+  const shouldPoll = order.status === 'pending' || order.status === 'review'
   useEffect(() => {
+    void reloadKey
     let alive = true
-    const refresh = async () => {
-      const attempt = ++sequence.current
-      try {
-        const next = await orderRequest<PurchaseOrder>(`/${initial.id}`)
+    setRefreshing(true)
+    const attempt = ++sequence.current
+    const refreshAttempt = ++refreshSeq.current
+    void orderRequest<PurchaseOrder>(`/${initial.id}`)
+      .then((next) => {
         if (alive && attempt === sequence.current) {
           setOrder(next)
           setError(false)
         }
-      } catch {
-        if (alive) setError(true)
-      }
+      })
+      .catch(() => {
+        if (alive && attempt === sequence.current) setError(true)
+      })
+      .finally(() => {
+        if (alive && refreshAttempt === refreshSeq.current) setRefreshing(false)
+      })
+    return () => {
+      alive = false
     }
-    void refresh()
-    const poll = setInterval(() => void refresh(), 5000)
-    const tick = setInterval(() => setNow(Date.now()), 1000)
+  }, [initial.id, reloadKey])
+  useEffect(() => {
+    if (!shouldPoll) return
+    let alive = true
+    const poll = setInterval(() => {
+      const attempt = ++sequence.current
+      void orderRequest<PurchaseOrder>(`/${initial.id}`)
+        .then((next) => {
+          if (alive && attempt === sequence.current) {
+            setOrder(next)
+            setError(false)
+          }
+        })
+        .catch(() => {
+          if (alive) setError(true)
+        })
+    }, 5000)
     return () => {
       alive = false
       clearInterval(poll)
-      clearInterval(tick)
     }
-  }, [initial.id])
+  }, [initial.id, shouldPoll])
+  useEffect(() => {
+    if (order.status !== 'pending') return
+    const tick = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(tick)
+  }, [order.status])
   useEffect(() => {
     if (order.status === 'completed') void refreshBillingAfterSettlement()
   }, [order.status])
   const act = async (action: string) => {
     if (action === 'claim') {
+      if (busyRef.current) return
       setConfirmCancel(false)
       setConfirmClaim(true)
       return
     }
     if (action === 'cancel') {
+      if (busyRef.current) return
       setConfirmClaim(false)
       setConfirmCancel(true)
       return
     }
-    setBusy(true)
+    if (busyRef.current) return
+    busyRef.current = true
+    const actionKind: PendingPaymentAction =
+      action === 'confirm-claim' ? 'claim' : action === 'confirm-cancel' ? 'cancel' : 'refresh-code'
+    setPendingAction(actionKind)
     setError(false)
     ++sequence.current
     try {
@@ -284,24 +370,40 @@ export function PaymentPanel({
     } catch {
       setError(true)
     } finally {
-      setBusy(false)
+      busyRef.current = false
+      setPendingAction(null)
     }
   }
   return (
-    <Overlay onClose={onClose} role="none">
+    <Overlay onClose={busy ? () => {} : onClose} role="none">
       <div className="w-full max-w-lg">
         {error ? (
-          <p role="alert" className="mb-2 rounded-xl bg-card p-3 text-sm text-destructive">
-            {tBilling('orders.failed')}
-          </p>
+          <div
+            role="alert"
+            className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-card p-3 text-sm text-destructive"
+          >
+            <span>{tBilling('orders.failed')}</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy}
+              onClick={() => setReloadKey((k) => k + 1)}
+            >
+              {tBilling('action.retry')}
+            </Button>
+          </div>
         ) : null}
         <PaymentSurface
           order={order}
           now={now}
           busy={busy}
+          pendingAction={pendingAction}
           confirmClaim={confirmClaim}
           confirmCancel={confirmCancel}
           onAction={(action) => void act(action)}
+          onRefresh={() => setReloadKey((k) => k + 1)}
+          refreshing={refreshing}
           onClose={onClose}
         />
       </div>

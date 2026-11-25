@@ -91,6 +91,7 @@ export default function PricingPage({
   const embedded = presentation === 'sheet'
   const { t } = useTranslation('pricing')
   const { t: tCommon } = useTranslation('common')
+  const { t: tShell } = useTranslation('shell')
   const { locale, change } = useLocalePicker()
   const auth = useAuth()
   const [cycle, setCycle] = useState<BillingCycle>(1)
@@ -148,11 +149,17 @@ export default function PricingPage({
   }, [embedded, auth.user, billingEnabled])
 
   const enter = (intent: 'pricing' | 'recharge' | 'workspace' = 'workspace') => {
+    const intentOptions =
+      intent === 'pricing'
+        ? { period: cycle }
+        : intent === 'recharge'
+          ? { amountYuan: rechargeYuan }
+          : undefined
     if (embedded) {
       closePricingSheet()
       if (auth.enabled && !auth.user) {
         if (billingEnabled && (intent === 'pricing' || intent === 'recharge'))
-          queueBillingModal(intent)
+          queueBillingModal(intent, intentOptions)
         else clearPendingBillingModal()
         auth.login()
         return
@@ -162,11 +169,12 @@ export default function PricingPage({
         return
       }
       if (!billingEnabled) return
-      if (intent === 'pricing') openPricing()
-      else if (intent === 'recharge') openRecharge()
+      if (intent === 'pricing') openPricing({ period: cycle })
+      else if (intent === 'recharge') openRecharge({ amountYuan: rechargeYuan })
       return
     }
-    if (billingEnabled && (intent === 'pricing' || intent === 'recharge')) queueBillingModal(intent)
+    if (billingEnabled && (intent === 'pricing' || intent === 'recharge'))
+      queueBillingModal(intent, intentOptions)
     else clearPendingBillingModal()
     if (auth.enabled && !auth.user) {
       auth.login()
@@ -319,7 +327,7 @@ export default function PricingPage({
               aria-label={t('cycle.label')}
               className="inline-flex w-fit shrink-0 rounded-full bg-white/[0.08] p-1"
             >
-              {BILLING_CYCLES.map((value) => {
+              {BILLING_CYCLES.map((value, index) => {
                 const selected = cycle === value
                 const label =
                   value === 1
@@ -333,7 +341,25 @@ export default function PricingPage({
                     type="button"
                     role="radio"
                     aria-checked={selected}
+                    tabIndex={selected ? 0 : -1}
                     onClick={() => setCycle(value)}
+                    onKeyDown={(event) => {
+                      let nextIndex = -1
+                      if (event.key === 'ArrowRight' || event.key === 'ArrowDown')
+                        nextIndex = (index + 1) % BILLING_CYCLES.length
+                      else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp')
+                        nextIndex = (index - 1 + BILLING_CYCLES.length) % BILLING_CYCLES.length
+                      else if (event.key === 'Home') nextIndex = 0
+                      else if (event.key === 'End') nextIndex = BILLING_CYCLES.length - 1
+                      if (nextIndex < 0) return
+                      event.preventDefault()
+                      const nextCycle = BILLING_CYCLES[nextIndex]
+                      if (nextCycle !== undefined) setCycle(nextCycle)
+                      const group = event.currentTarget.parentElement
+                      group
+                        ?.querySelectorAll<HTMLButtonElement>('[role="radio"]')
+                        [nextIndex]?.focus()
+                    }}
                     className={`h-9 rounded-full px-5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)] ${
                       selected
                         ? 'bg-white font-semibold text-[var(--pricing-ink)]'
@@ -347,7 +373,7 @@ export default function PricingPage({
             </div>
           </div>
           {catalogError ? (
-            <div className="mt-8">
+            <div role="alert" className="mt-8">
               <p className="text-sm text-white/60">{t('status.error')}</p>
               <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
                 type="button"
@@ -358,7 +384,9 @@ export default function PricingPage({
               </button>
             </div>
           ) : !catalog ? (
-            <p className="mt-8 text-sm text-white/50">{t('status.loading')}</p>
+            <p role="status" className="mt-8 text-sm text-white/50">
+              {t('status.loading')}
+            </p>
           ) : (
             <div className="mt-8 grid items-stretch gap-4 pt-3 lg:grid-cols-3">
               {catalog.plans.map((plan) => (
@@ -571,15 +599,34 @@ export default function PricingPage({
                   role="radiogroup"
                   aria-label={t('recharge.title')}
                 >
-                  {catalog.recharge.amountsYuan.map((yuan) => {
+                  {catalog.recharge.amountsYuan.map((yuan, index) => {
                     const selected = rechargeYuan === yuan
+                    const list = catalog.recharge.amountsYuan
                     return (
                       <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
                         key={yuan}
                         type="button"
                         role="radio"
                         aria-checked={selected}
+                        tabIndex={selected ? 0 : -1}
                         onClick={() => setRechargeYuan(yuan)}
+                        onKeyDown={(event) => {
+                          let nextIndex = -1
+                          if (event.key === 'ArrowRight' || event.key === 'ArrowDown')
+                            nextIndex = (index + 1) % list.length
+                          else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp')
+                            nextIndex = (index - 1 + list.length) % list.length
+                          else if (event.key === 'Home') nextIndex = 0
+                          else if (event.key === 'End') nextIndex = list.length - 1
+                          if (nextIndex < 0) return
+                          event.preventDefault()
+                          const nextAmount = list[nextIndex]
+                          if (nextAmount !== undefined) setRechargeYuan(nextAmount)
+                          const group = event.currentTarget.parentElement
+                          group
+                            ?.querySelectorAll<HTMLButtonElement>('[role="radio"]')
+                            [nextIndex]?.focus()
+                        }}
                         className={`rounded-3xl border px-5 py-6 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)] ${
                           selected
                             ? 'border-[var(--pricing-lime)] bg-[var(--pricing-lime)]/10'
@@ -672,10 +719,10 @@ export default function PricingPage({
           </div>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
             <a
-              href="/"
+              href="/image"
               onClick={(event) => {
                 event.preventDefault()
-                leave()
+                enter('workspace')
               }}
               className="hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--pricing-lime)]"
             >
@@ -686,6 +733,22 @@ export default function PricingPage({
               className="hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--pricing-lime)]"
             >
               {t('footer.guide')}
+            </a>
+            <a
+              href="/terms"
+              target="_blank"
+              rel="noopener"
+              className="hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--pricing-lime)]"
+            >
+              {tShell('nav.terms')}
+            </a>
+            <a
+              href="/privacy"
+              target="_blank"
+              rel="noopener"
+              className="hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--pricing-lime)]"
+            >
+              {tShell('nav.privacy')}
             </a>
             <div role="group" aria-label={t('nav.locale')} className="flex gap-3 sm:hidden">
               {(['zh-CN', 'en'] as const).map((code) => (

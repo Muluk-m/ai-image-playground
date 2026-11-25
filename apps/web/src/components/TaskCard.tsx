@@ -51,7 +51,23 @@ export default function TaskCard({
   onClick,
   isSelected,
 }: Props) {
-  const { t } = useTranslation(['task', 'common'])
+  const { t } = useTranslation(['task', 'common', 'errors'])
+  const showToast = useStore((s) => s.showToast)
+  const [retrying, setRetrying] = useState(false)
+  const retryingRef = useRef(false)
+  const handleRetry = async () => {
+    if (retryingRef.current) return
+    retryingRef.current = true
+    setRetrying(true)
+    try {
+      await retryTask(task)
+    } catch {
+      showToast(t('errors:common.fallback'), 'error')
+    } finally {
+      retryingRef.current = false
+      setRetrying(false)
+    }
+  }
   const platformGenerations = useStore((s) => s.platformGenerations)
   const canvasWork =
     workSource(task, new Map(platformGenerations.map((row) => [row.id, row]))) === 'canvas'
@@ -547,11 +563,17 @@ export default function TaskCard({
                         type="button"
                         variant="ghost"
                         size="icon-xs"
-                        onClick={() => retryTask(task)}
+                        disabled={retrying}
+                        aria-busy={retrying}
+                        onClick={() => void handleRetry()}
                         className="text-muted-foreground"
                         aria-label={t('action.retryTask')}
                       >
-                        <Icon name="refresh" size="xs" />
+                        <Icon
+                          name={retrying ? 'loading' : 'refresh'}
+                          size="xs"
+                          className={retrying ? 'animate-spin' : undefined}
+                        />
                       </Button>
                     </Hint>
                   )}

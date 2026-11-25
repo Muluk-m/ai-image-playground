@@ -2751,11 +2751,15 @@ async function retryLocalTask(task: TaskRecord) {
     return
   }
 
+  let acknowledged: Promise<void> = Promise.resolve()
   startGeneration<WorkbenchJob, WorkbenchVariant>(
     {
       settings: requestSettings,
       profile: activeProfile,
       params: taskParams,
+      onAcknowledged: (ack) => {
+        acknowledged = ack
+      },
       // 用户点击重试是新的一单，始终新铸幂等键。
       // 若首次 POST 已落库但回执丢失，随后服务端任务失败，复用旧键会让 replayCommand
       // 一直带回失败的旧单；换渠道时请求哈希也可能对不上。自动重试（queueClient 断网重 POST、
@@ -2785,6 +2789,7 @@ async function retryLocalTask(task: TaskRecord) {
       ...(task.origin?.kind === 'batch' ? { origin: task.origin } : {}),
     }),
   )
+  await acknowledged
 }
 
 /**
@@ -3065,10 +3070,12 @@ export async function removeMultipleTasks(taskIds: string[]) {
   const platformIds = taskIds.filter(
     (id) => !owned.has(id) && platformGenerations.some((row) => row.id === id),
   )
+  const deletedPlatformIds = new Set<string>()
   let deleted = 0
   for (const id of platformIds) {
     if (!(await deleteRemoteGeneration(id))) continue
     await dropPlatformGeneration(id)
+    deletedPlatformIds.add(id)
     deleted += 1
   }
 
@@ -3111,8 +3118,8 @@ export async function removeMultipleTasks(taskIds: string[]) {
     }
   }
 
-  // 如果删除的任务在选中列表中，则移除
-  const removed = new Set([...toDelete, ...platformIds])
+  // 仅移除实际删除成功的记录，避免删除失败的平台记录被静默取消选中
+  const removed = new Set([...toDelete, ...deletedPlatformIds])
   const { selectedTaskIds } = useStore.getState()
   const newSelection = selectedTaskIds.filter((id) => !removed.has(id))
   if (newSelection.length !== selectedTaskIds.length) {
@@ -3312,25 +3319,29 @@ export async function clearData(options: ClearOptions = { clearConfig: true, cle
     showToast,
   } = useStore.getState()
 
-  if (options.clearTasks) {
-    await dbClearTasks()
-    await clearImages()
-    imageCache.clear()
-    thumbnailCache.clear()
-    thumbnailBackfillIds.clear()
-    setTasks([])
-    clearInputImages()
-    clearBatchSharedImages()
-    setBatchZoneNotice(null)
-    clearMaskDraft()
-  }
+  try {
+    if (options.clearTasks) {
+      await dbClearTasks()
+      await clearImages()
+      imageCache.clear()
+      thumbnailCache.clear()
+      thumbnailBackfillIds.clear()
+      setTasks([])
+      clearInputImages()
+      clearBatchSharedImages()
+      setBatchZoneNotice(null)
+      clearMaskDraft()
+    }
 
-  if (options.clearConfig) {
-    setSettings({ ...DEFAULT_SETTINGS })
-    setParams({ ...DEFAULT_PARAMS })
-  }
+    if (options.clearConfig) {
+      setSettings({ ...DEFAULT_SETTINGS })
+      setParams({ ...DEFAULT_PARAMS })
+    }
 
-  showToast(i18next.t('toast.dataCleared', { ns: 'store' }), 'success')
+    showToast(i18next.t('toast.dataCleared', { ns: 'store' }), 'success')
+  } catch {
+    showToast(i18next.t('common.fallback', { ns: 'errors' }), 'error')
+  }
 }
 
 /** 从 dataUrl 解析出 MIME 扩展名和二进制数据 */
