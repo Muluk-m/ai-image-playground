@@ -13,7 +13,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { SidebarTrigger } from '@/components/ui/sidebar'
-import { formatAdminError } from '@/lib/api-client'
+import { formatAdminError } from '@/lib/format-error'
 import { cn } from '@/lib/utils'
 
 export interface Crumb {

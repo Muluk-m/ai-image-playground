@@ -25,7 +25,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
-import { ApiError, formatAdminError } from '@/lib/api-client'
+import { ApiError } from '@/lib/api-client'
+import { formatAdminError } from '@/lib/format-error'
 import { cn } from '@/lib/utils'
 
 const DEPTH_LABELS: Record<AgentProfileKey, string> = {
