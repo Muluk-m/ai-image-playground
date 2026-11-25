@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query'
-import { Loader2 } from 'lucide-react'
+import { Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useState } from 'react'
 
 import { LoginCard } from '@/components/LoginCard'
@@ -13,6 +13,7 @@ export interface LoginFormProps {
 
 export function LoginForm({ onSuccess }: LoginFormProps) {
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
 
   const mutation = useMutation({
     mutationFn: (pw: string) =>
@@ -35,16 +36,34 @@ export function LoginForm({ onSuccess }: LoginFormProps) {
   return (
     <LoginCard error={errorText}>
       <form onSubmit={onSubmit} className="space-y-4" aria-label="登录">
-        <Input
-          type="password"
-          placeholder="密码"
-          autoFocus
-          autoComplete="current-password"
-          aria-label="密码"
-          value={password}
-          onChange={(e) => setPassword(e.currentTarget.value)}
-          disabled={mutation.isPending}
-        />
+        <div className="relative">
+          <Input
+            type={showPassword ? 'text' : 'password'}
+            placeholder="密码"
+            autoFocus
+            autoComplete="current-password"
+            aria-label="密码"
+            value={password}
+            onChange={(e) => {
+              setPassword(e.target.value)
+              if (mutation.isError) mutation.reset()
+            }}
+            disabled={mutation.isPending}
+            className="pr-9"
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            aria-label={showPassword ? '隐藏密码' : '显示密码'}
+            aria-pressed={showPassword}
+            className="absolute right-1.5 top-1/2 h-7 w-7 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            disabled={mutation.isPending}
+            onClick={() => setShowPassword((prev) => !prev)}
+          >
+            {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          </Button>
+        </div>
         <Button
           type="submit"
           className="w-full"

@@ -897,6 +897,17 @@ func newFlags(name string) *flag.FlagSet {
 	return fs
 }
 
+var positionalUsage = map[string]string{
+	"jobs get":           "JOB_ID",
+	"jobs wait":          "JOB_ID [--timeout SECONDS]",
+	"jobs cancel":        "JOB_ID",
+	"artifacts get":      "ARTIFACT_ID",
+	"artifacts download": "ARTIFACT_ID [--output PATH]",
+	"media upload":       "FILE",
+	"media get":          "MEDIA_ID",
+	"media download":     "MEDIA_ID [--output PATH]",
+}
+
 // parse accepts flags before or after positional arguments and checks their count.
 func parse(fs *flag.FlagSet, args []string, positional int) ([]string, error) {
 	var rest []string
@@ -908,7 +919,9 @@ func parse(fs *flag.FlagSet, args []string, positional int) ([]string, error) {
 			if name, ok := strings.CutPrefix(err.Error(), "flag provided but not defined: -"); ok {
 				return nil, fail("USAGE", "unknown flag %s", spelledAs(args, name))
 			}
-			return nil, fail("USAGE", "%v", err)
+			msg := strings.ReplaceAll(err.Error(), "for flag -", "for flag --")
+			msg = strings.ReplaceAll(msg, "flag needs an argument: -", "flag needs an argument: --")
+			return nil, fail("USAGE", "%s", msg)
 		}
 		args = fs.Args()
 		if len(args) > 0 {
@@ -917,6 +930,12 @@ func parse(fs *flag.FlagSet, args []string, positional int) ([]string, error) {
 		}
 	}
 	if len(rest) != positional {
+		if positional == 0 && (fs.Name() == "images create" || fs.Name() == "images validate") && len(rest) > 0 {
+			return nil, fail("USAGE", "%s expects no positional arguments (got %d); pass text with --prompt %q", fs.Name(), len(rest), rest[0])
+		}
+		if usage, ok := positionalUsage[fs.Name()]; ok {
+			return nil, fail("USAGE", "%s expects %d argument(s), got %d (usage: muvloom %s %s)", fs.Name(), positional, len(rest), fs.Name(), usage)
+		}
 		return nil, fail("USAGE", "%s expects %d argument(s), got %d", fs.Name(), positional, len(rest))
 	}
 	return rest, nil

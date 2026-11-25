@@ -15,7 +15,7 @@ interface ShortIdProps {
 }
 
 export function ShortId({ value, len = 8, className, compact = false, copy = true }: ShortIdProps) {
-  const [copied, setCopied] = useState(false)
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(
@@ -28,10 +28,9 @@ export function ShortId({ value, len = 8, className, compact = false, copy = tru
   async function onCopy(e: React.MouseEvent): Promise<void> {
     e.stopPropagation()
     const ok = await copyText(value)
-    if (!ok) return
-    setCopied(true)
+    setCopyState(ok ? 'copied' : 'failed')
     if (timerRef.current) clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(() => setCopied(false), 1200)
+    timerRef.current = setTimeout(() => setCopyState('idle'), 1500)
   }
 
   return (
@@ -51,17 +50,29 @@ export function ShortId({ value, len = 8, className, compact = false, copy = tru
               variant="ghost"
               size="icon-sm"
               onClick={onCopy}
-              aria-label={copied ? '已复制 ID' : '复制 ID'}
+              aria-label={
+                copyState === 'copied'
+                  ? '已复制 ID'
+                  : copyState === 'failed'
+                    ? '复制 ID 失败'
+                    : '复制 ID'
+              }
               className="shrink-0 text-muted-foreground hover:text-foreground"
             >
-              {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+              {copyState === 'copied' ? (
+                <Check className="h-3 w-3" />
+              ) : (
+                <Copy className="h-3 w-3" />
+              )}
             </Button>
           ) : null}
         </span>
       </TooltipTrigger>
       <TooltipContent>
         <span className="font-mono text-xs">
-          {copy ? `${copied ? '已复制' : '复制'}：${value}` : `完整 ID：${value}`}
+          {copy
+            ? `${copyState === 'copied' ? '已复制' : copyState === 'failed' ? '复制失败' : '复制'}：${value}`
+            : `完整 ID：${value}`}
         </span>
       </TooltipContent>
     </Tooltip>

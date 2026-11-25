@@ -67,19 +67,42 @@ func bindImageFlags(fs *flag.FlagSet) *imageFlags {
 	return f
 }
 
-// body uploads local reference files first, so the request only carries media ids.
-func (f *imageFlags) body(ctx context.Context, a *App, c *client.HTTPClient) (map[string]any, error) {
+// validateLocal checks prompt, prompt-file, and local reference paths before any auth or upload work.
+func (f *imageFlags) validateLocal() (string, error) {
+	if f.prompt != "" && f.promptFile != "" {
+		return "", fail("USAGE", "use either --prompt or --prompt-file, not both")
+	}
 	prompt := f.prompt
 	if f.promptFile != "" {
 		data, err := os.ReadFile(f.promptFile)
 		if err != nil {
-			return nil, fail("INVALID_REQUEST", "Cannot read --prompt-file: %v", err)
+			return "", fail("INVALID_REQUEST", "Cannot read --prompt-file: %v", err)
 		}
 		prompt = string(data)
 	}
 	if strings.TrimSpace(prompt) == "" {
-		return nil, fail("USAGE", "--prompt or --prompt-file is required")
+		return "", fail("USAGE", "--prompt or --prompt-file is required")
 	}
+	for _, ref := range f.refs {
+		info, err := os.Stat(ref)
+		if err == nil {
+			if info.IsDir() {
+				return "", fail("INVALID_REQUEST", "--ref expects a file, not a directory: %s", ref)
+			}
+			continue
+		}
+		if looksLikeLocalPath(ref) {
+			if errors.Is(err, os.ErrNotExist) {
+				return "", fail("INVALID_REQUEST", "Reference file not found: %s", ref)
+			}
+			return "", fail("INVALID_REQUEST", "Cannot access reference file %s: %v", ref, err)
+		}
+	}
+	return prompt, nil
+}
+
+// body uploads local reference files first, so the request only carries media ids.
+func (f *imageFlags) body(ctx context.Context, a *App, c *client.HTTPClient, prompt string) (map[string]any, error) {
 	body := map[string]any{"prompt": prompt}
 	for key, value := range map[string]string{
 		"model": f.model, "aspect_ratio": f.aspectRatio, "image_size": f.imageSize, "quality": f.quality,
@@ -143,11 +166,15 @@ func cmdImagesValidate(ctx context.Context, a *App, args []string) (any, error) 
 	if _, err := parse(fs, args, 0); err != nil {
 		return nil, err
 	}
+	prompt, err := flags.validateLocal()
+	if err != nil {
+		return nil, err
+	}
 	c, err := a.apiClient(ctx)
 	if err != nil {
 		return nil, err
 	}
-	body, err := flags.body(ctx, a, c)
+	body, err := flags.body(ctx, a, c, prompt)
 	if err != nil {
 		return nil, err
 	}
@@ -216,6 +243,9 @@ func cmdImagesCreate(ctx context.Context, a *App, args []string) (any, error) {
 			waitSet = true
 		}
 	})
+	if waitSet && *wait < 0 {
+		return nil, fail("USAGE", "--wait must be 0 or a positive number of seconds")
+	}
 	if *downloadDir != "" {
 		if !waitSet {
 			*wait = 300
@@ -223,11 +253,18 @@ func cmdImagesCreate(ctx context.Context, a *App, args []string) (any, error) {
 			return nil, fail("USAGE", "--download requires waiting for completion; omit --wait or pass --wait > 0")
 		}
 	}
+	if *key != "" && !idempotencyKeyPattern.MatchString(*key) {
+		return nil, fail("USAGE", "--idempotency-key must be 8-64 characters of letters, digits, _ . : -")
+	}
+	prompt, err := flags.validateLocal()
+	if err != nil {
+		return nil, err
+	}
 	c, err := a.apiClient(ctx)
 	if err != nil {
 		return nil, err
 	}
-	body, err := flags.body(ctx, a, c)
+	body, err := flags.body(ctx, a, c, prompt)
 	if err != nil {
 		return nil, err
 	}
@@ -235,8 +272,6 @@ func cmdImagesCreate(ctx context.Context, a *App, args []string) (any, error) {
 		if *key, err = newIdempotencyKey(); err != nil {
 			return nil, err
 		}
-	} else if !idempotencyKeyPattern.MatchString(*key) {
-		return nil, fail("USAGE", "--idempotency-key must be 8-64 characters of letters, digits, _ . : -")
 	}
 	body["idempotency_key"] = *key
 	record := submission{IdempotencyKey: *key, Request: body, CreatedAt: time.Now()}

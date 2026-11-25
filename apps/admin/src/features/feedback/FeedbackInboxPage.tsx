@@ -12,6 +12,7 @@ import {
   RotateCcw,
   Search,
   Send,
+  X,
 } from 'lucide-react'
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react'
 import { EmptyState, ErrorState, Page, PendingState } from '@/components/Page'
@@ -64,10 +65,12 @@ function StatusIndicator({ thread }: { thread: FeedbackAdminThreadSummary }) {
 function MessageBubble({
   message,
   userName,
+  loadingAttachment,
   onPreviewImage,
 }: {
   message: FeedbackMessage
   userName: string
+  loadingAttachment: boolean
   onPreviewImage: (id: string, title: string) => void
 }) {
   const isAdmin = message.senderType === 'admin'
@@ -94,11 +97,12 @@ function MessageBubble({
             variant="outline"
             size="sm"
             className="mt-2 max-w-full"
+            disabled={loadingAttachment}
             onClick={() => onPreviewImage(message.id, attachmentLabel)}
           >
-            <ImageIcon />
+            {loadingAttachment ? <Loader2 className="animate-spin" /> : <ImageIcon />}
             <span className="truncate">{attachmentLabel}</span>
-            <span>查看截图</span>
+            <span>{loadingAttachment ? '加载中…' : '查看截图'}</span>
           </Button>
         )}
       </div>
@@ -133,6 +137,7 @@ export function FeedbackInboxPage({
   const [replyDrafts, setReplyDrafts] = useState<Record<string, string>>({})
   const replyDraft = replyDrafts[activeThreadId ?? ''] ?? ''
   const [actionError, setActionError] = useState('')
+  const [loadingAttachmentId, setLoadingAttachmentId] = useState<string | null>(null)
   const [previewImage, setPreviewImage] = useState<{ src: string; title: string } | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -170,6 +175,7 @@ export function FeedbackInboxPage({
 
   async function openAttachment(id: string, title: string) {
     setActionError('')
+    setLoadingAttachmentId(id)
     previewRequest.current?.abort()
     const controller = new AbortController()
     previewRequest.current = controller
@@ -179,6 +185,8 @@ export function FeedbackInboxPage({
         setPreviewImage({ src: URL.createObjectURL(attachment), title })
     } catch (error) {
       if (!controller.signal.aborted) setActionError(feedbackErrorMessage(error))
+    } finally {
+      if (previewRequest.current === controller) setLoadingAttachmentId(null)
     }
   }
 
@@ -251,10 +259,46 @@ export function FeedbackInboxPage({
             <Input
               value={draftQuery}
               onChange={(event) => setDraftQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && !event.nativeEvent.isComposing && draftQuery) {
+                  event.preventDefault()
+                  setDraftQuery('')
+                  if (search.q) {
+                    onSearchChange({
+                      q: undefined,
+                      thread: undefined,
+                      before: undefined,
+                      page: undefined,
+                    })
+                  }
+                }
+              }}
               placeholder="搜索用户或反馈内容"
-              className="pl-8"
+              className="pl-8 pr-8"
               aria-label="搜索用户或反馈内容"
             />
+            {draftQuery ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label="清空搜索"
+                className="absolute right-1.5 top-1/2 h-6 w-6 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  setDraftQuery('')
+                  if (search.q) {
+                    onSearchChange({
+                      q: undefined,
+                      thread: undefined,
+                      before: undefined,
+                      page: undefined,
+                    })
+                  }
+                }}
+              >
+                <X className="size-3.5" />
+              </Button>
+            ) : null}
           </div>
           <Button type="submit" variant="outline" size="sm">
             搜索
@@ -459,6 +503,7 @@ export function FeedbackInboxPage({
                       key={message.id}
                       message={message}
                       userName={threadDisplayName(activeThread)}
+                      loadingAttachment={loadingAttachmentId === message.id}
                       onPreviewImage={(id, title) => void openAttachment(id, title)}
                     />
                   ))}
