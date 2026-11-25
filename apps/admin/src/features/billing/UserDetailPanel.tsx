@@ -465,6 +465,7 @@ function SubscriptionCreditsForm({
 function SubscriptionForm({
   plans,
   currentPlanId,
+  resetPlanId,
   pending,
   resetEpoch,
   onEdit,
@@ -472,6 +473,7 @@ function SubscriptionForm({
 }: {
   plans: Plan[]
   currentPlanId: string | null
+  resetPlanId: string | null
   pending: boolean
   resetEpoch: number
   onEdit: () => void
@@ -493,8 +495,11 @@ function SubscriptionForm({
   useEffect(() => {
     if (resetEpoch > 0 && resetEpoch !== lastResetRef.current) {
       lastResetRef.current = resetEpoch
+      const nextPlanId =
+        (resetPlanId && plans.some((plan) => plan.id === resetPlanId) ? resetPlanId : null) ??
+        defaultPlanId
       form.reset({
-        planId: defaultPlanId,
+        planId: nextPlanId,
         period: '1',
         startsAt: toLocalInput(Date.now()),
         reason: '',
@@ -502,7 +507,7 @@ function SubscriptionForm({
         paidAmount: '',
       })
     }
-  }, [defaultPlanId, form, resetEpoch])
+  }, [defaultPlanId, form, plans, resetEpoch, resetPlanId])
   useEffect(() => {
     if (form.getValues('planId') === '' && defaultPlanId !== '')
       form.setValue('planId', defaultPlanId)
@@ -919,6 +924,7 @@ function UserDetailPanel({
     subscription: 0,
     expiry: 0,
   })
+  const [lastGrantedPlanId, setLastGrantedPlanId] = useState<string | null>(null)
   const creditForm = useRef<HTMLDivElement>(null)
   const subscriptionForm = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -1050,10 +1056,9 @@ function UserDetailPanel({
     },
     onSuccess: async (paymentId, variables) => {
       setConfirmAction(null)
-      setResetEpochs((prev) => ({
-        ...prev,
-        [variables.input.kind]: prev[variables.input.kind] + 1,
-      }))
+      if (variables.input.kind === 'subscription') {
+        setLastGrantedPlanId(variables.input.planId)
+      }
       if (paymentId && readPendingPayment(paymentStorageKey)?.id === paymentId) {
         localStorage.removeItem(paymentStorageKey)
         setPaymentRecovery({ key: paymentStorageKey, payment: null, error: null })
@@ -1064,6 +1069,10 @@ function UserDetailPanel({
         queryClient.invalidateQueries({ queryKey: ['private-billing', 'user-summaries'] }),
         queryClient.invalidateQueries({ queryKey: ['private-billing', 'overview'] }),
       ])
+      setResetEpochs((prev) => ({
+        ...prev,
+        [variables.input.kind]: prev[variables.input.kind] + 1,
+      }))
     },
   })
   const resetMutation = () => {
@@ -1256,6 +1265,7 @@ function UserDetailPanel({
                   <SubscriptionForm
                     plans={plans}
                     currentPlanId={data.subscription?.plan_id ?? null}
+                    resetPlanId={lastGrantedPlanId}
                     pending={mutation.isPending}
                     resetEpoch={resetEpochs.subscription}
                     onEdit={resetMutation}
