@@ -19,7 +19,8 @@ set -eu
 # ~/deploy-runtimes/<sha>. test, whose branch is pushed without review, never executes scripts from
 # the test branch; instead it fetches main and runs main's latest deployment runtime (warning only
 # when the test commit itself modified deploy/ or scripts/), so neither environment depends on a
-# hand-copied runtime directory on the host.
+# hand-copied runtime directory on the host. The receiver itself is updated from main the same way
+# (update_receiver below); installing it by hand is needed once, on a new host.
 #
 # The only accepted command is `deploy <release-id> <target> <run-id>`, with the release data as a
 # gzipped tar on stdin (`tar -C "$out" -czf - .`). It unpacks into `~/releases/<release-id>`,
@@ -363,11 +364,34 @@ runtime="$runtime_root/scripts/vps-deploy.sh"
 }
 runtime_commit=$(cat "$runtime_root/.commit" 2>/dev/null || echo unknown)
 main_tip=$(git -C "$mirror" rev-parse --verify refs/heads/main 2>/dev/null || true)
-if [ -n "$main_tip" ] && [ "$runtime_commit" = "$main_tip" ] &&
-  [ -f "$runtime_root/scripts/ci-receive.sh" ] && [ -f "$receiver_path" ] &&
-  ! cmp -s "$receiver_path" "$runtime_root/scripts/ci-receive.sh"; then
-  echo "Warning: installed receiver $receiver_path differs from main ($main_tip) scripts/ci-receive.sh; back up and update ~/bin/aip-ci-receive" >&2
-fi
+
+# The receiver keeps itself current, so a merged change to it never waits for someone to copy it to
+# the server. Only the installed entry point (~/bin/aip-ci-receive), only from a runtime that is
+# main's tip, and only after a syntax check: the old file is kept beside it, the new one is renamed
+# into place (this run keeps reading the inode it started from) and takes effect from the next deploy.
+update_receiver() {
+  installed=$HOME/bin/aip-ci-receive
+  candidate=$runtime_root/scripts/ci-receive.sh
+  [ "$receiver_path" = "$installed" ] && [ -f "$candidate" ] || return 0
+  [ -n "$main_tip" ] && [ "$runtime_commit" = "$main_tip" ] || return 0
+  cmp -s "$installed" "$candidate" && return 0
+  if ! sh -n "$candidate" 2>/dev/null; then
+    echo "Warning: scripts/ci-receive.sh on main ($main_tip) fails a syntax check; keeping the installed receiver" >&2
+    return 0
+  fi
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  next=$installed.next.$$
+  if cp -p "$installed" "$installed.bak-$stamp" && cp "$candidate" "$next" && chmod 755 "$next" &&
+    mv -f "$next" "$installed"; then
+    echo "Receiver updated from main ($main_tip); the previous one is $installed.bak-$stamp. It applies from the next deploy." >&2
+    # The five newest backups are enough to step back.
+    ls -1t "$installed".bak-* 2>/dev/null | tail -n +6 | while read -r old; do rm -f "$old"; done
+  else
+    rm -f "$next"
+    echo "Warning: could not update $installed from main ($main_tip)" >&2
+  fi
+}
+update_receiver
 echo "Deployment runtime: $runtime_root ($runtime_commit)" >&2
 DEPLOY_ACTOR=github-actions/run-$run_id
 export DEPLOY_ACTOR
