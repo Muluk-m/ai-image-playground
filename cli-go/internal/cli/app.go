@@ -252,6 +252,28 @@ func lookup(args []string) (command, []string, bool) {
 	return command{}, nil, false
 }
 
+// suggestCommand finds a likely command or group name for a mistyped first word.
+func suggestCommand(word string) string {
+	lower := strings.ToLower(word)
+	for _, section := range commandList {
+		for _, cmd := range section.commands {
+			words := strings.Fields(cmd.name)
+			if words[0] == lower || words[0]+"s" == lower || words[0] == lower+"s" {
+				return words[0]
+			}
+		}
+	}
+	for _, section := range commandList {
+		for _, cmd := range section.commands {
+			words := strings.Fields(cmd.name)
+			if len(words) == 2 && words[1] == lower {
+				return cmd.name
+			}
+		}
+	}
+	return ""
+}
+
 // group lists the subcommands of a command group such as "jobs"; nil when there is none.
 func group(name string) []command {
 	var found []command
@@ -327,6 +349,9 @@ func (a *App) Run(args []string) int {
 				return a.usageError(args[0], "%s needs a subcommand: %s", args[0], subcommandNames(subs))
 			}
 			return a.usageError(args[0], "unknown command %q; %s has: %s", args[0]+" "+args[1], args[0], subcommandNames(subs))
+		}
+		if suggestion := suggestCommand(args[0]); suggestion != "" {
+			return a.usageError("", "unknown command %q; did you mean %q?", args[0], "muvloom "+suggestion)
 		}
 		return a.usageError("", "unknown command %q", args[0])
 	}

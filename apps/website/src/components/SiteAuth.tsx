@@ -89,6 +89,11 @@ export default function SiteAuth({
     }
   }, [locale, page, attempt])
   const visible = open || page === 'login'
+  useEffect(() => {
+    if (visible && status === 'error') {
+      setAttempt((a) => a + 1)
+    }
+  }, [visible, status])
   if (!visible) return null
   const close = () => {
     void discardPendingSubmission()

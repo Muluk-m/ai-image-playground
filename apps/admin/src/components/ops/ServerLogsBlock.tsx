@@ -7,8 +7,8 @@ import {
   type ServerLogsResult,
 } from '@image-playground/shared'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { defaultStringifySearch, Link } from '@tanstack/react-router'
-import { ChevronDown } from 'lucide-react'
+import { defaultStringifySearch, Link, useRouter } from '@tanstack/react-router'
+import { ChevronDown, X } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { LogTimeRangePicker } from '@/components/ops/LogTimeRangePicker'
 import { Button } from '@/components/ui/button'
@@ -229,8 +229,14 @@ export function ServerLogsBlock({
     if (previouslyFixed.current && !fixed) setEnd(Date.now())
     previouslyFixed.current = fixed
   }, [fixed])
+  const router = useRouter({ warn: false })
   const [search, setSearch] = useState(() => formatLogExpression({ q: state.q }))
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle')
+  useEffect(() => {
+    if (copyStatus !== 'copied') return
+    const timer = globalThis.setTimeout(() => setCopyStatus('idle'), 1500)
+    return () => globalThis.clearTimeout(timer)
+  }, [copyStatus])
   const expressionFilters = useRef<Partial<ServerLogFilters> | null>(null)
   const syncedQuery = useRef(state.q)
   const filterSignature = JSON.stringify(filters)
@@ -462,13 +468,38 @@ export function ServerLogsBlock({
               }
             }}
           >
-            <Input
-              aria-label="日志关键词"
-              placeholder="搜索日志 · service:worker level:error taskId:…"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              maxLength={1200}
-            />
+            <div className="relative min-w-0 flex-1">
+              <Input
+                aria-label="日志关键词"
+                placeholder="搜索日志 · service:worker level:error taskId:…"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape' && !event.nativeEvent.isComposing && search) {
+                    event.preventDefault()
+                    setSearch('')
+                    setSearchError('')
+                  }
+                }}
+                maxLength={1200}
+                className="pr-8"
+              />
+              {search ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label="清空日志搜索"
+                  className="absolute right-1.5 top-1/2 h-6 w-6 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => {
+                    setSearch('')
+                    setSearchError('')
+                  }}
+                >
+                  <X className="size-3.5" />
+                </Button>
+              ) : null}
+            </div>
             <Button size="sm" type="submit">
               搜索
             </Button>
@@ -512,7 +543,7 @@ export function ServerLogsBlock({
         <form
           id={advancedId}
           hidden={!advancedOpen}
-          className={`${advancedOpen ? 'grid' : 'hidden'} mt-3 gap-3 rounded-xl border bg-muted/20 p-4 sm:grid-cols-2 lg:grid-cols-3}`}
+          className={`${advancedOpen ? 'grid' : 'hidden'} mt-3 gap-3 rounded-xl border bg-muted/20 p-4 sm:grid-cols-2 lg:grid-cols-3`}
           onSubmit={(event) => {
             event.preventDefault()
             const form = new FormData(event.currentTarget)
@@ -650,9 +681,15 @@ export function ServerLogsBlock({
                 <strong className="text-danger">{data.summary.errors}</strong> · 警告{' '}
                 <strong className="text-amber-600">{data.summary.warnings}</strong>
               </p>
-              <a href="/ops" className="ml-auto underline text-muted-foreground">
-                采集容器状态
-              </a>
+              {router ? (
+                <Link to="/ops" className="ml-auto underline text-muted-foreground">
+                  采集容器状态
+                </Link>
+              ) : (
+                <a href="/ops" className="ml-auto underline text-muted-foreground">
+                  采集容器状态
+                </a>
+              )}
               <span className="text-muted-foreground">
                 {live && !custom ? '● 跟随最新 · 每 10 秒刷新' : '已暂停自动刷新'}
               </span>

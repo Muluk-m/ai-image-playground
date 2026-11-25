@@ -1,5 +1,5 @@
 import { Link } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { copyText, shortId } from '@/lib/format'
 import { adminApiUrl } from '@/lib/runtime-config'
@@ -20,8 +20,15 @@ export function PromptCard({
   onTask: (id: string) => void
 }) {
   const [copyState, setCopyState] = useState('复制提示词')
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [imageFailed, setImageFailed] = useState(false)
   const [label, color] = states[item.status]
+  useEffect(
+    () => () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+    },
+    [],
+  )
   return (
     <article
       className="grid min-w-0 rounded-xl border bg-card lg:grid-cols-[minmax(0,1fr)_240px]"
@@ -117,9 +124,12 @@ export function PromptCard({
         <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
-            onClick={async () =>
-              setCopyState((await copyText(item.prompt)) ? '已复制' : '复制失败，请重试')
-            }
+            onClick={async () => {
+              const ok = await copyText(item.prompt)
+              setCopyState(ok ? '已复制' : '复制失败，请重试')
+              if (copyTimerRef.current) clearTimeout(copyTimerRef.current)
+              copyTimerRef.current = setTimeout(() => setCopyState('复制提示词'), 1500)
+            }}
           >
             {copyState}
           </Button>

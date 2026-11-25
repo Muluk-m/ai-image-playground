@@ -1,3 +1,4 @@
+import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -31,7 +32,13 @@ export function ConfirmDialog({
   onOpenChange,
 }: ConfirmDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && pending) return
+        onOpenChange(next)
+      }}
+    >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
@@ -46,6 +53,7 @@ export function ConfirmDialog({
             onClick={onConfirm}
             disabled={pending}
           >
+            {pending ? <Loader2 className="size-4 animate-spin" /> : null}
             {confirmLabel}
           </Button>
         </DialogFooter>
