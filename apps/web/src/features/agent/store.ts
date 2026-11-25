@@ -783,7 +783,7 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     fetchMessages: (conversationId) => fetchMessages(conversationId),
     bindCache: (conversationId) => historyCache.bind(conversationCache(conversationId)),
     forgetCache: (conversationId) => historyCache.forget(conversationId),
-    releaseRunOrigins: releaseIdleAgentNodeRunOrigins,
+    releaseRunOrigins: () => releaseIdleAgentNodeRunOrigins(),
     selectWorkspace: (conversationId) =>
       selectCanvasWorkspace(conversationSceneKey(conversationId)),
     adoptSnapshot: (conversationId, taken) => adoptSnapshot(conversationId, taken),
@@ -794,11 +794,11 @@ export const useAgentStore = create<AgentState>((set, get, store) => {
     fail: (message) => fail(message),
     startNewConversation: () => get().startNewConversation(),
     project: {
-      current: currentCanvasProject,
+      current: () => currentCanvasProject(),
       detach: async (projectId) => {
         await useCanvasProjectStore.getState().update(projectId, { conversationId: null })
       },
-      open: openProject,
+      open: (projectId) => openProject(projectId),
     },
   })
 
