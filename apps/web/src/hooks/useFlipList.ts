@@ -99,6 +99,31 @@ export function useFlipList(
     const scrollLeft = container.scrollLeft
     const scrollTop = container.scrollTop
 
+    // 仅快照刷新（如虚拟列表滚动切行，`orderKey` 未变）：不打断在途补位动画，
+    // 且对正在动画的卡片保留其真实布局基准，避免把残留 translate3d 写进 prevRects。
+    if (!orderChanged && prevRects.size > 0 && !viewportChanged) {
+      const nextRects = new Map<string, ContentPoint>()
+      for (const el of nodes) {
+        const key = el.getAttribute(keyAttr)
+        if (!key) continue
+        const running = animationsRef.current.get(el)
+        if (running && running.playState === 'running') {
+          const existing = prevRects.get(key)
+          if (existing) nextRects.set(key, existing)
+          continue
+        }
+        const rect = el.getBoundingClientRect()
+        if (rect.width <= 0 || rect.height <= 0) continue
+        nextRects.set(key, {
+          left: rect.left - cRectBefore.left + scrollLeft,
+          top: rect.top - cRectBefore.top + scrollTop,
+        })
+      }
+      prevRectsRef.current = nextRects
+      prevViewportWidthRef.current = viewportW
+      return
+    }
+
     // 1. 批量读：对仍在播放旧 FLIP 动画的卡片记录 cancel 前的 `content + residualOffset`。
     const activeNodes: HTMLElement[] = []
     const visualBeforeCancel = new Map<string, ContentPoint>()
@@ -192,10 +217,17 @@ export function useFlipList(
       const cRect = container.getBoundingClientRect()
       const scrollLeft = container.scrollLeft
       const scrollTop = container.scrollTop
+      const prevRects = prevRectsRef.current
       const nextRects = new Map<string, ContentPoint>()
       for (const el of nodes) {
         const key = el.getAttribute(keyAttr)
         if (!key) continue
+        const running = animationsRef.current.get(el)
+        if (running && running.playState === 'running') {
+          const existing = prevRects.get(key)
+          if (existing) nextRects.set(key, existing)
+          continue
+        }
         const rect = el.getBoundingClientRect()
         if (rect.width <= 0 || rect.height <= 0) continue
         nextRects.set(key, {
