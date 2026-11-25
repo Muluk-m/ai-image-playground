@@ -372,4 +372,77 @@ describe('Lightbox explicit close control', () => {
     act(() => close!.click())
     expect(useStore.getState().lightboxImageId).toBeNull()
   })
+
+  it('cancels a pending close animation when switching images or unmounting so onClose is not invoked late', async () => {
+    const originalAnimate = Element.prototype.animate
+    const originalMatchMedia = window.matchMedia
+    const animations: Array<{
+      onfinish: (() => void) | null
+      oncancel: (() => void) | null
+      cancel: ReturnType<typeof vi.fn>
+    }> = []
+
+    window.matchMedia = vi.fn(() => ({
+      matches: false,
+      media: '',
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })) as unknown as typeof window.matchMedia
+
+    Element.prototype.animate = vi.fn(() => {
+      const anim = {
+        onfinish: null as (() => void) | null,
+        oncancel: null as (() => void) | null,
+        cancel: vi.fn(),
+      }
+      animations.push(anim)
+      return anim as unknown as Animation
+    })
+
+    try {
+      const onClose = vi.fn()
+      await act(async () => root.render(<ImagePreview src={IMAGE_SRC} onClose={onClose} />))
+      const shell = document.querySelector<HTMLElement>('[data-lightbox-media-shell]')!
+      vi.spyOn(shell, 'getBoundingClientRect').mockReturnValue({
+        left: 100,
+        top: 100,
+        right: 500,
+        bottom: 400,
+        width: 400,
+        height: 300,
+        x: 100,
+        y: 100,
+        toJSON: () => {},
+      } as DOMRect)
+
+      const close = document.querySelector<HTMLButtonElement>('button[aria-label="关闭"]')!
+      act(() => close.click())
+      expect(animations.length).toBeGreaterThan(0)
+      const shellAnim = animations[0]!
+      expect(onClose).not.toHaveBeenCalled()
+
+      // Switch to another image mid-close: close animation must cancel and not call onClose.
+      await act(async () => root.render(<ImagePreview src={THUMBNAIL_SRC} onClose={onClose} />))
+      expect(shellAnim.cancel).toHaveBeenCalled()
+      expect(shellAnim.onfinish).toBeNull()
+      expect(onClose).not.toHaveBeenCalled()
+
+      // Trigger close again, then unmount before animation finishes: must cancel without calling onClose.
+      animations.length = 0
+      act(() => document.querySelector<HTMLButtonElement>('button[aria-label="关闭"]')!.click())
+      const secondAnim = animations[0]!
+      await act(async () => root.render(<></>))
+      expect(secondAnim.cancel).toHaveBeenCalled()
+      expect(secondAnim.onfinish).toBeNull()
+      expect(onClose).not.toHaveBeenCalled()
+    } finally {
+      if (originalAnimate === undefined) {
+        // @ts-expect-error restore jsdom default
+        delete Element.prototype.animate
+      } else {
+        Element.prototype.animate = originalAnimate
+      }
+      window.matchMedia = originalMatchMedia
+    }
+  })
 })

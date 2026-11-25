@@ -374,9 +374,12 @@ export default function TaskGrid({
     const top = Math.round(grid.getBoundingClientRect().top + window.scrollY)
     if (Math.abs(top - scrollMargin) > 1) setScrollMargin(top)
   })
-  // 任务新增、删除、筛选或展开套卡时，留在网格里的相邻卡片平滑补位（完整列表键，可见裁剪在 useFlipList 内处理）。
+  // 任务新增、删除、筛选或展开套卡时，留在网格里的相邻卡片平滑补位；
+  // 虚拟列表滚动切行时仅刷新可见行快照，不触发补位动画。
+  const virtualItems = virtualizer.getVirtualItems()
   const flipOrderKey = useMemo(() => items.map((item) => item.key).join(','), [items])
-  useFlipList(gridRef, '[data-task-id]', 'data-task-id', flipOrderKey)
+  const flipSnapshotKey = virtualItems.map((row) => row.key).join(',')
+  useFlipList(gridRef, '[data-task-id]', 'data-task-id', flipOrderKey, flipSnapshotKey)
   // 框选按布局算卡片位置：滚出视口而未挂载的卡也照样参与选择。
   cardRects.current = () => {
     const grid = gridRef.current
@@ -487,7 +490,7 @@ export default function TaskGrid({
       </div>
       <div className="pb-6">
         <div ref={gridRef} className="relative" style={{ height: virtualizer.getTotalSize() }}>
-          {virtualizer.getVirtualItems().map((row) => (
+          {virtualItems.map((row) => (
             <div
               key={row.key}
               ref={virtualizer.measureElement}

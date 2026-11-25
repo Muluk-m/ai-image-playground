@@ -14,9 +14,17 @@ let host: HTMLDivElement
 let root: Root
 let originalAnimate: typeof Element.prototype.animate | undefined
 
-function GridHarness({ items }: { items: string[] }) {
+function GridHarness({
+  items,
+  orderKey,
+  snapshotKey,
+}: {
+  items: string[]
+  orderKey?: string
+  snapshotKey?: string
+}) {
   const ref = useRef<HTMLDivElement>(null)
-  useFlipList(ref, '[data-flip-id]', 'data-flip-id', items.join(','))
+  useFlipList(ref, '[data-flip-id]', 'data-flip-id', orderKey ?? items.join(','), snapshotKey)
   return (
     <div ref={ref} data-grid>
       {items.map((id) => (
@@ -155,19 +163,83 @@ describe('useFlipList', () => {
     )
   })
 
-  it('skips FLIP animations under prefers-reduced-motion: reduce', () => {
+  it('skips FLIP animations and layout reads under prefers-reduced-motion: reduce', () => {
     mockReducedMotion(true)
     const animate = vi.fn()
     Element.prototype.animate = animate
 
     act(() => root.render(<GridHarness items={['a', 'b']} />))
-    setRect(host.querySelector<HTMLElement>('[data-flip-id="a"]')!, 0, 0)
-    setRect(host.querySelector<HTMLElement>('[data-flip-id="b"]')!, 140, 0)
-    act(() => root.render(<GridHarness items={['a', 'b', 'c']} />))
-
-    setRect(host.querySelector<HTMLElement>('[data-flip-id="a"]')!, 140, 0)
+    const a = host.querySelector<HTMLElement>('[data-flip-id="a"]')!
+    const rectSpy = vi.spyOn(a, 'getBoundingClientRect')
     act(() => root.render(<GridHarness items={['new', 'a', 'b']} />))
 
     expect(animate).not.toHaveBeenCalled()
+    expect(rectSpy).not.toHaveBeenCalled()
+  })
+
+  it('refreshes snapshots on snapshotKey changes without animating, then animates on next reorder', () => {
+    const cancel = vi.fn()
+    const animate = vi.fn(() => ({ cancel }) as unknown as Animation)
+    Element.prototype.animate = animate
+
+    // Initial virtual window shows items v1, v2.
+    act(() =>
+      root.render(<GridHarness items={['v1', 'v2']} orderKey="full-1" snapshotKey="win-1" />),
+    )
+    setRect(host.querySelector<HTMLElement>('[data-flip-id="v1"]')!, 0, 0)
+    setRect(host.querySelector<HTMLElement>('[data-flip-id="v2"]')!, 140, 0)
+
+    // Scroll shifts virtual window to v10, v11 while full orderKey stays identical.
+    act(() =>
+      root.render(<GridHarness items={['v10', 'v11']} orderKey="full-1" snapshotKey="win-2" />),
+    )
+    const v10 = host.querySelector<HTMLElement>('[data-flip-id="v10"]')!
+    const v11 = host.querySelector<HTMLElement>('[data-flip-id="v11"]')!
+    setRect(v10, 0, 100)
+    setRect(v11, 140, 100)
+    // Snapshot once layout rects are assigned (simulates virtualizer measuring scrolled window).
+    act(() =>
+      root.render(<GridHarness items={['v10', 'v11']} orderKey="full-1" snapshotKey="win-2b" />),
+    )
+    expect(animate).not.toHaveBeenCalled()
+
+    // Now delete v10 -> orderKey changes and v11 shifts left from 140 to 0.
+    setRect(v11, 0, 100)
+    act(() => root.render(<GridHarness items={['v11']} orderKey="full-2" snapshotKey="win-2b" />))
+
+    expect(animate).toHaveBeenCalledWith(
+      [{ transform: 'translate3d(140px, 0px, 0)' }, { transform: 'translate3d(0, 0, 0)' }],
+      expect.objectContaining({ duration: 240 }),
+    )
+  })
+
+  it('bounds synchronous layout measurements on large non-virtualized grids', () => {
+    const animate = vi.fn(() => ({ cancel: vi.fn() }) as unknown as Animation)
+    Element.prototype.animate = animate
+    const items = Array.from({ length: 140 }, (_, i) => `item-${i}`)
+
+    act(() => root.render(<GridHarness items={items} />))
+    const spies = items.map((id, i) => {
+      const el = host.querySelector<HTMLElement>(`[data-flip-id="${id}"]`)!
+      const top = Math.floor(i / 4) * 200
+      return vi.spyOn(el, 'getBoundingClientRect').mockImplementation(
+        () =>
+          ({
+            left: (i % 4) * 140,
+            top,
+            right: (i % 4) * 140 + 120,
+            bottom: top + 180,
+            width: 120,
+            height: 180,
+            x: (i % 4) * 140,
+            y: top,
+            toJSON: () => {},
+          }) as DOMRect,
+      )
+    })
+
+    act(() => root.render(<GridHarness items={items.slice(1)} />))
+    const measuredCount = spies.filter((spy) => spy.mock.calls.length > 0).length
+    expect(measuredCount).toBeLessThan(70)
   })
 })
