@@ -92,14 +92,16 @@ function TimelineEditor({
   const [measured, setMeasured] = useState<Record<string, number>>({})
   const [videoError, setVideoError] = useState(false)
   const [historyState, setHistoryState] = useState({ undo: 0, redo: 0 })
-  const undoStack = useRef<TimelineClip[][]>([])
-  const redoStack = useRef<TimelineClip[][]>([])
+  const [trimmingActive, setTrimmingActive] = useState(false)
+  const trimmingActiveRef = useRef(false)
+  const undoStack = useRef<Array<{ clips: TimelineClip[]; selected: number | null }>>([])
+  const redoStack = useRef<Array<{ clips: TimelineClip[]; selected: number | null }>>([])
   const video = useRef<HTMLVideoElement>(null)
   const root = useRef<HTMLDivElement>(null)
   const pendingSeek = useRef<number | null>(null)
   // 播放循环与媒体事件回调里读这几份 ref，不读闭包：状态在两次渲染之间就会变。
-  const live = useRef({ clips, playing, playIndex })
-  live.current = { clips, playing, playIndex }
+  const live = useRef({ clips, selected, playing, playIndex })
+  live.current = { clips, selected, playing, playIndex }
 
   const sourceOf = useCallback(
     (id: string) => {
@@ -223,7 +225,7 @@ function TimelineEditor({
     setHistoryState({ undo: undoStack.current.length, redo: redoStack.current.length })
 
   const pushHistory = () => {
-    undoStack.current.push(live.current.clips)
+    undoStack.current.push({ clips: live.current.clips, selected: live.current.selected })
     if (undoStack.current.length > 50) undoStack.current.shift()
     redoStack.current = []
     syncHistory()
@@ -239,38 +241,36 @@ function TimelineEditor({
     if (record) pushHistory()
     setClips(next)
     live.current.clips = next
-    if (change) setSelected((current) => followSelection(current, change))
+    if (change) {
+      setSelected((current) => {
+        const nextSelected = followSelection(current, change)
+        live.current.selected = nextSelected
+        return nextSelected
+      })
+    }
     seek(time, next)
   }
 
   const undo = () => {
+    if (trimmingActiveRef.current) return
     const previous = undoStack.current.pop()
     if (!previous) return
-    redoStack.current.push(live.current.clips)
+    redoStack.current.push({ clips: live.current.clips, selected: live.current.selected })
     syncHistory()
-    setSelected((current) =>
-      current !== null && current >= previous.length
-        ? previous.length > 0
-          ? previous.length - 1
-          : null
-        : current,
-    )
-    update(previous, undefined, false)
+    live.current.selected = previous.selected
+    setSelected(previous.selected)
+    update(previous.clips, undefined, false)
   }
 
   const redo = () => {
+    if (trimmingActiveRef.current) return
     const next = redoStack.current.pop()
     if (!next) return
-    undoStack.current.push(live.current.clips)
+    undoStack.current.push({ clips: live.current.clips, selected: live.current.selected })
     syncHistory()
-    setSelected((current) =>
-      current !== null && current >= next.length
-        ? next.length > 0
-          ? next.length - 1
-          : null
-        : current,
-    )
-    update(next, undefined, false)
+    live.current.selected = next.selected
+    setSelected(next.selected)
+    update(next.clips, undefined, false)
   }
 
   const retryVideo = () => {
@@ -362,7 +362,7 @@ function TimelineEditor({
               type="button"
               variant="ghost"
               size="icon-sm"
-              disabled={historyState.undo === 0}
+              disabled={trimmingActive || historyState.undo === 0}
               onClick={undo}
               aria-label={t('toolbar.undo')}
               title={t('toolbar.undo')}
@@ -373,7 +373,7 @@ function TimelineEditor({
               type="button"
               variant="ghost"
               size="icon-sm"
-              disabled={historyState.redo === 0}
+              disabled={trimmingActive || historyState.redo === 0}
               onClick={redo}
               aria-label={t('toolbar.redo')}
               title={t('toolbar.redo')}
@@ -472,11 +472,16 @@ function TimelineEditor({
           sourceOf={sourceOf}
           selected={selected}
           onSelect={(index) => {
+            live.current.selected = index
             setSelected(index)
             seek(startOfClip(clips, sourceOf, index))
           }}
           onMove={(from, to) => update(moveClip(clips, from, to), { kind: 'move', from, to })}
           onTrimStart={pushHistory}
+          onTrimActiveChange={(active) => {
+            trimmingActiveRef.current = active
+            setTrimmingActive(active)
+          }}
           onTrim={(index, edge, seconds, record = true) => {
             const current = live.current.clips
             const next = [...current]
@@ -563,6 +568,7 @@ function ClipTrack({
   onSelect,
   onMove,
   onTrimStart,
+  onTrimActiveChange,
   onTrim,
   onRemove,
   onLocate,
@@ -574,6 +580,7 @@ function ClipTrack({
   onSelect: (index: number) => void
   onMove: (from: number, to: number) => void
   onTrimStart: () => void
+  onTrimActiveChange: (active: boolean) => void
   onTrim: (index: number, edge: 'in' | 'out', seconds: number, record?: boolean) => void
   onRemove: (index: number) => void
   onLocate?: (index: number) => void
@@ -603,6 +610,7 @@ function ClipTrack({
             setDragFrom(null)
           }}
           onTrimStart={onTrimStart}
+          onTrimActiveChange={onTrimActiveChange}
           onTrim={(edge, seconds, record) => onTrim(index, edge, seconds, record)}
           onRemove={() => onRemove(index)}
           onLocate={onLocate ? () => onLocate(index) : undefined}
@@ -626,6 +634,7 @@ function ClipCard({
   onDragEnd,
   onDrop,
   onTrimStart,
+  onTrimActiveChange,
   onTrim,
   onRemove,
   onLocate,
@@ -643,6 +652,7 @@ function ClipCard({
   onDragEnd: () => void
   onDrop: () => void
   onTrimStart: () => void
+  onTrimActiveChange: (active: boolean) => void
   onTrim: (edge: 'in' | 'out', seconds: number, record?: boolean) => void
   onRemove: () => void
   onLocate?: () => void
@@ -672,6 +682,7 @@ function ClipCard({
     const target = event.currentTarget
     target.setPointerCapture(event.pointerId)
     setTrimming(true)
+    onTrimActiveChange(true)
     let recorded = false
     const move = (moveEvent: PointerEvent) => {
       if (!recorded) {
@@ -686,6 +697,7 @@ function ClipCard({
       target.removeEventListener('pointercancel', end)
       target.removeEventListener('lostpointercapture', end)
       setTrimming(false)
+      onTrimActiveChange(false)
     }
     target.addEventListener('pointermove', move)
     target.addEventListener('pointerup', end)
