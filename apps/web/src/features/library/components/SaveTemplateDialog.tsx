@@ -16,7 +16,7 @@ export default function SaveTemplateDialog() {
       description={t('saveTemplate.description')}
       placeholder={t('saveTemplate.placeholder')}
       onCancel={cancelNamingTemplate}
-      onSave={(name) => void saveTemplate(name)}
+      onSave={(name) => saveTemplate(name)}
     />
   )
 }

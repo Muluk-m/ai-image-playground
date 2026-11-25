@@ -217,11 +217,19 @@ export default function InspirationDetail() {
 
   const runAction = async (kind: 'apply' | 'reference') => {
     if (pendingRef.current) return
+    if (kind === 'apply') {
+      await applyInspiration(item, {
+        onBusyChange: (busy) => {
+          pendingRef.current = busy
+          if (mountedRef.current) setPendingAction(busy ? 'apply' : null)
+        },
+      })
+      return
+    }
     pendingRef.current = true
-    setPendingAction(kind)
+    setPendingAction('reference')
     try {
-      if (kind === 'reference') await useInspirationAsReference(item)
-      else await applyInspiration(item)
+      await useInspirationAsReference(item)
     } finally {
       pendingRef.current = false
       if (mountedRef.current) setPendingAction(null)

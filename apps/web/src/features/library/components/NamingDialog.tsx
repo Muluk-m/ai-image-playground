@@ -53,6 +53,8 @@ export default function NamingDialog({
     setSaving(true)
     try {
       await onSave(finalName)
+    } catch {
+      // Callers handle and toast their own failures; keep dialog unlocked so the user can retry.
     } finally {
       savingRef.current = false
       if (mountedRef.current) setSaving(false)

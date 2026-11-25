@@ -21,7 +21,7 @@ export default function SaveAssetDialog() {
       defaultName={pending.defaultName}
       preview={<AssetThumb imageId={pending.imageId} alt="" />}
       onCancel={cancelNaming}
-      onSave={(name) => void saveAsset(pending.imageId, name)}
+      onSave={(name) => saveAsset(pending.imageId, name)}
     />
   )
 }
