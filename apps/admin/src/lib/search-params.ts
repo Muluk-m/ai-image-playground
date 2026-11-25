@@ -8,15 +8,21 @@ import {
 } from '@image-playground/shared'
 import {
   type AgentPromptFilters,
+  DEFAULT_HEALTH_RANGE,
   DEFAULT_OPS_RANGE,
   DEFAULT_RANGE,
   DEFAULT_SORT,
   type GenerationTaskFilters,
+  HEALTH_RANGE_META,
+  HEALTH_RANGES,
+  type HealthRange,
   OPS_RANGE_LABEL,
   OPS_RANGES,
   type OpsRange,
   parseAgentPromptFilters,
   parseGenerationTaskFilters,
+  parseHealthIncludePolicy,
+  parseHealthRange,
   parseOpsRange,
   parseRange,
   parseSort,
@@ -31,13 +37,18 @@ import {
   type UserSegment,
 } from '../../contracts'
 
-export type { OpsRange, Range, SortKey }
+export type { HealthRange, OpsRange, Range, SortKey }
 export {
+  DEFAULT_HEALTH_RANGE,
   DEFAULT_OPS_RANGE,
   DEFAULT_RANGE,
   DEFAULT_SORT,
+  HEALTH_RANGE_META,
+  HEALTH_RANGES,
   OPS_RANGE_LABEL,
   OPS_RANGES,
+  parseHealthIncludePolicy,
+  parseHealthRange,
   parseOpsRange,
   parseRange,
   parseSort,
@@ -165,6 +176,18 @@ export interface OpsSearch {
 
 export function parseOpsSearch(input: Record<string, unknown>): OpsSearch {
   return input.range === undefined ? {} : { range: parseOpsRange(input.range) }
+}
+
+export interface HealthSearch {
+  range?: HealthRange
+  includePolicy?: '1'
+}
+
+export function parseHealthSearch(input: Record<string, unknown>): HealthSearch {
+  const out: HealthSearch = {}
+  if (input.range !== undefined) out.range = parseHealthRange(input.range)
+  if (parseHealthIncludePolicy(input.includePolicy)) out.includePolicy = '1'
+  return out
 }
 
 export interface UsersSearch {
