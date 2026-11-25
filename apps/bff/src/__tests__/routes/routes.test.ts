@@ -105,6 +105,25 @@ describe('BFF queue routes', () => {
     expect(json).toMatchObject({ ok: true })
   })
 
+  it('GET /health reports where the running configuration came from', async () => {
+    const saved = [process.env.DEPLOY_CONFIG_SOURCE, process.env.DEPLOY_CONFIG_DIGEST]
+    process.env.DEPLOY_CONFIG_SOURCE = 'rendered'
+    process.env.DEPLOY_CONFIG_DIGEST = '123-456'
+    try {
+      const { json } = await jsonReq('GET', '/health')
+      expect(json).toMatchObject({ config: { source: 'rendered', digest: '123-456' } })
+      delete process.env.DEPLOY_CONFIG_SOURCE
+      delete process.env.DEPLOY_CONFIG_DIGEST
+      const unknown = await jsonReq('GET', '/health')
+      expect(unknown.json).toMatchObject({ config: { source: 'unknown', digest: null } })
+    } finally {
+      if (saved[0] === undefined) delete process.env.DEPLOY_CONFIG_SOURCE
+      else process.env.DEPLOY_CONFIG_SOURCE = saved[0]
+      if (saved[1] === undefined) delete process.env.DEPLOY_CONFIG_DIGEST
+      else process.env.DEPLOY_CONFIG_DIGEST = saved[1]
+    }
+  })
+
   it('GET /health reports the commit the running image was built from', async () => {
     const previous = process.env.APP_VERSION
     process.env.APP_VERSION = `${'a'.repeat(40)}+${'b'.repeat(40)}`

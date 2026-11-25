@@ -839,6 +839,8 @@ export const NOT_DEPLOYMENT_CONFIG: Readonly<Record<string, string>> = {
   DATABASE_PREPARE: '连接池 prepared statement 开关，部署按需覆盖',
   TEST_DATABASE_URL: '测试',
   WORKER_ACTIVATION_FILE: 'rollout-runtime.sh 按代次传入',
+  DEPLOY_CONFIG_SOURCE: 'rollout-runtime.sh 按部署描述 configSource 传入，/health 报告',
+  DEPLOY_CONFIG_DIGEST: 'rollout-runtime.sh 传入的生成配置摘要（rendered 才有），/health 报告',
   WORKER_START_PAUSED: 'rollout-runtime.sh 按代次传入',
   LEGACY_EXECUTOR_ORIGIN: 'rollout-runtime.sh 按代次传入',
   CHANNELS_FILE: '本地开发覆盖渠道清单',

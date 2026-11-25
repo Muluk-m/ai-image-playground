@@ -24,16 +24,22 @@ segmenter_version() {
   printf '%s\n' "$1" | sed -n 's/^ai-image-playground:segmenter-\([0-9][0-9]*\)-[0-9a-f]*$/\1/p'
 }
 DEPLOY_MIN_FREE_GB=${DEPLOY_MIN_FREE_GB:-8}
-# Config center (ADR 0035): a deployment whose rendered/<project> directory exists gets its
-# configuration rendered from the release image below and never reads app.env. Opting in or out is
-# creating or deleting that directory; production needs Nain's approval for either.
+# Config center (ADR 0035): the deployment descriptor in this runtime says where the configuration
+# comes from (`configSource`), so switching is a reviewed change to deploy/deployments/<name>.json,
+# never a file someone left on the host. `rendered` renders it from the release image below and
+# never reads app.env; `legacy` reads app.env. Production needs Nain's approval to switch.
 case "$target" in paid) config_deployment='prod'; config_project=$PAID_PROJECT ;; *) config_deployment='test'; config_project=$TEST_PROJECT ;; esac
 config_rendered_dir=$config_root/rendered/$config_project
-# A render killed between moving the old directory aside and installing the new one leaves only
-# <dir>.prev-<pid>; the next render puts it back, so that still counts as opted in.
-config_center=false
-[ ! -d "$config_rendered_dir" ] || config_center=true
-for leftover in "$config_rendered_dir".prev-*; do [ ! -d "$leftover" ] || config_center=true; done
+descriptor=$repo_root/deploy/deployments/$config_deployment.json
+config_source=$(sed -n 's/^[[:space:]]*"configSource":[[:space:]]*"\([a-z]*\)".*/\1/p' "$descriptor" 2>/dev/null | head -n 1)
+case $config_source in
+  rendered) config_center=true ;;
+  legacy) config_center=false ;;
+  *) echo "$descriptor names no configSource (rendered or legacy); refusing to guess" >&2; exit 1 ;;
+esac
+CONFIG_SOURCE=$config_source
+export CONFIG_SOURCE
+echo "Configuration source: $config_source ($descriptor)"
 if [ "$target" = test ] && [ "$config_center" = false ]; then
   sh "$repo_root/scripts/check-test-isolation.sh" runtime "$config_root/apps/$TEST_PROJECT"
   MIGRATOR_ENV_FILE=$config_root/apps/$TEST_PROJECT/migrate.env

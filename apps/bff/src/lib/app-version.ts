@@ -10,3 +10,14 @@ export function appVersion(): string {
 export function appRelease(): string {
   return process.env.APP_RELEASE?.trim() || 'unknown'
 }
+
+/**
+ * 发布时的配置来源（ADR 0035）：rollout-runtime.sh 注入。`rendered` 带生成配置的摘要，
+ * 发布后据此确认执行器确实跑在部署描述要求的配置上。
+ */
+export function appConfig(): { source: string; digest: string | null } {
+  return {
+    source: process.env.DEPLOY_CONFIG_SOURCE?.trim() || 'unknown',
+    digest: process.env.DEPLOY_CONFIG_DIGEST?.trim() || null,
+  }
+}

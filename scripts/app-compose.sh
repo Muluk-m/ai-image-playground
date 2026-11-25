@@ -63,7 +63,17 @@ fi
 # longer consulted. Removing that directory falls back to app.env. The project directory keeps the
 # release state either way (releases/, mounted at /run/operator).
 RENDERED_DIR=${RENDERED_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/rendered/$project}
-if [ -f "$RENDERED_DIR/deploy.env" ]; then
+# vps-deploy.sh passes the descriptor's configSource; a hand run without it goes by what is on disk.
+case ${CONFIG_SOURCE:-} in
+  rendered)
+    [ -f "$RENDERED_DIR/deploy.env" ] || {
+      echo "configSource is rendered but $RENDERED_DIR/deploy.env is missing; run scripts/config-render.sh first" >&2
+      exit 1
+    } ;;
+  legacy | '') ;;
+  *) echo "Unknown CONFIG_SOURCE: $CONFIG_SOURCE" >&2; exit 2 ;;
+esac
+if [ "${CONFIG_SOURCE:-}" != legacy ] && [ -f "$RENDERED_DIR/deploy.env" ]; then
   rendered=true
   if [ -n "$explicit_env_file" ]; then
     echo "$RENDERED_DIR is in use; an env file argument would be ignored. Remove that directory to go back to app.env." >&2
@@ -108,7 +118,9 @@ else
   env_file=$APP_ENV_FILE
   MIGRATOR_ENV_FILE=${MIGRATOR_ENV_FILE:-$APP_CONFIG_DIR/migrate.env}
 fi
-export MIGRATOR_ENV_FILE
+# rollout-runtime.sh decides the same way from this, not from the disk again.
+if [ "$rendered" = true ]; then CONFIG_SOURCE=rendered; else CONFIG_SOURCE=legacy; fi
+export CONFIG_SOURCE MIGRATOR_ENV_FILE
 export APP_ENV_FILE APP_CONFIG_DIR
 
 # Read-only inputs of the operations board. The collector learns container names from a table in
@@ -445,6 +457,25 @@ activate_backend_then_ingress() {
   write_container_names
 }
 
+# Under the config center every executor carries the digest of the render it was created from
+# (rollout-runtime.sh). One without it is still on app.env: the deploy did not do what the descriptor
+# says, so it fails instead of reporting success.
+verify_rendered_executors() {
+  [ "$rendered" = true ] || return 0
+  [ -f "$APP_CONFIG_DIR/releases/current" ] || {
+    echo "No current release recorded in $APP_CONFIG_DIR/releases; cannot confirm the rendered configuration" >&2
+    exit 1
+  }
+  for executor in $(cat "$APP_CONFIG_DIR/releases/current"); do
+    label=$(docker inspect --format '{{index .Config.Labels "app.runtime.config"}}' "$executor" 2>/dev/null) || label=
+    case $label in
+      [0-9]*-[0-9]*) ;;
+      *) echo "$executor does not run on the rendered configuration (label '$label'); the deploy did not switch" >&2; exit 1 ;;
+    esac
+  done
+  echo "Configuration source: rendered ($(sed 's/ /, /' "$APP_CONFIG_DIR/releases/current"))" >&2
+}
+
 release_managed() {
   if [ -e "$APP_CONFIG_DIR/releases/current" ] || [ -e "$APP_CONFIG_DIR/releases/route.json" ]; then
     return 0
@@ -472,6 +503,7 @@ case "$command" in
       activate_backend_then_ingress
     fi
     sync_tunnels
+    verify_rendered_executors
     ;;
   stop|down)
     if release_managed; then
@@ -507,6 +539,7 @@ case "$command" in
     stage_tunnels
     "$repo_root/scripts/rollout-runtime.sh" "$project" "$rollback_image"
     sync_tunnels
+    verify_rendered_executors
     ;;
   *)
     usage

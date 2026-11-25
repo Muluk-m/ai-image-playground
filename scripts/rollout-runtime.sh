@@ -44,7 +44,9 @@ app_env=$config_dir/app.env
 # Config center (ADR 0035): with rendered/<project> in place, each role reads the env file rendered
 # for it and the operator config rendered beside it; app.env is not read. See scripts/app-compose.sh.
 rendered_dir=${RENDERED_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/ai-image-playground/rendered/$project}
-if [ -f "$rendered_dir/deploy.env" ]; then
+# CONFIG_SOURCE comes from the deployment descriptor through vps-deploy.sh and app-compose.sh; a
+# hand run without it goes by what is on disk.
+if [ "${CONFIG_SOURCE:-}" != legacy ] && [ -f "$rendered_dir/deploy.env" ]; then
   bff_env=$rendered_dir/env/bff.env
   worker_env=$rendered_dir/env/worker.env
   migrate_env=$rendered_dir/env/migrate.env
@@ -354,6 +356,8 @@ runtime() {
     --label "app.runtime.project=$project" --label "app.runtime.role=$role" \
     --label "app.runtime.generation=$release" \
     ${config_digest:+--label "app.runtime.config=$config_digest"} \
+    -e "DEPLOY_CONFIG_SOURCE=$(if [ -n "$config_digest" ]; then echo rendered; else echo legacy; fi)" \
+    -e "DEPLOY_CONFIG_DIGEST=$config_digest" \
     --network "$network" --env-file "$(if [ "$role" = worker ]; then echo "$worker_env"; else echo "$bff_env"; fi)" \
     -e OBS_ROOT_PASSWORD= -e OBS_S3_ACCESS_KEY_ID= -e OBS_S3_SECRET_ACCESS_KEY= \
     -e APP_ROLE="$role" -e DATABASE_POOL_MAX="$3" -e PORT=37377 -e STATIC_DIR= -e CLIENT_IP_SOURCE=cf-connecting-ip \

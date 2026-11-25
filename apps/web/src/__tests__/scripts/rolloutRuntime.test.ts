@@ -1018,6 +1018,31 @@ describe('app-compose.sh up', () => {
     expect(migrate).toContain(operator)
   })
 
+  it('fails before touching anything when the descriptor says rendered but nothing was rendered', () => {
+    config = join(xdg, 'ai-image-playground/apps/fixture')
+    write(join(config, 'app.env'), '')
+    write(join(config, 'migrate.env'), '')
+    write(join(config, 'cloudflared/credentials.json'), '{}')
+    currentGeneration()
+    const result = spawnSync('sh', [composeScript, 'up', 'fixture'], {
+      encoding: 'utf8',
+      timeout: 20_000,
+      env: {
+        ...process.env,
+        PATH: `${join(root, 'bin')}:${process.env.PATH}`,
+        MOCK_ROOT: root,
+        XDG_CONFIG_HOME: xdg,
+        APP_IMAGE: 'fixture:new',
+        APP_CONFIG_DIR: '',
+        RENDERED_DIR: '',
+        CONFIG_SOURCE: 'rendered',
+      },
+    })
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('configSource is rendered but')
+    expect(logLines().some((line) => /^(create|run|stop|rm) /.test(line))).toBe(false)
+  })
+
   it('starts a new generation when the image is the same but the render changed (ADR 0035)', () => {
     config = join(xdg, 'ai-image-playground/apps/fixture')
     const rendered = join(xdg, 'ai-image-playground/rendered/fixture')

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import {
   chmodSync,
   cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -80,7 +81,7 @@ if [ "$1" = compose ]; then
   printf 'compose %s SEGMENTER_IMAGE=%s\\n' "$*" "$SEGMENTER_IMAGE" >> "$CALL_LOG"
   exit "\${TEST_SEGMENTER_UP_EXIT:-0}"
 fi
-printf "rollout %s %s%s\\n" "$2" "$APP_IMAGE" "\${AGENT_SEGMENTER_URL:+ segmenter=$AGENT_SEGMENTER_URL}" >> "$CALL_LOG"
+printf "rollout %s %s%s config-source=%s\\n" "$2" "$APP_IMAGE" "\${AGENT_SEGMENTER_URL:+ segmenter=$AGENT_SEGMENTER_URL}" "$CONFIG_SOURCE" >> "$CALL_LOG"
 `,
   )
   chmodSync(join(release, 'scripts/app-compose.sh'), 0o755)
@@ -98,6 +99,13 @@ esac
   chmodSync(join(release, 'scripts/segmenter-deploy.sh'), 0o755)
   cpSync(join(source, 'scripts/rollout-runtime.sh'), join(release, 'scripts/rollout-runtime.sh'))
   writeFileSync(join(release, 'deploy/compose.app.yaml'), 'services: {}\n')
+  // The descriptors decide the configuration source; app.env until a test says otherwise.
+  mkdirSync(join(release, 'deploy/deployments'), { recursive: true })
+  for (const name of ['prod', 'test'])
+    writeFileSync(
+      join(release, 'deploy/deployments', `${name}.json`),
+      `{\n  "name": "${name}",\n  "configSource": "legacy",\n  "segmenter": true\n}\n`,
+    )
   writeFileSync(join(release, 'images.tar.gz'), 'fake image archive')
   writeFileSync(
     join(release, 'images.tsv'),
@@ -274,7 +282,7 @@ describe('registry release receiver', () => {
     expect(calls.some((c) => c.startsWith('load'))).toBe(false)
     expect(calls).not.toContain('login ghcr.io -u Muluk-m --password-stdin')
     expect(calls).toContain(
-      'rollout image-playground-paid ai-image-playground:paid-aaaaaaaaaaaa-aaaaaaaaaaaa',
+      'rollout image-playground-paid ai-image-playground:paid-aaaaaaaaaaaa-aaaaaaaaaaaa config-source=legacy',
     )
   })
   it('logs in with the pull token file through stdin when not logged in yet', () => {
@@ -399,7 +407,7 @@ describe('receivers with the shared segmenter', () => {
     expect(result.status).toBe(0)
     const calls = readFileSync(log, 'utf8').split('\n')
     const rollout = calls.indexOf(
-      `rollout image-playground-test ai-image-playground:test-${short}-${short} segmenter=http://segmenter:8080`,
+      `rollout image-playground-test ai-image-playground:test-${short}-${short} segmenter=http://segmenter:8080 config-source=legacy`,
     )
     expect(calls.indexOf('segmenter healthy')).toBeGreaterThan(-1)
     expect(calls.indexOf('segmenter healthy')).toBeLessThan(rollout)
@@ -413,7 +421,7 @@ describe('receivers with the shared segmenter', () => {
     expect(result.status).toBe(0)
     const calls = readFileSync(log, 'utf8').split('\n')
     expect(calls).toContain(
-      `rollout image-playground-test ai-image-playground:test-${short}-${short}`,
+      `rollout image-playground-test ai-image-playground:test-${short}-${short} config-source=legacy`,
     )
     expect(calls.join('\n')).not.toMatch(/segmenter (up|attach)/)
     // Detached, so a later rollback (which reads the attachment back) agrees.
@@ -472,6 +480,10 @@ describe('receivers with the shared segmenter', () => {
     const rendered = join(root, 'config/ai-image-playground/rendered/image-playground-paid')
     mkdirSync(rendered, { recursive: true })
     writeFileSync(
+      join(release, 'deploy/deployments/prod.json'),
+      '{\n  "name": "prod",\n  "configSource": "rendered",\n  "segmenter": true\n}\n',
+    )
+    writeFileSync(
       join(release, 'scripts/config-render.sh'),
       `#!/bin/sh\nprintf 'render %s\\n' "$*" >> "$CALL_LOG"\nprintf 'SEGMENTER_ENABLED=${segmenter}\\n' > '${rendered}/deploy.env'\n`,
     )
@@ -499,6 +511,29 @@ describe('receivers with the shared segmenter', () => {
     expect(calls.join('\n')).not.toContain('segmenter detach')
   })
 
+  it('follows the descriptor, not a directory left on the host, and says which source it used', () => {
+    productionRelease([backupRow])
+    // A leftover rendered directory does not switch a deployment the descriptor keeps on app.env.
+    mkdirSync(join(root, 'config/ai-image-playground/rendered/image-playground-paid'), {
+      recursive: true,
+    })
+    const legacy = run()
+    expect(legacy.status, legacy.stderr).toBe(0)
+    expect(legacy.stdout).toContain('Configuration source: legacy')
+    expect(readFileSync(log, 'utf8')).not.toContain('render ')
+    expect(readFileSync(log, 'utf8')).toContain('config-source=legacy')
+  })
+
+  it('refuses a descriptor without a configuration source', () => {
+    productionRelease([backupRow])
+    writeFileSync(join(release, 'deploy/deployments/prod.json'), '{ "name": "prod" }\n')
+    checksums()
+    const result = run()
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toContain('names no configSource')
+    expect(existsSync(log) ? readFileSync(log, 'utf8') : '').not.toMatch(/rollout /)
+  })
+
   it('attaches production when SEGMENTER_EDITIONS includes paid', () => {
     productionRelease([backupRow])
     env.SEGMENTER_EDITIONS = 'paid test'
@@ -510,7 +545,7 @@ describe('receivers with the shared segmenter', () => {
     expect(calls).toContain('segmenter attach image-playground-paid')
     expect(calls.join('\n')).not.toContain('segmenter detach')
     expect(calls).toContain(
-      `rollout image-playground-paid ai-image-playground:paid-${short}-${short} segmenter=http://segmenter:8080`,
+      `rollout image-playground-paid ai-image-playground:paid-${short}-${short} segmenter=http://segmenter:8080 config-source=legacy`,
     )
   })
 })
