@@ -80,7 +80,7 @@ export async function useMemoryLogSource(): Promise<MemoryLogSourceHandle> {
             message: input.message,
             request_id: input.request_id ?? null,
             task_id: input.task_id ?? null,
-            fields: input.fields,
+            fields: JSON.parse(JSON.stringify(input.fields)) as Record<string, unknown>,
           },
         })
       }

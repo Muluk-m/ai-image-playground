@@ -45,7 +45,7 @@ API 错误展示接口、HTTP 状态、原始错误码和已记录的具体原�
 
 采集容器停止期间，运行中的容器在内存里暂存日志，恢复后补发（每容器驱动最多缓存 4096 条，超限会丢弃）；运行时间短于停机时间的一次性容器（例如迁移）会丢失这段输出。采集容器自身的输出只留在 `docker logs`，否则会形成回路。初次部署时 `scripts/app-compose.sh` 在其他服务之前启动它，启动失败只打警告，不影响发布。采集容器带着自己配置的摘要标签，配置一改，下次发布就会重建它。发布收尾用 Compose 更新 admin、采集和备份。已经在跑的 cloudflared 不重建，避免每次发布都把边缘连接拆掉。
 
-迁移 `0060_server_logs` 建表，`0061_server_logs_containers` 放宽服务名约束，`0062_server_logs_instance_at` 支持同容器上下文范围查询。P3-5（#1937）起不再写入，Phase 6 / PR-6.1 移除 BFF / worker 进程内的 `startServerLogs()` 清理循环与旧日志解析/缓冲代码（不再为旧日志保留专用 PG session advisory lock 或独立连接池）；表结构暂时保留至旧容器完全退场后的 Contract 迁移再 `DROP TABLE server_logs`。
+迁移 `0060_server_logs` 建表，`0061_server_logs_containers` 放宽服务名约束，`0062_server_logs_instance_at` 支持同容器上下文范围查询。P3-5（#1937）起不再写入，Phase 6 / PR-6.1（#2028）移除 BFF / worker 进程内的 `startServerLogs()` 清理循环与旧日志解析/缓冲代码，并已在 Contract 3 经迁移 `0109_drop_server_logs` 删除 `server_logs` 表（回滚脚本见 `packages/db/drizzle/rollback/0109_drop_server_logs.down.sql`）。
 
 worker 的过期服务心跳与宿主机历史采样从 10 秒任务恢复循环移到独立的 5 分钟共享维护（`startSharedMaintenance`），由持有 PostgreSQL session advisory lock 的单个维护执行者执行；领导连接关闭或失败后释放锁，其他实例下一周期尝试接管。接管或重启后可能在同一时间窗口再次清理，删除操作幂等；清理失败不阻塞业务，任务恢复、取消检测与租约续期保持原频率。
 
