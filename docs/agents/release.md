@@ -50,8 +50,9 @@ scripts/push-test.sh <工作分支> [<另一个分支>...]
 
 脚本做三件事，对应 Deploy test 过去反复失败的两类原因：
 
-- **分支没跑 CI 就进 test。** 每个分支推上去的那个提交，必须有一次 `Web checks`（PR、push 或手动派发均可）把 Deploy test 门禁要的 job（列表取自 `scripts/ci-reuse-web-checks.sh` 的 `REQUIRED`）全部跑绿；没有就派发一次并等待（默认最多 45 分钟，`--wait-ci` 调整，`--no-dispatch` 改为直接失败）。有失败就停下，列出失败的 job。本地分支和远端不一致也拒绝，避免漏掉没推的提交。
-- **推送时 main 刚好前进，test 落后 main 被拦。** 在临时 worktree 里从最新 `origin/test` 合入最新 `origin/main` 和这些分支，推送前再 fetch 一次 main，变了就重合；推送被拒（别人刚推过 test）也重来，最多 5 次。只快进推送，不 force-push、不 rebase，不动调用者的工作区。
+- **分支没跑 CI 就进 test。** 每个分支推上去的那个提交，以它最新的一次 `Web checks`（PR、push 或手动派发均可）为准：Deploy test 门禁要的 job（列表取自 `scripts/ci-reuse-web-checks.sh` 的 `REQUIRED`，不含 `cli`、`docker-web`、`PR rules`，所以不等于可以合并）必须全部 success。旧的绿不能盖过新的红；`format=true` 的手动派发先跑了 `biome --write`，不算证明。没有可用的 run 就派发一次并等待（默认最多 45 分钟，`--wait-ci` 调整，`--no-dispatch` 改为直接失败）。job 失败就停下并列出失败的 job；必需 job 被跳过或不存在时，提示 `REQUIRED` 与 web.yml 的 job 名不一致；GitHub API 连续 3 次失败直接退出并提示检查 `gh auth status`。本地分支和远端不一致也拒绝，避免漏掉没推的提交。
+- **推送时 main 刚好前进，test 落后 main 被拦。** 在临时 worktree 里从最新 `origin/test` 合入最新 `origin/main` 和这些分支，推送前再 fetch 一次 main，变了就重合；推送失败时只有远端 test 确实被别人推过才重来（最多 5 次），权限、保护规则、网络之类的失败直接退出并转述 git 的报错。只快进推送，不 force-push、不 rebase，不动调用者的工作区。
+- **test 已经包含这些提交、没有可推的。** 查这个提交最近一次 Deploy test：在跑就给出链接，成功就说明已上测试站，失败、被取消或没跑过就手动派发一次 Deploy test。
 - 合并冲突时退出码 3，test 不变；按全局 Git 约定在从 `origin/test` 建的 relay worktree 里解决后再推。
 
 仍然适用：不在 `test` 上直接改代码，也不把 `test` 合回工作分支或 `main`。分支落后 main 时脚本会提示，它的 CI 没覆盖这些 main 提交，合并结果由 Deploy test 自己的门禁兜底；改动和 main 交叉多的，先把 main 合进工作分支、推送、等 CI 再推 test。

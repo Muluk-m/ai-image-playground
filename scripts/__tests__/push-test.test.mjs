@@ -49,11 +49,13 @@ const runOf = (sha, over = {}) => ({ id: 7, head_sha: sha, status: 'completed', 
 const jobs = (over = {}) => required.map((name) => ({ name, conclusion: name in over ? over[name] : 'success' }))
 
 // Fake `gh api`: answers from runs.json / jobs.json; a dispatch logs and swaps in the *-after fixtures.
-function run(env, { runs, jobList, after, args = ['feat'], perRun = {} }) {
+function run(env, { runs, jobList, after, args = ['feat'], perRun = {}, deploys = [], fail = false }) {
   const bin = join(env.dir, 'bin')
   execFileSync('mkdir', ['-p', bin])
   writeFileSync(join(env.dir, 'runs.json'), JSON.stringify({ workflow_runs: runs }))
   writeFileSync(join(env.dir, 'jobs.json'), JSON.stringify({ jobs: jobList }))
+  writeFileSync(join(env.dir, 'deploy.json'), JSON.stringify({ workflow_runs: deploys }))
+  if (fail) writeFileSync(join(env.dir, 'fail'), '')
   for (const [id, list] of Object.entries(perRun)) {
     writeFileSync(join(env.dir, `jobs-${id}.json`), JSON.stringify({ jobs: list }))
   }
@@ -65,7 +67,10 @@ function run(env, { runs, jobList, after, args = ['feat'], perRun = {} }) {
   writeFileSync(
     join(bin, 'gh'),
     `#!/bin/sh
+[ -f "${d}/fail" ] && exit 1
 case "$*" in
+  *"-X POST"*deploy-test.yml/dispatches*) echo "$*" >> "${d}/deploy-dispatched" ;;
+  *deploy-test.yml/runs*) cat "${d}/deploy.json" ;;
   *"-X POST"*dispatches*) echo "$*" >> "${d}/dispatched"; cp "${d}/runs-after.json" "${d}/runs.json"; cp "${d}/jobs-after.json" "${d}/jobs.json" ;;
   *workflows/web.yml/runs*) cat "${d}/runs.json" ;;
   *runs/*/jobs*) id=\${2#*runs/}; id=\${id%%/*}; if [ -f "${d}/jobs-$id.json" ]; then cat "${d}/jobs-$id.json"; else cat "${d}/jobs.json"; fi ;;
@@ -154,13 +159,15 @@ test('stops on a merge conflict with test unchanged', () =>
     assert.equal(originTest(env), before)
   }))
 
-test('an older passing run counts even when a newer rerun failed', () =>
+test('a newer failed rerun outweighs an older passing run', () =>
   withEnv((env) => {
+    const before = originTest(env)
     const runs = [runOf(env.feat, { id: 8, created_at: '2026-11-25T01:00:00Z' }), runOf(env.feat)]
     const perRun = { 8: jobs({ 'web-test (2/3)': 'failure' }), 7: jobs() }
     const r = run(env, { runs, jobList: [], perRun })
-    assert.equal(r.status, 0, r.stderr)
-    assert.ok(contains(env, 'feat'))
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /run 8: web-test \(2\/3\)/)
+    assert.equal(originTest(env), before)
   }))
 
 test('a newest failed run with no passing run is reported by its id', () =>
@@ -172,16 +179,92 @@ test('a newest failed run with no passing run is reported by its id', () =>
     assert.match(r.stderr, /run 8: build/)
   }))
 
-test('merges again after a rejected push instead of giving up', () =>
+test('merges again when someone else pushed test meanwhile', () =>
   withEnv((env) => {
-    // First push to origin is refused (as if someone else had just pushed test), the second lands.
+    // On the first push the hook moves test itself (as another pusher would) and refuses.
     const hook = join(env.origin, 'hooks', 'pre-receive')
-    writeFileSync(hook, `#!/bin/sh\n[ -f "${env.dir}/rejected" ] && exit 0\ntouch "${env.dir}/rejected"\nexit 1\n`)
+    writeFileSync(
+      hook,
+      `#!/bin/sh
+[ -f "${env.dir}/moved" ] && exit 0
+touch "${env.dir}/moved"
+unset GIT_QUARANTINE_PATH GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES
+old=$(git rev-parse test)
+new=$(git commit-tree -p "$old" -m other "$old^{tree}")
+git update-ref refs/heads/test "$new" "$old"
+exit 1
+`,
+    )
     chmodSync(hook, 0o755)
     const r = run(env, { runs: [runOf(env.feat)], jobList: jobs() })
     assert.equal(r.status, 0, r.stderr)
-    assert.match(r.stdout, /push rejected.*attempt 1/)
+    assert.match(r.stdout, /test moved to .*\(attempt 1\/5\)/)
     assert.ok(contains(env, 'main') && contains(env, 'feat'))
+    assert.match(env.git(env.dir, '--git-dir', env.origin, 'log', '--format=%s', 'test'), /other/)
+  }))
+
+test('a push refused for any other reason fails at once', () =>
+  withEnv((env) => {
+    const hook = join(env.origin, 'hooks', 'pre-receive')
+    writeFileSync(hook, '#!/bin/sh\necho protected >&2\nexit 1\n')
+    chmodSync(hook, 0o755)
+    const r = run(env, { runs: [runOf(env.feat)], jobList: jobs() })
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /push to test failed[\s\S]*protected/)
+    assert.doesNotMatch(r.stdout, /attempt/)
+  }))
+
+test('passes over a format dispatch, whose lint ran after biome --write', () =>
+  withEnv((env) => {
+    const formatted = jobs().map((j) =>
+      j.name === 'lint' ? { ...j, steps: [{ name: 'Apply optional formatting fixes', conclusion: 'success' }] } : j,
+    )
+    const r = run(env, {
+      runs: [runOf(env.feat, { id: 9 })],
+      jobList: [],
+      perRun: { 9: formatted },
+      after: { runs: [runOf(env.feat)], jobList: jobs() },
+    })
+    assert.equal(r.status, 0, r.stderr)
+    assert.ok(existsSync(join(env.dir, 'dispatched')))
+  }))
+
+test('names required jobs that a completed run skipped or lacked', () =>
+  withEnv((env) => {
+    const list = jobs({ build: 'skipped' }).filter((j) => j.name !== 'lint')
+    const r = run(env, { runs: [runOf(env.feat)], jobList: list })
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /without these required jobs: lint, build[\s\S]*REQUIRED/)
+  }))
+
+test('stops after repeated GitHub API failures instead of waiting out the deadline', () =>
+  withEnv((env) => {
+    const r = run(env, { runs: [], jobList: [], fail: true })
+    assert.equal(r.status, 1)
+    assert.match(r.stderr, /gh auth status/)
+  }))
+
+test('nothing to push: redeploys a commit whose last Deploy test failed', () =>
+  withEnv((env) => {
+    assert.equal(run(env, { runs: [runOf(env.feat)], jobList: jobs() }).status, 0)
+    const sha = originTest(env)
+    const r = run(env, {
+      runs: [runOf(env.feat)],
+      jobList: jobs(),
+      deploys: [{ head_sha: sha, status: 'completed', conclusion: 'failure', created_at: '2026-11-25T00:00:00Z' }],
+    })
+    assert.equal(r.status, 0, r.stderr)
+    assert.match(r.stdout, /nothing to push[\s\S]*was failure; dispatched/)
+    assert.match(readFileSync(join(env.dir, 'deploy-dispatched'), 'utf8'), /ref=test/)
+  }))
+
+test('nothing to push: leaves an already deployed commit alone', () =>
+  withEnv((env) => {
+    assert.equal(run(env, { runs: [runOf(env.feat)], jobList: jobs() }).status, 0)
+    const deploys = [{ head_sha: originTest(env), status: 'completed', conclusion: 'success', created_at: '2026-11-25T00:00:00Z' }]
+    const r = run(env, { runs: [runOf(env.feat)], jobList: jobs(), deploys })
+    assert.match(r.stdout, /already deployed/)
+    assert.ok(!existsSync(join(env.dir, 'deploy-dispatched')))
   }))
 
 test('rejects main, test and remote-prefixed names', () =>
@@ -189,4 +272,5 @@ test('rejects main, test and remote-prefixed names', () =>
     for (const name of ['main', 'test', 'origin/feat']) {
       assert.equal(run(env, { runs: [], jobList: [], args: [name] }).status, 2)
     }
+    assert.equal(run(env, { runs: [], jobList: [], args: ['--wait-ci', 'abc', 'feat'] }).status, 2)
   }))

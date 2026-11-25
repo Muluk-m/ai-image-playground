@@ -34,8 +34,9 @@ usage() {
 Usage: scripts/push-test.sh [options] <branch>...
 
 Merges the latest origin/main and the given (already pushed) work branches into origin/test and
-pushes it, which deploys https://test.muvloom.online. Each branch's pushed commit must pass
-Web checks first; a branch without a run gets one dispatched.
+pushes it, which deploys https://test.muvloom.online. Each branch's pushed commit must first pass
+the Web checks jobs Deploy test gates on (REQUIRED in scripts/ci-reuse-web-checks.sh); a branch
+without a run gets one dispatched.
 
 Options:
   --no-dispatch         Fail instead of dispatching Web checks for a branch that has no run
@@ -49,12 +50,18 @@ die() {
   exit "${code:-1}"
 }
 
+need_int() {
+  case $2 in
+    '' | *[!0-9]*) code=2 die "$1 must be a whole number of seconds or attempts, got '$2'" ;;
+  esac
+}
+
 branches=()
 while [ "$#" -gt 0 ]; do
   case $1 in
     --no-dispatch) dispatch=false; shift ;;
     --wait-ci)
-      [ "$#" -ge 2 ] || die "missing value for --wait-ci"
+      [ "$#" -ge 2 ] || code=2 die "missing value for --wait-ci"
       wait_ci=$2
       shift 2
       ;;
@@ -63,6 +70,9 @@ while [ "$#" -gt 0 ]; do
     *) branches+=("$1"); shift ;;
   esac
 done
+need_int --wait-ci "$wait_ci"
+need_int PUSH_TEST_POLL "$poll"
+need_int PUSH_TEST_ATTEMPTS "$attempts"
 [ "${#branches[@]}" -gt 0 ] || { usage >&2; code=2 die "name at least one work branch"; }
 for b in "${branches[@]}"; do
   case $b in
@@ -86,62 +96,74 @@ for b in "${branches[@]}"; do
   shas+=("$sha")
 done
 
-# ok | bad <run-id> | pending | none — over every Web checks run of the commit, any event.
-# ok: some run has every required job succeeded. Otherwise the newest run decides.
+# One line about the commit's Web checks, decided by its newest run (any event) so an old green
+# never hides a newer red. A format dispatch (biome --write before lint) proves nothing and is
+# passed over. Prints one of:
+#   ok | pending | none | error
+#   bad <run-id> <failed jobs> | missing <run-id> <required jobs that were skipped or absent>
 verdict() {
-  local sha=$1 runs ids id status jobs v newest=
-  runs=$(gh api "repos/$repo/actions/workflows/web.yml/runs?head_sha=$sha&per_page=20") || { echo pending; return; }
-  ids=$(jq -r --arg sha "$sha" '[.workflow_runs[] | select(.head_sha == $sha)] | sort_by(.created_at) | reverse | .[:5][] | "\(.id) \(.status)"' <<<"$runs") ||
-    { echo pending; return; }
-  [ -n "$ids" ] || { echo none; return; }
+  local sha=$1 runs ids id status jobs
+  runs=$(gh api "repos/$repo/actions/workflows/web.yml/runs?head_sha=$sha&per_page=20") || { echo error; return; }
+  ids=$(jq -r --arg sha "$sha" '[.workflow_runs[] | select(.head_sha == $sha)] | sort_by(.created_at) | reverse | .[:10][] | "\(.id) \(.status)"' <<<"$runs") ||
+    { echo error; return; }
   while read -r id status; do
-    jobs=$(gh api "repos/$repo/actions/runs/$id/jobs?filter=latest&per_page=100" | jq -c '[.jobs[] | {name, conclusion}]') ||
-      jobs='[]'
-    v=$(jq -r --argjson req "$required_json" --arg status "$status" '
-      . as $jobs
+    [ -n "$id" ] || continue
+    jobs=$(gh api "repos/$repo/actions/runs/$id/jobs?filter=latest&per_page=100") || { echo error; return; }
+    if jq -e '[.jobs[] | select(.name == "lint") | .steps[]?
+        | select(.name == "Apply optional formatting fixes" and .conclusion != null and .conclusion != "skipped")] | length > 0' \
+      <<<"$jobs" >/dev/null 2>&1; then
+      continue
+    fi
+    jq -r --argjson req "$required_json" --arg status "$status" --arg id "$id" '
+      [.jobs[] | {name, conclusion}] as $jobs
       | [$req[] | . as $n | ([$jobs[] | select(.name == $n)] | first) as $j
-        | if $j == null then "missing"
-          elif $j.conclusion == "success" then "ok"
-          elif $j.conclusion == null then "pending"
-          else "bad" end] as $v
-      | if all($v[]; . == "ok") then "ok"
-        elif any($v[]; . == "bad") then "bad"
+        | {n: $n, v: (if $j == null or $j.conclusion == "skipped" then "missing"
+                      elif $j.conclusion == "success" then "ok"
+                      elif $j.conclusion == null then "pending"
+                      else "bad" end)}] as $v
+      | if all($v[]; .v == "ok") then "ok"
+        elif any($v[]; .v == "bad") then "bad \($id) \([$v[] | select(.v == "bad") | .n] | join(", "))"
         elif $status != "completed" then "pending"
-        else "bad" end' <<<"$jobs")
-    [ "$v" != ok ] || { echo ok; return; }
-    [ -n "$newest" ] || newest="$v $id"
+        else "missing \($id) \([$v[] | select(.v == "missing") | .n] | join(", "))" end' <<<"$jobs" ||
+      echo error
+    return
   done <<<"$ids"
-  case $newest in
-    pending*) echo pending ;;
-    *) echo "bad ${newest#* }" ;;
-  esac
+  echo none
 }
 
 started=$(date +%s)
+errors=0
 dispatched=()
 for i in "${!branches[@]}"; do
   b=${branches[$i]} sha=${shas[$i]}
   while :; do
-    read -r v run_id <<<"$(verdict "$sha")"
+    read -r v run_id detail <<<"$(verdict "$sha")"
+    [ "$v" = error ] && errors=$((errors + 1)) || errors=0
     case $v in
       ok)
         echo "push-test: $b ${sha:0:9} passed Web checks."
         break
         ;;
       bad)
-        failed=$(gh api "repos/$repo/actions/runs/$run_id/jobs?filter=latest&per_page=100" |
-          jq -r '[.jobs[] | select(.conclusion != "success" and .conclusion != "skipped" and .conclusion != null) | .name] | join(", ")' || true)
-        die "$b ${sha:0:9} failed Web checks (run $run_id: ${failed:-see the run}). Fix the branch, push, rerun this.
+        die "$b ${sha:0:9} failed Web checks (run $run_id: $detail). Fix the branch, push, rerun this.
   gh run view $run_id --repo $repo --log-failed"
+        ;;
+      missing)
+        die "$b ${sha:0:9}: Web checks run $run_id finished without these required jobs: $detail.
+  REQUIRED in scripts/ci-reuse-web-checks.sh must match the job names in .github/workflows/web.yml."
         ;;
       none)
         if [[ " ${dispatched[*]-} " != *" $b "* ]]; then
           [ "$dispatch" = true ] || die "$b ${sha:0:9} has no Web checks run (open a PR or drop --no-dispatch)"
           gh api -X POST "repos/$repo/actions/workflows/web.yml/dispatches" -f "ref=$b" >/dev/null ||
-            die "could not dispatch Web checks for $b"
+            die "could not dispatch Web checks for $b (gh auth status?)"
           dispatched+=("$b")
           echo "push-test: dispatched Web checks for $b ${sha:0:9}; waiting."
         fi
+        ;;
+      error)
+        echo "push-test: warning: GitHub API call failed ($errors in a row)." >&2
+        [ "$errors" -lt 3 ] || die "GitHub API keeps failing; check \`gh auth status\` and network, then rerun."
         ;;
       *) ;;
     esac
@@ -152,6 +174,24 @@ for i in "${!branches[@]}"; do
   [ "$behind" -eq 0 ] ||
     echo "push-test: note: $b is $behind commit(s) behind main; its CI did not see them, Deploy test's gates will."
 done
+
+# test already holds everything: make sure that commit actually has (or gets) a deployment.
+ensure_deployed() {
+  local sha=$1 last status conclusion url
+  last=$(gh api "repos/$repo/actions/workflows/deploy-test.yml/runs?head_sha=$sha&per_page=20" |
+    jq -r --arg sha "$sha" '[.workflow_runs[] | select(.head_sha == $sha)] | sort_by(.created_at) | last // {} | "\(.status // "none")|\(.conclusion // "")|\(.html_url // "")"') ||
+    die "could not read Deploy test runs for ${sha:0:9}"
+  IFS='|' read -r status conclusion url <<<"$last"
+  if [ "$status" != completed ] && [ "$status" != none ]; then
+    echo "push-test: Deploy test for ${sha:0:9} is $status: $url"
+  elif [ "$conclusion" = success ]; then
+    echo "push-test: ${sha:0:9} is already deployed to the test site: $url"
+  else
+    gh api -X POST "repos/$repo/actions/workflows/deploy-test.yml/dispatches" -f ref=test >/dev/null ||
+      die "could not dispatch Deploy test"
+    echo "push-test: last Deploy test for ${sha:0:9} was ${conclusion:-missing}; dispatched a new one."
+  fi
+}
 
 wt=
 cleanup() { [ -z "$wt" ] || { git worktree remove --force "$wt" >/dev/null 2>&1 || rm -rf "$wt"; }; }
@@ -182,6 +222,7 @@ $files
   head=$(git -C "$wt" rev-parse HEAD)
   if [ "$head" = "$test_sha" ]; then
     echo "push-test: test already contains main and ${branches[*]}; nothing to push."
+    ensure_deployed "$test_sha"
     exit 0
   fi
 
@@ -190,11 +231,18 @@ $files
     echo "push-test: main moved while merging; merging again (attempt $attempt/$attempts)."
     continue
   fi
-  if git -C "$wt" push -q "$remote" "HEAD:refs/heads/test"; then
+  if out=$(git -C "$wt" push -q "$remote" "HEAD:refs/heads/test" 2>&1); then
     echo "push-test: pushed test ${head:0:9} (main ${main_sha:0:9} + ${branches[*]})."
     echo "  Follow it: gh run list --repo $repo --workflow deploy-test.yml --commit $head"
     exit 0
   fi
-  echo "push-test: push rejected (someone else pushed test); merging again (attempt $attempt/$attempts)."
+  # Retry only when test really moved under us; anything else (permissions, protection, network)
+  # will not fix itself.
+  now=$(git ls-remote "$remote" refs/heads/test | cut -f1) || now=
+  if [ -z "$now" ] || [ "$now" = "$test_sha" ]; then
+    die "push to test failed:
+$out"
+  fi
+  echo "push-test: test moved to ${now:0:9} while pushing; merging again (attempt $attempt/$attempts)."
 done
 die "gave up after $attempts attempts; test or main keeps moving"
