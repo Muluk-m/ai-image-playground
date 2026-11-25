@@ -99,12 +99,24 @@ it('persists one character with distinct looks and a location without changing t
 it('rejects foreign or missing reference images without saving them', async () => {
   const owner = await account('reference-owner')
   const stranger = await account('reference-stranger')
-  await db.insert(schema.user_asset_objects).values({
+  const foreignNow = Date.now()
+  await db.insert(schema.media_objects).values({
+    id: 'media-foreign-image',
     user_id: stranger.userId,
-    image_id: 'foreign-image',
+    sha256: 'asset:foreign-image',
     bytes: 12,
     content_type: 'image/png',
-    created_at: Date.now(),
+    status: 'ready',
+    attachment_managed: false,
+    reserved_bytes: 0,
+    staging_key: assetObjectKey(stranger.userId, 'foreign-image'),
+    object_key: assetObjectKey(stranger.userId, 'foreign-image'),
+    preview_bytes: 0,
+    asset_image_id: 'foreign-image',
+    storage_scope: 'object',
+    expires_at: foreignNow,
+    created_at: foreignNow,
+    updated_at: foreignNow,
   })
   const content = {
     title: '参考',
@@ -148,12 +160,24 @@ it('previews only owned referenced images and keeps an expired reference editabl
   const storage = new InMemoryObjectStore()
   setObjectStoreForTesting(storage)
   try {
-    await db.insert(schema.user_asset_objects).values({
+    const ownedNow = Date.now()
+    await db.insert(schema.media_objects).values({
+      id: 'media-owned-image',
       user_id: owner.userId,
-      image_id: 'owned-image',
+      sha256: 'asset:owned-image',
       bytes: 3,
       content_type: 'image/png',
-      created_at: Date.now(),
+      status: 'ready',
+      attachment_managed: false,
+      reserved_bytes: 0,
+      staging_key: assetObjectKey(owner.userId, 'owned-image'),
+      object_key: assetObjectKey(owner.userId, 'owned-image'),
+      preview_bytes: 0,
+      asset_image_id: 'owned-image',
+      storage_scope: 'object',
+      expires_at: ownedNow,
+      created_at: ownedNow,
+      updated_at: ownedNow,
     })
     await storage.write(
       assetObjectKey(owner.userId, 'owned-image'),
@@ -191,9 +215,6 @@ it('previews only owned referenced images and keeps an expired reference editabl
     await db
       .delete(schema.media_objects)
       .where(eq(schema.media_objects.asset_image_id, 'owned-image'))
-    await db
-      .delete(schema.user_asset_objects)
-      .where(eq(schema.user_asset_objects.image_id, 'owned-image'))
     expect((await request(owner, undefined, path)).status).toBe(404)
     expect(
       (
@@ -388,12 +409,24 @@ it('rejects duplicate look identities without overwriting a saved character', as
 })
 it('restores historical text with an expired image reference without replacing its identity', async () => {
   const owner = await account('restore-expired-owner')
-  await db.insert(schema.user_asset_objects).values({
+  const histNow = Date.now()
+  await db.insert(schema.media_objects).values({
+    id: 'media-historical-image',
     user_id: owner.userId,
-    image_id: 'historical-image',
+    sha256: 'asset:historical-image',
     bytes: 3,
     content_type: 'image/png',
-    created_at: Date.now(),
+    status: 'ready',
+    attachment_managed: false,
+    reserved_bytes: 0,
+    staging_key: assetObjectKey(owner.userId, 'historical-image'),
+    object_key: assetObjectKey(owner.userId, 'historical-image'),
+    preview_bytes: 0,
+    asset_image_id: 'historical-image',
+    storage_scope: 'object',
+    expires_at: histNow,
+    created_at: histNow,
+    updated_at: histNow,
   })
   const content = {
     title: '原场景',
@@ -421,9 +454,10 @@ it('restores historical text with an expired image reference without replacing i
       })
     ).status,
   ).toBe(200)
+  await db.delete(schema.media_references).where(eq(schema.media_references.user_id, owner.userId))
   await db
-    .delete(schema.user_asset_objects)
-    .where(eq(schema.user_asset_objects.image_id, 'historical-image'))
+    .delete(schema.media_objects)
+    .where(eq(schema.media_objects.asset_image_id, 'historical-image'))
   const restored = await app.handle(
     new Request(`http://localhost/api/agent/conversations/${owner.id}/production/restore`, {
       method: 'POST',

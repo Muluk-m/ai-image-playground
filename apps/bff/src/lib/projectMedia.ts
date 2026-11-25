@@ -62,40 +62,25 @@ export async function lockMediaOwner(tx: BffTransaction, userId: string) {
 }
 
 /**
- * Call with the user's row locked: old assets and new media share one capacity boundary.
- * Evaluated in a single SQL statement so concurrent online backfill sees one MVCC snapshot.
- * Synced asset rows store `reserved_bytes = 0` during Phase 5.4a Expand (preventing pre-5.4a
- * containers from double-counting during rolling deploys), so we count `bytes` for asset rows
- * and `reserved_bytes` for durable uploads, plus unmigrated `user_asset_objects`.
+ * Call with the user's row locked: synced assets and durable media share one capacity boundary in `media_objects`.
+ * Synced asset rows count `bytes`; durable uploads count `reserved_bytes`.
  */
 export async function mediaUsage(tx: BffTransaction, userId: string, now = Date.now()) {
   const rows = (await tx.execute(sql`
-    SELECT (
-      COALESCE(
-        (SELECT SUM(
-           CASE WHEN m.asset_image_id IS NOT NULL THEN m.bytes ELSE m.reserved_bytes END
-         )
-         FROM media_objects m
-         WHERE m.user_id = ${userId}
-           AND (
-             m.attachment_managed = true
-             OR m.asset_image_id IS NOT NULL
-             OR m.status = 'ready'
-             OR m.expires_at > ${new Date(now)}
-           )),
-        0
-      )
-      + COALESCE(
-        (SELECT SUM(a.bytes) FROM user_asset_objects a
-         WHERE a.user_id = ${userId}
-           AND NOT EXISTS (
-             SELECT 1 FROM media_objects m
-             WHERE m.user_id = a.user_id
-               AND m.asset_image_id = a.image_id
-           )),
-        0
-      )
+    SELECT COALESCE(
+      SUM(
+        CASE WHEN m.asset_image_id IS NOT NULL THEN m.bytes ELSE m.reserved_bytes END
+      ),
+      0
     ) AS total
+    FROM media_objects m
+    WHERE m.user_id = ${userId}
+      AND (
+        m.attachment_managed = true
+        OR m.asset_image_id IS NOT NULL
+        OR m.status = 'ready'
+        OR m.expires_at > ${new Date(now)}
+      )
   `)) as unknown as Array<{ total?: string | number }>
   return Number(rows[0]?.total ?? 0)
 }
@@ -848,16 +833,6 @@ export async function finishDeletingMedia(
         ),
       )
       .returning({ id: media.id })
-    if (deleted.length > 0 && row.assetImageId) {
-      await tx
-        .delete(schema.user_asset_objects)
-        .where(
-          and(
-            eq(schema.user_asset_objects.user_id, userId),
-            eq(schema.user_asset_objects.image_id, row.assetImageId),
-          ),
-        )
-    }
     return deleted.length > 0
   })
 }
@@ -886,8 +861,8 @@ export const ASSET_RECLAIM_GRACE_MS = 24 * 60 * 60 * 1000
  * 引用该素材的在途任务或运行中智能体执行引用的同步素材图片（`asset_image_id IS NOT NULL`）。
  * 采用两阶段排他可恢复删除协议：
  * 1. 事务 1 按 `lockMediaOwner -> lockUserSyncState -> media_objects FOR UPDATE` 持锁，用独立查询在最新快照
- *    复核全部保护条件，通过后在同一事务内把 `media_objects.status` 置为 `'deleting'` 并立即删除 `user_asset_objects`
- *    旧账本行（使滚动发布期间的旧代 `POST /api/sync` 在整个删除窗口内都无法重新绑定该图）；
+ *    复核全部保护条件，通过后在同一事务内把 `media_objects.status` 置为 `'deleting'`（调用前提：线上与回滚基线
+ *    均已不再读写旧 `user_asset_objects` 表，或在 Contract 2b 删表后由定时任务挂载）；
  * 2. 委托 `finishDeletingMedia(userId, mediaId, { requireDeleting: true })` 在 `lockMediaOwner` 排他锁内按
  *    精确 `media.id` 校验行仍处于 `deleting` 后执行 `deleteObject` 并删除账本行。若步骤 1 与步骤 2 之间已被另一
  *    `purgeDeletingUnreferencedMedia` 清扫且同 `imageId` 被重新上传成新行，旧 `media.id` 已不存在，绝不误删新对象；
@@ -1039,22 +1014,8 @@ export async function reclaimUnreferencedAssetMedia(
           .update(media)
           .set({ status: 'deleting', updated_at: now })
           .where(and(eq(media.id, locked.id), eq(media.status, 'ready')))
-          .returning({
-            id: media.id,
-            assetImageId: media.asset_image_id,
-          })
+          .returning({ id: media.id })
         if (!marked) return null
-        // 仍持有 user_sync_state 行锁时同步撤下旧账本行，封堵滚动发布期旧代 POST /api/sync 复用该图。
-        if (marked.assetImageId) {
-          await tx
-            .delete(schema.user_asset_objects)
-            .where(
-              and(
-                eq(schema.user_asset_objects.user_id, candidate.userId),
-                eq(schema.user_asset_objects.image_id, marked.assetImageId),
-              ),
-            )
-        }
         return marked
       })
       if (!claimed) continue

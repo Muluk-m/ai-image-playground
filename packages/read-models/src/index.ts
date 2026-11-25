@@ -40,7 +40,6 @@ export {
   getUserKpis,
   getUserTasks,
   listUsers,
-  readUnmigratedUserAssetBytes,
   readUserAssetBytes,
   resetUserKpiCacheForTesting,
   USER_KPI_CACHE_MS,

@@ -242,4 +242,127 @@ describe('useFlipList', () => {
     const measuredCount = spies.filter((spy) => spy.mock.calls.length > 0).length
     expect(measuredCount).toBeLessThan(70)
   })
+
+  it('preserves running animations and true layout baseline when snapshotKey changes mid-flight', () => {
+    let runningOffsetX = 0
+    const cancel = vi.fn(() => {
+      runningOffsetX = 0
+    })
+    const animate = vi.fn(() => ({ cancel, playState: 'running' }) as unknown as Animation)
+    Element.prototype.animate = animate
+
+    act(() => root.render(<GridHarness items={['a', 'b']} orderKey="o1" snapshotKey="s1" />))
+    const a = host.querySelector<HTMLElement>('[data-flip-id="a"]')!
+    let layoutLeft = 100
+    a.getBoundingClientRect = () =>
+      ({
+        left: layoutLeft + runningOffsetX,
+        top: 0,
+        right: layoutLeft + runningOffsetX + 120,
+        bottom: 120,
+        width: 120,
+        height: 120,
+        x: layoutLeft + runningOffsetX,
+        y: 0,
+        toJSON: () => {},
+      }) as DOMRect
+    setRect(host.querySelector<HTMLElement>('[data-flip-id="b"]')!, 240, 0)
+
+    // Snapshot initial positions.
+    act(() => root.render(<GridHarness items={['a', 'b']} orderKey="o1" snapshotKey="s1b" />))
+    animate.mockClear()
+
+    // Reorder moves 'a' from 100 -> 200 (starts running animation).
+    layoutLeft = 200
+    act(() => root.render(<GridHarness items={['p', 'a', 'b']} orderKey="o2" snapshotKey="s1b" />))
+    expect(animate).toHaveBeenCalledTimes(1)
+
+    // While 'a' is mid-flight (-50px offset -> visually 150), virtualizer scrolls (snapshotKey changes, orderKey unchanged).
+    runningOffsetX = -50
+    cancel.mockClear()
+    animate.mockClear()
+    act(() => root.render(<GridHarness items={['p', 'a', 'b']} orderKey="o2" snapshotKey="s2" />))
+    expect(cancel).not.toHaveBeenCalled()
+    expect(animate).not.toHaveBeenCalled()
+
+    // Subsequent reorder moves 'a' to 300 while still mid-flight (-50px): origin must remain 150 (delta -150px).
+    layoutLeft = 300
+    act(() =>
+      root.render(<GridHarness items={['p2', 'p', 'a', 'b']} orderKey="o3" snapshotKey="s2" />),
+    )
+    expect(cancel).toHaveBeenCalledTimes(1)
+    expect(animate).toHaveBeenCalledWith(
+      [{ transform: 'translate3d(-150px, 0px, 0)' }, { transform: 'translate3d(0, 0, 0)' }],
+      expect.objectContaining({ duration: 240 }),
+    )
+  })
+
+  it('preserves true layout baseline when debounced scroll snapshot fires during a running animation', () => {
+    vi.useFakeTimers()
+    try {
+      let runningOffsetX = 0
+      const cancel = vi.fn(() => {
+        runningOffsetX = 0
+      })
+      const animate = vi.fn(() => ({ cancel, playState: 'running' }) as unknown as Animation)
+      Element.prototype.animate = animate
+
+      const items = Array.from({ length: 70 }, (_, i) => `item-${i}`)
+      act(() => root.render(<GridHarness items={items} />))
+
+      let item0Left = 100
+      items.forEach((id, i) => {
+        const el = host.querySelector<HTMLElement>(`[data-flip-id="${id}"]`)!
+        if (i === 0) {
+          el.getBoundingClientRect = () =>
+            ({
+              left: item0Left + runningOffsetX,
+              top: 0,
+              right: item0Left + runningOffsetX + 120,
+              bottom: 120,
+              width: 120,
+              height: 120,
+              x: item0Left + runningOffsetX,
+              y: 0,
+              toJSON: () => {},
+            }) as DOMRect
+        } else {
+          setRect(el, (i % 4) * 140, Math.floor(i / 4) * 200)
+        }
+      })
+
+      // Record baseline at item0Left = 100.
+      act(() => root.render(<GridHarness items={[...items, 'tail']} />))
+      animate.mockClear()
+
+      // Reorder moves item-0 from 100 -> 200 (starts running animation).
+      item0Left = 200
+      act(() => root.render(<GridHarness items={['head', ...items, 'tail']} />))
+      expect(animate).toHaveBeenCalled()
+
+      // Mid-flight (-50px residual offset), user scrolls and debounced scroll snapshot fires.
+      runningOffsetX = -50
+      act(() => {
+        window.dispatchEvent(new Event('scroll'))
+        vi.advanceTimersByTime(150)
+      })
+
+      // Animation finishes (no more transform offset), then next reorder moves item-0 from 200 -> 300.
+      // Baseline must still be 200 (not 150!), so delta is 200 - 300 = -100px.
+      runningOffsetX = 0
+      animate.mockImplementation(() => ({ cancel, playState: 'finished' }) as unknown as Animation)
+      // Simulate the running animation having completed before next reorder.
+      const prevAnim = animate.mock.results[0]?.value as { playState: string } | undefined
+      if (prevAnim) prevAnim.playState = 'finished'
+      animate.mockClear()
+      item0Left = 300
+      act(() => root.render(<GridHarness items={['head2', 'head', ...items, 'tail']} />))
+      expect(animate).toHaveBeenCalledWith(
+        [{ transform: 'translate3d(-100px, 0px, 0)' }, { transform: 'translate3d(0, 0, 0)' }],
+        expect.objectContaining({ duration: 240 }),
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
