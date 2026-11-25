@@ -41,8 +41,15 @@ an app release:
   `segmenter`), the old container is stopped and kept as `image-playground-segmenter-prev` for
   rollback (the one before that is removed), and the new one takes the name. If the new version
   never gets healthy, only that candidate is removed and the old one is untouched; if moving the
-  networks fails halfway, all of them are given back to the old one. The receiver self-tests a new
-  version before that and warns instead of failing the release when it does not start.
+  networks fails halfway, all of them are given back to the old one. `scripts/vps-deploy.sh` checks
+  `current <VERSION>` before pulling: when that version is already serving, it skips pulling,
+  self-testing and re-tagging an unused copy. For a new version it self-tests before calling `up`
+  and warns instead of failing the release when `up` does not start.
+- `scripts/segmenter-deploy.sh prune` (run automatically during deploys and by
+  `scripts/vps-reclaim-disk.sh`) removes a stopped `image-playground-segmenter-prev` once the live
+  container has served stably and `-prev` has been stopped for at least
+  `SEGMENTER_PREV_RETENTION_SECONDS` (default 7 days), so old model weights do not stay pinned on
+  disk indefinitely. A running `-prev` (after a hand rollback) is never touched.
 - To roll out a new segmenter: change `deploy/segmenter`, bump `VERSION`, merge to main. To roll
   back: `scripts/segmenter-deploy.sh rollback` on the VPS (starts `image-playground-segmenter-prev`,
   waits for `/health`, moves every app network to it, stops the current one and swaps the two
@@ -66,9 +73,9 @@ an app release:
   `deploy/compose.app.yaml`.
 - "Serving" means Docker reports the container healthy, or it is running and answers `/health`
   right now: for up to 30 s after `up` replaced it Docker still says `starting`.
-- Old `ai-image-playground:segmenter-<VERSION>-<sha>` tags are pruned like the editions' (the
-  newest two and the running one are kept), and a release archive does not wait for a deploy-log
-  line for the segmenter (there is none).
+- Old `ai-image-playground:segmenter-<VERSION>-<sha>` tags are pruned like the editions'
+  (`DEPLOY_KEEP_SEGMENTER_IMAGES`, default newest one beside the running one), and a release archive
+  does not wait for a deploy-log line for the segmenter (there is none).
 - The service scopes cached embeddings by the request's namespace (`<project>`), so one
   environment never reuses another's, even for the same media ID. The service holds no other state and no secrets.
 - Turning it on for production (needs Nain's go-ahead): set

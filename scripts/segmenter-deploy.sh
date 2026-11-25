@@ -27,6 +27,10 @@
 #     answers /health (Docker still says `starting` for up to 30 s after `up` replaced it).
 #   scripts/segmenter-deploy.sh current <version>
 #     Succeeds when the shared container already runs <version> and is serving.
+#   scripts/segmenter-deploy.sh prune
+#     Removes a stopped `image-playground-segmenter-prev` once the active container has been
+#     running healthy and `-prev` has been stopped for at least SEGMENTER_PREV_RETENTION_SECONDS
+#     (default 7 days), so old model weights do not pin disk space indefinitely.
 set -eu
 
 container='image-playground-segmenter'
@@ -38,7 +42,7 @@ version_label='online.muvloom.segmenter.version'
 split_instances="$container-test $container-prod"
 
 usage() {
-  echo "Usage: scripts/segmenter-deploy.sh up <image> <version> | attach <project> | detach <project> | rollback | healthy | current <version>" >&2
+  echo "Usage: scripts/segmenter-deploy.sh up <image> <version> | attach <project> | detach <project> | rollback | healthy | current <version> | prune" >&2
   exit 2
 }
 
@@ -241,6 +245,56 @@ detach() {
   disconnect "$network" "$container"
 }
 
+# Remove an expired stopped rollback copy (`-prev`) once the live container has served stably past
+# the retention window. Never removes a running `-prev` (e.g. after a hand rollback) or a `-prev`
+# whose timestamps cannot be verified.
+prune() {
+  ttl=${SEGMENTER_PREV_RETENTION_SECONDS:-604800}
+  case "$ttl" in ''|*[!0-9]*) ttl=604800 ;; esac
+  exists "$prev" || return 0
+  ! running "$prev" || return 0
+  exists "$container" && usable "$container" || return 0
+  started=$(docker inspect "$container" --format '{{.State.StartedAt}}' 2>/dev/null || true)
+  finished=$(docker inspect "$prev" --format '{{.State.FinishedAt}}' 2>/dev/null || true)
+  [ -n "$started" ] && [ -n "$finished" ] || return 0
+  if ! python3 - "$started" "$finished" "$ttl" <<'PY'
+import datetime, re, sys
+
+started_raw, finished_raw, ttl_raw = sys.argv[1], sys.argv[2], sys.argv[3]
+ttl = int(ttl_raw)
+
+def parse_ts(raw: str) -> datetime.datetime:
+    if not raw or raw.startswith("0001-01-01"):
+        raise ValueError("unset timestamp")
+    normalized = re.sub(r"(\.\d{6})\d+", r"\1", raw.strip())
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    dt = datetime.datetime.fromisoformat(normalized)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+    return dt
+
+try:
+    started = parse_ts(started_raw)
+    finished = parse_ts(finished_raw)
+except Exception:
+    sys.exit(1)
+
+now = datetime.datetime.now(datetime.timezone.utc)
+if (now - started).total_seconds() >= ttl and (now - finished).total_seconds() >= ttl:
+    sys.exit(0)
+sys.exit(1)
+PY
+  then
+    return 0
+  fi
+  if docker rm "$prev" >/dev/null 2>&1; then
+    echo "removed expired $prev"
+  else
+    echo "Warning: could not remove expired $prev" >&2
+  fi
+}
+
 command=${1:-}
 case $command in
   up)
@@ -267,6 +321,10 @@ case $command in
   current)
     [ $# -eq 2 ] || usage
     current "$2"
+    ;;
+  prune)
+    [ $# -eq 1 ] || usage
+    prune
     ;;
   *) usage ;;
 esac

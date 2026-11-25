@@ -144,6 +144,12 @@ describe('release_untagged_image', () => {
   it('镜像已经不在了也不报错', () => {
     expect(releaseUntagged('missing')).toEqual({ out: '', removed: false })
   })
+
+  it('containerd snapshotter 在 RepoDigests 里留下本地仓库的 @sha256 引用时，不把它误当成本地 tag', () => {
+    const result = releaseUntagged(['ai-image-playground@sha256:abc', registryRef])
+    expect(result.removed).toBe(true)
+    expect(result.out).toContain('sha256:abc')
+  })
 })
 
 describe('reclaim_deploy_disk', () => {
@@ -195,9 +201,11 @@ case "$1 $2" in
     ;;
   'images --format')
     printf '%s\\n' \\
+      'ai-image-playground:paid-aaaaaaa1-bbbbbbb1' \\
+      'ai-image-playground:paid-aaaaaaa2-bbbbbbb2' \\
+      'ai-image-playground:paid-aaaaaaa3-bbbbbbb3' \\
       'ai-image-playground:test-aaaaaaa1' \\
       'ai-image-playground:test-aaaaaaa2' \\
-      'ai-image-playground:test-aaaaaaa3' \\
       'ai-image-playground:paid-relay-removal'
     ;;
 esac
@@ -218,9 +226,14 @@ esac
       },
     )
     const log = readFileSync(calls, 'utf8')
-    expect(out).toContain('pruned ai-image-playground:test-aaaaaaa3')
+    expect(out).toContain('pruned ai-image-playground:paid-aaaaaaa3-bbbbbbb3')
+    expect(out).not.toContain('pruned ai-image-playground:paid-aaaaaaa2-bbbbbbb2')
+    // test 默认只保留 1 代，不再多占一套历史层。
+    expect(out).toContain('pruned ai-image-playground:test-aaaaaaa2')
+    expect(out).not.toContain('pruned ai-image-playground:test-aaaaaaa1')
     expect(out).not.toContain('pruned ai-image-playground:paid-relay-removal')
-    expect(log).toContain('rmi ai-image-playground:test-aaaaaaa3')
+    expect(log).toContain('rmi ai-image-playground:paid-aaaaaaa3-bbbbbbb3')
+    expect(log).toContain('rmi ai-image-playground:test-aaaaaaa2')
     expect(log).toContain('rmi sha256:dead')
     expect(log).toContain('image prune -f')
     expect(log).not.toContain('image prune -a')
@@ -274,6 +287,7 @@ esac
           PATH: `${bin}:${process.env.PATH}`,
           XDG_CONFIG_HOME: join(dir, 'config'),
           DEPLOY_KEEP_IMAGES: '2',
+          DEPLOY_KEEP_TEST_IMAGES: '2',
         },
       },
     )
@@ -282,6 +296,160 @@ esac
     expect(log).not.toContain('rmi ')
     expect(existsSync(join(current, 'images.tar.gz'))).toBe(true)
     expect(existsSync(join(other, 'images.tar.gz'))).toBe(false)
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('按完整镜像 ID 保护正在运行的容器标签，并扫除无本地 tag 的 GHCR 孤儿镜像与未用边车镜像', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aip-reclaim-id-'))
+    const bin = join(dir, 'bin')
+    const releases = join(dir, 'releases')
+    const current = join(releases, 'aip-current')
+    mkdirSync(bin)
+    mkdirSync(current, { recursive: true })
+    const calls = join(dir, 'calls')
+    const runningPaidId = `sha256:${'1'.repeat(64)}`
+    const stalePaidId = `sha256:${'2'.repeat(64)}`
+    const orphanGhcrId = `sha256:${'3'.repeat(64)}`
+    const liveGhcrId = `sha256:${'4'.repeat(64)}`
+    const liveSidecarId = `sha256:${'5'.repeat(64)}`
+    const oldSidecarId = `sha256:${'6'.repeat(64)}`
+    writeFileSync(
+      join(bin, 'docker'),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> '${calls}'
+case "$1" in
+  ps)
+    case "$3" in
+      '{{.ID}}')
+        if [ "\${4:-}" = --all ]; then
+          printf '%s\\n' cid-paid cid-stopped-ghcr cid-sidecar
+        else
+          printf '%s\\n' cid-paid cid-sidecar
+        fi ;;
+      '{{.Image}}')
+        # rollout-runtime.sh 用镜像 ID 创建容器，docker ps 输出的是短 ID 而不是 tag。
+        if [ "\${4:-}" = --all ]; then
+          printf '%s\\n' 111111111111 444444444444 cloudflare/cloudflared:2026.11.0
+        else
+          printf '%s\\n' 111111111111 cloudflare/cloudflared:2026.11.0
+        fi ;;
+    esac ;;
+  inspect)
+    case "$4" in
+      cid-paid) echo '${runningPaidId}' ;;
+      cid-stopped-ghcr) echo '${liveGhcrId}' ;;
+      cid-sidecar) echo '${liveSidecarId}' ;;
+    esac ;;
+  images)
+    case "$4" in
+      ai-image-playground)
+        printf '%s\\n' \\
+          'ai-image-playground:paid-aaaaaaa1-aaaaaaa1' \\
+          'ai-image-playground:paid-aaaaaaa2-aaaaaaa2' \\
+          'ai-image-playground:paid-aaaaaaa3-aaaaaaa3' ;;
+      ghcr.io/muluk-m/ai-image-playground)
+        printf '%s\\n' \\
+          'ghcr.io/muluk-m/ai-image-playground:<none> 333333333333' \\
+          'ghcr.io/muluk-m/ai-image-playground:<none> 444444444444' \\
+          'ghcr.io/muluk-m/ai-image-playground:<none> 111111111111' ;;
+      cloudflare/cloudflared)
+        printf '%s\\n' \\
+          'cloudflare/cloudflared:2026.11.0 555555555555' \\
+          'cloudflare/cloudflared:2026.09.0 666666666666' ;;
+    esac ;;
+  image)
+    [ "$2" = prune ] && exit 0
+    target=$3
+    fmt=$5
+    case "$fmt" in
+      '{{.Id}}')
+        case "$target" in
+          111111111111|'${runningPaidId}'|ai-image-playground:paid-aaaaaaa3-aaaaaaa3) echo '${runningPaidId}' ;;
+          ai-image-playground:paid-aaaaaaa2-aaaaaaa2) echo '${stalePaidId}' ;;
+          333333333333|'${orphanGhcrId}') echo '${orphanGhcrId}' ;;
+          444444444444|'${liveGhcrId}') echo '${liveGhcrId}' ;;
+          555555555555|cloudflare/cloudflared:2026.11.0) echo '${liveSidecarId}' ;;
+          666666666666|cloudflare/cloudflared:2026.09.0) echo '${oldSidecarId}' ;;
+        esac ;;
+      '{{range .RepoTags}}{{println .}}{{end}}')
+        case "$target" in
+          111111111111|'${runningPaidId}') printf '%s\\n' 'ai-image-playground:paid-aaaaaaa3-aaaaaaa3' 'ai-image-playground:paid' ;;
+        esac ;;
+      *'RepoDigests'*)
+        case "$target" in
+          '${runningPaidId}') printf '%s\\n' 'ai-image-playground:paid-aaaaaaa3-aaaaaaa3' ;;
+          '${stalePaidId}') printf '%s\\n' 'ai-image-playground@sha256:2222' 'ghcr.io/muluk-m/ai-image-playground@sha256:2222' ;;
+          '${orphanGhcrId}') printf '%s\\n' 'ghcr.io/muluk-m/ai-image-playground@sha256:3333' ;;
+          '${liveGhcrId}') printf '%s\\n' 'ghcr.io/muluk-m/ai-image-playground@sha256:4444' ;;
+        esac ;;
+    esac ;;
+  rmi|builder) ;;
+esac
+`,
+    )
+    chmodSync(join(bin, 'docker'), 0o755)
+    const out = execFileSync(
+      'sh',
+      ['-c', 'set -eu; . "$0"; reclaim_deploy_disk "$1" "" 1', lib, current],
+      {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          XDG_CONFIG_HOME: join(dir, 'config'),
+        },
+      },
+    )
+    const log = readFileSync(calls, 'utf8')
+    // 最旧的 paid-aaaaaaa3 正在以镜像 ID 运行：绝不能摘它的 tag 或删它。
+    expect(out).not.toContain('pruned ai-image-playground:paid-aaaaaaa3-aaaaaaa3')
+    expect(log).not.toContain('rmi ai-image-playground:paid-aaaaaaa3-aaaaaaa3')
+    expect(log).not.toContain(`rmi ${runningPaidId}`)
+    // paid-aaaaaaa2 超出 keep=1 且未运行：摘 tag 并释放只剩 @sha256 引用的镜像。
+    expect(log).toContain('rmi ai-image-playground:paid-aaaaaaa2-aaaaaaa2')
+    expect(log).toContain(`rmi ${stalePaidId}`)
+    // 没有任何容器引用的孤儿 ghcr digest 镜像被直接回收；仍被容器引用的不碰。
+    expect(log).toContain(`rmi ${orphanGhcrId}`)
+    expect(log).not.toContain(`rmi ${liveGhcrId}`)
+    // 旧版 cloudflared 无容器引用被清掉；运行中的新版保留。
+    expect(log).toContain('rmi cloudflare/cloudflared:2026.09.0')
+    expect(log).not.toContain('rmi cloudflare/cloudflared:2026.11.0')
+    rmSync(dir, { recursive: true, force: true })
+  })
+})
+
+describe('vps-reclaim-disk.sh', () => {
+  const reclaimScript = resolve(__dirname, '../../../../../scripts/vps-reclaim-disk.sh')
+
+  it('在已有发布持锁时直接返回 75，不执行任何清理', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aip-reclaim-lock-'))
+    const bin = join(dir, 'bin')
+    const config = join(dir, 'config')
+    const lockDir = join(config, 'ai-image-playground/deploy.lock')
+    mkdirSync(bin)
+    mkdirSync(lockDir, { recursive: true })
+    writeFileSync(join(lockDir, 'owner'), `pid=${process.pid}\ntoken=-\nwhat=receive test\n`)
+    const calls = join(dir, 'calls')
+    writeFileSync(join(bin, 'docker'), `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\n`, {
+      mode: 0o755,
+    })
+    let status = 0
+    try {
+      execFileSync('sh', [reclaimScript], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH}`,
+          XDG_CONFIG_HOME: config,
+          HOME: dir,
+        },
+        stdio: 'pipe',
+      })
+    } catch (err) {
+      status = (err as { status?: number }).status ?? 1
+    }
+    expect(status).toBe(75)
+    expect(existsSync(calls)).toBe(false)
     rmSync(dir, { recursive: true, force: true })
   })
 })

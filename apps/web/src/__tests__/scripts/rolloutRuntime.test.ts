@@ -1307,4 +1307,20 @@ describe('app-compose.sh up', () => {
       expect.stringMatching(/^compose .* up --detach --no-deps --wait admin$/),
     )
   })
+
+  it('removes stopped legacy compose one-off containers (migrate-1, dependency-check-1) without touching running ones', () => {
+    currentGeneration({ image: newImage }, { image: newImage })
+    container('fixture-migrate-1', { state: 'exited', image: 'fixture:legacy' })
+    container('fixture-dependency-check-1', { state: 'exited', image: 'fixture:legacy' })
+    const result = run()
+    expect(result.status, result.stderr).toBe(0)
+    expect(exists('fixture-migrate-1')).toBe(false)
+    expect(exists('fixture-dependency-check-1')).toBe(false)
+
+    // A running one-off container (if any) must never be stopped or removed.
+    container('fixture-migrate-1', { state: 'running', image: 'fixture:legacy' })
+    const second = run()
+    expect(second.status, second.stderr).toBe(0)
+    expect(exists('fixture-migrate-1')).toBe(true)
+  })
 })

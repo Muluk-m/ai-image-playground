@@ -17,6 +17,8 @@ interface Container {
   healthy: boolean
   running: boolean
   answers: boolean
+  startedAt?: string
+  finishedAt?: string
 }
 type State = { containers: Record<string, Container>; networks: string[] }
 
@@ -40,6 +42,8 @@ switch (cmd) {
     if (fmt.includes('Networks')) process.stdout.write(one.networks.map((n) => n + ' ').join(''))
     else if (fmt.includes('Health')) process.stdout.write(one.running && one.healthy ? 'healthy' : 'unhealthy')
     else if (fmt.includes('Labels')) process.stdout.write(one.version)
+    else if (fmt.includes('StartedAt')) process.stdout.write(one.startedAt ?? '')
+    else if (fmt.includes('FinishedAt')) process.stdout.write(one.finishedAt ?? '')
     else if (fmt.includes('Running')) process.stdout.write(String(one.running))
     break
   }
@@ -372,5 +376,46 @@ describe('segmenter-deploy.sh (one shared, versioned container)', () => {
     expect(run(['attach', 'test', 'image-playground-test']).status).toBe(2)
     expect(run(['detach']).status).toBe(2)
     expect(run(['rollback', '3']).status).toBe(2)
+    expect(run(['prune', 'extra']).status).toBe(2)
+  })
+
+  it('prunes an expired stopped -prev copy while keeping recent or running ones', () => {
+    const daysAgo = (days: number) =>
+      new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+
+    // Within retention window (2 days < 7 days): keep -prev.
+    seed({
+      [shared]: container({ version: '2', startedAt: daysAgo(2) }),
+      [`${shared}-prev`]: container({ version: '1', running: false, finishedAt: daysAgo(2) }),
+    })
+    expect(run(['prune']).status).toBe(0)
+    expect(read().containers[`${shared}-prev`]).toBeDefined()
+
+    // Past retention window (10 days >= 7 days) and live container is healthy: remove -prev.
+    seed({
+      [shared]: container({ version: '2', startedAt: daysAgo(10) }),
+      [`${shared}-prev`]: container({ version: '1', running: false, finishedAt: daysAgo(10) }),
+    })
+    const pruned = run(['prune'])
+    expect(pruned.status, pruned.stderr).toBe(0)
+    expect(pruned.stdout).toContain(`removed expired ${shared}-prev`)
+    expect(read().containers[`${shared}-prev`]).toBeUndefined()
+    expect(read().containers[shared]).toBeDefined()
+
+    // Never touch a running -prev (e.g. after a hand rollback).
+    seed({
+      [shared]: container({ version: '2', running: false, startedAt: daysAgo(10) }),
+      [`${shared}-prev`]: container({ version: '1', running: true, finishedAt: daysAgo(10) }),
+    })
+    expect(run(['prune']).status).toBe(0)
+    expect(read().containers[`${shared}-prev`]).toBeDefined()
+
+    // Missing timestamps fail safe and keep -prev.
+    seed({
+      [shared]: container({ version: '2' }),
+      [`${shared}-prev`]: container({ version: '1', running: false }),
+    })
+    expect(run(['prune']).status).toBe(0)
+    expect(read().containers[`${shared}-prev`]).toBeDefined()
   })
 })

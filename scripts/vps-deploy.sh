@@ -85,10 +85,27 @@ awk -F '\t' -v repo="$ghcr_repository@sha256:" -v target="$target" '
 for edition in "$target" backup; do
   [ "$(awk -F '\t' -v e="$edition" '$1==e { n++ } END { print n+0 }' "$release/images.tsv")" = 1 ] || { echo "Missing $edition image" >&2; exit 1; }
 done
+# Check whether the shared segmenter actually needs an update before reclaiming/pulling: if the
+# running container already serves this VERSION, skip pulling, verifying and re-tagging an unused
+# ~500 MB copy on every production release. Also retire an expired `-prev` rollback container before
+# reclaiming disk so its old model weights are freed before the free-space check.
+segmenter_image=$(awk -F '\t' '$1=="segmenter" { print $2 }' "$release/images.tsv")
+segmenter_needed=false
+if [ -n "$segmenter_image" ]; then
+  if ! "$repo_root/scripts/segmenter-deploy.sh" current "$(segmenter_version "$segmenter_image")"; then
+    segmenter_needed=true
+  else
+    echo "segmenter $(segmenter_version "$segmenter_image") already running; skipping image pull and update"
+  fi
+fi
+if [ -x "$repo_root/scripts/segmenter-deploy.sh" ]; then
+  "$repo_root/scripts/segmenter-deploy.sh" prune || true
+fi
 # Free anything past the retention window before refusing the pull. Tags in this release stay:
 # a rollback or a retry may already have them locally, and deleting them would make the pull
 # below mandatory. Running containers are protected as well.
-release_images=$(awk -F '\t' 'NF >= 2 { printf "%s ", $2 }' "$release/images.tsv")
+release_images=$(awk -F '\t' -v seg="$segmenter_needed" \
+  'NF >= 2 && ($1 != "segmenter" || seg == "true") { printf "%s ", $2 }' "$release/images.tsv")
 reclaim_deploy_disk "$release" "$release_images"
 free_gb=$(docker_root_free_gb)
 echo "Docker disk free: ${free_gb}G"
@@ -107,12 +124,18 @@ else
   ghcr_login "${GHCR_PULL_TOKEN_FILE:-$config_root/ghcr-pull-token}"
   # Pull by digest, then give each image the local tag that rollout, rollback and pruning use.
   while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_sha repo_digest; do
+    if [ "$edition" = segmenter ] && [ "$segmenter_needed" != true ]; then
+      continue
+    fi
     docker pull "$repo_digest" </dev/null
     docker tag "$repo_digest" "$image"
   done < "$release/images.tsv"
 fi
 # Check every image before changing any service or running a migration.
 while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_sha repo_digest; do
+  if [ "$edition" = segmenter ] && [ "$segmenter_needed" != true ]; then
+    continue
+  fi
   if [ -f "$release/images.tar.gz" ]; then
     [ "$(docker image inspect "$image" --format '{{.Id}}')" = "$expected_id" ] || { echo "Image ID mismatch: $image" >&2; exit 1; }
   else
@@ -133,12 +156,9 @@ while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_
     continue
   fi
   if [ "$edition" = segmenter ]; then
-    # Loads the baked weights and runs one prompt under the production limits. Only a version
-    # that is not running yet needs it; the same version is left alone below.
-    if ! "$repo_root/scripts/segmenter-deploy.sh" current "$(segmenter_version "$image")"; then
-      docker run --rm --network none --memory 900m --memory-swap 900m --cpus 2 "$image" \
-        node server.mjs --self-test
-    fi
+    # Loads the baked weights and runs one prompt under the production limits.
+    docker run --rm --network none --memory 900m --memory-swap 900m --cpus 2 "$image" \
+      node server.mjs --self-test
     continue
   fi
   # Execute the target native module before touching services or schema.
@@ -150,13 +170,12 @@ while IFS="$(printf '\t')" read -r edition image expected_id public_sha private_
 done < "$release/images.tsv"
 backup_image=$(awk -F '\t' '$1=="backup" { print $2 }' "$release/images.tsv")
 rolled_out=
-segmenter_image=$(awk -F '\t' '$1=="segmenter" { print $2 }' "$release/images.tsv")
 # The shared segmenter (scripts/segmenter-deploy.sh) is its own versioned component. Only
 # production releases, which are built from main, carry its image; it is (re)started only when
 # that version is not the one running, and the old container keeps serving every edition until
 # the new one is healthy. A failure leaves the old one in place and does not fail the release.
 # Test releases never carry it (the manifest check above refuses that) and only attach to it.
-if [ -n "$segmenter_image" ]; then
+if [ -n "$segmenter_image" ] && [ "$segmenter_needed" = true ]; then
   if "$repo_root/scripts/segmenter-deploy.sh" up "$segmenter_image" "$(segmenter_version "$segmenter_image")"; then
     docker tag "$segmenter_image" ai-image-playground:segmenter
     rolled_out="$rolled_out $segmenter_image"

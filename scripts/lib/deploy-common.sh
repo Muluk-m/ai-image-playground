@@ -92,10 +92,14 @@ select_stale_images() {
 # registry reference among the names too, so a count is never zero and the image is never
 # reclaimed. An image another local tag still names, or one already gone, is left alone.
 release_untagged_image() {
+  repo=${2%%:*}
   names=$(docker image inspect "$1" \
     --format '{{range .RepoTags}}{{println .}}{{end}}{{range .RepoDigests}}{{println .}}{{end}}' \
     2>/dev/null) || return 0
-  printf '%s\n' "$names" | grep -q "^$2[:@]" && return 0
+  # Local tags always carry `:` (`<repo>:<tag>`). Digest references carry `@` and must not count as
+  # a local tag: under containerd snapshotters Docker also keeps `<repo>@sha256:...` in RepoDigests
+  # after `docker tag`, which would otherwise prevent untagged images from ever being released.
+  printf '%s\n' "$names" | grep -q "^$repo:" && return 0
   # 发布已经切过去了：回收失败只留下这个镜像，不能让 set -e 把整次部署判成失败。
   if docker rmi "$1" >/dev/null 2>&1; then
     echo "released the registry reference of $1"
@@ -154,14 +158,77 @@ prune_old_releases() {
     [ -f "$dir/images.tar.gz" ] || continue
     rm -f "$dir/images.tar.gz" && echo "removed the failed image archive of $(basename -- "$dir")"
   done
+  # Cap historical metadata-only release directories so ~/releases does not grow without bound.
+  # Never remove the current directory or an undeployed/incoming release.
+  keep_releases=${DEPLOY_KEEP_RELEASES:-30}
+  case "$keep_releases" in ''|*[!0-9]*) keep_releases=30 ;; esac
+  if [ "$keep_releases" -gt 0 ]; then
+    {
+      for dir in "$releases_root"/*/; do
+        dir=${dir%/}
+        [ -d "$dir" ] || continue
+        [ "$dir" != "$1" ] || continue
+        case "$(basename -- "$dir")" in
+          *.failed-run-*) ;;
+          *) release_was_deployed "$dir" || continue ;;
+        esac
+        mtime=$(stat -c %Y "$dir" 2>/dev/null || stat -f %m "$dir" 2>/dev/null || echo 0)
+        printf '%s\t%s\n' "$mtime" "$dir"
+      done
+    } | sort -rn | tail -n "+$((keep_releases + 1))" | while IFS="$(printf '\t')" read -r _ old; do
+      [ -n "$old" ] || continue
+      rm -rf "$old" && echo "removed old release directory $(basename -- "$old")" || true
+    done
+  fi
 }
 
-# prune_edition_images <moving-alias> <keep> <protected-tags>
+# collect_container_image_ids [all]
+#
+# Prints unique image IDs (and raw image refs as fallback) referenced by running containers, or by
+# every container (running and stopped) when `all` is passed. Uses `--format` as the second arg so
+# existing test shims recognize it.
+collect_container_image_ids() {
+  if [ "${1:-}" = all ]; then
+    cids=$(docker ps --format '{{.ID}}' --all 2>/dev/null || true)
+    raw_refs=$(docker ps --format '{{.Image}}' --all 2>/dev/null || true)
+  else
+    cids=$(docker ps --format '{{.ID}}' 2>/dev/null || true)
+    raw_refs=$(docker ps --format '{{.Image}}' 2>/dev/null || true)
+  fi
+  {
+    if [ -n "$cids" ]; then
+      for cid in $cids; do
+        docker inspect --format '{{.Image}}' "$cid" 2>/dev/null || true
+      done
+    fi
+    for ref in $raw_refs; do
+      printf '%s\n' "$ref"
+      resolved=$(docker image inspect "$ref" --format '{{.Id}}' 2>/dev/null) || resolved=
+      case "$resolved" in sha256:*) printf '%s\n' "$resolved" ;; esac
+    done
+  } | awk 'NF && !seen[$0]++' | tr '\n' ' '
+}
+
+# resolve_tags_for_image_refs <space-separated-image-ids-or-tags>
+#
+# Expands image IDs (rollout-runtime.sh creates containers by image ID, not by tag) into every local
+# RepoTag pointing at them, so `select_stale_images` protects running tags by name.
+resolve_tags_for_image_refs() {
+  {
+    for ref in $1; do
+      printf '%s\n' "$ref"
+      docker image inspect "$ref" --format '{{range .RepoTags}}{{println .}}{{end}}' 2>/dev/null || true
+    done
+  } | awk 'NF && !seen[$0]++' | tr '\n' ' '
+}
+
+# prune_edition_images <moving-alias> <keep> <protected-tags> [protected-ids]
 #
 # Deletes commit-qualified tags of one edition beyond <keep>, then drops the registry digest
 # reference that would otherwise pin the layers. A protected tag (running, or the one just
 # rolled out) is kept without using a slot. Hand-named tags are left alone.
 prune_edition_images() {
+  protected_ids=${4:-}
   stale=$(docker images --format '{{.Repository}}:{{.Tag}}' "${1%%:*}" |
     select_stale_images "$1" "$2" "$3")
   if [ -z "$stale" ]; then
@@ -170,12 +237,64 @@ prune_edition_images() {
   fi
   for image in $stale; do
     image_id=$(docker image inspect "$image" --format '{{.Id}}' 2>/dev/null) || image_id=
+    if [ -n "$image_id" ] && [ -n "$protected_ids" ]; then
+      case " $protected_ids " in
+        *" $image_id "*) echo "kept protected image $image ($image_id)"; continue ;;
+      esac
+    fi
     if docker rmi "$image" >/dev/null 2>&1; then
       echo "pruned $image"
       [ -z "$image_id" ] || release_untagged_image "$image_id" "${1%%:*}"
     else
       echo "could not prune $image; leaving it" >&2
     fi
+  done
+}
+
+# prune_orphaned_registry_images <protected-image-ids>
+#
+# Under containerd snapshotters (Docker 29+), a digest-pulled image whose local tag was removed
+# keeps `<registry>@sha256:...` in RepoTags, so `docker image prune -f` (`dangling=true`) never
+# matches it. Sweep the registry repository directly and release any image not referenced by a
+# container and carrying no local `ai-image-playground:<tag>`.
+prune_orphaned_registry_images() {
+  guard_ids=$1
+  docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' "$ghcr_repository" 2>/dev/null |
+    while read -r ref short_id; do
+      case "$ref" in "$ghcr_repository":*) ;; *) continue ;; esac
+      [ -n "${short_id:-}" ] || continue
+      full_id=$(docker image inspect "$short_id" --format '{{.Id}}' 2>/dev/null) || continue
+      case " $guard_ids " in *" $full_id "*|*" $short_id "*) continue ;; esac
+      release_untagged_image "$full_id" "ai-image-playground"
+    done
+}
+
+# prune_unused_sidecar_images <container-image-ids>
+#
+# Removes older versions of managed third-party sidecar images that no container references any
+# more (e.g. after bumping cloudflared, fluent-bit, otel-collector or openobserve in compose).
+prune_unused_sidecar_images() {
+  guard_ids=$1
+  for repo in \
+    cloudflare/cloudflared \
+    fluent/fluent-bit \
+    otel/opentelemetry-collector-contrib \
+    public.ecr.aws/zinclabs/openobserve
+  do
+    docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' "$repo" 2>/dev/null |
+      while read -r ref short_id; do
+        case "$ref" in "$repo":*) ;; *) continue ;; esac
+        [ -n "${short_id:-}" ] || continue
+        full_id=$(docker image inspect "$short_id" --format '{{.Id}}' 2>/dev/null) || full_id=$short_id
+        case " $guard_ids " in *" $full_id "*|*" $short_id "*|*" $ref "*) continue ;; esac
+        target=$ref
+        case "$ref" in *':<none>') target=$full_id ;; esac
+        if docker rmi "$target" >/dev/null 2>&1; then
+          echo "pruned unused sidecar image $ref"
+        else
+          echo "could not prune sidecar image $ref; leaving it" >&2
+        fi
+      done
   done
 }
 
@@ -195,21 +314,34 @@ prune_dangling_images() {
 # a test receive used to leave backup images and release archives for the next production
 # deploy, and a full disk is exactly when that deploy is refused. Protected tags are the images
 # this release is about to use and the ones just rolled out. Containers still running are
-# always protected. set -u is on in the receiver, so the tag list may be empty. keep defaults
-# to DEPLOY_KEEP_IMAGES (2). A short disk passes 1 so the rollback generation can be dropped
-# to make room for the pull; the running image is still protected.
+# always protected (resolved by full image ID so containers created by ID keep their tags).
+# set -u is on in the receiver, so the tag list may be empty. keep defaults to DEPLOY_KEEP_IMAGES
+# (2) for paid and backup, and DEPLOY_KEEP_TEST_IMAGES / DEPLOY_KEEP_SEGMENTER_IMAGES (1) for test
+# and segmenter. A short disk passes 1 so the rollback generation can be dropped to make room for
+# the pull; the running image is still protected.
 reclaim_deploy_disk() {
   keep=${3:-${DEPLOY_KEEP_IMAGES:-2}}
-  running=$(docker ps --format '{{.Image}}' | sort -u | tr '\n' ' ')
-  protected="${2:-} $running"
-  for alias in \
-    ai-image-playground:paid \
-    ai-image-playground:test \
-    ai-image-playground:backup \
-    ai-image-playground:segmenter
-  do
-    prune_edition_images "$alias" "$keep" "$protected"
+  test_keep=${DEPLOY_KEEP_TEST_IMAGES:-1}
+  segmenter_keep=${DEPLOY_KEEP_SEGMENTER_IMAGES:-1}
+  if [ -n "${3:-}" ]; then
+    [ "$test_keep" -le "$keep" ] || test_keep=$keep
+    [ "$segmenter_keep" -le "$keep" ] || segmenter_keep=$keep
+  fi
+  running_ids=$(collect_container_image_ids)
+  all_container_ids=$(collect_container_image_ids all)
+  explicit_ids=
+  for ref in ${2:-}; do
+    resolved=$(docker image inspect "$ref" --format '{{.Id}}' 2>/dev/null) || resolved=
+    case "$resolved" in sha256:*) explicit_ids="$explicit_ids $resolved" ;; esac
   done
+  protected_ids="$running_ids $explicit_ids"
+  protected=$(resolve_tags_for_image_refs "${2:-} $running_ids")
+  prune_edition_images ai-image-playground:paid "$keep" "$protected" "$protected_ids"
+  prune_edition_images ai-image-playground:test "$test_keep" "$protected" "$protected_ids"
+  prune_edition_images ai-image-playground:backup "$keep" "$protected" "$protected_ids"
+  prune_edition_images ai-image-playground:segmenter "$segmenter_keep" "$protected" "$protected_ids"
+  prune_orphaned_registry_images "$all_container_ids $explicit_ids"
+  prune_unused_sidecar_images "$all_container_ids $explicit_ids"
   prune_dangling_images
   if ! docker builder prune -f; then
     echo "could not prune build cache; leaving it" >&2

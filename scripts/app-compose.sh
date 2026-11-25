@@ -453,6 +453,9 @@ activate_backend_then_ingress() {
   fi
   start_log_collector
   compose up --detach --wait dependency-check bff worker admin
+  # One-shot bootstrap containers have exited after bff/worker became healthy; drop them so they
+  # do not stay behind and pin the initial release image after later rollouts.
+  compose rm --force dependency-check migrate >/dev/null 2>&1 || true
   compose up --detach --wait cloudflared pg-backup
   write_container_names
   # Started last and not waited on: the collector watches the deployment, it is not part of it,

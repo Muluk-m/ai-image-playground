@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
@@ -108,6 +108,42 @@ describe('prune_old_releases', () => {
     })
     expect(await proc.exited).toBe(0)
     expect(await exists(join(half, 'images.tar.gz'))).toBe(true)
+  })
+
+  it('caps historical deployed and failed release directories without touching current or incoming', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'aip-releases-cap-'))
+    temporary.push(root)
+    const xdg = join(root, 'xdg')
+    await mkdir(join(xdg, 'ai-image-playground'), { recursive: true })
+    const old1 = await release(root, 'aip-old-1', ['ai-image-playground:paid-old1'])
+    const old2 = await release(root, 'aip-old-2', ['ai-image-playground:paid-old2'])
+    const failedOld = await release(root, 'aip-bad.failed-run-1', ['ai-image-playground:paid-bad'])
+    const incoming = await release(root, 'aip-incoming', ['ai-image-playground:paid-incoming'])
+    const current = await release(root, 'aip-current', ['ai-image-playground:paid-now'])
+    await writeFile(
+      join(xdg, 'ai-image-playground', 'deployments.log'),
+      [
+        logLine('ai-image-playground:paid-old1', 'ok'),
+        logLine('ai-image-playground:paid-old2', 'ok'),
+        logLine('ai-image-playground:paid-now', 'ok'),
+        '',
+      ].join('\n'),
+    )
+    // Assign deterministic mtimes: failedOld oldest, then old1, then old2 newest among historical.
+    const base = Math.floor(Date.now() / 1000) - 1000
+    await utimes(failedOld, base, base)
+    await utimes(old1, base + 100, base + 100)
+    await utimes(old2, base + 200, base + 200)
+
+    const proc = Bun.spawn(['sh', '-c', `. "${common}" && prune_old_releases "${current}"`], {
+      env: { PATH: process.env.PATH, HOME: root, XDG_CONFIG_HOME: xdg, DEPLOY_KEEP_RELEASES: '1' },
+    })
+    expect(await proc.exited).toBe(0)
+    expect((await readdir(join(root, 'releases'))).sort()).toEqual([
+      'aip-current',
+      'aip-incoming',
+      'aip-old-2',
+    ])
   })
 })
 

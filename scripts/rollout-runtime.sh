@@ -570,6 +570,21 @@ for name in $(docker ps -a --format '{{.Names}}'); do
 done
 rm -rf "$state_dir/admin-proxy"
 rm -f "$state_dir/admin-pending" "$state_dir/admin-upstream" "$state_dir/admin-retire"
+# First installs created persistent Compose one-off containers (`migrate-1`, `dependency-check-1`).
+# Release-managed rollouts run migrations via `docker run --rm` and never touch those again; leaving
+# them stopped forever pins the old image they ran from. Remove them only when already stopped.
+remove_exited_oneoff() {
+  oneoff_running=$(docker_probe inspect --format '{{.State.Running}}' "$1" 2>/dev/null) || return 0
+  [ "$oneoff_running" = false ] || return 0
+  if docker_probe rm "$1" >/dev/null 2>&1; then
+    echo "Removed exited one-off container $1"
+  else
+    echo "Warning: could not remove exited one-off container $1" >&2
+  fi
+}
+for oneoff in "$project-migrate-1" "$project-dependency-check-1"; do
+  remove_exited_oneoff "$oneoff"
+done
 # Recreating a running connector closes its edge connections ("connection with edge closed",
 # "client disconnected"). The image is pinned and the logging driver is already attached;
 # a stopped connector is the only reason to start it again. Bumping the image tag requires
