@@ -34,16 +34,23 @@ export function useImageDropZone(
     dropZoneProps: {
       'data-image-dropzone': true,
       onDragEnter: (event: DragEvent) => {
-        if (disabledRef.current || !carriesFiles(event)) return
+        if (!carriesFiles(event)) return
         event.preventDefault()
         event.stopPropagation()
+        if (disabledRef.current) {
+          event.dataTransfer.dropEffect = 'none'
+          return
+        }
         depth.current += 1
         setDragging(true)
       },
       onDragOver: (event: DragEvent) => {
-        if (disabledRef.current || !carriesFiles(event)) return
+        if (!carriesFiles(event)) return
         event.preventDefault()
         event.stopPropagation()
+        if (disabledRef.current) {
+          event.dataTransfer.dropEffect = 'none'
+        }
       },
       // 离开事件不问带的是什么：有的浏览器这时已经不给 types 了，问了就永远熄不掉高亮。
       onDragLeave: (event: DragEvent) => {

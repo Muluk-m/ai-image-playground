@@ -58,10 +58,13 @@ export default function AgentClarification({
     if (submittingRef.current || locked || !text) return
     submittingRef.current = true
     setSubmitting(true)
-    void Promise.resolve(useAgentStore.getState().send(text)).finally(() => {
-      submittingRef.current = false
-      setSubmitting(false)
-    })
+    void Promise.resolve()
+      .then(() => useAgentStore.getState().send(text))
+      .catch(() => {})
+      .finally(() => {
+        submittingRef.current = false
+        setSubmitting(false)
+      })
   }
 
   const submitOther = (event: FormEvent) => {

@@ -26,16 +26,19 @@ export default function CanvasBatchEditDialog({
   const { t } = useTranslation(['canvas', 'common'])
   const [prompt, setPrompt] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [submittedIds, setSubmittedIds] = useState<ReadonlySet<string>>(() => new Set())
+  const submittedIdsRef = useRef<Set<string>>(new Set())
   const submittingRef = useRef(false)
+  const remainingImages = images.filter((image) => !submittedIds.has(image.id))
   const settings = useStore((state) => state.settings)
   const guard = usePrivateSubmissionGuard({
     model: clientProfileToApiProfile(getActiveApiProfile(settings)).model,
-    quantity: images.length,
+    quantity: remainingImages.length,
   })
 
   const requestClose = () => {
     if (submittingRef.current || submitting) return
-    if (prompt.trim()) {
+    if (prompt.trim() && submittedIdsRef.current.size === 0) {
       useStore.getState().setConfirmDialog({
         title: t('pixelEdit.discardTitle'),
         message: t('pixelEdit.discardMessage'),
@@ -49,18 +52,28 @@ export default function CanvasBatchEditDialog({
   }
 
   const submit = async () => {
-    if (submittingRef.current || submitting || guard.blocked || !prompt.trim()) return
+    if (
+      submittingRef.current ||
+      submitting ||
+      guard.blocked ||
+      !prompt.trim() ||
+      remainingImages.length === 0
+    )
+      return
     submittingRef.current = true
     setSubmitting(true)
     try {
       let failed = false
       for (const image of images) {
+        if (submittedIdsRef.current.has(image.id)) continue
         const current = editor.getElement(image.id)
         if (current?.type !== 'image' || current.video) continue
         if (!(await submitCanvasImageEdit(editor, current, prompt))) {
           failed = true
           break
         }
+        submittedIdsRef.current.add(image.id)
+        setSubmittedIds(new Set(submittedIdsRef.current))
       }
       if (!failed) onClose()
     } finally {
@@ -128,11 +141,13 @@ export default function CanvasBatchEditDialog({
               size="sm"
               className="flex-1"
               aria-busy={submitting || undefined}
-              disabled={guard.blocked || submitting || !prompt.trim()}
+              disabled={
+                guard.blocked || submitting || !prompt.trim() || remainingImages.length === 0
+              }
               onClick={() => void submit()}
             >
               {submitting && <Icon name="loading" className="animate-spin" />}
-              {t('batch.editSubmit', { count: images.length })}
+              {t('batch.editSubmit', { count: remainingImages.length })}
             </Button>
           </div>
         </div>

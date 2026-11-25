@@ -788,7 +788,13 @@ export default function MaskEditorModal() {
   useEffect(() => {
     if (!showBrushControls && !showMaskInfo) return
     const dismissPopover = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
+      if (
+        event.key !== 'Escape' ||
+        event.isComposing ||
+        event.keyCode === 229 ||
+        useStore.getState().confirmDialog
+      )
+        return
       event.preventDefault()
       event.stopImmediatePropagation()
       setShowBrushControls(false)

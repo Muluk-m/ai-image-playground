@@ -278,8 +278,7 @@ function TimelineEditor({
     const url = urlOf(live.current.clips, live.current.playIndex)
     if (!node || !url) return
     setVideoError(false)
-    node.src = url
-    node.load()
+    node.removeAttribute('src')
     seek(time)
   }
 

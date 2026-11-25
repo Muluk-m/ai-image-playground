@@ -1454,10 +1454,13 @@ export default function AgentMaskProposalCard({
             if (submittingRef.current || locked || !written) return
             submittingRef.current = true
             setSubmitting(true)
-            void Promise.resolve(useAgentStore.getState().send(written)).finally(() => {
-              submittingRef.current = false
-              setSubmitting(false)
-            })
+            void Promise.resolve()
+              .then(() => useAgentStore.getState().send(written))
+              .catch(() => {})
+              .finally(() => {
+                submittingRef.current = false
+                setSubmitting(false)
+              })
           }}
         >
           <Input
