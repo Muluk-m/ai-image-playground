@@ -66,27 +66,19 @@
 | Phase 3 | #1984, #1985, #1987, #1994 | `upstream` 无环网关与注册表、0 `routes -> db`、接口清理与 keyset 游标分页、`@image-playground/read-models` 共享只读模型包 |
 | Phase 4 | #1999, #2003, #2004, #2012, #2014 | `modules/agent/{contracts,conversation,inbox,runtime,tools,orchestration}` + `modules/canvas`，全仓 0 运行时循环依赖 |
 | Phase 5 | #2020, #2024, #2025, #2026, #2027 | `tasks` 对账局部索引、`task_payloads` Expand/双写/切读、统一媒体账本与零搬运回填、工作台大图预签名直传与精确下标透传 |
-| Phase 6 | #2028, #2029, 本 PR (PR-6.3) | 移除 PG `server_logs` 运行时清理与旧缓冲代码、可选 PgBouncer 事务连接池与 `DIRECT_DATABASE_URL` 直连路由、锁定棘轮与完结 ADR |
+| Phase 6 | #2028, #2029, #2030 | 移除 PG `server_logs` 运行时清理与旧缓冲代码、可选 PgBouncer 事务连接池与 `DIRECT_DATABASE_URL` 直连路由、锁定棘轮与完结 ADR |
+| Contract Wave 1 | #2033, #2034, #2035 | 删除 `server_logs` 表（`0109`）、停止读写 `user_asset_objects`、解耦 `tasks.device_id` 并停止读写 `tasks` 冷载荷列（`0110`） |
+| Contract Wave 2 | 本 PR (Contract 2b) | 删除已退场的 `user_asset_objects` 表（`0111`，含删表前幂等补齐）、移除回填脚本并挂载 `reclaimUnreferencedAssetMedia` 周期回收 |
 
 ## 生产发布后回填与 Contract 收尾手册
 
-Phase 5–6 已合入 `main` 的改动全部遵守零停机 Expand / Switch-Read 兼容纪律，未执行任何删列或删表。待手动触发 `Deploy production` 发布上线且旧代次 BFF / worker 容器排空后，按以下顺序完成回填与 Contract 清理：
+Phase 5–6（`v0.4.481`）上线排空及全量回填零差异验收均已完成，Contract Wave 1（`#2033` / `#2034` / `#2035`，`v0.4.484`）已上线排空，收尾进度如下：
 
-1. **回填并校验 `task_payloads`**：
-   ```bash
-   DATABASE_URL=<prod-direct-url> bun run scripts/backfill-task-payloads.ts --repair
-   DATABASE_URL=<prod-direct-url> bun run scripts/backfill-task-payloads.ts --verify-only
-   ```
-   确认退出码为 `0`，且 JSON 输出中 `missingCount = 0`、`mismatchCount = 0`。
-2. **回填并校验统一媒体账本**：
-   ```bash
-   DATABASE_URL=<prod-direct-url> bun run scripts/backfill-asset-media.ts
-   DATABASE_URL=<prod-direct-url> bun run scripts/backfill-asset-media.ts --verify-only
-   ```
-   确认退出码为 `0`，且 JSON 输出中 5 项差异计数（`missingAssetMediaCount`、`missingAssetRefCount`、`missingLookRefCount`、`missingCliRefCount`、`staleSyncedRefCount`）均为 `0`。
+1. **回填并校验 `task_payloads`（已完成，待 Contract 1b 清理脚本）**：生产已完成 `--repair` 与 `--verify-only` 零差异验收（`missingCount = 0`、`mismatchCount = 0`）。
+2. **统一媒体账本回填与退场 `user_asset_objects`（已完成）**：生产已完成零差异回填验收；Contract 2a（`#2034`）已停止全部应用读写；Contract 2b 通过 `0111_drop_user_asset_objects.sql`（删表前对未迁移行做幂等补齐）删除 `public.user_asset_objects` 并在 `apps/bff/src/index.ts` 挂载 `reclaimUnreferencedAssetMedia` 周期回收，原一次性回填脚本 `scripts/backfill-asset-media.ts` 已随表退场移除。
 3. **（可选）启用共享 PgBouncer 事务连接池**：按 [PgBouncer 连接池手册](../deploy/pgbouncer.md) 先在宿主机 `infra.env` 配置 `PGBOUNCER_AUTH_PASSWORD`，依次执行 `scripts/infra-compose.sh provision`（确保既有 `app_user` 具备角色级默认超时 GUC）、`provision-pooler` 与 `up-pooler`，再先后在 `deploy/deployments/test.json`、`prod.json` 开启 `database.pooler: true` 验收。
-4. **分独立 Contract PR 执行破坏性清理（仅在上述发布排空与回填验收全部通过后合并）**：
-   - 在 `apps/bff/src/index.ts` 接入 `reclaimUnreferencedAssetMedia` 周期回收；
-   - **Contract 1（`tasks` 瘦身）**：移除应用层旧列双写与 `packages/db/src/task-payload-fallback.ts` 回落逻辑，并让任务写入路径显式写入 `tasks.device_id`；迁移中先执行 `ALTER TABLE tasks ALTER COLUMN device_id DROP EXPRESSION`（解除生成列对 `request_payload` 的依赖，避免 `DROP COLUMN` 被拒或误用 `CASCADE` 误删 `device_id`/索引），通过 `CREATE OR REPLACE VIEW public.queue_tasks` 改写为直接读取 `task_payloads` 对应列（移除 `ELSE t.<col>` 回落、保留 `queue_tasks` 常驻视图与授权），再删除 5 个同步触发器、`public.sync_task_payload_column_from_tasks_update()` 函数以及 `tasks` 的 5 个冷列（`request_payload`、`result_payload`、`archive_payload`、`metering`、`upstream_body`）；
-   - **Contract 2（退场 `user_asset_objects`）**：移除应用层双写兜底，新增迁移删除 `user_asset_objects` 表；
-   - **Contract 3（退场 `server_logs`）**：将 Admin 测试夹具（`apps/admin/src/__tests__/server/helpers/table-log-source.ts`、`apps/admin/src/__tests__/server/routes/today.test.ts`、`apps/admin/src/__tests__/server/routes/overview-window.test.ts`）迁离 PG 表，再新增迁移删除 `packages/db/src/schemas/ops.ts` 中的 `server_logs` 表，并同步移除 `packages/db/src/verify-schema.ts` 与 `packages/db/src/__tests__/migrate.test.ts` 中的 `server_logs` 校验。
+4. **Contract 清理进度**：
+   - **Contract 3（退场 `server_logs`）**：已完成（`#2033`，`0109_drop_server_logs.sql`）；
+   - **Contract 2（退场 `user_asset_objects` 与周期回收）**：已完成（`#2034` + Contract 2b `0111_drop_user_asset_objects.sql`）；
+   - **Contract 1a（`tasks` 停读写旧列并解耦 `device_id`）**：已完成（`#2035`，`0110_tasks_decouple_cold_columns.sql`）；
+   - **Contract 1b（`tasks` 物理删列，剩余唯一收尾项）**：删除 `0106`/`0110` 兼容同步触发器与函数，物理删除 `tasks` 的 5 个冷列（`request_payload`、`result_payload`、`archive_payload`、`metering`、`upstream_body`）并移除一次性回填脚本 `scripts/backfill-task-payloads.ts`。

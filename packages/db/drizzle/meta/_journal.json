@@ -764,6 +764,13 @@
       "when": 1796000000000,
       "tag": "0110_tasks_decouple_cold_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1796100000000,
+      "tag": "0111_drop_user_asset_objects",
+      "breakpoints": true
     }
   ]
 }

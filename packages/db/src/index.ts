@@ -1,13 +1,4 @@
 export {
-  type AssetMediaConsistencyReport,
-  type BackfillAssetMediaBatch,
-  type BackfillAssetMediaOptions,
-  type BackfillAssetMediaPhase,
-  type BackfillAssetMediaResult,
-  backfillAssetMedia,
-  verifyAssetMediaConsistency,
-} from './backfill-asset-media'
-export {
   type BackfillTaskPayloadsBatch,
   type BackfillTaskPayloadsOptions,
   type BackfillTaskPayloadsResult,
