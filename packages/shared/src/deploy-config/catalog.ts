@@ -521,7 +521,7 @@ const BASE_SETTINGS: SettingDef[] = [
     value: (c) => String(c.deployment.ops.hostAlerts),
   },
 
-  // 可观测性：应用侧只拿导出地址和只读代理令牌。
+  // 可观测性：bff/worker 拿导出地址和只读代理；Admin 日志页也要同一套只读代理。
   {
     env: 'OTEL_EXPORTER_OTLP_ENDPOINT',
     services: APP,
@@ -536,13 +536,13 @@ const BASE_SETTINGS: SettingDef[] = [
   },
   {
     env: 'OBS_PROXY_URL',
-    services: APP,
-    doc: '断流告警查询入口',
+    services: [...APP, 'admin'],
+    doc: '只读代理地址（断流告警与 Admin 日志查询）',
     value: observability(() => 'http://obs-proxy:5090'),
   },
   {
     env: 'OBS_PROXY_TOKEN',
-    services: [...APP, 'obs-proxy'],
+    services: [...APP, 'admin', 'obs-proxy'],
     doc: '只读查询代理令牌',
     value: secret('OBS_PROXY_TOKEN'),
   },
