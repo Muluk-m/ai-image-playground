@@ -48,6 +48,12 @@ export function TaskDetailSheet({ taskId, onOpenChange }: TaskDetailSheetProps) 
 
 /** 链路结果过这么久再打开抽屉或页签就重取。 */
 const TRACE_STALE_MS = 30_000
+/**
+ * 任务结束后这段时间里，抽屉开着就每 10 秒重取一次链路：span 由 BatchSpanProcessor 异步批量
+ * 导出，刚结束时可能一条都没入库，或者树还不全。过了这段时间就固定下来，不再后台重取。
+ */
+const TRACE_SETTLE_MS = 2 * 60_000
+const TRACE_SETTLE_POLL_MS = 10_000
 
 function TaskDrawerTabs({ taskId }: { taskId: string }) {
   const task = useTask(taskId)
@@ -86,12 +92,18 @@ function TaskDrawerTabs({ taskId }: { taskId: string }) {
   // 提交和每次执行各一条链路。打开抽屉只列链路决定要不要这一页，点开才画 span 树；没开
   // OpenObserve 的部署（测试环境）查不到就不显示这一页。
   const tracePath = `/api/ops/tasks/${encodeURIComponent(taskId)}/traces?from=${logFrom}&to=${logTo}`
+  const completedAt = task.data?.completed_at ?? null
+  const settling = () =>
+    completedAt !== null && Date.now() - completedAt < TRACE_SETTLE_MS
+      ? TRACE_SETTLE_POLL_MS
+      : false
   const traces = useQuery({
     queryKey: ['task-traces', taskId, logFrom, logTo],
     enabled: logFrom !== null && logTo !== null,
     retry: false,
     // span 由 BatchSpanProcessor 异步批量导出，任务刚结束时可能还没入库：别把空结果缓存到底。
     staleTime: TRACE_STALE_MS,
+    refetchInterval: settling,
     queryFn: () => apiClient.get<TaskTraces>(tracePath),
   })
   const traceList = traces.data?.traces ?? []
@@ -112,6 +124,7 @@ function TaskDrawerTabs({ taskId }: { taskId: string }) {
     enabled: current === 'traces',
     retry: false,
     staleTime: TRACE_STALE_MS,
+    refetchInterval: settling,
     queryFn: () => apiClient.get<TaskTraces>(`${tracePath}&trees=1`),
   })
   if (!tabs.length || !current) return null
