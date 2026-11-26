@@ -84,6 +84,20 @@ describe('deploy config catalog', () => {
     })
   })
 
+  it('gives admin the same read-only obs-proxy as bff when observability is on', () => {
+    const prod = descriptor('prod')
+    const prodEnv = renderDeployment(prod, fakeSecrets(prod)).rendered.env
+    expect(prodEnv.admin?.OBS_PROXY_URL).toBe('http://obs-proxy:5090')
+    expect(prodEnv.admin?.OBS_PROXY_TOKEN).toBe('fake-obs_proxy_token')
+    expect(prodEnv.admin?.OBS_PROXY_URL).toBe(prodEnv.bff?.OBS_PROXY_URL)
+    expect(prodEnv.admin?.OBS_PROXY_TOKEN).toBe(prodEnv.bff?.OBS_PROXY_TOKEN)
+
+    const test = descriptor('test')
+    const testAdmin = renderDeployment(test, fakeSecrets(test)).rendered.env.admin ?? {}
+    expect(testAdmin.OBS_PROXY_URL).toBeUndefined()
+    expect(testAdmin.OBS_PROXY_TOKEN).toBeUndefined()
+  })
+
   it('routes each tunnel hostname to the bff router or admin, enterprise tunnel included', () => {
     const prod = descriptor('prod')
     const { rendered } = renderDeployment(prod, fakeSecrets(prod))
