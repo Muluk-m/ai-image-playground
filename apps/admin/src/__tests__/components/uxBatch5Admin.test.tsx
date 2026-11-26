@@ -4,7 +4,7 @@ import type { AgentModelSettingsView, GptDirectAdminView } from '@image-playgrou
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { FilterBar } from '@/components/FilterBar'
+import { beijingInput, FilterBar } from '@/components/FilterBar'
 import { ErrorState } from '@/components/Page'
 import { AgentModelSettingsForm } from '@/features/agent-models/AgentModelSettingsForm'
 import { ApiError, formatAdminError, UnauthorizedError } from '@/lib/api-client'
@@ -74,19 +74,51 @@ describe('Batch 5 Admin UX polish', () => {
     directState.remove.mockReset()
   })
 
-  it('formats raw HTTP and network errors into friendly Chinese and exposes Retry on ErrorState', () => {
+  it('formats raw HTTP and network errors into friendly Chinese without leaking sensitive details', () => {
     expect(formatAdminError(new UnauthorizedError(null))).toBe('登录已过期，请重新登录')
     expect(formatAdminError(new ApiError(500, null))).toBe('服务暂时不可用，请稍后重试')
+    expect(
+      formatAdminError(
+        new ApiError(500, { message: 'https://internal.example/secret?token=abc123' }),
+      ),
+    ).toBe('服务暂时不可用，请稍后重试')
+    expect(
+      formatAdminError(new ApiError(400, { error: 'INSUFFICIENT_CREDITS', message: 'raw detail' })),
+    ).toBe('账户可用积分不足')
     expect(formatAdminError(new ApiError(403, null))).toBe('当前账号没有执行该操作的权限')
     expect(formatAdminError(new TypeError('Failed to fetch'))).toBe(
       '网络连接失败，请检查网络后重试',
     )
+    expect(formatAdminError(new Error('Bearer secret-token-xyz'))).toBe('操作未能完成，请稍后重试')
 
     const onRetry = vi.fn()
     render(<ErrorState label="加载用户失败" error={new ApiError(500, null)} onRetry={onRetry} />)
     expect(screen.getByRole('alert')).toHaveTextContent('加载用户失败：服务暂时不可用，请稍后重试')
     fireEvent.click(screen.getByRole('button', { name: '重试' }))
     expect(onRetry).toHaveBeenCalledTimes(1)
+  })
+
+  it('handles out-of-range finite timestamps safely in beijingInput and FilterBar', () => {
+    expect(beijingInput(8640000000000001)).toBe('')
+    expect(beijingInput(9000000000000000)).toBe('')
+    expect(beijingInput(Number.NaN)).toBe('')
+    expect(beijingInput(Date.UTC(2026, 10, 25, 0, 0))).toBe('2026-11-25T08:00')
+
+    render(
+      <FilterBar
+        savedViewKey="users-out-of-range"
+        search=""
+        onSearch={vi.fn()}
+        searchPlaceholder="搜索用户名"
+        chips={[]}
+        definitions={[{ key: 'registeredFrom', label: '注册起点', kind: 'datetime' }]}
+        values={{ registeredFrom: '8640000000000001' }}
+        onChange={vi.fn()}
+        onRemove={vi.fn()}
+        onClear={vi.fn()}
+      />,
+    )
+    expect(screen.getByRole('button', { name: '添加筛选' })).toBeInTheDocument()
   })
 
   it('clears FilterBar search on Escape without firing during IME composition', () => {

@@ -41,7 +41,10 @@ export function presetWindow(preset: 'today' | '7d' | '30d', now = Date.now()) {
 }
 
 export function beijingInput(at: number): string {
-  return new Date(at + 8 * 3600_000).toISOString().slice(0, 16)
+  if (!Number.isFinite(at)) return ''
+  const shifted = new Date(at + 8 * 3600_000)
+  if (Number.isNaN(shifted.getTime())) return ''
+  return shifted.toISOString().slice(0, 16)
 }
 
 export function parseBeijingInput(value: string, end = false): number {

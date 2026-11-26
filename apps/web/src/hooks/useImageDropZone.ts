@@ -1,4 +1,4 @@
-import { type DragEvent, useEffect, useRef, useState } from 'react'
+import { type DragEvent, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { acceptImageFiles, collectDroppedFiles } from '../lib/imageFiles'
 
 function carriesFiles(event: DragEvent) {
@@ -18,7 +18,9 @@ export function useImageDropZone(
   // 拖过子元素时 dragenter / dragleave 成对乱序触发，只有计数才不会中途熄灭。
   const depth = useRef(0)
   const disabledRef = useRef(disabled)
-  disabledRef.current = disabled
+  useLayoutEffect(() => {
+    disabledRef.current = disabled
+  }, [disabled])
 
   const stop = () => {
     depth.current = 0

@@ -786,7 +786,16 @@ export default function MaskEditorModal() {
   }, [imageId])
 
   useEffect(() => {
-    if (!showBrushControls && !showMaskInfo) return
+    if (!imageId) {
+      setShowBrushControls(false)
+      setSliderAnchor(null)
+      setShowMaskInfo(false)
+      clearMaskInfoTimer()
+    }
+  }, [imageId])
+
+  useEffect(() => {
+    if (!imageId || (!showBrushControls && !showMaskInfo)) return
     const dismissPopover = (event: KeyboardEvent) => {
       if (
         event.key !== 'Escape' ||
@@ -804,7 +813,7 @@ export default function MaskEditorModal() {
     }
     window.addEventListener('keydown', dismissPopover, true)
     return () => window.removeEventListener('keydown', dismissPopover, true)
-  }, [showBrushControls, showMaskInfo])
+  }, [imageId, showBrushControls, showMaskInfo])
 
   useEffect(() => {
     if (!showBrushControls) return

@@ -13,6 +13,8 @@ export function PaymentSurface({
   busy,
   pendingAction = null,
   onAction,
+  onRefresh,
+  refreshing = false,
   onClose,
   now,
   confirmClaim = false,
@@ -22,6 +24,8 @@ export function PaymentSurface({
   busy: boolean
   pendingAction?: PendingPaymentAction
   onAction: (action: string) => void
+  onRefresh?: () => void
+  refreshing?: boolean
   onClose: () => void
   now: number
   confirmClaim?: boolean
@@ -231,15 +235,30 @@ export function PaymentSurface({
           </div>
         </div>
       ) : (
-        <Button
-          type="button"
-          variant="outline"
-          className="mt-4 w-full"
-          disabled={busy}
-          onClick={onClose}
-        >
-          {tBilling('orders.close')}
-        </Button>
+        <div className="mt-4 flex gap-2">
+          {onRefresh && status !== 'completed' ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              disabled={busy || refreshing}
+              aria-busy={refreshing}
+              onClick={onRefresh}
+            >
+              {refreshing ? <Icon name="loading" size="xs" className="animate-spin" /> : null}
+              {tBilling('action.refresh')}
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="outline"
+            className={onRefresh && status !== 'completed' ? 'flex-1' : 'w-full'}
+            disabled={busy}
+            onClick={onClose}
+          >
+            {tBilling('orders.close')}
+          </Button>
+        </div>
       )}
       <p className="mt-1 break-all text-center font-mono text-label-sm text-muted-foreground">
         {order.id}
@@ -257,6 +276,7 @@ export function PaymentPanel({
   const [order, setOrder] = useState(initial),
     [now, setNow] = useState(Date.now()),
     [pendingAction, setPendingAction] = useState<PendingPaymentAction>(null),
+    [refreshing, setRefreshing] = useState(false),
     [error, setError] = useState(false),
     [reloadKey, setReloadKey] = useState(0),
     [confirmClaim, setConfirmClaim] = useState(false),
@@ -264,31 +284,53 @@ export function PaymentPanel({
   const busy = pendingAction !== null
   useTranslation()
   const sequence = useRef(0)
+  const refreshSeq = useRef(0)
   const busyRef = useRef(false)
   const shouldPoll = order.status === 'pending' || order.status === 'review'
   useEffect(() => {
     void reloadKey
-    if (!shouldPoll) return
     let alive = true
-    const refresh = async () => {
-      const attempt = ++sequence.current
-      try {
-        const next = await orderRequest<PurchaseOrder>(`/${initial.id}`)
+    setRefreshing(true)
+    const attempt = ++sequence.current
+    const refreshAttempt = ++refreshSeq.current
+    void orderRequest<PurchaseOrder>(`/${initial.id}`)
+      .then((next) => {
         if (alive && attempt === sequence.current) {
           setOrder(next)
           setError(false)
         }
-      } catch {
-        if (alive) setError(true)
-      }
+      })
+      .catch(() => {
+        if (alive && attempt === sequence.current) setError(true)
+      })
+      .finally(() => {
+        if (alive && refreshAttempt === refreshSeq.current) setRefreshing(false)
+      })
+    return () => {
+      alive = false
     }
-    void refresh()
-    const poll = setInterval(() => void refresh(), 5000)
+  }, [initial.id, reloadKey])
+  useEffect(() => {
+    if (!shouldPoll) return
+    let alive = true
+    const poll = setInterval(() => {
+      const attempt = ++sequence.current
+      void orderRequest<PurchaseOrder>(`/${initial.id}`)
+        .then((next) => {
+          if (alive && attempt === sequence.current) {
+            setOrder(next)
+            setError(false)
+          }
+        })
+        .catch(() => {
+          if (alive) setError(true)
+        })
+    }, 5000)
     return () => {
       alive = false
       clearInterval(poll)
     }
-  }, [initial.id, shouldPoll, reloadKey])
+  }, [initial.id, shouldPoll])
   useEffect(() => {
     if (order.status !== 'pending') return
     const tick = setInterval(() => setNow(Date.now()), 1000)
@@ -360,6 +402,8 @@ export function PaymentPanel({
           confirmClaim={confirmClaim}
           confirmCancel={confirmCancel}
           onAction={(action) => void act(action)}
+          onRefresh={() => setReloadKey((k) => k + 1)}
+          refreshing={refreshing}
           onClose={onClose}
         />
       </div>

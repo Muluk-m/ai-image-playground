@@ -645,9 +645,17 @@ export default function AgentArtifactEditDialog({
     }
   }
 
+  const cropChanged =
+    action === 'crop' &&
+    (crop.x !== DEFAULT_CROP.x ||
+      crop.y !== DEFAULT_CROP.y ||
+      crop.width !== DEFAULT_CROP.width ||
+      crop.height !== DEFAULT_CROP.height)
+  const extensionChanged = action === 'outpaint' && extension !== 0.25
+
   const requestClose = () => {
     if (busy) return
-    if (markPresent || instruction.trim()) {
+    if (markPresent || instruction.trim() || cropChanged || extensionChanged) {
       setConfirmDiscard(true)
       return
     }
