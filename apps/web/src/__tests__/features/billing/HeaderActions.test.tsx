@@ -339,4 +339,15 @@ it('年付套餐跨过本月积分到期点且仍带旧正余额时，不回退�
   // 同一分钟内重渲染不会重复刷新。
   await act(async () => root!.render(<HeaderCreditAction />))
   expect(mockLoadBilling).toHaveBeenCalledTimes(1)
+
+  // 断网后恢复在线且超过冷却期时，仍可重新触发刷新而不会永久卡死。
+  const spyNow = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 15_000)
+  try {
+    await act(async () => {
+      window.dispatchEvent(new Event('online'))
+    })
+    expect(mockLoadBilling).toHaveBeenCalledTimes(2)
+  } finally {
+    spyNow.mockRestore()
+  }
 })

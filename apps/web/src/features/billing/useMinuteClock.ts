@@ -4,7 +4,13 @@ import { isBillingExpiryStale } from './billing-display'
 import { loadBilling } from './billing-store'
 
 const TICK_MS = 60_000
-const MAX_STALE_REFRESH_ATTEMPTS = 3
+const MAX_BACKOFF_MS = 5 * 60_000
+const RECOVERY_COOLDOWN_MS = 10_000
+
+function staleBackoffMs(attempts: number): number {
+  if (attempts <= 0) return 0
+  return Math.min(TICK_MS * 2 ** (attempts - 1), MAX_BACKOFF_MS)
+}
 
 /**
  * 供到期倒计时使用的分钟级时钟。仅在存在到期时间时挂定时器，
@@ -33,7 +39,8 @@ export function useMinuteClock(active: boolean): number {
 
 /**
  * 跨过积分或套餐到期点时自动重新拉取账户快照，避免界面继续展示未清零的旧余额。
- * 对同一份未变化的到期快照限频且封顶重试次数，防止客户端与服务端时钟轻微偏差时循环请求。
+ * 对同一份未变化的到期快照采用有上限指数退避（1 → 2 → 4 → 5 分钟，后台标签页暂停），
+ * 并在网络恢复或重新回到前台时按防抖冷却重置重试，既防时钟偏差刷爆接口，也不会因短暂断网永久卡死。
  */
 export function useRefreshOnExpiry(
   enabled: boolean,
@@ -55,14 +62,35 @@ export function useRefreshOnExpiry(
       stateRef.current = { key: '', attempts: 0, lastAttemptAt: 0 }
       return
     }
+    if (document.hidden) return
     if (stateRef.current.key !== staleKey) {
       stateRef.current = { key: staleKey, attempts: 0, lastAttemptAt: 0 }
     }
     const current = stateRef.current
-    if (current.attempts >= MAX_STALE_REFRESH_ATTEMPTS) return
-    if (current.lastAttemptAt > 0 && now - current.lastAttemptAt < TICK_MS) return
+    const waitMs = staleBackoffMs(current.attempts)
+    if (current.lastAttemptAt > 0 && now - current.lastAttemptAt < waitMs) return
     current.attempts += 1
     current.lastAttemptAt = now
     void loadBilling()
   }, [stale, staleKey, now])
+
+  useEffect(() => {
+    if (!stale) return
+    const recover = () => {
+      if (document.hidden) return
+      const current = stateRef.current
+      const triggerAt = Date.now()
+      if (current.lastAttemptAt > 0 && triggerAt - current.lastAttemptAt < RECOVERY_COOLDOWN_MS) {
+        return
+      }
+      stateRef.current = { key: staleKey, attempts: 1, lastAttemptAt: triggerAt }
+      void loadBilling()
+    }
+    window.addEventListener('online', recover)
+    document.addEventListener('visibilitychange', recover)
+    return () => {
+      window.removeEventListener('online', recover)
+      document.removeEventListener('visibilitychange', recover)
+    }
+  }, [stale, staleKey])
 }
