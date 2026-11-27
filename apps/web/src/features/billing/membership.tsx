@@ -5,6 +5,7 @@ export interface MembershipState {
   expiresLabel: string | null
 }
 
+import { formatDate as formatDateOnly } from '../../lib/privateHost'
 import type { PrivateMembershipView } from '../../lib/privateOverlay'
 import { noActiveSubscriptionLabel } from './billing-display'
 import { openBilling, openPricing, useBilling } from './billing-store'
@@ -19,7 +20,7 @@ export function useMembershipState(): MembershipState {
   return {
     tier: tierOf(subscription?.plan.id ?? null, rankedPlanIds(catalog?.plans ?? [])),
     planName: subscription?.plan.name ?? noActiveSubscriptionLabel(),
-    expiresLabel: subscription ? new Date(subscription.ends_at).toLocaleDateString('zh-CN') : null,
+    expiresLabel: subscription ? formatDateOnly(subscription.ends_at) : null,
   }
 }
 

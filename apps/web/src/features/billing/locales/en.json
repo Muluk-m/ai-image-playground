@@ -321,6 +321,21 @@
     "upgrade": "Upgrade plan",
     "expires": "Valid until {{date}}"
   },
+  "expiry": {
+    "dateShort": "Exp {{date}}",
+    "daysLeft_one": "{{n}}d left",
+    "daysLeft_other": "{{n}}d left",
+    "hoursLeft_one": "{{n}}h left",
+    "hoursLeft_other": "{{n}}h left",
+    "underHour": "< 1h left",
+    "creditsClearAt": "Clears {{date}}",
+    "creditsTooltip": "{{credits}} plan credits expire and clear on {{date}}",
+    "planTooltip": "Current plan expires on {{date}}",
+    "creditsWarning": "{{countdown}} · {{credits}} plan credits clear on {{date}}",
+    "planWarning": "{{countdown}} · Current plan expires on {{date}}",
+    "creditsSummary": "{{credits}} plan credits · clears {{date}}",
+    "headerAriaWithExpiry": "Open account overview, {{amount}} available, {{expiry}}"
+  },
   "orders": {
     "close": "Close",
     "renewal": "Renew",

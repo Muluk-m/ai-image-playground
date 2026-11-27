@@ -308,6 +308,19 @@
     "upgrade": "升级",
     "expires": "套餐至 {{date}}"
   },
+  "expiry": {
+    "dateShort": "{{date}} 到期",
+    "daysLeft_other": "剩 {{n}} 天",
+    "hoursLeft_other": "剩 {{n}} 小时",
+    "underHour": "不足 1 小时",
+    "creditsClearAt": "{{date}} 到期清零",
+    "creditsTooltip": "{{credits}} 套餐积分将于 {{date}} 到期清零",
+    "planTooltip": "当前套餐将于 {{date}} 到期",
+    "creditsWarning": "{{countdown}} · {{credits}} 套餐积分将于 {{date}} 到期清零",
+    "planWarning": "{{countdown}} · 当前套餐将于 {{date}} 到期",
+    "creditsSummary": "套餐积分 {{credits}} · {{date}} 到期清零",
+    "headerAriaWithExpiry": "打开账户概览，当前可用 {{amount}}，{{expiry}}"
+  },
   "orders": {
     "close": "关闭",
     "renewal": "续费",

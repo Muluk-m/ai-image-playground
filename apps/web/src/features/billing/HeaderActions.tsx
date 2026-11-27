@@ -1,11 +1,13 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { useAnimatedNumber } from '../../hooks/useAnimatedNumber'
 import {
+  Badge,
   BRAND_WORDMARK,
   Button,
   brandNeedsWordmark,
   ContactDialog,
   DisplaySettingsMenuItems,
+  Hint,
   Icon,
   type IconName,
   isClientCapabilityEnabled,
@@ -14,11 +16,18 @@ import {
 import type { PrivateHeaderActionsProps } from '../../lib/privateOverlay'
 import { AccountAvatar } from './AccountAvatar'
 import { AccountPanel, type AccountView, CreditIcon } from './AccountPanel'
-import { noActiveSubscriptionLabel } from './billing-display'
+import {
+  formatExpiryCompact,
+  formatExpiryDetail,
+  formatExpiryWarningBanner,
+  noActiveSubscriptionLabel,
+  resolveCreditExpiry,
+} from './billing-display'
 import {
   availableCredits,
   consumePendingBillingModal,
   formatCredits,
+  formatDate,
   OPEN_BILLING_EVENT,
   OPEN_PRICING_EVENT,
   OPEN_RECHARGE_EVENT,
@@ -31,40 +40,70 @@ import type { MembershipTier } from './membership-tier'
 import { PricingPanel, RechargePanel } from './PurchasePanels'
 import { clearAccountProfile, loadAccountProfile, useAccountProfile } from './profile-store'
 import TierBadge, { TIER_COLORS } from './TierBadge'
+import { useMinuteClock } from './useMinuteClock'
 
 export function HeaderCreditAction() {
   const enabled = isClientCapabilityEnabled('billing:credits')
   const { account } = useBilling()
   const { tier } = useMembershipState()
   useTranslation()
+  const hasExpiryCandidate = Boolean(
+    account?.account?.subscription_expires_at || account?.subscription?.ends_at,
+  )
+  const now = useMinuteClock(enabled && hasExpiryCandidate)
   const total = availableCredits(account)
   const { display, direction } = useAnimatedNumber(total)
   if (!enabled || account?.access_state === 'access_denied' || account?.unmetered?.enabled)
     return null
+  const expiry = resolveCreditExpiry(account, now)
+  const compactExpiry = expiry ? formatExpiryCompact(expiry, now) : null
+  const expiryDetail = expiry ? formatExpiryDetail(expiry) : null
+  const amountText =
+    total === null
+      ? tBilling('header.creditsLoading')
+      : tBilling('header.creditsAmount', { count: total, n: formatCredits(total) })
+  const ariaLabel = expiryDetail
+    ? tBilling('expiry.headerAriaWithExpiry', { amount: amountText, expiry: expiryDetail })
+    : tBilling('header.creditsAria', { amount: amountText })
   return (
-    <Button
-      type="button"
-      onClick={openBilling}
-      aria-label={tBilling('header.creditsAria', {
-        amount:
-          total === null
-            ? tBilling('header.creditsLoading')
-            : tBilling('header.creditsAmount', { count: total, n: formatCredits(total) }),
-      })}
-      variant="secondary"
-      size="sm"
-      className="hidden tabular-nums sm:inline-flex"
-    >
-      <CreditIcon
-        className={`h-3.5 w-3.5 transition-transform duration-fast ease-motion-spring motion-reduce:transition-none motion-reduce:scale-100 ${direction ? 'scale-110' : ''}`}
-        style={{ color: TIER_COLORS[tier] }}
-      />
-      <span
-        className={`transition-colors duration-normal ease-motion-out ${direction === 'up' ? 'text-success' : ''}`}
+    <Hint tooltip={expiryDetail ?? undefined} side="bottom">
+      <Button
+        type="button"
+        onClick={openBilling}
+        aria-label={ariaLabel}
+        autoTooltip={false}
+        variant={expiry?.expiringSoon ? 'outline' : 'secondary'}
+        size="xs"
+        className={
+          expiry?.expiringSoon
+            ? 'hidden tabular-nums border-warning/60 bg-background text-foreground hover:bg-accent sm:inline-flex'
+            : 'hidden tabular-nums sm:inline-flex'
+        }
       >
-        {display === null ? '—' : formatCredits(display)}
-      </span>
-    </Button>
+        <CreditIcon
+          className={`h-3.5 w-3.5 transition-transform duration-fast ease-motion-spring motion-reduce:transition-none motion-reduce:scale-100 ${direction ? 'scale-110' : ''}`}
+          style={{ color: TIER_COLORS[tier] }}
+        />
+        <span
+          className={`transition-colors duration-normal ease-motion-out ${direction === 'up' ? 'text-success' : ''}`}
+        >
+          {display === null ? '—' : formatCredits(display)}
+        </span>
+        {expiry && compactExpiry ? (
+          expiry.expiringSoon ? (
+            <Badge tone="warning" className="gap-1 tabular-nums">
+              <Icon name="clock" size="xs" />
+              <span>{compactExpiry}</span>
+            </Badge>
+          ) : (
+            <>
+              <span aria-hidden="true" className="h-3 w-px bg-border" />
+              <span className="font-normal text-muted-foreground">{compactExpiry}</span>
+            </>
+          )
+        ) : null}
+      </Button>
+    </Hint>
   )
 }
 
@@ -124,6 +163,12 @@ export function HeaderActions({
   const membershipState = useMembershipState()
   const tier = membershipState.tier
   const expiresLabel = membershipState.expiresLabel
+  const hasExpiryCandidate = Boolean(
+    account?.account?.subscription_expires_at || account?.subscription?.ends_at,
+  )
+  const now = useMinuteClock(billingVisible && hasExpiryCandidate)
+  const expiry = billingVisible ? resolveCreditExpiry(account, now) : null
+  const expiryDetail = expiry ? formatExpiryDetail(expiry) : null
   const { profile } = useAccountProfile()
   const displayName =
     profile?.nickname?.trim() ||
@@ -303,6 +348,12 @@ export function HeaderActions({
               aria-label={tBilling('header.syncPending')}
               className="absolute right-0 top-0 h-2 w-2 rounded-full bg-warning ring-2 ring-background"
             />
+          ) : expiry?.expiringSoon && expiryDetail ? (
+            <span
+              role="img"
+              aria-label={expiryDetail}
+              className="absolute right-0 top-0 h-2 w-2 rounded-full bg-warning ring-2 ring-background sm:hidden"
+            />
           ) : null}
         </Button>
 
@@ -361,13 +412,32 @@ export function HeaderActions({
                     {tBilling('action.topUp')}
                   </Button>
                 </div>
+                {expiry?.expiringSoon ? (
+                  <div
+                    role="status"
+                    className="mt-3 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/15 px-3 py-2 text-xs font-medium text-warning"
+                  >
+                    <Icon name="warning" size="xs" className="mt-0.5 shrink-0" />
+                    <span className="min-w-0 leading-relaxed">
+                      {formatExpiryWarningBanner(expiry)}
+                    </span>
+                  </div>
+                ) : null}
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
                   <span>{tBilling('account.subscriptionFirst')}</span>
-                  <span className="shrink-0">
-                    {expiresLabel
-                      ? tBilling('account.validUntil', { date: expiresLabel })
-                      : tBilling('account.noActivePlanHint')}
-                  </span>
+                  {expiry && !expiry.expiringSoon ? (
+                    <span className="inline-flex shrink-0 items-center gap-1 tabular-nums">
+                      <Icon name="clock" size="xs" />
+                      {expiry.kind === 'credits'
+                        ? tBilling('expiry.creditsSummary', {
+                            credits: formatCredits(expiry.creditsAtRisk),
+                            date: formatDate(expiry.expiresAt),
+                          })
+                        : tBilling('account.validUntil', { date: formatDate(expiry.expiresAt) })}
+                    </span>
+                  ) : !expiry ? (
+                    <span className="shrink-0">{tBilling('account.noActivePlanHint')}</span>
+                  ) : null}
                 </div>
                 <Button type="button" onClick={openPricing} className="mt-3 h-11 w-full rounded-lg">
                   <Icon name="quality" />

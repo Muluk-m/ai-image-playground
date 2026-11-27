@@ -3,8 +3,15 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   contactChannels,
   contactDisplay,
+  EXPIRY_WARNING_MS,
+  formatExpiryCompact,
+  formatExpiryCountdown,
+  formatExpiryDetail,
+  formatExpiryWarningBanner,
   isDiscounted,
   planDisplayName,
+  resolveCreditExpiry,
+  resolveTimestampExpiry,
   toUserBillingEntries,
   userBillingEntryDescription,
 } from '../../../features/billing/billing-display'
@@ -505,5 +512,138 @@ describe('planDisplayName', () => {
     expect(planDisplayName('toString', '自定义')).toBe('自定义')
     expect(planDisplayName(null, '入门')).toBe('入门')
     expect(planDisplayName(undefined, '入门')).toBe('入门')
+  })
+})
+
+describe('credit expiry resolution and formatting', () => {
+  const HOUR = 60 * 60 * 1000
+  const DAY = 24 * HOUR
+  const NOW = new Date(2026, 10, 27, 12, 0, 0).getTime()
+
+  afterAll(() => i18next.changeLanguage('zh-CN'))
+
+  it('switches into warning state at or below 7 days and formats countdown tiers accurately', async () => {
+    expect(resolveTimestampExpiry(null, NOW)).toBeNull()
+    expect(resolveTimestampExpiry(NOW, NOW)).toBeNull()
+    expect(resolveTimestampExpiry(NOW - 1000, NOW)).toBeNull()
+
+    const beyond = resolveTimestampExpiry(NOW + EXPIRY_WARNING_MS + 60_000, NOW)!
+    expect(beyond.expiringSoon).toBe(false)
+    expect(beyond.countdownUnit).toBe('date')
+    expect(formatExpiryCountdown(beyond)).toBeNull()
+
+    const exactSeven = resolveTimestampExpiry(NOW + 7 * DAY, NOW)!
+    expect(exactSeven.expiringSoon).toBe(true)
+    expect(exactSeven.countdownUnit).toBe('days')
+    expect(exactSeven.countdownValue).toBe(7)
+
+    const justUnderSeven = resolveTimestampExpiry(NOW + 7 * DAY - 5_000, NOW)!
+    expect(justUnderSeven.expiringSoon).toBe(true)
+    expect(justUnderSeven.countdownUnit).toBe('days')
+    expect(justUnderSeven.countdownValue).toBe(7)
+
+    const oneDay = resolveTimestampExpiry(NOW + DAY, NOW)!
+    expect(oneDay.expiringSoon).toBe(true)
+    expect(oneDay.countdownUnit).toBe('hours')
+    expect(oneDay.countdownValue).toBe(24)
+
+    const fiveHours = resolveTimestampExpiry(NOW + 5 * HOUR, NOW)!
+    expect(fiveHours.expiringSoon).toBe(true)
+    expect(fiveHours.countdownUnit).toBe('hours')
+    expect(fiveHours.countdownValue).toBe(5)
+
+    const thirtyMins = resolveTimestampExpiry(NOW + 30 * 60 * 1000, NOW)!
+    expect(thirtyMins.expiringSoon).toBe(true)
+    expect(thirtyMins.countdownUnit).toBe('under_hour')
+
+    await i18next.changeLanguage('zh-CN')
+    expect(formatExpiryCompact(beyond, NOW)).toBe('12/04 到期')
+    expect(formatExpiryCompact(exactSeven, NOW)).toBe('剩 7 天')
+    expect(formatExpiryCompact(fiveHours, NOW)).toBe('剩 5 小时')
+    expect(formatExpiryCompact(thirtyMins, NOW)).toBe('不足 1 小时')
+
+    await i18next.changeLanguage('en')
+    expect(formatExpiryCompact(beyond, NOW)).toBe('Exp 12/04')
+    expect(formatExpiryCompact(exactSeven, NOW)).toBe('7d left')
+    expect(formatExpiryCompact(fiveHours, NOW)).toBe('5h left')
+    expect(formatExpiryCompact(thirtyMins, NOW)).toBe('< 1h left')
+  })
+
+  it('includes the year for distant cross-year dates', async () => {
+    await i18next.changeLanguage('zh-CN')
+    const farNextYear = resolveTimestampExpiry(new Date(2027, 10, 27, 12, 0, 0).getTime(), NOW)!
+    expect(formatExpiryCompact(farNextYear, NOW)).toContain('2027')
+  })
+
+  it('tracks monthly credit expiry before plan end on multi-month plans, and avoids false alarms when plan credits are 0', async () => {
+    await i18next.changeLanguage('zh-CN')
+    const baseAccount = {
+      ledger: [],
+      model_prices: [],
+      catalog: { plans: [], settings: null, model_prices: [] },
+    }
+    const yearlySub = {
+      id: 'sub-1',
+      status: 'active' as const,
+      plan_id: 'standard',
+      period_months: 12 as const,
+      starts_at: NOW - 25 * DAY,
+      ends_at: NOW + 340 * DAY,
+      next_grant_at: NOW + 5 * DAY,
+      plan: { id: 'standard', name: '标准', monthly_credits: 1_000 },
+    }
+
+    const withCredits = resolveCreditExpiry(
+      {
+        ...baseAccount,
+        account: {
+          subscription_balance: 800,
+          recharge_balance: 200,
+          subscription_expires_at: NOW + 5 * DAY,
+        },
+        subscription: yearlySub,
+      },
+      NOW,
+    )!
+    expect(withCredits.kind).toBe('credits')
+    expect(withCredits.expiringSoon).toBe(true)
+    expect(withCredits.creditsAtRisk).toBe(800)
+    expect(withCredits.expiresAt).toBe(NOW + 5 * DAY)
+    expect(formatExpiryDetail(withCredits)).toContain('800')
+    expect(formatExpiryDetail(withCredits)).toContain('到期清零')
+    expect(formatExpiryWarningBanner(withCredits)).toContain('剩 5 天')
+
+    // 本期套餐积分已用完时，不针对 5 天后的下月刷新时间报「清零警告」，改显示套餐结束日。
+    const zeroPlanCredits = resolveCreditExpiry(
+      {
+        ...baseAccount,
+        account: {
+          subscription_balance: 0,
+          recharge_balance: 200,
+          subscription_expires_at: NOW + 5 * DAY,
+        },
+        subscription: yearlySub,
+      },
+      NOW,
+    )!
+    expect(zeroPlanCredits.kind).toBe('plan')
+    expect(zeroPlanCredits.expiringSoon).toBe(false)
+    expect(zeroPlanCredits.expiresAt).toBe(yearlySub.ends_at)
+    expect(formatExpiryDetail(zeroPlanCredits)).toContain('当前套餐将于')
+
+    // 仅充值积分、无套餐积分与订阅时不展示到期提示。
+    const rechargeOnly = resolveCreditExpiry(
+      {
+        ...baseAccount,
+        account: {
+          subscription_balance: 0,
+          recharge_balance: 500,
+          subscription_expires_at: null,
+        },
+        subscription: null,
+      },
+      NOW,
+    )
+    expect(rechargeOnly).toBeNull()
   })
 })
