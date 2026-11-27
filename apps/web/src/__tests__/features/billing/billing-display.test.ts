@@ -676,6 +676,22 @@ describe('credit expiry resolution and formatting', () => {
     }
     expect(resolveCreditExpiry(crossedMonthlyExpiry, NOW)).toBeNull()
     expect(isBillingExpiryStale(crossedMonthlyExpiry, NOW)).toBe(true)
+    // 0 余额但生效套餐跨过 next_grant_at 月度发放点时，也标记为陈旧待刷新（等待 BFF 发放下月积分）。
+    expect(
+      isBillingExpiryStale(
+        {
+          ...baseAccount,
+          account: {
+            subscription_balance: 0,
+            recharge_balance: 200,
+            subscription_expires_at: NOW - 1_000,
+          },
+          subscription: { ...yearlySub, next_grant_at: NOW - 1_000 },
+        },
+        NOW,
+      ),
+    ).toBe(true)
+    // 0 余额且尚未到达 next_grant_at 与 ends_at 时不判为陈旧。
     expect(
       isBillingExpiryStale(
         {

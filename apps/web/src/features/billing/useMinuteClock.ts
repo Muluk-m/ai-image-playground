@@ -54,7 +54,7 @@ export function useRefreshOnExpiry(
   })
   const stale = enabled && isBillingExpiryStale(account, now)
   const staleKey = stale
-    ? `${account?.account?.subscription_expires_at ?? ''}:${account?.account?.subscription_balance ?? ''}:${account?.subscription?.ends_at ?? ''}`
+    ? `${account?.account?.subscription_expires_at ?? ''}:${account?.account?.subscription_balance ?? ''}:${account?.subscription?.ends_at ?? ''}:${account?.subscription?.next_grant_at ?? ''}`
     : ''
 
   useEffect(() => {

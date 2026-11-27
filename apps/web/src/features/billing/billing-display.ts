@@ -112,7 +112,7 @@ export function resolveCreditExpiry(
   return null
 }
 
-/** 正余额套餐积分或生效套餐已跨过到期点，客户端快照需要重新向 BFF 拉取核对。 */
+/** 正余额套餐积分、生效套餐或下一月度发放点已跨过边界，客户端快照需要重新向 BFF 拉取核对。 */
 export function isBillingExpiryStale(
   account: UserAccountSnapshot | null | undefined,
   now = Date.now(),
@@ -128,13 +128,17 @@ export function isBillingExpiryStale(
     return true
   }
   const subscription = account?.subscription
-  if (
-    subscription &&
-    subscription.status === 'active' &&
-    Number.isFinite(subscription.ends_at) &&
-    subscription.ends_at <= now
-  ) {
-    return true
+  if (subscription && subscription.status === 'active') {
+    if (Number.isFinite(subscription.ends_at) && subscription.ends_at <= now) {
+      return true
+    }
+    if (
+      typeof subscription.next_grant_at === 'number' &&
+      Number.isFinite(subscription.next_grant_at) &&
+      subscription.next_grant_at <= now
+    ) {
+      return true
+    }
   }
   return false
 }
