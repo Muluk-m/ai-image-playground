@@ -47,14 +47,15 @@ export function HeaderCreditAction() {
   const { account } = useBilling()
   const { tier } = useMembershipState()
   useTranslation()
+  const billingVisible =
+    enabled && account?.access_state !== 'access_denied' && !account?.unmetered?.enabled
   const hasExpiryCandidate = Boolean(
     account?.account?.subscription_expires_at || account?.subscription?.ends_at,
   )
-  const now = useMinuteClock(enabled && hasExpiryCandidate)
+  const now = useMinuteClock(billingVisible && hasExpiryCandidate)
   const total = availableCredits(account)
   const { display, direction } = useAnimatedNumber(total)
-  if (!enabled || account?.access_state === 'access_denied' || account?.unmetered?.enabled)
-    return null
+  if (!billingVisible) return null
   const expiry = resolveCreditExpiry(account, now)
   const compactExpiry = expiry ? formatExpiryCompact(expiry, now) : null
   const expiryDetail = expiry ? formatExpiryDetail(expiry) : null
@@ -426,14 +427,17 @@ export function HeaderActions({
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground">
                   <span>{tBilling('account.subscriptionFirst')}</span>
                   {expiry && !expiry.expiringSoon ? (
-                    <span className="inline-flex shrink-0 items-center gap-1 tabular-nums">
-                      <Icon name="clock" size="xs" />
-                      {expiry.kind === 'credits'
-                        ? tBilling('expiry.creditsSummary', {
-                            credits: formatCredits(expiry.creditsAtRisk),
-                            date: formatDate(expiry.expiresAt),
-                          })
-                        : tBilling('account.validUntil', { date: formatDate(expiry.expiresAt) })}
+                    <span className="inline-flex min-w-0 max-w-full items-center gap-1 tabular-nums">
+                      <Icon name="clock" size="xs" className="shrink-0" />
+                      <span className="min-w-0 break-words">
+                        {expiry.kind === 'credits'
+                          ? tBilling('expiry.creditsSummary', {
+                              count: expiry.creditsAtRisk,
+                              credits: formatCredits(expiry.creditsAtRisk),
+                              date: formatDate(expiry.expiresAt),
+                            })
+                          : tBilling('account.validUntil', { date: formatDate(expiry.expiresAt) })}
+                      </span>
                     </span>
                   ) : !expiry ? (
                     <span className="shrink-0">{tBilling('account.noActivePlanHint')}</span>
