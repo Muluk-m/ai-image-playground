@@ -5,8 +5,157 @@ import type {
   LedgerEntry,
   ModelPrice,
   PlanPrice,
+  UserAccountSnapshot,
 } from '@image-playground/shared'
+import {
+  formatCount,
+  formatDateMinute,
+  formatDate as formatDateOnly,
+  formatMonthDay,
+} from '../../lib/privateHost'
 import { type BillingKey, tBilling } from './i18n'
+
+export const EXPIRY_WARNING_DAYS = 7
+const HOUR_MS = 60 * 60 * 1000
+const DAY_MS = 24 * HOUR_MS
+export const EXPIRY_WARNING_MS = EXPIRY_WARNING_DAYS * DAY_MS
+const HALF_YEAR_MS = 180 * DAY_MS
+
+export type ExpiryCountdownUnit = 'date' | 'days' | 'hours' | 'under_hour'
+
+export interface TimestampExpiryInfo {
+  expiresAt: number
+  remainingMs: number
+  /** 剩余时间 ≤ 7 天（且未过期）时进入倒计时提醒态。 */
+  expiringSoon: boolean
+  countdownUnit: ExpiryCountdownUnit
+  countdownValue: number | null
+}
+
+export interface CreditExpiryInfo extends TimestampExpiryInfo {
+  /** 'credits' 表示套餐积分将到期清零；'plan' 表示套餐积分已用完但当前套餐仍在周期内。 */
+  kind: 'credits' | 'plan'
+  creditsAtRisk: number
+}
+
+export function resolveTimestampExpiry(
+  expiresAt: number | null | undefined,
+  now = Date.now(),
+): TimestampExpiryInfo | null {
+  if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt)) return null
+  const remainingMs = expiresAt - now
+  if (remainingMs <= 0) return null
+  const expiringSoon = remainingMs <= EXPIRY_WARNING_MS
+  if (!expiringSoon) {
+    return {
+      expiresAt,
+      remainingMs,
+      expiringSoon: false,
+      countdownUnit: 'date',
+      countdownValue: null,
+    }
+  }
+  if (remainingMs > DAY_MS) {
+    return {
+      expiresAt,
+      remainingMs,
+      expiringSoon: true,
+      countdownUnit: 'days',
+      countdownValue: Math.ceil(remainingMs / DAY_MS),
+    }
+  }
+  if (remainingMs >= HOUR_MS) {
+    return {
+      expiresAt,
+      remainingMs,
+      expiringSoon: true,
+      countdownUnit: 'hours',
+      countdownValue: Math.ceil(remainingMs / HOUR_MS),
+    }
+  }
+  return {
+    expiresAt,
+    remainingMs,
+    expiringSoon: true,
+    countdownUnit: 'under_hour',
+    countdownValue: null,
+  }
+}
+
+/**
+ * 优先盯着会导致积分清零的 `subscription_expires_at`（跨月/年付订阅中它早于套餐结束日）；
+ * 当本期套餐积分已用完时，若仍有生效套餐则回落到 `subscription.ends_at`，避免误报「积分清零」。
+ */
+export function resolveCreditExpiry(
+  account: UserAccountSnapshot | null | undefined,
+  now = Date.now(),
+): CreditExpiryInfo | null {
+  const credits = account?.account
+  if (credits && credits.subscription_balance > 0) {
+    const info = resolveTimestampExpiry(credits.subscription_expires_at, now)
+    if (info) {
+      return { ...info, kind: 'credits', creditsAtRisk: credits.subscription_balance }
+    }
+  }
+  const subscription = account?.subscription
+  if (subscription && subscription.status === 'active') {
+    const info = resolveTimestampExpiry(subscription.ends_at, now)
+    if (info) {
+      return { ...info, kind: 'plan', creditsAtRisk: 0 }
+    }
+  }
+  return null
+}
+
+export function formatExpiryCountdown(
+  info: Pick<TimestampExpiryInfo, 'countdownUnit' | 'countdownValue'>,
+): string | null {
+  if (info.countdownUnit === 'days' && info.countdownValue !== null) {
+    return tBilling('expiry.daysLeft', { count: info.countdownValue, n: info.countdownValue })
+  }
+  if (info.countdownUnit === 'hours' && info.countdownValue !== null) {
+    return tBilling('expiry.hoursLeft', { count: info.countdownValue, n: info.countdownValue })
+  }
+  if (info.countdownUnit === 'under_hour') {
+    return tBilling('expiry.underHour')
+  }
+  return null
+}
+
+export function formatExpiryCompact(info: TimestampExpiryInfo, now = Date.now()): string {
+  if (info.expiringSoon) {
+    return formatExpiryCountdown(info) ?? formatMonthDay(info.expiresAt)
+  }
+  const crossYearFar =
+    new Date(info.expiresAt).getFullYear() !== new Date(now).getFullYear() &&
+    info.remainingMs > HALF_YEAR_MS
+  const date = crossYearFar ? formatDateOnly(info.expiresAt) : formatMonthDay(info.expiresAt)
+  return tBilling('expiry.dateShort', { date })
+}
+
+export function formatExpiryDetail(info: CreditExpiryInfo): string {
+  const date = formatDateMinute(info.expiresAt)
+  if (info.kind === 'credits') {
+    return tBilling('expiry.creditsTooltip', {
+      credits: formatCount(info.creditsAtRisk),
+      date,
+    })
+  }
+  return tBilling('expiry.planTooltip', { date })
+}
+
+export function formatExpiryWarningBanner(info: CreditExpiryInfo): string {
+  const countdown = formatExpiryCountdown(info) ?? formatExpiryCompact(info)
+  const date = formatDateMinute(info.expiresAt)
+  if (info.kind === 'credits') {
+    return tBilling('expiry.creditsWarning', {
+      countdown,
+      credits: formatCount(info.creditsAtRisk),
+      date,
+    })
+  }
+  return tBilling('expiry.planWarning', { countdown, date })
+}
 
 /** 模块级常量会把加载时的语言冻住，所以套餐兜底名只能在用到的时候现译。 */
 export function noActiveSubscriptionLabel(): string {

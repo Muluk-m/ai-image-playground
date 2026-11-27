@@ -1,7 +1,8 @@
 import type { LedgerEntry, LedgerPage } from '@image-playground/shared'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import {
+  Badge,
   Button,
   cn,
   Icon,
@@ -13,7 +14,9 @@ import { AccountAvatar } from './AccountAvatar'
 import { AccountSettings } from './AccountSettings'
 import { ActivitySection } from './ActivityHeatGraph'
 import {
+  formatExpiryCountdown,
   noActiveSubscriptionLabel,
+  resolveTimestampExpiry,
   toUserBillingEntries,
   userBillingEntryDescription,
   userBillingEntryTitle,
@@ -32,6 +35,7 @@ import { type BillingKey, tBilling, useTranslation } from './i18n'
 import { loadAccountProfile, useAccountProfile } from './profile-store'
 import { ReferralPanel } from './ReferralPanel'
 import { useMediaQuery } from './useMediaQuery'
+import { useMinuteClock } from './useMinuteClock'
 
 export function CreditIcon({ className, style }: { className: string; style?: CSSProperties }) {
   return (
@@ -62,18 +66,37 @@ function CreditCard({
   label,
   value,
   footnote,
+  warning = false,
+  badge,
 }: {
   label: string
   value: number
   footnote: string
+  warning?: boolean
+  badge?: ReactNode
 }) {
   return (
-    <div className="rounded-2xl border border-border bg-muted p-4">
-      <div className="text-xs font-medium text-muted-foreground">{label}</div>
-      <div className="mt-2 text-headline font-semibold tracking-tight text-foreground">
+    <div
+      className={cn(
+        'rounded-2xl border p-4',
+        warning ? 'border-warning/50 bg-warning/10' : 'border-border bg-muted',
+      )}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs font-medium text-muted-foreground">{label}</div>
+        {badge}
+      </div>
+      <div className="mt-2 text-headline font-semibold tracking-tight tabular-nums text-foreground">
         {formatCredits(value)}
       </div>
-      <div className="mt-1 text-label-sm text-muted-foreground">{footnote}</div>
+      <div
+        className={cn(
+          'mt-1 text-label-sm tabular-nums',
+          warning ? 'font-medium text-warning' : 'text-muted-foreground',
+        )}
+      >
+        {footnote}
+      </div>
     </div>
   )
 }
@@ -127,6 +150,18 @@ export function AccountPanel({
     account && total !== null ? approximateImages(total, account.model_prices) : null
   const planName = account?.subscription?.plan.name ?? noActiveSubscriptionLabel()
   const mobileSettings = mobile && activeView === 'settings'
+  const hasExpiryCandidate = Boolean(
+    credits?.subscription_expires_at || account?.subscription?.ends_at,
+  )
+  const now = useMinuteClock(billingVisible && hasExpiryCandidate)
+  const planExpiry =
+    account?.subscription?.status === 'active'
+      ? resolveTimestampExpiry(account.subscription.ends_at, now)
+      : null
+  const subCreditExpiry =
+    credits && credits.subscription_balance > 0
+      ? resolveTimestampExpiry(credits.subscription_expires_at, now)
+      : null
 
   useEffect(() => {
     if (!account) return
@@ -427,13 +462,28 @@ export function AccountPanel({
                       </div>
                       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-6 py-3 text-sm">
                         <span className="font-medium">{planName}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {account.subscription
-                            ? tBilling('account.validUntil', {
-                                date: formatDate(account.subscription.ends_at),
-                              })
-                            : tBilling('account.noActivePlanHint')}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-2">
+                          {planExpiry?.expiringSoon ? (
+                            <Badge tone="warning" className="gap-1 tabular-nums">
+                              <Icon name="clock" size="xs" />
+                              {formatExpiryCountdown(planExpiry)}
+                            </Badge>
+                          ) : null}
+                          <span
+                            className={cn(
+                              'text-xs tabular-nums',
+                              planExpiry?.expiringSoon
+                                ? 'font-medium text-warning'
+                                : 'text-muted-foreground',
+                            )}
+                          >
+                            {account.subscription
+                              ? tBilling('account.validUntil', {
+                                  date: formatDate(account.subscription.ends_at),
+                                })
+                              : tBilling('account.noActivePlanHint')}
+                          </span>
+                        </div>
                       </div>
                       {account.subscription?.scheduled_change ? (
                         <p className="border-t border-border px-6 py-3 text-xs text-muted-foreground">
@@ -459,12 +509,25 @@ export function AccountPanel({
                           <CreditCard
                             label={tBilling('bucket.subscription')}
                             value={credits.subscription_balance}
+                            warning={Boolean(subCreditExpiry?.expiringSoon)}
+                            badge={
+                              subCreditExpiry?.expiringSoon ? (
+                                <Badge tone="warning" className="gap-1 tabular-nums">
+                                  <Icon name="clock" size="xs" />
+                                  {formatExpiryCountdown(subCreditExpiry)}
+                                </Badge>
+                              ) : null
+                            }
                             footnote={
                               credits.subscription_expires_at === null
                                 ? tBilling('account.noSubscriptionCredits')
-                                : tBilling('account.validUntil', {
-                                    date: formatDate(credits.subscription_expires_at),
-                                  })
+                                : credits.subscription_balance > 0
+                                  ? tBilling('expiry.creditsClearAt', {
+                                      date: formatDate(credits.subscription_expires_at),
+                                    })
+                                  : tBilling('account.validUntil', {
+                                      date: formatDate(credits.subscription_expires_at),
+                                    })
                             }
                           />
                           <CreditCard

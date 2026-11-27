@@ -15,6 +15,7 @@
 export { default as BrandAvatar } from '../components/BrandAvatar'
 export { default as ContactDialog } from '../components/ContactDialog'
 export { default as DisplaySettingsMenuItems } from '../components/DisplaySettingsMenuItems'
+export { default as Badge } from '../components/patterns/Badge'
 export { DialogSurface, default as Dialog } from '../components/patterns/Dialog'
 export { default as Overlay } from '../components/patterns/Overlay'
 export { default as SegmentedTabs } from '../components/patterns/SegmentedTabs'
@@ -22,6 +23,7 @@ export { Button } from '../components/ui/button'
 export { Icon, type IconName } from '../components/ui/icon'
 export { Input } from '../components/ui/input'
 export { Label } from '../components/ui/label'
+export { Hint } from '../components/ui/tooltip'
 export { openPricingSheet } from '../features/pricing/pricingSheetState'
 export {
   BRAND_WORDMARK,
@@ -30,7 +32,7 @@ export {
   i18next,
   useTranslation,
 } from '../i18n'
-export { formatCount, formatDate, formatDateMinute } from '../i18n/format'
+export { formatCount, formatDate, formatDateMinute, formatMonthDay } from '../i18n/format'
 export { authenticatedBffFetch } from './authClient'
 export { bootstrapClientCapabilities, isClientCapabilityEnabled } from './clientCapabilities'
 export { isInFloatingLayer } from './dropdown'
