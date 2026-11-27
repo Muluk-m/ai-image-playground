@@ -137,6 +137,7 @@ export function formatExpiryDetail(info: CreditExpiryInfo): string {
   const date = formatDateMinute(info.expiresAt)
   if (info.kind === 'credits') {
     return tBilling('expiry.creditsTooltip', {
+      count: info.creditsAtRisk,
       credits: formatCount(info.creditsAtRisk),
       date,
     })
@@ -149,6 +150,7 @@ export function formatExpiryWarningBanner(info: CreditExpiryInfo): string {
   const date = formatDateMinute(info.expiresAt)
   if (info.kind === 'credits') {
     return tBilling('expiry.creditsWarning', {
+      count: info.creditsAtRisk,
       countdown,
       credits: formatCount(info.creditsAtRisk),
       date,

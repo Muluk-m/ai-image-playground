@@ -315,11 +315,11 @@
     "hoursLeft_other": "剩 {{n}} 小时",
     "underHour": "不足 1 小时",
     "creditsClearAt": "{{date}} 到期清零",
-    "creditsTooltip": "{{credits}} 套餐积分将于 {{date}} 到期清零",
+    "creditsTooltip_other": "{{credits}} 套餐积分将于 {{date}} 到期清零",
     "planTooltip": "当前套餐将于 {{date}} 到期",
-    "creditsWarning": "{{countdown}} · {{credits}} 套餐积分将于 {{date}} 到期清零",
+    "creditsWarning_other": "{{countdown}} · {{credits}} 套餐积分将于 {{date}} 到期清零",
     "planWarning": "{{countdown}} · 当前套餐将于 {{date}} 到期",
-    "creditsSummary": "套餐积分 {{credits}} · {{date}} 到期清零",
+    "creditsSummary_other": "套餐积分 {{credits}} · {{date}} 到期清零",
     "headerAriaWithExpiry": "打开账户概览，当前可用 {{amount}}，{{expiry}}"
   },
   "orders": {

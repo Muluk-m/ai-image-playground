@@ -645,5 +645,22 @@ describe('credit expiry resolution and formatting', () => {
       NOW,
     )
     expect(rechargeOnly).toBeNull()
+
+    // 英文单数 1 积分时走 singular 分支。
+    await i18next.changeLanguage('en')
+    const singleCredit = resolveCreditExpiry(
+      {
+        ...baseAccount,
+        account: {
+          subscription_balance: 1,
+          recharge_balance: 0,
+          subscription_expires_at: NOW + 5 * DAY,
+        },
+        subscription: yearlySub,
+      },
+      NOW,
+    )!
+    expect(formatExpiryDetail(singleCredit)).toContain('1 plan credit expires')
+    expect(formatExpiryWarningBanner(singleCredit)).toContain('1 plan credit clears')
   })
 })
