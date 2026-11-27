@@ -15,10 +15,12 @@ let mockBilling: BillingSnapshot = {
   account: null,
   catalog: null,
 }
+const mockLoadBilling = vi.fn(async () => {})
 
 vi.mock('../../../features/billing/billing-store', async (original) => ({
   ...(await original<typeof import('../../../features/billing/billing-store')>()),
   useBilling: () => mockBilling,
+  loadBilling: () => mockLoadBilling(),
 }))
 vi.mock('../../../features/billing/profile-store', async (original) => ({
   ...(await original<typeof import('../../../features/billing/profile-store')>()),
@@ -79,6 +81,7 @@ beforeEach(async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   await bootstrapCapabilities({ 'accounts:login': true, 'billing:credits': false })
   mockBilling = { status: 'ready', error: null, account: null, catalog: null }
+  mockLoadBilling.mockClear()
 })
 
 afterEach(async () => {
@@ -308,4 +311,32 @@ it('头像下拉菜单与账户概览在 7 天内展示 warning 清零提醒，�
   )
   const dialogAfterZero = document.querySelector('[role="dialog"]')!
   expect(dialogAfterZero.innerHTML).not.toContain('border-warning/50')
+})
+
+it('年付套餐跨过本月积分到期点且仍带旧正余额时，不回退显示套餐结束日并触发账户刷新', async () => {
+  await bootstrapCapabilities({ 'accounts:login': true, 'billing:credits': true })
+  const expiredAt = Date.now() - 1_000
+  mockBilling = {
+    status: 'ready',
+    error: null,
+    account: makeAccount({
+      subscriptionBalance: 800,
+      rechargeBalance: 200,
+      subscriptionExpiresAt: expiredAt,
+      planEndsAt: Date.now() + 200 * DAY_MS,
+    }),
+    catalog: null,
+  }
+  document.body.append(host)
+  root = createRoot(host)
+  await act(async () => root!.render(<HeaderCreditAction />))
+
+  const btn = host.querySelector('button')!
+  expect(btn.textContent).not.toContain('到期')
+  expect(btn.textContent).not.toContain('剩')
+  expect(mockLoadBilling).toHaveBeenCalledTimes(1)
+
+  // 同一分钟内重渲染不会重复刷新。
+  await act(async () => root!.render(<HeaderCreditAction />))
+  expect(mockLoadBilling).toHaveBeenCalledTimes(1)
 })

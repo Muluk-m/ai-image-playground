@@ -8,6 +8,7 @@ import {
   formatExpiryCountdown,
   formatExpiryDetail,
   formatExpiryWarningBanner,
+  isBillingExpiryStale,
   isDiscounted,
   planDisplayName,
   resolveCreditExpiry,
@@ -662,5 +663,32 @@ describe('credit expiry resolution and formatting', () => {
     )!
     expect(formatExpiryDetail(singleCredit)).toContain('1 plan credit expires')
     expect(formatExpiryWarningBanner(singleCredit)).toContain('1 plan credit clears')
+
+    // 跨过本月积分到期点但快照仍保留正套餐余额时：不得回退展示数月后的套餐到期日，且标记为陈旧待刷新。
+    const crossedMonthlyExpiry = {
+      ...baseAccount,
+      account: {
+        subscription_balance: 800,
+        recharge_balance: 200,
+        subscription_expires_at: NOW - 1_000,
+      },
+      subscription: yearlySub,
+    }
+    expect(resolveCreditExpiry(crossedMonthlyExpiry, NOW)).toBeNull()
+    expect(isBillingExpiryStale(crossedMonthlyExpiry, NOW)).toBe(true)
+    expect(
+      isBillingExpiryStale(
+        {
+          ...baseAccount,
+          account: {
+            subscription_balance: 0,
+            recharge_balance: 200,
+            subscription_expires_at: NOW - 1_000,
+          },
+          subscription: yearlySub,
+        },
+        NOW,
+      ),
+    ).toBe(false)
   })
 })

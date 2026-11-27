@@ -40,7 +40,7 @@ import type { MembershipTier } from './membership-tier'
 import { PricingPanel, RechargePanel } from './PurchasePanels'
 import { clearAccountProfile, loadAccountProfile, useAccountProfile } from './profile-store'
 import TierBadge, { TIER_COLORS } from './TierBadge'
-import { useMinuteClock } from './useMinuteClock'
+import { useMinuteClock, useRefreshOnExpiry } from './useMinuteClock'
 
 export function HeaderCreditAction() {
   const enabled = isClientCapabilityEnabled('billing:credits')
@@ -53,6 +53,7 @@ export function HeaderCreditAction() {
     account?.account?.subscription_expires_at || account?.subscription?.ends_at,
   )
   const now = useMinuteClock(billingVisible && hasExpiryCandidate)
+  useRefreshOnExpiry(billingVisible, account, now)
   const total = availableCredits(account)
   const { display, direction } = useAnimatedNumber(total)
   if (!billingVisible) return null
