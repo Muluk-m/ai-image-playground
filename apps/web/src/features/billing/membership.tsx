@@ -5,6 +5,7 @@ export interface MembershipState {
   expiresLabel: string | null
 }
 
+import { formatDate as formatDateOnly } from '../../lib/privateHost'
 import type { PrivateMembershipView } from '../../lib/privateOverlay'
 import { noActiveSubscriptionLabel } from './billing-display'
 import { openBilling, openPricing, useBilling } from './billing-store'
@@ -15,11 +16,11 @@ import TierBadge, { TIER_COLORS } from './TierBadge'
 /** 公开树只画 `PrivateMembershipView`：等级、配色、徽标都在 overlay 这侧定完再递过去。 */
 export function useMembershipState(): MembershipState {
   const { account, catalog } = useBilling()
-  const subscription = account?.subscription ?? null
+  const subscription = account?.subscription?.status === 'active' ? account.subscription : null
   return {
     tier: tierOf(subscription?.plan.id ?? null, rankedPlanIds(catalog?.plans ?? [])),
     planName: subscription?.plan.name ?? noActiveSubscriptionLabel(),
-    expiresLabel: subscription ? new Date(subscription.ends_at).toLocaleDateString('zh-CN') : null,
+    expiresLabel: subscription ? formatDateOnly(subscription.ends_at) : null,
   }
 }
 
