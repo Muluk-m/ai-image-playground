@@ -76,13 +76,24 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
   )
   const rankedIds = catalog ? rankedPlanIds(catalog.plans) : []
   const activePlanId = subscriptionPlanId(account?.subscription)
-  // 遵循设计规范「同一视图里实心芽绿按钮只有一个」：未订阅或入门档主推标准版，其余高亮当前套餐。
-  const hasStandardPlan = catalog?.plans.some((plan) => tierOf(plan.id, rankedIds) === 'plus')
+  const scheduledChange = account?.subscription?.scheduled_change ?? null
+  const activeInCatalog =
+    activePlanId !== null && (catalog?.plans.some((plan) => plan.id === activePlanId) ?? false)
+  // 即使未来扩展到 4 档以上，也只保留单个「最受欢迎」与单个「性价比之选」，避免多卡抢主视觉。
+  const featuredPlanId =
+    catalog?.plans.find((plan) => plan.id === 'standard')?.id ??
+    catalog?.plans.find((plan) => tierOf(plan.id, rankedIds) === 'plus')?.id ??
+    null
+  const bestValuePlanId =
+    catalog?.plans.find((plan) => plan.id === 'professional')?.id ??
+    [...(catalog?.plans ?? [])].reverse().find((plan) => tierOf(plan.id, rankedIds) === 'max')
+      ?.id ??
+    null
+  // 遵循设计规范「同一视图里实心芽绿按钮只有一个」：未订阅或无预约换档的基础档主推推荐档，否则高亮当前可购档位。
   const primaryCtaPlanId =
-    !activePlanId || (activePlanId === 'starter' && hasStandardPlan)
-      ? (catalog?.plans.find((plan) => tierOf(plan.id, rankedIds) === 'plus')?.id ??
-        catalog?.plans[0]?.id ??
-        null)
+    !activeInCatalog ||
+    (activePlanId !== null && tierOf(activePlanId, rankedIds) === 'basic' && !scheduledChange)
+      ? (featuredPlanId ?? catalog?.plans[0]?.id ?? null)
       : activePlanId
 
   return (
@@ -183,8 +194,8 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
             // 档位色与徽标跟账户面板同一套：定价页选的就是右上角之后会显示的那个等级。
             const tier = tierOf(plan.id, rankedIds)
             const accent = TIER_COLORS[tier]
-            const isPopular = tier === 'plus'
-            const isBestValue = tier === 'max'
+            const isPopular = plan.id === featuredPlanId
+            const isBestValue = plan.id === bestValuePlanId && !isPopular
             const isElevated = isPopular || isBestValue
             const price = plan.prices.find((entry) => entry.period_months === period)
             const monthlyEntry = plan.prices.find((entry) => entry.period_months === 1)
@@ -203,7 +214,7 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
               : null
             const yearlySaved = yearlyNudgeSavedCents(planEntries, period)
             const currentPlan = activePlanId === plan.id
-            const scheduled = account?.subscription?.scheduled_change ?? null
+            const scheduled = scheduledChange
             const scheduledHere = scheduled?.plan_id === plan.id
             // 与 BFF 下单判定一致：月度积分更高的档位核款后立即生效，其余换档到期后生效。
             const upgrade =
@@ -219,8 +230,13 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
               price === undefined ? null : price.effective_price_cents / price.period_months
             const showMonthlyUnit = monthlyPrice !== null && monthlyPrice % 100 === 0
             const showCompareMonthly =
-              showMonthlyUnit && discount !== null && discount.monthlyCompareCents % 100 === 0
+              showMonthlyUnit && discount !== null && Number.isInteger(discount.monthlyCompareCents)
             const isPrimaryCta = plan.id === primaryCtaPlanId
+            const badgeSurface = {
+              color: accent,
+              background: `color-mix(in srgb, ${accent} 8%, hsl(var(--card)))`,
+              borderColor: `color-mix(in srgb, ${accent} 34%, transparent)`,
+            }
             const discountBadgeText =
               discount?.hasSavings && discount.zhFold && discount.savePercent
                 ? tBilling(discount.isPromo ? 'pricing.discountFold' : 'pricing.bundleFold', {
@@ -242,8 +258,8 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
                         : `color-mix(in srgb, ${accent} 24%, transparent)`,
                   backgroundImage:
                     currentPlan || isElevated
-                      ? `radial-gradient(110% 55% at 50% 0%, color-mix(in srgb, ${accent} 16%, transparent) 0%, transparent 72%)`
-                      : `radial-gradient(100% 45% at 50% 0%, color-mix(in srgb, ${accent} 6%, transparent) 0%, transparent 65%)`,
+                      ? `radial-gradient(110% 55% at 50% 0%, color-mix(in srgb, ${accent} 11%, transparent) 0%, transparent 72%)`
+                      : `radial-gradient(100% 45% at 50% 0%, color-mix(in srgb, ${accent} 5%, transparent) 0%, transparent 65%)`,
                 }}
               >
                 {currentPlan || isElevated ? (
@@ -271,11 +287,8 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
                   </div>
                   {currentPlan ? (
                     <span
-                      className="inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-label-sm font-semibold"
-                      style={{
-                        color: accent,
-                        background: `color-mix(in srgb, ${accent} 16%, transparent)`,
-                      }}
+                      className="inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-label-sm font-semibold"
+                      style={badgeSurface}
                     >
                       {tBilling('pricing.currentPlan')}
                     </span>
@@ -285,22 +298,16 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
                     </span>
                   ) : isPopular ? (
                     <span
-                      className="inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-label-sm font-semibold"
-                      style={{
-                        color: accent,
-                        background: `color-mix(in srgb, ${accent} 16%, transparent)`,
-                      }}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-label-sm font-semibold"
+                      style={badgeSurface}
                     >
                       <Icon name="flame" size="xs" filled />
                       {tBilling('pricing.popular')}
                     </span>
                   ) : isBestValue ? (
                     <span
-                      className="inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-label-sm font-semibold"
-                      style={{
-                        color: accent,
-                        background: `color-mix(in srgb, ${accent} 16%, transparent)`,
-                      }}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-label-sm font-semibold"
+                      style={badgeSurface}
                     >
                       <Icon name="membershipMax" size="xs" filled />
                       {tBilling('pricing.bestValue')}
@@ -313,11 +320,8 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
                     {discountBadgeText && discount ? (
                       <>
                         <span
-                          className="rounded-sm px-2 py-0.5 font-semibold"
-                          style={{
-                            color: accent,
-                            background: `color-mix(in srgb, ${accent} 18%, transparent)`,
-                          }}
+                          className="rounded-sm border px-2 py-0.5 font-semibold"
+                          style={badgeSurface}
                         >
                           {discountBadgeText}
                         </span>
@@ -338,7 +342,9 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
                     <div className="flex items-baseline gap-1 text-foreground">
                       <span className="text-xl font-medium text-muted-foreground">¥</span>
                       <span className="text-display font-semibold leading-none tracking-tight tabular-nums">
-                        {showMonthlyUnit ? monthlyPrice / 100 : price.effective_price_cents / 100}
+                        {showMonthlyUnit
+                          ? monthlyPrice / 100
+                          : formatMoney(price.effective_price_cents).replace(/^¥/, '')}
                       </span>
                       <span className="text-sm text-muted-foreground">
                         {showMonthlyUnit

@@ -236,6 +236,16 @@ export default function PricingPage({
         catalog.plans.map((plan) => ({ id: plan.id, monthly_credits: plan.monthlyCredits })),
       )
     : []
+  // 方案数扩展到 4 档以上时仍保证单主推与单性价比标签，满足「单视图仅一个实心主按钮」。
+  const featuredPlanId =
+    catalog?.plans.find((plan) => plan.id === 'standard')?.id ??
+    catalog?.plans.find((plan) => tierOf(plan.id, rankedIds) === 'plus')?.id ??
+    null
+  const bestValuePlanId =
+    catalog?.plans.find((plan) => plan.id === 'professional')?.id ??
+    [...(catalog?.plans ?? [])].reverse().find((plan) => tierOf(plan.id, rankedIds) === 'max')
+      ?.id ??
+    null
   const allPlanPriceEntries: PlanPeriodPriceEntry[][] = (catalog?.plans ?? []).map((plan) =>
     BILLING_CYCLES.flatMap((value) => {
       const entry = plan.prices[value]
@@ -439,6 +449,8 @@ export default function PricingPage({
                   key={plan.id}
                   plan={plan}
                   tier={tierOf(plan.id, rankedIds)}
+                  featured={plan.id === featuredPlanId}
+                  bestValue={plan.id === bestValuePlanId && plan.id !== featuredPlanId}
                   cycle={cycle}
                   unit={unit}
                   imageAnchor={anchor}
@@ -823,6 +835,8 @@ export default function PricingPage({
 function PlanCard({
   plan,
   tier,
+  featured,
+  bestValue,
   cycle,
   unit,
   imageAnchor,
@@ -831,6 +845,8 @@ function PlanCard({
 }: {
   plan: PublicPlan
   tier: MembershipTier
+  featured: boolean
+  bestValue: boolean
   cycle: BillingCycle
   unit: string
   imageAnchor: PublicCatalog['imageAnchor']
@@ -867,8 +883,6 @@ function PlanCard({
   const livePrice = payable === undefined ? '—' : money(payable)
   const liveUnit = payable === undefined ? '' : unit
   const known = knownPlan(plan.id)
-  const featured = tier === 'plus'
-  const bestValue = tier === 'max'
   const elevated = featured || bestValue
   const accent = TIER_COLORS[tier]
   const badgeColor = featured ? 'var(--pricing-lime)' : accent

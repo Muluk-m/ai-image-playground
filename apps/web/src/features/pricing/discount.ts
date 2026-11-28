@@ -55,7 +55,8 @@ export function summarizeDiscount(input: PriceComparisonInput): DiscountSummary 
   }
 
   const rawPercent = Math.round((savedCents / compareOriginalCents) * 100)
-  const foldTenths = Math.round((input.effectiveCents / compareOriginalCents) * 100)
+  // 用补数推导折数，避免 .5% 边界两边同时进位导致「6 折 · 省 41%」这类自相矛盾。
+  const foldTenths = 100 - rawPercent
   if (rawPercent < 1 || rawPercent > 99 || foldTenths < 1 || foldTenths > 99) {
     return {
       compareOriginalCents,

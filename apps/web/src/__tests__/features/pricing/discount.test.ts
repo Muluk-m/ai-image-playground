@@ -106,6 +106,63 @@ describe('pricing discount summary', () => {
         monthlyOriginalCents: 4900,
       }).hasSavings,
     ).toBe(false)
+    expect(
+      summarizeDiscount({
+        periodMonths: 1,
+        originalCents: 3900,
+        effectiveCents: 4900,
+        monthlyOriginalCents: 3900,
+      }).hasSavings,
+    ).toBe(false)
+    expect(
+      summarizeDiscount({
+        periodMonths: 1,
+        originalCents: 4900,
+        effectiveCents: 0,
+        monthlyOriginalCents: 4900,
+      }).hasSavings,
+    ).toBe(false)
+  })
+
+  it('keeps zhFold and savePercent mathematically consistent on .5% boundaries and missing monthly prices', () => {
+    const halfPercent = summarizeDiscount({
+      periodMonths: 1,
+      originalCents: 20000,
+      effectiveCents: 15900,
+      monthlyOriginalCents: 20000,
+    })
+    expect(halfPercent.savePercent).toBe(21)
+    expect(halfPercent.zhFold).toBe('7.9')
+
+    const yearlyHalfPercent = summarizeDiscount({
+      periodMonths: 12,
+      originalCents: 240000,
+      effectiveCents: 142800,
+      monthlyOriginalCents: 20000,
+    })
+    expect(yearlyHalfPercent.savePercent).toBe(41)
+    expect(yearlyHalfPercent.zhFold).toBe('5.9')
+
+    const noMonthly = summarizeDiscount({
+      periodMonths: 12,
+      originalCents: 46800,
+      effectiveCents: 34800,
+      monthlyOriginalCents: null,
+    })
+    expect(noMonthly.compareOriginalCents).toBe(46800)
+    expect(noMonthly.savedCents).toBe(12000)
+    expect(noMonthly.savePercent).toBe(26)
+    expect(noMonthly.zhFold).toBe('7.4')
+
+    const nonIntegerYuan = summarizeDiscount({
+      periodMonths: 3,
+      originalCents: 13500,
+      effectiveCents: 10500,
+      monthlyOriginalCents: 4990,
+    })
+    expect(nonIntegerYuan.compareOriginalCents).toBe(14970)
+    expect(nonIntegerYuan.monthlyCompareCents).toBe(4990)
+    expect(nonIntegerYuan.savedCents).toBe(4470)
   })
 
   it('picks the highest cycle discount across plans for tab badges', () => {
@@ -129,5 +186,14 @@ describe('pricing discount summary', () => {
         1,
       ),
     ).toBeNull()
+    expect(
+      yearlyNudgeSavedCents(
+        [
+          { periodMonths: 3, originalCents: 13500, effectiveCents: 12000 },
+          { periodMonths: 12, originalCents: 46800, effectiveCents: 34800 },
+        ],
+        3,
+      ),
+    ).toBe(12000)
   })
 })
