@@ -1,7 +1,13 @@
 import type { BillingPeriodMonths } from '@image-playground/shared'
 import { useEffect, useState } from 'react'
 import { Button, Dialog, Icon, openPricingSheet, SegmentedTabs } from '../../lib/privateHost'
-import { isDiscounted, PERIOD_ORDER, periodLabel, planDisplayName } from './billing-display'
+import {
+  maxCycleDiscount,
+  type PlanPeriodPriceEntry,
+  summarizeDiscount,
+  yearlyNudgeSavedCents,
+} from '../pricing/discount'
+import { PERIOD_ORDER, periodLabel, planDisplayName } from './billing-display'
 import {
   approximateImages,
   clearPricingLaunchPeriod,
@@ -32,8 +38,9 @@ function subscriptionPlanId(
 }
 
 export function PricingPanel({ onClose }: { onClose: () => void }) {
-  useTranslation()
+  const { i18n } = useTranslation()
   const { t: tShell } = useTranslation('shell')
+  const isZhLocale = (i18n.resolvedLanguage ?? i18n.language).startsWith('zh')
   const { status, account, catalog, error } = useBilling()
   const [period, setPeriod] = useState<BillingPeriodMonths>(() => peekPricingLaunchPeriod() ?? 1)
   useEffect(() => {
@@ -60,6 +67,35 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
       />
     )
 
+  const allPlanPriceEntries: PlanPeriodPriceEntry[][] = (catalog?.plans ?? []).map((plan) =>
+    plan.prices.map((entry) => ({
+      periodMonths: entry.period_months,
+      originalCents: entry.original_price_cents,
+      effectiveCents: entry.effective_price_cents,
+    })),
+  )
+  const rankedIds = catalog ? rankedPlanIds(catalog.plans) : []
+  const activePlanId = subscriptionPlanId(account?.subscription)
+  const scheduledChange = account?.subscription?.scheduled_change ?? null
+  const activeInCatalog =
+    activePlanId !== null && (catalog?.plans.some((plan) => plan.id === activePlanId) ?? false)
+  // 即使未来扩展到 4 档以上，也只保留单个「最受欢迎」与单个「性价比之选」，避免多卡抢主视觉。
+  const featuredPlanId =
+    catalog?.plans.find((plan) => plan.id === 'standard')?.id ??
+    catalog?.plans.find((plan) => tierOf(plan.id, rankedIds) === 'plus')?.id ??
+    null
+  const bestValuePlanId =
+    catalog?.plans.find((plan) => plan.id === 'professional')?.id ??
+    [...(catalog?.plans ?? [])].reverse().find((plan) => tierOf(plan.id, rankedIds) === 'max')
+      ?.id ??
+    null
+  // 遵循设计规范「同一视图里实心芽绿按钮只有一个」：未订阅或无预约换档的基础档主推推荐档，否则高亮当前可购档位。
+  const primaryCtaPlanId =
+    !activeInCatalog ||
+    (activePlanId !== null && tierOf(activePlanId, rankedIds) === 'basic' && !scheduledChange)
+      ? (featuredPlanId ?? catalog?.plans[0]?.id ?? null)
+      : activePlanId
+
   return (
     <Dialog
       title={tBilling('pricing.title')}
@@ -67,53 +103,72 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
       closeDisabled={busy}
       className="max-w-6xl"
     >
-      <div className="mb-6 rounded-2xl border border-border bg-muted p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-xs font-semibold tracking-widest text-muted-foreground">
-            {tBilling('pricing.eyebrow')}
-          </span>
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                openPricingSheet()
-                onClose()
-              }}
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground"
-            >
-              {tShell('nav.plans')}
-            </Button>
-            <Button
-              type="button"
-              disabled={busy}
-              onClick={() => setHistory(true)}
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground"
-            >
-              {tBilling('orders.history')} <Icon name="history" />
-            </Button>
-          </div>
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-body-sm text-muted-foreground">{tBilling('pricing.subtitle')}</p>
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            disabled={busy}
+            onClick={() => {
+              openPricingSheet()
+              onClose()
+            }}
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+          >
+            {tShell('nav.plans')}
+          </Button>
+          <Button
+            type="button"
+            disabled={busy}
+            onClick={() => setHistory(true)}
+            variant="ghost"
+            size="sm"
+            className="text-muted-foreground"
+          >
+            {tBilling('orders.history')} <Icon name="history" />
+          </Button>
         </div>
-        <p className="mt-2 text-sm text-muted-foreground">{tBilling('pricing.subtitle')}</p>
       </div>
       <PurchaseFeedback purchase={purchase} />
       <div className="flex justify-center">
-        <SegmentedTabs
-          label={tBilling('pricing.title')}
-          tabs={PERIOD_ORDER.map((value) => ({ value: String(value), label: periodLabel(value) }))}
-          value={String(period)}
-          onChange={(value) => {
-            const nextPeriod = PERIOD_ORDER.find((entry) => String(entry) === value)
-            if (!busy && nextPeriod !== undefined) {
-              setPeriod(nextPeriod)
-              purchase.resetFeedback()
-            }
-          }}
-        />
+        <div className="inline-flex rounded-full border border-border bg-muted p-1">
+          <SegmentedTabs
+            label={tBilling('pricing.title')}
+            tabs={PERIOD_ORDER.map((value) => {
+              const highlight = value > 1 ? maxCycleDiscount(allPlanPriceEntries, value) : null
+              const isYearly = value === 12
+              return {
+                value: String(value),
+                label: (
+                  <span className="inline-flex items-center gap-1.5">
+                    <span>{periodLabel(value)}</span>
+                    {highlight ? (
+                      <span
+                        className={
+                          isYearly
+                            ? 'rounded-full bg-primary px-1.5 py-0.5 text-label-sm font-semibold text-primary-foreground'
+                            : 'rounded-full bg-primary/15 px-1.5 py-0.5 text-label-sm font-semibold text-primary'
+                        }
+                      >
+                        {tBilling('pricing.tabSave', { percent: highlight.savePercent })}
+                      </span>
+                    ) : null}
+                  </span>
+                ),
+              }
+            })}
+            value={String(period)}
+            onChange={(value) => {
+              const nextPeriod = PERIOD_ORDER.find((entry) => String(entry) === value)
+              if (!busy && nextPeriod !== undefined) {
+                setPeriod(nextPeriod)
+                purchase.resetFeedback()
+              }
+            }}
+          />
+        </div>
       </div>
 
       {status === 'loading' && !catalog ? (
@@ -134,21 +189,38 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
       ) : null}
 
       {catalog ? (
-        <div className="mt-8 grid gap-4 lg:grid-cols-3">
+        <div className="mt-6 grid items-stretch gap-4 lg:grid-cols-3">
           {catalog.plans.map((plan) => {
             // 档位色与徽标跟账户面板同一套：定价页选的就是右上角之后会显示的那个等级。
-            const tier = tierOf(plan.id, rankedPlanIds(catalog.plans))
+            const tier = tierOf(plan.id, rankedIds)
             const accent = TIER_COLORS[tier]
+            const isPopular = plan.id === featuredPlanId
+            const isBestValue = plan.id === bestValuePlanId && !isPopular
+            const isElevated = isPopular || isBestValue
             const price = plan.prices.find((entry) => entry.period_months === period)
-            const currentPlanId = subscriptionPlanId(account?.subscription)
-            const currentPlan = currentPlanId === plan.id
-            const scheduled = account?.subscription?.scheduled_change ?? null
+            const monthlyEntry = plan.prices.find((entry) => entry.period_months === 1)
+            const planEntries: PlanPeriodPriceEntry[] = plan.prices.map((entry) => ({
+              periodMonths: entry.period_months,
+              originalCents: entry.original_price_cents,
+              effectiveCents: entry.effective_price_cents,
+            }))
+            const discount = price
+              ? summarizeDiscount({
+                  periodMonths: period,
+                  originalCents: price.original_price_cents,
+                  effectiveCents: price.effective_price_cents,
+                  monthlyOriginalCents: monthlyEntry?.original_price_cents ?? null,
+                })
+              : null
+            const yearlySaved = yearlyNudgeSavedCents(planEntries, period)
+            const currentPlan = activePlanId === plan.id
+            const scheduled = scheduledChange
             const scheduledHere = scheduled?.plan_id === plan.id
             // 与 BFF 下单判定一致：月度积分更高的档位核款后立即生效，其余换档到期后生效。
             const upgrade =
               !currentPlan &&
               plan.monthly_credits >
-                (catalog.plans.find((entry) => entry.id === currentPlanId)?.monthly_credits ??
+                (catalog.plans.find((entry) => entry.id === activePlanId)?.monthly_credits ??
                   Number.POSITIVE_INFINITY)
             const paymentsOn = catalog.settings?.payments_enabled === true
             const scheduledBlocks = Boolean(scheduled) && !currentPlan
@@ -156,16 +228,50 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
             const imageCount = approximateImages(plan.monthly_credits, catalog.model_prices)
             const monthlyPrice =
               price === undefined ? null : price.effective_price_cents / price.period_months
+            const showMonthlyUnit = monthlyPrice !== null && monthlyPrice % 100 === 0
+            const showCompareMonthly =
+              showMonthlyUnit && discount !== null && Number.isInteger(discount.monthlyCompareCents)
+            const isPrimaryCta = plan.id === primaryCtaPlanId
+            const badgeSurface = {
+              color: accent,
+              background: `color-mix(in srgb, ${accent} 8%, hsl(var(--card)))`,
+              borderColor: `color-mix(in srgb, ${accent} 34%, transparent)`,
+            }
+            const discountBadgeText =
+              discount?.hasSavings && discount.zhFold && discount.savePercent
+                ? tBilling(discount.isPromo ? 'pricing.discountFold' : 'pricing.bundleFold', {
+                    value: isZhLocale ? discount.zhFold : String(discount.savePercent),
+                  })
+                : null
+
             return (
               <article
                 key={plan.id}
-                className="flex flex-col rounded-2xl border p-4"
+                className="relative flex flex-col overflow-hidden rounded-2xl border bg-card p-5"
                 style={{
                   borderColor: currentPlan
                     ? accent
-                    : `color-mix(in srgb, ${accent} 27%, transparent)`,
+                    : isPopular
+                      ? `color-mix(in srgb, ${accent} 58%, transparent)`
+                      : isBestValue
+                        ? `color-mix(in srgb, ${accent} 48%, transparent)`
+                        : `color-mix(in srgb, ${accent} 24%, transparent)`,
+                  backgroundImage:
+                    currentPlan || isElevated
+                      ? `radial-gradient(110% 55% at 50% 0%, color-mix(in srgb, ${accent} 11%, transparent) 0%, transparent 72%)`
+                      : `radial-gradient(100% 45% at 50% 0%, color-mix(in srgb, ${accent} 5%, transparent) 0%, transparent 65%)`,
                 }}
               >
+                {currentPlan || isElevated ? (
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-x-0 top-0 h-1"
+                    style={{
+                      background: `linear-gradient(90deg, transparent, ${accent}, transparent)`,
+                    }}
+                  />
+                ) : null}
+
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h3 className="flex items-center gap-2 text-xl font-semibold text-foreground">
@@ -181,53 +287,67 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
                   </div>
                   {currentPlan ? (
                     <span
-                      className="rounded-full px-2.5 py-1 text-label-sm font-semibold"
-                      style={{
-                        color: accent,
-                        background: `color-mix(in srgb, ${accent} 12%, transparent)`,
-                      }}
+                      className="inline-flex shrink-0 items-center rounded-full border px-2.5 py-1 text-label-sm font-semibold"
+                      style={badgeSurface}
                     >
                       {tBilling('pricing.currentPlan')}
                     </span>
                   ) : scheduledHere ? (
-                    <span className="rounded-full bg-muted px-2.5 py-1 text-label-sm font-semibold text-foreground">
+                    <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-label-sm font-semibold text-foreground">
                       {tBilling('orders.scheduled')}
+                    </span>
+                  ) : isPopular ? (
+                    <span
+                      className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-label-sm font-semibold"
+                      style={badgeSurface}
+                    >
+                      <Icon name="flame" size="xs" filled />
+                      {tBilling('pricing.popular')}
+                    </span>
+                  ) : isBestValue ? (
+                    <span
+                      className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-label-sm font-semibold"
+                      style={badgeSurface}
+                    >
+                      <Icon name="membershipMax" size="xs" filled />
+                      {tBilling('pricing.bestValue')}
                     </span>
                   ) : null}
                 </div>
 
-                <div className="mt-6 min-h-20">
-                  {price && isDiscounted(price) ? (
-                    <div className="mb-2 flex items-center gap-2 text-xs">
-                      <span className="rounded-sm bg-muted px-2 py-0.5 font-medium text-foreground">
-                        {tBilling('pricing.discount')}
-                      </span>
-                      <del className="text-muted-foreground">
-                        {formatMoney(
-                          monthlyPrice !== null &&
-                            monthlyPrice % 100 === 0 &&
-                            price.original_price_cents % (period * 100) === 0
-                            ? price.original_price_cents / period
-                            : price.original_price_cents,
-                        )}
-                        {monthlyPrice !== null &&
-                        monthlyPrice % 100 === 0 &&
-                        price.original_price_cents % (period * 100) === 0
-                          ? tBilling('pricing.perMonth')
-                          : ` / ${periodLabel(period)}`}
-                      </del>
-                    </div>
-                  ) : null}
+                <div className="mt-5">
+                  <div className="mb-2 flex min-h-6 flex-wrap items-center gap-2 text-xs">
+                    {discountBadgeText && discount ? (
+                      <>
+                        <span
+                          className="rounded-sm border px-2 py-0.5 font-semibold"
+                          style={badgeSurface}
+                        >
+                          {discountBadgeText}
+                        </span>
+                        <del className="tabular-nums text-muted-foreground">
+                          {formatMoney(
+                            showCompareMonthly
+                              ? discount.monthlyCompareCents
+                              : discount.compareOriginalCents,
+                          )}
+                          {showCompareMonthly
+                            ? tBilling('pricing.perMonth')
+                            : ` / ${periodLabel(period)}`}
+                        </del>
+                      </>
+                    ) : null}
+                  </div>
                   {price && monthlyPrice !== null ? (
-                    <div className="flex items-end gap-1 text-foreground">
-                      <span className="pb-1 text-sm">¥</span>
-                      <span className="text-headline font-semibold tracking-tight">
-                        {monthlyPrice % 100 === 0
+                    <div className="flex items-baseline gap-1 text-foreground">
+                      <span className="text-xl font-medium text-muted-foreground">¥</span>
+                      <span className="text-display font-semibold leading-none tracking-tight tabular-nums">
+                        {showMonthlyUnit
                           ? monthlyPrice / 100
-                          : price.effective_price_cents / 100}
+                          : formatMoney(price.effective_price_cents).replace(/^¥/, '')}
                       </span>
-                      <span className="pb-1 text-sm text-muted-foreground">
-                        {monthlyPrice % 100 === 0
+                      <span className="text-sm text-muted-foreground">
+                        {showMonthlyUnit
                           ? tBilling('pricing.perMonth')
                           : ` / ${periodLabel(period)}`}
                       </span>
@@ -237,14 +357,23 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
                       {tBilling('pricing.noPrice')}
                     </div>
                   )}
-                  {price && period > 1 ? (
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {tBilling('pricing.periodTotal', {
-                        months: period,
-                        amount: formatMoney(price.effective_price_cents),
-                      })}
-                    </div>
-                  ) : null}
+                  <div className="mt-2 flex min-h-5 flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                    {price && period > 1 ? (
+                      <span className="tabular-nums text-muted-foreground">
+                        {tBilling('pricing.periodTotal', {
+                          months: period,
+                          amount: formatMoney(price.effective_price_cents),
+                        })}
+                      </span>
+                    ) : null}
+                    {discount?.hasSavings ? (
+                      <span className="font-semibold tabular-nums" style={{ color: accent }}>
+                        {tBilling('pricing.saveAmount', {
+                          amount: formatMoney(discount.savedCents),
+                        })}
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
 
                 <Button
@@ -262,8 +391,9 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
                   onClick={() => {
                     if (purchasable) void buy(plan.id)
                   }}
-                  variant={currentPlan ? 'default' : 'outline'}
-                  className="mt-4 w-full"
+                  variant={isPrimaryCta ? 'default' : 'secondary'}
+                  size="lg"
+                  className="mt-5 w-full font-semibold"
                 >
                   {busy && buyingPlan === plan.id ? (
                     <Icon name="loading" className="animate-spin" />
@@ -277,11 +407,30 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
                           ? 'orders.renewal'
                           : upgrade
                             ? 'membership.upgrade'
-                            : currentPlanId
+                            : activePlanId
                               ? 'orders.changePlan'
                               : 'membership.subscribe',
                   )}
                 </Button>
+                {yearlySaved !== null ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    disabled={busy}
+                    onClick={() => {
+                      setPeriod(12)
+                      purchase.resetFeedback()
+                    }}
+                    className="mt-2 w-full text-xs font-medium"
+                    style={{ color: accent }}
+                  >
+                    <span>
+                      {tBilling('pricing.switchToYearly', { amount: formatMoney(yearlySaved) })}
+                    </span>
+                    <Icon name="chevronRight" size="xs" />
+                  </Button>
+                ) : null}
                 {currentPlan && scheduled ? (
                   <p className="mt-2 text-xs text-muted-foreground">
                     {tBilling('orders.scheduledFrom', {
@@ -289,7 +438,7 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
                     })}
                   </p>
                 ) : null}
-                {!currentPlan && currentPlanId ? (
+                {!currentPlan && activePlanId ? (
                   <p className="mt-2 text-xs text-muted-foreground">
                     {scheduledHere
                       ? tBilling('orders.scheduledOn', {
@@ -301,14 +450,16 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
                   </p>
                 ) : null}
 
-                <div className="mt-4 border-t border-border pt-4">
+                <div className="mt-4 flex-1 border-t border-border pt-4">
                   <div className="text-xs font-medium text-muted-foreground">
                     {tBilling('pricing.includes')}
                   </div>
-                  <ul className="mt-3 space-y-3 text-sm text-foreground">
+                  <ul className="mt-3 space-y-2.5 text-sm text-foreground">
                     <li className="flex gap-2">
-                      <Icon name="check" className="mt-0.5 shrink-0" />
-                      <span>
+                      <span className="mt-0.5 inline-flex shrink-0" style={{ color: accent }}>
+                        <Icon name="check" />
+                      </span>
+                      <span className="font-medium">
                         {tBilling('pricing.monthlyCredits', {
                           count: plan.monthly_credits,
                           n: formatCredits(plan.monthly_credits),
@@ -317,7 +468,9 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
                     </li>
                     {imageCount === null ? null : (
                       <li className="flex gap-2">
-                        <Icon name="check" className="mt-0.5 shrink-0" />
+                        <span className="mt-0.5 inline-flex shrink-0" style={{ color: accent }}>
+                          <Icon name="check" />
+                        </span>
                         <span>
                           {tBilling('pricing.planImages', {
                             count: imageCount,
@@ -327,12 +480,16 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
                       </li>
                     )}
                     <li className="flex gap-2">
-                      <Icon name="check" className="mt-0.5 shrink-0" />
+                      <span className="mt-0.5 inline-flex shrink-0" style={{ color: accent }}>
+                        <Icon name="check" />
+                      </span>
                       <span>{tBilling('pricing.creditPriority')}</span>
                     </li>
                     {plan.max_concurrent_tasks === undefined ? null : (
                       <li className="flex gap-2">
-                        <Icon name="check" className="mt-0.5 shrink-0" />
+                        <span className="mt-0.5 inline-flex shrink-0" style={{ color: accent }}>
+                          <Icon name="check" />
+                        </span>
                         <span>
                           {tBilling('pricing.concurrentTasks', {
                             count: plan.max_concurrent_tasks,

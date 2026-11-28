@@ -30,9 +30,21 @@ vi.mock('../../../features/billing/billing-store', async (original) => ({
       model_prices: [],
       settings: { payments_enabled: billing.payments },
       plans: [
-        plan('starter', '入门', 66_000),
-        plan('standard', '标准', 220_000),
-        plan('professional', '专业', 600_000),
+        plan('starter', '入门', 66_000, [
+          [1, 4900, 3900],
+          [3, 13500, 10500],
+          [12, 46800, 34800],
+        ]),
+        plan('standard', '标准', 220_000, [
+          [1, 9900, 7900],
+          [3, 26700, 21300],
+          [12, 94800, 70800],
+        ]),
+        plan('professional', '专业', 600_000, [
+          [1, 19900, 15900],
+          [3, 53700, 42900],
+          [12, 190800, 142800],
+        ]),
       ],
     },
   }),
@@ -47,7 +59,12 @@ vi.mock('../../../features/billing/PaymentPanel', () => ({
   OrderHistory: () => null,
 }))
 
-function plan(id: string, name: string, monthlyCredits: number) {
+function plan(
+  id: string,
+  name: string,
+  monthlyCredits: number,
+  tiers: Array<[1 | 3 | 12, number, number]>,
+) {
   return {
     id,
     name,
@@ -56,15 +73,13 @@ function plan(id: string, name: string, monthlyCredits: number) {
     sort_order: monthlyCredits,
     max_concurrent_tasks: 1,
     updated_at: 0,
-    prices: [
-      {
-        period_months: 1 as const,
-        original_price_cents: 1000,
-        discount_price_cents: null,
-        discount_ends_at: null,
-        effective_price_cents: 1000,
-      },
-    ],
+    prices: tiers.map(([period, original, effective]) => ({
+      period_months: period,
+      original_price_cents: original,
+      discount_price_cents: effective < original ? effective : null,
+      discount_ends_at: effective < original ? Date.now() + 86_400_000 : null,
+      effective_price_cents: effective,
+    })),
   }
 }
 
@@ -223,7 +238,38 @@ it('shows the localized plan names in English, including the scheduled change li
     expect(document.body.textContent).toContain(
       'Switching to Professional after the current plan ends',
     )
+    expect(document.body.textContent).toContain('20% off')
+    expect(document.body.textContent).toContain('Most popular')
+    expect(document.body.textContent).toContain('Save ¥10')
   } finally {
     await i18next.changeLanguage('zh-CN')
   }
+})
+
+it('shows cycle tab discount badges, tier highlights, savings, and switches to yearly on nudge click', async () => {
+  await mount()
+  const initialText = document.body.textContent ?? ''
+  expect(initialText).toContain('省 29%')
+  expect(initialText).toContain('省 41%')
+  expect(initialText).toContain('最受欢迎')
+  expect(initialText).toContain('性价比之选')
+  expect(initialText).toContain('限时 8 折')
+  expect(initialText).toContain('立省 ¥10')
+  expect(initialText).toContain('立省 ¥20')
+  expect(initialText).toContain('立省 ¥40')
+
+  const nudge = [...document.querySelectorAll('button')].find((button) =>
+    button.textContent?.includes('切至年付，一年立省 ¥480'),
+  )
+  expect(nudge).toBeTruthy()
+  await act(async () => nudge!.click())
+
+  const yearlyText = document.body.textContent ?? ''
+  expect(yearlyText).toContain('限时 5.9 折')
+  expect(yearlyText).toContain('限时 6 折')
+  expect(yearlyText).toContain('12 个月共 ¥348')
+  expect(yearlyText).toContain('立省 ¥240')
+  expect(yearlyText).toContain('立省 ¥480')
+  expect(yearlyText).toContain('立省 ¥960')
+  expect(yearlyText).not.toContain('切至年付')
 })

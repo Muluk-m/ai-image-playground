@@ -21,7 +21,8 @@
     "label": "付费周期",
     "month": "月付",
     "quarter": "季付",
-    "year": "年付"
+    "year": "年付",
+    "saveBadge": "省 {{percent}}%"
   },
   "plan": {
     "starterName": "入门",
@@ -30,7 +31,12 @@
     "standardTagline": "稳定创作",
     "professionalName": "专业",
     "professionalTagline": "高频交付",
-    "featured": "重点方案",
+    "featured": "最受欢迎",
+    "bestValue": "性价比之选",
+    "discountBadge": "限时 {{value}} 折",
+    "bundleBadge": "{{value}} 折",
+    "saveAmount": "立省 {{amount}}",
+    "switchToYearly": "切至年付，一年立省 {{amount}}",
     "monthlyCredits": "每月 {{n}} 积分",
     "images": "{{model}} 约 {{n}} 张/月",
     "concurrency": "{{n}} 个并发任务",

@@ -1,3 +1,4 @@
+import { type MembershipTier, rankedPlanIds, tierOf } from '@image-playground/shared'
 import { useEffect, useState } from 'react'
 import { useAuth } from '../../auth/AuthContext'
 import { compactModelName } from '../../components/ModelIdentity'
@@ -14,6 +15,7 @@ import {
   openRecharge,
   queueBillingModal,
 } from '../billing/billing-store'
+import TierBadge, { TIER_COLORS } from '../billing/TierBadge'
 import { GUIDE_PATHS } from '../guide/paths'
 import {
   BILLING_CYCLES,
@@ -25,6 +27,12 @@ import {
   type PublicPlan,
   rechargeCredits,
 } from './catalog'
+import {
+  maxCycleDiscount,
+  type PlanPeriodPriceEntry,
+  summarizeDiscount,
+  yearlyNudgeSavedCents,
+} from './discount'
 import { closePricingSheet } from './pricingSheetState'
 
 const PLAN_NAME = {
@@ -223,6 +231,36 @@ export default function PricingPage({
     return t(id)
   }
 
+  const rankedIds = catalog
+    ? rankedPlanIds(
+        catalog.plans.map((plan) => ({ id: plan.id, monthly_credits: plan.monthlyCredits })),
+      )
+    : []
+  // 方案数扩展到 4 档以上时仍保证单主推与单性价比标签，满足「单视图仅一个实心主按钮」。
+  const featuredPlanId =
+    catalog?.plans.find((plan) => plan.id === 'standard')?.id ??
+    catalog?.plans.find((plan) => tierOf(plan.id, rankedIds) === 'plus')?.id ??
+    null
+  const bestValuePlanId =
+    catalog?.plans.find((plan) => plan.id === 'professional')?.id ??
+    [...(catalog?.plans ?? [])].reverse().find((plan) => tierOf(plan.id, rankedIds) === 'max')
+      ?.id ??
+    null
+  const allPlanPriceEntries: PlanPeriodPriceEntry[][] = (catalog?.plans ?? []).map((plan) =>
+    BILLING_CYCLES.flatMap((value) => {
+      const entry = plan.prices[value]
+      return entry
+        ? [
+            {
+              periodMonths: value,
+              originalCents: entry.originalCents,
+              effectiveCents: entry.effectiveCents,
+            },
+          ]
+        : []
+    }),
+  )
+
   return (
     <div
       data-selectable-text
@@ -335,6 +373,8 @@ export default function PricingPage({
                     : value === 3
                       ? t('cycle.quarter')
                       : t('cycle.year')
+                const highlight = value > 1 ? maxCycleDiscount(allPlanPriceEntries, value) : null
+                const isYearly = value === 12
                 return (
                   <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
                     key={value}
@@ -360,13 +400,28 @@ export default function PricingPage({
                         ?.querySelectorAll<HTMLButtonElement>('[role="radio"]')
                         [nextIndex]?.focus()
                     }}
-                    className={`h-9 rounded-full px-5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)] ${
+                    className={`inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)] ${
                       selected
                         ? 'bg-white font-semibold text-[var(--pricing-ink)]'
                         : 'text-white/70 hover:text-white'
                     }`}
                   >
-                    {label}
+                    <span>{label}</span>
+                    {highlight ? (
+                      <span
+                        className={`rounded-full px-1.5 py-0.5 text-label-sm font-semibold ${
+                          isYearly
+                            ? selected
+                              ? 'bg-[var(--pricing-ink)] text-[var(--pricing-lime)]'
+                              : 'bg-[var(--pricing-lime)] text-[var(--pricing-ink-strong)]'
+                            : selected
+                              ? 'bg-[var(--pricing-ink)]/15 text-[var(--pricing-ink)]'
+                              : 'bg-[var(--pricing-lime)]/15 text-[var(--pricing-lime)]'
+                        }`}
+                      >
+                        {t('cycle.saveBadge', { percent: highlight.savePercent })}
+                      </span>
+                    ) : null}
                   </button>
                 )
               })}
@@ -393,9 +448,13 @@ export default function PricingPage({
                 <PlanCard
                   key={plan.id}
                   plan={plan}
+                  tier={tierOf(plan.id, rankedIds)}
+                  featured={plan.id === featuredPlanId}
+                  bestValue={plan.id === bestValuePlanId && plan.id !== featuredPlanId}
                   cycle={cycle}
                   unit={unit}
                   imageAnchor={anchor}
+                  onSelectCycle={setCycle}
                   onUpgrade={() => enter('pricing')}
                 />
               ))}
@@ -775,57 +834,159 @@ export default function PricingPage({
 
 function PlanCard({
   plan,
+  tier,
+  featured,
+  bestValue,
   cycle,
   unit,
   imageAnchor,
+  onSelectCycle,
   onUpgrade,
 }: {
   plan: PublicPlan
+  tier: MembershipTier
+  featured: boolean
+  bestValue: boolean
   cycle: BillingCycle
   unit: string
   imageAnchor: PublicCatalog['imageAnchor']
+  onSelectCycle: (next: BillingCycle) => void
   onUpgrade: () => void
 }) {
-  const { t } = useTranslation('pricing')
+  const { t, i18n } = useTranslation('pricing')
+  const isZhLocale = (i18n.resolvedLanguage ?? i18n.language).startsWith('zh')
   const price = plan.prices[cycle]
+  const monthlyEntry = plan.prices[1]
+  const planEntries: PlanPeriodPriceEntry[] = BILLING_CYCLES.flatMap((value) => {
+    const entry = plan.prices[value]
+    return entry
+      ? [
+          {
+            periodMonths: value,
+            originalCents: entry.originalCents,
+            effectiveCents: entry.effectiveCents,
+          },
+        ]
+      : []
+  })
+  const discount = price
+    ? summarizeDiscount({
+        periodMonths: cycle,
+        originalCents: price.originalCents,
+        effectiveCents: price.effectiveCents,
+        monthlyOriginalCents: monthlyEntry?.originalCents ?? null,
+      })
+    : null
+  const yearlySaved = yearlyNudgeSavedCents(planEntries, cycle)
   const payable = price?.effectiveCents
   const monthly = payable === undefined ? null : monthlyEquivalentCents(payable, cycle)
-  const discounted = price !== undefined && price.effectiveCents < price.originalCents
   const livePrice = payable === undefined ? '—' : money(payable)
   const liveUnit = payable === undefined ? '' : unit
   const known = knownPlan(plan.id)
-  const featured = plan.id === 'standard'
+  const elevated = featured || bestValue
+  const accent = TIER_COLORS[tier]
+  const badgeColor = featured ? 'var(--pricing-lime)' : accent
+  const discountBadgeText =
+    discount?.hasSavings && discount.zhFold && discount.savePercent
+      ? t(discount.isPromo ? 'plan.discountBadge' : 'plan.bundleBadge', {
+          value: isZhLocale ? discount.zhFold : String(discount.savePercent),
+        })
+      : null
+
   return (
     <article
-      className={`relative flex h-full flex-col rounded-3xl border p-5 ${
-        featured
-          ? 'border-[var(--pricing-lime)] bg-[var(--pricing-featured)]'
-          : 'border-white/10 bg-[var(--pricing-card)]'
-      }`}
+      className="relative flex h-full flex-col overflow-hidden rounded-3xl border p-6"
+      style={{
+        backgroundColor: featured ? 'var(--pricing-featured)' : 'var(--pricing-card)',
+        borderColor: featured
+          ? 'color-mix(in srgb, var(--pricing-lime) 70%, transparent)'
+          : bestValue
+            ? `color-mix(in srgb, ${accent} 52%, transparent)`
+            : 'color-mix(in srgb, var(--pricing-fg) 12%, transparent)',
+        backgroundImage: elevated
+          ? `radial-gradient(110% 55% at 50% 0%, color-mix(in srgb, ${badgeColor} 16%, transparent) 0%, transparent 70%)`
+          : `radial-gradient(100% 45% at 50% 0%, color-mix(in srgb, ${accent} 7%, transparent) 0%, transparent 65%)`,
+      }}
     >
-      {featured ? (
-        <span className="absolute -top-3 right-5 rounded-full bg-[var(--pricing-lime)] px-2.5 py-1 pricing-badge font-semibold text-[var(--pricing-ink-strong)]">
-          {t('plan.featured')}
-        </span>
+      {elevated ? (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 top-0 h-1"
+          style={{
+            background: `linear-gradient(90deg, transparent, ${badgeColor}, transparent)`,
+          }}
+        />
       ) : null}
-      <h2 className="pricing-name font-semibold">{known ? t(PLAN_NAME[known]) : plan.name}</h2>
-      <p className="mt-1 text-sm text-white/50">{known ? t(PLAN_TAGLINE[known]) : null}</p>
-      <p className="mt-5 min-h-5 text-sm text-white/40 line-through">
-        {discounted && price ? `${money(price.originalCents)}${unit}` : null}
-      </p>
-      <p className="mt-1 flex items-end gap-1" aria-live="polite">
-        <span className="pricing-price font-semibold tracking-tight">{livePrice}</span>
+
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="pricing-name flex items-center gap-2 font-semibold">
+            <TierBadge tier={tier} size={20} />
+            {known ? t(PLAN_NAME[known]) : plan.name}
+          </h2>
+          <p className="mt-1 text-sm text-white/50">{known ? t(PLAN_TAGLINE[known]) : null}</p>
+        </div>
+        {featured ? (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--pricing-lime)] px-2.5 py-1 pricing-badge font-semibold text-[var(--pricing-ink-strong)]">
+            <Icon name="flame" size="xs" filled />
+            {t('plan.featured')}
+          </span>
+        ) : bestValue ? (
+          <span
+            className="inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 pricing-badge font-semibold"
+            style={{
+              color: accent,
+              background: `color-mix(in srgb, ${accent} 18%, transparent)`,
+            }}
+          >
+            <Icon name="membershipMax" size="xs" filled />
+            {t('plan.bestValue')}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="mt-5 flex min-h-6 flex-wrap items-center gap-2 text-xs">
+        {discountBadgeText && discount ? (
+          <>
+            <span
+              className="rounded-sm px-2 py-0.5 font-semibold"
+              style={{
+                color: badgeColor,
+                background: `color-mix(in srgb, ${badgeColor} 18%, transparent)`,
+              }}
+            >
+              {discountBadgeText}
+            </span>
+            <del className="tabular-nums text-white/40">
+              {money(discount.compareOriginalCents)}
+              {unit}
+            </del>
+          </>
+        ) : null}
+      </div>
+
+      <p className="mt-1.5 flex items-end gap-1" aria-live="polite">
+        <span className="pricing-price font-semibold tracking-tight tabular-nums">{livePrice}</span>
         <span className="pb-1.5 text-sm text-white/50">{liveUnit}</span>
       </p>
-      {cycle === 1 || monthly === null ? null : (
-        <p className="mt-2 text-sm text-white/45">
-          {t('plan.equivalent', { amount: yuanText(monthly) })}
-        </p>
-      )}
+
+      <div className="mt-2 flex min-h-5 flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
+        {cycle > 1 && monthly !== null ? (
+          <span className="tabular-nums text-white/55">
+            {t('plan.equivalent', { amount: yuanText(monthly) })}
+          </span>
+        ) : null}
+        {discount?.hasSavings ? (
+          <span className="font-semibold tabular-nums" style={{ color: badgeColor }}>
+            {t('plan.saveAmount', { amount: money(discount.savedCents) })}
+          </span>
+        ) : null}
+      </div>
+
       <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
         type="button"
         onClick={onUpgrade}
-        className={`mt-4 h-11 w-full rounded-full text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)] ${
+        className={`mt-5 h-11 w-full rounded-full text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)] ${
           featured
             ? 'bg-[var(--pricing-lime)] text-[var(--pricing-ink-strong)] hover:bg-[var(--pricing-lime-hover)]'
             : 'bg-white text-[var(--pricing-ink)] hover:bg-[var(--pricing-hover)]'
@@ -833,18 +994,33 @@ function PlanCard({
       >
         {t('plan.upgrade')}
       </button>
-      <ul className="mt-6 space-y-3 border-t border-white/10 pt-5 text-sm">
-        <Feature>{t('plan.monthlyCredits', { n: formatCount(plan.monthlyCredits) })}</Feature>
+
+      {yearlySaved !== null ? (
+        <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
+          type="button"
+          onClick={() => onSelectCycle(12)}
+          className="mt-2.5 inline-flex h-7 w-full items-center justify-center gap-1 rounded-full text-xs font-medium hover:bg-white/5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)]"
+          style={{ color: badgeColor }}
+        >
+          <span>{t('plan.switchToYearly', { amount: money(yearlySaved) })}</span>
+          <Icon name="chevronRight" size="xs" />
+        </button>
+      ) : null}
+
+      <ul className="mt-5 flex-1 space-y-3 border-t border-white/10 pt-5 text-sm">
+        <Feature accent={badgeColor}>
+          {t('plan.monthlyCredits', { n: formatCount(plan.monthlyCredits) })}
+        </Feature>
         {imageAnchor ? (
-          <Feature>
+          <Feature accent={badgeColor}>
             {t('plan.images', {
               model: imageAnchor.model,
               n: formatCount(imagesPerMonth(plan.monthlyCredits, imageAnchor.creditsPerImage)),
             })}
           </Feature>
         ) : null}
-        <Feature>{t('plan.concurrency', { n: plan.concurrency })}</Feature>
-        <Feature>{t('plan.studio')}</Feature>
+        <Feature accent={badgeColor}>{t('plan.concurrency', { n: plan.concurrency })}</Feature>
+        <Feature accent={badgeColor}>{t('plan.studio')}</Feature>
       </ul>
       <p className="mt-5 text-sm leading-6 text-white/40">
         {t('plan.grant')}
@@ -855,10 +1031,12 @@ function PlanCard({
   )
 }
 
-function Feature({ children }: { children: string }) {
+function Feature({ children, accent }: { children: string; accent: string }) {
   return (
     <li className="flex gap-2">
-      <Icon name="check" className="mt-0.5 shrink-0 text-white/70" />
+      <span className="mt-0.5 inline-flex shrink-0" style={{ color: accent }}>
+        <Icon name="check" />
+      </span>
       <span>{children}</span>
     </li>
   )
