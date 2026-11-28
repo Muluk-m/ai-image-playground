@@ -42,7 +42,7 @@ describe('check-arch-boundaries', () => {
     ] = await Promise.all([
       checkBffBoundaries(resolve(repoRoot, 'apps/bff/src'), { checkStaleAllowlist: true }),
       checkDirAcyclic(resolve(repoRoot, 'apps/admin/server'), 'apps/admin/server'),
-      checkDirAcyclic(resolve(repoRoot, 'apps/admin/src'), 'apps/admin/src'),
+      checkDirAcyclic(resolve(repoRoot, 'apps/admin/src'), 'apps/admin/src', { rootAlias: '@/' }),
       checkDirAcyclic(resolve(repoRoot, 'apps/website/src'), 'apps/website/src'),
       checkDirAcyclic(resolve(repoRoot, 'packages/db/src'), 'packages/db/src'),
       checkReadModelsBoundaries(resolve(repoRoot, 'packages/read-models/src')),
@@ -59,14 +59,14 @@ describe('check-arch-boundaries', () => {
     expect(nodeKitViolations).toEqual([])
   })
 
-  it('detects runtime cycles routed through @/ root path aliases', async () => {
+  it('detects runtime cycles routed through root path aliases only when rootAlias is explicitly configured', async () => {
     const dir = createTempTree({
       'lib/a.ts': "import { b } from '@/features/b'\nexport const a = b\n",
       'features/b.ts': "import { a } from '@/lib/a'\nexport const b = a\n",
     })
 
-    const violations = await checkDirAcyclic(dir, 'apps/example/src')
-    expect(violations).toEqual([
+    expect(await checkDirAcyclic(dir, 'apps/example/src')).toEqual([])
+    expect(await checkDirAcyclic(dir, 'apps/example/src', { rootAlias: '@/' })).toEqual([
       '[import-cycle] runtime cycle in apps/example/src: features/b.ts <-> lib/a.ts',
     ])
   })

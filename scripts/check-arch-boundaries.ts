@@ -180,14 +180,15 @@ function resolveInternalTarget(
   normalizedRoot: string,
   fromFile: string,
   specifier: string,
+  rootAlias?: string,
 ): string | null {
   let baseDir: string
   let rawSpec = specifier
   if (specifier.startsWith('.')) {
     baseDir = dirname(resolve(normalizedRoot, fromFile))
-  } else if (specifier.startsWith('@/')) {
+  } else if (rootAlias && specifier.startsWith(rootAlias)) {
     baseDir = normalizedRoot
-    rawSpec = `./${specifier.slice(2)}`
+    rawSpec = `./${specifier.slice(rootAlias.length)}`
   } else {
     return null
   }
@@ -268,8 +269,17 @@ interface ImportGraphs {
   specifierCounts: Map<string, number>
 }
 
-async function buildImportGraphs(rootDir: string): Promise<ImportGraphs> {
+export interface BuildImportGraphsOptions {
+  /** 可选根路径别名（如 `'@/'`），仅对该目录实际把该别名映射到自身根路径时开启。 */
+  readonly rootAlias?: string
+}
+
+async function buildImportGraphs(
+  rootDir: string,
+  options?: BuildImportGraphsOptions,
+): Promise<ImportGraphs> {
   const normalizedRoot = resolve(rootDir)
+  const rootAlias = options?.rootAlias
   const files: string[] = []
   if (!existsSync(normalizedRoot)) {
     return {
@@ -302,13 +312,13 @@ async function buildImportGraphs(rootDir: string): Promise<ImportGraphs> {
       ) {
         continue
       }
-      const target = resolveInternalTarget(normalizedRoot, file, imp.path)
+      const target = resolveInternalTarget(normalizedRoot, file, imp.path, rootAlias)
       if (target && target !== file) runtimeTargets.add(target)
     }
     const allSpecifiers = scanAllSpecifiers(file, text)
     const allTargets = new Set<string>(runtimeTargets)
     for (const specifier of allSpecifiers) {
-      const target = resolveInternalTarget(normalizedRoot, file, specifier)
+      const target = resolveInternalTarget(normalizedRoot, file, specifier, rootAlias)
       if (target && target !== file) allTargets.add(target)
     }
     runtimeAdjacency.set(file, [...runtimeTargets].sort())
@@ -712,8 +722,12 @@ export async function checkBffBoundaries(
   return violations
 }
 
-export async function checkDirAcyclic(rootDir: string, label: string): Promise<string[]> {
-  const { files, runtimeAdjacency } = await buildImportGraphs(rootDir)
+export async function checkDirAcyclic(
+  rootDir: string,
+  label: string,
+  options?: BuildImportGraphsOptions,
+): Promise<string[]> {
+  const { files, runtimeAdjacency } = await buildImportGraphs(rootDir, options)
   return findStronglyConnectedCycles(files, runtimeAdjacency).map(
     (cycle) => `[import-cycle] runtime cycle in ${label}: ${cycle.join(' <-> ')}`,
   )
@@ -840,7 +854,7 @@ if (import.meta.main) {
   ] = await Promise.all([
     checkBffBoundaries(resolve(repoRoot, 'apps/bff/src'), { checkStaleAllowlist: true }),
     checkDirAcyclic(resolve(repoRoot, 'apps/admin/server'), 'apps/admin/server'),
-    checkDirAcyclic(resolve(repoRoot, 'apps/admin/src'), 'apps/admin/src'),
+    checkDirAcyclic(resolve(repoRoot, 'apps/admin/src'), 'apps/admin/src', { rootAlias: '@/' }),
     checkDirAcyclic(resolve(repoRoot, 'apps/website/src'), 'apps/website/src'),
     checkDirAcyclic(resolve(repoRoot, 'packages/db/src'), 'packages/db/src'),
     checkReadModelsBoundaries(resolve(repoRoot, 'packages/read-models/src')),

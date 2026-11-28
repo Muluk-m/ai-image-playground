@@ -10,7 +10,7 @@
    - `packages/shared/src` 存在 3 文件运行时循环依赖（`canvas-cloud.ts <-> canvas-document.ts <-> canvas-results.ts`），且 `packages/shared/src/agent.ts` 单文件承载 1,697 行跨子域契约。
    - `scripts/check-arch-boundaries.ts` 未覆盖 `packages/shared/src`、`packages/node-kit/src`、`apps/web/src`、`apps/admin/src`、`apps/website/src`，且未解析 `@/` 路径别名。
 2. **BFF 遗留兼容壳与双路径导入税**：
-   - `apps/bff/src/lib/` 仍残留 100 个纯重导出兼容壳（99 个在 `lib/agent/`、1 个 `lib/task-access.ts`），同一符号存在 `lib/*` 与 `modules/*` 两套路径，迫使 `check-arch-boundaries.ts` 维护 68 项 `LEGACY_AGENT_MIGRATED_SHIMS` 硬编码表。
+   - `apps/bff/src/lib/` 仍残留 99 个纯重导出兼容壳（98 个在 `lib/agent/`，其中 `lib/agent/reply-script.ts` 重导出自 `@image-playground/shared`，其余指向 `modules/agent/*`；另 1 个 `lib/task-access.ts` 指向 `modules/execution`），同一符号存在 `lib/*` 与 `modules/*` 两套路径，迫使 `check-arch-boundaries.ts` 维护 68 项 `LEGACY_AGENT_MIGRATED_SHIMS` 硬编码表（其中 4 个文件 `background-jobs.ts`、`events.ts`、`inbox-pickup.ts`、`turn.ts` 含运行时装配/兜底逻辑，非纯重导出壳）。
 3. **BFF 数据库层倒挂与路由单体**：
    - `ALLOWED_DB_TO_OUTSIDE` 残留 12 条，其中 9 条来自 `apps/bff/src/db/maintenance.ts`（在 `db/` 目录里直接编排 `modules/agent`、`modules/execution`、`lib/objectStore` 等上层能力）。
    - `apps/bff/src/routes/agent.ts` 单文件 1,278 行，把会话、消息/轮次、收件箱队列、后台任务、阶段与技能路由混放一处。
@@ -27,9 +27,9 @@
 1. **Wave 1 — 共享契约无环化、拆包与全仓无环护栏扩容**：
    - 将 `canvas-upload-claim.ts` 与 `canvas-result-store.ts` 下沉为无环底层原语，保留 `canvas-cloud.ts` / `canvas-results.ts` / `index.ts` 原有导出不变，清零 `packages/shared/src` 运行时循环依赖。
    - 将 `packages/shared/src/agent.ts` 按域拆为 `agent/{skills,turn-params,tools,messages,stream}.ts` 五个严格单向子模块，`agent.ts` 退化为薄门面。
-   - 扩展 `scripts/check-arch-boundaries.ts` 支持 `@/` 别名，并将 `packages/shared/src`、`packages/node-kit/src`、`apps/admin/src`、`apps/website/src` 纳入 CI 0 循环依赖门禁。
-2. **Wave 2 — 清除 BFF 100 个遗留重导出壳，归一单一权威导入路径**：
-   - 将所有仍引用 `lib/agent/*` 兼容壳和 `lib/task-access.ts` 的源码与测试统一切至 `modules/agent/*` 与 `modules/execution`，删除全部 100 个纯重导出壳，并移除 `LEGACY_AGENT_MIGRATED_SHIMS` 硬编码表。
+   - 扩展 `scripts/check-arch-boundaries.ts` 支持按目录显式声明 `rootAlias`（如 `apps/admin/src` 启用 `@/`），并将 `packages/shared/src`、`packages/node-kit/src`、`apps/admin/src`、`apps/website/src` 纳入 CI 0 循环依赖门禁。
+2. **Wave 2 — 清除 BFF 99 个纯重导出兼容壳，归一单一权威导入路径**：
+   - 将所有仍引用纯重导出壳的源码与测试统一切至 `modules/agent/*`、`modules/execution` 或 `@image-playground/shared`，删除全部 99 个纯重导出壳；将 `LEGACY_AGENT_MIGRATED_SHIMS` 收窄至仅剩 4 个含运行时装配逻辑的过渡文件（`background-jobs.ts`、`events.ts`、`inbox-pickup.ts`、`turn.ts`），待其装配逻辑迁至组合根后再彻底清零。
 3. **Wave 3 — 剥离 `db/maintenance.ts` 上层编排并拆分 `routes/agent.ts`**：
    - 将维护编排迁出 `apps/bff/src/db/`，把 `ALLOWED_DB_TO_OUTSIDE` 从 12 条压降至仅剩基础设施启动必需边。
    - 将 `apps/bff/src/routes/agent.ts` 按子资源拆为 `routes/agent/*.ts`，由薄装配入口组合。
@@ -50,8 +50,8 @@
 
 | 波次 | 范围 | 状态 |
 | --- | --- | --- |
-| Wave 1 | `packages/shared` 去环与 `agent.ts` 拆包、`check-arch-boundaries` 扩展至 shared/node-kit/admin/website | 实施中 |
-| Wave 2 | 移除 BFF 100 个遗留重导出壳并归一导入路径 | 待开始 |
+| Wave 1 | `packages/shared` 去环与 `agent.ts` 拆包、`check-arch-boundaries` 扩展至 shared/node-kit/admin/website | 已落地 |
+| Wave 2 | 移除 BFF 99 个纯重导出壳并归一导入路径，收窄 `LEGACY_AGENT_MIGRATED_SHIMS` | 待开始 |
 | Wave 3 | `db/maintenance.ts` 编排迁出与 `routes/agent.ts` 子路由拆解 | 待开始 |
 | Wave 4 | `apps/web/src` 0 运行时循环依赖与前端边界棘轮 | 待开始 |
 | Wave 5 | `apps/web/src/store.ts` 按领域拆解 | 待开始 |
