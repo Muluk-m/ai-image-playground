@@ -71,6 +71,22 @@ describe('check-arch-boundaries', () => {
     ])
   })
 
+  it('rejects pure re-export shims recreated under lib/ targeting modules/ or @image-playground/shared', async () => {
+    const dir = createTempTree({
+      'modules/agent/orchestration/index.ts': 'export const batchPlan = 1\n',
+      'lib/agent/batch-plans.ts': "export { batchPlan } from '../../modules/agent/orchestration'\n",
+      'lib/agent/reply-script.ts': "export { stripInternalRefs } from '@image-playground/shared'\n",
+      'lib/agent/real-module.ts':
+        "import { batchPlan } from '../../modules/agent/orchestration'\nexport const wrapped = () => batchPlan\n",
+    })
+
+    const violations = await checkBffBoundaries(dir)
+    expect(violations).toEqual([
+      '[legacy-shim] lib/agent/batch-plans.ts -> modules/agent/orchestration/index.ts is a pure re-export shim under lib/ (import canonical target directly)',
+      '[legacy-shim] lib/agent/reply-script.ts -> @image-playground/shared is a pure re-export shim under lib/ (import canonical target directly)',
+    ])
+  })
+
   it('flags stale allowlist entries when checkStaleAllowlist is enabled while allowing active ones', async () => {
     const dir = createTempTree({
       'config.ts': 'export const config = {}\n',

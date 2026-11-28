@@ -198,6 +198,40 @@ function scanAllSpecifiers(file: string, text: string): string[] {
   return [...specifiers]
 }
 
+function isPureLegacyReexportShim(
+  normalizedRoot: string,
+  file: string,
+  text: string,
+): string | null {
+  if (!file.startsWith('lib/')) return null
+  const sourceFile = ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.Latest,
+    false,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+  if (sourceFile.statements.length === 0) return null
+  let shimTarget: string | null = null
+  for (const stmt of sourceFile.statements) {
+    if (
+      !ts.isExportDeclaration(stmt) ||
+      !stmt.moduleSpecifier ||
+      !ts.isStringLiteral(stmt.moduleSpecifier)
+    ) {
+      return null
+    }
+    const spec = stmt.moduleSpecifier.text
+    const resolved = resolveInternalTarget(normalizedRoot, file, spec)
+    const pointsToModule = resolved !== null && resolved.startsWith('modules/')
+    const pointsToShared =
+      spec === '@image-playground/shared' || spec.startsWith('@image-playground/shared/')
+    if (!pointsToModule && !pointsToShared) return null
+    shimTarget ??= resolved ?? spec
+  }
+  return shimTarget
+}
+
 interface ImportGraphs {
   files: string[]
   /** 仅运行时依赖（忽略纯类型导入），用于检测运行时循环依赖。 */
@@ -206,6 +240,8 @@ interface ImportGraphs {
   allAdjacency: Map<string, string[]>
   /** 每个源文件去重后的总导入模块数（含外部包与本地模块），用于单文件扇出门禁。 */
   specifierCounts: Map<string, number>
+  /** `lib/` 下仅包含指向 `modules/` 或 `@image-playground/shared` 的纯重导出壳及其目标。 */
+  pureLegacyShims: Map<string, string>
 }
 
 export interface BuildImportGraphsOptions {
@@ -226,6 +262,7 @@ async function buildImportGraphs(
       runtimeAdjacency: new Map(),
       allAdjacency: new Map(),
       specifierCounts: new Map(),
+      pureLegacyShims: new Map(),
     }
   }
 
@@ -239,6 +276,7 @@ async function buildImportGraphs(
   const runtimeAdjacency = new Map<string, string[]>()
   const allAdjacency = new Map<string, string[]>()
   const specifierCounts = new Map<string, number>()
+  const pureLegacyShims = new Map<string, string>()
   for (const file of files) {
     const text = await Bun.file(resolve(normalizedRoot, file)).text()
     const transpiler = file.endsWith('.tsx') ? tsxTranspiler : tsTranspiler
@@ -263,8 +301,10 @@ async function buildImportGraphs(
     runtimeAdjacency.set(file, [...runtimeTargets].sort())
     allAdjacency.set(file, [...allTargets].sort())
     specifierCounts.set(file, allSpecifiers.length)
+    const shimTarget = isPureLegacyReexportShim(normalizedRoot, file, text)
+    if (shimTarget) pureLegacyShims.set(file, shimTarget)
   }
-  return { files, runtimeAdjacency, allAdjacency, specifierCounts }
+  return { files, runtimeAdjacency, allAdjacency, specifierCounts, pureLegacyShims }
 }
 
 export function findStronglyConnectedCycles(
@@ -342,9 +382,14 @@ export async function checkBffBoundaries(
   bffRoot: string,
   options?: CheckBffBoundariesOptions,
 ): Promise<string[]> {
-  const { files, runtimeAdjacency, allAdjacency, specifierCounts } =
+  const { files, runtimeAdjacency, allAdjacency, specifierCounts, pureLegacyShims } =
     await buildImportGraphs(bffRoot)
   const violations: string[] = []
+  for (const [shimFile, target] of pureLegacyShims) {
+    violations.push(
+      `[legacy-shim] ${shimFile} -> ${target} is a pure re-export shim under lib/ (import canonical target directly)`,
+    )
+  }
   const seenRouteToDb = new Set<string>()
   const seenDbToOutside = new Set<string>()
   const seenExecutionToLegacyLib = new Set<string>()

@@ -49,7 +49,7 @@ BFF 的公开核心只做四件事：
 
 ## 智能体技能（Agent Skills）
 
-代码：[`src/lib/agent/skills.ts`](./src/lib/agent/skills.ts) + [`src/lib/agent/tools/loadSkill.ts`](./src/lib/agent/tools/loadSkill.ts)。
+代码：[`src/lib/agent/skills.ts`](./src/lib/agent/skills.ts) + [`src/modules/agent/tools/library/load-skill.ts`](./src/modules/agent/tools/library/load-skill.ts)。
 设计与否决方案见 [ADR 0007](../../docs/adr/0007-agent-skills-progressive-loading.md)。
 
 - 目录约定 `skills/<image|video|shared>/<skill-name>/SKILL.md`，按
