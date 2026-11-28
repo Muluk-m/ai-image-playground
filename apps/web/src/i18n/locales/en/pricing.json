@@ -21,7 +21,8 @@
     "label": "Billing period",
     "month": "Monthly",
     "quarter": "Quarterly",
-    "year": "Yearly"
+    "year": "Yearly",
+    "saveBadge": "-{{percent}}%"
   },
   "plan": {
     "starterName": "Starter",
@@ -30,7 +31,13 @@
     "standardTagline": "Steady work",
     "professionalName": "Professional",
     "professionalTagline": "Heavy delivery",
-    "featured": "Featured",
+    "featured": "Most popular",
+    "bestValue": "Best value",
+    "discountBadge": "{{percent}}% off",
+    "discountBadgeWithPercent": "Save {{percent}}%",
+    "bundleBadgeWithPercent": "Save {{percent}}%",
+    "saveAmount": "Save {{amount}}",
+    "switchToYearly": "Switch to yearly · save {{amount}}",
     "monthlyCredits": "{{n}} credits each month",
     "images": "About {{n}} {{model}} images / month",
     "concurrency": "{{n}} jobs at once",

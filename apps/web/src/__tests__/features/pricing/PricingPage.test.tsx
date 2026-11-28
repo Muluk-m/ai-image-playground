@@ -210,18 +210,47 @@ describe('定价页', () => {
     expect(text).not.toContain('参考图片')
   })
 
-  it('切换到年付后，卡片改成一次付清并写出每月折合', async () => {
+  it('切换到年付后，卡片改成一次付清并写出每月折合、综合折扣与立省金额', async () => {
     await renderPage()
-    expect(host.textContent ?? '').not.toContain('折合')
-    const yearly = [...host.querySelectorAll('button')].find(
-      (button) => button.textContent === '年付',
+    const initialText = host.textContent ?? ''
+    expect(initialText).not.toContain('折合')
+    expect(initialText).toContain('省 29%')
+    expect(initialText).toContain('省 41%')
+    expect(initialText).toContain('最受欢迎')
+    expect(initialText).toContain('性价比之选')
+    expect(initialText).toContain('限时 8 折')
+    expect(initialText).toContain('立省 ¥10')
+    expect(initialText).toContain('切至年付，一年立省 ¥480')
+
+    const yearly = [...host.querySelectorAll('button[role="radio"]')].find((button) =>
+      button.textContent?.includes('年付'),
     )
     act(() => yearly?.click())
     const prices = [...host.querySelectorAll('[aria-live="polite"]')].map(
       (node) => node.textContent,
     )
     expect(prices).toEqual(['¥348/年', '¥708/年', '¥1,428/年'])
-    expect(host.textContent ?? '').toContain('折合 ¥29/月')
+    const yearlyText = host.textContent ?? ''
+    expect(yearlyText).toContain('折合 ¥29/月')
+    expect(yearlyText).toContain('限时 5.9 折 · 省 41%')
+    expect(yearlyText).toContain('限时 6 折 · 省 40%')
+    expect(yearlyText).toContain('立省 ¥240')
+    expect(yearlyText).toContain('立省 ¥480')
+    expect(yearlyText).toContain('立省 ¥960')
+    expect(yearlyText).not.toContain('切至年付')
+  })
+
+  it('在月付卡片点击切至年付引导后直接切到年付周期', async () => {
+    await renderPage()
+    const nudge = [...host.querySelectorAll('button')].find((button) =>
+      button.textContent?.includes('切至年付，一年立省 ¥240'),
+    )
+    expect(nudge).toBeTruthy()
+    act(() => nudge?.click())
+    const prices = [...host.querySelectorAll('[aria-live="polite"]')].map(
+      (node) => node.textContent,
+    )
+    expect(prices).toEqual(['¥348/年', '¥708/年', '¥1,428/年'])
   })
 
   it('接口失败时不展示旧价格', async () => {
