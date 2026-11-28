@@ -2,7 +2,7 @@ import * as Y from 'yjs'
 import { type CanvasGroup, readCanvasGroups } from './canvas-groups'
 import { canvasPendingJob } from './canvas-jobs'
 import { canvasConnectionAllowed, canvasLinkAllowed } from './canvas-registry'
-import { canvasMainResult, refreshCanvasResultDisplay } from './canvas-results'
+import { canvasMainResult, refreshCanvasResultDisplay } from './canvas-result-store'
 import {
   type CanvasStoryboardData,
   initializeStoryboard,
