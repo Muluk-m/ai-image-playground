@@ -837,7 +837,8 @@ function PlanCard({
   onSelectCycle: (next: BillingCycle) => void
   onUpgrade: () => void
 }) {
-  const { t } = useTranslation('pricing')
+  const { t, i18n } = useTranslation('pricing')
+  const isZhLocale = (i18n.resolvedLanguage ?? i18n.language).startsWith('zh')
   const price = plan.prices[cycle]
   const monthlyEntry = plan.prices[1]
   const planEntries: PlanPeriodPriceEntry[] = BILLING_CYCLES.flatMap((value) => {
@@ -873,12 +874,9 @@ function PlanCard({
   const badgeColor = featured ? 'var(--pricing-lime)' : accent
   const discountBadgeText =
     discount?.hasSavings && discount.zhFold && discount.savePercent
-      ? cycle > 1
-        ? t(discount.isPromo ? 'plan.discountBadgeWithPercent' : 'plan.bundleBadgeWithPercent', {
-            fold: discount.zhFold,
-            percent: discount.savePercent,
-          })
-        : t('plan.discountBadge', { fold: discount.zhFold, percent: discount.savePercent })
+      ? t(discount.isPromo ? 'plan.discountBadge' : 'plan.bundleBadge', {
+          value: isZhLocale ? discount.zhFold : String(discount.savePercent),
+        })
       : null
 
   return (
@@ -1022,7 +1020,9 @@ function PlanCard({
 function Feature({ children, accent }: { children: string; accent: string }) {
   return (
     <li className="flex gap-2">
-      <Icon name="check" className="mt-0.5 shrink-0" style={{ color: accent }} />
+      <span className="mt-0.5 inline-flex shrink-0" style={{ color: accent }}>
+        <Icon name="check" />
+      </span>
       <span>{children}</span>
     </li>
   )

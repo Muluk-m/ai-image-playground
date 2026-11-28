@@ -38,8 +38,9 @@ function subscriptionPlanId(
 }
 
 export function PricingPanel({ onClose }: { onClose: () => void }) {
-  useTranslation()
+  const { i18n } = useTranslation()
   const { t: tShell } = useTranslation('shell')
+  const isZhLocale = (i18n.resolvedLanguage ?? i18n.language).startsWith('zh')
   const { status, account, catalog, error } = useBilling()
   const [period, setPeriod] = useState<BillingPeriodMonths>(() => peekPricingLaunchPeriod() ?? 1)
   useEffect(() => {
@@ -222,17 +223,9 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
             const isPrimaryCta = plan.id === primaryCtaPlanId
             const discountBadgeText =
               discount?.hasSavings && discount.zhFold && discount.savePercent
-                ? period > 1
-                  ? tBilling(
-                      discount.isPromo
-                        ? 'pricing.discountFoldPercent'
-                        : 'pricing.bundleFoldPercent',
-                      { fold: discount.zhFold, percent: discount.savePercent },
-                    )
-                  : tBilling(discount.isPromo ? 'pricing.discountFold' : 'pricing.bundleFold', {
-                      fold: discount.zhFold,
-                      percent: discount.savePercent,
-                    })
+                ? tBilling(discount.isPromo ? 'pricing.discountFold' : 'pricing.bundleFold', {
+                    value: isZhLocale ? discount.zhFold : String(discount.savePercent),
+                  })
                 : null
 
             return (
@@ -457,7 +450,9 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
                   </div>
                   <ul className="mt-3 space-y-2.5 text-sm text-foreground">
                     <li className="flex gap-2">
-                      <Icon name="check" className="mt-0.5 shrink-0" style={{ color: accent }} />
+                      <span className="mt-0.5 inline-flex shrink-0" style={{ color: accent }}>
+                        <Icon name="check" />
+                      </span>
                       <span className="font-medium">
                         {tBilling('pricing.monthlyCredits', {
                           count: plan.monthly_credits,
@@ -467,7 +462,9 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
                     </li>
                     {imageCount === null ? null : (
                       <li className="flex gap-2">
-                        <Icon name="check" className="mt-0.5 shrink-0" style={{ color: accent }} />
+                        <span className="mt-0.5 inline-flex shrink-0" style={{ color: accent }}>
+                          <Icon name="check" />
+                        </span>
                         <span>
                           {tBilling('pricing.planImages', {
                             count: imageCount,
@@ -477,12 +474,16 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
                       </li>
                     )}
                     <li className="flex gap-2">
-                      <Icon name="check" className="mt-0.5 shrink-0" style={{ color: accent }} />
+                      <span className="mt-0.5 inline-flex shrink-0" style={{ color: accent }}>
+                        <Icon name="check" />
+                      </span>
                       <span>{tBilling('pricing.creditPriority')}</span>
                     </li>
                     {plan.max_concurrent_tasks === undefined ? null : (
                       <li className="flex gap-2">
-                        <Icon name="check" className="mt-0.5 shrink-0" style={{ color: accent }} />
+                        <span className="mt-0.5 inline-flex shrink-0" style={{ color: accent }}>
+                          <Icon name="check" />
+                        </span>
                         <span>
                           {tBilling('pricing.concurrentTasks', {
                             count: plan.max_concurrent_tasks,

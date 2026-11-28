@@ -222,8 +222,8 @@ describe('定价页', () => {
     expect(initialText).toContain('立省 ¥10')
     expect(initialText).toContain('切至年付，一年立省 ¥480')
 
-    const yearly = [...host.querySelectorAll('button[role="radio"]')].find((button) =>
-      button.textContent?.includes('年付'),
+    const yearly = [...host.querySelectorAll<HTMLButtonElement>('button[role="radio"]')].find(
+      (button) => button.textContent?.includes('年付'),
     )
     act(() => yearly?.click())
     const prices = [...host.querySelectorAll('[aria-live="polite"]')].map(
@@ -232,8 +232,8 @@ describe('定价页', () => {
     expect(prices).toEqual(['¥348/年', '¥708/年', '¥1,428/年'])
     const yearlyText = host.textContent ?? ''
     expect(yearlyText).toContain('折合 ¥29/月')
-    expect(yearlyText).toContain('限时 5.9 折 · 省 41%')
-    expect(yearlyText).toContain('限时 6 折 · 省 40%')
+    expect(yearlyText).toContain('限时 5.9 折')
+    expect(yearlyText).toContain('限时 6 折')
     expect(yearlyText).toContain('立省 ¥240')
     expect(yearlyText).toContain('立省 ¥480')
     expect(yearlyText).toContain('立省 ¥960')

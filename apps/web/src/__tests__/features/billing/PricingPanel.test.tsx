@@ -265,8 +265,8 @@ it('shows cycle tab discount badges, tier highlights, savings, and switches to y
   await act(async () => nudge!.click())
 
   const yearlyText = document.body.textContent ?? ''
-  expect(yearlyText).toContain('限时 5.9 折 · 省 41%')
-  expect(yearlyText).toContain('限时 6 折 · 省 40%')
+  expect(yearlyText).toContain('限时 5.9 折')
+  expect(yearlyText).toContain('限时 6 折')
   expect(yearlyText).toContain('12 个月共 ¥348')
   expect(yearlyText).toContain('立省 ¥240')
   expect(yearlyText).toContain('立省 ¥480')
