@@ -1,15 +1,15 @@
 import { afterEach, expect, it } from 'bun:test'
 import type { AgentCanvasSnapshot } from '@image-playground/shared'
 import sharp from 'sharp'
-import type { AgentToolContext } from '../../../../lib/agent/tools/types'
+import type { AgentToolContext } from '../../../../modules/agent/contracts'
 
 process.env.DATABASE_URL = 'postgres://unused/agent-view-video'
 process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.LOG_LEVEL = 'silent'
 
-const { viewVideo } = await import('../../../../lib/agent/tools/viewVideo')
-const { readCanvas } = await import('../../../../lib/agent/tools/readCanvas')
+const { viewVideo } = await import('../../../../modules/agent/tools')
+const { readCanvas } = await import('../../../../modules/agent/tools')
 const { readVideoClip, setVideoClipReaderForTesting } = await import(
   '../../../../lib/agent/video-clip'
 )

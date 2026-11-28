@@ -5,7 +5,7 @@ process.env.DATABASE_URL = await resetTestDatabase('bff_agent_conversation_state
 
 const { close, db, schema } = await import('../../../db/client')
 const { CONVERSATION_STATE_WINDOW_MS, readConversationStateFacts, renderConversationState } =
-  await import('../../../lib/agent/conversation-state')
+  await import('../../../modules/agent')
 afterAll(close)
 
 const NOW = Date.UTC(2026, 9, 20, 6, 0, 0)

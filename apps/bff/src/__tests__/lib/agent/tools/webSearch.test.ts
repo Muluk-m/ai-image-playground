@@ -22,12 +22,12 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
 )
 
 // 动态引入：环境要先钉死，再让捕获配置的模块加载；静态 import 会在赋值之前就把配置读走。
-const { webSearch } = await import('../../../../lib/agent/tools/webSearch')
+const { webSearch } = await import('../../../../modules/agent/tools')
 const { setAgentSearchFetchForTesting } = await import('../../../../lib/agent/web-search')
 const { createAgentUsageLedger } = await import('../../../../lib/agent/usage-ledger')
-const { createAgentImageSource } = await import('../../../../lib/agent/images')
+const { createAgentImageSource } = await import('../../../../modules/agent')
 const { close: closeDb, db, schema } = await import('../../../../db/client')
-const { agentTurnTools } = await import('../../../../lib/agent/tools')
+const { agentTurnTools } = await import('../../../../modules/agent/tools')
 
 const CONVERSATION = 'conversation-web-search'
 const TURN = 'turn-1'

@@ -51,7 +51,7 @@ _setPrivateBffOverlayForTesting({
   },
 })
 const { prepareAnalysisTask, quoteAnalysisTask } = await import('../../lib/analysis-tasks')
-const { confirmAgentBatch } = await import('../../lib/agent/batch-execution')
+const { confirmAgentBatch } = await import('../../modules/agent/orchestration')
 const { runAnalysisTask } = await import('../../workers/analysis-runner')
 const { setChatFetchForTesting } = await import('../../lib/chatCompletion')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
@@ -154,7 +154,7 @@ it('never attributes a future edited attempt to an older analysis version', asyn
       },
       dependencies: [],
     })
-    const { claimConversationMedia } = await import('../../lib/agent/images')
+    const { claimConversationMedia } = await import('../../modules/agent')
     expect(await claimConversationMedia(id, id, inputs)).toBe(true)
     const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
     const cookie = `${USER_SESSION_COOKIE}=${await db.transaction((tx) => createUserSession(id, tx))}`
@@ -247,8 +247,8 @@ it('never attributes a future edited attempt to an older analysis version', asyn
       findings: [],
       unresolvedItemKeys: ['first'],
     })
-    const { agentTurnTools } = await import('../../lib/agent/tools')
-    const { createAgentImageSource } = await import('../../lib/agent/images')
+    const { agentTurnTools } = await import('../../modules/agent/tools')
+    const { createAgentImageSource } = await import('../../modules/agent')
     const tool = agentTurnTools({
       mode: 'image',
       experience: 'chat',

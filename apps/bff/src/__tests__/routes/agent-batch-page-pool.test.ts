@@ -21,7 +21,7 @@ const { installRecordingTaskHooks } = await import('../helpers/privateOverlayStu
 installRecordingTaskHooks()
 const { config } = await import('../../config')
 const { app } = await import('../../app')
-const { readAgentBatchPlan } = await import('../../lib/agent/batch-plans')
+const { readAgentBatchPlan } = await import('../../modules/agent/orchestration')
 const { db, schema, close } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { loadPrivateBffOverlay, _setPrivateBffOverlayForTesting } = await import(

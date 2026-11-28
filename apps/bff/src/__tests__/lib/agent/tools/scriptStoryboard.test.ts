@@ -24,9 +24,9 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
 // Database/config singletons must load after this suite selects its isolated database.
 const { db, schema, close } = await import('../../../../db/client')
 const { createNodes, connectNodes, applyScriptPlan } = await import(
-  '../../../../lib/agent/tools/nodeCanvas'
+  '../../../../modules/agent/tools'
 )
-const { createAgentImageSource } = await import('../../../../lib/agent/images')
+const { createAgentImageSource } = await import('../../../../modules/agent')
 const { accessCanvasDocument } = await import('../../../../lib/canvasSyncStore')
 const { _setChannelsForTesting } = await import('../../../../lib/channels')
 const userId = 'script-storyboard-owner'

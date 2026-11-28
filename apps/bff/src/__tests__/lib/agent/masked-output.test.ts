@@ -1,7 +1,10 @@
 import { expect, it } from 'bun:test'
 import sharp from 'sharp'
-import { inspectMaskedAlignment } from '../../../lib/agent/masked-alignment'
-import { protectMaskedOutput, upstreamFit } from '../../../lib/agent/masked-output'
+import {
+  inspectMaskedAlignment,
+  protectMaskedOutput,
+  upstreamFit,
+} from '../../../modules/agent/orchestration/masked/pure'
 
 /** 对齐只记录、不拒收：块相关没对上，或主体轮廓整体挪了位。 */
 const misaligned = (inspection: Record<string, number>) =>

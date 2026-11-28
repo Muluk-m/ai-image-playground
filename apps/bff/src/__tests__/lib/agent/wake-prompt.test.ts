@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { AgentToolResultBlock } from '@image-playground/shared'
-import { mergedWakePrompt, type WakeJob, wakeTurnPrompt } from '../../../lib/agent/wake-prompt'
+import { mergedWakePrompt, type WakeJob, wakeTurnPrompt } from '../../../modules/agent/contracts'
 
 function job(status: AgentToolResultBlock['status']): WakeJob {
   return {

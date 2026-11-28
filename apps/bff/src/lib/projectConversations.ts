@@ -1,7 +1,10 @@
 import { and, eq } from 'drizzle-orm'
 import { db, schema } from '../db/client'
-import { createAgentConversation, findAgentConversation } from './agent/conversations'
-import { withAgentLifecycle } from './agent/lifecycle'
+import {
+  createAgentConversation,
+  findAgentConversation,
+  withAgentLifecycle,
+} from '../modules/agent'
 
 export async function ensureProjectConversation(
   userId: string,

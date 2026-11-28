@@ -49,7 +49,7 @@ const { setAgentFetchForTesting, setAgentRetryBackoffForTesting } = await import
   '../../../../lib/agent/model'
 )
 setAgentRetryBackoffForTesting(0)
-const { AGENT_TOOL_FAILURE_STREAK_LIMIT } = await import('../../../../lib/agent/tools')
+const { AGENT_TOOL_FAILURE_STREAK_LIMIT } = await import('../../../../modules/agent/tools')
 const { _setChannelsForTesting } = await import('../../../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../../../db/client')

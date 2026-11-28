@@ -1,7 +1,7 @@
 import { expect, it } from 'bun:test'
 import sharp from 'sharp'
-import type { AgentImageSource } from '../../../../lib/agent/images'
-import type { AgentToolContext } from '../../../../lib/agent/tools/types'
+import type { AgentImageSource } from '../../../../modules/agent'
+import type { AgentToolContext } from '../../../../modules/agent/contracts'
 
 // 这两条用例都在提交之前折返，一条 SQL 都不发；库名故意不可达，真连上就会立刻炸出来。
 process.env.DATABASE_URL = 'postgres://unused/agent-edit-image'
@@ -9,8 +9,8 @@ process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 
 // 动态引入：环境要先钉死，再让捕获配置的模块加载。
-const { editImage } = await import('../../../../lib/agent/tools/editImage')
-const { createAgentImageSource } = await import('../../../../lib/agent/images')
+const { editImage } = await import('../../../../modules/agent/tools')
+const { createAgentImageSource } = await import('../../../../modules/agent')
 const { createTurnAuthorization } = await import('../../../../lib/agent/turn-authorization')
 const { _setChannelsForTesting } = await import('../../../../lib/channels')
 

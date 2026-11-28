@@ -1,16 +1,16 @@
 import {
   type AgentMessageView,
   agentMessageText,
+  stripDisallowedScripts,
   stripInternalRefs,
 } from '@image-playground/shared'
 import { and, desc, eq } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
+import { trackAgentBackgroundWork } from '../../modules/agent/contracts'
 import { askChatModel, isTransientChatError } from '../chatCompletion'
 import { log } from '../logger'
 import { isObject } from '../type-guards'
-import { trackAgentBackgroundWork } from './background-work'
-import { stripDisallowedScripts } from './reply-script'
 
 /**
  * 中文一句加上 Haiku 的思考会顶满旧的 180：线上 claude-haiku-5-5 以

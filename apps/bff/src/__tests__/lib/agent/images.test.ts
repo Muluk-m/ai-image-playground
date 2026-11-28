@@ -12,7 +12,7 @@ process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 
 // 动态引入：环境要先钉死，再让捕获配置的模块加载。
-const { createAgentImageSource, activeAgentReferences } = await import('../../../lib/agent/images')
+const { createAgentImageSource, activeAgentReferences } = await import('../../../modules/agent')
 
 const PIXEL = TEST_IMAGE.pngDataUrl
 

@@ -50,7 +50,7 @@ _setPrivateBffOverlayForTesting({
   },
 })
 const { prepareAnalysisTask, quoteAnalysisTask } = await import('../../lib/analysis-tasks')
-const { confirmAgentBatch } = await import('../../lib/agent/batch-execution')
+const { confirmAgentBatch } = await import('../../modules/agent/orchestration')
 const { runAnalysisTask } = await import('../../workers/analysis-runner')
 const { setChatFetchForTesting } = await import('../../lib/chatCompletion')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
@@ -165,7 +165,7 @@ it('reads actual analysis in bounded pages through a real Agent turn before prop
       created_at: now,
     })
     await db.insert(schema.agent_batch_items).values(items)
-    const { claimConversationMedia } = await import('../../lib/agent/images')
+    const { claimConversationMedia } = await import('../../modules/agent')
     expect(
       await claimConversationMedia(
         id,
@@ -210,9 +210,9 @@ it('reads actual analysis in bounded pages through a real Agent turn before prop
       .select()
       .from(schema.analysis_tasks)
       .where(eq(schema.analysis_tasks.batch_id, id))
-    const { reconcileAgentBatchProgress } = await import('../../lib/agent/batch-progress')
+    const { reconcileAgentBatchProgress } = await import('../../modules/agent/orchestration')
     await reconcileAgentBatchProgress(id)
-    const { batchWakeSummary } = await import('../../lib/agent/batch-wake')
+    const { batchWakeSummary } = await import('../../modules/agent/orchestration')
     const wake = await batchWakeSummary(
       id,
       { kind: 'user', userId: id },

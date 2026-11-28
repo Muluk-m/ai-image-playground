@@ -5,9 +5,9 @@ import {
 } from '@image-playground/shared'
 import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
+import type { AgentOwner } from '../../modules/agent'
+import { conversationAwaitingClarification } from '../../modules/agent'
 import { type ConfirmGenerationOutcome, confirmAgentGeneration } from './confirmations'
-import type { AgentOwner } from './conversations'
-import { conversationAwaitingClarification } from './inbox'
 
 const PENDING_CONFIRMATION = sql`'[{"type":"toolResult","status":"awaiting_confirmation"}]'::jsonb`
 

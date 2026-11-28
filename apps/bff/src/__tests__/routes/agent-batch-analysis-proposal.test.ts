@@ -51,7 +51,7 @@ _setPrivateBffOverlayForTesting({
   },
 })
 const { prepareAnalysisTask, quoteAnalysisTask } = await import('../../lib/analysis-tasks')
-const { confirmAgentBatch } = await import('../../lib/agent/batch-execution')
+const { confirmAgentBatch } = await import('../../modules/agent/orchestration')
 const { runAnalysisTask } = await import('../../workers/analysis-runner')
 const { setChatFetchForTesting } = await import('../../lib/chatCompletion')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
@@ -261,7 +261,7 @@ it('quotes a paid follow-up inspection in a new confirmed version while preservi
       })
     })
     await runAnalysisTask(originalAttempt.task_id)
-    const { advanceAgentBatches } = await import('../../lib/agent/batch-execution')
+    const { advanceAgentBatches } = await import('../../modules/agent/orchestration')
     await advanceAgentBatches(null, () => true)
     expect(billing.reservations).toHaveLength(1)
     expect(calls).toBe(1)

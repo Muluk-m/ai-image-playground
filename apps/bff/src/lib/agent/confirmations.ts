@@ -16,12 +16,20 @@ import {
 } from '@image-playground/shared'
 import { and, eq, isNull, or } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
+import type { AgentOwner } from '../../modules/agent'
 import {
   discardConversationDraftInputs,
   discardDraftInputs,
+  enqueueAgentResume,
+  GATE_VOIDED_MESSAGE,
   type GenerationDraftInput,
+  gateResumeLive,
+  isPendingGate,
   lockConversation,
+  pendingGateMessages,
   saveGenerationDraft,
+  turnHasPendingGate,
+  userMessageAfterTurn,
 } from '../../modules/agent'
 import { queueRefusalCode } from '../../modules/agent/contracts'
 import {
@@ -34,15 +42,7 @@ import { hydrateInputImages } from '../imageArchive'
 import { log } from '../logger'
 import type { BffTransaction } from '../private-overlay'
 import { settleSubmittedTaskIfTerminal } from './background-jobs'
-import type { AgentOwner } from './conversations'
 import { writtenPrompt } from './design-intent'
-import { enqueueAgentResume, gateResumeLive, userMessageAfterTurn } from './inbox'
-import {
-  GATE_VOIDED_MESSAGE,
-  isPendingGate,
-  pendingGateMessages,
-  turnHasPendingGate,
-} from './tool-gate-records'
 import { agentVideoRequestError } from './video-models'
 
 /**

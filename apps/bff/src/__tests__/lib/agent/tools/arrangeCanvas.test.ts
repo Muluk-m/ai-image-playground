@@ -11,8 +11,8 @@ process.env.PORT = '0'
 process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 
-const { arrangeCanvas } = await import('../../../../lib/agent/tools/arrangeCanvas')
-const { readCanvas } = await import('../../../../lib/agent/tools/readCanvas')
+const { arrangeCanvas } = await import('../../../../modules/agent/tools')
+const { readCanvas } = await import('../../../../modules/agent/tools')
 const { close: closeDb, db, schema } = await import('../../../../db/client')
 type AgentToolContext = Parameters<typeof arrangeCanvas.create>[0]
 

@@ -35,14 +35,14 @@ const { _setChannelsForTesting } = await import('../../lib/channels')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
 const { storeMedia } = await import('../../lib/projectMedia')
-const { addConversationMediaClaims } = await import('../../lib/agent/images')
+const { addConversationMediaClaims } = await import('../../modules/agent')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { hydrateInputImages } = await import('../../lib/imageArchive')
-const { imageSelection } = await import('../../lib/agent/selection-preview')
-const { editMaskPng } = await import('../../lib/agent/mask-proposal')
-const { setSegmentationProviderForTesting } = await import('../../lib/agent/segmentation')
-type SegmentationRequest = import('../../lib/agent/segmentation').SegmentationRequest
+const { imageSelection } = await import('../../modules/agent')
+const { editMaskPng } = await import('../../modules/agent/orchestration')
+const { setSegmentationProviderForTesting } = await import('../../modules/agent/orchestration')
+type SegmentationRequest = import('../../modules/agent/orchestration').SegmentationRequest
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )

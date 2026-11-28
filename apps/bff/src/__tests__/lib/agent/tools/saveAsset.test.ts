@@ -1,7 +1,7 @@
 import { expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import sharp from 'sharp'
-import type { AgentToolContext } from '../../../../lib/agent/tools/types'
+import type { AgentToolContext } from '../../../../modules/agent/contracts'
 
 // 只按 id 取本轮引用的字节，一条 SQL 都不发；库名故意不可达，真连上就会立刻炸出来。
 process.env.DATABASE_URL = 'postgres://unused/agent-save-asset'
@@ -11,9 +11,9 @@ process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../../../sync-operator-config.json')
 
 // 动态引入：环境要先钉死，再让捕获配置的模块加载。
-const { saveAsset } = await import('../../../../lib/agent/tools/saveAsset')
-const { agentToolDeclarations } = await import('../../../../lib/agent/tools')
-const { createAgentImageSource } = await import('../../../../lib/agent/images')
+const { saveAsset } = await import('../../../../modules/agent/tools')
+const { agentToolDeclarations } = await import('../../../../modules/agent/tools')
+const { createAgentImageSource } = await import('../../../../modules/agent')
 
 const PIXEL = `data:image/png;base64,${(
   await sharp({ create: { width: 4, height: 4, channels: 4, background: '#6386a3' } })

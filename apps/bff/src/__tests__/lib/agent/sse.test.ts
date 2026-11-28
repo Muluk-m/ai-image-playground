@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import type { AgentTurnEvent } from '@image-playground/shared'
 import type { StoredAgentEvent } from '../../../lib/agent/events'
-import { agentTurnStream } from '../../../lib/agent/sse'
+import { agentTurnStream } from '../../../modules/agent/contracts'
 import { parseFrames } from '../../helpers/agentStubs'
 
 const TURN_END: AgentTurnEvent = {

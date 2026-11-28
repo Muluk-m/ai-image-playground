@@ -1,7 +1,7 @@
 import { afterAll, expect, it } from 'bun:test'
 import { insertTestTasks, resetTestDatabase } from '@image-playground/db/testing'
-import type { AgentToolContext } from '../../../lib/agent/tools/types'
 import type { ObjectRangeReader, ObjectStore } from '../../../lib/objectStore'
+import type { AgentToolContext } from '../../../modules/agent/contracts'
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_agent_video_clip')
 process.env.UPSTREAM_BASE_URL = 'http://gateway.test'

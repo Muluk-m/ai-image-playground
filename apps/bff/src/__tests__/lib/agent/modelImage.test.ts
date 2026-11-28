@@ -13,7 +13,7 @@ const {
   editInputSize,
   toEditInputDataUrl,
   toModelImageDataUrl,
-} = await import('../../../lib/agent/modelImage')
+} = await import('../../../modules/agent')
 
 const decode = (url: string) => Buffer.from(url.split(',')[1]!, 'base64')
 

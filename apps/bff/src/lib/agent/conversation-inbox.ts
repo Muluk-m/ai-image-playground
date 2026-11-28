@@ -6,12 +6,7 @@ import type {
   AgentReturnedQueuedMessage,
   AgentToolErrorCode,
 } from '@image-playground/shared'
-import { bffDrain } from '../drain'
-import { log } from '../logger'
-import { cancelStoppedTurnJobs } from './background-jobs'
-import { tryConfirmPendingDraftsFromChat } from './chat-confirm-submit'
-import { notifyConversation } from './events'
-import type { EnqueueUserMessage, InboxEntry } from './inbox'
+import type { EnqueueUserMessage, InboxEntry } from '../../modules/agent'
 import {
   agentInboxEntry,
   claimAgentMessageForInterjection,
@@ -23,9 +18,14 @@ import {
   returnedAgentMessages,
   settleAgentInterjection,
   withdrawAgentMessage,
-} from './inbox'
-import type { RunningTurn } from './runningTurns'
-import { runningTurn } from './runningTurns'
+} from '../../modules/agent'
+import type { RunningTurn } from '../../modules/agent/contracts'
+import { runningTurn } from '../../modules/agent/contracts'
+import { bffDrain } from '../drain'
+import { log } from '../logger'
+import { cancelStoppedTurnJobs } from './background-jobs'
+import { tryConfirmPendingDraftsFromChat } from './chat-confirm-submit'
+import { notifyConversation } from './events'
 import type { TurnNotStarted } from './start-turn'
 import {
   awaitConversationHandoff,

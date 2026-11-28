@@ -51,7 +51,7 @@ _setPrivateBffOverlayForTesting({
   },
 })
 const { prepareAnalysisTask, quoteAnalysisTask } = await import('../../lib/analysis-tasks')
-const { confirmAgentBatch } = await import('../../lib/agent/batch-execution')
+const { confirmAgentBatch } = await import('../../modules/agent/orchestration')
 const { runAnalysisTask } = await import('../../workers/analysis-runner')
 const { setChatFetchForTesting } = await import('../../lib/chatCompletion')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
@@ -166,7 +166,7 @@ it('uses legacy sourceVersion for excluded-image follow-up and pending-phase edi
       created_at: now,
     })
     await db.insert(schema.agent_batch_items).values(items)
-    const { claimConversationMedia } = await import('../../lib/agent/images')
+    const { claimConversationMedia } = await import('../../modules/agent')
     expect(
       await claimConversationMedia(
         id,
@@ -292,8 +292,8 @@ it('uses legacy sourceVersion for excluded-image follow-up and pending-phase edi
     ).toBe(200)
     const [generation] = await db.select().from(schema.tasks).where(eq(schema.tasks.kind, 'queue'))
     if (!generation) throw new Error('explicitly selected generation was not admitted')
-    const { agentTurnTools } = await import('../../lib/agent/tools')
-    const { createAgentImageSource } = await import('../../lib/agent/images')
+    const { agentTurnTools } = await import('../../modules/agent/tools')
+    const { createAgentImageSource } = await import('../../modules/agent')
     const tool = agentTurnTools({
       mode: 'image',
       experience: 'chat',

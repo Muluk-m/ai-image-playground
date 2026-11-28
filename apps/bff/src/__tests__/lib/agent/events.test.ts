@@ -12,7 +12,7 @@ const {
   readTurnEvents,
   sealAbandonedTurns,
 } = await import('../../../lib/agent/events')
-const { createAgentConversation } = await import('../../../lib/agent/conversations')
+const { createAgentConversation } = await import('../../../modules/agent')
 const { close: closeDb, db, schema } = await import('../../../db/client')
 
 const HOUR = 60 * 60 * 1_000

@@ -6,7 +6,7 @@ process.env.DATABASE_URL = await resetTestDatabase('bff_batch_attempt_cast')
 process.env.PORT = '0'
 
 const { db, schema, close } = await import('../../../db/client')
-const { readFrozenDependencyTargets } = await import('../../../lib/agent/batch-dependencies')
+const { readFrozenDependencyTargets } = await import('../../../modules/agent/orchestration')
 
 afterAll(close)
 

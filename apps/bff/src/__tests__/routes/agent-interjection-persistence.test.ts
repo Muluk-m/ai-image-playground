@@ -26,7 +26,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-c
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
-const { settleAgentBackgroundWorkForTesting } = await import('../../lib/agent/background-work')
+const { settleAgentBackgroundWorkForTesting } = await import('../../modules/agent/contracts')
 const { db, close } = await import('../../db/client')
 await silenceChatUpstream()
 afterAll(close)

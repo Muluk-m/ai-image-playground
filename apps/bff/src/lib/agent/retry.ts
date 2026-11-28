@@ -7,6 +7,7 @@ import type {
 import { agentTool, agentToolRetryable, restoreQueuePrompt } from '@image-playground/shared'
 import { and, asc, eq, isNull, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
+import { appendAgentMessage } from '../../modules/agent'
 import { queueRefusalCode } from '../../modules/agent/contracts'
 import { cancelTasks, createQueueTask } from '../../modules/execution'
 import { resolveQueueModel } from '../channels'
@@ -15,7 +16,6 @@ import { log } from '../logger'
 import type { BffTransaction } from '../private-overlay'
 import { asQueueProvider } from '../queueProvider'
 import { settleAgentJobs, settleSubmittedTaskIfTerminal } from './background-jobs'
-import { appendAgentMessage } from './conversations'
 import { agentVideoRequestError } from './video-models'
 
 /**

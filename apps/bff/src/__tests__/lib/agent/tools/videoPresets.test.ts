@@ -13,7 +13,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
   '../../../agent-video-operator-config.json',
 )
 
-const { agentToolDeclarations, agentToolGuidance } = await import('../../../../lib/agent/tools')
+const { agentToolDeclarations, agentToolGuidance } = await import('../../../../modules/agent/tools')
 const { estimateToolDeclarationTokens } = await import('../../../../lib/agent/turn-input')
 const { _setChannelsForTesting } = await import('../../../../lib/channels')
 

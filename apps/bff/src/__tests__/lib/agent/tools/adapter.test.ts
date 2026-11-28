@@ -5,7 +5,7 @@ import type {
   AgentToolArtifact,
   AgentToolName,
 } from '@image-playground/shared'
-import type { AgentImageSource } from '../../../../lib/agent/images'
+import type { AgentImageSource } from '../../../../modules/agent'
 
 // 这组断言只看「工具参数 → 轮要发的事件字段」，不碰数据库：配置只是为了让工具模块能被导入。
 process.env.DATABASE_URL = 'postgres://unused@127.0.0.1:5432/unused'
@@ -17,7 +17,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../../../agent-oper
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { agentToolEnd, agentToolStage, agentToolStart, agentToolStartFromSnapshot } = await import(
-  '../../../../lib/agent/tools'
+  '../../../../modules/agent/tools'
 )
 const { clarificationFromResult } = await import('../../../../lib/agent/clarification')
 

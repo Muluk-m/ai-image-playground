@@ -7,6 +7,20 @@ import {
   canvasStageRunsDirectly,
   stripInlineReasoning,
 } from '@image-playground/shared'
+import type { AgentHistoryWindow } from '../../modules/agent'
+import {
+  type AgentImageReference,
+  activeAgentReferences,
+  type EvidenceListing,
+  evidenceBlocks,
+  evidenceManifest,
+  prepareVisualEvidence,
+  type ResolvedAgentImage,
+  referenceHasMask,
+  referenceManifest,
+  shownTurnReferences,
+  type VisualEvidenceSource,
+} from '../../modules/agent'
 import {
   agentToolDeclarations,
   agentToolGuidance,
@@ -14,18 +28,8 @@ import {
 } from '../../modules/agent/tools'
 import { reservationCeiling, storedSummaryTokens } from './compaction'
 import { compactionSettings } from './compaction-settings'
-import type { AgentHistoryWindow } from './conversations'
-import {
-  type AgentImageReference,
-  activeAgentReferences,
-  type ResolvedAgentImage,
-  referenceHasMask,
-  referenceManifest,
-  shownTurnReferences,
-} from './images'
 import { agentModel } from './model'
 import { requestOverheadTokens } from './request-budget'
-import { type EvidenceListing, evidenceBlocks, evidenceManifest } from './selection-preview'
 import {
   type AgentSkill,
   type AgentTurnAudience,
@@ -36,7 +40,6 @@ import {
   visibleAgentSkills,
 } from './skills'
 import { estimateMessageTokens } from './token-estimate'
-import { prepareVisualEvidence, type VisualEvidenceSource } from './visual-input'
 
 /**
  * 「这一轮送给模型的输入长什么样」只由本模块回答，因为它有两个读者：起轮前的预扣估算

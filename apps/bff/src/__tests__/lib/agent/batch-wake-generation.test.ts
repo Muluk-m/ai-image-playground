@@ -5,7 +5,7 @@ process.env.DATABASE_URL = await resetTestDatabase('bff_agent_batch_wake_generat
 
 const { close, db, schema } = await import('../../../db/client')
 const { BATCH_WAKE_REVIEW_IMAGE_MAX, batchWakeContent } = await import(
-  '../../../lib/agent/batch-wake'
+  '../../../modules/agent/orchestration'
 )
 afterAll(close)
 

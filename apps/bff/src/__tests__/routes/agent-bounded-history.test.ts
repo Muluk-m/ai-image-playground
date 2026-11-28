@@ -42,9 +42,9 @@ const { setChatFetchForTesting, setChatRetryBackoffForTesting } = await import(
 setChatRetryBackoffForTesting(0)
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { appendAgentMessage, saveAgentCompaction, setAgentConversationTitle } = await import(
-  '../../lib/agent/conversations'
+  '../../modules/agent'
 )
-const { enqueueAgentWake } = await import('../../lib/agent/inbox')
+const { enqueueAgentWake } = await import('../../modules/agent')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(

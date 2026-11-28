@@ -40,7 +40,7 @@ const { close: closeDb, db, schema } = await import('../../db/client')
 const { workerSettles } = await import('../helpers/taskWorker')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
 const { confirmAgentGeneration } = await import('../../lib/agent/confirmations')
-const { GATE_VOIDED_MESSAGE } = await import('../../lib/agent/tool-gate-records')
+const { GATE_VOIDED_MESSAGE } = await import('../../modules/agent')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )

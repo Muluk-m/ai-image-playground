@@ -1,10 +1,12 @@
 import { and, asc, eq, isNull } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
+import { type AgentOwner, softDeleteAgentConversation } from '../../modules/agent'
+import {
+  detachConversationBatches,
+  discardConversationBatchDrafts,
+} from '../../modules/agent/orchestration'
 import { cancelAgentConversationJobs } from './background-jobs'
-import { discardConversationBatchDrafts } from './batch-plans'
-import { detachConversationBatches } from './batch-progress'
 import { lockConversation } from './confirmations'
-import { type AgentOwner, softDeleteAgentConversation } from './conversations'
 
 export async function listConversationBatches(
   userId: string,

@@ -49,10 +49,10 @@ const { close: closeDb, db, schema } = await import('../../db/client')
 const { cancelTasks } = await import('../../modules/execution')
 const { workerSettles } = await import('../helpers/taskWorker')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
-const { AGENT_WAKE_BATCH_WAIT_MS } = await import('../../lib/agent/wake')
+const { AGENT_WAKE_BATCH_WAIT_MS } = await import('../../modules/agent')
 const { createQueueTask } = await import('../../modules/execution')
 const { bffDrain } = await import('../../lib/drain')
-const { imageSelection } = await import('../../lib/agent/selection-preview')
+const { imageSelection } = await import('../../modules/agent')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )

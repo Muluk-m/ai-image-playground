@@ -16,8 +16,8 @@ const {
   setAgentSkillsRootForTesting,
   visibleAgentSkills,
 } = await import('../../../lib/agent/skills')
-const { replayedSkillTexts } = await import('../../../lib/agent/tools/loadSkill')
-const { agentTurnTools } = await import('../../../lib/agent/tools')
+const { replayedSkillTexts } = await import('../../../modules/agent/tools')
+const { agentTurnTools } = await import('../../../modules/agent/tools')
 const { turnInitialState } = await import('../../../lib/agent/turn-input')
 
 let root = ''

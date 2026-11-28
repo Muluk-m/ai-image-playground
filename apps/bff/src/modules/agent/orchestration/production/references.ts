@@ -11,7 +11,7 @@ import type { BffTransaction } from '../../../../lib/private-overlay'
 import { lockMediaOwner } from '../../../../lib/projectMedia'
 import { asQueueProvider } from '../../../../lib/queueProvider'
 import { ensureAssetMediaIds, findAssetImageMeta } from '../../../../lib/sync-assets'
-import { taskAccessWhere } from '../../../../lib/task-access'
+import { taskAccessWhere } from '../../../execution'
 import { productionMediaReferences, productionReferenceKey } from './asset-validation'
 
 export async function validateProductionMediaReferences(

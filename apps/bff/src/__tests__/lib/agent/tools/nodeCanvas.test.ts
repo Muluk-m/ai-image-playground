@@ -33,18 +33,16 @@ const {
   runNodes,
   runStoryboardFrames,
   patchAgentCanvasNode,
-} = await import('../../../../lib/agent/tools/nodeCanvas')
-const { createAgentImageSource } = await import('../../../../lib/agent/images')
+} = await import('../../../../modules/agent/tools')
+const { createAgentImageSource } = await import('../../../../modules/agent')
 const { accessCanvasDocument } = await import('../../../../lib/canvasSyncStore')
 const { confirmStageAuthorization, preflightStageAuthorization, readStageAuthorization } =
-  await import('../../../../lib/agent/stage-authorizations')
-const { agentTurnTools } = await import('../../../../lib/agent/tools')
-const { planImageBatch } = await import('../../../../lib/agent/tools/planImageBatch')
-const { draftQueueTask } = await import('../../../../lib/agent/tools/queueTask')
+  await import('../../../../modules/agent/orchestration')
+const { agentTurnTools } = await import('../../../../modules/agent/tools')
+const { planImageBatch } = await import('../../../../modules/agent/tools')
+const { draftQueueTask } = await import('../../../../modules/agent/tools')
 // These modules bind DATABASE_URL at load time, so static imports cannot precede the fixture setup.
-const { proposeBatchGeneration } = await import(
-  '../../../../lib/agent/tools/proposeBatchGeneration'
-)
+const { proposeBatchGeneration } = await import('../../../../modules/agent/tools')
 const { _setChannelsForTesting } = await import('../../../../lib/channels')
 type InternalChannel = import('../../../../lib/channels').InternalChannel
 const videoChannel = (id: string, capabilities: string[] = ['generate']): InternalChannel => ({

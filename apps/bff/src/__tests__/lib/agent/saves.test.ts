@@ -13,7 +13,7 @@ process.env.PORT = '0'
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { markAgentSaveCardSaved } = await import('../../../lib/agent/saves')
-const { queuedAgentMessages } = await import('../../../lib/agent/inbox')
+const { queuedAgentMessages } = await import('../../../modules/agent')
 const { close: closeDb, db, schema } = await import('../../../db/client')
 
 const CONVERSATION = 'conversation-saves'

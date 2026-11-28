@@ -593,7 +593,7 @@ it('retains deleted-conversation analysis evidence while unknown and releases so
   })
   await runAnalysisTask(id)
   const { detachConversationBatches, reconcileAgentBatchProgress } = await import(
-    '../../../lib/agent/batch-progress'
+    '../../../modules/agent/orchestration'
   )
   const { cancelAnalysisTasks } = await import('../../../lib/analysis-tasks')
   const { lockConversation } = await import('../../../lib/agent/confirmations')

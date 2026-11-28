@@ -6,7 +6,7 @@ process.env.DATABASE_URL = 'postgres://unused/unused'
 process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.OPERATOR_CONFIG_FILE = ''
-const { createVisualWorkset } = await import('../../../lib/agent/visual-workset')
+const { createVisualWorkset } = await import('../../../modules/agent')
 it('rejects transformed context that drops live visual evidence', async () => {
   const messages: AgentMessage[] = [
     {

@@ -1,5 +1,5 @@
 import { expect, it } from 'bun:test'
-import { agentTurnFailure } from '../../../lib/agent/turn-failure'
+import { agentTurnFailure } from '../../../modules/agent/contracts'
 
 it('keeps error detail and redacts credentials, signed queries and inline images', () => {
   const failure = agentTurnFailure(

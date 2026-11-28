@@ -22,11 +22,11 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-c
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
-const { claimConversation, conversationExecution } = await import('../../lib/agent/execution')
+const { claimConversation, conversationExecution } = await import('../../modules/agent')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
-const { archiveAgentReferences } = await import('../../lib/agent/images')
-const { appendAgentMessage } = await import('../../lib/agent/conversations')
+const { archiveAgentReferences } = await import('../../modules/agent')
+const { appendAgentMessage } = await import('../../modules/agent')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 
 await silenceChatUpstream()

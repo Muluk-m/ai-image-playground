@@ -10,8 +10,8 @@ import {
 import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import { config } from '../config'
 import { db, schema } from '../db/client'
-import { withAgentLifecycle } from './agent/lifecycle'
-import { runningTurn } from './agent/runningTurns'
+import { withAgentLifecycle } from '../modules/agent'
+import { runningTurn } from '../modules/agent/contracts'
 import type { BffTransaction } from './private-overlay'
 
 const table = schema.canvas_projects

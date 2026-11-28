@@ -3,7 +3,7 @@ import {
   AgentToolError,
   createToolFailureLog,
   queueRefusalCode,
-} from '../../../../lib/agent/tools/errors'
+} from '../../../../modules/agent/contracts'
 
 it('classifies every way a queue submission can be refused', () => {
   expect(queueRefusalCode('insufficient_credits')).toBe('insufficient_credits')

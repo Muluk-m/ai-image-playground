@@ -222,9 +222,9 @@ describe('check-arch-boundaries', () => {
       'modules/agent/tools/web/bad-legacy-tools.ts':
         "import { helper } from '../../../../lib/agent/tools/helper'\nexport const badLT = helper\n",
       'modules/agent/tools/web/bad-shim.ts':
-        "import { ev } from '../../../../lib/agent/events'\nimport { qa } from '../../../../lib/agent/job-artifacts'\nexport const badShim = [ev, qa]\n",
+        "import { ev } from '../../../../lib/agent/events'\nimport { bg } from '../../../../lib/agent/background-jobs'\nexport const badShim = [ev, bg]\n",
       'lib/agent/events.ts': 'export const ev = 1\n',
-      'lib/agent/job-artifacts.ts': 'export const qa = 1\n',
+      'lib/agent/background-jobs.ts': 'export const bg = 1\n',
       'lib/agent/tools/index.ts': 'export const legacyTools = 1\n',
       'lib/agent/turn.ts':
         "import { legacyTools } from './tools'\nexport const badTurnCore = legacyTools\n",
@@ -251,9 +251,9 @@ describe('check-arch-boundaries', () => {
         "import { genTool } from '../../tools/generation/gen'\nexport const badOrchTools = genTool\n",
       'modules/agent/orchestration/production/bad-legacy.ts':
         "import { helper } from '../../../../lib/agent/tools/helper'\nimport { ev } from '../../../../lib/agent/events'\nexport const badOrchLegacy = [helper, ev]\n",
-      'lib/agent/batch-plans.ts': 'export const legacyBatchPlan = 1\n',
+      'lib/agent/inbox-pickup.ts': 'export const legacyPickup = 1\n',
       'modules/agent/runtime/bad-orch.ts':
-        "import { prodVal } from '../orchestration/production/prod-ok'\nimport { legacyBatchPlan } from '../../../lib/agent/batch-plans'\nexport const badRtOrch = [prodVal, legacyBatchPlan]\n",
+        "import { prodVal } from '../orchestration/production/prod-ok'\nimport { legacyPickup } from '../../../lib/agent/inbox-pickup'\nexport const badRtOrch = [prodVal, legacyPickup]\n",
     })
 
     const violations = await checkBffBoundaries(dir)
@@ -437,7 +437,7 @@ describe('check-arch-boundaries', () => {
     expect(
       violations.some((v) =>
         v.includes(
-          '[agent-tools -> legacy-agent-layer] modules/agent/tools/web/bad-shim.ts -> lib/agent/job-artifacts.ts',
+          '[agent-tools -> legacy-agent-layer] modules/agent/tools/web/bad-shim.ts -> lib/agent/background-jobs.ts',
         ),
       ),
     ).toBe(true)
@@ -535,7 +535,7 @@ describe('check-arch-boundaries', () => {
     expect(
       violations.some((v) =>
         v.includes(
-          '[agent-runtime -> legacy-agent-layer] modules/agent/runtime/bad-orch.ts -> lib/agent/batch-plans.ts',
+          '[agent-runtime -> legacy-agent-layer] modules/agent/runtime/bad-orch.ts -> lib/agent/inbox-pickup.ts',
         ),
       ),
     ).toBe(true)

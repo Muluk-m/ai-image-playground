@@ -50,7 +50,7 @@ _setPrivateBffOverlayForTesting({
   },
 })
 const { prepareAnalysisTask, quoteAnalysisTask } = await import('../../lib/analysis-tasks')
-const { confirmAgentBatch } = await import('../../lib/agent/batch-execution')
+const { confirmAgentBatch } = await import('../../modules/agent/orchestration')
 const { runAnalysisTask } = await import('../../workers/analysis-runner')
 const { setChatFetchForTesting } = await import('../../lib/chatCompletion')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
@@ -165,7 +165,7 @@ it('lets the Agent propose concrete generation from real analysis without reserv
       created_at: now,
     })
     await db.insert(schema.agent_batch_items).values(items)
-    const { claimConversationMedia } = await import('../../lib/agent/images')
+    const { claimConversationMedia } = await import('../../modules/agent')
     expect(
       await claimConversationMedia(
         id,
@@ -247,8 +247,8 @@ it('lets the Agent propose concrete generation from real analysis without reserv
         }),
       )
     const prompt = '已检查：原图颜色均匀。保持原件主体颜色，将背景换成纯白。'
-    const { agentTurnTools } = await import('../../lib/agent/tools')
-    const { createAgentImageSource } = await import('../../lib/agent/images')
+    const { agentTurnTools } = await import('../../modules/agent/tools')
+    const { createAgentImageSource } = await import('../../modules/agent')
     const tool = agentTurnTools({
       mode: 'image',
       experience: 'chat',
