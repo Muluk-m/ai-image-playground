@@ -181,17 +181,23 @@ function resolveInternalTarget(
   fromFile: string,
   specifier: string,
 ): string | null {
-  if (!specifier.startsWith('.')) return null
-  const baseDir = dirname(resolve(normalizedRoot, fromFile))
-  const stem = JS_EXTENSION_PATTERN.test(specifier)
-    ? specifier.replace(JS_EXTENSION_PATTERN, '')
-    : null
+  let baseDir: string
+  let rawSpec = specifier
+  if (specifier.startsWith('.')) {
+    baseDir = dirname(resolve(normalizedRoot, fromFile))
+  } else if (specifier.startsWith('@/')) {
+    baseDir = normalizedRoot
+    rawSpec = `./${specifier.slice(2)}`
+  } else {
+    return null
+  }
+  const stem = JS_EXTENSION_PATTERN.test(rawSpec) ? rawSpec.replace(JS_EXTENSION_PATTERN, '') : null
   const candidates = [
-    resolve(baseDir, `${specifier}.ts`),
-    resolve(baseDir, `${specifier}.tsx`),
-    resolve(baseDir, specifier, 'index.ts'),
-    resolve(baseDir, specifier, 'index.tsx'),
-    resolve(baseDir, specifier),
+    resolve(baseDir, `${rawSpec}.ts`),
+    resolve(baseDir, `${rawSpec}.tsx`),
+    resolve(baseDir, rawSpec, 'index.ts'),
+    resolve(baseDir, rawSpec, 'index.tsx'),
+    resolve(baseDir, rawSpec),
     ...(stem ? [resolve(baseDir, `${stem}.ts`), resolve(baseDir, `${stem}.tsx`)] : []),
   ]
   for (const candidate of candidates) {
@@ -822,18 +828,34 @@ export async function checkReadModelsBoundaries(rootDir: string): Promise<string
 
 if (import.meta.main) {
   const repoRoot = resolve(import.meta.dir, '..')
-  const [bffViolations, adminServerViolations, dbViolations, readModelsViolations] =
-    await Promise.all([
-      checkBffBoundaries(resolve(repoRoot, 'apps/bff/src'), { checkStaleAllowlist: true }),
-      checkDirAcyclic(resolve(repoRoot, 'apps/admin/server'), 'apps/admin/server'),
-      checkDirAcyclic(resolve(repoRoot, 'packages/db/src'), 'packages/db/src'),
-      checkReadModelsBoundaries(resolve(repoRoot, 'packages/read-models/src')),
-    ])
+  const [
+    bffViolations,
+    adminServerViolations,
+    adminWebViolations,
+    websiteViolations,
+    dbViolations,
+    readModelsViolations,
+    sharedViolations,
+    nodeKitViolations,
+  ] = await Promise.all([
+    checkBffBoundaries(resolve(repoRoot, 'apps/bff/src'), { checkStaleAllowlist: true }),
+    checkDirAcyclic(resolve(repoRoot, 'apps/admin/server'), 'apps/admin/server'),
+    checkDirAcyclic(resolve(repoRoot, 'apps/admin/src'), 'apps/admin/src'),
+    checkDirAcyclic(resolve(repoRoot, 'apps/website/src'), 'apps/website/src'),
+    checkDirAcyclic(resolve(repoRoot, 'packages/db/src'), 'packages/db/src'),
+    checkReadModelsBoundaries(resolve(repoRoot, 'packages/read-models/src')),
+    checkDirAcyclic(resolve(repoRoot, 'packages/shared/src'), 'packages/shared/src'),
+    checkDirAcyclic(resolve(repoRoot, 'packages/node-kit/src'), 'packages/node-kit/src'),
+  ])
   const allViolations = [
     ...bffViolations,
     ...adminServerViolations,
+    ...adminWebViolations,
+    ...websiteViolations,
     ...dbViolations,
     ...readModelsViolations,
+    ...sharedViolations,
+    ...nodeKitViolations,
   ]
   if (allViolations.length > 0) {
     console.error(

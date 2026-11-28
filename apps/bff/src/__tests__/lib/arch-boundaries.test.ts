@@ -30,17 +30,45 @@ afterEach(() => {
 
 describe('check-arch-boundaries', () => {
   it('passes against the current repository baseline (with stale allowlist ratchet locked)', async () => {
-    const [bffViolations, adminServerViolations, dbViolations, readModelsViolations] =
-      await Promise.all([
-        checkBffBoundaries(resolve(repoRoot, 'apps/bff/src'), { checkStaleAllowlist: true }),
-        checkDirAcyclic(resolve(repoRoot, 'apps/admin/server'), 'apps/admin/server'),
-        checkDirAcyclic(resolve(repoRoot, 'packages/db/src'), 'packages/db/src'),
-        checkReadModelsBoundaries(resolve(repoRoot, 'packages/read-models/src')),
-      ])
+    const [
+      bffViolations,
+      adminServerViolations,
+      adminWebViolations,
+      websiteViolations,
+      dbViolations,
+      readModelsViolations,
+      sharedViolations,
+      nodeKitViolations,
+    ] = await Promise.all([
+      checkBffBoundaries(resolve(repoRoot, 'apps/bff/src'), { checkStaleAllowlist: true }),
+      checkDirAcyclic(resolve(repoRoot, 'apps/admin/server'), 'apps/admin/server'),
+      checkDirAcyclic(resolve(repoRoot, 'apps/admin/src'), 'apps/admin/src'),
+      checkDirAcyclic(resolve(repoRoot, 'apps/website/src'), 'apps/website/src'),
+      checkDirAcyclic(resolve(repoRoot, 'packages/db/src'), 'packages/db/src'),
+      checkReadModelsBoundaries(resolve(repoRoot, 'packages/read-models/src')),
+      checkDirAcyclic(resolve(repoRoot, 'packages/shared/src'), 'packages/shared/src'),
+      checkDirAcyclic(resolve(repoRoot, 'packages/node-kit/src'), 'packages/node-kit/src'),
+    ])
     expect(bffViolations).toEqual([])
     expect(adminServerViolations).toEqual([])
+    expect(adminWebViolations).toEqual([])
+    expect(websiteViolations).toEqual([])
     expect(dbViolations).toEqual([])
     expect(readModelsViolations).toEqual([])
+    expect(sharedViolations).toEqual([])
+    expect(nodeKitViolations).toEqual([])
+  })
+
+  it('detects runtime cycles routed through @/ root path aliases', async () => {
+    const dir = createTempTree({
+      'lib/a.ts': "import { b } from '@/features/b'\nexport const a = b\n",
+      'features/b.ts': "import { a } from '@/lib/a'\nexport const b = a\n",
+    })
+
+    const violations = await checkDirAcyclic(dir, 'apps/example/src')
+    expect(violations).toEqual([
+      '[import-cycle] runtime cycle in apps/example/src: features/b.ts <-> lib/a.ts',
+    ])
   })
 
   it('flags stale allowlist entries when checkStaleAllowlist is enabled while allowing active ones', async () => {
