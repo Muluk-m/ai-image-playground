@@ -85,6 +85,8 @@ export function resolveTimestampExpiry(
 /**
  * 优先盯着会导致积分清零的 `subscription_expires_at`（跨月/年付订阅中它早于套餐结束日）；
  * 当本期套餐积分已用完时，若仍有生效套餐则回落到 `subscription.ends_at`，避免误报「积分清零」。
+ * 若仍有正套餐余额但 `subscription_expires_at` 已过期，说明客户端快照尚未刷新，直接返回 null，
+ * 不回落到更晚的 `subscription.ends_at`，免得旧余额配上数月后的套餐到期日。
  */
 export function resolveCreditExpiry(
   account: UserAccountSnapshot | null | undefined,
@@ -92,9 +94,12 @@ export function resolveCreditExpiry(
 ): CreditExpiryInfo | null {
   const credits = account?.account
   if (credits && credits.subscription_balance > 0) {
-    const info = resolveTimestampExpiry(credits.subscription_expires_at, now)
-    if (info) {
-      return { ...info, kind: 'credits', creditsAtRisk: credits.subscription_balance }
+    if (
+      typeof credits.subscription_expires_at === 'number' &&
+      Number.isFinite(credits.subscription_expires_at)
+    ) {
+      const info = resolveTimestampExpiry(credits.subscription_expires_at, now)
+      return info ? { ...info, kind: 'credits', creditsAtRisk: credits.subscription_balance } : null
     }
   }
   const subscription = account?.subscription
@@ -105,6 +110,37 @@ export function resolveCreditExpiry(
     }
   }
   return null
+}
+
+/** 正余额套餐积分、生效套餐或下一月度发放点已跨过边界，客户端快照需要重新向 BFF 拉取核对。 */
+export function isBillingExpiryStale(
+  account: UserAccountSnapshot | null | undefined,
+  now = Date.now(),
+): boolean {
+  const credits = account?.account
+  if (
+    credits &&
+    credits.subscription_balance > 0 &&
+    typeof credits.subscription_expires_at === 'number' &&
+    Number.isFinite(credits.subscription_expires_at) &&
+    credits.subscription_expires_at <= now
+  ) {
+    return true
+  }
+  const subscription = account?.subscription
+  if (subscription && subscription.status === 'active') {
+    if (Number.isFinite(subscription.ends_at) && subscription.ends_at <= now) {
+      return true
+    }
+    if (
+      typeof subscription.next_grant_at === 'number' &&
+      Number.isFinite(subscription.next_grant_at) &&
+      subscription.next_grant_at <= now
+    ) {
+      return true
+    }
+  }
+  return false
 }
 
 export function formatExpiryCountdown(
