@@ -9,7 +9,7 @@ process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.OPERATOR_CONFIG_FILE = ''
 
 const { config } = await import('../../../config')
-const { omittedReviewNote, prepareReviewImages } = await import('../../../lib/agent/review-images')
+const { omittedReviewNote, prepareReviewImages } = await import('../../../modules/agent')
 type Source = Parameters<typeof prepareReviewImages>[0]
 const operator = config.operator
 
@@ -89,7 +89,7 @@ it('读不出来的必需复核图仍然报错：缺图不能算复核过', asyn
 
 it('shrinks a real 4K PNG larger than the request budget before preparing review evidence', async () => {
   setLimit(16 * 1024 * 1024)
-  const { toPreviewDataUrl } = await import('../../../lib/agent/modelImage')
+  const { toPreviewDataUrl } = await import('../../../modules/agent')
   const png = await sharp(randomBytes(3840 * 2160 * 3), {
     raw: { width: 3840, height: 2160, channels: 3 },
   })
@@ -177,7 +177,7 @@ it('必需复核图失败时等待其它读取结束后再释放准备流程', a
 })
 
 it('批内并行读取仍各自受全局图片准备名额约束，不会绕过 agent:visual-prepare-concurrency', async () => {
-  const { withVisualPreparation } = await import('../../../lib/agent/visual-resources')
+  const { withVisualPreparation } = await import('../../../modules/agent')
   config.operator = {
     ...operator,
     quotas: {

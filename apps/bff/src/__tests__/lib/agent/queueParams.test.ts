@@ -4,7 +4,7 @@ import {
   queueParamsFor,
   requestedImageCount,
   withAspectRatio,
-} from '../../../lib/agent/tools/queueParams'
+} from '../../../modules/agent/contracts'
 
 describe('轮参数映射进队列请求', () => {
   it('size 为 auto 视同没选，不往上游发', () => {

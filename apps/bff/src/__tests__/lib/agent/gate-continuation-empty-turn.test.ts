@@ -23,7 +23,7 @@ const { setAgentFetchForTesting, setAgentRetryBackoffForTesting } = await import
 setAgentRetryBackoffForTesting(0)
 const { startAgentTurn } = await import('../../../lib/agent/turn')
 const { ANONYMOUS_AUDIENCE } = await import('../../../lib/agent/skills')
-const { createAgentConversation } = await import('../../../lib/agent/conversations')
+const { createAgentConversation } = await import('../../../modules/agent')
 const { close: closeDb, db, schema } = await import('../../../db/client')
 const { GATE_CONTINUATION_EMPTY_REPLY } = await import('../../../lib/agent/gate-continuation-empty')
 

@@ -2,6 +2,7 @@ import { resolvedTaskRequestPayload } from '@image-playground/db'
 import type { AgentTurnCost, AgentTurnUsage } from '@image-playground/shared'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
+import { AGENT_EXECUTION_LEASE_MS, agentExecutionToken } from '../../modules/agent'
 import { finishTask, heldBy, insertTaskPayload } from '../../modules/execution'
 import {
   type BffTransaction,
@@ -14,7 +15,6 @@ import {
 import { isCapabilityEnabled } from '../capabilities'
 import { log } from '../logger'
 import { reservedTokenUsage, settledTokenUsage } from '../token-pricing'
-import { AGENT_EXECUTION_LEASE_MS, agentExecutionToken } from './execution'
 import type { AgentTurnSettlement } from './turn'
 
 /** 单价表没登记这个对话模型时的兜底：预扣照样算得出，reserveTask 会以缺单价拒掉这一轮。 */

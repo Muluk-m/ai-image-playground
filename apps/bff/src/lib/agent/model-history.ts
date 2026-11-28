@@ -1,6 +1,13 @@
 import { createHash } from 'node:crypto'
 import type { AgentMessage } from '@earendil-works/pi-agent-core'
 import type { AgentMessageView, AgentMode, AgentThinkingDepth } from '@image-playground/shared'
+import type { AgentContextTransform } from '../../modules/agent'
+import {
+  type AgentHistoryWindow,
+  type AgentOwner,
+  ConversationExecutionLost,
+  listAgentHistoryWindow,
+} from '../../modules/agent'
 import { agentToolDeclarations } from '../../modules/agent/tools'
 import { canonicalJson } from '../canonicalJson'
 import { log } from '../logger'
@@ -8,9 +15,6 @@ import { objectStore, readObjectWithinLimit } from '../objectStore'
 import type { TaskOutcome } from '../private-overlay'
 import { isObject } from '../type-guards'
 import { type CompactionSettings, compactionBudget, contextSizeTokens } from './compaction'
-import type { AgentContextTransform } from './compaction-transform'
-import { type AgentHistoryWindow, type AgentOwner, listAgentHistoryWindow } from './conversations'
-import { ConversationExecutionLost } from './execution'
 import { rewriteInlineReasoning } from './inline-reasoning'
 import { agentInlineReasoningTags } from './model-limits'
 import { replayedSkillTexts } from './skill-loader'

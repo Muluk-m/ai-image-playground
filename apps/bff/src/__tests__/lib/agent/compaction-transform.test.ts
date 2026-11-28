@@ -29,13 +29,11 @@ const { ChatTimeoutError, setChatFetchForTesting, setChatRetryBackoffForTesting 
 )
 // 这几条测试故意让上游 502/503：重试真退避要花掉一秒半墙钟，换不来任何确定性。
 setChatRetryBackoffForTesting(0)
-const { createCompactionTransform } = await import('../../../lib/agent/compaction-transform')
+const { createCompactionTransform } = await import('../../../modules/agent')
 const { compactionSettings } = await import('../../../lib/agent/compaction-settings')
 const { agentModel } = await import('../../../lib/agent/model')
 const SETTINGS = compactionSettings(agentModel())
-const { createAgentConversation, loadAgentCompaction } = await import(
-  '../../../lib/agent/conversations'
-)
+const { createAgentConversation, loadAgentCompaction } = await import('../../../modules/agent')
 const { close: closeDb, db, schema } = await import('../../../db/client')
 
 const NARRATIVE = {
@@ -321,7 +319,7 @@ it('rejects a visual fold before persisting its summary or advancing the durable
 })
 
 it('still folds old text while the current image remains available to the model', async () => {
-  const { createVisualWorkset } = await import('../../../lib/agent/visual-workset')
+  const { createVisualWorkset } = await import('../../../modules/agent')
   setChatFetchForTesting(chatFetchReturning(chatCompletion(JSON.stringify(NARRATIVE))))
   const id = await conversationId()
   const transform = createCompactionTransform({

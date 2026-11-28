@@ -14,6 +14,40 @@ import {
 import { and, asc, eq } from 'drizzle-orm'
 import { config } from '../../config'
 import { db, schema } from '../../db/client'
+import type { TurnExecution } from '../../modules/agent'
+import {
+  type AgentHistoryWindow,
+  type AgentOwner,
+  appendAgentMessage,
+  archiveAgentReferences,
+  consecutiveAgentWakes,
+  consumeAgentMessage,
+  listAgentHistoryWindow,
+  listAgentTurnMessages,
+  pendingAgentWakes,
+  type QueuedResume,
+  type QueuedUserMessage,
+  type QueuedWake,
+  readConversationStateFacts,
+  removeAgentTurnReferences,
+  renderConversationState,
+  setAgentConversationTitle,
+  wakePlan,
+} from '../../modules/agent'
+import {
+  mergedWakePrompt,
+  wakeAuthorizationPrompt,
+  wakeJobs,
+  wakeReviewImageIds,
+  wakeTurnPrompt,
+  wakeTurnSetup,
+} from '../../modules/agent/contracts'
+import {
+  BATCH_WAKE_REVIEW_IMAGE_MAX,
+  batchWakeContent,
+  confirmedMaskProposalParams,
+  stageRunWakeContent,
+} from '../../modules/agent/orchestration'
 import { createSubmissionReplay, resolveAgentMode } from '../../modules/agent/tools'
 import {
   type BffTransaction,
@@ -27,7 +61,6 @@ import { meteringDecisionOrDenied } from '../metering-decision'
 import { modelUnavailable, refreshInactiveModels } from '../model-availability'
 import { isObject } from '../type-guards'
 import { clearAgentWakeSkippedForWakes } from './background-jobs'
-import { BATCH_WAKE_REVIEW_IMAGE_MAX, batchWakeContent } from './batch-wake'
 import {
   type ChatTaskPricing,
   type ChatTaskReserved,
@@ -37,28 +70,8 @@ import {
   reserveChatTask,
 } from './chat-task'
 import { voidPendingToolGates } from './confirmations'
-import { readConversationStateFacts, renderConversationState } from './conversation-state'
-import {
-  type AgentHistoryWindow,
-  type AgentOwner,
-  appendAgentMessage,
-  listAgentHistoryWindow,
-  listAgentTurnMessages,
-  setAgentConversationTitle,
-} from './conversations'
-import type { TurnExecution } from './execution'
 import { loadAgentExperience, loadAgentSurface, recordAgentExperience } from './experience'
-import { archiveAgentReferences, removeAgentTurnReferences } from './images'
-import {
-  consecutiveAgentWakes,
-  consumeAgentMessage,
-  pendingAgentWakes,
-  type QueuedResume,
-  type QueuedUserMessage,
-  type QueuedWake,
-} from './inbox'
 import { interruptedSubmissions, resumeTurnPrompt } from './interrupted'
-import { confirmedMaskProposalParams } from './mask-proposal'
 import {
   canRetainModelHistory,
   modelHistorySignature,
@@ -75,7 +88,6 @@ import {
   loadAgentTurnAudience,
   titleSourceText,
 } from './skills'
-import { stageRunWakeContent } from './stage-runs'
 import { agentToolGateActive, gateContinuation } from './tool-gate'
 import type { PreparedAgentTurn } from './turn'
 import {
@@ -85,15 +97,6 @@ import {
   estimateTurnInputTokens,
   promptAutoSubmit,
 } from './turn-input'
-import { wakePlan } from './wake'
-import {
-  mergedWakePrompt,
-  wakeAuthorizationPrompt,
-  wakeJobs,
-  wakeReviewImageIds,
-  wakeTurnPrompt,
-  wakeTurnSetup,
-} from './wake-prompt'
 
 /**
  * 起一轮之前要做的全部事：计费门禁、取历史与受众、定价、把这一轮折成一份轮输入、按它估算并

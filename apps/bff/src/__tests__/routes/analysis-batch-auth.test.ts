@@ -50,7 +50,7 @@ _setPrivateBffOverlayForTesting({
 })
 const { prepareAnalysisTask, quoteAnalysisTask } = await import('../../lib/analysis-tasks')
 const { confirmAgentBatch, advanceAgentBatches, controlAgentBatch } = await import(
-  '../../lib/agent/batch-execution'
+  '../../modules/agent/orchestration'
 )
 const { runAnalysisTask } = await import('../../workers/analysis-runner')
 const { setChatFetchForTesting } = await import('../../lib/chatCompletion')

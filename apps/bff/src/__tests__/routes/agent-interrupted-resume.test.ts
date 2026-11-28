@@ -41,10 +41,10 @@ const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { workerSettles } = await import('../helpers/taskWorker')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
-const { runningTurn } = await import('../../lib/agent/runningTurns')
-const { AGENT_EXECUTION_LEASE_MS } = await import('../../lib/agent/execution')
+const { runningTurn } = await import('../../modules/agent/contracts')
+const { AGENT_EXECUTION_LEASE_MS } = await import('../../modules/agent')
 const { hydrateInputImages } = await import('../../lib/imageArchive')
-const { imageSelection } = await import('../../lib/agent/selection-preview')
+const { imageSelection } = await import('../../modules/agent')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )

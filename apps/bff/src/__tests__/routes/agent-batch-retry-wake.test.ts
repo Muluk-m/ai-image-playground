@@ -222,7 +222,7 @@ it('retry v2 wakes with the approved second attempt success and its own charge',
     )
   })
   await runTask(firstTask)
-  const { reconcileAgentBatchProgress } = await import('../../lib/agent/batch-progress')
+  const { reconcileAgentBatchProgress } = await import('../../modules/agent/orchestration')
   await reconcileAgentBatchProgress(batches[0].id)
   expect(await pickUpStrandedInboxes()).toBe(1)
   await waitFor(async () => calls.length === 3 && (await settled()))
@@ -298,7 +298,7 @@ it('retry v2 wakes with the approved second attempt success and its own charge',
   expect(wake).toBeDefined()
   if (!wake || wake.kind !== 'task_result' || !('batch' in wake.payload) || !wake.payload.batch)
     throw new Error('retry wake missing')
-  const { batchWakeSummary } = await import('../../lib/agent/batch-wake')
+  const { batchWakeSummary } = await import('../../modules/agent/orchestration')
   const summary = await batchWakeSummary(
     conversation.id,
     { kind: 'user', userId: 'batch-wake-owner' },

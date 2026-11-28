@@ -12,10 +12,10 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
 )
 
 // 动态引入：环境要先钉死，再让捕获配置的模块加载；静态 import 会在赋值之前就把配置读走。
-const { webFetch } = await import('../../../../lib/agent/tools/webFetch')
+const { webFetch } = await import('../../../../modules/agent/tools')
 const { _setSafeFetchForTesting } = await import('../../../../lib/safeFetch')
-const { createAgentImageSource } = await import('../../../../lib/agent/images')
-const { agentTurnTools } = await import('../../../../lib/agent/tools')
+const { createAgentImageSource } = await import('../../../../modules/agent')
+const { agentTurnTools } = await import('../../../../modules/agent/tools')
 
 const PAGE_URL = 'https://shop.example.com/products/chair?v=2'
 

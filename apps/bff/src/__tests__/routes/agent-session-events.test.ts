@@ -33,7 +33,7 @@ const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { appendAgentTurnEvents, SEAL_SEQ_GAP } = await import('../../lib/agent/events')
-const { AGENT_EXECUTION_LEASE_MS, agentInstance } = await import('../../lib/agent/execution')
+const { AGENT_EXECUTION_LEASE_MS, agentInstance } = await import('../../modules/agent')
 const { close: closeDb, db, schema } = await import('../../db/client')
 
 await silenceChatUpstream()

@@ -17,8 +17,8 @@ process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
-const { createAgentImageSource } = await import('../../../lib/agent/images')
-const { createAgentConversation } = await import('../../../lib/agent/conversations')
+const { createAgentImageSource } = await import('../../../modules/agent')
+const { createAgentConversation } = await import('../../../modules/agent')
 const { close: closeDb, db, schema } = await import('../../../db/client')
 
 const DEVICE = { kind: 'device', deviceId: 'device-abcdefgh' } as const

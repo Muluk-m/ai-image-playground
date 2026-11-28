@@ -31,13 +31,13 @@ const { agentRoutes } = await import('../../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../../lib/agent/model')
 const { setObjectStoreForTesting } = await import('../../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../../db/client')
-const { enqueueAgentUserMessage } = await import('../../../lib/agent/inbox')
-const { appendAgentMessage } = await import('../../../lib/agent/conversations')
+const { enqueueAgentUserMessage } = await import('../../../modules/agent')
+const { appendAgentMessage } = await import('../../../modules/agent')
 const { pickUpStrandedInboxes, strandedInboxConversations } = await import(
   '../../../lib/agent/inbox-pickup'
 )
 const { bffDrain } = await import('../../../lib/drain')
-const { settleAgentBackgroundWorkForTesting } = await import('../../../lib/agent/background-work')
+const { settleAgentBackgroundWorkForTesting } = await import('../../../modules/agent/contracts')
 
 await silenceChatUpstream()
 

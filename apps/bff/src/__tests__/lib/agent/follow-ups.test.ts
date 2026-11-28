@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { resetTestDatabase } from '@image-playground/db/testing'
 import type { AgentMessageView } from '@image-playground/shared'
-import { settleAgentBackgroundWorkForTesting } from '../../../lib/agent/background-work'
+import { settleAgentBackgroundWorkForTesting } from '../../../modules/agent/contracts'
 
 process.env.DATABASE_URL = await resetTestDatabase('bff_agent_follow_ups')
 process.env.PORT = '0'
@@ -20,12 +20,8 @@ const {
 const { ChatTimeoutError, ChatUpstreamError, setChatFetchForTesting } = await import(
   '../../../lib/chatCompletion'
 )
-const { listAgentTurnSummaries, recordAgentTurnSummary } = await import(
-  '../../../lib/agent/turn-summary'
-)
-const { appendAgentMessage, createAgentConversation } = await import(
-  '../../../lib/agent/conversations'
-)
+const { listAgentTurnSummaries, recordAgentTurnSummary } = await import('../../../modules/agent')
+const { appendAgentMessage, createAgentConversation } = await import('../../../modules/agent')
 const { close: closeDb, db, schema } = await import('../../../db/client')
 
 function message(role: 'user' | 'assistant', text: string, createdAt: number): AgentMessageView {

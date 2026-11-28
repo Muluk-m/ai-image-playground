@@ -34,7 +34,7 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../agent-operator-c
 const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
-const { createAgentImageSource } = await import('../../lib/agent/images')
+const { createAgentImageSource } = await import('../../modules/agent')
 const { close: closeDb, db, schema } = await import('../../db/client')
 
 await silenceChatUpstream()

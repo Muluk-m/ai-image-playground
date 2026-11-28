@@ -8,7 +8,7 @@ import type {
 } from '@image-playground/shared'
 import sharp from 'sharp'
 import { Value } from 'typebox/value'
-import type { AgentToolContext } from '../../../lib/agent/tools/types'
+import type { AgentToolContext } from '../../../modules/agent/contracts'
 
 process.env.DATABASE_URL = await resetTestDatabase('agent_mask_proposal')
 process.env.PORT = '0'
@@ -29,9 +29,9 @@ const {
   maskProposalFailedText,
   maskProposalTool,
   seedPoints,
-} = await import('../../../lib/agent/mask-proposal')
-const { maskedEditSize } = await import('../../../lib/agent/masked-input')
-const { protectMaskedOutput } = await import('../../../lib/agent/masked-output')
+} = await import('../../../modules/agent/orchestration')
+const { maskedEditSize } = await import('../../../modules/agent/orchestration/masked/pure')
+const { protectMaskedOutput } = await import('../../../modules/agent/orchestration/masked/pure')
 const {
   boxAgreement,
   boxOverlap,
@@ -50,7 +50,7 @@ const {
   setSegmenterFetchForTesting,
   shapeMask,
   unpackMaskBits,
-} = await import('../../../lib/agent/segmentation')
+} = await import('../../../modules/agent/orchestration')
 const { config } = await import('../../../config')
 const { close: closeDb } = await import('../../../db/client')
 

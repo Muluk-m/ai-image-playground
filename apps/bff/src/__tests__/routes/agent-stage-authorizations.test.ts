@@ -91,7 +91,7 @@ const { createUserSession, hashSessionToken, USER_SESSION_COOKIE } = await impor
   '../../lib/user-session'
 )
 const { finishLogout } = await import('../../routes/auth')
-const { createNodes, runNodes } = await import('../../lib/agent/tools/nodeCanvas')
+const { createNodes, runNodes } = await import('../../modules/agent/tools')
 const { accessCanvasDocument } = await import('../../lib/canvasSyncStore')
 const {
   STAGE_AUTHORIZATION_ACTIVE_TTL_MS,
@@ -101,8 +101,8 @@ const {
   proposeStageAuthorization,
   stageAuthorizationInFlightTaskIds,
   stageBindingAccepts,
-} = await import('../../lib/agent/stage-authorizations')
-const { createAgentImageSource } = await import('../../lib/agent/images')
+} = await import('../../modules/agent/orchestration')
+const { createAgentImageSource } = await import('../../modules/agent')
 let cookie: string
 beforeAll(async () => {
   await db.insert(schema.users).values({

@@ -28,7 +28,7 @@ const {
   ensureAgentSkills,
   readAgentSkillFile,
 } = await import('../../../lib/agent/skills')
-const { agentToolDeclarations } = await import('../../../lib/agent/tools')
+const { agentToolDeclarations } = await import('../../../modules/agent/tools')
 const { turnInitialState } = await import('../../../lib/agent/turn-input')
 const { _setChannelsForTesting } = await import('../../../lib/channels')
 

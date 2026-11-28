@@ -118,9 +118,9 @@ const VIDEO_NODE = [{ id: 'v', type: 'video', videoMode: 'text', prompt: '缓慢
 const { db, schema, close } = await import('../../db/client')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
-const { createNodes, runNodes } = await import('../../lib/agent/tools/nodeCanvas')
-const { createAgentImageSource } = await import('../../lib/agent/images')
-const { stageRunWakeContent } = await import('../../lib/agent/stage-runs')
+const { createNodes, runNodes } = await import('../../modules/agent/tools')
+const { createAgentImageSource } = await import('../../modules/agent')
+const { stageRunWakeContent } = await import('../../modules/agent/orchestration')
 const { accessCanvasDocument } = await import('../../lib/canvasSyncStore')
 
 await silenceChatUpstream()

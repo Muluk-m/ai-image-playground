@@ -99,9 +99,9 @@ it.each([
       )
       references.push({ imageId, mediaId: media.id })
     }
-    const { createAgentImageSource } = await import('../../lib/agent/images')
-    const { planImageBatch } = await import('../../lib/agent/tools/planImageBatch')
-    const { toolResultBlock } = await import('../../lib/agent/tools/adapter')
+    const { createAgentImageSource } = await import('../../modules/agent')
+    const { planImageBatch } = await import('../../modules/agent/tools')
+    const { toolResultBlock } = await import('../../modules/agent/tools')
     let dispatched = 0
     setChatFetchForTesting(async () => {
       dispatched++
@@ -192,7 +192,7 @@ it.each([
       ).toHaveLength(0)
       return
     }
-    const { proposeBatchAnalysis } = await import('../../lib/agent/tools/proposeBatchAnalysis')
+    const { proposeBatchAnalysis } = await import('../../modules/agent/tools')
     const tool = (phase === 'initial' ? planImageBatch : proposeBatchAnalysis).create({
       mode: 'image',
       userId: id,

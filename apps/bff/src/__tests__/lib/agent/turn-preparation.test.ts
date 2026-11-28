@@ -33,15 +33,13 @@ const experienceOf = async (...args: Parameters<typeof loadAgentExperience>) =>
   (await loadAgentExperience(...args)).experience
 const { startAgentTurn } = await import('../../../lib/agent/turn')
 const { claimConversation, ConversationExecutionLost, releaseConversation, turnExecution } =
-  await import('../../../lib/agent/execution')
+  await import('../../../modules/agent')
 const { chatTaskPricing, reservedChatUsage } = await import('../../../lib/agent/chat-task')
 const { estimateTurnInputTokens, turnPromptBody } = await import('../../../lib/agent/turn-input')
 const { setAgentFetchForTesting } = await import('../../../lib/agent/model')
-const { appendAgentMessage, createAgentConversation } = await import(
-  '../../../lib/agent/conversations'
-)
+const { appendAgentMessage, createAgentConversation } = await import('../../../modules/agent')
 const { enqueueAgentResume, enqueueAgentUserMessage, enqueueAgentWake, nextAgentInboxEntry } =
-  await import('../../../lib/agent/inbox')
+  await import('../../../modules/agent')
 const { setAgentSkillsRootForTesting } = await import('../../../lib/agent/skills')
 const { _setPrivateBffOverlayForTesting, loadPrivateBffOverlay } = await import(
   '../../../lib/private-overlay'
@@ -81,7 +79,7 @@ async function useChatQuota(mode: 'credits' | 'none', quota = 1) {
   )
 }
 
-type AgentOwner = import('../../../lib/agent/conversations').AgentOwner
+type AgentOwner = import('../../../modules/agent').AgentOwner
 type AgentTurnSource = import('../../../lib/agent/turn-preparation').AgentTurnSource
 type PreparedAgentTurn = import('../../../lib/agent/turn').PreparedAgentTurn
 type TurnPreparation = import('../../../lib/agent/turn-preparation').TurnPreparation

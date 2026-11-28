@@ -30,14 +30,14 @@ const { setChatFetchForTesting, setChatRetryBackoffForTesting } = await import(
 // 这几条测试故意让上游 502/503：重试真退避要花掉一秒半墙钟，换不来任何确定性。
 setChatRetryBackoffForTesting(0)
 const { startAgentTurn } = await import('../../../lib/agent/turn')
-const { turnExecution } = await import('../../../lib/agent/execution')
+const { turnExecution } = await import('../../../modules/agent')
 const { ANONYMOUS_AUDIENCE } = await import('../../../lib/agent/skills')
-const { createAgentConversation } = await import('../../../lib/agent/conversations')
+const { createAgentConversation } = await import('../../../modules/agent')
 const { close: closeDb, db, schema } = await import('../../../db/client')
 
 const { config } = await import('../../../config')
 const { systemPrompt } = await import('../../../lib/agent/turn-input')
-const { agentToolDeclarations } = await import('../../../lib/agent/tools')
+const { agentToolDeclarations } = await import('../../../modules/agent/tools')
 const { requestOverheadTokens } = await import('../../../lib/agent/request-budget')
 // Reserve 1500 output/buffer tokens and 300 for compacted history; catalog growth must not change this fixture's purpose.
 config.agent.contextWindow =

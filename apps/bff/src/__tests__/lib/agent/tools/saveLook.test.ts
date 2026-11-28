@@ -1,7 +1,7 @@
 import { expect, it } from 'bun:test'
 import { resolve } from 'node:path'
 import type { AgentTurnParams } from '@image-playground/shared'
-import type { AgentToolContext } from '../../../../lib/agent/tools/types'
+import type { AgentToolContext } from '../../../../modules/agent/contracts'
 
 // 只拼卡片，一条 SQL 都不发；库名故意不可达，真连上就会立刻炸出来。
 process.env.DATABASE_URL = 'postgres://unused/agent-save-look'
@@ -12,8 +12,8 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../../../sync-opera
 
 // 动态引入：环境要先钉死，再让捕获配置的模块加载。
 const { _setChannelsForTesting } = await import('../../../../lib/channels')
-const { saveLook } = await import('../../../../lib/agent/tools/saveLook')
-const { createAgentImageSource } = await import('../../../../lib/agent/images')
+const { saveLook } = await import('../../../../modules/agent/tools')
+const { createAgentImageSource } = await import('../../../../modules/agent')
 
 _setChannelsForTesting([
   {

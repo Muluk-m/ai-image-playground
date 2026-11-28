@@ -99,76 +99,15 @@ const AGENT_LAYER_RANK: Readonly<Record<string, number>> = {
 /** `modules/agent/orchestration/` 内部允许的跨子域方向（仅 `batch -> masked`）。 */
 const ALLOWED_ORCHESTRATION_SUBDOMAIN_EDGES = new Set(['batch -> masked'])
 
-/** 已迁入 `modules/agent/{contracts,conversation,inbox,runtime,orchestration}` 的旧 `lib/agent/*` 兼容壳，工具层与编排层禁止回流依赖。 */
+/**
+ * 已迁入 `modules/agent/*` 但仍保留运行时装配/兜底逻辑的 4 个过渡文件（ADR 0036 Wave 2 已清除其余 98 个
+ * `lib/agent/*` 纯重导出壳与 `lib/task-access.ts`），工具层、运行时与编排层禁止回流依赖。
+ */
 const LEGACY_AGENT_MIGRATED_SHIMS = new Set([
   'lib/agent/background-jobs.ts',
-  'lib/agent/background-work.ts',
-  'lib/agent/batch-analysis-limit.ts',
-  'lib/agent/batch-analysis-preparation.ts',
-  'lib/agent/batch-analysis-proposal.ts',
-  'lib/agent/batch-analysis-sources.ts',
-  'lib/agent/batch-analysis-summary.ts',
-  'lib/agent/batch-dependencies.ts',
-  'lib/agent/batch-execution.ts',
-  'lib/agent/batch-generation-proposal.ts',
-  'lib/agent/batch-items.ts',
-  'lib/agent/batch-phase-edit.ts',
-  'lib/agent/batch-plan-revision.ts',
-  'lib/agent/batch-plans.ts',
-  'lib/agent/batch-progress.ts',
-  'lib/agent/batch-wake.ts',
-  'lib/agent/compaction-transform.ts',
-  'lib/agent/conversation-images.ts',
-  'lib/agent/conversation-state.ts',
-  'lib/agent/conversations.ts',
   'lib/agent/events.ts',
-  'lib/agent/execution.ts',
-  'lib/agent/images.ts',
   'lib/agent/inbox-pickup.ts',
-  'lib/agent/inbox.ts',
-  'lib/agent/job-artifacts.ts',
-  'lib/agent/lifecycle.ts',
-  'lib/agent/mask-proposal.ts',
-  'lib/agent/mask-regions.ts',
-  'lib/agent/masked-alignment.ts',
-  'lib/agent/masked-boundary.ts',
-  'lib/agent/masked-edit-settings.ts',
-  'lib/agent/masked-edit.ts',
-  'lib/agent/masked-input.ts',
-  'lib/agent/masked-output.ts',
-  'lib/agent/masked-plan.ts',
-  'lib/agent/modelImage.ts',
-  'lib/agent/production-asset-validation.ts',
-  'lib/agent/production-assets.ts',
-  'lib/agent/production-clips.ts',
-  'lib/agent/production-dependencies.ts',
-  'lib/agent/production-dependency-refresh.ts',
-  'lib/agent/production-export.ts',
-  'lib/agent/production-generation-binding.ts',
-  'lib/agent/production-generation-validation.ts',
-  'lib/agent/production-generation.ts',
-  'lib/agent/production-references.ts',
-  'lib/agent/production-shot-validation.ts',
-  'lib/agent/production-storyboard.ts',
-  'lib/agent/production.ts',
-  'lib/agent/review-images.ts',
-  'lib/agent/runningTurns.ts',
-  'lib/agent/segment-rate-limit.ts',
-  'lib/agent/segmentation.ts',
-  'lib/agent/selection-preview.ts',
-  'lib/agent/selection-settings.ts',
-  'lib/agent/sse.ts',
-  'lib/agent/stage-authorizations.ts',
-  'lib/agent/stage-runs.ts',
-  'lib/agent/tool-gate-records.ts',
-  'lib/agent/turn-failure.ts',
-  'lib/agent/turn-summary.ts',
   'lib/agent/turn.ts',
-  'lib/agent/visual-input.ts',
-  'lib/agent/visual-resources.ts',
-  'lib/agent/visual-workset.ts',
-  'lib/agent/wake-prompt.ts',
-  'lib/agent/wake.ts',
 ])
 
 /** ADR 0034 Phase 4 PR-4.3：`modules/agent/runtime/` 单文件扇出硬上限（严格 < 12）。 */
@@ -259,6 +198,40 @@ function scanAllSpecifiers(file: string, text: string): string[] {
   return [...specifiers]
 }
 
+function isPureLegacyReexportShim(
+  normalizedRoot: string,
+  file: string,
+  text: string,
+): string | null {
+  if (!file.startsWith('lib/')) return null
+  const sourceFile = ts.createSourceFile(
+    file,
+    text,
+    ts.ScriptTarget.Latest,
+    false,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+  if (sourceFile.statements.length === 0) return null
+  let shimTarget: string | null = null
+  for (const stmt of sourceFile.statements) {
+    if (
+      !ts.isExportDeclaration(stmt) ||
+      !stmt.moduleSpecifier ||
+      !ts.isStringLiteral(stmt.moduleSpecifier)
+    ) {
+      return null
+    }
+    const spec = stmt.moduleSpecifier.text
+    const resolved = resolveInternalTarget(normalizedRoot, file, spec)
+    const pointsToModule = resolved !== null && resolved.startsWith('modules/')
+    const pointsToShared =
+      spec === '@image-playground/shared' || spec.startsWith('@image-playground/shared/')
+    if (!pointsToModule && !pointsToShared) return null
+    shimTarget ??= resolved ?? spec
+  }
+  return shimTarget
+}
+
 interface ImportGraphs {
   files: string[]
   /** 仅运行时依赖（忽略纯类型导入），用于检测运行时循环依赖。 */
@@ -267,6 +240,8 @@ interface ImportGraphs {
   allAdjacency: Map<string, string[]>
   /** 每个源文件去重后的总导入模块数（含外部包与本地模块），用于单文件扇出门禁。 */
   specifierCounts: Map<string, number>
+  /** `lib/` 下仅包含指向 `modules/` 或 `@image-playground/shared` 的纯重导出壳及其目标。 */
+  pureLegacyShims: Map<string, string>
 }
 
 export interface BuildImportGraphsOptions {
@@ -287,6 +262,7 @@ async function buildImportGraphs(
       runtimeAdjacency: new Map(),
       allAdjacency: new Map(),
       specifierCounts: new Map(),
+      pureLegacyShims: new Map(),
     }
   }
 
@@ -300,6 +276,7 @@ async function buildImportGraphs(
   const runtimeAdjacency = new Map<string, string[]>()
   const allAdjacency = new Map<string, string[]>()
   const specifierCounts = new Map<string, number>()
+  const pureLegacyShims = new Map<string, string>()
   for (const file of files) {
     const text = await Bun.file(resolve(normalizedRoot, file)).text()
     const transpiler = file.endsWith('.tsx') ? tsxTranspiler : tsTranspiler
@@ -324,8 +301,10 @@ async function buildImportGraphs(
     runtimeAdjacency.set(file, [...runtimeTargets].sort())
     allAdjacency.set(file, [...allTargets].sort())
     specifierCounts.set(file, allSpecifiers.length)
+    const shimTarget = isPureLegacyReexportShim(normalizedRoot, file, text)
+    if (shimTarget) pureLegacyShims.set(file, shimTarget)
   }
-  return { files, runtimeAdjacency, allAdjacency, specifierCounts }
+  return { files, runtimeAdjacency, allAdjacency, specifierCounts, pureLegacyShims }
 }
 
 export function findStronglyConnectedCycles(
@@ -403,9 +382,14 @@ export async function checkBffBoundaries(
   bffRoot: string,
   options?: CheckBffBoundariesOptions,
 ): Promise<string[]> {
-  const { files, runtimeAdjacency, allAdjacency, specifierCounts } =
+  const { files, runtimeAdjacency, allAdjacency, specifierCounts, pureLegacyShims } =
     await buildImportGraphs(bffRoot)
   const violations: string[] = []
+  for (const [shimFile, target] of pureLegacyShims) {
+    violations.push(
+      `[legacy-shim] ${shimFile} -> ${target} is a pure re-export shim under lib/ (import canonical target directly)`,
+    )
+  }
   const seenRouteToDb = new Set<string>()
   const seenDbToOutside = new Set<string>()
   const seenExecutionToLegacyLib = new Set<string>()

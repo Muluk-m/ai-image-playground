@@ -50,7 +50,7 @@ _setPrivateBffOverlayForTesting({
   },
 })
 const { prepareAnalysisTask, quoteAnalysisTask } = await import('../../lib/analysis-tasks')
-const { confirmAgentBatch } = await import('../../lib/agent/batch-execution')
+const { confirmAgentBatch } = await import('../../modules/agent/orchestration')
 const { runAnalysisTask } = await import('../../workers/analysis-runner')
 const { setChatFetchForTesting } = await import('../../lib/chatCompletion')
 const { setDurableMediaStoreForTesting } = await import('../../lib/durableMediaStore')
@@ -165,7 +165,7 @@ it('re-quotes an edited pending generation phase without changing completed anal
       created_at: now,
     })
     await db.insert(schema.agent_batch_items).values(items)
-    const { claimConversationMedia } = await import('../../lib/agent/images')
+    const { claimConversationMedia } = await import('../../modules/agent')
     expect(
       await claimConversationMedia(
         id,

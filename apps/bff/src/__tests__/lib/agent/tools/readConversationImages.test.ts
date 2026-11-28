@@ -17,14 +17,14 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
 const billing = installRecordingTaskHooks()
 const { db, schema, close } = await import('../../../../db/client')
 const { agentTurnTools, agentToolDeclarations, agentToolGuidance } = await import(
-  '../../../../lib/agent/tools'
+  '../../../../modules/agent/tools'
 )
-const { createAgentImageSource } = await import('../../../../lib/agent/images')
-const { readAgentBatchPlan } = await import('../../../../lib/agent/batch-plans')
+const { createAgentImageSource } = await import('../../../../modules/agent')
+const { readAgentBatchPlan } = await import('../../../../modules/agent/orchestration')
 const { _setChannelsForTesting } = await import('../../../../lib/channels')
 const { setDurableMediaStoreForTesting } = await import('../../../../lib/durableMediaStore')
 const { setObjectStoreForTesting } = await import('../../../../lib/objectStore')
-const { appendAgentMessage } = await import('../../../../lib/agent/conversations')
+const { appendAgentMessage } = await import('../../../../modules/agent')
 
 const USER = 'conversation-images-owner'
 const CONVERSATION = 'conversation-images-main'

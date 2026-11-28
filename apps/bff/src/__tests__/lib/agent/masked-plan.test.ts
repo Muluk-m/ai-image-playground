@@ -3,7 +3,7 @@ import {
   createMaskedEditPlan,
   type MaskedEditContent,
   mergeMaskedPlanCarries,
-} from '../../../lib/agent/masked-plan'
+} from '../../../modules/agent/contracts'
 
 const CONTENT: MaskedEditContent = {
   imageIds: ['target', 'reference'],

@@ -37,7 +37,7 @@ const { agentRoutes } = await import('../../routes/agent')
 const { setAgentFetchForTesting } = await import('../../lib/agent/model')
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../db/client')
-const { appendAgentMessage } = await import('../../lib/agent/conversations')
+const { appendAgentMessage } = await import('../../modules/agent')
 
 await silenceChatUpstream()
 

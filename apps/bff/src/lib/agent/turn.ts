@@ -6,6 +6,13 @@ import {
 } from '../../modules/agent'
 import type { RunningTurn } from '../../modules/agent/contracts'
 import {
+  AGENT_MASK_PROPOSAL_TOOL,
+  maskProposalFailedText,
+  maskProposalFromResult,
+  maskProposalGuidance,
+  maskProposalRetryable,
+} from '../../modules/agent/orchestration'
+import {
   agentToolEnd,
   agentToolStart,
   agentTurnTools,
@@ -13,13 +20,6 @@ import {
 } from '../../modules/agent/tools'
 import { CONFIRMED_EDIT_CALL_PREFIX, confirmedMaskEditCall, toolCallStream } from './confirmed-edit'
 import { directImageCall } from './direct-image'
-import {
-  AGENT_MASK_PROPOSAL_TOOL,
-  maskProposalFailedText,
-  maskProposalFromResult,
-  maskProposalGuidance,
-  maskProposalRetryable,
-} from './mask-proposal'
 import { modelHistoryTransform, saveModelHistoryAfterTurn } from './model-history'
 import { createTurnAuthorization } from './turn-authorization'
 import {

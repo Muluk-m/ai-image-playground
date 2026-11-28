@@ -18,7 +18,7 @@ const {
   conversationExecution,
   releaseConversation,
   withConversationExecution,
-} = await import('../../lib/agent/execution')
+} = await import('../../modules/agent')
 
 beforeEach(async () => {
   await db.delete(schema.tasks)

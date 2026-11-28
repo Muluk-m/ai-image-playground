@@ -1,5 +1,5 @@
 import { beforeEach } from 'bun:test'
-import { settleAgentTailsForTesting } from '../../lib/agent/background-work'
+import { settleAgentTailsForTesting } from '../../modules/agent/contracts'
 
 /**
  * 每个用例开始前（先于测试文件自己的 beforeEach 清库）把上一个用例留下的工作收干净：还在跑的轮

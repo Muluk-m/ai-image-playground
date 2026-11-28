@@ -9,7 +9,7 @@ import {
 } from '@image-playground/shared'
 import { eq } from 'drizzle-orm'
 import { Elysia } from 'elysia'
-import { queueParamsFor } from '../../lib/agent/tools/queueParams'
+import { queueParamsFor } from '../../modules/agent/contracts'
 import {
   type AgentCall,
   completion,

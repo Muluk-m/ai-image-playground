@@ -18,7 +18,7 @@ process.env.UPSTREAM_API_KEY = 'test-key'
 const { productionRoutes } = await import('../../routes/production')
 const { db, schema, close } = await import('../../db/client')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
-const { createAgentConversation } = await import('../../lib/agent/conversations')
+const { createAgentConversation } = await import('../../modules/agent')
 const app = new Elysia().use(productionRoutes)
 async function account(id: string) {
   await db.insert(schema.users).values({

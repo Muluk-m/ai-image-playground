@@ -880,8 +880,8 @@ it('读取生成批次的分析时照常回执没有分析项，不报参数错�
     })
   ).text()
   const { batches } = await (await request(`agent/conversations/${conversation.id}/batches`)).json()
-  const { agentTurnTools } = await import('../../lib/agent/tools')
-  const { createAgentImageSource } = await import('../../lib/agent/images')
+  const { agentTurnTools } = await import('../../modules/agent/tools')
+  const { createAgentImageSource } = await import('../../modules/agent')
   const tool = agentTurnTools({
     mode: 'image',
     experience: 'chat',

@@ -7,7 +7,7 @@ import {
 } from '@image-playground/shared'
 import sharp from 'sharp'
 import { estimateMessageTokens } from '../../../lib/agent/token-estimate'
-import type { AgentToolDeclaration } from '../../../lib/agent/tools'
+import type { AgentToolDeclaration } from '../../../modules/agent/tools'
 
 // 只装配文字与占位图片块，一句 SQL 都不发；库名故意不可达，真连上就会立刻炸出来。
 process.env.DATABASE_URL = 'postgres://unused/turn-input'
@@ -34,9 +34,9 @@ const {
   turnVisualEvidence,
 } = await import('../../../lib/agent/turn-input')
 const { ANONYMOUS_AUDIENCE, lookSkillContent } = await import('../../../lib/agent/skills')
-const { agentToolDeclarations } = await import('../../../lib/agent/tools')
+const { agentToolDeclarations } = await import('../../../modules/agent/tools')
 const { agentModel } = await import('../../../lib/agent/model')
-const { shownImageRequests } = await import('../../../lib/agent/images')
+const { shownImageRequests } = await import('../../../modules/agent')
 
 type AgentTurnInput = import('../../../lib/agent/turn-input').AgentTurnInput
 const CURRENT_TIME = '2026-09-28T02:30:00.000Z'
@@ -61,7 +61,7 @@ function input(
     ...extra,
   }
 }
-const { generateVideo } = await import('../../../lib/agent/tools/generateVideo')
+const { generateVideo } = await import('../../../modules/agent/tools')
 
 function userMessage(
   id: string,

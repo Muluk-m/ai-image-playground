@@ -22,7 +22,7 @@ const { config } = await import('../../../config')
 const { createQueueTask, submitPrepared } = await import('../../../modules/execution')
 const { setObjectStoreForTesting } = await import('../../../lib/objectStore')
 // 数据库测试的模块加载边界：静态 import 会在上面的独立 DATABASE_URL 与 overlay 注入前捕获单例。
-const { quoteBatchPlan } = await import('../../../lib/agent/batch-plans')
+const { quoteBatchPlan } = await import('../../../modules/agent/orchestration')
 
 // 原尺寸不是 16 的倍数，所以建任务时必须补边；`masked_original_size` 记的是补边前的那个。
 const WIDTH = 1001

@@ -49,7 +49,7 @@ const { setChatFetchForTesting, setChatRetryBackoffForTesting } = await import(
 // 这几条测试故意让上游 502/503：重试真退避要花掉一秒半墙钟，换不来任何确定性。
 setChatRetryBackoffForTesting(0)
 const { setObjectStoreForTesting } = await import('../../lib/objectStore')
-const { appendAgentMessage } = await import('../../lib/agent/conversations')
+const { appendAgentMessage } = await import('../../modules/agent')
 const { close: closeDb, db, schema } = await import('../../db/client')
 
 const app = new Elysia().use(agentRoutes)

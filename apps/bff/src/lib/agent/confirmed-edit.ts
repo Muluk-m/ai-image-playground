@@ -7,9 +7,9 @@ import {
   type ToolCall,
 } from '@earendil-works/pi-ai'
 import type { AgentMessageView, AgentTurnReference } from '@image-playground/shared'
-import type { AgentImageSource } from './images'
-import { maskProposalAnswer } from './mask-proposal'
-import { imageSelection } from './selection-preview'
+import type { AgentImageSource } from '../../modules/agent'
+import { imageSelection } from '../../modules/agent'
+import { maskProposalAnswer } from '../../modules/agent/orchestration'
 
 /**
  * 用户在范围确认卡上点了「确认并生成」：要改哪张图、改什么、蒙版都已经定了，这一轮的

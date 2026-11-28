@@ -1,6 +1,6 @@
 import { expect, it } from 'bun:test'
 import sharp from 'sharp'
-import type { AgentToolContext } from '../../../../lib/agent/tools/types'
+import type { AgentToolContext } from '../../../../modules/agent/contracts'
 
 // 只按 id 取本轮引用的字节，一条 SQL 都不发；库名故意不可达，真连上就会立刻炸出来。
 process.env.DATABASE_URL = 'postgres://unused/agent-view-image'
@@ -8,8 +8,8 @@ process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 
 // 动态引入：环境要先钉死，再让捕获配置的模块加载。
-const { viewImage } = await import('../../../../lib/agent/tools/viewImage')
-const { createAgentImageSource } = await import('../../../../lib/agent/images')
+const { viewImage } = await import('../../../../modules/agent/tools')
+const { createAgentImageSource } = await import('../../../../modules/agent')
 
 const PIXEL = `data:image/png;base64,${(
   await sharp({ create: { width: 4, height: 4, channels: 4, background: '#6386a3' } })
@@ -123,7 +123,7 @@ it('keeps image and mask coordinates and selection identity when viewing a large
   ).toString('base64')}`
   const ctx = context()
   ctx.images.attach([{ imageId: 'selected', dataUrl: WIDE, maskDataUrl: correctMask }])
-  const { imageSelection } = await import('../../../../lib/agent/selection-preview')
+  const { imageSelection } = await import('../../../../modules/agent')
   const selection = await imageSelection({ dataUrl: WIDE, maskDataUrl: correctMask }, false)
   for (const params of [{}, { region: { x: 0.25, y: 0.2, width: 0.05, height: 0.2 } }]) {
     const result = await viewImage

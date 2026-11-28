@@ -17,14 +17,14 @@ process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
-const { readCanvas } = await import('../../../../lib/agent/tools/readCanvas')
+const { readCanvas } = await import('../../../../modules/agent/tools')
 const {
   archiveAgentReferences,
   claimConversationMedia,
   createAgentImageSource,
   removeAgentConversationReferences,
   readyCanvasMediaIds,
-} = await import('../../../../lib/agent/images')
+} = await import('../../../../modules/agent')
 const { setDurableMediaStoreForTesting } = await import('../../../../lib/durableMediaStore')
 const { close: closeDb, db, schema } = await import('../../../../db/client')
 type AgentToolContext = Parameters<typeof readCanvas.create>[0]

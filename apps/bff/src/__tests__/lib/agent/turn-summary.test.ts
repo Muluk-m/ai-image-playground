@@ -4,11 +4,9 @@ import { resetTestDatabase } from '@image-playground/db/testing'
 process.env.DATABASE_URL = await resetTestDatabase('bff_agent_turn_summary')
 process.env.PORT = '0'
 
-const { listAgentTurnSummaries, recordAgentTurnSummary } = await import(
-  '../../../lib/agent/turn-summary'
-)
+const { listAgentTurnSummaries, recordAgentTurnSummary } = await import('../../../modules/agent')
 const { appendAgentTurnEvents, purgeOldAgentTurnEvents } = await import('../../../lib/agent/events')
-const { createAgentConversation } = await import('../../../lib/agent/conversations')
+const { createAgentConversation } = await import('../../../modules/agent')
 const { close: closeDb, db, schema } = await import('../../../db/client')
 
 const HOUR = 60 * 60 * 1_000

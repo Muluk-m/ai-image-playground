@@ -141,8 +141,8 @@ it('拒绝匿名、其他账号和设备会话绑定，不能借请求体伪造�
 it('两设备读取绑定会话的消息和历史消耗，重复加载不创建轮或改变结算记录', async () => {
   const id = await createProject(deviceA)
   const { conversation } = await (await request(`/${id}/conversation`, deviceA, 'PUT', {})).json()
-  const { appendAgentMessage } = await import('../../lib/agent/conversations')
-  const { recordAgentTurnSummary } = await import('../../lib/agent/turn-summary')
+  const { appendAgentMessage } = await import('../../modules/agent')
+  const { recordAgentTurnSummary } = await import('../../modules/agent')
   const turnId = crypto.randomUUID()
   await appendAgentMessage(db, {
     conversationId: conversation.id,

@@ -6,8 +6,8 @@ process.env.DATABASE_URL = 'postgres://unused/unused'
 process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.OPERATOR_CONFIG_FILE = ''
-const { prepareMaskedEdit } = await import('../../../lib/agent/masked-edit')
-const { imageSelection, referenceEvidence } = await import('../../../lib/agent/selection-preview')
+const { prepareMaskedEdit } = await import('../../../modules/agent/orchestration')
+const { imageSelection, referenceEvidence } = await import('../../../modules/agent')
 
 async function png(pixels: number[], width = 2) {
   return `data:image/png;base64,${(

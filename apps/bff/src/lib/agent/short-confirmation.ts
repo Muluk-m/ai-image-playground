@@ -1,5 +1,5 @@
 import { isShortConfirmation } from '@image-playground/shared'
-import type { BatchFact, ConversationStateFacts } from './conversation-state'
+import type { BatchFact, ConversationStateFacts } from '../../modules/agent'
 
 /**
  * 聊天短确认语的服务端硬拦截：不依赖模型自律。

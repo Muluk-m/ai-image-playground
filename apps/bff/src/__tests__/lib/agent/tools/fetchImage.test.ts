@@ -22,9 +22,9 @@ process.env.OPERATOR_CONFIG_FILE = resolve(
 
 // Dynamic imports keep environment setup ahead of modules that capture configuration.
 const { config } = await import('../../../../config')
-const { fetchImage } = await import('../../../../lib/agent/tools/fetchImage')
-const { agentToolDeclarations } = await import('../../../../lib/agent/tools')
-const { createAgentImageSource } = await import('../../../../lib/agent/images')
+const { fetchImage } = await import('../../../../modules/agent/tools')
+const { agentToolDeclarations } = await import('../../../../modules/agent/tools')
+const { createAgentImageSource } = await import('../../../../modules/agent')
 const { _setSafeFetchForTesting } = await import('../../../../lib/safeFetch')
 const { setDurableMediaStoreForTesting } = await import('../../../../lib/durableMediaStore')
 const { close: closeDb, db, schema } = await import('../../../../db/client')

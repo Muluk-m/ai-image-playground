@@ -5,10 +5,11 @@ import {
   type MaskedCrop,
   maskedEditCrop,
   paddedEditSize,
+  placeCrop,
   prepareMaskedInput,
+  protectMaskedOutput,
   UPSTREAM_OUTPUT_PIXELS,
-} from '../../../lib/agent/masked-input'
-import { placeCrop, protectMaskedOutput } from '../../../lib/agent/masked-output'
+} from '../../../modules/agent/orchestration/masked/pure'
 
 const url = (bytes: Buffer) => `data:image/png;base64,${bytes.toString('base64')}`
 const decode = (data: string) => Buffer.from(data.split(',')[1]!, 'base64')

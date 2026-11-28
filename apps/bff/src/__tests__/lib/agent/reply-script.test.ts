@@ -9,7 +9,7 @@ import {
   sanitizeAssistantMessages,
   sanitizeReplyText,
   stripDisallowedScripts,
-} from '../../../lib/agent/reply-script'
+} from '@image-playground/shared'
 
 const USER_ZH = '把第二张改成夜景'
 const USER_EN = 'Make the second image a night scene'

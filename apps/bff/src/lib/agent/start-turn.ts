@@ -8,38 +8,39 @@ import type {
 import { AGENT_QUEUE_MAX_PENDING } from '@image-playground/shared'
 import { and, eq, isNull } from 'drizzle-orm'
 import { db, schema } from '../../db/client'
-import { bffDrain } from '../drain'
-import { log } from '../logger'
-import type { TaskReservationFailure } from '../private-overlay'
-import { markAgentJobsWakeSkipped } from './background-jobs'
-import { trackAgentBackgroundWork } from './background-work'
-import type { AgentOwner } from './conversations'
-import { isSealLease, sealAbandonedTurns } from './events'
+import type { AgentOwner } from '../../modules/agent'
 import {
   agentInstance,
   assertConversationExecution,
   ConversationExecutionLost,
   claimConversation,
-  conversationExecution,
-  maintainConversation,
-  releaseConversation,
-  type TurnExecution,
-  turnExecution,
-} from './execution'
-import {
   consumeAgentMessage,
+  conversationExecution,
+  deliverDueAgentWakes,
   failAgentMessage,
+  maintainConversation,
   nextAgentInboxEntry,
   type QueuedResume,
   type QueuedWake,
+  releaseConversation,
   skipAgentGateResume,
   skipAgentWake,
-} from './inbox'
-import { type RunningTurn, runningTurn } from './runningTurns'
-import { markStageRunWakeSkipped } from './stage-runs'
+  type TurnExecution,
+  turnExecution,
+} from '../../modules/agent'
+import {
+  type RunningTurn,
+  runningTurn,
+  trackAgentBackgroundWork,
+} from '../../modules/agent/contracts'
+import { markStageRunWakeSkipped } from '../../modules/agent/orchestration'
+import { bffDrain } from '../drain'
+import { log } from '../logger'
+import type { TaskReservationFailure } from '../private-overlay'
+import { markAgentJobsWakeSkipped } from './background-jobs'
+import { isSealLease, sealAbandonedTurns } from './events'
 import type { PreparedAgentTurn } from './turn'
 import type { TurnPreparation } from './turn-preparation'
-import { deliverDueAgentWakes } from './wake'
 
 export interface StartConversationTurnInput {
   readonly conversationId: string

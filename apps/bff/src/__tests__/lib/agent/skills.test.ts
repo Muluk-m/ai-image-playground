@@ -48,7 +48,7 @@ _setChannelsForTesting([
     ],
   },
 ])
-const { replayedSkillTexts } = await import('../../../lib/agent/tools/loadSkill')
+const { replayedSkillTexts } = await import('../../../modules/agent/tools')
 
 let root = ''
 

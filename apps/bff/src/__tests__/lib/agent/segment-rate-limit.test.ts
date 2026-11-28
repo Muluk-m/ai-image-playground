@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { createSegmentRateLimiter } from '../../../lib/agent/segment-rate-limit'
+import { createSegmentRateLimiter } from '../../../modules/agent/orchestration/masked/pure'
 
 describe('segment rate limit', () => {
   it('lets one request per user run at a time', () => {

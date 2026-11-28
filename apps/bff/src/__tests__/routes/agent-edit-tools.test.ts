@@ -48,10 +48,10 @@ const { setObjectStoreForTesting } = await import('../../lib/objectStore')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { close: closeDb, db, schema } = await import('../../db/client')
 const { hydrateInputImages } = await import('../../lib/imageArchive')
-const { imageSelection } = await import('../../lib/agent/selection-preview')
+const { imageSelection } = await import('../../modules/agent')
 const { settleQueuedTasks, workerSettles } = await import('../helpers/taskWorker')
 const { pickUpStrandedInboxes } = await import('../../lib/agent/inbox-pickup')
-const { conversationsWithEndedJobs } = await import('../../lib/agent/wake')
+const { conversationsWithEndedJobs } = await import('../../modules/agent')
 const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await import(
   '../../lib/private-overlay'
 )

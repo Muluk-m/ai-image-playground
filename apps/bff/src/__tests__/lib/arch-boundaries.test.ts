@@ -71,6 +71,22 @@ describe('check-arch-boundaries', () => {
     ])
   })
 
+  it('rejects pure re-export shims recreated under lib/ targeting modules/ or @image-playground/shared', async () => {
+    const dir = createTempTree({
+      'modules/agent/orchestration/index.ts': 'export const batchPlan = 1\n',
+      'lib/agent/batch-plans.ts': "export { batchPlan } from '../../modules/agent/orchestration'\n",
+      'lib/agent/reply-script.ts': "export { stripInternalRefs } from '@image-playground/shared'\n",
+      'lib/agent/real-module.ts':
+        "import { batchPlan } from '../../modules/agent/orchestration'\nexport const wrapped = () => batchPlan\n",
+    })
+
+    const violations = await checkBffBoundaries(dir)
+    expect(violations).toEqual([
+      '[legacy-shim] lib/agent/batch-plans.ts -> modules/agent/orchestration/index.ts is a pure re-export shim under lib/ (import canonical target directly)',
+      '[legacy-shim] lib/agent/reply-script.ts -> @image-playground/shared is a pure re-export shim under lib/ (import canonical target directly)',
+    ])
+  })
+
   it('flags stale allowlist entries when checkStaleAllowlist is enabled while allowing active ones', async () => {
     const dir = createTempTree({
       'config.ts': 'export const config = {}\n',
@@ -222,9 +238,9 @@ describe('check-arch-boundaries', () => {
       'modules/agent/tools/web/bad-legacy-tools.ts':
         "import { helper } from '../../../../lib/agent/tools/helper'\nexport const badLT = helper\n",
       'modules/agent/tools/web/bad-shim.ts':
-        "import { ev } from '../../../../lib/agent/events'\nimport { qa } from '../../../../lib/agent/job-artifacts'\nexport const badShim = [ev, qa]\n",
+        "import { ev } from '../../../../lib/agent/events'\nimport { bg } from '../../../../lib/agent/background-jobs'\nexport const badShim = [ev, bg]\n",
       'lib/agent/events.ts': 'export const ev = 1\n',
-      'lib/agent/job-artifacts.ts': 'export const qa = 1\n',
+      'lib/agent/background-jobs.ts': 'export const bg = 1\n',
       'lib/agent/tools/index.ts': 'export const legacyTools = 1\n',
       'lib/agent/turn.ts':
         "import { legacyTools } from './tools'\nexport const badTurnCore = legacyTools\n",
@@ -251,9 +267,9 @@ describe('check-arch-boundaries', () => {
         "import { genTool } from '../../tools/generation/gen'\nexport const badOrchTools = genTool\n",
       'modules/agent/orchestration/production/bad-legacy.ts':
         "import { helper } from '../../../../lib/agent/tools/helper'\nimport { ev } from '../../../../lib/agent/events'\nexport const badOrchLegacy = [helper, ev]\n",
-      'lib/agent/batch-plans.ts': 'export const legacyBatchPlan = 1\n',
+      'lib/agent/inbox-pickup.ts': 'export const legacyPickup = 1\n',
       'modules/agent/runtime/bad-orch.ts':
-        "import { prodVal } from '../orchestration/production/prod-ok'\nimport { legacyBatchPlan } from '../../../lib/agent/batch-plans'\nexport const badRtOrch = [prodVal, legacyBatchPlan]\n",
+        "import { prodVal } from '../orchestration/production/prod-ok'\nimport { legacyPickup } from '../../../lib/agent/inbox-pickup'\nexport const badRtOrch = [prodVal, legacyPickup]\n",
     })
 
     const violations = await checkBffBoundaries(dir)
@@ -437,7 +453,7 @@ describe('check-arch-boundaries', () => {
     expect(
       violations.some((v) =>
         v.includes(
-          '[agent-tools -> legacy-agent-layer] modules/agent/tools/web/bad-shim.ts -> lib/agent/job-artifacts.ts',
+          '[agent-tools -> legacy-agent-layer] modules/agent/tools/web/bad-shim.ts -> lib/agent/background-jobs.ts',
         ),
       ),
     ).toBe(true)
@@ -535,7 +551,7 @@ describe('check-arch-boundaries', () => {
     expect(
       violations.some((v) =>
         v.includes(
-          '[agent-runtime -> legacy-agent-layer] modules/agent/runtime/bad-orch.ts -> lib/agent/batch-plans.ts',
+          '[agent-runtime -> legacy-agent-layer] modules/agent/runtime/bad-orch.ts -> lib/agent/inbox-pickup.ts',
         ),
       ),
     ).toBe(true)

@@ -1,6 +1,6 @@
 # 0036：全仓架构降熵、规范化归一与面向多 Agent 并行开发的复杂度治理
 
-日期：2026-11-28。状态：实施中（Wave 1 已落地）。关联：[ADR 0034](0034-modular-monolith-and-single-repo.md)、[#1848](https://github.com/Muluk-m/ai-image-playground/issues/1848)。
+日期：2026-11-28。状态：实施中（Wave 1 已合并 `#2053`，Wave 2 已落地）。关联：[ADR 0034](0034-modular-monolith-and-single-repo.md)、[#1848](https://github.com/Muluk-m/ai-image-playground/issues/1848)。
 
 ## 背景
 
@@ -50,8 +50,8 @@
 
 | 波次 | 范围 | 状态 |
 | --- | --- | --- |
-| Wave 1 | `packages/shared` 去环与 `agent.ts` 拆包、`check-arch-boundaries` 扩展至 shared/node-kit/admin/website | 已落地 |
-| Wave 2 | 移除 BFF 99 个纯重导出壳并归一导入路径，收窄 `LEGACY_AGENT_MIGRATED_SHIMS` | 待开始 |
+| Wave 1 | `packages/shared` 去环与 `agent.ts` 拆包、`check-arch-boundaries` 扩展至 shared/node-kit/admin/website | 已合并（#2053） |
+| Wave 2 | 移除 BFF 99 个纯重导出壳并归一导入路径，收窄 `LEGACY_AGENT_MIGRATED_SHIMS` 至 4 项 | 已落地 |
 | Wave 3 | `db/maintenance.ts` 编排迁出与 `routes/agent.ts` 子路由拆解 | 待开始 |
 | Wave 4 | `apps/web/src` 0 运行时循环依赖与前端边界棘轮 | 待开始 |
 | Wave 5 | `apps/web/src/store.ts` 按领域拆解 | 待开始 |

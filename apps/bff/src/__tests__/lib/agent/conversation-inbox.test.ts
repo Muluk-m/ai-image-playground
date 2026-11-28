@@ -7,7 +7,7 @@ import {
   type AgentTurnEvent,
 } from '@image-playground/shared'
 import type { InboxStopResult } from '../../../lib/agent/conversation-inbox'
-import type { RunningTurn } from '../../../lib/agent/runningTurns'
+import type { RunningTurn } from '../../../modules/agent/contracts'
 import { type AgentCall, completionStream, recordingAgentFetch } from '../../helpers/agentStubs'
 import { silenceChatUpstream } from '../../helpers/chatStubs'
 import { InMemoryObjectStore } from '../../helpers/inMemoryObjectStore'
@@ -25,10 +25,10 @@ process.env.OPERATOR_CONFIG_FILE = resolve(import.meta.dir, '../../agent-operato
 const { setAgentFetchForTesting } = await import('../../../lib/agent/model')
 const { setObjectStoreForTesting } = await import('../../../lib/objectStore')
 const { close: closeDb, db, schema } = await import('../../../db/client')
-const { createAgentConversation } = await import('../../../lib/agent/conversations')
+const { createAgentConversation } = await import('../../../modules/agent')
 const { openTurnEventLog } = await import('../../../lib/agent/events')
-const { registerRunningTurn, runningTurn } = await import('../../../lib/agent/runningTurns')
-const { enqueueAgentUserMessage, queuedAgentMessages } = await import('../../../lib/agent/inbox')
+const { registerRunningTurn, runningTurn } = await import('../../../modules/agent/contracts')
+const { enqueueAgentUserMessage, queuedAgentMessages } = await import('../../../modules/agent')
 const {
   announceQueuedMessage,
   pickUpIdleConversation,

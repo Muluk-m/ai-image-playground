@@ -7,7 +7,7 @@ process.env.UPSTREAM_BASE_URL = 'http://gateway.test'
 process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.OPERATOR_CONFIG_FILE = ''
 const { evidenceManifest, referenceEvidence, selectionPreview } = await import(
-  '../../../lib/agent/selection-preview'
+  '../../../modules/agent'
 )
 
 it('highlights only transparent mask pixels without modifying the reference bytes', async () => {
@@ -53,7 +53,7 @@ it('writes no manifest at all when the turn has no reference', async () => {
 })
 
 const { config } = await import('../../../config')
-const { InvalidSelectionError } = await import('../../../lib/agent/selection-preview')
+const { InvalidSelectionError } = await import('../../../modules/agent')
 const originalOperator = config.operator
 afterEach(() => {
   config.operator = originalOperator

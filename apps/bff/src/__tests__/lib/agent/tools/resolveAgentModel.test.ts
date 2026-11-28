@@ -7,7 +7,7 @@ process.env.UPSTREAM_API_KEY = 'fixture-upstream-key'
 process.env.AGENT_IMAGE_MODEL = 'agnes-image-2.5-flash'
 process.env.LOG_LEVEL = 'silent'
 
-const { resolveAgentModel } = await import('../../../../lib/agent/tools/queueTask')
+const { resolveAgentModel } = await import('../../../../modules/agent/tools')
 const { _setChannelsForTesting } = await import('../../../../lib/channels')
 
 type InternalChannel = import('../../../../lib/channels').InternalChannel

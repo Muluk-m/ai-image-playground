@@ -14,7 +14,7 @@ const { installRecordingTaskHooks } = await import('../helpers/privateOverlayStu
 installRecordingTaskHooks()
 const { app } = await import('../../app')
 const { db, schema, close } = await import('../../db/client')
-const { quoteBatchPlan } = await import('../../lib/agent/batch-plans')
+const { quoteBatchPlan } = await import('../../modules/agent/orchestration')
 const { createUserSession, USER_SESSION_COOKIE } = await import('../../lib/user-session')
 const { loadPrivateBffOverlay, _setPrivateBffOverlayForTesting } = await import(
   '../../lib/private-overlay'
@@ -107,7 +107,7 @@ it('keeps archived unknown results reconciling in progress, execution and attemp
   expect(page.items[0]?.progress).toBe('reconciling')
   expect(page.items[0]?.execution?.status).toBe('reconciling')
   expect(page.items[0]?.attempts?.[0]?.status).toBe('reconciling')
-  const { reconcileAgentBatchProgress } = await import('../../lib/agent/batch-progress')
+  const { reconcileAgentBatchProgress } = await import('../../modules/agent/orchestration')
   const { eq } = await import('drizzle-orm')
   await reconcileAgentBatchProgress(id)
   const [unresolved] = await db
@@ -294,7 +294,7 @@ it('quotes retry and every never-submitted downstream item before authorizing re
 
 it('closes cancelled dependency chains without manufacturing submissions or reservations', async () => {
   const { read } = await seedDependencyBatch('cancel-chain', 'cancelled')
-  const { reconcileAgentBatchProgress } = await import('../../lib/agent/batch-progress')
+  const { reconcileAgentBatchProgress } = await import('../../modules/agent/orchestration')
   await reconcileAgentBatchProgress('cancel-chain')
   const response = await read()
   expect(response.status).toBe(200)
@@ -304,7 +304,7 @@ it('closes cancelled dependency chains without manufacturing submissions or rese
   expect(page.batch.submittedCount).toBe(1)
   expect(page.items[1]?.execution).toBeUndefined()
   expect(page.items[2]?.execution).toBeUndefined()
-  const { batchWakeSummary } = await import('../../lib/agent/batch-wake')
+  const { batchWakeSummary } = await import('../../modules/agent/orchestration')
   const summary = await batchWakeSummary(
     'cancel-chain',
     { kind: 'user', userId: 'cancel-chain' },
@@ -322,7 +322,7 @@ it('closes cancelled dependency chains without manufacturing submissions or rese
 it('settles detached unconfirmed batches and erases abandoned inputs even when execution is disabled', async () => {
   const { eq } = await import('drizzle-orm')
   const { config } = await import('../../config')
-  const { advanceAgentBatches } = await import('../../lib/agent/batch-execution')
+  const { advanceAgentBatches } = await import('../../modules/agent/orchestration')
   await seedDependencyBatch('detached-unconfirmed', 'failed')
   await db
     .update(schema.agent_batches)
@@ -572,7 +572,7 @@ it('propagates a frozen source cancellation across every page and closes with on
   const second = await read(first.nextCursor!)
   expect(first.items[0]?.progress).toBe('cancelled')
   expect(second.items[0]?.progress).toBe('cancelled')
-  const { reconcileAgentBatchProgress } = await import('../../lib/agent/batch-progress')
+  const { reconcileAgentBatchProgress } = await import('../../modules/agent/orchestration')
   await reconcileAgentBatchProgress(id)
   await reconcileAgentBatchProgress(id)
   const [batch] = await db
@@ -583,7 +583,7 @@ it('propagates a frozen source cancellation across every page and closes with on
   expect(
     await db.select().from(schema.agent_inbox).where(eq(schema.agent_inbox.conversation_id, id)),
   ).toHaveLength(1)
-  const { batchWakeSummary } = await import('../../lib/agent/batch-wake')
+  const { batchWakeSummary } = await import('../../modules/agent/orchestration')
   const summary = await batchWakeSummary(
     id,
     { kind: 'user', userId: id },
@@ -734,7 +734,7 @@ it('keeps frozen source identities through a newly confirmed retry and converges
       message: null,
     },
   })
-  const { reconcileAgentBatchProgress } = await import('../../lib/agent/batch-progress')
+  const { reconcileAgentBatchProgress } = await import('../../modules/agent/orchestration')
   await reconcileAgentBatchProgress(id)
   const [closed] = await db
     .select()

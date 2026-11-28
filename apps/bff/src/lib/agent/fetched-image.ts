@@ -1,19 +1,19 @@
 import type { AgentFetchedImage } from '@image-playground/shared'
 import sharp, { type Metadata } from 'sharp'
+import {
+  addConversationMediaClaims,
+  editInputSize,
+  visualByteLimit,
+  visualMetadata,
+  visualPixelLimit,
+  withVisualPreparation,
+} from '../../modules/agent'
 import { AgentToolError, safeFetchToolError } from '../../modules/agent/contracts'
 import { detectMediaMime } from '../imageArchive'
 import { assertMediaImageProcessingBudget, MEDIA_UPLOAD_MAX_PIXELS } from '../media-image-limits'
 import { MediaError, storeMedia } from '../projectMedia'
 import { SafeFetchError, safeFetch } from '../safeFetch'
 import { assetImageByteLimit } from '../sync-assets'
-import { addConversationMediaClaims } from './images'
-import { editInputSize } from './modelImage'
-import {
-  visualByteLimit,
-  visualMetadata,
-  visualPixelLimit,
-  withVisualPreparation,
-} from './visual-resources'
 
 /**
  * 「把一张网图收进这个人的媒体库」这条路只此一份：取网图与抓商品图都走它。

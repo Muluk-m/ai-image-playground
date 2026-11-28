@@ -21,7 +21,7 @@ import type { BffTransaction } from '../../../lib/private-overlay'
 import { lockMediaOwner } from '../../../lib/projectMedia'
 import { asQueueProvider } from '../../../lib/queueProvider'
 import { readAssetImage } from '../../../lib/sync-assets'
-import { taskAccessWhere } from '../../../lib/task-access'
+import { taskAccessWhere } from '../../execution'
 import {
   type AgentImageRead,
   type AgentImageReference,

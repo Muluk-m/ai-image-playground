@@ -22,8 +22,8 @@ const { _setPrivateBffOverlayForTesting, EMPTY_PRIVATE_BFF_OVERLAY } = await imp
 )
 const { setUpstreamFetchForTesting } = await import('../../../lib/upstream')
 const { AgentContextOverflow } = await import('../../../lib/agent/request-budget')
-const { MaskedOutputError } = await import('../../../lib/agent/masked-output')
-const { AgentToolError } = await import('../../../lib/agent/tools/errors')
+const { MaskedOutputError } = await import('../../../modules/agent/orchestration/masked/pure')
+const { AgentToolError } = await import('../../../modules/agent/contracts')
 const { classifyAnalysisPreparationError } = await import('../../../lib/analysis-tasks')
 const {
   _resetTaskExecutionHooksForTesting,

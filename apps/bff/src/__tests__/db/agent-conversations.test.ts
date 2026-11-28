@@ -19,7 +19,7 @@ const {
   setAgentConversationTitle,
   saveAgentCompaction,
   softDeleteAgentConversation,
-} = await import('../../lib/agent/conversations')
+} = await import('../../modules/agent')
 
 const USER = { kind: 'user', userId: 'owner-user' } as const
 const DEVICE = { kind: 'device', deviceId: 'device-abcdefgh' } as const
