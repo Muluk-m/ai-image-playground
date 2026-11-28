@@ -191,12 +191,37 @@ export function agentTitleLine(text: string, maxChars: number): string {
   return `${trimmed.slice(0, maxChars - 1)}…`
 }
 
+/** 线性时间剥离 Markdown 链接与图片语法 `![alt](url)` / `[text](url)`，避免正则回溯。 */
+function stripMarkdownLinks(text: string): string {
+  let out = ''
+  let cursor = 0
+  let searchFrom = 0
+  while (searchFrom < text.length) {
+    const open = text.indexOf('[', searchFrom)
+    if (open === -1) break
+    const close = text.indexOf(']', open + 1)
+    if (close === -1) break
+    if (text[close + 1] !== '(') {
+      searchFrom = close + 1
+      continue
+    }
+    const end = text.indexOf(')', close + 2)
+    if (end === -1) break
+    const start = open > cursor && text[open - 1] === '!' ? open - 1 : open
+    out += text.slice(cursor, start)
+    out += text.slice(open + 1, close)
+    cursor = end + 1
+    searchFrom = cursor
+  }
+  return cursor === 0 ? text : out + text.slice(cursor)
+}
+
 /**
  * 去掉标题里的 Markdown 记号：首条消息常是整段剧本，`**场景：**`、`- ` 列表头、`---`
  * 分隔线原样进标题很难看。只做标题用的粗处理，不解析成 AST。
  */
 export function stripTitleMarkdown(text: string): string {
-  return text
+  const linesStripped = text
     .split('\n')
     .map((line) =>
       /^\s*([-*_])(\s*\1){2,}\s*$/.test(line)
@@ -204,8 +229,7 @@ export function stripTitleMarkdown(text: string): string {
         : line.replace(/^\s*(#{1,6}\s+|>\s?|[-*+]\s+|\d+[.)]\s+)/, ''),
     )
     .join('\n')
-    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
-    .replace(/\*\*|__|~~|`/g, '')
+  return stripMarkdownLinks(linesStripped).replace(/\*\*|__|~~|`/g, '')
 }
 
 /** 首轮消息即标题；会话不支持改名，所以这是标题的唯一来源。 */
