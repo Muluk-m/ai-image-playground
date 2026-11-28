@@ -220,7 +220,7 @@ describe('定价页', () => {
     expect(initialText).toContain('性价比之选')
     expect(initialText).toContain('限时 8 折')
     expect(initialText).toContain('立省 ¥10')
-    expect(initialText).toContain('切至年付，一年立省 ¥480')
+    expect(initialText).toContain('切至年付，再省 ¥240')
 
     const yearly = [...host.querySelectorAll<HTMLButtonElement>('button[role="radio"]')].find(
       (button) => button.textContent?.includes('年付'),
@@ -243,7 +243,7 @@ describe('定价页', () => {
   it('在月付卡片点击切至年付引导后直接切到年付周期', async () => {
     await renderPage()
     const nudge = [...host.querySelectorAll('button')].find((button) =>
-      button.textContent?.includes('切至年付，一年立省 ¥240'),
+      button.textContent?.includes('切至年付，再省 ¥120'),
     )
     expect(nudge).toBeTruthy()
     act(() => nudge?.click())

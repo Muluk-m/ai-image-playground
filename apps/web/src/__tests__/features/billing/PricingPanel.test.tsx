@@ -259,7 +259,7 @@ it('shows cycle tab discount badges, tier highlights, savings, and switches to y
   expect(initialText).toContain('立省 ¥40')
 
   const nudge = [...document.querySelectorAll('button')].find((button) =>
-    button.textContent?.includes('切至年付，一年立省 ¥480'),
+    button.textContent?.includes('切至年付，再省 ¥240'),
   )
   expect(nudge).toBeTruthy()
   await act(async () => nudge!.click())

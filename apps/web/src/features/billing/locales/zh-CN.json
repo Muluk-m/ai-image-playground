@@ -246,7 +246,7 @@
     "bundleFold": "{{value}} 折",
     "tabSave": "省 {{percent}}%",
     "saveAmount": "立省 {{amount}}",
-    "switchToYearly": "切至年付，一年立省 {{amount}}",
+    "switchToYearly": "切至年付，再省 {{amount}}",
     "perMonth": "/月",
     "noPrice": "该周期暂未定价",
     "periodTotal": "{{months}} 个月共 {{amount}}",

@@ -36,7 +36,7 @@
     "discountBadge": "{{value}}% off",
     "bundleBadge": "{{value}}% off",
     "saveAmount": "Save {{amount}}",
-    "switchToYearly": "Switch to yearly · save {{amount}}",
+    "switchToYearly": "Switch to yearly · save {{amount}} more",
     "monthlyCredits": "{{n}} credits each month",
     "images": "About {{n}} {{model}} images / month",
     "concurrency": "{{n}} jobs at once",

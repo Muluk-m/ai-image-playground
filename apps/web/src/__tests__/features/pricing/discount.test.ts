@@ -89,20 +89,12 @@ describe('pricing discount summary', () => {
     expect(bundleOnly.zhFold).toBe('8')
   })
 
-  it('suppresses degenerate or zero savings', () => {
+  it('suppresses zero or inverted savings while keeping real savings on extreme discount ratios', () => {
     expect(
       summarizeDiscount({
         periodMonths: 1,
         originalCents: 4900,
         effectiveCents: 4900,
-        monthlyOriginalCents: 4900,
-      }).hasSavings,
-    ).toBe(false)
-    expect(
-      summarizeDiscount({
-        periodMonths: 1,
-        originalCents: 4900,
-        effectiveCents: 4899,
         monthlyOriginalCents: 4900,
       }).hasSavings,
     ).toBe(false)
@@ -114,14 +106,39 @@ describe('pricing discount summary', () => {
         monthlyOriginalCents: 3900,
       }).hasSavings,
     ).toBe(false)
-    expect(
-      summarizeDiscount({
-        periodMonths: 1,
-        originalCents: 4900,
-        effectiveCents: 0,
-        monthlyOriginalCents: 4900,
-      }).hasSavings,
-    ).toBe(false)
+
+    const tiny = summarizeDiscount({
+      periodMonths: 1,
+      originalCents: 4900,
+      effectiveCents: 4899,
+      monthlyOriginalCents: 4900,
+    })
+    expect(tiny.hasSavings).toBe(true)
+    expect(tiny.savedCents).toBe(1)
+    expect(tiny.savePercent).toBeNull()
+    expect(tiny.zhFold).toBeNull()
+
+    const nearFree = summarizeDiscount({
+      periodMonths: 1,
+      originalCents: 10000,
+      effectiveCents: 1,
+      monthlyOriginalCents: 10000,
+    })
+    expect(nearFree.hasSavings).toBe(true)
+    expect(nearFree.savedCents).toBe(9999)
+    expect(nearFree.savePercent).toBeNull()
+    expect(nearFree.zhFold).toBeNull()
+
+    const freePromo = summarizeDiscount({
+      periodMonths: 1,
+      originalCents: 4900,
+      effectiveCents: 0,
+      monthlyOriginalCents: 4900,
+    })
+    expect(freePromo.hasSavings).toBe(true)
+    expect(freePromo.savedCents).toBe(4900)
+    expect(freePromo.savePercent).toBeNull()
+    expect(freePromo.zhFold).toBeNull()
   })
 
   it('keeps zhFold and savePercent mathematically consistent on .5% boundaries and missing monthly prices', () => {
@@ -173,9 +190,11 @@ describe('pricing discount summary', () => {
     ).toBeNull()
   })
 
-  it('computes yearly switch nudge savings only when yearly is cheaper per month', () => {
-    expect(yearlyNudgeSavedCents(LIVE_PLANS[0]!, 1)).toBe(24000)
-    expect(yearlyNudgeSavedCents(LIVE_PLANS[1]!, 3)).toBe(48000)
+  it('computes incremental yearly switch savings against the current discounted period', () => {
+    // 39*12 - 348 = 120 元（12000 分）
+    expect(yearlyNudgeSavedCents(LIVE_PLANS[0]!, 1)).toBe(12000)
+    // 213*4 - 708 = 144 元（14400 分）
+    expect(yearlyNudgeSavedCents(LIVE_PLANS[1]!, 3)).toBe(14400)
     expect(yearlyNudgeSavedCents(LIVE_PLANS[2]!, 12)).toBeNull()
     expect(
       yearlyNudgeSavedCents(
@@ -186,6 +205,7 @@ describe('pricing discount summary', () => {
         1,
       ),
     ).toBeNull()
+    // 120*4 - 348 = 132 元（13200 分）
     expect(
       yearlyNudgeSavedCents(
         [
@@ -194,6 +214,6 @@ describe('pricing discount summary', () => {
         ],
         3,
       ),
-    ).toBe(12000)
+    ).toBe(13200)
   })
 })

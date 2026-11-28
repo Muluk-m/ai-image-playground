@@ -360,71 +360,73 @@ export default function PricingPage({
               <h1 className="pricing-section font-semibold tracking-tight">{t('hero.title')}</h1>
               <p className="mt-3 text-sm leading-6 text-white/55">{t('hero.subtitle')}</p>
             </div>
-            <div
-              role="radiogroup"
-              aria-label={t('cycle.label')}
-              className="inline-flex w-fit shrink-0 rounded-full bg-white/[0.08] p-1"
-            >
-              {BILLING_CYCLES.map((value, index) => {
-                const selected = cycle === value
-                const label =
-                  value === 1
-                    ? t('cycle.month')
-                    : value === 3
-                      ? t('cycle.quarter')
-                      : t('cycle.year')
-                const highlight = value > 1 ? maxCycleDiscount(allPlanPriceEntries, value) : null
-                const isYearly = value === 12
-                return (
-                  <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
-                    key={value}
-                    type="button"
-                    role="radio"
-                    aria-checked={selected}
-                    tabIndex={selected ? 0 : -1}
-                    onClick={() => setCycle(value)}
-                    onKeyDown={(event) => {
-                      let nextIndex = -1
-                      if (event.key === 'ArrowRight' || event.key === 'ArrowDown')
-                        nextIndex = (index + 1) % BILLING_CYCLES.length
-                      else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp')
-                        nextIndex = (index - 1 + BILLING_CYCLES.length) % BILLING_CYCLES.length
-                      else if (event.key === 'Home') nextIndex = 0
-                      else if (event.key === 'End') nextIndex = BILLING_CYCLES.length - 1
-                      if (nextIndex < 0) return
-                      event.preventDefault()
-                      const nextCycle = BILLING_CYCLES[nextIndex]
-                      if (nextCycle !== undefined) setCycle(nextCycle)
-                      const group = event.currentTarget.parentElement
-                      group
-                        ?.querySelectorAll<HTMLButtonElement>('[role="radio"]')
-                        [nextIndex]?.focus()
-                    }}
-                    className={`inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)] ${
-                      selected
-                        ? 'bg-white font-semibold text-[var(--pricing-ink)]'
-                        : 'text-white/70 hover:text-white'
-                    }`}
-                  >
-                    <span>{label}</span>
-                    {highlight ? (
-                      <span
-                        className={`rounded-full px-1.5 py-0.5 text-label-sm font-semibold ${
-                          isYearly
-                            ? selected
-                              ? 'bg-[var(--pricing-ink)] text-[var(--pricing-lime)]'
-                              : 'bg-[var(--pricing-lime)] text-[var(--pricing-ink-strong)]'
-                            : selected
-                              ? 'bg-[var(--pricing-ink)]/15 text-[var(--pricing-ink)]'
-                              : 'bg-[var(--pricing-lime)]/15 text-[var(--pricing-lime)]'
-                        }`}
-                      >
-                        {t('cycle.saveBadge', { percent: highlight.savePercent })}
-                      </span>
-                    ) : null}
-                  </button>
-                )
-              })}
+            <div className="max-w-full overflow-x-auto pb-1">
+              <div
+                role="radiogroup"
+                aria-label={t('cycle.label')}
+                className="inline-flex w-fit shrink-0 rounded-full bg-white/[0.08] p-1"
+              >
+                {BILLING_CYCLES.map((value, index) => {
+                  const selected = cycle === value
+                  const label =
+                    value === 1
+                      ? t('cycle.month')
+                      : value === 3
+                        ? t('cycle.quarter')
+                        : t('cycle.year')
+                  const highlight = value > 1 ? maxCycleDiscount(allPlanPriceEntries, value) : null
+                  const isYearly = value === 12
+                  return (
+                    <button // design-allow native-control: 定价页的切换和折叠不是工作台表单控件
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      tabIndex={selected ? 0 : -1}
+                      onClick={() => setCycle(value)}
+                      onKeyDown={(event) => {
+                        let nextIndex = -1
+                        if (event.key === 'ArrowRight' || event.key === 'ArrowDown')
+                          nextIndex = (index + 1) % BILLING_CYCLES.length
+                        else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp')
+                          nextIndex = (index - 1 + BILLING_CYCLES.length) % BILLING_CYCLES.length
+                        else if (event.key === 'Home') nextIndex = 0
+                        else if (event.key === 'End') nextIndex = BILLING_CYCLES.length - 1
+                        if (nextIndex < 0) return
+                        event.preventDefault()
+                        const nextCycle = BILLING_CYCLES[nextIndex]
+                        if (nextCycle !== undefined) setCycle(nextCycle)
+                        const group = event.currentTarget.parentElement
+                        group
+                          ?.querySelectorAll<HTMLButtonElement>('[role="radio"]')
+                          [nextIndex]?.focus()
+                      }}
+                      className={`inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--pricing-lime)] ${
+                        selected
+                          ? 'bg-white font-semibold text-[var(--pricing-ink)]'
+                          : 'text-white/70 hover:text-white'
+                      }`}
+                    >
+                      <span>{label}</span>
+                      {highlight ? (
+                        <span
+                          className={`rounded-full px-1.5 py-0.5 text-label-sm font-semibold ${
+                            isYearly
+                              ? selected
+                                ? 'bg-[var(--pricing-ink)] text-[var(--pricing-lime)]'
+                                : 'bg-[var(--pricing-lime)] text-[var(--pricing-ink-strong)]'
+                              : selected
+                                ? 'bg-[var(--pricing-ink)]/15 text-[var(--pricing-ink)]'
+                                : 'bg-[var(--pricing-lime)]/15 text-[var(--pricing-lime)]'
+                          }`}
+                        >
+                          {t('cycle.saveBadge', { percent: highlight.savePercent })}
+                        </span>
+                      ) : null}
+                    </button>
+                  )
+                })}
+              </div>
             </div>
           </div>
           {catalogError ? (
@@ -946,17 +948,19 @@ function PlanCard({
       </div>
 
       <div className="mt-5 flex min-h-6 flex-wrap items-center gap-2 text-xs">
-        {discountBadgeText && discount ? (
+        {discount?.hasSavings ? (
           <>
-            <span
-              className="rounded-sm px-2 py-0.5 font-semibold"
-              style={{
-                color: badgeColor,
-                background: `color-mix(in srgb, ${badgeColor} 18%, transparent)`,
-              }}
-            >
-              {discountBadgeText}
-            </span>
+            {discountBadgeText ? (
+              <span
+                className="rounded-sm px-2 py-0.5 font-semibold"
+                style={{
+                  color: badgeColor,
+                  background: `color-mix(in srgb, ${badgeColor} 18%, transparent)`,
+                }}
+              >
+                {discountBadgeText}
+              </span>
+            ) : null}
             <del className="tabular-nums text-white/40">
               {money(discount.compareOriginalCents)}
               {unit}

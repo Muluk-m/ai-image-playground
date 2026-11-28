@@ -132,8 +132,8 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
         </div>
       </div>
       <PurchaseFeedback purchase={purchase} />
-      <div className="flex justify-center">
-        <div className="inline-flex rounded-full border border-border bg-muted p-1">
+      <div className="flex max-w-full overflow-x-auto pb-1">
+        <div className="mx-auto inline-flex shrink-0 rounded-full border border-border bg-muted p-1">
           <SegmentedTabs
             label={tBilling('pricing.title')}
             tabs={PERIOD_ORDER.map((value) => {
@@ -317,14 +317,16 @@ export function PricingPanel({ onClose }: { onClose: () => void }) {
 
                 <div className="mt-5">
                   <div className="mb-2 flex min-h-6 flex-wrap items-center gap-2 text-xs">
-                    {discountBadgeText && discount ? (
+                    {discount?.hasSavings ? (
                       <>
-                        <span
-                          className="rounded-sm border px-2 py-0.5 font-semibold"
-                          style={badgeSurface}
-                        >
-                          {discountBadgeText}
-                        </span>
+                        {discountBadgeText ? (
+                          <span
+                            className="rounded-sm border px-2 py-0.5 font-semibold"
+                            style={badgeSurface}
+                          >
+                            {discountBadgeText}
+                          </span>
+                        ) : null}
                         <del className="tabular-nums text-muted-foreground">
                           {formatMoney(
                             showCompareMonthly

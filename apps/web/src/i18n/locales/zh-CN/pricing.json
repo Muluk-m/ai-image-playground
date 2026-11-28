@@ -36,7 +36,7 @@
     "discountBadge": "限时 {{value}} 折",
     "bundleBadge": "{{value}} 折",
     "saveAmount": "立省 {{amount}}",
-    "switchToYearly": "切至年付，一年立省 {{amount}}",
+    "switchToYearly": "切至年付，再省 {{amount}}",
     "monthlyCredits": "每月 {{n}} 积分",
     "images": "{{model}} 约 {{n}} 张/月",
     "concurrency": "{{n}} 个并发任务",
