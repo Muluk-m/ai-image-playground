@@ -177,6 +177,11 @@ html.pricing-route,
   --pricing-panel: #101013; /* design-allow css-color: 对比表底 */
   --pricing-card: #121214; /* design-allow css-color: 方案卡底 */
   --pricing-featured: #14140f; /* design-allow css-color: 重点方案卡底 */
+  /* 公开定价页固定暗底，锁定暗色等级令牌避免工作台浅色模式下徽标发暗。 */
+  --membership-free: 156 5.21% 62.35%;
+  --membership-basic: 101.19 65.56% 64.71%;
+  --membership-plus: 188.63 76.88% 60.98%;
+  --membership-max: 42.8 85.23% 65.49%;
   background: var(--pricing-bg);
   color: var(--pricing-fg);
 }
